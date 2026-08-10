@@ -49,10 +49,7 @@ impl WorldSession for TinySocietySession {
     }
 
     fn archive(&self) -> Result<Option<WorldArchive>, HostError> {
-        self.branch
-            .archive()
-            .map(Some)
-            .map_err(HostError::session)
+        self.branch.archive().map(Some).map_err(HostError::session)
     }
 }
 
@@ -61,8 +58,9 @@ pub fn tiny_society_registration() -> WorldRegistration {
         WorldDescriptor {
             pack: tiny_society_pack_ref(),
             title: "Tiny Society".into(),
-            description: "A persistent harbor town where relationships and consequences become history."
-                .into(),
+            description:
+                "A persistent harbor town where relationships and consequences become history."
+                    .into(),
         },
         TinySocietySession::fresh,
     )
