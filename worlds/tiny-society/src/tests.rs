@@ -127,7 +127,10 @@ fn projection_snapshot_is_self_contained_and_selectable() {
     assert_eq!(snapshot.collection.items.len(), 8);
     assert_eq!(snapshot.world_time, simulation.world().world_time());
     assert!(snapshot.canvas.items.len() >= 12);
-    assert_eq!(snapshot.timeline.items.len(), simulation.world().events().len());
+    assert_eq!(
+        snapshot.timeline.items.len(),
+        simulation.world().events().len()
+    );
     assert!(snapshot
         .inspector(SelectionId::Entity(MARA))
         .is_some_and(|inspector| inspector.title == "Mara"));
