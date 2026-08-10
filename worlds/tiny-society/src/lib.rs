@@ -1,5 +1,6 @@
 mod actions;
 mod behaviors;
+mod host;
 mod interventions;
 mod model;
 mod persistence;
@@ -15,6 +16,7 @@ use world_core::{
 };
 use world_projection::ProjectionSnapshot;
 
+pub use host::tiny_society_registration;
 pub use model::{
     BAKERY, EMMA, EVAN, HARBOR, JONAS, JONAS_BOAT, LEO, MARA, MIA, NOAH, PUB, SCHOOL, SOFIA,
     WEDDING_ORDER,

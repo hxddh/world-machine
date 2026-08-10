@@ -8,10 +8,12 @@ members = [
   "crates/world-gpui",
   "crates/world-persistence",
   "crates/world-host",
+  "crates/world-builtins",
   "systems/society-basic",
   "worlds/tiny-society",
   "worlds/future-archaeologist",
   "apps/tiny-society-desktop",
   "apps/future-archaeologist-desktop",
+  "apps/world-machine-desktop",
 ]
 resolver = "2"

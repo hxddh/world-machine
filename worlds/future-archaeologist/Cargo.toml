@@ -8,3 +8,5 @@ publish = false
 [dependencies]
 world-core = { path = "../../crates/world-core" }
 world-projection = { path = "../../crates/world-projection" }
+world-persistence = { path = "../../crates/world-persistence" }
+world-host = { path = "../../crates/world-host" }
