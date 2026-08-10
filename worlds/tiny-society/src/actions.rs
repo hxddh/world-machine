@@ -66,7 +66,9 @@ impl Action for DamageBoat {
         _request: &ActionRequest,
     ) -> Result<EventDraft, ActionError> {
         if text_component(state, JONAS_BOAT, CONDITION)? != "sound" {
-            return Err(ActionError::Invalid("Jonas' boat is already damaged".into()));
+            return Err(ActionError::Invalid(
+                "Jonas' boat is already damaged".into(),
+            ));
         }
         let mut draft = EventDraft::new("boat_damaged");
         draft.targets = vec![JONAS_BOAT, JONAS];
@@ -160,12 +162,7 @@ impl Action for AssignTemporaryWork {
         draft.targets = vec![JONAS, BAKERY];
         draft.changes = vec![
             StateChange::RemoveRelation(JONAS_HARBOR_JOB),
-            StateChange::CreateRelation(Relation::new(
-                TEMP_BAKERY_JOB,
-                "works_at",
-                JONAS,
-                BAKERY,
-            )),
+            StateChange::CreateRelation(Relation::new(TEMP_BAKERY_JOB, "works_at", JONAS, BAKERY)),
             StateChange::SetComponent {
                 entity: JONAS,
                 key: JOB.into(),
@@ -229,7 +226,9 @@ impl Action for LoseOrder {
         let bakery_cash = integer_component(state, BAKERY, CASH)?;
         let loss = 80_i64;
         if bakery_cash < loss {
-            return Err(ActionError::Invalid("bakery cannot absorb order loss".into()));
+            return Err(ActionError::Invalid(
+                "bakery cannot absorb order loss".into(),
+            ));
         }
 
         let mut draft = EventDraft::new("order_lost");
@@ -265,7 +264,9 @@ impl Action for DismissWorker {
         _request: &ActionRequest,
     ) -> Result<EventDraft, ActionError> {
         if text_component(state, WEDDING_ORDER, ORDER_STATUS)? != "lost" {
-            return Err(ActionError::Invalid("the bakery has not lost the order".into()));
+            return Err(ActionError::Invalid(
+                "the bakery has not lost the order".into(),
+            ));
         }
         if state.relation(TEMP_BAKERY_JOB).is_none() {
             return Err(ActionError::Invalid("temporary job does not exist".into()));

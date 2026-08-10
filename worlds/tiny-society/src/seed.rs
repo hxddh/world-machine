@@ -57,21 +57,11 @@ pub(crate) fn seed_world() -> Result<WorldState, Box<dyn Error>> {
     state.seed_relation(
         Relation::new(JONAS_LEO_TRUST, "trusts", JONAS, LEO).with_property("trust", 76_i64),
     )?;
-    state.seed_relation(Relation::new(
-        JONAS_BOAT_OWNER,
-        "owns",
-        JONAS,
-        JONAS_BOAT,
-    ))?;
+    state.seed_relation(Relation::new(JONAS_BOAT_OWNER, "owns", JONAS, JONAS_BOAT))?;
     state.seed_relation(Relation::new(MARA_BAKERY_JOB, "works_at", MARA, BAKERY))?;
     state.seed_relation(Relation::new(LEO_PUB_JOB, "works_at", LEO, PUB))?;
     state.seed_relation(Relation::new(EMMA_SCHOOL_JOB, "works_at", EMMA, SCHOOL))?;
-    state.seed_relation(Relation::new(
-        JONAS_HARBOR_JOB,
-        "works_at",
-        JONAS,
-        HARBOR,
-    ))?;
+    state.seed_relation(Relation::new(JONAS_HARBOR_JOB, "works_at", JONAS, HARBOR))?;
 
     Ok(state)
 }
