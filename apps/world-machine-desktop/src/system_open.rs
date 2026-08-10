@@ -22,7 +22,9 @@ pub fn drain_paths() -> Vec<Result<PathBuf, String>> {
         Ok(mut pending) => std::mem::take(&mut *pending),
         Err(_) => return vec![Err("system open-event queue is poisoned".into())],
     };
-    urls.into_iter().map(|url| path_from_open_url(&url)).collect()
+    urls.into_iter()
+        .map(|url| path_from_open_url(&url))
+        .collect()
 }
 
 pub fn path_from_open_url(value: &str) -> Result<PathBuf, String> {
@@ -30,7 +32,10 @@ pub fn path_from_open_url(value: &str) -> Result<PathBuf, String> {
         Ok(url) if url.scheme() == "file" => url
             .to_file_path()
             .map_err(|_| format!("could not convert file URL to a local path: {value}")),
-        Ok(url) => Err(format!("unsupported system open URL scheme: {}", url.scheme())),
+        Ok(url) => Err(format!(
+            "unsupported system open URL scheme: {}",
+            url.scheme()
+        )),
         Err(_) => Ok(PathBuf::from(value)),
     }
 }
