@@ -618,12 +618,7 @@ mod tests {
         fs::write(&bad_external, unsupported.to_json_pretty().unwrap()).unwrap();
 
         assert!(matches!(
-            DurableWorldSession::import_file(
-                bad_id.clone(),
-                &bad_external,
-                &registry,
-                &library
-            ),
+            DurableWorldSession::import_file(bad_id.clone(), &bad_external, &registry, &library),
             Err(LibraryError::Host(HostError::UnknownWorld(_)))
         ));
         assert!(!library.contains(&bad_id).unwrap());
