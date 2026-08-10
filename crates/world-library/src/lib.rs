@@ -83,8 +83,7 @@ impl WorldLibrary {
     }
 
     pub fn save(&self, id: &WorldDocumentId, archive: &WorldArchive) -> Result<(), LibraryError> {
-        let json = archive.to_json_pretty()?;
-        atomic_write(&self.path(id), json.as_bytes())?;
+        write_archive_file(&self.path(id), archive)?;
         let _ = fs::remove_file(self.legacy_path(id));
         Ok(())
     }
@@ -166,14 +165,56 @@ impl WorldLibrary {
         let archive = self
             .load(id)?
             .ok_or_else(|| LibraryError::UnknownDocument(id.clone()))?;
-        let json = archive.to_json_pretty()?;
-        atomic_write(destination, json.as_bytes())?;
-        Ok(())
+        write_archive_file(destination, &archive)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum WorldDocumentTarget {
+    Library(WorldDocumentId),
+    File(PathBuf),
+}
+
+impl WorldDocumentTarget {
+    pub fn library_document_id(&self) -> Option<&WorldDocumentId> {
+        match self {
+            Self::Library(id) => Some(id),
+            Self::File(_) => None,
+        }
+    }
+
+    pub fn file_path(&self) -> Option<&Path> {
+        match self {
+            Self::Library(_) => None,
+            Self::File(path) => Some(path),
+        }
+    }
+
+    pub fn display_name(&self) -> String {
+        match self {
+            Self::Library(id) => id.to_string(),
+            Self::File(path) => path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .map(str::to_owned)
+                .unwrap_or_else(|| path.display().to_string()),
+        }
+    }
+
+    fn persist(
+        &self,
+        archive: &WorldArchive,
+        library: &WorldLibrary,
+    ) -> Result<(), LibraryError> {
+        match self {
+            Self::Library(id) => library.save(id, archive),
+            Self::File(path) => write_archive_file(path, archive),
+        }
     }
 }
 
 pub struct DurableWorldSession {
-    document_id: WorldDocumentId,
+    target: WorldDocumentTarget,
     session: Box<dyn WorldSession>,
 }
 
@@ -191,7 +232,7 @@ impl DurableWorldSession {
         let archive = required_archive(session.as_ref())?;
         library.save(&document_id, &archive)?;
         Ok(Self {
-            document_id,
+            target: WorldDocumentTarget::Library(document_id),
             session,
         })
     }
@@ -206,7 +247,16 @@ impl DurableWorldSession {
             .ok_or_else(|| LibraryError::UnknownDocument(document_id.clone()))?;
         let session = registry.open_archive(&archive)?;
         Ok(Self {
-            document_id,
+            target: WorldDocumentTarget::Library(document_id),
+            session,
+        })
+    }
+
+    pub fn open_file(path: PathBuf, registry: &WorldRegistry) -> Result<Self, LibraryError> {
+        let archive = read_archive_file(&path)?;
+        let session = registry.open_archive(&archive)?;
+        Ok(Self {
+            target: WorldDocumentTarget::File(path),
             session,
         })
     }
@@ -224,13 +274,25 @@ impl DurableWorldSession {
         let session = registry.open_archive(&archive)?;
         library.save(&document_id, &archive)?;
         Ok(Self {
-            document_id,
+            target: WorldDocumentTarget::Library(document_id),
             session,
         })
     }
 
-    pub fn document_id(&self) -> &WorldDocumentId {
-        &self.document_id
+    pub fn target(&self) -> &WorldDocumentTarget {
+        &self.target
+    }
+
+    pub fn document_id(&self) -> Option<&WorldDocumentId> {
+        self.target.library_document_id()
+    }
+
+    pub fn file_path(&self) -> Option<&Path> {
+        self.target.file_path()
+    }
+
+    pub fn display_name(&self) -> String {
+        self.target.display_name()
     }
 
     pub fn pack(&self) -> WorldPackRef {
@@ -251,7 +313,7 @@ impl DurableWorldSession {
         let mut candidate = registry.open_archive(&current_archive)?;
         let snapshot = candidate.handle(intent)?;
         let next_archive = required_archive(candidate.as_ref())?;
-        library.save(&self.document_id, &next_archive)?;
+        self.target.persist(&next_archive, library)?;
         self.session = candidate;
         Ok(snapshot)
     }
@@ -269,6 +331,12 @@ fn summary(id: WorldDocumentId, archive: &WorldArchive) -> WorldDocumentSummary 
 fn read_archive_file(path: &Path) -> Result<WorldArchive, LibraryError> {
     let json = fs::read_to_string(path)?;
     Ok(WorldArchive::from_json(&json)?)
+}
+
+fn write_archive_file(path: &Path, archive: &WorldArchive) -> Result<(), LibraryError> {
+    let json = archive.to_json_pretty()?;
+    atomic_write(path, json.as_bytes())?;
+    Ok(())
 }
 
 fn required_archive(session: &dyn WorldSession) -> Result<WorldArchive, LibraryError> {
@@ -580,6 +648,10 @@ mod tests {
         let mut session =
             DurableWorldSession::create(id.clone(), MOCK_PACK, &registry, &library).unwrap();
         assert_eq!(session.snapshot().title, "Mock 0");
+        assert_eq!(
+            session.target(),
+            &WorldDocumentTarget::Library(id.clone())
+        );
         session
             .handle(
                 ProjectionIntent::InvokeCommand("mock.advance".into()),
@@ -592,6 +664,56 @@ mod tests {
         let reopened = DurableWorldSession::open(id, &registry, &library).unwrap();
         assert_eq!(reopened.snapshot().title, "Mock 1");
         assert_eq!(reopened.pack(), WorldPackRef::new(MOCK_PACK, "1"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn open_file_updates_the_original_world_document() {
+        let root = temp_root("open-file");
+        let external = root.join("Shared World.world");
+        let library = WorldLibrary::new(root.join("library"));
+        let registry = registry();
+        fs::create_dir_all(&root).unwrap();
+        write_archive_file(&external, &mock_archive(3)).unwrap();
+
+        let mut session = DurableWorldSession::open_file(external.clone(), &registry).unwrap();
+        assert_eq!(
+            session.target(),
+            &WorldDocumentTarget::File(external.clone())
+        );
+        assert_eq!(session.file_path(), Some(external.as_path()));
+        assert!(session.document_id().is_none());
+        session
+            .handle(
+                ProjectionIntent::InvokeCommand("mock.advance".into()),
+                &registry,
+                &library,
+            )
+            .unwrap();
+
+        assert_eq!(session.snapshot().title, "Mock 4");
+        assert_eq!(read_archive_file(&external).unwrap().world_time, 4);
+        assert!(library.list().unwrap().is_empty());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn open_file_validates_pack_without_copying_the_document() {
+        let root = temp_root("open-file-unsupported");
+        let external = root.join("Unsupported.world");
+        fs::create_dir_all(&root).unwrap();
+        let mut unsupported = mock_archive(5);
+        unsupported.pack = WorldPackRef::new("world-machine.missing", "1");
+        write_archive_file(&external, &unsupported).unwrap();
+        let before = fs::read_to_string(&external).unwrap();
+
+        assert!(matches!(
+            DurableWorldSession::open_file(external.clone(), &registry()),
+            Err(LibraryError::Host(HostError::UnknownWorld(_)))
+        ));
+        assert_eq!(fs::read_to_string(&external).unwrap(), before);
 
         let _ = fs::remove_dir_all(root);
     }
@@ -664,6 +786,35 @@ mod tests {
         assert_eq!(session.snapshot().title, "Mock 0");
 
         let _ = fs::remove_file(root);
+    }
+
+    #[test]
+    fn failed_external_save_does_not_commit_the_candidate_session() {
+        let root = temp_root("failed-external-save");
+        let external_dir = root.join("external");
+        let external = external_dir.join("portable.world");
+        let library = WorldLibrary::new(root.join("library"));
+        let registry = registry();
+        fs::create_dir_all(&external_dir).unwrap();
+        write_archive_file(&external, &mock_archive(2)).unwrap();
+        let mut session = DurableWorldSession::open_file(external.clone(), &registry).unwrap();
+
+        fs::remove_file(&external).unwrap();
+        fs::remove_dir(&external_dir).unwrap();
+        File::create(&external_dir).unwrap();
+
+        assert!(matches!(
+            session.handle(
+                ProjectionIntent::InvokeCommand("mock.advance".into()),
+                &registry,
+                &library,
+            ),
+            Err(LibraryError::Io(_))
+        ));
+        assert_eq!(session.snapshot().title, "Mock 2");
+
+        let _ = fs::remove_file(external_dir);
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
