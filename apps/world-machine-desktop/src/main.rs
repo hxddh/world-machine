@@ -1,12 +1,12 @@
 #[cfg(target_os = "macos")]
 use gpui::{
-    div, prelude::*, px, rgb, size, App, AppContext, Bounds, Context, IntoElement, Render,
-    SharedString, Styled, Window, WindowBounds, WindowOptions,
+    div, prelude::*, px, rgb, size, App, AppContext, Bounds, Context, IntoElement,
+    PathPromptOptions, Render, SharedString, Styled, Window, WindowBounds, WindowOptions,
 };
 #[cfg(target_os = "macos")]
 use std::env;
 #[cfg(target_os = "macos")]
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 #[cfg(target_os = "macos")]
 use std::process;
 #[cfg(target_os = "macos")]
@@ -14,7 +14,10 @@ use std::sync::Arc;
 #[cfg(target_os = "macos")]
 use std::time::{SystemTime, UNIX_EPOCH};
 #[cfg(target_os = "macos")]
-use world_library::{DurableWorldSession, WorldDocumentId, WorldDocumentSummary, WorldLibrary};
+use world_library::{
+    DurableWorldSession, LibraryError, WorldDocumentId, WorldDocumentSummary, WorldLibrary,
+    LEGACY_WORLD_DOCUMENT_SUFFIX, WORLD_DOCUMENT_SUFFIX,
+};
 
 #[cfg(target_os = "macos")]
 const LIBRARY_OVERRIDE_ENV: &str = "WORLD_MACHINE_LIBRARY_DIR";
@@ -134,39 +137,196 @@ impl WorldMachineHome {
         self.open_session(session, title, cx);
     }
 
+    fn import_world(&mut self, cx: &mut Context<Self>) {
+        let picker = cx.prompt_for_paths(PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some("Import World".into()),
+        });
+        cx.spawn(async move |this, cx| {
+            let source = match picker.await {
+                Ok(Ok(Some(mut paths))) => paths.pop(),
+                Ok(Ok(None)) => return,
+                Ok(Err(error)) => {
+                    let _ = this.update(cx, |this, cx| {
+                        this.status = Some(format!("Could not open Import dialog: {error}"));
+                        cx.notify();
+                    });
+                    return;
+                }
+                Err(error) => {
+                    let _ = this.update(cx, |this, cx| {
+                        this.status = Some(format!("Import dialog was interrupted: {error}"));
+                        cx.notify();
+                    });
+                    return;
+                }
+            };
+            let Some(source) = source else {
+                return;
+            };
+
+            let _ = this.update(cx, |this, cx| {
+                if !is_world_file(&source) {
+                    this.status = Some(format!(
+                        "Could not import {}: choose a {} file",
+                        source.display(),
+                        WORLD_DOCUMENT_SUFFIX
+                    ));
+                    cx.notify();
+                    return;
+                }
+                let document_id = match imported_document_id(&source, &this.library) {
+                    Ok(id) => id,
+                    Err(error) => {
+                        this.status = Some(format!("Could not import {}: {error}", source.display()));
+                        cx.notify();
+                        return;
+                    }
+                };
+                let session = match DurableWorldSession::import_file(
+                    document_id,
+                    &source,
+                    &this.registry,
+                    &this.library,
+                ) {
+                    Ok(session) => session,
+                    Err(error) => {
+                        this.status = Some(format!("Could not import {}: {error}", source.display()));
+                        cx.notify();
+                        return;
+                    }
+                };
+                let title = this
+                    .registry
+                    .descriptor(&session.pack().id)
+                    .map(|descriptor| descriptor.title.clone())
+                    .unwrap_or_else(|| session.pack().id);
+                this.refresh_documents();
+                this.open_session(session, title, cx);
+            });
+        })
+        .detach();
+    }
+
+    fn export_document(&mut self, document_id: WorldDocumentId, cx: &mut Context<Self>) {
+        let suggested_name = format!("{}{WORLD_DOCUMENT_SUFFIX}", document_id.as_str());
+        let save_dialog = cx.prompt_for_new_path(&PathBuf::default(), Some(&suggested_name));
+        cx.spawn(async move |this, cx| {
+            let destination = match save_dialog.await {
+                Ok(Ok(Some(path))) => path,
+                Ok(Ok(None)) => return,
+                Ok(Err(error)) => {
+                    let _ = this.update(cx, |this, cx| {
+                        this.status = Some(format!("Could not open Export dialog: {error}"));
+                        cx.notify();
+                    });
+                    return;
+                }
+                Err(error) => {
+                    let _ = this.update(cx, |this, cx| {
+                        this.status = Some(format!("Export dialog was interrupted: {error}"));
+                        cx.notify();
+                    });
+                    return;
+                }
+            };
+
+            let _ = this.update(cx, |this, cx| {
+                match this.library.export_file(&document_id, &destination) {
+                    Ok(()) => {
+                        this.status = Some(format!(
+                            "Exported {} to {}",
+                            document_id,
+                            destination.display()
+                        ));
+                    }
+                    Err(error) => {
+                        this.status = Some(format!("Could not export {document_id}: {error}"));
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     fn document_card(
         &self,
         document: WorldDocumentSummary,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let document_id = document.id.clone();
+        let open_id = document.id.clone();
+        let export_id = document.id.clone();
         let title = self
             .registry
             .descriptor(&document.pack.id)
             .map(|descriptor| descriptor.title.clone())
             .unwrap_or_else(|| document.pack.id.clone());
+        let document_label = document.id.to_string();
+
         div()
-            .id(SharedString::from(format!("document-{document_id}")))
+            .id(SharedString::from(format!("document-{document_label}")))
             .w_full()
             .p_4()
             .rounded_md()
             .border_1()
             .border_color(rgb(0xd9d9d3))
             .bg(rgb(0xffffff))
-            .cursor_pointer()
-            .child(div().text_lg().child(title))
-            .child(div().text_sm().text_color(rgb(0x666666)).child(format!(
-                "World time {} · {} events",
-                document.world_time, document.event_count
-            )))
+            .flex()
+            .justify_between()
+            .items_center()
+            .gap_3()
             .child(
                 div()
-                    .text_xs()
-                    .text_color(rgb(0x8a8a82))
-                    .child(document.id.to_string()),
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(div().text_lg().child(title))
+                    .child(div().text_sm().text_color(rgb(0x666666)).child(format!(
+                        "World time {} · {} events",
+                        document.world_time, document.event_count
+                    )))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(0x8a8a82))
+                            .child(document_label),
+                    ),
             )
-            .on_click(
-                cx.listener(move |this, _, _, cx| this.open_document(document_id.clone(), cx)),
+            .child(
+                div()
+                    .flex()
+                    .gap_2()
+                    .child(
+                        div()
+                            .id(SharedString::from(format!("open-{open_id}")))
+                            .cursor_pointer()
+                            .p_2()
+                            .rounded_md()
+                            .border_1()
+                            .border_color(rgb(0xd9d9d3))
+                            .text_sm()
+                            .child("Open")
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.open_document(open_id.clone(), cx)
+                            })),
+                    )
+                    .child(
+                        div()
+                            .id(SharedString::from(format!("export-{export_id}")))
+                            .cursor_pointer()
+                            .p_2()
+                            .rounded_md()
+                            .border_1()
+                            .border_color(rgb(0xd9d9d3))
+                            .text_sm()
+                            .child("Export…")
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.export_document(export_id.clone(), cx)
+                            })),
+                    ),
             )
     }
 
@@ -221,7 +381,7 @@ impl Render for WorldMachineHome {
                     .border_color(rgb(0xe1e1dc))
                     .text_sm()
                     .text_color(rgb(0x777770))
-                    .child("No saved Worlds yet. Create one below."),
+                    .child("No saved Worlds yet. Create or import one below."),
             );
         } else {
             for document in documents {
@@ -247,6 +407,16 @@ impl Render for WorldMachineHome {
                 this.refresh_documents();
                 cx.notify();
             }));
+        let import = div()
+            .id("import-world-file")
+            .cursor_pointer()
+            .p_2()
+            .rounded_md()
+            .border_1()
+            .border_color(rgb(0xd9d9d3))
+            .text_sm()
+            .child("Import .world…")
+            .on_click(cx.listener(|this, _, _, cx| this.import_world(cx)));
 
         let mut body = div()
             .size_full()
@@ -263,10 +433,10 @@ impl Render for WorldMachineHome {
                     .justify_between()
                     .items_center()
                     .child(div().text_lg().child("World Machine"))
-                    .child(refresh),
+                    .child(div().flex().gap_2().child(import).child(refresh)),
             )
             .child(div().text_sm().text_color(rgb(0x666666)).child(
-                "Worlds are durable documents. Open one, or create a new World Pack instance.",
+                "Worlds are portable documents. Open, import, export, or create a World Pack instance.",
             ))
             .child(div().text_sm().child("My Worlds"))
             .child(saved)
@@ -304,23 +474,65 @@ fn discover_library() -> std::io::Result<WorldLibrary> {
 }
 
 #[cfg(target_os = "macos")]
-fn new_document_id(pack_id: &str) -> Result<WorldDocumentId, world_library::LibraryError> {
-    let slug = pack_id
+fn new_document_id(pack_id: &str) -> Result<WorldDocumentId, LibraryError> {
+    unique_document_id(sanitize_document_base(pack_id), None)
+}
+
+#[cfg(target_os = "macos")]
+fn imported_document_id(source: &Path, library: &WorldLibrary) -> Result<WorldDocumentId, LibraryError> {
+    let file_name = source
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("imported-world");
+    let base = file_name
+        .strip_suffix(LEGACY_WORLD_DOCUMENT_SUFFIX)
+        .or_else(|| file_name.strip_suffix(WORLD_DOCUMENT_SUFFIX))
+        .unwrap_or(file_name);
+    unique_document_id(sanitize_document_base(base), Some(library))
+}
+
+#[cfg(target_os = "macos")]
+fn unique_document_id(
+    mut base: String,
+    library: Option<&WorldLibrary>,
+) -> Result<WorldDocumentId, LibraryError> {
+    if base.is_empty() {
+        base = "imported-world".into();
+    }
+    let candidate = WorldDocumentId::new(base.clone())?;
+    if library.is_none_or(|library| !library.contains(&candidate).unwrap_or(true)) {
+        return Ok(candidate);
+    }
+
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    WorldDocumentId::new(format!("{base}-{}-{nonce}", process::id()))
+}
+
+#[cfg(target_os = "macos")]
+fn sanitize_document_base(value: &str) -> String {
+    value
         .chars()
         .map(|ch| {
-            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_') {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.') {
                 ch
             } else {
                 '-'
             }
         })
-        .take(64)
-        .collect::<String>();
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    WorldDocumentId::new(format!("{slug}-{}-{nonce}", process::id()))
+        .take(80)
+        .collect()
+}
+
+#[cfg(target_os = "macos")]
+fn is_world_file(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| {
+            name.ends_with(WORLD_DOCUMENT_SUFFIX) || name.ends_with(LEGACY_WORLD_DOCUMENT_SUFFIX)
+        })
 }
 
 #[cfg(target_os = "macos")]
