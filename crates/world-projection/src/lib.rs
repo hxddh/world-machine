@@ -1,5 +1,9 @@
+mod causal;
+
 use std::collections::BTreeMap;
 use world_core::{Entity, EntityId, Event, EventId, Value, World};
+
+pub use causal::{why_from_world, why_map_from_world, WhyNode, WhyProjection};
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum SelectionId {
@@ -16,20 +20,45 @@ impl SelectionId {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProjectionIntent {
+    ForkBeforeEvent(EventId),
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ProjectionSnapshot {
     pub title: String,
     pub world_time: u64,
+    pub briefing: Option<BriefingProjection>,
     pub collection: CollectionProjection,
     pub timeline: TimelineProjection,
     pub canvas: CanvasProjection,
     pub inspectors: BTreeMap<SelectionId, InspectorProjection>,
+    pub why: BTreeMap<EventId, WhyProjection>,
 }
 
 impl ProjectionSnapshot {
     pub fn inspector(&self, selection: SelectionId) -> Option<&InspectorProjection> {
         self.inspectors.get(&selection)
     }
+
+    pub fn why(&self, event: EventId) -> Option<&WhyProjection> {
+        self.why.get(&event)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct BriefingProjection {
+    pub eyebrow: String,
+    pub title: String,
+    pub items: Vec<BriefingItem>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct BriefingItem {
+    pub selection: Option<SelectionId>,
+    pub title: String,
+    pub detail: String,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -287,7 +316,7 @@ fn inspector_for_event(event: &Event, world: &World) -> InspectorProjection {
     }
 }
 
-fn event_summary(event: &Event, world: &World) -> String {
+pub(crate) fn event_summary(event: &Event, world: &World) -> String {
     let actor = event
         .actor
         .and_then(|id| world.state().entity(id))
@@ -298,7 +327,7 @@ fn event_summary(event: &Event, world: &World) -> String {
     }
 }
 
-fn humanize(value: &str) -> String {
+pub(crate) fn humanize(value: &str) -> String {
     value
         .split('_')
         .filter(|part| !part.is_empty())

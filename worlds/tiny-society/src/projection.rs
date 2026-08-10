@@ -5,8 +5,9 @@ use crate::{
 use society_basic::{CASH, JOB};
 use world_core::{EntityId, Value, World};
 use world_projection::{
-    entity_title, inspectors_from_world, timeline_from_world, CanvasItem, CanvasItemKind,
-    CanvasProjection, CollectionItem, CollectionProjection, ProjectionSnapshot, SelectionId,
+    entity_title, inspectors_from_world, timeline_from_world, why_map_from_world, BriefingItem,
+    BriefingProjection, CanvasItem, CanvasItemKind, CanvasProjection, CollectionItem,
+    CollectionProjection, ProjectionSnapshot, SelectionId,
 };
 
 const RESIDENTS: [EntityId; 8] = [JONAS, MARA, LEO, EMMA, MIA, NOAH, EVAN, SOFIA];
@@ -15,6 +16,7 @@ pub(crate) fn snapshot(world: &World) -> ProjectionSnapshot {
     ProjectionSnapshot {
         title: "Tiny Society".into(),
         world_time: world.world_time(),
+        briefing: Some(society_briefing(world)),
         collection: CollectionProjection {
             title: "Residents".into(),
             items: RESIDENTS
@@ -27,6 +29,37 @@ pub(crate) fn snapshot(world: &World) -> ProjectionSnapshot {
             items: canvas_items(world),
         },
         inspectors: inspectors_from_world(world),
+        why: why_map_from_world(world),
+    }
+}
+
+fn society_briefing(world: &World) -> BriefingProjection {
+    let items = world
+        .events()
+        .iter()
+        .rev()
+        .filter_map(|event| {
+            let title = match event.kind.as_str() {
+                "worker_dismissed" => "Mara dismissed Jonas",
+                "order_lost" => "The bakery lost the wedding order",
+                "temporary_work_assigned" => "Jonas took temporary work at the bakery",
+                "loan_requested" => "Jonas asked Leo for a loan",
+                "storm_started" => "A storm reached the harbor",
+                _ => return None,
+            };
+            Some(BriefingItem {
+                selection: Some(SelectionId::Event(event.id)),
+                title: title.into(),
+                detail: format!("World time {} · Event #{}", event.world_time, event.id),
+            })
+        })
+        .take(4)
+        .collect();
+
+    BriefingProjection {
+        eyebrow: "Society Today".into(),
+        title: "Life happened while you were away".into(),
+        items,
     }
 }
 

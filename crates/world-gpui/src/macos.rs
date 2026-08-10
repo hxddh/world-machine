@@ -1,29 +1,64 @@
+use crate::ProjectionController;
 use gpui::{
     div, prelude::*, px, rgb, Context, Div, IntoElement, Render, SharedString, Styled, Window,
 };
 use world_projection::{
-    CanvasItemKind, CollectionItem, InspectorProjection, ProjectionSnapshot, SelectionId,
-    TimelineItem,
+    BriefingItem, CanvasItemKind, CollectionItem, InspectorProjection, ProjectionIntent,
+    ProjectionSnapshot, SelectionId, TimelineItem, WhyNode,
 };
 
 pub struct ProjectionView {
     snapshot: ProjectionSnapshot,
     selected: Option<SelectionId>,
+    controller: Option<Box<dyn ProjectionController>>,
+    status: Option<String>,
 }
 
 impl ProjectionView {
     pub fn new(snapshot: ProjectionSnapshot) -> Self {
-        let selected = snapshot
-            .timeline
-            .items
-            .first()
-            .map(|item| item.id)
-            .or_else(|| snapshot.collection.items.first().map(|item| item.id));
-        Self { snapshot, selected }
+        let selected = default_selection(&snapshot);
+        Self {
+            snapshot,
+            selected,
+            controller: None,
+            status: None,
+        }
+    }
+
+    pub fn controlled<C>(controller: C) -> Self
+    where
+        C: ProjectionController + 'static,
+    {
+        let snapshot = controller.snapshot();
+        let mut view = Self::new(snapshot);
+        view.controller = Some(Box::new(controller));
+        view
     }
 
     fn select(&mut self, selection: SelectionId, cx: &mut Context<Self>) {
         self.selected = Some(selection);
+        self.status = None;
+        cx.notify();
+    }
+
+    fn fork_before_selected(&mut self, cx: &mut Context<Self>) {
+        let Some(SelectionId::Event(event)) = self.selected else {
+            return;
+        };
+        let Some(controller) = self.controller.as_mut() else {
+            return;
+        };
+
+        match controller.handle(ProjectionIntent::ForkBeforeEvent(event)) {
+            Ok(snapshot) => {
+                self.snapshot = snapshot;
+                self.selected = default_selection(&self.snapshot);
+                self.status = Some(format!("Forked before Event #{event}"));
+            }
+            Err(error) => {
+                self.status = Some(format!("Fork failed: {error}"));
+            }
+        }
         cx.notify();
     }
 
@@ -127,10 +162,66 @@ impl ProjectionView {
             .on_click(cx.listener(move |this, _, _, cx| this.select(selection, cx)))
     }
 
+    fn render_briefing(&self, cx: &mut Context<Self>) -> Option<Div> {
+        let briefing = self.snapshot.briefing.as_ref()?;
+        let mut items = div().flex().gap_2();
+        for item in &briefing.items {
+            items = items.child(self.briefing_item(item, cx));
+        }
+
+        Some(
+            div()
+                .p_3()
+                .rounded_md()
+                .border_1()
+                .border_color(rgb(0xd8d3c4))
+                .bg(rgb(0xfffbef))
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(rgb(0x7a6f53))
+                        .child(briefing.eyebrow.clone()),
+                )
+                .child(div().text_lg().child(briefing.title.clone()))
+                .child(items),
+        )
+    }
+
+    fn briefing_item(&self, item: &BriefingItem, cx: &mut Context<Self>) -> impl IntoElement {
+        let id = item
+            .selection
+            .map(|selection| format!("briefing-{}", selection.stable_key()))
+            .unwrap_or_else(|| format!("briefing-static-{}", item.title));
+        let mut card = div()
+            .id(SharedString::from(id))
+            .p_2()
+            .rounded_md()
+            .bg(rgb(0xffffff))
+            .border_1()
+            .border_color(rgb(0xe8e1cf))
+            .child(div().text_sm().child(item.title.clone()))
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0x777777))
+                    .child(item.detail.clone()),
+            );
+
+        if let Some(selection) = item.selection {
+            card = card
+                .cursor_pointer()
+                .on_click(cx.listener(move |this, _, _, cx| this.select(selection, cx)));
+        }
+        card
+    }
+
     fn render_canvas(&self, cx: &mut Context<Self>) -> Div {
         let mut canvas = div()
             .relative()
-            .h(px(380.0))
+            .h(px(330.0))
             .w_full()
             .rounded_md()
             .border_1()
@@ -153,7 +244,7 @@ impl ProjectionView {
                     )))
                     .absolute()
                     .left(px(18.0 + item.x * 500.0))
-                    .top(px(18.0 + item.y * 300.0))
+                    .top(px(12.0 + item.y * 260.0))
                     .w(px(135.0))
                     .p_2()
                     .rounded_md()
@@ -195,10 +286,101 @@ impl ProjectionView {
 
         inspector_panel(inspector)
     }
+
+    fn render_why(&self, cx: &mut Context<Self>) -> Option<Div> {
+        let SelectionId::Event(event) = self.selected? else {
+            return None;
+        };
+        let why = self.snapshot.why(event)?;
+
+        let mut nodes = div().flex().flex_col().gap_1();
+        for node in why.nodes.iter().take(10) {
+            nodes = nodes.child(self.why_node(node, cx));
+        }
+
+        let mut panel = div()
+            .p_3()
+            .rounded_md()
+            .border_1()
+            .border_color(rgb(0xd7dce8))
+            .bg(rgb(0xf7f9fe))
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(div().text_lg().child("Why?"))
+            .child(nodes);
+
+        if self.controller.is_some() {
+            panel = panel.child(
+                div()
+                    .id("fork-before-event")
+                    .p_2()
+                    .rounded_md()
+                    .bg(rgb(0x263b6a))
+                    .text_color(rgb(0xffffff))
+                    .cursor_pointer()
+                    .child("Fork before this event")
+                    .on_click(cx.listener(|this, _, _, cx| this.fork_before_selected(cx))),
+            );
+        }
+        Some(panel)
+    }
+
+    fn why_node(&self, node: &WhyNode, cx: &mut Context<Self>) -> impl IntoElement {
+        let selection = SelectionId::Event(node.event);
+        let prefix = if node.depth == 0 {
+            "Selected".to_string()
+        } else {
+            format!("{}Cause", "↳ ".repeat(node.depth))
+        };
+        div()
+            .id(SharedString::from(format!("why-event-{}", node.event)))
+            .p_2()
+            .rounded_md()
+            .bg(rgb(0xffffff))
+            .cursor_pointer()
+            .child(div().text_xs().text_color(rgb(0x65708a)).child(prefix))
+            .child(div().text_sm().child(node.title.clone()))
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0x777777))
+                    .child(node.subtitle.clone()),
+            )
+            .on_click(cx.listener(move |this, _, _, cx| this.select(selection, cx)))
+    }
 }
 
 impl Render for ProjectionView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let mut center = div().flex_1().h_full().flex().flex_col().gap_3().p_3();
+
+        if let Some(briefing) = self.render_briefing(cx) {
+            center = center.child(briefing);
+        }
+        center = center
+            .child(div().text_lg().child("World"))
+            .child(self.render_canvas(cx))
+            .child(self.render_inspector());
+        if let Some(why) = self.render_why(cx) {
+            center = center.child(why);
+        }
+
+        let mut header_right = div().flex().gap_3().child(
+            div()
+                .text_sm()
+                .text_color(rgb(0x666666))
+                .child(format!("World time {}", self.snapshot.world_time)),
+        );
+        if let Some(status) = &self.status {
+            header_right = header_right.child(
+                div()
+                    .text_sm()
+                    .text_color(rgb(0x4e6fb3))
+                    .child(status.clone()),
+            );
+        }
+
         div()
             .size_full()
             .bg(rgb(0xfcfcfa))
@@ -216,12 +398,7 @@ impl Render for ProjectionView {
                     .border_b_1()
                     .border_color(rgb(0xdadada))
                     .child(div().text_xl().child(self.snapshot.title.clone()))
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(rgb(0x666666))
-                            .child(format!("World time {}", self.snapshot.world_time)),
-                    ),
+                    .child(header_right),
             )
             .child(
                 div()
@@ -229,21 +406,19 @@ impl Render for ProjectionView {
                     .w_full()
                     .flex()
                     .child(self.render_collection(cx))
-                    .child(
-                        div()
-                            .flex_1()
-                            .h_full()
-                            .flex()
-                            .flex_col()
-                            .gap_3()
-                            .p_3()
-                            .child(div().text_lg().child("World"))
-                            .child(self.render_canvas(cx))
-                            .child(self.render_inspector()),
-                    )
+                    .child(center)
                     .child(self.render_timeline(cx)),
             )
     }
+}
+
+fn default_selection(snapshot: &ProjectionSnapshot) -> Option<SelectionId> {
+    snapshot
+        .timeline
+        .items
+        .first()
+        .map(|item| item.id)
+        .or_else(|| snapshot.collection.items.first().map(|item| item.id))
 }
 
 fn inspector_panel(inspector: &InspectorProjection) -> Div {

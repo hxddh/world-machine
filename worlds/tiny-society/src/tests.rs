@@ -30,31 +30,40 @@ fn full_story_is_causal_and_replayable() {
 }
 
 #[test]
-fn fork_before_dismissal_preserves_the_alternative_state() {
+fn branch_before_dismissal_preserves_the_alternative_state() {
     let mut simulation = TinySociety::new().unwrap();
     simulation.run_story().unwrap();
 
-    let dismissal_position = simulation
+    let dismissal = simulation
         .world()
         .events()
         .iter()
-        .position(|event| event.kind == "worker_dismissed")
-        .unwrap();
-    let fork = simulation.world().fork_after(dismissal_position).unwrap();
+        .find(|event| event.kind == "worker_dismissed")
+        .unwrap()
+        .id;
+    let mut branch = simulation.branch();
+    branch.fork_before_event(dismissal).unwrap();
 
     assert_eq!(
-        text_component(fork.state(), JONAS, JOB).unwrap(),
+        text_component(branch.world().state(), JONAS, JOB).unwrap(),
         "bakery_temp"
     );
-    assert!(fork.state().relation(TEMP_BAKERY_JOB).is_some());
+    assert!(branch.world().state().relation(TEMP_BAKERY_JOB).is_some());
     assert_eq!(
-        text_component(fork.state(), WEDDING_ORDER, ORDER_STATUS).unwrap(),
+        text_component(branch.world().state(), WEDDING_ORDER, ORDER_STATUS).unwrap(),
         "lost"
     );
-    assert!(fork
+    assert!(branch
+        .world()
         .events()
         .iter()
         .all(|event| event.kind != "worker_dismissed"));
+    assert!(branch
+        .projection_snapshot()
+        .timeline
+        .items
+        .iter()
+        .all(|item| item.id != SelectionId::Event(dismissal)));
 }
 
 #[test]
@@ -118,11 +127,17 @@ fn mara_decision_runs_through_provider_neutral_agent_runtime() {
 }
 
 #[test]
-fn projection_snapshot_is_self_contained_and_selectable() {
+fn projection_snapshot_is_self_contained_selectable_and_causal() {
     let mut simulation = TinySociety::new().unwrap();
     simulation.run_story().unwrap();
 
     let snapshot = simulation.projection_snapshot();
+    let dismissal = simulation
+        .world()
+        .events()
+        .iter()
+        .find(|event| event.kind == "worker_dismissed")
+        .unwrap();
 
     assert_eq!(snapshot.collection.items.len(), 8);
     assert_eq!(snapshot.world_time, simulation.world().world_time());
@@ -132,11 +147,15 @@ fn projection_snapshot_is_self_contained_and_selectable() {
         simulation.world().events().len()
     );
     assert!(snapshot
+        .briefing
+        .as_ref()
+        .is_some_and(|briefing| briefing.eyebrow == "Society Today" && !briefing.items.is_empty()));
+    assert!(snapshot
         .inspector(SelectionId::Entity(MARA))
         .is_some_and(|inspector| inspector.title == "Mara"));
-    assert!(snapshot.timeline.items.iter().any(|item| {
-        snapshot
-            .inspector(item.id)
-            .is_some_and(|inspector| inspector.selection == item.id)
-    }));
+
+    let why = snapshot.why(dismissal.id).unwrap();
+    assert_eq!(why.nodes.first().unwrap().event, dismissal.id);
+    assert!(why.nodes.iter().any(|node| node.title == "Storm Started"));
+    assert!(why.nodes.iter().any(|node| node.title == "Order Lost"));
 }
