@@ -6,6 +6,7 @@ members = [
   "crates/world-pi-rpc",
   "crates/world-projection",
   "crates/world-gpui",
+  "crates/world-persistence",
   "systems/society-basic",
   "worlds/tiny-society",
   "apps/tiny-society-desktop",
