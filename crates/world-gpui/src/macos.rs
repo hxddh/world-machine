@@ -190,8 +190,17 @@ impl ProjectionView {
         )
     }
 
-    fn briefing_item(&self, item: &BriefingItem, cx: &mut Context<Self>) -> Div {
+    fn briefing_item(
+        &self,
+        item: &BriefingItem,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let id = item
+            .selection
+            .map(|selection| format!("briefing-{}", selection.stable_key()))
+            .unwrap_or_else(|| format!("briefing-static-{}", item.title));
         let mut card = div()
+            .id(SharedString::from(id))
             .p_2()
             .rounded_md()
             .bg(rgb(0xffffff))
@@ -207,10 +216,6 @@ impl ProjectionView {
 
         if let Some(selection) = item.selection {
             card = card
-                .id(SharedString::from(format!(
-                    "briefing-{}",
-                    selection.stable_key()
-                )))
                 .cursor_pointer()
                 .on_click(cx.listener(move |this, _, _, cx| this.select(selection, cx)));
         }
@@ -376,6 +381,21 @@ impl Render for ProjectionView {
             center = center.child(why);
         }
 
+        let mut header_right = div().flex().gap_3().child(
+            div()
+                .text_sm()
+                .text_color(rgb(0x666666))
+                .child(format!("World time {}", self.snapshot.world_time)),
+        );
+        if let Some(status) = &self.status {
+            header_right = header_right.child(
+                div()
+                    .text_sm()
+                    .text_color(rgb(0x4e6fb3))
+                    .child(status.clone()),
+            );
+        }
+
         div()
             .size_full()
             .bg(rgb(0xfcfcfa))
@@ -393,25 +413,7 @@ impl Render for ProjectionView {
                     .border_b_1()
                     .border_color(rgb(0xdadada))
                     .child(div().text_xl().child(self.snapshot.title.clone()))
-                    .child(
-                        div()
-                            .flex()
-                            .gap_3()
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .text_color(rgb(0x666666))
-                                    .child(format!("World time {}", self.snapshot.world_time)),
-                            )
-                            .when_some(self.status.clone(), |header, status| {
-                                header.child(
-                                    div()
-                                        .text_sm()
-                                        .text_color(rgb(0x4e6fb3))
-                                        .child(status),
-                                )
-                            }),
-                    ),
+                    .child(header_right),
             )
             .child(
                 div()
