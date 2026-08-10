@@ -1,6 +1,5 @@
 use gpui::{
-    div, prelude::*, px, rgb, AppContext, Context, Div, IntoElement, Render, SharedString, Styled,
-    Window,
+    div, prelude::*, px, rgb, Context, Div, IntoElement, Render, SharedString, Styled, Window,
 };
 use world_projection::{
     CanvasItemKind, CollectionItem, InspectorProjection, ProjectionSnapshot, SelectionId,
