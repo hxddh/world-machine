@@ -3,8 +3,8 @@ use gpui::{
     div, prelude::*, px, rgb, Context, Div, IntoElement, Render, SharedString, Styled, Window,
 };
 use world_projection::{
-    BriefingItem, CanvasItemKind, CollectionItem, InspectorProjection, ProjectionIntent,
-    ProjectionSnapshot, SelectionId, TimelineItem, WhyNode,
+    BriefingItem, CanvasItemKind, CollectionItem, InspectorProjection, ProjectionCommand,
+    ProjectionIntent, ProjectionSnapshot, SelectionId, TimelineItem, WhyNode,
 };
 
 pub struct ProjectionView {
@@ -57,6 +57,29 @@ impl ProjectionView {
             }
             Err(error) => {
                 self.status = Some(format!("Fork failed: {error}"));
+            }
+        }
+        cx.notify();
+    }
+
+    fn invoke_command(&mut self, command_id: String, cx: &mut Context<Self>) {
+        let title = self
+            .snapshot
+            .command(&command_id)
+            .map(|command| command.title.clone())
+            .unwrap_or_else(|| command_id.clone());
+        let Some(controller) = self.controller.as_mut() else {
+            return;
+        };
+
+        match controller.handle(ProjectionIntent::InvokeCommand(command_id)) {
+            Ok(snapshot) => {
+                self.snapshot = snapshot;
+                self.selected = default_selection(&self.snapshot);
+                self.status = Some(format!("{title} completed"));
+            }
+            Err(error) => {
+                self.status = Some(format!("Command failed: {error}"));
             }
         }
         cx.notify();
@@ -218,6 +241,57 @@ impl ProjectionView {
         card
     }
 
+    fn render_commands(&self, cx: &mut Context<Self>) -> Option<Div> {
+        if self.controller.is_none() || self.snapshot.commands.is_empty() {
+            return None;
+        }
+
+        let mut commands = div().flex().flex_col().gap_2();
+        for command in &self.snapshot.commands {
+            commands = commands.child(self.command_item(command, cx));
+        }
+
+        Some(
+            div()
+                .p_3()
+                .rounded_md()
+                .border_1()
+                .border_color(rgb(0xcfd8c8))
+                .bg(rgb(0xf5faf2))
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(div().text_lg().child("What now?"))
+                .child(commands),
+        )
+    }
+
+    fn command_item(
+        &self,
+        command: &ProjectionCommand,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let command_id = command.id.clone();
+        div()
+            .id(SharedString::from(format!("command-{}", command.id)))
+            .p_3()
+            .rounded_md()
+            .border_1()
+            .border_color(rgb(0xcbd8c3))
+            .bg(rgb(0xffffff))
+            .cursor_pointer()
+            .child(div().text_sm().child(command.title.clone()))
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0x66705f))
+                    .child(command.detail.clone()),
+            )
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.invoke_command(command_id.clone(), cx)
+            }))
+    }
+
     fn render_canvas(&self, cx: &mut Context<Self>) -> Div {
         let mut canvas = div()
             .relative()
@@ -364,6 +438,9 @@ impl Render for ProjectionView {
             .child(self.render_inspector());
         if let Some(why) = self.render_why(cx) {
             center = center.child(why);
+        }
+        if let Some(commands) = self.render_commands(cx) {
+            center = center.child(commands);
         }
 
         let mut header_right = div().flex().gap_3().child(
