@@ -201,11 +201,7 @@ impl WorldDocumentTarget {
         }
     }
 
-    fn persist(
-        &self,
-        archive: &WorldArchive,
-        library: &WorldLibrary,
-    ) -> Result<(), LibraryError> {
+    fn persist(&self, archive: &WorldArchive, library: &WorldLibrary) -> Result<(), LibraryError> {
         match self {
             Self::Library(id) => library.save(id, archive),
             Self::File(path) => write_archive_file(path, archive),
@@ -648,10 +644,7 @@ mod tests {
         let mut session =
             DurableWorldSession::create(id.clone(), MOCK_PACK, &registry, &library).unwrap();
         assert_eq!(session.snapshot().title, "Mock 0");
-        assert_eq!(
-            session.target(),
-            &WorldDocumentTarget::Library(id.clone())
-        );
+        assert_eq!(session.target(), &WorldDocumentTarget::Library(id.clone()));
         session
             .handle(
                 ProjectionIntent::InvokeCommand("mock.advance".into()),
