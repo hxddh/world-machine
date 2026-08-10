@@ -96,7 +96,7 @@ impl WorldMachineHome {
             .descriptor(&pack_id)
             .map(|descriptor| descriptor.title.clone())
             .unwrap_or_else(|| pack_id.clone());
-        let document_id = match new_document_id(&pack_id) {
+        let document_id = match new_document_id(&pack_id, &self.library) {
             Ok(id) => id,
             Err(error) => {
                 self.status = Some(format!("Could not create {title}: {error}"));
@@ -198,11 +198,12 @@ impl WorldMachineHome {
                         return;
                     }
                 };
+                let pack = session.pack();
                 let title = this
                     .registry
-                    .descriptor(&session.pack().id)
+                    .descriptor(&pack.id)
                     .map(|descriptor| descriptor.title.clone())
-                    .unwrap_or_else(|| session.pack().id);
+                    .unwrap_or(pack.id);
                 this.refresh_documents();
                 this.open_session(session, title, cx);
             });
@@ -474,12 +475,15 @@ fn discover_library() -> std::io::Result<WorldLibrary> {
 }
 
 #[cfg(target_os = "macos")]
-fn new_document_id(pack_id: &str) -> Result<WorldDocumentId, LibraryError> {
-    unique_document_id(sanitize_document_base(pack_id), None)
+fn new_document_id(pack_id: &str, library: &WorldLibrary) -> Result<WorldDocumentId, LibraryError> {
+    unique_document_id(sanitize_document_base(pack_id), Some(library))
 }
 
 #[cfg(target_os = "macos")]
-fn imported_document_id(source: &Path, library: &WorldLibrary) -> Result<WorldDocumentId, LibraryError> {
+fn imported_document_id(
+    source: &Path,
+    library: &WorldLibrary,
+) -> Result<WorldDocumentId, LibraryError> {
     let file_name = source
         .file_name()
         .and_then(|name| name.to_str())
@@ -500,8 +504,9 @@ fn unique_document_id(
         base = "imported-world".into();
     }
     let candidate = WorldDocumentId::new(base.clone())?;
-    if library.is_none_or(|library| !library.contains(&candidate).unwrap_or(true)) {
-        return Ok(candidate);
+    match library {
+        Some(library) if library.contains(&candidate)? => {}
+        _ => return Ok(candidate),
     }
 
     let nonce = SystemTime::now()
