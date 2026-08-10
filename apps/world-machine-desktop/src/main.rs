@@ -101,19 +101,16 @@ impl WorldMachineHome {
                 return;
             }
         };
-        let session = match DurableWorldSession::create(
-            document_id,
-            &pack_id,
-            &self.registry,
-            &self.library,
-        ) {
-            Ok(session) => session,
-            Err(error) => {
-                self.status = Some(format!("Could not create {title}: {error}"));
-                cx.notify();
-                return;
-            }
-        };
+        let session =
+            match DurableWorldSession::create(document_id, &pack_id, &self.registry, &self.library)
+            {
+                Ok(session) => session,
+                Err(error) => {
+                    self.status = Some(format!("Could not create {title}: {error}"));
+                    cx.notify();
+                    return;
+                }
+            };
         self.refresh_documents();
         self.open_session(session, title, cx);
     }
@@ -126,11 +123,7 @@ impl WorldMachineHome {
             .and_then(|document| self.registry.descriptor(&document.pack.id))
             .map(|descriptor| descriptor.title.clone())
             .unwrap_or_else(|| document_id.to_string());
-        let session = match DurableWorldSession::open(
-            document_id,
-            &self.registry,
-            &self.library,
-        ) {
+        let session = match DurableWorldSession::open(document_id, &self.registry, &self.library) {
             Ok(session) => session,
             Err(error) => {
                 self.status = Some(format!("Could not open {title}: {error}"));
@@ -162,24 +155,19 @@ impl WorldMachineHome {
             .bg(rgb(0xffffff))
             .cursor_pointer()
             .child(div().text_lg().child(title))
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(rgb(0x666666))
-                    .child(format!(
-                        "World time {} · {} events",
-                        document.world_time, document.event_count
-                    )),
-            )
+            .child(div().text_sm().text_color(rgb(0x666666)).child(format!(
+                "World time {} · {} events",
+                document.world_time, document.event_count
+            )))
             .child(
                 div()
                     .text_xs()
                     .text_color(rgb(0x8a8a82))
                     .child(document.id.to_string()),
             )
-            .on_click(cx.listener(move |this, _, _, cx| {
-                this.open_document(document_id.clone(), cx)
-            }))
+            .on_click(
+                cx.listener(move |this, _, _, cx| this.open_document(document_id.clone(), cx)),
+            )
     }
 
     fn new_world_card(
@@ -204,12 +192,10 @@ impl WorldMachineHome {
                     .text_color(rgb(0x666666))
                     .child(descriptor.description),
             )
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(rgb(0x8a8a82))
-                    .child(format!("{} @ {}", descriptor.pack.id, descriptor.pack.version)),
-            )
+            .child(div().text_xs().text_color(rgb(0x8a8a82)).child(format!(
+                "{} @ {}",
+                descriptor.pack.id, descriptor.pack.version
+            )))
             .on_click(cx.listener(move |this, _, _, cx| this.create_world(pack_id.clone(), cx)))
     }
 }
@@ -279,12 +265,9 @@ impl Render for WorldMachineHome {
                     .child(div().text_lg().child("World Machine"))
                     .child(refresh),
             )
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(rgb(0x666666))
-                    .child("Worlds are durable documents. Open one, or create a new World Pack instance."),
-            )
+            .child(div().text_sm().text_color(rgb(0x666666)).child(
+                "Worlds are durable documents. Open one, or create a new World Pack instance.",
+            ))
             .child(div().text_sm().child("My Worlds"))
             .child(saved)
             .child(div().text_sm().child("New World"))
