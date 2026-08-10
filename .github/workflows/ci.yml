@@ -60,6 +60,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: gpui-macos
+      - run: cargo test -p world-library
       - run: cargo check -p world-gpui
       - run: cargo test -p tiny-society-desktop
       - run: cargo test -p future-archaeologist-desktop
