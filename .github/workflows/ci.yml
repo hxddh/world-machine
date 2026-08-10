@@ -24,6 +24,7 @@ jobs:
               - 'crates/world-projection/**'
               - 'crates/world-host/**'
               - 'crates/world-builtins/**'
+              - 'crates/world-library/**'
               - 'apps/tiny-society-desktop/**'
               - 'apps/future-archaeologist-desktop/**'
               - 'apps/world-machine-desktop/**'
