@@ -180,7 +180,8 @@ impl WorldMachineHome {
                 let document_id = match imported_document_id(&source, &this.library) {
                     Ok(id) => id,
                     Err(error) => {
-                        this.status = Some(format!("Could not import {}: {error}", source.display()));
+                        this.status =
+                            Some(format!("Could not import {}: {error}", source.display()));
                         cx.notify();
                         return;
                     }
@@ -193,7 +194,8 @@ impl WorldMachineHome {
                 ) {
                     Ok(session) => session,
                     Err(error) => {
-                        this.status = Some(format!("Could not import {}: {error}", source.display()));
+                        this.status =
+                            Some(format!("Could not import {}: {error}", source.display()));
                         cx.notify();
                         return;
                     }
