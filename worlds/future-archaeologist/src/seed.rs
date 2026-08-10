@@ -2,6 +2,17 @@ use crate::model::*;
 use std::collections::BTreeMap;
 use world_core::{Entity, Event, Relation, WorldState, WorldStateError};
 
+struct ArtifactSeed<'a> {
+    id: world_core::EntityId,
+    name: &'a str,
+    kind: &'a str,
+    source: &'a str,
+    visible: bool,
+    event_ref: u64,
+    summary: &'a str,
+    timestamp: &'a str,
+}
+
 pub(crate) fn baseline() -> Result<WorldState, WorldStateError> {
     let mut state = WorldState::default();
 
@@ -22,66 +33,66 @@ pub(crate) fn baseline() -> Result<WorldState, WorldStateError> {
         Entity::new(ASTERION, "organization")
             .with_component("name", "Asterion Labs")
             .with_component("sector", "advanced materials"),
-        artifact(
-            CALENDAR_FRAGMENT,
-            "Calendar fragment",
-            "calendar",
-            "local calendar",
-            true,
-            MEETING_SCHEDULED.0,
-            "23:10 — Platform 12 / E. Reed",
-            "2047-11-03 23:10",
-        ),
-        artifact(
-            TAXI_RECEIPT,
-            "Taxi receipt",
-            "receipt",
-            "mobility cache",
-            true,
-            TAXI_RIDE_RECORDED.0,
-            "Drop-off: North Transit Ring, Gate C",
-            "2047-11-03 23:36",
-        ),
-        artifact(
-            PLATFORM_PHOTO,
-            "Platform photo",
-            "photo",
-            "camera roll",
-            true,
-            PHOTO_CAPTURED.0,
-            "Two figures beside Platform 12; one carries a silver case",
-            "2047-11-03 23:42",
-        ),
-        artifact(
-            WIFI_LOG,
-            "Wi-Fi association log",
-            "network_log",
-            "system diagnostics",
-            true,
-            PLATFORM_ACCESSED.0,
-            "Terminal 17 associated with platform-guest at Platform 12",
-            "2047-11-03 23:44",
-        ),
-        artifact(
-            PROJECT_COPY_LOG,
-            "Project copy log",
-            "file_log",
-            "filesystem journal",
-            true,
-            PROTOTYPE_COPIED.0,
-            "prototype_bundle.delta copied to removable volume",
-            "2047-11-03 23:47",
-        ),
-        artifact(
-            DELETED_MESSAGE,
-            "Deleted message fragment",
-            "message",
-            "unallocated message store",
-            false,
-            MESSAGE_DELETED.0,
-            "Mira: Do not bring the prototype back to Asterion.",
-            "2047-11-03 23:53",
-        ),
+        artifact(ArtifactSeed {
+            id: CALENDAR_FRAGMENT,
+            name: "Calendar fragment",
+            kind: "calendar",
+            source: "local calendar",
+            visible: true,
+            event_ref: MEETING_SCHEDULED.0,
+            summary: "23:10 — Platform 12 / E. Reed",
+            timestamp: "2047-11-03 23:10",
+        }),
+        artifact(ArtifactSeed {
+            id: TAXI_RECEIPT,
+            name: "Taxi receipt",
+            kind: "receipt",
+            source: "mobility cache",
+            visible: true,
+            event_ref: TAXI_RIDE_RECORDED.0,
+            summary: "Drop-off: North Transit Ring, Gate C",
+            timestamp: "2047-11-03 23:36",
+        }),
+        artifact(ArtifactSeed {
+            id: PLATFORM_PHOTO,
+            name: "Platform photo",
+            kind: "photo",
+            source: "camera roll",
+            visible: true,
+            event_ref: PHOTO_CAPTURED.0,
+            summary: "Two figures beside Platform 12; one carries a silver case",
+            timestamp: "2047-11-03 23:42",
+        }),
+        artifact(ArtifactSeed {
+            id: WIFI_LOG,
+            name: "Wi-Fi association log",
+            kind: "network_log",
+            source: "system diagnostics",
+            visible: true,
+            event_ref: PLATFORM_ACCESSED.0,
+            summary: "Terminal 17 associated with platform-guest at Platform 12",
+            timestamp: "2047-11-03 23:44",
+        }),
+        artifact(ArtifactSeed {
+            id: PROJECT_COPY_LOG,
+            name: "Project copy log",
+            kind: "file_log",
+            source: "filesystem journal",
+            visible: true,
+            event_ref: PROTOTYPE_COPIED.0,
+            summary: "prototype_bundle.delta copied to removable volume",
+            timestamp: "2047-11-03 23:47",
+        }),
+        artifact(ArtifactSeed {
+            id: DELETED_MESSAGE,
+            name: "Deleted message fragment",
+            kind: "message",
+            source: "unallocated message store",
+            visible: false,
+            event_ref: MESSAGE_DELETED.0,
+            summary: "Mira: Do not bring the prototype back to Asterion.",
+            timestamp: "2047-11-03 23:53",
+        }),
     ] {
         state.seed_entity(entity)?;
     }
@@ -169,24 +180,15 @@ pub(crate) fn truth_events() -> Vec<Event> {
     ]
 }
 
-fn artifact(
-    id: world_core::EntityId,
-    name: &str,
-    kind: &str,
-    source: &str,
-    visible: bool,
-    event_ref: u64,
-    summary: &str,
-    timestamp: &str,
-) -> Entity {
-    Entity::new(id, "artifact")
-        .with_component("name", name)
-        .with_component(ARTIFACT_KIND, kind)
-        .with_component(SOURCE, source)
-        .with_component(VISIBLE, visible)
-        .with_component(EVENT_REF, event_ref as i64)
-        .with_component(SUMMARY, summary)
-        .with_component(TIMESTAMP, timestamp)
+fn artifact(seed: ArtifactSeed<'_>) -> Entity {
+    Entity::new(seed.id, "artifact")
+        .with_component("name", seed.name)
+        .with_component(ARTIFACT_KIND, seed.kind)
+        .with_component(SOURCE, seed.source)
+        .with_component(VISIBLE, seed.visible)
+        .with_component(EVENT_REF, seed.event_ref as i64)
+        .with_component(SUMMARY, seed.summary)
+        .with_component(TIMESTAMP, seed.timestamp)
 }
 
 fn event(
