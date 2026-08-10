@@ -5,6 +5,7 @@ mod session_store;
 struct TinySocietyController {
     branch: tiny_society::TinySocietyBranch,
     store: session_store::SessionStore,
+    initial_cursor: Option<tiny_society::VisitCursor>,
 }
 
 #[cfg(target_os = "macos")]
@@ -15,12 +16,21 @@ impl TinySocietyController {
             .save(&json)
             .map_err(|error| format!("failed to save {}: {error}", self.store.path().display()))
     }
+
+    fn mark_current_visit(&self) {
+        let _ = self
+            .store
+            .save_visit_cursor(self.branch.visit_cursor().event_count);
+    }
 }
 
 #[cfg(target_os = "macos")]
 impl world_gpui::ProjectionController for TinySocietyController {
     fn snapshot(&self) -> world_gpui::ProjectionSnapshot {
-        self.branch.projection_snapshot()
+        match self.initial_cursor {
+            Some(cursor) => self.branch.projection_snapshot_since(cursor),
+            None => self.branch.projection_snapshot(),
+        }
     }
 
     fn handle(
@@ -42,6 +52,8 @@ impl world_gpui::ProjectionController for TinySocietyController {
         }
         self.persist_branch(&candidate)?;
         self.branch = candidate;
+        self.initial_cursor = None;
+        self.mark_current_visit();
         Ok(self.branch.projection_snapshot())
     }
 }
@@ -50,10 +62,11 @@ impl world_gpui::ProjectionController for TinySocietyController {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use gpui::{px, size, App, AppContext, Bounds, WindowBounds, WindowOptions};
     use gpui_platform::application;
-    use tiny_society::TinySociety;
+    use tiny_society::{TinySociety, VisitCursor};
     use world_gpui::ProjectionView;
 
     let store = session_store::SessionStore::discover()?;
+    let previous_cursor = store.load_visit_cursor()?.map(VisitCursor::new);
     let society = match store.load()? {
         Some(json) => TinySociety::resume_json(&json)?,
         None => {
@@ -63,9 +76,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             society
         }
     };
+    let current_cursor = society.visit_cursor();
+    let _ = store.save_visit_cursor(current_cursor.event_count);
     let controller = TinySocietyController {
         branch: society.branch(),
         store,
+        initial_cursor: previous_cursor,
     };
 
     application().run(move |cx: &mut App| {
