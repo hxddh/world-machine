@@ -41,7 +41,9 @@ impl<F> RuleBehavior<F> {
 
 impl<F> Behavior for RuleBehavior<F>
 where
-    F: Fn(&WorldState, &Event) -> Vec<ActionRequest> + Send + Sync,
+    F: for<'state, 'event> Fn(&'state WorldState, &'event Event) -> Vec<ActionRequest>
+        + Send
+        + Sync,
 {
     fn name(&self) -> &str {
         &self.name
@@ -82,7 +84,9 @@ impl<F> NativeBehavior<F> {
 
 impl<F> Behavior for NativeBehavior<F>
 where
-    F: Fn(&WorldState, &Event) -> Vec<ActionRequest> + Send + Sync,
+    F: for<'state, 'event> Fn(&'state WorldState, &'event Event) -> Vec<ActionRequest>
+        + Send
+        + Sync,
 {
     fn name(&self) -> &str {
         &self.name
@@ -319,7 +323,7 @@ mod tests {
         let actions = actions();
         let mut behaviors = BehaviorRegistry::new();
         behaviors
-            .register(RuleBehavior::new("rule", ["pinged"], |_state, _event| {
+            .register(RuleBehavior::new("rule", ["pinged"], |_state: &WorldState, _event: &Event| {
                 vec![
                     ActionRequest::new("record").arg("label", "rule-a"),
                     ActionRequest::new("record").arg("label", "rule-b"),
@@ -330,7 +334,7 @@ mod tests {
             .register(NativeBehavior::new(
                 "native",
                 ["pinged"],
-                |_state, _event| vec![ActionRequest::new("record").arg("label", "native")],
+                |_state: &WorldState, _event: &Event| vec![ActionRequest::new("record").arg("label", "native")],
             ))
             .unwrap();
 
@@ -366,7 +370,7 @@ mod tests {
         let actions = actions();
         let mut behaviors = BehaviorRegistry::new();
         behaviors
-            .register(RuleBehavior::new("first", ["pinged"], |_state, _event| {
+            .register(RuleBehavior::new("first", ["pinged"], |_state: &WorldState, _event: &Event| {
                 vec![ActionRequest::new("record").arg("label", "first")]
             }))
             .unwrap();
@@ -374,7 +378,7 @@ mod tests {
             .register(NativeBehavior::new(
                 "second",
                 ["recorded"],
-                |_state, event| match event.payload.get("label") {
+                |_state: &WorldState, event: &Event| match event.payload.get("label") {
                     Some(Value::Text(label)) if label == "first" => {
                         vec![ActionRequest::new("record").arg("label", "second")]
                     }
@@ -403,7 +407,7 @@ mod tests {
         let actions = actions();
         let mut behaviors = BehaviorRegistry::new();
         behaviors
-            .register(RuleBehavior::new("loop", ["pinged"], |_state, _event| {
+            .register(RuleBehavior::new("loop", ["pinged"], |_state: &WorldState, _event: &Event| {
                 vec![ActionRequest::new("ping")]
             }))
             .unwrap();
@@ -427,7 +431,7 @@ mod tests {
         let actions = actions();
         let mut behaviors = BehaviorRegistry::new();
         behaviors
-            .register(RuleBehavior::new("rule", ["pinged"], |_state, _event| {
+            .register(RuleBehavior::new("rule", ["pinged"], |_state: &WorldState, _event: &Event| {
                 vec![ActionRequest::new("record").arg("label", "once")]
             }))
             .unwrap();
@@ -448,12 +452,12 @@ mod tests {
     fn duplicate_behavior_names_are_rejected() {
         let mut behaviors = BehaviorRegistry::new();
         behaviors
-            .register(RuleBehavior::new("same", ["pinged"], |_state, _event| {
+            .register(RuleBehavior::new("same", ["pinged"], |_state: &WorldState, _event: &Event| {
                 Vec::new()
             }))
             .unwrap();
         let result =
-            behaviors.register(RuleBehavior::new("same", ["recorded"], |_state, _event| {
+            behaviors.register(RuleBehavior::new("same", ["recorded"], |_state: &WorldState, _event: &Event| {
                 Vec::new()
             }));
 
