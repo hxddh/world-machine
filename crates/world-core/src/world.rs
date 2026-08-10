@@ -18,8 +18,14 @@ pub struct World {
 pub enum WorldError {
     Action(ActionError),
     State(WorldStateError),
-    TimeRegression { current: u64, requested: u64 },
-    ScheduleInPast { current: u64, requested: u64 },
+    TimeRegression {
+        current: u64,
+        requested: u64,
+    },
+    ScheduleInPast {
+        current: u64,
+        requested: u64,
+    },
     ScheduledActionFailed {
         schedule_id: ScheduleId,
         source: Box<WorldError>,
@@ -32,10 +38,16 @@ impl fmt::Display for WorldError {
             Self::Action(error) => error.fmt(f),
             Self::State(error) => error.fmt(f),
             Self::TimeRegression { current, requested } => {
-                write!(f, "world time cannot move backwards: {current} -> {requested}")
+                write!(
+                    f,
+                    "world time cannot move backwards: {current} -> {requested}"
+                )
             }
             Self::ScheduleInPast { current, requested } => {
-                write!(f, "cannot schedule action in the past: {requested} < {current}")
+                write!(
+                    f,
+                    "cannot schedule action in the past: {requested} < {current}"
+                )
             }
             Self::ScheduledActionFailed {
                 schedule_id,
@@ -243,11 +255,18 @@ mod tests {
             };
             let amount = match request.args.get("amount") {
                 Some(Value::Integer(amount)) if *amount > 0 => *amount,
-                _ => return Err(ActionError::Invalid("amount must be a positive integer".into())),
+                _ => {
+                    return Err(ActionError::Invalid(
+                        "amount must be a positive integer".into(),
+                    ))
+                }
             };
 
             let read_units = |id: EntityId| -> Result<i64, ActionError> {
-                match state.entity(id).and_then(|entity| entity.component("units")) {
+                match state
+                    .entity(id)
+                    .and_then(|entity| entity.component("units"))
+                {
                     Some(Value::Integer(value)) => Ok(*value),
                     _ => Err(ActionError::Invalid(format!(
                         "entity {id} has no integer units component"
@@ -288,9 +307,7 @@ mod tests {
             )
             .unwrap();
         state
-            .seed_entity(
-                Entity::new(EntityId::new(2), "container").with_component("units", 20_i64),
-            )
+            .seed_entity(Entity::new(EntityId::new(2), "container").with_component("units", 20_i64))
             .unwrap();
         state
     }
@@ -319,11 +336,19 @@ mod tests {
         assert_eq!(event.world_time, 42);
         assert_eq!(world.events().len(), 1);
         assert_eq!(
-            world.state().entity(EntityId::new(1)).unwrap().component("units"),
+            world
+                .state()
+                .entity(EntityId::new(1))
+                .unwrap()
+                .component("units"),
             Some(&Value::Integer(70))
         );
         assert_eq!(
-            world.state().entity(EntityId::new(2)).unwrap().component("units"),
+            world
+                .state()
+                .entity(EntityId::new(2))
+                .unwrap()
+                .component("units"),
             Some(&Value::Integer(50))
         );
 
@@ -340,7 +365,10 @@ mod tests {
         let mut world = World::new(original.clone());
         let result = world.execute(&registry, &transfer(1_000));
 
-        assert!(matches!(result, Err(WorldError::Action(ActionError::Invalid(_)))));
+        assert!(matches!(
+            result,
+            Err(WorldError::Action(ActionError::Invalid(_)))
+        ));
         assert_eq!(world.state(), &original);
         assert!(world.events().is_empty());
     }
@@ -422,11 +450,17 @@ mod tests {
         let fork = world.fork_after(1).unwrap();
         assert_eq!(fork.events().len(), 1);
         assert_eq!(
-            fork.state().entity(EntityId::new(1)).unwrap().component("units"),
+            fork.state()
+                .entity(EntityId::new(1))
+                .unwrap()
+                .component("units"),
             Some(&Value::Integer(90))
         );
         assert_eq!(
-            fork.state().entity(EntityId::new(2)).unwrap().component("units"),
+            fork.state()
+                .entity(EntityId::new(2))
+                .unwrap()
+                .component("units"),
             Some(&Value::Integer(30))
         );
     }
@@ -441,15 +475,30 @@ mod tests {
         let third = world.schedule_at(20, transfer(5)).unwrap();
 
         assert_eq!(
-            world.scheduler().pending().map(|item| item.id).collect::<Vec<_>>(),
+            world
+                .scheduler()
+                .pending()
+                .map(|item| item.id)
+                .collect::<Vec<_>>(),
             vec![first, second, third]
         );
 
         let executed = world.advance_to(&registry, 20).unwrap();
         assert_eq!(executed.len(), 3);
-        assert_eq!(world.events().iter().map(|event| event.world_time).collect::<Vec<_>>(), vec![10, 10, 20]);
         assert_eq!(
-            world.events().iter().map(|event| event.payload.get("amount")).collect::<Vec<_>>(),
+            world
+                .events()
+                .iter()
+                .map(|event| event.world_time)
+                .collect::<Vec<_>>(),
+            vec![10, 10, 20]
+        );
+        assert_eq!(
+            world
+                .events()
+                .iter()
+                .map(|event| event.payload.get("amount"))
+                .collect::<Vec<_>>(),
             vec![
                 Some(&Value::Integer(10)),
                 Some(&Value::Integer(15)),
@@ -481,11 +530,19 @@ mod tests {
         assert!(world.scheduler().get(failing).is_some());
         assert!(world.scheduler().get(later).is_some());
         assert_eq!(
-            world.state().entity(EntityId::new(1)).unwrap().component("units"),
+            world
+                .state()
+                .entity(EntityId::new(1))
+                .unwrap()
+                .component("units"),
             Some(&Value::Integer(90))
         );
         assert_eq!(
-            world.state().entity(EntityId::new(2)).unwrap().component("units"),
+            world
+                .state()
+                .entity(EntityId::new(2))
+                .unwrap()
+                .component("units"),
             Some(&Value::Integer(30))
         );
     }

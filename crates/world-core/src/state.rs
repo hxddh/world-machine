@@ -90,7 +90,8 @@ impl WorldState {
                 if self.entities.remove(id).is_none() {
                     return Err(WorldStateError::EntityNotFound(*id));
                 }
-                self.relations.retain(|_, relation| relation.from != *id && relation.to != *id);
+                self.relations
+                    .retain(|_, relation| relation.from != *id && relation.to != *id);
             }
             StateChange::SetComponent { entity, key, value } => {
                 let target = self
@@ -123,7 +124,11 @@ impl WorldState {
                     return Err(WorldStateError::RelationNotFound(*id));
                 }
             }
-            StateChange::SetRelationProperty { relation, key, value } => {
+            StateChange::SetRelationProperty {
+                relation,
+                key,
+                value,
+            } => {
                 let target = self
                     .relations
                     .get_mut(relation)

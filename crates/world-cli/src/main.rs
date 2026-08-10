@@ -91,9 +91,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )?
         .clone();
 
-    println!("event #{} {} @ t={}", event.id, event.kind, event.world_time);
+    println!(
+        "event #{} {} @ t={}",
+        event.id, event.kind, event.world_time
+    );
     for entity in world.state().entities() {
-        println!("entity #{} {} {:?}", entity.id, entity.kind, entity.components);
+        println!(
+            "entity #{} {} {:?}",
+            entity.id, entity.kind, entity.components
+        );
     }
 
     let replayed = world.replay()?;

@@ -11,12 +11,7 @@ pub struct Relation {
 }
 
 impl Relation {
-    pub fn new(
-        id: RelationId,
-        kind: impl Into<String>,
-        from: EntityId,
-        to: EntityId,
-    ) -> Self {
+    pub fn new(id: RelationId, kind: impl Into<String>, from: EntityId, to: EntityId) -> Self {
         Self {
             id,
             kind: kind.into(),
