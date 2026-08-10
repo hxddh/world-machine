@@ -326,7 +326,7 @@ impl ProjectionView {
         Some(panel)
     }
 
-    fn why_node(&self, node: &WhyNode, cx: &mut Context<Self>) -> Div {
+    fn why_node(&self, node: &WhyNode, cx: &mut Context<Self>) -> impl IntoElement {
         let selection = SelectionId::Event(node.event);
         let prefix = if node.depth == 0 {
             "Selected".to_string()
