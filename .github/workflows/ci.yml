@@ -22,7 +22,7 @@ jobs:
       - run: cargo test --workspace
 
   gpui-macos:
-    runs-on: macos-15
+    runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
