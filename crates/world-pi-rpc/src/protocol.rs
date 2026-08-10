@@ -58,12 +58,11 @@ impl PiRpcEventParser {
 
         match event_type {
             "message_update" => {
-                if let Some(update) = value.get("assistantMessageEvent") {
-                    if update.get("type").and_then(Value::as_str) == Some("text_delta") {
-                        if let Some(delta) = update.get("delta").and_then(Value::as_str) {
-                            self.text.push_str(delta);
-                        }
-                    }
+                if let Some(update) = value.get("assistantMessageEvent")
+                    && update.get("type").and_then(Value::as_str) == Some("text_delta")
+                    && let Some(delta) = update.get("delta").and_then(Value::as_str)
+                {
+                    self.text.push_str(delta);
                 }
             }
             "text_delta" => {
@@ -117,10 +116,13 @@ impl PiRpcEventParser {
 
 pub fn parse_decision(output: &str) -> Result<String, PiRpcProtocolError> {
     let trimmed = output.trim();
-    if trimmed.contains('\n') || !trimmed.starts_with(DECISION_PREFIX) {
+    if trimmed.contains('\n') {
         return Err(PiRpcProtocolError::InvalidDecisionFormat);
     }
-    let action = trimmed[DECISION_PREFIX.len()..].trim();
+    let action = trimmed
+        .strip_prefix(DECISION_PREFIX)
+        .ok_or(PiRpcProtocolError::InvalidDecisionFormat)?
+        .trim();
     if action.is_empty()
         || action.chars().any(char::is_whitespace)
         || action.contains(':')
