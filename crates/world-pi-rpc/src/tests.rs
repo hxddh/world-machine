@@ -17,10 +17,7 @@ impl MockPiTransport {
         S: Into<String>,
     {
         Self {
-            replies: values
-                .into_iter()
-                .map(|value| Ok(value.into()))
-                .collect(),
+            replies: values.into_iter().map(|value| Ok(value.into())).collect(),
             prompts: Vec::new(),
         }
     }

@@ -8,10 +8,7 @@ pub(crate) struct DecisionPrompt<'a> {
 }
 
 impl<'a> DecisionPrompt<'a> {
-    pub(crate) fn new(
-        observation: &'a AgentObservation,
-        actions: &'a [AvailableAction],
-    ) -> Self {
+    pub(crate) fn new(observation: &'a AgentObservation, actions: &'a [AvailableAction]) -> Self {
         Self {
             observation,
             actions,

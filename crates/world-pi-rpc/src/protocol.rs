@@ -25,7 +25,10 @@ impl fmt::Display for PiRpcProtocolError {
             Self::UiRequest => write!(f, "Pi requested extension UI in decision-only mode"),
             Self::FailedResponse(message) => write!(f, "Pi RPC prompt failed: {message}"),
             Self::MissingSuccessfulResponse => {
-                write!(f, "Pi RPC stream ended without a successful prompt response")
+                write!(
+                    f,
+                    "Pi RPC stream ended without a successful prompt response"
+                )
             }
             Self::MissingDecisionText => write!(f, "Pi RPC produced no assistant decision text"),
             Self::InvalidDecisionFormat => write!(
@@ -48,7 +51,10 @@ impl PiRpcEventParser {
     pub fn push_line(&mut self, line: &str) -> Result<(), PiRpcProtocolError> {
         let value: Value = serde_json::from_str(line)
             .map_err(|error| PiRpcProtocolError::InvalidJson(error.to_string()))?;
-        let event_type = value.get("type").and_then(Value::as_str).unwrap_or_default();
+        let event_type = value
+            .get("type")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
 
         match event_type {
             "message_update" => {
