@@ -12,7 +12,7 @@ The repository currently implements the headless kernel slice:
 
 `Entity / Relation -> Action -> Event -> State -> Scheduler / Behavior / Agent -> Replay`
 
-No GPUI or agent-runtime implementation dependency is allowed in `world-core`. Pi integrations must remain optional adapters; GPUI belongs only in the renderer layer.
+No GPUI or agent-runtime implementation dependency is allowed in `world-core`. The current Pi integration is an optional out-of-process `world-pi-rpc` adapter; GPUI belongs only in the renderer layer.
 
 ## Run
 

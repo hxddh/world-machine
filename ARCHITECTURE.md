@@ -102,3 +102,12 @@ World + PerceptionPolicy
 ```
 
 The decision event is causal provenance. Replay replays the recorded decision/outcome events and never calls the AgentRuntime again. Runtime adapters such as Pi belong one layer farther out.
+
+
+## Pi RPC adapter
+
+`world-pi-rpc` is intentionally outside the provider-neutral layer. It launches an externally installed Pi binary in RPC mode with tools, extensions, skills, prompt templates, themes, and session persistence disabled for decision calls. World observations and offered Actions are rendered into an untrusted-data decision prompt; Pi may only return an exact offered Action name.
+
+The adapter defensively rejects tool execution events, extension UI requests, malformed output, failed prompt responses, and unknown Action names. The v0 adapter is one-shot rather than persistent: each decision gets a fresh Pi RPC process. This is deliberately slower but reduces state leakage while the protocol boundary is being validated.
+
+Dynamic World Action registration is not assumed to exist in the plain RPC command surface. Native tool injection belongs to a later Pi extension/SDK integration only if it can preserve the same license and capability boundary.

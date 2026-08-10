@@ -1,12 +1,18 @@
 # Third-party licenses
 
-World Machine currently has no third-party Rust dependencies in its kernel workspace.
+World Machine's `world-core` and `world-agent` crates remain free of third-party Rust dependencies.
 
-Planned integrations are not yet distributed as part of this repository's binaries:
+Current adapter dependency:
+
+| Dependency / integration | Upstream license | Boundary |
+| --- | --- | --- |
+| serde_json | MIT OR Apache-2.0 | `world-pi-rpc` protocol parsing only |
+| external pi_agent_rust binary | MIT-derived license with OpenAI/Anthropic rider | optional out-of-process runtime; not linked or redistributed by this crate |
+
+Planned integration:
 
 | Integration | Upstream license | Planned boundary |
 | --- | --- | --- |
 | GPUI | Apache-2.0 | optional `world-gpui` renderer crate |
-| pi_agent_rust | MIT-derived license with OpenAI/Anthropic rider | optional out-of-process RPC adapter preferred |
 
-This file records integration intent only. It is not a substitute for the complete upstream license text when a dependency is actually distributed.
+This file records World Machine's dependency boundary. Packaged distributions must include the complete notices required for every dependency or external runtime they actually redistribute.

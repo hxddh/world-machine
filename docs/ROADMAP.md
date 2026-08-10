@@ -96,7 +96,7 @@ Success criterion: the simulation is coherent without an LLM.
 
 ## M7 — AgentRuntime boundary
 
-Status: implemented locally, pending GitHub CI.
+Status: implemented and passing GitHub CI.
 
 - provider-neutral AgentRuntime trait
 - MockAgentRuntime
@@ -106,10 +106,16 @@ Status: implemented locally, pending GitHub CI.
 
 ## M8 — pi_agent_rust adapter
 
-- `world-pi` crate
-- ActionRegistry -> model tool mapping
-- only world-valid actions exposed
-- timeout/cancellation/error mapping
+Status: implemented locally as an out-of-process decision adapter, pending GitHub CI.
+
+- `world-pi-rpc` crate; no `pi_agent_rust` crate dependency
+- one-shot external `pi --mode rpc` transport
+- `--no-tools --no-extensions --no-session` decision-only process boundary
+- strict `WORLD_ACTION:<name>` output protocol
+- filtered observation + offered action prompt
+- fail closed on unknown actions, tool attempts, extension UI, malformed RPC, or failed prompt
+
+M8.1 later: persistent RPC sessions and native World Action tool registration once the Pi RPC/extension surface is proven for dynamic tool injection.
 
 ## M9 — GPUI projection shell
 

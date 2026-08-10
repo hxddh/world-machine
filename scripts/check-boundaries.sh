@@ -4,9 +4,11 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CORE="$ROOT/crates/world-core/src"
 AGENT="$ROOT/crates/world-agent/src"
+PI_RPC="$ROOT/crates/world-pi-rpc"
 
 core_forbidden=("TinySociety" "Tiny Society" "Person" "Town" "Bakery" "Society" "gpui" "pi_agent" "FootballPlayer" "Evidence" "world_agent")
 agent_forbidden=("pi_agent" "openai" "anthropic" "gpui")
+pi_rpc_forbidden=("pi_agent_rust")
 
 failed=0
 for token in "${core_forbidden[@]}"; do
@@ -22,6 +24,16 @@ if [[ -d "$AGENT" ]]; then
     if grep -Rni --exclude-dir=target -i -- "$token" "$AGENT" >/tmp/world-machine-agent-boundary-check 2>/dev/null; then
       echo "Boundary violation: '$token' found in provider-neutral world-agent:"
       cat /tmp/world-machine-agent-boundary-check
+      failed=1
+    fi
+  done
+fi
+
+if [[ -d "$PI_RPC" ]]; then
+  for token in "${pi_rpc_forbidden[@]}"; do
+    if grep -Rni --exclude-dir=target -i -- "$token" "$PI_RPC" >/tmp/world-machine-pi-boundary-check 2>/dev/null; then
+      echo "Boundary violation: '$token' found in out-of-process world-pi-rpc adapter:"
+      cat /tmp/world-machine-pi-boundary-check
       failed=1
     fi
   done

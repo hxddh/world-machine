@@ -1,0 +1,11 @@
+[package]
+name = "world-pi-rpc"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+serde_json = "1"
+world-agent = { path = "../world-agent" }
+world-core = { path = "../world-core" }

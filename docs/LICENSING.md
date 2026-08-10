@@ -9,7 +9,7 @@ The license of the World Machine kernel is intentionally independent from the li
 - `world-core` and the future `world-agent` protocol layer must remain free of dependencies that add field-of-use, party, or deployment restrictions beyond the project's Apache-2.0 terms.
 - GPUI is currently an Apache-2.0 crate and may be used by the future `world-gpui` adapter subject to normal third-party notice obligations.
 - `pi_agent_rust` currently uses an MIT-derived license with an additional OpenAI/Anthropic rider. It must not become a dependency of `world-core` or define the World IR.
-- The preferred Pi integration is an optional out-of-process RPC adapter. An in-process integration, if ever added, must remain optional and carry the upstream license/rider notices required by that dependency.
+- The current Pi integration is an optional out-of-process RPC adapter (`world-pi-rpc`). It launches an externally installed Pi binary and does not link or redistribute `pi_agent_rust`. An in-process integration, if ever added, must remain optional and carry the upstream license/rider notices required by that dependency.
 - A packaged application must include notices for every dependency actually distributed in that package. The Apache-2.0 license of World Machine does not replace third-party license terms.
 
 ## Architecture consequence

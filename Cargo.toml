@@ -3,6 +3,7 @@ members = [
   "crates/world-core",
   "crates/world-cli",
   "crates/world-agent",
+  "crates/world-pi-rpc",
   "systems/society-basic",
   "worlds/tiny-society",
 ]
