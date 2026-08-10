@@ -14,12 +14,9 @@ impl TinySocietyController {
             .branch
             .archive_json()
             .map_err(|error| error.to_string())?;
-        self.store.save(&json).map_err(|error| {
-            format!(
-                "failed to save {}: {error}",
-                self.store.path().display()
-            )
-        })
+        self.store
+            .save(&json)
+            .map_err(|error| format!("failed to save {}: {error}", self.store.path().display()))
     }
 }
 
