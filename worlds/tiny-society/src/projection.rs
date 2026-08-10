@@ -35,7 +35,10 @@ pub(crate) fn snapshot(world: &World) -> ProjectionSnapshot {
 }
 
 fn available_commands(world: &World) -> Vec<ProjectionCommand> {
-    let has_order_loss = world.events().iter().any(|event| event.kind == "order_lost");
+    let has_order_loss = world
+        .events()
+        .iter()
+        .any(|event| event.kind == "order_lost");
     let has_dismissal = world
         .events()
         .iter()
@@ -50,8 +53,9 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
         vec![ProjectionCommand {
             id: crate::RETAIN_WORKER_COMMAND.into(),
             title: "Give Jonas another chance".into(),
-            detail: "Keep Jonas at the bakery and let this branch continue into a different future."
-                .into(),
+            detail:
+                "Keep Jonas at the bakery and let this branch continue into a different future."
+                    .into(),
         }]
     } else {
         Vec::new()
