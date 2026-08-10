@@ -1,5 +1,7 @@
 use crate::{actions::text_component, model::*};
-use world_core::{Action, ActionError, ActionRegistry, ActionRequest, EventDraft, Value, WorldState};
+use world_core::{
+    Action, ActionError, ActionRegistry, ActionRequest, EventDraft, Value, WorldState,
+};
 
 pub(crate) fn register(registry: &mut ActionRegistry) -> Result<(), ActionError> {
     registry.register(RetainWorker)?;
