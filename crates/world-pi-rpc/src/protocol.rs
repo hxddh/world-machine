@@ -88,18 +88,16 @@ impl PiRpcEventParser {
                 return Err(PiRpcProtocolError::ToolExecutionAttempt(tool));
             }
             "extension_ui_request" => return Err(PiRpcProtocolError::UiRequest),
-            "response" => {
-                if value.get("command").and_then(Value::as_str) == Some("prompt") {
-                    if value.get("success").and_then(Value::as_bool) == Some(true) {
-                        self.saw_success = true;
-                    } else {
-                        let message = value
-                            .get("error")
-                            .and_then(Value::as_str)
-                            .unwrap_or("unknown error")
-                            .to_owned();
-                        return Err(PiRpcProtocolError::FailedResponse(message));
-                    }
+            "response" if value.get("command").and_then(Value::as_str) == Some("prompt") => {
+                if value.get("success").and_then(Value::as_bool) == Some(true) {
+                    self.saw_success = true;
+                } else {
+                    let message = value
+                        .get("error")
+                        .and_then(Value::as_str)
+                        .unwrap_or("unknown error")
+                        .to_owned();
+                    return Err(PiRpcProtocolError::FailedResponse(message));
                 }
             }
             _ => {}
