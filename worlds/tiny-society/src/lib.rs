@@ -19,6 +19,8 @@ pub use model::{
     WEDDING_ORDER,
 };
 
+pub const RETAIN_WORKER_COMMAND: &str = "tiny-society.retain-worker";
+
 pub struct TinySociety {
     world: World,
     actions: ActionRegistry,
@@ -48,6 +50,18 @@ impl TinySocietyBranch {
             .ok_or_else(|| std::io::Error::other(format!("unknown event {event_id}")))?;
         self.world = self.world.fork_after(position)?;
         Ok(())
+    }
+
+    pub fn invoke_projection_command(
+        &mut self,
+        command_id: &str,
+    ) -> Result<Vec<EventId>, Box<dyn Error>> {
+        match command_id {
+            RETAIN_WORKER_COMMAND => self.continue_with_retention(),
+            _ => Err(
+                std::io::Error::other(format!("unknown projection command: {command_id}")).into(),
+            ),
+        }
     }
 
     pub fn continue_with_retention(&mut self) -> Result<Vec<EventId>, Box<dyn Error>> {

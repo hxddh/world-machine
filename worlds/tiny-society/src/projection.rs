@@ -7,7 +7,7 @@ use world_core::{EntityId, Value, World};
 use world_projection::{
     entity_title, inspectors_from_world, timeline_from_world, why_map_from_world, BriefingItem,
     BriefingProjection, CanvasItem, CanvasItemKind, CanvasProjection, CollectionItem,
-    CollectionProjection, ProjectionSnapshot, SelectionId,
+    CollectionProjection, ProjectionCommand, ProjectionSnapshot, SelectionId,
 };
 
 const RESIDENTS: [EntityId; 8] = [JONAS, MARA, LEO, EMMA, MIA, NOAH, EVAN, SOFIA];
@@ -17,6 +17,7 @@ pub(crate) fn snapshot(world: &World) -> ProjectionSnapshot {
         title: "Tiny Society".into(),
         world_time: world.world_time(),
         briefing: Some(society_briefing(world)),
+        commands: available_commands(world),
         collection: CollectionProjection {
             title: "Residents".into(),
             items: RESIDENTS
@@ -33,6 +34,34 @@ pub(crate) fn snapshot(world: &World) -> ProjectionSnapshot {
     }
 }
 
+fn available_commands(world: &World) -> Vec<ProjectionCommand> {
+    let has_order_loss = world
+        .events()
+        .iter()
+        .any(|event| event.kind == "order_lost");
+    let has_dismissal = world
+        .events()
+        .iter()
+        .any(|event| event.kind == "worker_dismissed");
+    let has_retention = world
+        .events()
+        .iter()
+        .any(|event| event.kind == "worker_retained");
+    let jonas_is_temp = component_text(world, JONAS, JOB).as_deref() == Some("bakery_temp");
+
+    if has_order_loss && !has_dismissal && !has_retention && jonas_is_temp {
+        vec![ProjectionCommand {
+            id: crate::RETAIN_WORKER_COMMAND.into(),
+            title: "Give Jonas another chance".into(),
+            detail:
+                "Keep Jonas at the bakery and let this branch continue into a different future."
+                    .into(),
+        }]
+    } else {
+        Vec::new()
+    }
+}
+
 fn society_briefing(world: &World) -> BriefingProjection {
     let items = world
         .events()
@@ -40,6 +69,10 @@ fn society_briefing(world: &World) -> BriefingProjection {
         .rev()
         .filter_map(|event| {
             let title = match event.kind.as_str() {
+                "work_shift_completed" if event.actor == Some(JONAS) => {
+                    "Jonas completed another bakery shift"
+                }
+                "worker_retained" => "Mara gave Jonas another chance",
                 "worker_dismissed" => "Mara dismissed Jonas",
                 "order_lost" => "The bakery lost the wedding order",
                 "temporary_work_assigned" => "Jonas took temporary work at the bakery",
