@@ -7,7 +7,8 @@ use world_core::{EntityId, Value, World};
 use world_projection::{
     entity_title, inspectors_from_world, timeline_from_world, why_map_from_world, BriefingItem,
     BriefingProjection, CanvasItem, CanvasItemKind, CanvasProjection, CollectionItem,
-    CollectionProjection, ProjectionCommand, ProjectionSnapshot, SelectionId,
+    CollectionProjection, ProjectionCapabilities, ProjectionCommand, ProjectionSnapshot,
+    SelectionId,
 };
 
 const RESIDENTS: [EntityId; 8] = [JONAS, MARA, LEO, EMMA, MIA, NOAH, EVAN, SOFIA];
@@ -23,6 +24,7 @@ pub(crate) fn snapshot_since(
     ProjectionSnapshot {
         title: "Tiny Society".into(),
         world_time: world.world_time(),
+        capabilities: ProjectionCapabilities { fork: true },
         briefing: Some(society_briefing(world, since_event_count)),
         commands: available_commands(world),
         collection: CollectionProjection {
