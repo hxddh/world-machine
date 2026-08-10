@@ -52,11 +52,16 @@ fn fixture() -> (World, ActionRegistry) {
 #[test]
 fn self_only_perception_does_not_expose_global_state() {
     let (world, _) = fixture();
-    let observation = ScopedPerception::self_only().observe(&world, ACTOR).unwrap();
+    let observation = ScopedPerception::self_only()
+        .observe(&world, ACTOR)
+        .unwrap();
 
     assert_eq!(observation.entities.len(), 1);
     assert_eq!(observation.entities[0].id, ACTOR);
-    assert!(observation.entities.iter().all(|entity| entity.id != SECRET));
+    assert!(observation
+        .entities
+        .iter()
+        .all(|entity| entity.id != SECRET));
 }
 
 #[test]
@@ -65,7 +70,11 @@ fn scoped_perception_only_exposes_selected_entities() {
     let observation = ScopedPerception::new([VISIBLE])
         .observe(&world, ACTOR)
         .unwrap();
-    let ids: Vec<_> = observation.entities.iter().map(|entity| entity.id).collect();
+    let ids: Vec<_> = observation
+        .entities
+        .iter()
+        .map(|entity| entity.id)
+        .collect();
 
     assert_eq!(ids, vec![ACTOR, VISIBLE]);
     assert!(!ids.contains(&SECRET));
