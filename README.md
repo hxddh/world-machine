@@ -10,9 +10,9 @@ The first product target is **Tiny Society**, but Tiny Society is deliberately n
 
 The repository currently implements the headless kernel slice:
 
-`Entity / Relation -> Action -> Event -> State -> Replay`
+`Entity / Relation -> Action -> Event -> State -> Scheduler -> Replay`
 
-No GPUI and no `pi_agent_rust` dependency is allowed in `world-core` yet.
+No GPUI or agent-runtime implementation dependency is allowed in `world-core`. Pi integrations must remain optional adapters; GPUI belongs only in the renderer layer.
 
 ## Run
 
@@ -28,4 +28,4 @@ cargo run -p world-cli
 
 ## License
 
-Apache-2.0. See [LICENSE](LICENSE).
+Apache-2.0. See [LICENSE](LICENSE) and [docs/LICENSING.md](docs/LICENSING.md) for the dependency-license boundary.

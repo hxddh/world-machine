@@ -80,7 +80,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     registry.register(MoveUnits)?;
 
     let mut world = World::new(initial);
-    world.advance_to(10)?;
+    world.advance_to(&registry, 10)?;
     let event = world
         .execute(
             &registry,

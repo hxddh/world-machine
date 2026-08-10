@@ -63,3 +63,9 @@ Replay applies recorded events and never re-runs the original decision maker.
 A semantic Event records both human-meaningful provenance and the exact generic state changes required for deterministic replay. This keeps reducers independent of domain concepts while preserving causal history.
 
 This is an intentionally minimal v0 design. If multiple real worlds later demonstrate a better reducer model, evolve it then rather than guessing now.
+
+## Licensing boundary
+
+`world-core` and the provider-neutral agent protocol must not depend on agent implementations whose licenses add field-of-use, party, or deployment restrictions. Restricted or non-standard runtimes belong behind optional adapters, preferably out-of-process.
+
+GPUI is a renderer dependency, not a kernel dependency. `pi_agent_rust` is an agent runtime adapter, not a World IR dependency. See `docs/LICENSING.md`.

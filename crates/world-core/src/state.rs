@@ -5,7 +5,7 @@ use std::fmt;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct WorldState {
-    pub world_time: u64,
+    world_time: u64,
     entities: BTreeMap<EntityId, Entity>,
     relations: BTreeMap<RelationId, Relation>,
 }
@@ -32,6 +32,14 @@ impl fmt::Display for WorldStateError {
 impl Error for WorldStateError {}
 
 impl WorldState {
+    pub fn world_time(&self) -> u64 {
+        self.world_time
+    }
+
+    pub(crate) fn set_world_time(&mut self, world_time: u64) {
+        self.world_time = world_time;
+    }
+
     pub fn entity(&self, id: EntityId) -> Option<&Entity> {
         self.entities.get(&id)
     }

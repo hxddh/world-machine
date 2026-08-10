@@ -11,7 +11,7 @@ You are implementing **World Machine**. The first user-facing product is Tiny So
 5. Events preserve causal provenance via `caused_by`.
 6. Historical replay must not require re-running an LLM or other decision maker.
 7. GPUI state is UI state, not World truth.
-8. `pi_agent_rust` will be an interchangeable `AgentRuntime` adapter, not a kernel dependency.
+8. `pi_agent_rust` will be an interchangeable `AgentRuntime` adapter, not a kernel dependency. Prefer an optional out-of-process RPC adapter; do not let restricted/non-standard runtime licenses flow into `world-core` or the provider-neutral agent protocol.
 9. Prefer vertical slices and deterministic tests over speculative abstraction.
 10. Generality must emerge from multiple real worlds, not from guessed framework requirements.
 

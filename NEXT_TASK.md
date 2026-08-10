@@ -1,23 +1,25 @@
-# Next Coding Task — M4 Clock / Scheduler
+# Next Coding Task — M5 Behavior Runtime
 
-Implement the smallest deterministic logical Clock/Scheduler vertical slice.
+Implement the smallest deterministic Behavior Runtime vertical slice.
 
 Requirements:
 
 1. Introduce no domain concepts into `world-core`.
-2. A caller can schedule an `ActionRequest` for a logical timestamp.
-3. Advancing the World runs all due scheduled actions in deterministic order.
-4. Equal-time ordering must be stable and tested.
-5. Failed scheduled actions must not corrupt queue/state.
-6. Executed Actions still follow Action -> Event -> State; Scheduler may not mutate state directly.
-7. Replay must continue to require no scheduler decision re-execution for historical Events.
-8. Do not add async, Tokio, GPUI, Pi, serde, SQLite, ECS or LLM dependencies.
+2. Define a small Behavior abstraction that can observe selected Event kinds and propose `ActionRequest`s.
+3. Implement deterministic `RuleBehavior` and `NativeBehavior` paths first. No LLM or Pi integration.
+4. Behavior output must always re-enter the World through `ActionRegistry`; Behaviors may not mutate WorldState directly.
+5. Define deterministic ordering when multiple Behaviors react to the same Event.
+6. Add loop/recursion protection so an Event -> Behavior -> Action -> Event chain cannot run unbounded.
+7. Recorded Events remain sufficient for replay; replay must not re-run Behaviors.
+8. Keep the API compatible with a future `AgentBehavior` implemented by a provider-neutral AgentRuntime.
+9. Do not add async, Tokio, GPUI, Pi, serde, SQLite, ECS, or model dependencies yet.
 
 Deliver:
 
-- implementation
+- Behavior registry/runtime implementation
 - deterministic ordering tests
-- failure atomicity test
+- loop-budget test
+- no-direct-mutation architecture test
 - update `docs/WORLD_IR_v0.1.md`
 - update `docs/ROADMAP.md`
 - run architecture boundary check and Rust tests

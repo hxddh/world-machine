@@ -110,13 +110,25 @@ GPUI will implement the renderer but will not own World truth.
 
 ## Runtime services
 
-### Clock
+### Clock / Scheduler
 
-Logical time is independent of wall-clock time. Planned modes:
+Logical time is independent of wall-clock time. The v0 kernel uses an integer logical timestamp; future adapters may map it to real-time, simulated, or turn-based clocks.
 
-- real-time
-- simulated
-- turn-based
+A scheduled action is runtime work, not an authoritative state mutation:
+
+```text
+ScheduledAction {
+  id
+  world_time
+  ActionRequest
+}
+```
+
+The Scheduler orders work by `(world_time, insertion_sequence)`, so equal-time actions execute deterministically. Advancing a World executes every due scheduled action through the normal `Action -> Event -> State` path.
+
+A failed scheduled action remains queued. Its attempted time advance is rolled back to the last successfully committed logical time, while earlier successful Events remain committed.
+
+Replay applies historical Events directly and does not re-run scheduler decisions. Pending scheduler work is copied by `World::replay` in v0; historical fork reconstruction currently starts with an empty scheduler because schedule creation is not yet event-sourced. Snapshot/branch hardening will make runtime-service state explicit.
 
 ### Replay
 

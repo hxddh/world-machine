@@ -22,3 +22,5 @@ macro_rules! id_type {
 id_type!(EntityId);
 id_type!(RelationId);
 id_type!(EventId);
+
+id_type!(ScheduleId);

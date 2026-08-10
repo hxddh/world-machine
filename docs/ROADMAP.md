@@ -51,14 +51,17 @@ Next hardening:
 
 ## M4 — Clock / Scheduler
 
-Next implementation target.
+Status: implemented locally, pending GitHub CI compile/test.
 
-- Clock abstraction
-- scheduled actions/events
-- deterministic scheduler ordering
-- simulated time
+- logical world time accessor
+- scheduled `ActionRequest`s
+- deterministic `(time, insertion order)` scheduling
+- failed scheduled actions remain queued and do not partially mutate state
+- replay does not re-run historical scheduler decisions
 
-No LLM and no UI yet.
+Known v0 limitation: historical `fork_after` does not reconstruct scheduler queue state because scheduling itself is not event-sourced yet. This belongs with snapshot/branch hardening rather than domain logic.
+
+No LLM and no UI.
 
 ## M5 — Behavior Runtime
 
