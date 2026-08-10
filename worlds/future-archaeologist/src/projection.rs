@@ -3,8 +3,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use world_core::{Entity, EntityId, Event, EventId, Value, World};
 use world_projection::{
     BriefingItem, BriefingProjection, CanvasItem, CanvasItemKind, CanvasProjection, CollectionItem,
-    CollectionProjection, InspectorProjection, InspectorRow, InspectorSection, ProjectionCommand,
-    ProjectionSnapshot, SelectionId, TimelineItem, TimelineProjection, WhyNode, WhyProjection,
+    CollectionProjection, InspectorProjection, InspectorRow, InspectorSection, ProjectionCapabilities,
+    ProjectionCommand, ProjectionSnapshot, SelectionId, TimelineItem, TimelineProjection, WhyNode,
+    WhyProjection,
 };
 
 const ARTIFACTS: [EntityId; 6] = [
@@ -23,6 +24,7 @@ pub(crate) fn snapshot(world: &World) -> ProjectionSnapshot {
     ProjectionSnapshot {
         title: "Future Archaeologist · Terminal 17".into(),
         world_time: world.world_time(),
+        capabilities: ProjectionCapabilities { fork: false },
         briefing: Some(briefing(world, &visible_artifacts)),
         commands: commands(world),
         collection: collection(world, &visible_artifacts),
