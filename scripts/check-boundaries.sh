@@ -6,12 +6,16 @@ CORE="$ROOT/crates/world-core/src"
 AGENT="$ROOT/crates/world-agent/src"
 PI_RPC="$ROOT/crates/world-pi-rpc"
 PROJECTION="$ROOT/crates/world-projection"
+HOST="$ROOT/crates/world-host"
+LIBRARY="$ROOT/crates/world-library"
 GPUI="$ROOT/crates/world-gpui"
 
 core_forbidden=("TinySociety" "Tiny Society" "FutureArchaeologist" "Future Archaeologist" "Person" "Town" "Bakery" "Society" "gpui" "pi_agent" "FootballPlayer" "Evidence" "world_agent")
 agent_forbidden=("pi_agent" "openai" "anthropic" "gpui")
 pi_rpc_forbidden=("pi_agent_rust")
 projection_forbidden=("TinySociety" "Tiny Society" "FutureArchaeologist" "Future Archaeologist" "Bakery" "Society" "gpui" "pi_agent")
+host_forbidden=("TinySociety" "tiny_society" "FutureArchaeologist" "future_archaeologist" "gpui" "pi_agent")
+library_forbidden=("TinySociety" "tiny_society" "FutureArchaeologist" "future_archaeologist" "gpui" "pi_agent")
 gpui_forbidden=("TinySociety" "tiny_society" "FutureArchaeologist" "future_archaeologist" "world_core" "pi_agent")
 
 failed=0
@@ -48,6 +52,26 @@ if [[ -d "$PROJECTION" ]]; then
     if grep -Rni --exclude-dir=target -i -- "$token" "$PROJECTION" >/tmp/world-machine-projection-boundary-check 2>/dev/null; then
       echo "Boundary violation: '$token' found in generic world-projection:"
       cat /tmp/world-machine-projection-boundary-check
+      failed=1
+    fi
+  done
+fi
+
+if [[ -d "$HOST" ]]; then
+  for token in "${host_forbidden[@]}"; do
+    if grep -Rni --exclude-dir=target -i -- "$token" "$HOST" >/tmp/world-machine-host-boundary-check 2>/dev/null; then
+      echo "Boundary violation: '$token' found in generic world-host:"
+      cat /tmp/world-machine-host-boundary-check
+      failed=1
+    fi
+  done
+fi
+
+if [[ -d "$LIBRARY" ]]; then
+  for token in "${library_forbidden[@]}"; do
+    if grep -Rni --exclude-dir=target -i -- "$token" "$LIBRARY" >/tmp/world-machine-library-boundary-check 2>/dev/null; then
+      echo "Boundary violation: '$token' found in generic world-library:"
+      cat /tmp/world-machine-library-boundary-check
       failed=1
     fi
   done
