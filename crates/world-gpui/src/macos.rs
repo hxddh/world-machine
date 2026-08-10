@@ -287,9 +287,9 @@ impl ProjectionView {
                     .text_color(rgb(0x66705f))
                     .child(command.detail.clone()),
             )
-            .on_click(cx.listener(move |this, _, _, cx| {
-                this.invoke_command(command_id.clone(), cx)
-            }))
+            .on_click(
+                cx.listener(move |this, _, _, cx| this.invoke_command(command_id.clone(), cx)),
+            )
     }
 
     fn render_canvas(&self, cx: &mut Context<Self>) -> Div {
