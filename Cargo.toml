@@ -11,5 +11,6 @@ members = [
   "worlds/tiny-society",
   "worlds/future-archaeologist",
   "apps/tiny-society-desktop",
+  "apps/future-archaeologist-desktop",
 ]
 resolver = "2"
