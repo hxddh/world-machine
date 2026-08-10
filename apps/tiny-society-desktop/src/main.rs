@@ -1,6 +1,6 @@
 #[cfg(target_os = "macos")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    use gpui::{px, size, App, Bounds, WindowBounds, WindowOptions};
+    use gpui::{px, size, App, AppContext, Bounds, WindowBounds, WindowOptions};
     use gpui_platform::application;
     use tiny_society::TinySociety;
     use world_gpui::ProjectionView;
