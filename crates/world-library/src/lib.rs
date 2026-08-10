@@ -234,6 +234,18 @@ impl WorldDocumentTarget {
         }
     }
 
+    fn load_with_revision(
+        &self,
+        library: &WorldLibrary,
+    ) -> Result<(WorldArchive, DocumentRevision), LibraryError> {
+        match self {
+            Self::Library(id) => library
+                .load_with_revision(id)?
+                .ok_or_else(|| LibraryError::UnknownDocument(id.clone())),
+            Self::File(path) => read_archive_file_with_revision(path),
+        }
+    }
+
     fn current_revision(
         &self,
         library: &WorldLibrary,
@@ -369,6 +381,20 @@ impl DurableWorldSession {
 
     pub fn snapshot(&self) -> ProjectionSnapshot {
         self.session.snapshot()
+    }
+
+    pub fn reload(
+        &mut self,
+        registry: &WorldRegistry,
+        library: &WorldLibrary,
+    ) -> Result<ProjectionSnapshot, LibraryError> {
+        let (archive, revision) = self.target.load_with_revision(library)?;
+        let replacement = registry.open_archive(&archive)?;
+        let snapshot = replacement.snapshot();
+
+        self.revision = revision;
+        self.session = replacement;
+        Ok(snapshot)
     }
 
     pub fn handle(
@@ -767,7 +793,7 @@ mod tests {
     }
 
     #[test]
-    fn two_library_sessions_do_not_silently_overwrite_each_other() {
+    fn stale_library_session_can_reload_and_continue() {
         let root = temp_root("library-conflict");
         let library = WorldLibrary::new(root.clone());
         let registry = registry();
@@ -793,7 +819,18 @@ mod tests {
             Err(LibraryError::DocumentChanged(path)) if path == library.path(&id)
         ));
         assert_eq!(stale.snapshot().title, "Mock 0");
-        assert_eq!(library.load(&id).unwrap().unwrap().world_time, 1);
+
+        let reloaded = stale.reload(&registry, &library).unwrap();
+        assert_eq!(reloaded.title, "Mock 1");
+        stale
+            .handle(
+                ProjectionIntent::InvokeCommand("mock.advance".into()),
+                &registry,
+                &library,
+            )
+            .unwrap();
+        assert_eq!(stale.snapshot().title, "Mock 2");
+        assert_eq!(library.load(&id).unwrap().unwrap().world_time, 2);
 
         let _ = fs::remove_dir_all(root);
     }
@@ -832,7 +869,7 @@ mod tests {
     }
 
     #[test]
-    fn external_changes_are_detected_before_overwrite() {
+    fn external_conflict_can_reload_and_continue() {
         let root = temp_root("external-conflict");
         let external = root.join("Shared World.world");
         let library = WorldLibrary::new(root.join("library"));
@@ -852,7 +889,41 @@ mod tests {
             Err(LibraryError::DocumentChanged(path)) if path == external
         ));
         assert_eq!(session.snapshot().title, "Mock 3");
-        assert_eq!(read_archive_file(&external).unwrap().world_time, 9);
+
+        let reloaded = session.reload(&registry, &library).unwrap();
+        assert_eq!(reloaded.title, "Mock 9");
+        session
+            .handle(
+                ProjectionIntent::InvokeCommand("mock.advance".into()),
+                &registry,
+                &library,
+            )
+            .unwrap();
+        assert_eq!(session.snapshot().title, "Mock 10");
+        assert_eq!(read_archive_file(&external).unwrap().world_time, 10);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn failed_reload_does_not_replace_the_live_session() {
+        let root = temp_root("failed-reload");
+        let external = root.join("Shared World.world");
+        let library = WorldLibrary::new(root.join("library"));
+        let registry = registry();
+        fs::create_dir_all(&root).unwrap();
+        write_archive_file(&external, &mock_archive(3)).unwrap();
+        let mut session = DurableWorldSession::open_file(external.clone(), &registry).unwrap();
+
+        let mut unsupported = mock_archive(9);
+        unsupported.pack = WorldPackRef::new("world-machine.missing", "1");
+        write_archive_file(&external, &unsupported).unwrap();
+
+        assert!(matches!(
+            session.reload(&registry, &library),
+            Err(LibraryError::Host(HostError::UnknownWorld(_)))
+        ));
+        assert_eq!(session.snapshot().title, "Mock 3");
 
         let _ = fs::remove_dir_all(root);
     }
