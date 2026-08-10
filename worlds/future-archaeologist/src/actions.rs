@@ -1,5 +1,7 @@
 use crate::model::*;
-use world_core::{Action, ActionError, ActionRegistry, ActionRequest, EventDraft, StateChange, Value, WorldState};
+use world_core::{
+    Action, ActionError, ActionRegistry, ActionRequest, EventDraft, StateChange, Value, WorldState,
+};
 
 pub(crate) fn register(registry: &mut ActionRegistry) -> Result<(), ActionError> {
     registry.register(RecoverDeletedMessage)?;
