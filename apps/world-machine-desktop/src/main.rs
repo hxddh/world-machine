@@ -536,10 +536,7 @@ fn imported_document_id(
 }
 
 #[cfg(target_os = "macos")]
-fn library_document_id_for_path(
-    source: &Path,
-    library: &WorldLibrary,
-) -> Option<WorldDocumentId> {
+fn library_document_id_for_path(source: &Path, library: &WorldLibrary) -> Option<WorldDocumentId> {
     if source.parent()? != library.root() {
         return None;
     }
