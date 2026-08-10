@@ -2,7 +2,7 @@ use crate::{PiRpcEventParser, PiRpcProtocolError};
 use serde_json::json;
 use std::error::Error;
 use std::fmt;
-use std::io::{Read as _, Write as _};
+use std::io::{Read, Write as _};
 use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
