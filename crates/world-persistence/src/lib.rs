@@ -77,11 +77,7 @@ impl WorldArchive {
             });
         }
 
-        let events = self
-            .events
-            .iter()
-            .map(Event::from)
-            .collect::<Vec<_>>();
+        let events = self.events.iter().map(Event::from).collect::<Vec<_>>();
         let mut world = World::from_history(baseline, &events).map_err(PersistenceError::World)?;
 
         let empty_actions = ActionRegistry::new();
@@ -133,7 +129,9 @@ impl fmt::Display for PersistenceError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Json(error) => write!(f, "invalid world archive JSON: {error}"),
-            Self::UnsupportedFormat(format) => write!(f, "unsupported world archive format: {format}"),
+            Self::UnsupportedFormat(format) => {
+                write!(f, "unsupported world archive format: {format}")
+            }
             Self::UnsupportedVersion(version) => {
                 write!(f, "unsupported world archive version: {version}")
             }
@@ -187,7 +185,11 @@ impl From<&Event> for ArchivedEvent {
                 .iter()
                 .map(|(key, value)| (key.clone(), ArchivedValue::from(value)))
                 .collect(),
-            changes: event.changes.iter().map(ArchivedStateChange::from).collect(),
+            changes: event
+                .changes
+                .iter()
+                .map(ArchivedStateChange::from)
+                .collect(),
         }
     }
 }
@@ -200,12 +202,7 @@ impl From<&ArchivedEvent> for Event {
             world_time: event.world_time,
             actor: event.actor.map(EntityId::new),
             targets: event.targets.iter().copied().map(EntityId::new).collect(),
-            caused_by: event
-                .caused_by
-                .iter()
-                .copied()
-                .map(EventId::new)
-                .collect(),
+            caused_by: event.caused_by.iter().copied().map(EventId::new).collect(),
             payload: event
                 .payload
                 .iter()
@@ -219,22 +216,36 @@ impl From<&ArchivedEvent> for Event {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ArchivedStateChange {
-    CreateEntity { entity: ArchivedEntity },
-    RemoveEntity { entity: u64 },
+    CreateEntity {
+        entity: ArchivedEntity,
+    },
+    RemoveEntity {
+        entity: u64,
+    },
     SetComponent {
         entity: u64,
         key: String,
         value: ArchivedValue,
     },
-    RemoveComponent { entity: u64, key: String },
-    CreateRelation { relation: ArchivedRelation },
-    RemoveRelation { relation: u64 },
+    RemoveComponent {
+        entity: u64,
+        key: String,
+    },
+    CreateRelation {
+        relation: ArchivedRelation,
+    },
+    RemoveRelation {
+        relation: u64,
+    },
     SetRelationProperty {
         relation: u64,
         key: String,
         value: ArchivedValue,
     },
-    RemoveRelationProperty { relation: u64, key: String },
+    RemoveRelationProperty {
+        relation: u64,
+        key: String,
+    },
 }
 
 impl From<&StateChange> for ArchivedStateChange {
@@ -268,12 +279,10 @@ impl From<&StateChange> for ArchivedStateChange {
                 key: key.clone(),
                 value: ArchivedValue::from(value),
             },
-            StateChange::RemoveRelationProperty { relation, key } => {
-                Self::RemoveRelationProperty {
-                    relation: relation.0,
-                    key: key.clone(),
-                }
-            }
+            StateChange::RemoveRelationProperty { relation, key } => Self::RemoveRelationProperty {
+                relation: relation.0,
+                key: key.clone(),
+            },
         }
     }
 }
@@ -529,7 +538,10 @@ mod tests {
             let entity = request
                 .actor
                 .ok_or_else(|| ActionError::Invalid("missing actor".into()))?;
-            let current = match state.entity(entity).and_then(|item| item.component("units")) {
+            let current = match state
+                .entity(entity)
+                .and_then(|item| item.component("units"))
+            {
                 Some(Value::Integer(value)) => *value,
                 _ => return Err(ActionError::Invalid("missing units".into())),
             };
@@ -550,9 +562,7 @@ mod tests {
     fn baseline() -> WorldState {
         let mut state = WorldState::default();
         state
-            .seed_entity(
-                Entity::new(EntityId::new(1), "counter").with_component("units", 0_i64),
-            )
+            .seed_entity(Entity::new(EntityId::new(1), "counter").with_component("units", 0_i64))
             .unwrap();
         state
     }
@@ -620,7 +630,8 @@ mod tests {
     #[test]
     fn restore_rejects_a_different_world_pack() {
         let world = World::new(baseline());
-        let archive = WorldArchive::capture(WorldPackRef::new("test.counter", "1"), &world).unwrap();
+        let archive =
+            WorldArchive::capture(WorldPackRef::new("test.counter", "1"), &world).unwrap();
         let error = archive
             .restore(&WorldPackRef::new("other.pack", "1"), baseline())
             .unwrap_err();
