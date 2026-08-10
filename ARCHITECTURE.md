@@ -1,0 +1,65 @@
+# World Machine Architecture
+
+## North star
+
+A `.world` is a persistent software object with state, history, rules, actions, intelligence, time, projections, capabilities, and branches.
+
+Tiny Society is the first reference product. Pocket Universe is the long-term architecture constraint, not the current feature target.
+
+## Thin waist
+
+The semantic kernel is intentionally small:
+
+- Entity
+- Relation
+- Event
+- Action
+- Behavior (later milestone)
+- Projection (later milestone)
+
+Runtime services:
+
+- Clock / Scheduler
+- Snapshot / Replay / Branch
+- Capability / Perception
+
+## Dependency direction
+
+```text
+world-core
+   |\
+   | +--> world-gpui        (future)
+   |
+   +----> world-agent       (future)
+             |
+             +--> world-pi  (future)
+
+world-core --> reusable systems --> world packs
+```
+
+Forbidden:
+
+- `world-core -> GPUI`
+- `world-core -> pi_agent_rust`
+- `world-core -> Tiny Society domain`
+
+## State transition rule
+
+External/domain code must not directly mutate authoritative world state.
+
+```text
+ActionRequest
+    -> validate
+    -> produce EventDraft
+    -> materialize Event
+    -> apply typed StateChange operations
+    -> append immutable Event log
+```
+
+Replay applies recorded events and never re-runs the original decision maker.
+
+## Why events carry state changes
+
+A semantic Event records both human-meaningful provenance and the exact generic state changes required for deterministic replay. This keeps reducers independent of domain concepts while preserving causal history.
+
+This is an intentionally minimal v0 design. If multiple real worlds later demonstrate a better reducer model, evolve it then rather than guessing now.
