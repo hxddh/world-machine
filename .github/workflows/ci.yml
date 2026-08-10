@@ -64,3 +64,13 @@ jobs:
       - run: cargo test -p tiny-society-desktop
       - run: cargo test -p future-archaeologist-desktop
       - run: cargo test -p world-machine-desktop
+      - name: Build and validate World Machine.app
+        run: bash apps/world-machine-desktop/macos/build-app.sh
+      - name: Archive World Machine.app
+        run: ditto -c -k --keepParent "target/bundle/World Machine.app" target/bundle/World-Machine-macOS.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: world-machine-macos-app
+          path: target/bundle/World-Machine-macOS.zip
+          if-no-files-found: error
+          retention-days: 7
