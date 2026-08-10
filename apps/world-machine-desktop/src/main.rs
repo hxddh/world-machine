@@ -19,7 +19,9 @@ impl world_gpui::ProjectionController for HostProjectionController {
         &mut self,
         intent: world_gpui::ProjectionIntent,
     ) -> Result<world_gpui::ProjectionSnapshot, String> {
-        self.session.handle(intent).map_err(|error| error.to_string())
+        self.session
+            .handle(intent)
+            .map_err(|error| error.to_string())
     }
 }
 
@@ -85,12 +87,10 @@ impl WorldMachineHome {
                     .text_color(rgb(0x666666))
                     .child(descriptor.description),
             )
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(rgb(0x8a8a82))
-                    .child(format!("{} @ {}", descriptor.pack.id, descriptor.pack.version)),
-            )
+            .child(div().text_xs().text_color(rgb(0x8a8a82)).child(format!(
+                "{} @ {}",
+                descriptor.pack.id, descriptor.pack.version
+            )))
             .on_click(cx.listener(move |this, _, _, cx| this.open_world(pack_id.clone(), cx)))
     }
 }
@@ -109,22 +109,20 @@ impl Render for WorldMachineHome {
             worlds = worlds.child(self.world_card(descriptor, cx));
         }
 
-        let mut body = div()
-            .size_full()
-            .bg(rgb(0xf7f7f3))
-            .text_color(rgb(0x202020))
-            .flex()
-            .flex_col()
-            .gap_3()
-            .p_4()
-            .child(div().text_lg().child("World Machine"))
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(rgb(0x666666))
-                    .child("Open a World. Each one runs through the same Host and Projection shell."),
-            )
-            .child(worlds);
+        let mut body =
+            div()
+                .size_full()
+                .bg(rgb(0xf7f7f3))
+                .text_color(rgb(0x202020))
+                .flex()
+                .flex_col()
+                .gap_3()
+                .p_4()
+                .child(div().text_lg().child("World Machine"))
+                .child(div().text_sm().text_color(rgb(0x666666)).child(
+                    "Open a World. Each one runs through the same Host and Projection shell.",
+                ))
+                .child(worlds);
 
         if let Some(status) = &self.status {
             body = body.child(
