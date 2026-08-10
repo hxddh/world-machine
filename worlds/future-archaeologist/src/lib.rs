@@ -15,8 +15,7 @@ pub use model::{
     PROJECT_COPY_LOG, TAXI_RECEIPT, TERMINAL, WIFI_LOG,
 };
 pub use persistence::{
-    future_archaeologist_pack_ref, FUTURE_ARCHAEOLOGIST_PACK_ID,
-    FUTURE_ARCHAEOLOGIST_PACK_VERSION,
+    future_archaeologist_pack_ref, FUTURE_ARCHAEOLOGIST_PACK_ID, FUTURE_ARCHAEOLOGIST_PACK_VERSION,
 };
 
 pub const RECOVER_MESSAGE_COMMAND: &str = "future-archaeologist.recover-deleted-message";
