@@ -3,15 +3,19 @@ mod system_open;
 
 #[cfg(target_os = "macos")]
 use gpui::{
-    div, prelude::*, px, rgb, size, App, AppContext, Bounds, Context, IntoElement,
+    div, prelude::*, px, rgb, size, App, AppContext, Bounds, Context, Entity, IntoElement,
     PathPromptOptions, Render, SharedString, Styled, Window, WindowBounds, WindowOptions,
 };
+#[cfg(target_os = "macos")]
+use std::cell::RefCell;
 #[cfg(target_os = "macos")]
 use std::env;
 #[cfg(target_os = "macos")]
 use std::path::{Path, PathBuf};
 #[cfg(target_os = "macos")]
 use std::process;
+#[cfg(target_os = "macos")]
+use std::rc::Rc;
 #[cfg(target_os = "macos")]
 use std::sync::Arc;
 #[cfg(target_os = "macos")]
@@ -26,25 +30,160 @@ use world_library::{
 const LIBRARY_OVERRIDE_ENV: &str = "WORLD_MACHINE_LIBRARY_DIR";
 
 #[cfg(target_os = "macos")]
-struct HostProjectionController {
+struct SharedDocumentState {
     session: DurableWorldSession,
     registry: Arc<world_host::WorldRegistry>,
     library: Arc<WorldLibrary>,
 }
 
 #[cfg(target_os = "macos")]
+type SharedDocument = Rc<RefCell<SharedDocumentState>>;
+
+#[cfg(target_os = "macos")]
+struct HostProjectionController {
+    document: SharedDocument,
+}
+
+#[cfg(target_os = "macos")]
 impl world_gpui::ProjectionController for HostProjectionController {
     fn snapshot(&self) -> world_gpui::ProjectionSnapshot {
-        self.session.snapshot()
+        self.document.borrow().session.snapshot()
     }
 
     fn handle(
         &mut self,
         intent: world_gpui::ProjectionIntent,
     ) -> Result<world_gpui::ProjectionSnapshot, String> {
-        self.session
-            .handle(intent, &self.registry, &self.library)
+        let mut document = self.document.borrow_mut();
+        let registry = Arc::clone(&document.registry);
+        let library = Arc::clone(&document.library);
+        document
+            .session
+            .handle(intent, &registry, &library)
             .map_err(|error| error.to_string())
+    }
+}
+
+#[cfg(target_os = "macos")]
+struct WorldDocumentView {
+    title: String,
+    document_label: String,
+    document: SharedDocument,
+    projection: Entity<world_gpui::ProjectionView>,
+    status: Option<String>,
+}
+
+#[cfg(target_os = "macos")]
+impl WorldDocumentView {
+    fn new(
+        session: DurableWorldSession,
+        title: String,
+        registry: Arc<world_host::WorldRegistry>,
+        library: Arc<WorldLibrary>,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let document_label = session.display_name();
+        let document = Rc::new(RefCell::new(SharedDocumentState {
+            session,
+            registry,
+            library,
+        }));
+        let controller = HostProjectionController {
+            document: Rc::clone(&document),
+        };
+        let projection = cx.new(|_| world_gpui::ProjectionView::controlled(controller));
+        Self {
+            title,
+            document_label,
+            document,
+            projection,
+            status: None,
+        }
+    }
+
+    fn reload(&mut self, cx: &mut Context<Self>) {
+        let result = {
+            let mut document = self.document.borrow_mut();
+            let registry = Arc::clone(&document.registry);
+            let library = Arc::clone(&document.library);
+            document.session.reload(&registry, &library)
+        };
+
+        match result {
+            Ok(snapshot) => {
+                let controller = HostProjectionController {
+                    document: Rc::clone(&self.document),
+                };
+                self.projection = cx.new(|_| world_gpui::ProjectionView::controlled(controller));
+                self.status = Some(format!(
+                    "Reloaded {} · World time {}",
+                    self.document_label, snapshot.world_time
+                ));
+            }
+            Err(error) => {
+                self.status = Some(format!("Reload failed: {error}"));
+            }
+        }
+        cx.notify();
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl Render for WorldDocumentView {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let mut chrome = div()
+            .h(px(48.0))
+            .w_full()
+            .flex()
+            .items_center()
+            .justify_between()
+            .px_4()
+            .border_b_1()
+            .border_color(rgb(0xd9d9d3))
+            .bg(rgb(0xf7f7f3))
+            .child(
+                div()
+                    .flex()
+                    .gap_2()
+                    .items_center()
+                    .child(div().text_sm().child(self.title.clone()))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(0x777770))
+                            .child(self.document_label.clone()),
+                    ),
+            )
+            .child(
+                div()
+                    .id("reload-world-document")
+                    .cursor_pointer()
+                    .p_2()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(rgb(0xcacac4))
+                    .bg(rgb(0xffffff))
+                    .text_sm()
+                    .child("Reload from disk")
+                    .on_click(cx.listener(|this, _, _, cx| this.reload(cx))),
+            );
+
+        if let Some(status) = &self.status {
+            chrome = chrome.child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0x4e6fb3))
+                    .child(status.clone()),
+            );
+        }
+
+        div().size_full().flex().flex_col().child(chrome).child(
+            div()
+                .flex_1()
+                .w_full()
+                .overflow_hidden()
+                .child(self.projection.clone()),
+        )
     }
 }
 
@@ -100,18 +239,18 @@ impl WorldMachineHome {
         cx: &mut Context<Self>,
     ) {
         let document_label = session.display_name();
-        let controller = HostProjectionController {
-            session,
-            registry: Arc::clone(&self.registry),
-            library: Arc::clone(&self.library),
-        };
+        let registry = Arc::clone(&self.registry);
+        let library = Arc::clone(&self.library);
+        let window_title = title.clone();
         let bounds = Bounds::centered(None, size(px(1100.0), px(900.0)), cx);
         let opened = cx.open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 ..Default::default()
             },
-            move |_, cx| cx.new(|_| world_gpui::ProjectionView::controlled(controller)),
+            move |_, cx| {
+                cx.new(|cx| WorldDocumentView::new(session, window_title, registry, library, cx))
+            },
         );
 
         self.status = Some(match opened {
