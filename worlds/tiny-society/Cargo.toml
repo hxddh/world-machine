@@ -1,0 +1,10 @@
+[package]
+name = "tiny-society"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+society-basic = { path = "../../systems/society-basic" }
+world-core = { path = "../../crates/world-core" }

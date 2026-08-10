@@ -10,7 +10,7 @@ The first product target is **Tiny Society**, but Tiny Society is deliberately n
 
 The repository currently implements the headless kernel slice:
 
-`Entity / Relation -> Action -> Event -> State -> Scheduler -> Replay`
+`Entity / Relation -> Action -> Event -> State -> Scheduler / Behavior -> Replay`
 
 No GPUI or agent-runtime implementation dependency is allowed in `world-core`. Pi integrations must remain optional adapters; GPUI belongs only in the renderer layer.
 
@@ -19,6 +19,7 @@ No GPUI or agent-runtime implementation dependency is allowed in `world-core`. P
 ```bash
 cargo test --workspace
 cargo run -p world-cli
+cargo run -p tiny-society
 ./scripts/check-boundaries.sh
 ```
 

@@ -2,5 +2,7 @@
 members = [
   "crates/world-core",
   "crates/world-cli",
+  "systems/society-basic",
+  "worlds/tiny-society",
 ]
 resolver = "2"

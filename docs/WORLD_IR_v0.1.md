@@ -138,7 +138,7 @@ The Scheduler orders work by `(world_time, insertion_sequence)`, so equal-time a
 
 A failed scheduled action remains queued. Its attempted time advance is rolled back to the last successfully committed logical time, while earlier successful Events remain committed.
 
-Replay applies historical Events directly and does not re-run scheduler decisions. Pending scheduler work is copied by `World::replay` in v0; historical fork reconstruction currently starts with an empty scheduler because schedule creation is not yet event-sourced. Snapshot/branch hardening will make runtime-service state explicit.
+Replay applies historical Events directly and does not re-run scheduler decisions. Pending scheduler work is copied by `World::replay` in v0; historical fork reconstruction currently starts with an empty scheduler because schedule creation is not event-sourced yet. Snapshot/branch hardening will make runtime-service state explicit.
 
 ### Replay
 
@@ -151,3 +151,30 @@ The v0 branch operation forks from an Event prefix. Future work will add stable 
 ### Capability / Perception
 
 Not implemented yet. Future Behavior execution receives a filtered observation, never global World state by default.
+
+## Reference composition: Tiny Society
+
+The first reference World validates that domain semantics can live entirely above the kernel:
+
+```text
+world-core
+  -> society-basic system
+  -> tiny-society world
+```
+
+`world-core` still knows nothing about residents, employment, storms, boats, orders, or dismissal. The World expresses those concepts through generic Entities, Relations, Actions, Events, Behaviors, and scheduled Actions.
+
+The first vertical slice deliberately records the causal chain:
+
+```text
+storm_started
+  -> boat_damaged
+  -> income_lost
+  -> loan_requested
+  -> temporary_work_assigned
+  -> shift_missed
+  -> order_lost
+  -> worker_dismissed
+```
+
+This chain is a reference test for future `Why?` and branch projections rather than a hard-coded kernel story primitive.

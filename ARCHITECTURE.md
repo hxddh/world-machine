@@ -69,3 +69,19 @@ This is an intentionally minimal v0 design. If multiple real worlds later demons
 `world-core` and the provider-neutral agent protocol must not depend on agent implementations whose licenses add field-of-use, party, or deployment restrictions. Restricted or non-standard runtimes belong behind optional adapters, preferably out-of-process.
 
 GPUI is a renderer dependency, not a kernel dependency. `pi_agent_rust` is an agent runtime adapter, not a World IR dependency. See `docs/LICENSING.md`.
+
+## Systems and World Packs
+
+Reusable domain semantics live above the kernel:
+
+```text
+world-core
+   |
+   +--> systems/*
+           |
+           +--> worlds/*
+```
+
+A System may define domain Actions, Behaviors, schemas, and helpers while depending only on generic World primitives. A World Pack composes Systems, seeds entities/relations, schedules work, and defines world-specific rules and projections.
+
+The first concrete example is `systems/society-basic` + `worlds/tiny-society`. The kernel must remain unchanged when a World introduces concepts such as residents, jobs, weather, boats, orders, or relationships.

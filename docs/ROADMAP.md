@@ -4,7 +4,7 @@ Pocket Universe is the architecture north star. Tiny Society is the first produc
 
 ## M0 — Repository and architecture guardrails
 
-Status: started
+Status: implemented and passing GitHub CI.
 
 - Rust workspace
 - `world-core`
@@ -15,7 +15,7 @@ Status: started
 
 ## M1 — Minimal World data model
 
-Status: implemented, pending real Rust compile in the current execution environment
+Status: implemented and passing GitHub CI.
 
 - Entity
 - Relation
@@ -24,7 +24,7 @@ Status: implemented, pending real Rust compile in the current execution environm
 
 ## M2 — Action -> Event -> State
 
-Status: implemented, pending real Rust compile
+Status: implemented and passing GitHub CI.
 
 - ActionRegistry
 - validated Action evaluation
@@ -35,7 +35,7 @@ Status: implemented, pending real Rust compile
 
 ## M3 — Deterministic history
 
-Status: initial implementation, pending real Rust compile
+Status: initial implementation and passing GitHub CI.
 
 - event log
 - replay from baseline
@@ -65,7 +65,7 @@ No LLM and no UI.
 
 ## M5 — Behavior Runtime
 
-Status: implemented locally, pending GitHub CI.
+Status: implemented and passing GitHub CI.
 
 - Behavior trait and registry
 - deterministic RuleBehavior / NativeBehavior
@@ -77,6 +77,8 @@ Status: implemented locally, pending GitHub CI.
 - replay remains event-only and never re-runs Behaviors
 
 ## M6 — Deterministic Tiny Society vertical slice
+
+Status: implemented locally, pending GitHub CI.
 
 No LLM.
 
