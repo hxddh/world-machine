@@ -58,10 +58,14 @@ impl PiRpcEventParser {
 
         match event_type {
             "message_update" => {
-                if let Some(update) = value.get("assistantMessageEvent")
-                    && update.get("type").and_then(Value::as_str) == Some("text_delta")
-                    && let Some(delta) = update.get("delta").and_then(Value::as_str)
-                {
+                let delta = value
+                    .get("assistantMessageEvent")
+                    .filter(|update| {
+                        update.get("type").and_then(Value::as_str) == Some("text_delta")
+                    })
+                    .and_then(|update| update.get("delta"))
+                    .and_then(Value::as_str);
+                if let Some(delta) = delta {
                     self.text.push_str(delta);
                 }
             }
