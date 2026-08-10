@@ -26,6 +26,12 @@ impl DocumentRevision {
     }
 }
 
+// Keep Save As as a private implementation detail of the durable document
+// state machinery. The public API remains an inherent method on
+// DurableWorldSession, not a new public module or Host/Projection concept.
+#[path = "save_as.rs"]
+mod save_as;
+
 #[cfg(test)]
 mod tests {
     use super::*;
