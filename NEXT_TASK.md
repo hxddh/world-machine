@@ -1,25 +1,27 @@
-# Next Coding Task — M5 Behavior Runtime
+# Next Coding Task — M6 Deterministic Tiny Society Vertical Slice
 
-Implement the smallest deterministic Behavior Runtime vertical slice.
+Build the first real World on top of the generic kernel without adding Tiny Society concepts to `world-core`.
 
 Requirements:
 
-1. Introduce no domain concepts into `world-core`.
-2. Define a small Behavior abstraction that can observe selected Event kinds and propose `ActionRequest`s.
-3. Implement deterministic `RuleBehavior` and `NativeBehavior` paths first. No LLM or Pi integration.
-4. Behavior output must always re-enter the World through `ActionRegistry`; Behaviors may not mutate WorldState directly.
-5. Define deterministic ordering when multiple Behaviors react to the same Event.
-6. Add loop/recursion protection so an Event -> Behavior -> Action -> Event chain cannot run unbounded.
-7. Recorded Events remain sufficient for replay; replay must not re-run Behaviors.
-8. Keep the API compatible with a future `AgentBehavior` implemented by a provider-neutral AgentRuntime.
-9. Do not add async, Tokio, GPUI, Pi, serde, SQLite, ECS, or model dependencies yet.
+1. Add reusable Systems / World Pack structure outside `world-core`.
+2. Seed 8–10 residents and roughly 4 locations using generic Entity / Relation data.
+3. Implement deterministic routine schedules, work, simple money/resource flow, and relationship edges using Actions + Behaviors + Scheduler.
+4. Implement one intentionally testable causal chain:
+
+   storm -> boat damage -> income loss -> loan request -> temporary work -> missed shift -> order loss -> dismissal
+
+5. Every meaningful transition must be a semantic Event with causal provenance.
+6. No LLM, Pi, GPUI, SQLite, serde, ECS, async, or networking yet.
+7. The simulation must be deterministic from a fixed seed/baseline.
+8. Add an integration test proving the full causal chain, deterministic replay, and a fork before dismissal.
+9. `world-core` must remain unchanged unless a concrete generic runtime defect is discovered. If a kernel change is required, document why it is not Society-specific.
 
 Deliver:
 
-- Behavior registry/runtime implementation
-- deterministic ordering tests
-- loop-budget test
-- no-direct-mutation architecture test
-- update `docs/WORLD_IR_v0.1.md`
-- update `docs/ROADMAP.md`
-- run architecture boundary check and Rust tests
+- first `systems/` crates/modules as justified by the vertical slice
+- first `worlds/tiny-society` reference World
+- CLI/demo output of the causal history
+- deterministic integration tests
+- update architecture/IR/roadmap docs
+- GitHub CI green

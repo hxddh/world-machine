@@ -83,17 +83,27 @@ Current v0 operations:
 
 The current implementation applies all changes atomically: either the complete Event is valid or no state mutation is committed.
 
-## Behavior (next)
+## Behavior
 
-A source of Actions in response to World observations/events.
+A deterministic source of Actions in response to committed World Events.
 
-Planned implementations:
+Current implementations:
 
-- RuleBehavior
-- NativeBehavior
-- AgentBehavior
+- `RuleBehavior`
+- `NativeBehavior`
 
-LLM/agent intelligence is therefore one Behavior backend, not a privileged kernel primitive.
+A future `AgentBehavior` will use the same contract through a provider-neutral AgentRuntime. LLM/agent intelligence is therefore one Behavior backend, not a privileged kernel primitive.
+
+Behavior execution semantics are deliberately explicit:
+
+1. committed Events enter a FIFO reaction queue;
+2. matching Behaviors run in registration order;
+3. each Behavior's proposed Actions run in returned order;
+4. proposed Actions re-enter the normal `Action -> Event -> State` path;
+5. generated Events are appended to the FIFO reaction queue;
+6. a hard action budget terminates unbounded reaction chains deterministically.
+
+Every Action produced by a Behavior carries the triggering Event as a causal reference. Replay applies the resulting recorded Events directly and does not re-run Behaviors.
 
 ## Projection (next)
 

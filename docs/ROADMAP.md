@@ -51,7 +51,7 @@ Next hardening:
 
 ## M4 — Clock / Scheduler
 
-Status: implemented locally, pending GitHub CI compile/test.
+Status: implemented and passing GitHub CI.
 
 - logical world time accessor
 - scheduled `ActionRequest`s
@@ -65,12 +65,16 @@ No LLM and no UI.
 
 ## M5 — Behavior Runtime
 
-- Behavior trait
-- RuleBehavior
-- NativeBehavior
-- Behavior subscriptions
-- event -> behavior -> action loop
-- loop/recursion safety
+Status: implemented locally, pending GitHub CI.
+
+- Behavior trait and registry
+- deterministic RuleBehavior / NativeBehavior
+- event subscriptions
+- FIFO event -> behavior -> action -> event loop
+- registration/action ordering guarantees
+- causal trigger propagation
+- hard action budget for loop protection
+- replay remains event-only and never re-runs Behaviors
 
 ## M6 — Deterministic Tiny Society vertical slice
 

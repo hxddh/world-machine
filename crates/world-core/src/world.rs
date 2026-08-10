@@ -103,6 +103,10 @@ impl World {
         &self.events
     }
 
+    pub fn event(&self, id: EventId) -> Option<&Event> {
+        self.events.iter().find(|event| event.id == id)
+    }
+
     pub fn scheduler(&self) -> &Scheduler {
         &self.scheduler
     }
@@ -168,8 +172,10 @@ impl World {
         if draft.actor.is_none() {
             draft.actor = request.actor;
         }
-        if draft.caused_by.is_empty() {
-            draft.caused_by = request.caused_by.clone();
+        for cause in &request.caused_by {
+            if !draft.caused_by.contains(cause) {
+                draft.caused_by.push(*cause);
+            }
         }
 
         let event = Event {
