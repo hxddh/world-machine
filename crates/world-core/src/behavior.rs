@@ -213,7 +213,10 @@ impl BehaviorRuntime {
         let mut executed_actions = 0;
 
         while let Some(trigger) = queue.pop_front() {
-            for behavior in behaviors.iter().filter(|behavior| behavior.handles(&trigger)) {
+            for behavior in behaviors
+                .iter()
+                .filter(|behavior| behavior.handles(&trigger))
+            {
                 for mut request in behavior.react(world.state(), &trigger) {
                     if executed_actions >= max_actions {
                         return Ok(BehaviorRun {
@@ -327,9 +330,7 @@ mod tests {
             .register(NativeBehavior::new(
                 "native",
                 ["pinged"],
-                |_state, _event| {
-                    vec![ActionRequest::new("record").arg("label", "native")]
-                },
+                |_state, _event| vec![ActionRequest::new("record").arg("label", "native")],
             ))
             .unwrap();
 
@@ -338,8 +339,8 @@ mod tests {
             .execute(&actions, &ActionRequest::new("ping"))
             .unwrap()
             .id;
-        let run = BehaviorRuntime::run_from_event(&mut world, &actions, &behaviors, root, 10)
-            .unwrap();
+        let run =
+            BehaviorRuntime::run_from_event(&mut world, &actions, &behaviors, root, 10).unwrap();
 
         assert_eq!(run.status, BehaviorRunStatus::Complete);
         assert_eq!(run.executed_actions, 3);
@@ -387,8 +388,8 @@ mod tests {
             .execute(&actions, &ActionRequest::new("ping"))
             .unwrap()
             .id;
-        let run = BehaviorRuntime::run_from_event(&mut world, &actions, &behaviors, root, 10)
-            .unwrap();
+        let run =
+            BehaviorRuntime::run_from_event(&mut world, &actions, &behaviors, root, 10).unwrap();
 
         assert_eq!(run.generated_events.len(), 2);
         let first = run.generated_events[0];
@@ -412,8 +413,8 @@ mod tests {
             .execute(&actions, &ActionRequest::new("ping"))
             .unwrap()
             .id;
-        let run = BehaviorRuntime::run_from_event(&mut world, &actions, &behaviors, root, 3)
-            .unwrap();
+        let run =
+            BehaviorRuntime::run_from_event(&mut world, &actions, &behaviors, root, 3).unwrap();
 
         assert_eq!(run.status, BehaviorRunStatus::BudgetExhausted);
         assert_eq!(run.executed_actions, 3);
@@ -451,11 +452,10 @@ mod tests {
                 Vec::new()
             }))
             .unwrap();
-        let result = behaviors.register(RuleBehavior::new(
-            "same",
-            ["recorded"],
-            |_state, _event| Vec::new(),
-        ));
+        let result =
+            behaviors.register(RuleBehavior::new("same", ["recorded"], |_state, _event| {
+                Vec::new()
+            }));
 
         assert_eq!(
             result.unwrap_err(),
