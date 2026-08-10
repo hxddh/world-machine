@@ -13,10 +13,14 @@ use world_projection::{
 const RESIDENTS: [EntityId; 8] = [JONAS, MARA, LEO, EMMA, MIA, NOAH, EVAN, SOFIA];
 
 pub(crate) fn snapshot(world: &World) -> ProjectionSnapshot {
+    snapshot_since(world, None)
+}
+
+pub(crate) fn snapshot_since(world: &World, since_event_count: Option<usize>) -> ProjectionSnapshot {
     ProjectionSnapshot {
         title: "Tiny Society".into(),
         world_time: world.world_time(),
-        briefing: Some(society_briefing(world)),
+        briefing: Some(society_briefing(world, since_event_count)),
         commands: available_commands(world),
         collection: CollectionProjection {
             title: "Residents".into(),
@@ -62,9 +66,15 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
     }
 }
 
-fn society_briefing(world: &World) -> BriefingProjection {
-    let items = world
-        .events()
+fn society_briefing(world: &World, since_event_count: Option<usize>) -> BriefingProjection {
+    let start = since_event_count.unwrap_or(0).min(world.events().len());
+    let relevant_events = if since_event_count.is_some() {
+        &world.events()[start..]
+    } else {
+        world.events()
+    };
+
+    let mut items = relevant_events
         .iter()
         .rev()
         .filter_map(|event| {
@@ -87,11 +97,37 @@ fn society_briefing(world: &World) -> BriefingProjection {
             })
         })
         .take(4)
-        .collect();
+        .collect::<Vec<_>>();
+
+    if since_event_count.is_some() && items.is_empty() {
+        let (title, detail) = if relevant_events.is_empty() {
+            (
+                "No new events",
+                "Nothing changed in the world since your last visit.".to_string(),
+            )
+        } else {
+            (
+                "The world moved forward",
+                format!(
+                    "{} new event(s) occurred, but none are highlighted in Society Today.",
+                    relevant_events.len()
+                ),
+            )
+        };
+        items.push(BriefingItem {
+            selection: None,
+            title: title.into(),
+            detail,
+        });
+    }
 
     BriefingProjection {
         eyebrow: "Society Today".into(),
-        title: "Life happened while you were away".into(),
+        title: if since_event_count.is_some() {
+            "While you were away".into()
+        } else {
+            "Life happened while you were away".into()
+        },
         items,
     }
 }
