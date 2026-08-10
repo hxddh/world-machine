@@ -1,7 +1,5 @@
 use super::DocumentRevision;
-use crate::{
-    required_archive, DurableWorldSession, LibraryError, WorldDocumentTarget,
-};
+use crate::{required_archive, DurableWorldSession, LibraryError, WorldDocumentTarget};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -92,12 +90,8 @@ mod tests {
     use crate::{read_archive_file, write_archive_file};
     use std::env;
     use world_host::{HostError, WorldSession};
-    use world_persistence::{
-        WorldPackRef, WORLD_ARCHIVE_FORMAT, WORLD_ARCHIVE_VERSION,
-    };
-    use world_projection::{
-        ProjectionCapabilities, ProjectionIntent, ProjectionSnapshot,
-    };
+    use world_persistence::{WorldPackRef, WORLD_ARCHIVE_FORMAT, WORLD_ARCHIVE_VERSION};
+    use world_projection::{ProjectionCapabilities, ProjectionIntent, ProjectionSnapshot};
 
     const MOCK_PACK: &str = "world-machine.save-as-mock";
 
@@ -119,10 +113,7 @@ mod tests {
             }
         }
 
-        fn handle(
-            &mut self,
-            _intent: ProjectionIntent,
-        ) -> Result<ProjectionSnapshot, HostError> {
+        fn handle(&mut self, _intent: ProjectionIntent) -> Result<ProjectionSnapshot, HostError> {
             Err(HostError::Session("unused in Save As tests".into()))
         }
 
