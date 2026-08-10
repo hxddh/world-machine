@@ -58,7 +58,9 @@ impl TinySocietyBranch {
     ) -> Result<Vec<EventId>, Box<dyn Error>> {
         match command_id {
             RETAIN_WORKER_COMMAND => self.continue_with_retention(),
-            _ => Err(std::io::Error::other(format!("unknown projection command: {command_id}")).into()),
+            _ => Err(
+                std::io::Error::other(format!("unknown projection command: {command_id}")).into(),
+            ),
         }
     }
 
