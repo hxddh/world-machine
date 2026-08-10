@@ -1,0 +1,10 @@
+[package]
+name = "future-archaeologist"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+world-core = { path = "../../crates/world-core" }
+world-projection = { path = "../../crates/world-projection" }
