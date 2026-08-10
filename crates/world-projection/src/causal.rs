@@ -76,7 +76,9 @@ mod tests {
     fn why_projection_walks_persisted_causes() {
         let mut state = WorldState::default();
         state
-            .seed_entity(Entity::new(EntityId::new(1), "workspace").with_component("name", "Workspace"))
+            .seed_entity(
+                Entity::new(EntityId::new(1), "workspace").with_component("name", "Workspace"),
+            )
             .unwrap();
 
         let events = vec![
