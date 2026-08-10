@@ -190,11 +190,7 @@ impl ProjectionView {
         )
     }
 
-    fn briefing_item(
-        &self,
-        item: &BriefingItem,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    fn briefing_item(&self, item: &BriefingItem, cx: &mut Context<Self>) -> impl IntoElement {
         let id = item
             .selection
             .map(|selection| format!("briefing-{}", selection.stable_key()))
@@ -343,12 +339,7 @@ impl ProjectionView {
             .rounded_md()
             .bg(rgb(0xffffff))
             .cursor_pointer()
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(rgb(0x65708a))
-                    .child(prefix),
-            )
+            .child(div().text_xs().text_color(rgb(0x65708a)).child(prefix))
             .child(div().text_sm().child(node.title.clone()))
             .child(
                 div()
@@ -362,13 +353,7 @@ impl ProjectionView {
 
 impl Render for ProjectionView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let mut center = div()
-            .flex_1()
-            .h_full()
-            .flex()
-            .flex_col()
-            .gap_3()
-            .p_3();
+        let mut center = div().flex_1().h_full().flex().flex_col().gap_3().p_3();
 
         if let Some(briefing) = self.render_briefing(cx) {
             center = center.child(briefing);
