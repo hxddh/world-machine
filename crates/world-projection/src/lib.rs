@@ -415,7 +415,9 @@ mod tests {
         };
 
         assert_eq!(
-            snapshot.command("world.continue").map(|command| command.title.as_str()),
+            snapshot
+                .command("world.continue")
+                .map(|command| command.title.as_str()),
             Some("Continue")
         );
         assert!(snapshot.command("missing").is_none());
