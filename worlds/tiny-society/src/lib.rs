@@ -1,6 +1,7 @@
 mod actions;
 mod behaviors;
 mod model;
+mod projection;
 mod seed;
 
 use std::error::Error;
@@ -10,6 +11,7 @@ use world_agent::{
 use world_core::{
     ActionRegistry, ActionRequest, BehaviorRegistry, BehaviorRuntime, Event, EventId, World,
 };
+use world_projection::ProjectionSnapshot;
 
 pub use model::{
     BAKERY, EMMA, EVAN, HARBOR, JONAS, JONAS_BOAT, LEO, MARA, MIA, NOAH, PUB, SCHOOL, SOFIA,
@@ -46,6 +48,10 @@ impl TinySociety {
 
     pub fn world(&self) -> &World {
         &self.world
+    }
+
+    pub fn projection_snapshot(&self) -> ProjectionSnapshot {
+        projection::snapshot(&self.world)
     }
 
     pub fn run_story(&mut self) -> Result<(), Box<dyn Error>> {
