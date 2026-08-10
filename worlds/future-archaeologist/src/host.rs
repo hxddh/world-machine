@@ -47,10 +47,7 @@ impl WorldSession for FutureArchaeologistSession {
     }
 
     fn archive(&self) -> Result<Option<WorldArchive>, HostError> {
-        self.world
-            .archive()
-            .map(Some)
-            .map_err(HostError::session)
+        self.world.archive().map(Some).map_err(HostError::session)
     }
 }
 
