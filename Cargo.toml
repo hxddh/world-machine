@@ -9,6 +9,7 @@ members = [
   "crates/world-persistence",
   "crates/world-host",
   "crates/world-builtins",
+  "crates/world-library",
   "systems/society-basic",
   "worlds/tiny-society",
   "worlds/future-archaeologist",
