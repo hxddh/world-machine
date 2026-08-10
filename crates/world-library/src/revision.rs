@@ -1,0 +1,48 @@
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct DocumentRevision {
+    len: u64,
+    first: u64,
+    second: u64,
+}
+
+impl DocumentRevision {
+    pub(crate) fn from_bytes(bytes: &[u8]) -> Self {
+        let mut first = DefaultHasher::new();
+        0x574f_524c_445f_3031_u64.hash(&mut first);
+        bytes.hash(&mut first);
+
+        let mut second = DefaultHasher::new();
+        0x574f_524c_445f_3032_u64.hash(&mut second);
+        bytes.hash(&mut second);
+
+        Self {
+            len: bytes.len() as u64,
+            first: first.finish(),
+            second: second.finish(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn content_changes_change_the_revision() {
+        assert_ne!(
+            DocumentRevision::from_bytes(b"world-a"),
+            DocumentRevision::from_bytes(b"world-b")
+        );
+    }
+
+    #[test]
+    fn identical_content_has_the_same_revision() {
+        assert_eq!(
+            DocumentRevision::from_bytes(b"same-world"),
+            DocumentRevision::from_bytes(b"same-world")
+        );
+    }
+}
