@@ -67,6 +67,69 @@ fn branch_before_dismissal_preserves_the_alternative_state() {
 }
 
 #[test]
+fn forked_branch_can_diverge_and_keep_running() {
+    let mut simulation = TinySociety::new().unwrap();
+    simulation.run_story().unwrap();
+
+    let dismissal = simulation
+        .world()
+        .events()
+        .iter()
+        .find(|event| event.kind == "worker_dismissed")
+        .unwrap()
+        .id;
+    let mut branch = simulation.branch();
+    branch.fork_before_event(dismissal).unwrap();
+
+    let order_loss = branch
+        .world()
+        .events()
+        .iter()
+        .find(|event| event.kind == "order_lost")
+        .unwrap()
+        .id;
+    let jonas_cash_before = integer_component(branch.world().state(), JONAS, CASH).unwrap();
+
+    branch.continue_with_retention().unwrap();
+
+    let retained = branch
+        .world()
+        .events()
+        .iter()
+        .find(|event| event.kind == "worker_retained")
+        .unwrap();
+    let future_shift = branch
+        .world()
+        .events()
+        .iter()
+        .rev()
+        .find(|event| event.kind == "work_shift_completed" && event.actor == Some(JONAS))
+        .unwrap();
+
+    assert!(retained.caused_by.contains(&order_loss));
+    assert!(future_shift.caused_by.contains(&retained.id));
+    assert_eq!(
+        text_component(branch.world().state(), JONAS, JOB).unwrap(),
+        "bakery_temp"
+    );
+    assert_eq!(
+        integer_component(branch.world().state(), JONAS, CASH).unwrap(),
+        jonas_cash_before + 18
+    );
+    assert_eq!(branch.world().world_time(), 25);
+    assert!(branch
+        .world()
+        .events()
+        .iter()
+        .all(|event| event.kind != "worker_dismissed"));
+
+    let snapshot = branch.projection_snapshot();
+    let why = snapshot.why(future_shift.id).unwrap();
+    assert!(why.nodes.iter().any(|node| node.event == retained.id));
+    assert!(why.nodes.iter().any(|node| node.event == order_loss));
+}
+
+#[test]
 fn routine_work_moves_cash_and_relationships_exist() {
     let mut simulation = TinySociety::new().unwrap();
     let jonas_before = integer_component(simulation.world().state(), JONAS, CASH).unwrap();
