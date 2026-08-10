@@ -1,5 +1,6 @@
 mod actions;
 mod behaviors;
+mod interventions;
 mod model;
 mod projection;
 mod seed;
@@ -48,14 +49,56 @@ impl TinySocietyBranch {
         self.world = self.world.fork_after(position)?;
         Ok(())
     }
+
+    pub fn continue_with_retention(&mut self) -> Result<Vec<EventId>, Box<dyn Error>> {
+        let order_loss = self
+            .world
+            .events()
+            .iter()
+            .rev()
+            .find(|event| event.kind == "order_lost")
+            .map(|event| event.id)
+            .ok_or_else(|| std::io::Error::other("branch has no lost order to respond to"))?;
+        if self
+            .world
+            .events()
+            .iter()
+            .any(|event| event.kind == "worker_retained")
+        {
+            return Err(std::io::Error::other("Jonas has already been retained").into());
+        }
+
+        let actions = build_action_registry()?;
+        let retained = self
+            .world
+            .execute(
+                &actions,
+                &ActionRequest::new("retain_worker")
+                    .actor(MARA)
+                    .caused_by(order_loss),
+            )?
+            .id;
+
+        let next_shift = self.world.world_time() + 5;
+        self.world.schedule_at(
+            next_shift,
+            ActionRequest::new("work_shift")
+                .actor(JONAS)
+                .arg("worker", JONAS)
+                .arg("workplace", BAKERY)
+                .arg("wage", 18_i64)
+                .caused_by(retained),
+        )?;
+
+        let mut events = vec![retained];
+        events.extend(self.world.advance_to(&actions, next_shift)?);
+        Ok(events)
+    }
 }
 
 impl TinySociety {
     pub fn new() -> Result<Self, Box<dyn Error>> {
-        let mut actions = ActionRegistry::new();
-        society_basic::register_actions(&mut actions)?;
-        world_agent::register_actions(&mut actions)?;
-        actions::register(&mut actions)?;
+        let actions = build_action_registry()?;
 
         let mut behaviors = BehaviorRegistry::new();
         behaviors::register(&mut behaviors)?;
@@ -201,6 +244,15 @@ impl TinySociety {
         }
         Ok(all)
     }
+}
+
+fn build_action_registry() -> Result<ActionRegistry, Box<dyn Error>> {
+    let mut actions = ActionRegistry::new();
+    society_basic::register_actions(&mut actions)?;
+    world_agent::register_actions(&mut actions)?;
+    actions::register(&mut actions)?;
+    interventions::register(&mut actions)?;
+    Ok(actions)
 }
 
 #[cfg(test)]
