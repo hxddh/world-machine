@@ -8,11 +8,11 @@ PI_RPC="$ROOT/crates/world-pi-rpc"
 PROJECTION="$ROOT/crates/world-projection"
 GPUI="$ROOT/crates/world-gpui"
 
-core_forbidden=("TinySociety" "Tiny Society" "Person" "Town" "Bakery" "Society" "gpui" "pi_agent" "FootballPlayer" "Evidence" "world_agent")
+core_forbidden=("TinySociety" "Tiny Society" "FutureArchaeologist" "Future Archaeologist" "Person" "Town" "Bakery" "Society" "gpui" "pi_agent" "FootballPlayer" "Evidence" "world_agent")
 agent_forbidden=("pi_agent" "openai" "anthropic" "gpui")
 pi_rpc_forbidden=("pi_agent_rust")
-projection_forbidden=("TinySociety" "Tiny Society" "Bakery" "Society" "gpui" "pi_agent")
-gpui_forbidden=("TinySociety" "tiny_society" "world_core" "pi_agent")
+projection_forbidden=("TinySociety" "Tiny Society" "FutureArchaeologist" "Future Archaeologist" "Bakery" "Society" "gpui" "pi_agent")
+gpui_forbidden=("TinySociety" "tiny_society" "FutureArchaeologist" "future_archaeologist" "world_core" "pi_agent")
 
 failed=0
 for token in "${core_forbidden[@]}"; do
