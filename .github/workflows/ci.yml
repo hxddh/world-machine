@@ -56,4 +56,4 @@ jobs:
         with:
           shared-key: gpui-macos
       - run: cargo check -p world-gpui
-      - run: cargo check -p tiny-society-desktop
+      - run: cargo test -p tiny-society-desktop

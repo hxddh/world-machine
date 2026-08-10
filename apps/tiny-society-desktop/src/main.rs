@@ -1,6 +1,20 @@
 #[cfg(target_os = "macos")]
+mod session_store;
+
+#[cfg(target_os = "macos")]
 struct TinySocietyController {
     branch: tiny_society::TinySocietyBranch,
+    store: session_store::SessionStore,
+}
+
+#[cfg(target_os = "macos")]
+impl TinySocietyController {
+    fn persist_branch(&self, branch: &tiny_society::TinySocietyBranch) -> Result<(), String> {
+        let json = branch.archive_json().map_err(|error| error.to_string())?;
+        self.store
+            .save(&json)
+            .map_err(|error| format!("failed to save {}: {error}", self.store.path().display()))
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -13,18 +27,21 @@ impl world_gpui::ProjectionController for TinySocietyController {
         &mut self,
         intent: world_gpui::ProjectionIntent,
     ) -> Result<world_gpui::ProjectionSnapshot, String> {
+        let mut candidate = self.branch.clone();
         match intent {
             world_gpui::ProjectionIntent::ForkBeforeEvent(event) => {
-                self.branch
+                candidate
                     .fork_before_event(event)
                     .map_err(|error| error.to_string())?;
             }
             world_gpui::ProjectionIntent::InvokeCommand(command_id) => {
-                self.branch
+                candidate
                     .invoke_projection_command(&command_id)
                     .map_err(|error| error.to_string())?;
             }
         }
+        self.persist_branch(&candidate)?;
+        self.branch = candidate;
         Ok(self.branch.projection_snapshot())
     }
 }
@@ -36,10 +53,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     use tiny_society::TinySociety;
     use world_gpui::ProjectionView;
 
-    let mut society = TinySociety::new()?;
-    society.run_story()?;
+    let store = session_store::SessionStore::discover()?;
+    let society = match store.load()? {
+        Some(json) => TinySociety::resume_json(&json)?,
+        None => {
+            let mut society = TinySociety::new()?;
+            society.run_story()?;
+            store.save(&society.archive_json()?)?;
+            society
+        }
+    };
     let controller = TinySocietyController {
         branch: society.branch(),
+        store,
     };
 
     application().run(move |cx: &mut App| {
