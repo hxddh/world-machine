@@ -2,6 +2,7 @@ mod actions;
 mod behaviors;
 mod interventions;
 mod model;
+mod persistence;
 mod projection;
 mod seed;
 
@@ -17,6 +18,9 @@ use world_projection::ProjectionSnapshot;
 pub use model::{
     BAKERY, EMMA, EVAN, HARBOR, JONAS, JONAS_BOAT, LEO, MARA, MIA, NOAH, PUB, SCHOOL, SOFIA,
     WEDDING_ORDER,
+};
+pub use persistence::{
+    tiny_society_pack_ref, VisitCursor, TINY_SOCIETY_PACK_ID, TINY_SOCIETY_PACK_VERSION,
 };
 
 pub const RETAIN_WORKER_COMMAND: &str = "tiny-society.retain-worker";
