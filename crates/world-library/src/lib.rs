@@ -7,7 +7,8 @@ use world_host::{HostError, WorldRegistry, WorldSession};
 use world_persistence::{PersistenceError, WorldArchive, WorldPackRef};
 use world_projection::{ProjectionIntent, ProjectionSnapshot};
 
-const WORLD_FILE_SUFFIX: &str = ".world.json";
+pub const WORLD_DOCUMENT_SUFFIX: &str = ".world";
+pub const LEGACY_WORLD_DOCUMENT_SUFFIX: &str = ".world.json";
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct WorldDocumentId(String);
@@ -33,7 +34,11 @@ impl WorldDocumentId {
     }
 
     fn file_name(&self) -> String {
-        format!("{}{WORLD_FILE_SUFFIX}", self.0)
+        format!("{}{WORLD_DOCUMENT_SUFFIX}", self.0)
+    }
+
+    fn legacy_file_name(&self) -> String {
+        format!("{}{LEGACY_WORLD_DOCUMENT_SUFFIX}", self.0)
     }
 }
 
@@ -69,20 +74,31 @@ impl WorldLibrary {
         self.root.join(id.file_name())
     }
 
+    fn legacy_path(&self, id: &WorldDocumentId) -> PathBuf {
+        self.root.join(id.legacy_file_name())
+    }
+
+    pub fn contains(&self, id: &WorldDocumentId) -> Result<bool, LibraryError> {
+        Ok(self.path(id).try_exists()? || self.legacy_path(id).try_exists()?)
+    }
+
     pub fn save(&self, id: &WorldDocumentId, archive: &WorldArchive) -> Result<(), LibraryError> {
         let json = archive.to_json_pretty()?;
         atomic_write(&self.path(id), json.as_bytes())?;
+        let _ = fs::remove_file(self.legacy_path(id));
         Ok(())
     }
 
     pub fn load(&self, id: &WorldDocumentId) -> Result<Option<WorldArchive>, LibraryError> {
-        let path = self.path(id);
-        let json = match fs::read_to_string(path) {
-            Ok(json) => json,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(LibraryError::Io(error)),
-        };
-        Ok(Some(WorldArchive::from_json(&json)?))
+        for path in [self.path(id), self.legacy_path(id)] {
+            let json = match fs::read_to_string(path) {
+                Ok(json) => json,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(LibraryError::Io(error)),
+            };
+            return Ok(Some(WorldArchive::from_json(&json)?));
+        }
+        Ok(None)
     }
 
     pub fn list(&self) -> Result<Vec<WorldDocumentSummary>, LibraryError> {
@@ -92,7 +108,7 @@ impl WorldLibrary {
             Err(error) => return Err(LibraryError::Io(error)),
         };
 
-        let mut documents = Vec::new();
+        let mut ids = Vec::new();
         for entry in entries {
             let entry = entry?;
             if !entry.file_type()?.is_file() {
@@ -102,22 +118,57 @@ impl WorldLibrary {
             let Some(file_name) = file_name.to_str() else {
                 continue;
             };
-            let Some(raw_id) = file_name.strip_suffix(WORLD_FILE_SUFFIX) else {
+            let raw_id = if let Some(raw_id) = file_name.strip_suffix(WORLD_DOCUMENT_SUFFIX) {
+                raw_id
+            } else if let Some(raw_id) = file_name.strip_suffix(LEGACY_WORLD_DOCUMENT_SUFFIX) {
+                raw_id
+            } else {
                 continue;
             };
-            let id = WorldDocumentId::new(raw_id)?;
+            ids.push(WorldDocumentId::new(raw_id)?);
+        }
+        ids.sort();
+        ids.dedup();
+
+        let mut documents = Vec::new();
+        for id in ids {
             let Some(archive) = self.load(&id)? else {
                 continue;
             };
-            documents.push(WorldDocumentSummary {
-                id,
-                pack: archive.pack.clone(),
-                world_time: archive.world_time,
-                event_count: archive.events.len(),
-            });
+            documents.push(summary(id, &archive));
         }
-        documents.sort_by(|left, right| left.id.cmp(&right.id));
         Ok(documents)
+    }
+
+    pub fn import_file(
+        &self,
+        id: WorldDocumentId,
+        source: &Path,
+    ) -> Result<WorldDocumentSummary, LibraryError> {
+        if self.contains(&id)? {
+            return Err(LibraryError::DocumentAlreadyExists(id));
+        }
+        let archive = read_archive_file(source)?;
+        self.save(&id, &archive)?;
+        Ok(summary(id, &archive))
+    }
+
+    pub fn export_file(
+        &self,
+        id: &WorldDocumentId,
+        destination: &Path,
+    ) -> Result<(), LibraryError> {
+        if destination.try_exists()? {
+            return Err(LibraryError::ExportDestinationExists(
+                destination.to_path_buf(),
+            ));
+        }
+        let archive = self
+            .load(id)?
+            .ok_or_else(|| LibraryError::UnknownDocument(id.clone()))?;
+        let json = archive.to_json_pretty()?;
+        atomic_write(destination, json.as_bytes())?;
+        Ok(())
     }
 }
 
@@ -133,6 +184,9 @@ impl DurableWorldSession {
         registry: &WorldRegistry,
         library: &WorldLibrary,
     ) -> Result<Self, LibraryError> {
+        if library.contains(&document_id)? {
+            return Err(LibraryError::DocumentAlreadyExists(document_id));
+        }
         let session = registry.create(pack_id)?;
         let archive = required_archive(session.as_ref())?;
         library.save(&document_id, &archive)?;
@@ -151,6 +205,24 @@ impl DurableWorldSession {
             .load(&document_id)?
             .ok_or_else(|| LibraryError::UnknownDocument(document_id.clone()))?;
         let session = registry.open_archive(&archive)?;
+        Ok(Self {
+            document_id,
+            session,
+        })
+    }
+
+    pub fn import_file(
+        document_id: WorldDocumentId,
+        source: &Path,
+        registry: &WorldRegistry,
+        library: &WorldLibrary,
+    ) -> Result<Self, LibraryError> {
+        if library.contains(&document_id)? {
+            return Err(LibraryError::DocumentAlreadyExists(document_id));
+        }
+        let archive = read_archive_file(source)?;
+        let session = registry.open_archive(&archive)?;
+        library.save(&document_id, &archive)?;
         Ok(Self {
             document_id,
             session,
@@ -185,6 +257,20 @@ impl DurableWorldSession {
     }
 }
 
+fn summary(id: WorldDocumentId, archive: &WorldArchive) -> WorldDocumentSummary {
+    WorldDocumentSummary {
+        id,
+        pack: archive.pack.clone(),
+        world_time: archive.world_time,
+        event_count: archive.events.len(),
+    }
+}
+
+fn read_archive_file(path: &Path) -> Result<WorldArchive, LibraryError> {
+    let json = fs::read_to_string(path)?;
+    Ok(WorldArchive::from_json(&json)?)
+}
+
 fn required_archive(session: &dyn WorldSession) -> Result<WorldArchive, LibraryError> {
     session
         .archive()?
@@ -194,7 +280,8 @@ fn required_archive(session: &dyn WorldSession) -> Result<WorldArchive, LibraryE
 fn atomic_write(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let parent = path
         .parent()
-        .ok_or_else(|| io::Error::other("world document path has no parent directory"))?;
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
     fs::create_dir_all(parent)?;
 
     let file_name = path
@@ -214,6 +301,8 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> io::Result<()> {
 pub enum LibraryError {
     InvalidDocumentId(String),
     UnknownDocument(WorldDocumentId),
+    DocumentAlreadyExists(WorldDocumentId),
+    ExportDestinationExists(PathBuf),
     ArchiveUnsupported(String),
     Io(io::Error),
     Persistence(PersistenceError),
@@ -225,6 +314,10 @@ impl fmt::Display for LibraryError {
         match self {
             Self::InvalidDocumentId(id) => write!(f, "invalid World document id: {id}"),
             Self::UnknownDocument(id) => write!(f, "unknown World document: {id}"),
+            Self::DocumentAlreadyExists(id) => write!(f, "World document already exists: {id}"),
+            Self::ExportDestinationExists(path) => {
+                write!(f, "export destination already exists: {}", path.display())
+            }
             Self::ArchiveUnsupported(pack) => {
                 write!(f, "World Pack does not support durable archives: {pack}")
             }
@@ -241,9 +334,11 @@ impl Error for LibraryError {
             Self::Io(error) => Some(error),
             Self::Persistence(error) => Some(error),
             Self::Host(error) => Some(error),
-            Self::InvalidDocumentId(_) | Self::UnknownDocument(_) | Self::ArchiveUnsupported(_) => {
-                None
-            }
+            Self::InvalidDocumentId(_)
+            | Self::UnknownDocument(_)
+            | Self::DocumentAlreadyExists(_)
+            | Self::ExportDestinationExists(_)
+            | Self::ArchiveUnsupported(_) => None,
         }
     }
 }
@@ -372,6 +467,42 @@ mod tests {
     }
 
     #[test]
+    fn new_documents_use_world_extension() {
+        let root = temp_root("extension");
+        let library = WorldLibrary::new(root.clone());
+        let id = WorldDocumentId::new("portable").unwrap();
+
+        library.save(&id, &mock_archive(2)).unwrap();
+
+        assert_eq!(
+            library.path(&id).file_name().unwrap().to_string_lossy(),
+            "portable.world"
+        );
+        assert!(library.path(&id).is_file());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn legacy_world_json_is_read_and_migrated_on_next_save() {
+        let root = temp_root("legacy");
+        fs::create_dir_all(&root).unwrap();
+        let library = WorldLibrary::new(root.clone());
+        let id = WorldDocumentId::new("legacy").unwrap();
+        let legacy_path = root.join("legacy.world.json");
+        fs::write(&legacy_path, mock_archive(3).to_json_pretty().unwrap()).unwrap();
+
+        assert_eq!(library.load(&id).unwrap().unwrap().world_time, 3);
+        assert_eq!(library.list().unwrap().len(), 1);
+
+        library.save(&id, &mock_archive(4)).unwrap();
+        assert_eq!(library.load(&id).unwrap().unwrap().world_time, 4);
+        assert!(library.path(&id).is_file());
+        assert!(!legacy_path.exists());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn library_saves_loads_and_lists_archives() {
         let root = temp_root("round-trip");
         let library = WorldLibrary::new(root.clone());
@@ -392,6 +523,49 @@ mod tests {
         );
         assert_eq!(documents[1].world_time, 9);
         assert_eq!(documents[1].event_count, 0);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn export_and_import_round_trip_a_portable_world_file() {
+        let root = temp_root("portable-round-trip");
+        let source_root = root.join("source");
+        let target_root = root.join("target");
+        let source = WorldLibrary::new(source_root);
+        let target = WorldLibrary::new(target_root);
+        let source_id = WorldDocumentId::new("source").unwrap();
+        let imported_id = WorldDocumentId::new("imported").unwrap();
+        let external = root.join("Shared World.world");
+        let archive = mock_archive(11);
+
+        source.save(&source_id, &archive).unwrap();
+        source.export_file(&source_id, &external).unwrap();
+        let summary = target.import_file(imported_id.clone(), &external).unwrap();
+
+        assert_eq!(summary.id, imported_id);
+        assert_eq!(summary.world_time, 11);
+        assert_eq!(target.load(&summary.id).unwrap().unwrap(), archive);
+        assert!(external.is_file());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn export_refuses_to_replace_an_existing_destination() {
+        let root = temp_root("export-existing");
+        let library = WorldLibrary::new(root.join("library"));
+        let id = WorldDocumentId::new("source").unwrap();
+        let destination = root.join("existing.world");
+        library.save(&id, &mock_archive(1)).unwrap();
+        fs::create_dir_all(&root).unwrap();
+        fs::write(&destination, "keep me").unwrap();
+
+        assert!(matches!(
+            library.export_file(&id, &destination),
+            Err(LibraryError::ExportDestinationExists(path)) if path == destination
+        ));
+        assert_eq!(fs::read_to_string(&destination).unwrap(), "keep me");
 
         let _ = fs::remove_dir_all(root);
     }
@@ -418,6 +592,52 @@ mod tests {
         let reopened = DurableWorldSession::open(id, &registry, &library).unwrap();
         assert_eq!(reopened.snapshot().title, "Mock 1");
         assert_eq!(reopened.pack(), WorldPackRef::new(MOCK_PACK, "1"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn durable_import_validates_pack_before_writing_to_library() {
+        let root = temp_root("validated-import");
+        let library = WorldLibrary::new(root.join("library"));
+        let registry = registry();
+        let external = root.join("incoming.world");
+        let id = WorldDocumentId::new("incoming").unwrap();
+        fs::create_dir_all(&root).unwrap();
+        fs::write(&external, mock_archive(7).to_json_pretty().unwrap()).unwrap();
+
+        let imported =
+            DurableWorldSession::import_file(id.clone(), &external, &registry, &library).unwrap();
+        assert_eq!(imported.snapshot().title, "Mock 7");
+        assert!(library.contains(&id).unwrap());
+
+        let bad_external = root.join("unsupported.world");
+        let bad_id = WorldDocumentId::new("unsupported").unwrap();
+        let mut unsupported = mock_archive(1);
+        unsupported.pack = WorldPackRef::new("world-machine.missing", "1");
+        fs::write(&bad_external, unsupported.to_json_pretty().unwrap()).unwrap();
+
+        assert!(matches!(
+            DurableWorldSession::import_file(bad_id.clone(), &bad_external, &registry, &library),
+            Err(LibraryError::Host(HostError::UnknownWorld(_)))
+        ));
+        assert!(!library.contains(&bad_id).unwrap());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn duplicate_document_creation_is_rejected() {
+        let root = temp_root("duplicate");
+        let library = WorldLibrary::new(root.clone());
+        let registry = registry();
+        let id = WorldDocumentId::new("same").unwrap();
+        DurableWorldSession::create(id.clone(), MOCK_PACK, &registry, &library).unwrap();
+
+        assert!(matches!(
+            DurableWorldSession::create(id.clone(), MOCK_PACK, &registry, &library),
+            Err(LibraryError::DocumentAlreadyExists(existing)) if existing == id
+        ));
 
         let _ = fs::remove_dir_all(root);
     }
