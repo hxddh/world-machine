@@ -1,0 +1,111 @@
+use crate::{
+    BAKERY, EMMA, EVAN, HARBOR, JONAS, JONAS_BOAT, LEO, MARA, MIA, NOAH, PUB, SCHOOL, SOFIA,
+    WEDDING_ORDER,
+};
+use society_basic::{CASH, JOB};
+use world_core::{EntityId, Value, World};
+use world_projection::{
+    entity_title, inspectors_from_world, timeline_from_world, CanvasItem, CanvasItemKind,
+    CanvasProjection, CollectionItem, CollectionProjection, ProjectionSnapshot, SelectionId,
+};
+
+const RESIDENTS: [EntityId; 8] = [JONAS, MARA, LEO, EMMA, MIA, NOAH, EVAN, SOFIA];
+
+pub(crate) fn snapshot(world: &World) -> ProjectionSnapshot {
+    ProjectionSnapshot {
+        title: "Tiny Society".into(),
+        world_time: world.world_time(),
+        collection: CollectionProjection {
+            title: "Residents".into(),
+            items: RESIDENTS
+                .iter()
+                .filter_map(|id| resident_item(world, *id))
+                .collect(),
+        },
+        timeline: timeline_from_world(world),
+        canvas: CanvasProjection {
+            items: canvas_items(world),
+        },
+        inspectors: inspectors_from_world(world),
+    }
+}
+
+fn resident_item(world: &World, id: EntityId) -> Option<CollectionItem> {
+    let entity = world.state().entity(id)?;
+    let job = component_text(world, id, JOB).unwrap_or_else(|| "unknown job".into());
+    let cash = component_text(world, id, CASH).unwrap_or_else(|| "?".into());
+    Some(CollectionItem {
+        id: SelectionId::Entity(id),
+        title: entity_title(entity),
+        subtitle: format!("{job} · cash {cash}"),
+    })
+}
+
+fn canvas_items(world: &World) -> Vec<CanvasItem> {
+    let mut items = Vec::new();
+
+    for (id, x, y) in [
+        (HARBOR, 0.08, 0.48),
+        (BAKERY, 0.62, 0.18),
+        (SCHOOL, 0.62, 0.66),
+        (PUB, 0.28, 0.16),
+    ] {
+        if let Some(entity) = world.state().entity(id) {
+            items.push(CanvasItem {
+                id: SelectionId::Entity(id),
+                kind: CanvasItemKind::Place,
+                label: entity_title(entity),
+                detail: "Place".into(),
+                x,
+                y,
+            });
+        }
+    }
+
+    for (id, x, y) in [
+        (JONAS, 0.12, 0.62),
+        (MARA, 0.68, 0.32),
+        (LEO, 0.34, 0.28),
+        (EMMA, 0.70, 0.74),
+        (MIA, 0.82, 0.67),
+        (NOAH, 0.20, 0.52),
+        (EVAN, 0.04, 0.72),
+        (SOFIA, 0.42, 0.12),
+    ] {
+        if let Some(entity) = world.state().entity(id) {
+            items.push(CanvasItem {
+                id: SelectionId::Entity(id),
+                kind: CanvasItemKind::Actor,
+                label: entity_title(entity),
+                detail: component_text(world, id, JOB).unwrap_or_else(|| "Resident".into()),
+                x,
+                y,
+            });
+        }
+    }
+
+    for (id, x, y) in [(JONAS_BOAT, 0.02, 0.42), (WEDDING_ORDER, 0.84, 0.22)] {
+        if let Some(entity) = world.state().entity(id) {
+            items.push(CanvasItem {
+                id: SelectionId::Entity(id),
+                kind: CanvasItemKind::Object,
+                label: entity_title(entity),
+                detail: entity.kind.clone(),
+                x,
+                y,
+            });
+        }
+    }
+
+    items
+}
+
+fn component_text(world: &World, id: EntityId, key: &str) -> Option<String> {
+    match world.state().entity(id)?.component(key)? {
+        Value::Text(value) => Some(value.clone()),
+        Value::Integer(value) => Some(value.to_string()),
+        Value::Bool(value) => Some(value.to_string()),
+        Value::Entity(value) => world.state().entity(*value).map(entity_title),
+        Value::Null | Value::List(_) | Value::Map(_) => None,
+    }
+}
