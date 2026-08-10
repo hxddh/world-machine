@@ -3,9 +3,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use world_core::{Entity, EntityId, Event, EventId, Value, World};
 use world_projection::{
     BriefingItem, BriefingProjection, CanvasItem, CanvasItemKind, CanvasProjection, CollectionItem,
-    CollectionProjection, InspectorProjection, InspectorRow, InspectorSection, ProjectionCapabilities,
-    ProjectionCommand, ProjectionSnapshot, SelectionId, TimelineItem, TimelineProjection, WhyNode,
-    WhyProjection,
+    CollectionProjection, InspectorProjection, InspectorRow, InspectorSection,
+    ProjectionCapabilities, ProjectionCommand, ProjectionSnapshot, SelectionId, TimelineItem,
+    TimelineProjection, WhyNode, WhyProjection,
 };
 
 const ARTIFACTS: [EntityId; 6] = [
