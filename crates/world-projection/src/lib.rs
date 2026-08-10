@@ -33,10 +33,16 @@ pub struct ProjectionCommand {
     pub detail: String,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ProjectionCapabilities {
+    pub fork: bool,
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ProjectionSnapshot {
     pub title: String,
     pub world_time: u64,
+    pub capabilities: ProjectionCapabilities,
     pub briefing: Option<BriefingProjection>,
     pub commands: Vec<ProjectionCommand>,
     pub collection: CollectionProjection,
@@ -421,5 +427,6 @@ mod tests {
             Some("Continue")
         );
         assert!(snapshot.command("missing").is_none());
+        assert!(!snapshot.capabilities.fork);
     }
 }

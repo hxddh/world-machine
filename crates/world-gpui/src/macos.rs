@@ -355,7 +355,7 @@ impl ProjectionView {
                 .rounded_md()
                 .border_1()
                 .border_color(rgb(0xdadada))
-                .child("Select a resident, place, or event to inspect it.");
+                .child("Select an item or event to inspect it.");
         };
 
         inspector_panel(inspector)
@@ -384,7 +384,7 @@ impl ProjectionView {
             .child(div().text_lg().child("Why?"))
             .child(nodes);
 
-        if self.controller.is_some() {
+        if self.controller.is_some() && self.snapshot.capabilities.fork {
             panel = panel.child(
                 div()
                     .id("fork-before-event")
