@@ -16,6 +16,9 @@ pub trait WorldSession {
 
 pub type SessionFactory =
     Box<dyn Fn() -> Result<Box<dyn WorldSession>, HostError> + Send + Sync + 'static>;
+pub type ArchiveOpener = Box<
+    dyn Fn(&WorldArchive) -> Result<Box<dyn WorldSession>, HostError> + Send + Sync + 'static,
+>;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct WorldDescriptor {
@@ -27,6 +30,7 @@ pub struct WorldDescriptor {
 pub struct WorldRegistration {
     pub descriptor: WorldDescriptor,
     factory: SessionFactory,
+    opener: Option<ArchiveOpener>,
 }
 
 impl WorldRegistration {
@@ -37,11 +41,31 @@ impl WorldRegistration {
         Self {
             descriptor,
             factory: Box::new(factory),
+            opener: None,
         }
+    }
+
+    pub fn with_archive_opener(
+        mut self,
+        opener: impl Fn(&WorldArchive) -> Result<Box<dyn WorldSession>, HostError>
+            + Send
+            + Sync
+            + 'static,
+    ) -> Self {
+        self.opener = Some(Box::new(opener));
+        self
     }
 
     fn create(&self) -> Result<Box<dyn WorldSession>, HostError> {
         (self.factory)()
+    }
+
+    fn open_archive(&self, archive: &WorldArchive) -> Result<Box<dyn WorldSession>, HostError> {
+        let opener = self
+            .opener
+            .as_ref()
+            .ok_or_else(|| HostError::ArchiveOpenUnsupported(self.descriptor.pack.id.clone()))?;
+        opener(archive)
     }
 }
 
@@ -85,10 +109,7 @@ impl WorldRegistry {
             .create()
     }
 
-    pub fn create_for_archive(
-        &self,
-        archive: &WorldArchive,
-    ) -> Result<Box<dyn WorldSession>, HostError> {
+    pub fn open_archive(&self, archive: &WorldArchive) -> Result<Box<dyn WorldSession>, HostError> {
         let registration = self
             .registrations
             .get(&archive.pack.id)
@@ -99,7 +120,7 @@ impl WorldRegistry {
                 found: archive.pack.clone(),
             });
         }
-        registration.create()
+        registration.open_archive(archive)
     }
 }
 
@@ -118,6 +139,7 @@ pub enum HostError {
     InvalidDescriptor,
     DuplicateWorld(String),
     UnknownWorld(String),
+    ArchiveOpenUnsupported(String),
     VersionMismatch {
         expected: WorldPackRef,
         found: WorldPackRef,
@@ -137,6 +159,9 @@ impl fmt::Display for HostError {
             Self::InvalidDescriptor => write!(f, "world descriptor is incomplete"),
             Self::DuplicateWorld(id) => write!(f, "world is already registered: {id}"),
             Self::UnknownWorld(id) => write!(f, "unknown world: {id}"),
+            Self::ArchiveOpenUnsupported(id) => {
+                write!(f, "world does not support archive opening: {id}")
+            }
             Self::VersionMismatch { expected, found } => write!(
                 f,
                 "world version mismatch: host has {}@{}, archive requires {}@{}",
@@ -206,6 +231,17 @@ mod tests {
         )
     }
 
+    fn archive(id: &str, version: &str, world_time: u64) -> WorldArchive {
+        WorldArchive {
+            format: world_persistence::WORLD_ARCHIVE_FORMAT.into(),
+            format_version: world_persistence::WORLD_ARCHIVE_VERSION,
+            pack: WorldPackRef::new(id, version),
+            world_time,
+            events: vec![],
+            pending: vec![],
+        }
+    }
+
     #[test]
     fn registry_lists_and_creates_sessions() {
         let mut registry = WorldRegistry::new();
@@ -239,25 +275,54 @@ mod tests {
             registry.create("missing.world"),
             Err(HostError::UnknownWorld(_))
         ));
+        assert!(matches!(
+            registry.open_archive(&archive("missing.world", "1", 0)),
+            Err(HostError::UnknownWorld(_))
+        ));
     }
 
     #[test]
-    fn archive_dispatch_checks_pack_version_before_session_creation() {
+    fn archive_dispatch_checks_pack_version_before_opening() {
         let mut registry = WorldRegistry::new();
         registry.register(registration("mock.world", "2")).unwrap();
 
-        let archive = WorldArchive {
-            format: world_persistence::WORLD_ARCHIVE_FORMAT.into(),
-            format_version: world_persistence::WORLD_ARCHIVE_VERSION,
-            pack: WorldPackRef::new("mock.world", "1"),
-            world_time: 0,
-            events: vec![],
-            pending: vec![],
-        };
-
         assert!(matches!(
-            registry.create_for_archive(&archive),
+            registry.open_archive(&archive("mock.world", "1", 0)),
             Err(HostError::VersionMismatch { .. })
         ));
+    }
+
+    #[test]
+    fn archive_open_requires_an_explicit_opener() {
+        let mut registry = WorldRegistry::new();
+        registry.register(registration("mock.world", "1")).unwrap();
+
+        assert!(matches!(
+            registry.open_archive(&archive("mock.world", "1", 0)),
+            Err(HostError::ArchiveOpenUnsupported(id)) if id == "mock.world"
+        ));
+    }
+
+    #[test]
+    fn registered_archive_opener_receives_the_archive() {
+        let pack = WorldPackRef::new("mock.world", "1");
+        let opener_pack = pack.clone();
+        let mut registry = WorldRegistry::new();
+        registry
+            .register(
+                registration("mock.world", "1").with_archive_opener(move |archive| {
+                    Ok(Box::new(MockSession {
+                        pack: opener_pack.clone(),
+                        count: archive.world_time as usize,
+                    }))
+                }),
+            )
+            .unwrap();
+
+        let session = registry
+            .open_archive(&archive("mock.world", "1", 7))
+            .unwrap();
+        assert_eq!(session.snapshot().title, "Mock 7");
+        assert_eq!(session.pack(), pack);
     }
 }
