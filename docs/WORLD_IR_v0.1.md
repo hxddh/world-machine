@@ -150,7 +150,9 @@ The v0 branch operation forks from an Event prefix. Future work will add stable 
 
 ### Capability / Perception
 
-Not implemented yet. Future Behavior execution receives a filtered observation, never global World state by default.
+The first provider-neutral perception layer lives in `world-agent`, not the kernel. A `PerceptionPolicy` derives an `AgentObservation` from authoritative World state. The default self-only policy exposes only the actor entity; explicit scoped policies may expose additional entities, relations whose endpoints are in scope, and relevant Event summaries.
+
+Agent runtimes never receive `WorldState` directly. Observed Events intentionally omit `StateChange` operations.
 
 ## Reference composition: Tiny Society
 
@@ -178,3 +180,9 @@ storm_started
 ```
 
 This chain is a reference test for future `Why?` and branch projections rather than a hard-coded kernel story primitive.
+
+## Agent decision provenance
+
+Agent decisions are recorded as semantic `agent_decision_recorded` Events before the selected domain Action is executed. The domain Event is causally linked to the decision event and to any triggering World Event. This makes agent-backed histories replayable without re-running a model.
+
+`AvailableAction` is intentionally concrete in v0: the World/orchestrator offers complete world-valid ActionRequests and the Agent chooses among them. Tool schemas and open argument generation belong to later runtime adapters, after the safety boundary is proven.

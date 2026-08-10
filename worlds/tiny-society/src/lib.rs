@@ -4,6 +4,9 @@ mod model;
 mod seed;
 
 use std::error::Error;
+use world_agent::{
+    AgentExecutor, AgentRuntime, AvailableAction, MockAgentRuntime, ScopedPerception,
+};
 use world_core::{
     ActionRegistry, ActionRequest, BehaviorRegistry, BehaviorRuntime, Event, EventId, World,
 };
@@ -23,6 +26,7 @@ impl TinySociety {
     pub fn new() -> Result<Self, Box<dyn Error>> {
         let mut actions = ActionRegistry::new();
         society_basic::register_actions(&mut actions)?;
+        world_agent::register_actions(&mut actions)?;
         actions::register(&mut actions)?;
 
         let mut behaviors = BehaviorRegistry::new();
@@ -45,16 +49,52 @@ impl TinySociety {
     }
 
     pub fn run_story(&mut self) -> Result<(), Box<dyn Error>> {
+        let mut runtime = MockAgentRuntime::scripted(["assign_temporary_work"]);
+        self.run_story_with_runtime(&mut runtime)
+    }
+
+    pub fn run_story_with_runtime<R>(&mut self, runtime: &mut R) -> Result<(), Box<dyn Error>>
+    where
+        R: AgentRuntime,
+    {
         self.advance_checkpoint(5)?;
         self.advance_checkpoint(10)?;
 
-        let temporary_work = self
+        let loan_request = self
             .world
             .events()
             .iter()
-            .find(|event| event.kind == "temporary_work_assigned")
+            .find(|event| event.kind == "loan_requested")
             .map(|event| event.id)
-            .ok_or_else(|| std::io::Error::other("temporary work was not assigned"))?;
+            .ok_or_else(|| std::io::Error::other("loan request was not created"))?;
+
+        let options = [
+            AvailableAction::new(
+                "Offer Jonas temporary work at the bakery",
+                ActionRequest::new("assign_temporary_work").actor(MARA),
+            ),
+            AvailableAction::new(
+                "Decline to offer temporary work",
+                ActionRequest::new("decline_temporary_work").actor(MARA),
+            ),
+        ];
+        let perception = ScopedPerception::new([MARA, JONAS, LEO, BAKERY]);
+        let execution = AgentExecutor::decide_and_execute(
+            runtime,
+            &perception,
+            &mut self.world,
+            &self.actions,
+            MARA,
+            &options,
+            &[loan_request],
+        )?;
+
+        let temporary_work = self
+            .world
+            .event(execution.outcome_event)
+            .filter(|event| event.kind == "temporary_work_assigned")
+            .map(|event| event.id)
+            .ok_or_else(|| std::io::Error::other("Mara did not assign temporary work"))?;
 
         self.world.schedule_at(
             20,

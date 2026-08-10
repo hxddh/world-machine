@@ -8,3 +8,4 @@ publish = false
 [dependencies]
 society-basic = { path = "../../systems/society-basic" }
 world-core = { path = "../../crates/world-core" }
+world-agent = { path = "../../crates/world-agent" }

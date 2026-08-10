@@ -10,7 +10,7 @@ The first product target is **Tiny Society**, but Tiny Society is deliberately n
 
 The repository currently implements the headless kernel slice:
 
-`Entity / Relation -> Action -> Event -> State -> Scheduler / Behavior -> Replay`
+`Entity / Relation -> Action -> Event -> State -> Scheduler / Behavior / Agent -> Replay`
 
 No GPUI or agent-runtime implementation dependency is allowed in `world-core`. Pi integrations must remain optional adapters; GPUI belongs only in the renderer layer.
 

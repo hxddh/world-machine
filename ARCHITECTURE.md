@@ -85,3 +85,20 @@ world-core
 A System may define domain Actions, Behaviors, schemas, and helpers while depending only on generic World primitives. A World Pack composes Systems, seeds entities/relations, schedules work, and defines world-specific rules and projections.
 
 The first concrete example is `systems/society-basic` + `worlds/tiny-society`. The kernel must remain unchanged when a World introduces concepts such as residents, jobs, weather, boats, orders, or relationships.
+
+
+## Provider-neutral agent boundary
+
+Agent intelligence lives outside `world-core` in `world-agent`. The provider-neutral layer owns filtered observations, concrete world-valid action choices, decision provenance, and the `AgentRuntime` interface. It does not know Pi, OpenAI, Anthropic, GPUI, networking, or model SDKs.
+
+```text
+World + PerceptionPolicy
+        -> AgentObservation
+        -> AgentRuntime
+        -> AgentDecision
+        -> offered ActionRequest
+        -> agent_decision_recorded Event
+        -> Action -> domain Event -> State
+```
+
+The decision event is causal provenance. Replay replays the recorded decision/outcome events and never calls the AgentRuntime again. Runtime adapters such as Pi belong one layer farther out.

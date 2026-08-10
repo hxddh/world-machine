@@ -26,13 +26,6 @@ pub(crate) fn register(registry: &mut BehaviorRegistry) -> Result<(), Box<dyn Er
         },
     ))?;
     registry.register(RuleBehavior::new(
-        "loan-request-opens-temporary-work",
-        ["loan_requested"],
-        |_state: &WorldState, _event: &Event| {
-            vec![ActionRequest::new("assign_temporary_work").actor(MARA)]
-        },
-    ))?;
-    registry.register(RuleBehavior::new(
         "missed-shift-loses-order",
         ["shift_missed"],
         |_state: &WorldState, _event: &Event| vec![ActionRequest::new("lose_order").actor(MARA)],

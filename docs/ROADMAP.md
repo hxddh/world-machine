@@ -78,7 +78,7 @@ Status: implemented and passing GitHub CI.
 
 ## M6 — Deterministic Tiny Society vertical slice
 
-Status: implemented locally, pending GitHub CI.
+Status: implemented and passing GitHub CI.
 
 No LLM.
 
@@ -95,6 +95,8 @@ Target:
 Success criterion: the simulation is coherent without an LLM.
 
 ## M7 — AgentRuntime boundary
+
+Status: implemented locally, pending GitHub CI.
 
 - provider-neutral AgentRuntime trait
 - MockAgentRuntime

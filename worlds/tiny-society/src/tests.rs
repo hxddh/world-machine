@@ -2,6 +2,7 @@ use crate::actions::text_component;
 use crate::model::{JONAS_LEO_TRUST, MARA_EMMA_FRIEND, ORDER_STATUS, TEMP_BAKERY_JOB};
 use crate::*;
 use society_basic::{integer_component, CASH, JOB};
+use world_agent::MockAgentRuntime;
 
 #[test]
 fn full_story_is_causal_and_replayable() {
@@ -81,4 +82,36 @@ fn routine_work_moves_cash_and_relationships_exist() {
         .state()
         .relation(JONAS_LEO_TRUST)
         .is_some());
+}
+
+#[test]
+fn mara_decision_runs_through_provider_neutral_agent_runtime() {
+    let mut simulation = TinySociety::new().unwrap();
+    let mut runtime = MockAgentRuntime::scripted(["assign_temporary_work"]);
+
+    simulation.run_story_with_runtime(&mut runtime).unwrap();
+
+    assert_eq!(runtime.call_count(), 1);
+    let loan = simulation
+        .world()
+        .events()
+        .iter()
+        .find(|event| event.kind == "loan_requested")
+        .unwrap();
+    let decision = simulation
+        .world()
+        .events()
+        .iter()
+        .find(|event| event.kind == "agent_decision_recorded")
+        .unwrap();
+    let assignment = simulation
+        .world()
+        .events()
+        .iter()
+        .find(|event| event.kind == "temporary_work_assigned")
+        .unwrap();
+
+    assert!(decision.caused_by.contains(&loan.id));
+    assert!(assignment.caused_by.contains(&loan.id));
+    assert!(assignment.caused_by.contains(&decision.id));
 }

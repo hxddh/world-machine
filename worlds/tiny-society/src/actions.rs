@@ -11,6 +11,7 @@ pub(crate) fn register(registry: &mut ActionRegistry) -> Result<(), ActionError>
     registry.register(RecordIncomeLoss)?;
     registry.register(RequestLoan)?;
     registry.register(AssignTemporaryWork)?;
+    registry.register(DeclineTemporaryWork)?;
     registry.register(MissShift)?;
     registry.register(LoseOrder)?;
     registry.register(DismissWorker)?;
@@ -174,6 +175,33 @@ impl Action for AssignTemporaryWork {
                 value: BAKERY.into(),
             },
         ];
+        Ok(draft)
+    }
+}
+
+struct DeclineTemporaryWork;
+
+impl Action for DeclineTemporaryWork {
+    fn name(&self) -> &'static str {
+        "decline_temporary_work"
+    }
+
+    fn evaluate(
+        &self,
+        state: &WorldState,
+        _request: &ActionRequest,
+    ) -> Result<EventDraft, ActionError> {
+        if text_component(state, JONAS, LOAN_STATUS)? != "requested" {
+            return Err(ActionError::Invalid("Jonas did not request help".into()));
+        }
+        let mut draft = EventDraft::new("temporary_work_declined");
+        draft.actor = Some(MARA);
+        draft.targets = vec![JONAS, BAKERY];
+        draft.changes.push(StateChange::SetComponent {
+            entity: JONAS,
+            key: LOAN_STATUS.into(),
+            value: "help_declined".into(),
+        });
         Ok(draft)
     }
 }
