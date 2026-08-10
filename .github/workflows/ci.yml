@@ -21,13 +21,14 @@ jobs:
           filters: |
             gpui:
               - 'crates/world-gpui/**'
+              - 'crates/world-projection/**'
+              - 'crates/world-host/**'
+              - 'crates/world-builtins/**'
               - 'apps/tiny-society-desktop/**'
               - 'apps/future-archaeologist-desktop/**'
-              - 'crates/world-projection/**'
-              - 'worlds/tiny-society/src/lib.rs'
-              - 'worlds/tiny-society/Cargo.toml'
-              - 'worlds/future-archaeologist/src/lib.rs'
-              - 'worlds/future-archaeologist/Cargo.toml'
+              - 'apps/world-machine-desktop/**'
+              - 'worlds/tiny-society/**'
+              - 'worlds/future-archaeologist/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'rust-toolchain.toml'
@@ -45,8 +46,8 @@ jobs:
           shared-key: semantic
       - run: bash ./scripts/check-boundaries.sh
       - run: cargo fmt --all -- --check
-      - run: cargo clippy --workspace --exclude world-gpui --exclude tiny-society-desktop --exclude future-archaeologist-desktop --all-targets -- -D warnings
-      - run: cargo test --workspace --exclude world-gpui --exclude tiny-society-desktop --exclude future-archaeologist-desktop
+      - run: cargo clippy --workspace --exclude world-gpui --exclude tiny-society-desktop --exclude future-archaeologist-desktop --exclude world-machine-desktop --all-targets -- -D warnings
+      - run: cargo test --workspace --exclude world-gpui --exclude tiny-society-desktop --exclude future-archaeologist-desktop --exclude world-machine-desktop
 
   gpui-macos:
     needs: changes
@@ -61,3 +62,4 @@ jobs:
       - run: cargo check -p world-gpui
       - run: cargo test -p tiny-society-desktop
       - run: cargo test -p future-archaeologist-desktop
+      - run: cargo test -p world-machine-desktop

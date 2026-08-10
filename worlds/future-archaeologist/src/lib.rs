@@ -1,5 +1,7 @@
 mod actions;
+mod host;
 mod model;
+mod persistence;
 mod projection;
 mod seed;
 
@@ -7,9 +9,14 @@ use std::error::Error;
 use world_core::{ActionRegistry, ActionRequest, EventId, World};
 use world_projection::ProjectionSnapshot;
 
+pub use host::future_archaeologist_registration;
 pub use model::{
     ASTERION, CALENDAR_FRAGMENT, DELETED_MESSAGE, ELIAS, MIRA, PLATFORM_12, PLATFORM_PHOTO,
     PROJECT_COPY_LOG, TAXI_RECEIPT, TERMINAL, WIFI_LOG,
+};
+pub use persistence::{
+    future_archaeologist_pack_ref, FUTURE_ARCHAEOLOGIST_PACK_ID,
+    FUTURE_ARCHAEOLOGIST_PACK_VERSION,
 };
 
 pub const RECOVER_MESSAGE_COMMAND: &str = "future-archaeologist.recover-deleted-message";
@@ -21,8 +28,7 @@ pub struct FutureArchaeologist {
 
 impl FutureArchaeologist {
     pub fn new() -> Result<Self, Box<dyn Error>> {
-        let mut actions = ActionRegistry::new();
-        actions::register(&mut actions)?;
+        let actions = build_action_registry()?;
         let world = World::from_history(seed::baseline()?, &seed::truth_events())?;
         Ok(Self { world, actions })
     }
@@ -54,6 +60,12 @@ impl FutureArchaeologist {
             ),
         }
     }
+}
+
+fn build_action_registry() -> Result<ActionRegistry, Box<dyn Error>> {
+    let mut actions = ActionRegistry::new();
+    actions::register(&mut actions)?;
+    Ok(actions)
 }
 
 #[cfg(test)]

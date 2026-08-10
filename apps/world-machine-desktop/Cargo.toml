@@ -1,0 +1,15 @@
+[package]
+name = "world-machine-desktop"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+world-builtins = { path = "../../crates/world-builtins" }
+world-host = { path = "../../crates/world-host" }
+world-gpui = { path = "../../crates/world-gpui" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+gpui = { git = "https://github.com/zed-industries/zed", rev = "4e8057d74db3570b3bd419ff296eb84c35b3a5a3", package = "gpui" }
+gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "4e8057d74db3570b3bd419ff296eb84c35b3a5a3", package = "gpui_platform" }
