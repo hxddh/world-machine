@@ -1,0 +1,9 @@
+[package]
+name = "world-host"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[dependencies]
+world-persistence = { path = "../world-persistence" }
+world-projection = { path = "../world-projection" }
