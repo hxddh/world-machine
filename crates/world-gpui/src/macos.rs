@@ -55,7 +55,10 @@ impl ProjectionView {
         let selection = item.id;
         let selected = self.selected == Some(selection);
         div()
-            .id(SharedString::from(format!("collection-{}", selection.stable_key())))
+            .id(SharedString::from(format!(
+                "collection-{}",
+                selection.stable_key()
+            )))
             .p_2()
             .rounded_md()
             .cursor_pointer()
@@ -97,7 +100,10 @@ impl ProjectionView {
         let selection = item.id;
         let selected = self.selected == Some(selection);
         div()
-            .id(SharedString::from(format!("timeline-{}", selection.stable_key())))
+            .id(SharedString::from(format!(
+                "timeline-{}",
+                selection.stable_key()
+            )))
             .p_2()
             .rounded_md()
             .cursor_pointer()
@@ -142,7 +148,10 @@ impl ProjectionView {
             };
             canvas = canvas.child(
                 div()
-                    .id(SharedString::from(format!("canvas-{}", selection.stable_key())))
+                    .id(SharedString::from(format!(
+                        "canvas-{}",
+                        selection.stable_key()
+                    )))
                     .absolute()
                     .left(px(18.0 + item.x * 500.0))
                     .top(px(18.0 + item.y * 300.0))
