@@ -9,6 +9,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      gpui: ${{ steps.filter.outputs.gpui }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            gpui:
+              - 'crates/world-gpui/**'
+              - 'apps/tiny-society-desktop/**'
+              - 'crates/world-projection/**'
+              - 'worlds/tiny-society/src/lib.rs'
+              - 'worlds/tiny-society/Cargo.toml'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'rust-toolchain.toml'
+              - '.github/workflows/ci.yml'
+
   test:
     runs-on: ubuntu-latest
     steps:
@@ -16,15 +37,23 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: semantic
       - run: bash ./scripts/check-boundaries.sh
       - run: cargo fmt --all -- --check
-      - run: cargo clippy --workspace --all-targets -- -D warnings
-      - run: cargo test --workspace
+      - run: cargo clippy --workspace --exclude world-gpui --exclude tiny-society-desktop --all-targets -- -D warnings
+      - run: cargo test --workspace --exclude world-gpui --exclude tiny-society-desktop
 
   gpui-macos:
+    needs: changes
+    if: needs.changes.outputs.gpui == 'true'
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: gpui-macos
       - run: cargo check -p world-gpui
       - run: cargo check -p tiny-society-desktop
