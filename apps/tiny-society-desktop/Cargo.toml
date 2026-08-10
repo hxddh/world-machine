@@ -9,6 +9,6 @@ publish = false
 tiny-society = { path = "../../worlds/tiny-society" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-gpui = { version = "0.2.2", default-features = false }
-gpui_platform = { version = "0.1.0", features = ["font-kit"] }
+gpui = { git = "https://github.com/zed-industries/zed", rev = "4e8057d74db3570b3bd419ff296eb84c35b3a5a3", default-features = false }
+gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "4e8057d74db3570b3bd419ff296eb84c35b3a5a3", features = ["font-kit"] }
 world-gpui = { path = "../../crates/world-gpui" }
