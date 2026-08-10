@@ -4,7 +4,10 @@ members = [
   "crates/world-cli",
   "crates/world-agent",
   "crates/world-pi-rpc",
+  "crates/world-projection",
+  "crates/world-gpui",
   "systems/society-basic",
   "worlds/tiny-society",
+  "apps/tiny-society-desktop",
 ]
 resolver = "2"

@@ -3,6 +3,7 @@ use crate::model::{JONAS_LEO_TRUST, MARA_EMMA_FRIEND, ORDER_STATUS, TEMP_BAKERY_
 use crate::*;
 use society_basic::{integer_component, CASH, JOB};
 use world_agent::MockAgentRuntime;
+use world_projection::SelectionId;
 
 #[test]
 fn full_story_is_causal_and_replayable() {
@@ -114,4 +115,28 @@ fn mara_decision_runs_through_provider_neutral_agent_runtime() {
     assert!(decision.caused_by.contains(&loan.id));
     assert!(assignment.caused_by.contains(&loan.id));
     assert!(assignment.caused_by.contains(&decision.id));
+}
+
+#[test]
+fn projection_snapshot_is_self_contained_and_selectable() {
+    let mut simulation = TinySociety::new().unwrap();
+    simulation.run_story().unwrap();
+
+    let snapshot = simulation.projection_snapshot();
+
+    assert_eq!(snapshot.collection.items.len(), 8);
+    assert_eq!(snapshot.world_time, simulation.world().world_time());
+    assert!(snapshot.canvas.items.len() >= 12);
+    assert_eq!(
+        snapshot.timeline.items.len(),
+        simulation.world().events().len()
+    );
+    assert!(snapshot
+        .inspector(SelectionId::Entity(MARA))
+        .is_some_and(|inspector| inspector.title == "Mara"));
+    assert!(snapshot.timeline.items.iter().any(|item| {
+        snapshot
+            .inspector(item.id)
+            .is_some_and(|inspector| inspector.selection == item.id)
+    }));
 }

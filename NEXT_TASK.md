@@ -1,16 +1,16 @@
-# Next Coding Task — M9 GPUI Projection Shell
+# Next Coding Task — M10 Tiny Society Product Loop
 
-Build the first renderer adapter without moving World truth into GPUI.
+Turn the M9 projection shell into the first product-shaped Tiny Society experience without weakening World Machine boundaries.
 
 Requirements:
 
-1. Add `world-gpui` as an adapter over generic projection/read models; it must not define authoritative World state.
-2. Keep `world-core` and `world-agent` free of GPUI dependencies.
-3. Start with four generic surfaces only: Collection, Inspector, Timeline, minimal Semantic Canvas.
-4. Tiny Society may supply projection data/configuration but must not require Tiny-Society-specific renderer types.
-5. The first visible vertical slice should render the existing causal story and allow selecting an Event/Entity for inspection.
-6. Do not attempt a universal game engine, arbitrary generated GUI, or 3D renderer.
-7. Add headless tests for projection models separately from graphical smoke tests.
-8. Keep Pi integration optional; M9 must render the deterministic/mock-agent World without a model.
-9. Document the GPUI Apache-2.0 dependency and its exact crate boundary.
-10. GitHub CI must remain green; platform-specific GPUI build strategy should be explicit.
+1. Add a **Society Today / While You Were Away** projection derived from real Events; it must summarize existing history rather than invent events.
+2. Add a generic **Why?** projection that walks `Event.caused_by` and exposes a causal chain/graph for the selected Event.
+3. Add **Fork here** at an Event boundary using the existing `World::fork_after` semantics; the UI must make the branch point explicit.
+4. Keep `world-gpui` generic. Any Tiny Society story labels, resident emphasis, or layout choices belong in the Tiny Society projection adapter or app layer.
+5. Do not give GPUI authoritative World mutation access. User commands must become explicit World actions/branch operations outside the renderer.
+6. Keep Pi optional. M10 must remain fully usable with the deterministic/mock-agent story.
+7. Add tests proving the Why projection follows persisted `caused_by` links and the forked world excludes post-branch events.
+8. The first end-to-end demo should support: open Tiny Society -> inspect Mara/Jonas -> select `worker_dismissed` -> Why? -> fork before dismissal -> inspect the alternative state.
+9. Do not add marriage, children, politics, crime, procedural map generation, or more residents yet.
+10. Linux workspace CI and macOS GPUI compile CI must remain green.
