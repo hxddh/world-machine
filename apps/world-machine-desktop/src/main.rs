@@ -111,10 +111,7 @@ impl WorldDocumentView {
 
         match result {
             Ok(snapshot) => {
-                let controller = HostProjectionController {
-                    document: Rc::clone(&self.document),
-                };
-                self.projection = cx.new(|_| world_gpui::ProjectionView::controlled(controller));
+                self.rebuild_projection(cx);
                 self.status = Some(format!(
                     "Reloaded {} · World time {}",
                     self.document_label, snapshot.world_time
@@ -125,6 +122,60 @@ impl WorldDocumentView {
             }
         }
         cx.notify();
+    }
+
+    fn save_as(&mut self, cx: &mut Context<Self>) {
+        let suggested_name = canonical_world_name(&self.document_label);
+        let save_dialog = cx.prompt_for_new_path(&PathBuf::default(), Some(&suggested_name));
+        cx.spawn(async move |this, cx| {
+            let destination = match save_dialog.await {
+                Ok(Ok(Some(path))) => canonical_world_path(path),
+                Ok(Ok(None)) => return,
+                Ok(Err(error)) => {
+                    let _ = this.update(cx, |this, cx| {
+                        this.status = Some(format!("Could not open Save As dialog: {error}"));
+                        cx.notify();
+                    });
+                    return;
+                }
+                Err(error) => {
+                    let _ = this.update(cx, |this, cx| {
+                        this.status = Some(format!("Save As dialog was interrupted: {error}"));
+                        cx.notify();
+                    });
+                    return;
+                }
+            };
+
+            let _ = this.update(cx, |this, cx| {
+                let result = {
+                    let mut document = this.document.borrow_mut();
+                    document.session.save_as_file(destination.clone())
+                };
+                match result {
+                    Ok(snapshot) => {
+                        this.document_label = this.document.borrow().session.display_name();
+                        this.rebuild_projection(cx);
+                        this.status = Some(format!(
+                            "Saved As {} · World time {}",
+                            this.document_label, snapshot.world_time
+                        ));
+                    }
+                    Err(error) => {
+                        this.status = Some(format!("Save As failed: {error}"));
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn rebuild_projection(&mut self, cx: &mut Context<Self>) {
+        let controller = HostProjectionController {
+            document: Rc::clone(&self.document),
+        };
+        self.projection = cx.new(|_| world_gpui::ProjectionView::controlled(controller));
     }
 }
 
@@ -156,16 +207,34 @@ impl Render for WorldDocumentView {
             )
             .child(
                 div()
-                    .id("reload-world-document")
-                    .cursor_pointer()
-                    .p_2()
-                    .rounded_md()
-                    .border_1()
-                    .border_color(rgb(0xcacac4))
-                    .bg(rgb(0xffffff))
-                    .text_sm()
-                    .child("Reload from disk")
-                    .on_click(cx.listener(|this, _, _, cx| this.reload(cx))),
+                    .flex()
+                    .gap_2()
+                    .child(
+                        div()
+                            .id("save-as-world-document")
+                            .cursor_pointer()
+                            .p_2()
+                            .rounded_md()
+                            .border_1()
+                            .border_color(rgb(0xcacac4))
+                            .bg(rgb(0xffffff))
+                            .text_sm()
+                            .child("Save As…")
+                            .on_click(cx.listener(|this, _, _, cx| this.save_as(cx))),
+                    )
+                    .child(
+                        div()
+                            .id("reload-world-document")
+                            .cursor_pointer()
+                            .p_2()
+                            .rounded_md()
+                            .border_1()
+                            .border_color(rgb(0xcacac4))
+                            .bg(rgb(0xffffff))
+                            .text_sm()
+                            .child("Reload from disk")
+                            .on_click(cx.listener(|this, _, _, cx| this.reload(cx))),
+                    ),
             );
 
         if let Some(status) = &self.status {
@@ -748,6 +817,38 @@ fn sanitize_document_base(value: &str) -> String {
         })
         .take(80)
         .collect()
+}
+
+#[cfg(target_os = "macos")]
+fn canonical_world_name(label: &str) -> String {
+    if label.ends_with(WORLD_DOCUMENT_SUFFIX) {
+        label.to_owned()
+    } else if let Some(base) = label.strip_suffix(LEGACY_WORLD_DOCUMENT_SUFFIX) {
+        format!("{base}{WORLD_DOCUMENT_SUFFIX}")
+    } else {
+        format!("{label}{WORLD_DOCUMENT_SUFFIX}")
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn canonical_world_path(mut path: PathBuf) -> PathBuf {
+    let Some(file_name) = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(str::to_owned)
+    else {
+        return path;
+    };
+
+    if file_name.ends_with(WORLD_DOCUMENT_SUFFIX) {
+        return path;
+    }
+    if let Some(base) = file_name.strip_suffix(LEGACY_WORLD_DOCUMENT_SUFFIX) {
+        path.set_file_name(format!("{base}{WORLD_DOCUMENT_SUFFIX}"));
+    } else {
+        path.set_extension("world");
+    }
+    path
 }
 
 #[cfg(target_os = "macos")]
