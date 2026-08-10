@@ -1,6 +1,6 @@
 use super::DocumentRevision;
 use crate::{required_archive, DurableWorldSession, LibraryError, WorldDocumentTarget};
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process;
@@ -215,7 +215,7 @@ mod tests {
         let blocked_parent = root.join("not-a-directory");
         let destination = blocked_parent.join("Saved.world");
         let mut session = opened_external(original.clone(), 6);
-        File::create(&blocked_parent).unwrap();
+        std::fs::File::create(&blocked_parent).unwrap();
 
         assert!(matches!(
             session.save_as_file(destination),
