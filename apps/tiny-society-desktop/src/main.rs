@@ -1,6 +1,6 @@
 #[cfg(target_os = "macos")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    use gpui::{App, Bounds, WindowBounds, WindowOptions, px, size};
+    use gpui::{px, size, App, Bounds, WindowBounds, WindowOptions};
     use gpui_platform::application;
     use tiny_society::TinySociety;
     use world_gpui::ProjectionView;
@@ -31,5 +31,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(not(target_os = "macos"))]
 fn main() {
-    eprintln!("tiny-society-desktop currently targets macOS; the projection layer is cross-platform");
+    eprintln!(
+        "tiny-society-desktop currently targets macOS; the projection layer is cross-platform"
+    );
 }
