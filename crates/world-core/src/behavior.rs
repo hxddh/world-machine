@@ -323,18 +323,24 @@ mod tests {
         let actions = actions();
         let mut behaviors = BehaviorRegistry::new();
         behaviors
-            .register(RuleBehavior::new("rule", ["pinged"], |_state: &WorldState, _event: &Event| {
-                vec![
-                    ActionRequest::new("record").arg("label", "rule-a"),
-                    ActionRequest::new("record").arg("label", "rule-b"),
-                ]
-            }))
+            .register(RuleBehavior::new(
+                "rule",
+                ["pinged"],
+                |_state: &WorldState, _event: &Event| {
+                    vec![
+                        ActionRequest::new("record").arg("label", "rule-a"),
+                        ActionRequest::new("record").arg("label", "rule-b"),
+                    ]
+                },
+            ))
             .unwrap();
         behaviors
             .register(NativeBehavior::new(
                 "native",
                 ["pinged"],
-                |_state: &WorldState, _event: &Event| vec![ActionRequest::new("record").arg("label", "native")],
+                |_state: &WorldState, _event: &Event| {
+                    vec![ActionRequest::new("record").arg("label", "native")]
+                },
             ))
             .unwrap();
 
@@ -370,9 +376,13 @@ mod tests {
         let actions = actions();
         let mut behaviors = BehaviorRegistry::new();
         behaviors
-            .register(RuleBehavior::new("first", ["pinged"], |_state: &WorldState, _event: &Event| {
-                vec![ActionRequest::new("record").arg("label", "first")]
-            }))
+            .register(RuleBehavior::new(
+                "first",
+                ["pinged"],
+                |_state: &WorldState, _event: &Event| {
+                    vec![ActionRequest::new("record").arg("label", "first")]
+                },
+            ))
             .unwrap();
         behaviors
             .register(NativeBehavior::new(
@@ -407,9 +417,11 @@ mod tests {
         let actions = actions();
         let mut behaviors = BehaviorRegistry::new();
         behaviors
-            .register(RuleBehavior::new("loop", ["pinged"], |_state: &WorldState, _event: &Event| {
-                vec![ActionRequest::new("ping")]
-            }))
+            .register(RuleBehavior::new(
+                "loop",
+                ["pinged"],
+                |_state: &WorldState, _event: &Event| vec![ActionRequest::new("ping")],
+            ))
             .unwrap();
 
         let mut world = world();
@@ -431,9 +443,13 @@ mod tests {
         let actions = actions();
         let mut behaviors = BehaviorRegistry::new();
         behaviors
-            .register(RuleBehavior::new("rule", ["pinged"], |_state: &WorldState, _event: &Event| {
-                vec![ActionRequest::new("record").arg("label", "once")]
-            }))
+            .register(RuleBehavior::new(
+                "rule",
+                ["pinged"],
+                |_state: &WorldState, _event: &Event| {
+                    vec![ActionRequest::new("record").arg("label", "once")]
+                },
+            ))
             .unwrap();
 
         let mut world = world();
@@ -452,14 +468,17 @@ mod tests {
     fn duplicate_behavior_names_are_rejected() {
         let mut behaviors = BehaviorRegistry::new();
         behaviors
-            .register(RuleBehavior::new("same", ["pinged"], |_state: &WorldState, _event: &Event| {
-                Vec::new()
-            }))
+            .register(RuleBehavior::new(
+                "same",
+                ["pinged"],
+                |_state: &WorldState, _event: &Event| Vec::new(),
+            ))
             .unwrap();
-        let result =
-            behaviors.register(RuleBehavior::new("same", ["recorded"], |_state: &WorldState, _event: &Event| {
-                Vec::new()
-            }));
+        let result = behaviors.register(RuleBehavior::new(
+            "same",
+            ["recorded"],
+            |_state: &WorldState, _event: &Event| Vec::new(),
+        ));
 
         assert_eq!(
             result.unwrap_err(),
