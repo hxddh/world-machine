@@ -31,6 +31,63 @@ fn full_story_is_causal_and_replayable() {
 }
 
 #[test]
+fn save_resume_restores_pending_world_and_briefs_only_new_events() {
+    let mut simulation = TinySociety::new().unwrap();
+    simulation.advance_checkpoint(5).unwrap();
+    let cursor = simulation.visit_cursor();
+    let json = simulation.archive_json().unwrap();
+
+    let mut resumed = TinySociety::resume_json(&json).unwrap();
+
+    assert_eq!(resumed.world().world_time(), 5);
+    assert_eq!(resumed.world().state(), simulation.world().state());
+    assert_eq!(resumed.world().events(), simulation.world().events());
+    assert_eq!(
+        resumed
+            .world()
+            .scheduler()
+            .pending()
+            .map(|item| (item.world_time, item.request.action.as_str()))
+            .collect::<Vec<_>>(),
+        simulation
+            .world()
+            .scheduler()
+            .pending()
+            .map(|item| (item.world_time, item.request.action.as_str()))
+            .collect::<Vec<_>>()
+    );
+
+    resumed.advance_checkpoint(10).unwrap();
+    let snapshot = resumed.projection_snapshot_since(cursor);
+    let briefing = snapshot.briefing.as_ref().unwrap();
+
+    assert_eq!(briefing.title, "While you were away");
+    assert!(briefing
+        .items
+        .iter()
+        .any(|item| item.title == "A storm reached the harbor"));
+    assert!(briefing
+        .items
+        .iter()
+        .any(|item| item.title == "Jonas asked Leo for a loan"));
+    assert!(briefing
+        .items
+        .iter()
+        .all(|item| item.detail.contains("World time 10")));
+}
+
+#[test]
+fn visit_cursor_reports_when_nothing_changed() {
+    let simulation = TinySociety::new().unwrap();
+    let snapshot = simulation.projection_snapshot_since(simulation.visit_cursor());
+    let briefing = snapshot.briefing.as_ref().unwrap();
+
+    assert_eq!(briefing.title, "While you were away");
+    assert_eq!(briefing.items.len(), 1);
+    assert_eq!(briefing.items[0].title, "No new events");
+}
+
+#[test]
 fn branch_before_dismissal_preserves_the_alternative_state() {
     let mut simulation = TinySociety::new().unwrap();
     simulation.run_story().unwrap();
@@ -69,6 +126,35 @@ fn branch_before_dismissal_preserves_the_alternative_state() {
     assert_eq!(snapshot.commands.len(), 1);
     assert_eq!(snapshot.commands[0].id, RETAIN_WORKER_COMMAND);
     assert_eq!(snapshot.commands[0].title, "Give Jonas another chance");
+}
+
+#[test]
+fn forked_world_can_be_saved_and_reopened_with_its_choice_intact() {
+    let mut simulation = TinySociety::new().unwrap();
+    simulation.run_story().unwrap();
+
+    let dismissal = simulation
+        .world()
+        .events()
+        .iter()
+        .find(|event| event.kind == "worker_dismissed")
+        .unwrap()
+        .id;
+    let mut branch = simulation.branch();
+    branch.fork_before_event(dismissal).unwrap();
+    let json = branch.archive_json().unwrap();
+
+    let resumed = TinySociety::resume_json(&json).unwrap();
+    let snapshot = resumed.projection_snapshot();
+
+    assert_eq!(resumed.world().world_time(), 20);
+    assert!(resumed
+        .world()
+        .events()
+        .iter()
+        .all(|event| event.kind != "worker_dismissed"));
+    assert_eq!(snapshot.commands.len(), 1);
+    assert_eq!(snapshot.commands[0].id, RETAIN_WORKER_COMMAND);
 }
 
 #[test]
