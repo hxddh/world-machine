@@ -1,6 +1,4 @@
-use crate::model::{
-    MESSAGE_DELETED, PROTOTYPE_COPIED, WARNING_MESSAGE_SENT, VISIBLE,
-};
+use crate::model::{MESSAGE_DELETED, PROTOTYPE_COPIED, VISIBLE, WARNING_MESSAGE_SENT};
 use crate::*;
 use world_core::Value;
 use world_projection::SelectionId;
