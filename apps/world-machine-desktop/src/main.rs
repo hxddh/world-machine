@@ -99,7 +99,7 @@ impl WorldMachineHome {
         title: String,
         cx: &mut Context<Self>,
     ) {
-        let document_id = session.document_id().to_string();
+        let document_label = session.display_name();
         let controller = HostProjectionController {
             session,
             registry: Arc::clone(&self.registry),
@@ -115,7 +115,7 @@ impl WorldMachineHome {
         );
 
         self.status = Some(match opened {
-            Ok(_) => format!("Opened {title} · {document_id}"),
+            Ok(_) => format!("Opened {title} · {document_label}"),
             Err(error) => format!("Could not open {title}: {error}"),
         });
         cx.notify();
@@ -173,7 +173,30 @@ impl WorldMachineHome {
             self.open_document(document_id, cx);
             return;
         }
-        self.import_path(source, cx);
+        if !is_world_file(&source) {
+            self.status = Some(format!(
+                "Could not open {}: choose a {} file",
+                source.display(),
+                WORLD_DOCUMENT_SUFFIX
+            ));
+            cx.notify();
+            return;
+        }
+        let session = match DurableWorldSession::open_file(source.clone(), &self.registry) {
+            Ok(session) => session,
+            Err(error) => {
+                self.status = Some(format!("Could not open {}: {error}", source.display()));
+                cx.notify();
+                return;
+            }
+        };
+        let pack = session.pack();
+        let title = self
+            .registry
+            .descriptor(&pack.id)
+            .map(|descriptor| descriptor.title.clone())
+            .unwrap_or(pack.id);
+        self.open_session(session, title, cx);
     }
 
     fn import_path(&mut self, source: PathBuf, cx: &mut Context<Self>) {
@@ -246,7 +269,7 @@ impl WorldMachineHome {
             let Some(source) = source else {
                 return;
             };
-            let _ = this.update(cx, |this, cx| this.open_external_path(source, cx));
+            let _ = this.update(cx, |this, cx| this.import_path(source, cx));
         })
         .detach();
     }
@@ -477,7 +500,7 @@ impl Render for WorldMachineHome {
                     .child(div().flex().gap_2().child(import).child(refresh)),
             )
             .child(div().text_sm().text_color(rgb(0x666666)).child(
-                "Worlds are portable documents. Open, import, export, or create a World Pack instance.",
+                "Worlds are portable documents. Double-click an external .world to edit it in place; Import copies it into My Worlds.",
             ))
             .child(div().text_sm().child("My Worlds"))
             .child(saved)
