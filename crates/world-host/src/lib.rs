@@ -16,9 +16,8 @@ pub trait WorldSession {
 
 pub type SessionFactory =
     Box<dyn Fn() -> Result<Box<dyn WorldSession>, HostError> + Send + Sync + 'static>;
-pub type ArchiveOpener = Box<
-    dyn Fn(&WorldArchive) -> Result<Box<dyn WorldSession>, HostError> + Send + Sync + 'static,
->;
+pub type ArchiveOpener =
+    Box<dyn Fn(&WorldArchive) -> Result<Box<dyn WorldSession>, HostError> + Send + Sync + 'static>;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct WorldDescriptor {
