@@ -24,6 +24,32 @@ pub struct TinySociety {
     behaviors: BehaviorRegistry,
 }
 
+#[derive(Clone)]
+pub struct TinySocietyBranch {
+    world: World,
+}
+
+impl TinySocietyBranch {
+    pub fn world(&self) -> &World {
+        &self.world
+    }
+
+    pub fn projection_snapshot(&self) -> ProjectionSnapshot {
+        projection::snapshot(&self.world)
+    }
+
+    pub fn fork_before_event(&mut self, event_id: EventId) -> Result<(), Box<dyn Error>> {
+        let position = self
+            .world
+            .events()
+            .iter()
+            .position(|event| event.id == event_id)
+            .ok_or_else(|| std::io::Error::other(format!("unknown event {event_id}")))?;
+        self.world = self.world.fork_after(position)?;
+        Ok(())
+    }
+}
+
 impl TinySociety {
     pub fn new() -> Result<Self, Box<dyn Error>> {
         let mut actions = ActionRegistry::new();
@@ -52,6 +78,12 @@ impl TinySociety {
 
     pub fn projection_snapshot(&self) -> ProjectionSnapshot {
         projection::snapshot(&self.world)
+    }
+
+    pub fn branch(&self) -> TinySocietyBranch {
+        TinySocietyBranch {
+            world: self.world.clone(),
+        }
     }
 
     pub fn run_story(&mut self) -> Result<(), Box<dyn Error>> {
