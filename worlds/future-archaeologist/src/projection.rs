@@ -61,7 +61,10 @@ fn visible_event_ids(world: &World, artifacts: &[EntityId]) -> BTreeSet<EventId>
 
     for event in world.events() {
         if event.kind == "artifact_recovered"
-            && event.targets.iter().any(|target| artifacts.contains(target))
+            && event
+                .targets
+                .iter()
+                .any(|target| artifacts.contains(target))
         {
             visible.insert(event.id);
         }
@@ -126,7 +129,9 @@ fn briefing(world: &World, artifacts: &[EntityId]) -> BriefingProjection {
             Some(BriefingItem {
                 selection: Some(SelectionId::Entity(*id)),
                 title: entity_name(entity),
-                detail: text_component(entity, SUMMARY).unwrap_or("Recovered artifact").into(),
+                detail: text_component(entity, SUMMARY)
+                    .unwrap_or("Recovered artifact")
+                    .into(),
             })
         })
         .take(3)
@@ -447,7 +452,10 @@ fn event_ref(world: &World, artifact: EntityId) -> Option<EventId> {
 
 fn is_visible(world: &World, artifact: EntityId) -> bool {
     matches!(
-        world.state().entity(artifact).and_then(|entity| entity.component(VISIBLE)),
+        world
+            .state()
+            .entity(artifact)
+            .and_then(|entity| entity.component(VISIBLE)),
         Some(Value::Bool(true))
     )
 }
