@@ -10,3 +10,4 @@ society-basic = { path = "../../systems/society-basic" }
 world-core = { path = "../../crates/world-core" }
 world-agent = { path = "../../crates/world-agent" }
 world-projection = { path = "../../crates/world-projection" }
+world-persistence = { path = "../../crates/world-persistence" }
