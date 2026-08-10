@@ -27,6 +27,7 @@ fn full_story_is_causal_and_replayable() {
         text_component(replayed.state(), WEDDING_ORDER, ORDER_STATUS).unwrap(),
         "lost"
     );
+    assert!(simulation.projection_snapshot().commands.is_empty());
 }
 
 #[test]
@@ -58,16 +59,20 @@ fn branch_before_dismissal_preserves_the_alternative_state() {
         .events()
         .iter()
         .all(|event| event.kind != "worker_dismissed"));
-    assert!(branch
-        .projection_snapshot()
+
+    let snapshot = branch.projection_snapshot();
+    assert!(snapshot
         .timeline
         .items
         .iter()
         .all(|item| item.id != SelectionId::Event(dismissal)));
+    assert_eq!(snapshot.commands.len(), 1);
+    assert_eq!(snapshot.commands[0].id, RETAIN_WORKER_COMMAND);
+    assert_eq!(snapshot.commands[0].title, "Give Jonas another chance");
 }
 
 #[test]
-fn forked_branch_can_diverge_and_keep_running() {
+fn forked_branch_can_diverge_through_projection_command_and_keep_running() {
     let mut simulation = TinySociety::new().unwrap();
     simulation.run_story().unwrap();
 
@@ -90,7 +95,9 @@ fn forked_branch_can_diverge_and_keep_running() {
         .id;
     let jonas_cash_before = integer_component(branch.world().state(), JONAS, CASH).unwrap();
 
-    branch.continue_with_retention().unwrap();
+    branch
+        .invoke_projection_command(RETAIN_WORKER_COMMAND)
+        .unwrap();
 
     let retained = branch
         .world()
@@ -124,9 +131,17 @@ fn forked_branch_can_diverge_and_keep_running() {
         .all(|event| event.kind != "worker_dismissed"));
 
     let snapshot = branch.projection_snapshot();
+    assert!(snapshot.commands.is_empty());
     let why = snapshot.why(future_shift.id).unwrap();
     assert!(why.nodes.iter().any(|node| node.event == retained.id));
     assert!(why.nodes.iter().any(|node| node.event == order_loss));
+    assert!(snapshot
+        .briefing
+        .as_ref()
+        .is_some_and(|briefing| briefing.items.iter().any(|item| {
+            item.title == "Mara gave Jonas another chance"
+                || item.title == "Jonas completed another bakery shift"
+        })));
 }
 
 #[test]
