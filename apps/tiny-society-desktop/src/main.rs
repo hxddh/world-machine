@@ -19,6 +19,11 @@ impl world_gpui::ProjectionController for TinySocietyController {
                     .fork_before_event(event)
                     .map_err(|error| error.to_string())?;
             }
+            world_gpui::ProjectionIntent::InvokeCommand(command_id) => {
+                self.branch
+                    .invoke_projection_command(&command_id)
+                    .map_err(|error| error.to_string())?;
+            }
         }
         Ok(self.branch.projection_snapshot())
     }
