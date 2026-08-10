@@ -1,3 +1,6 @@
+mod revision;
+
+use revision::DocumentRevision;
 use std::error::Error;
 use std::fmt;
 use std::fs::{self, File};
@@ -83,19 +86,48 @@ impl WorldLibrary {
     }
 
     pub fn save(&self, id: &WorldDocumentId, archive: &WorldArchive) -> Result<(), LibraryError> {
-        write_archive_file(&self.path(id), archive)?;
-        let _ = fs::remove_file(self.legacy_path(id));
+        self.save_with_revision(id, archive)?;
         Ok(())
     }
 
+    fn save_with_revision(
+        &self,
+        id: &WorldDocumentId,
+        archive: &WorldArchive,
+    ) -> Result<DocumentRevision, LibraryError> {
+        let revision = write_archive_file(&self.path(id), archive)?;
+        let _ = fs::remove_file(self.legacy_path(id));
+        Ok(revision)
+    }
+
     pub fn load(&self, id: &WorldDocumentId) -> Result<Option<WorldArchive>, LibraryError> {
+        Ok(self
+            .load_with_revision(id)?
+            .map(|(archive, _revision)| archive))
+    }
+
+    fn load_with_revision(
+        &self,
+        id: &WorldDocumentId,
+    ) -> Result<Option<(WorldArchive, DocumentRevision)>, LibraryError> {
         for path in [self.path(id), self.legacy_path(id)] {
-            let json = match fs::read_to_string(path) {
-                Ok(json) => json,
-                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
-                Err(error) => return Err(LibraryError::Io(error)),
-            };
-            return Ok(Some(WorldArchive::from_json(&json)?));
+            match read_archive_file_with_revision(&path) {
+                Ok(value) => return Ok(Some(value)),
+                Err(LibraryError::Io(error)) if error.kind() == io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(error),
+            }
+        }
+        Ok(None)
+    }
+
+    fn current_revision(
+        &self,
+        id: &WorldDocumentId,
+    ) -> Result<Option<DocumentRevision>, LibraryError> {
+        for path in [self.path(id), self.legacy_path(id)] {
+            if let Some(revision) = revision_if_exists(&path)? {
+                return Ok(Some(revision));
+            }
         }
         Ok(None)
     }
@@ -165,7 +197,8 @@ impl WorldLibrary {
         let archive = self
             .load(id)?
             .ok_or_else(|| LibraryError::UnknownDocument(id.clone()))?;
-        write_archive_file(destination, &archive)
+        write_archive_file(destination, &archive)?;
+        Ok(())
     }
 }
 
@@ -201,9 +234,43 @@ impl WorldDocumentTarget {
         }
     }
 
-    fn persist(&self, archive: &WorldArchive, library: &WorldLibrary) -> Result<(), LibraryError> {
+    fn current_revision(
+        &self,
+        library: &WorldLibrary,
+    ) -> Result<Option<DocumentRevision>, LibraryError> {
         match self {
-            Self::Library(id) => library.save(id, archive),
+            Self::Library(id) => library.current_revision(id),
+            Self::File(path) => revision_if_exists(path),
+        }
+    }
+
+    fn conflict_path(&self, library: &WorldLibrary) -> PathBuf {
+        match self {
+            Self::Library(id) => library.path(id),
+            Self::File(path) => path.clone(),
+        }
+    }
+
+    fn verify_revision(
+        &self,
+        expected: DocumentRevision,
+        library: &WorldLibrary,
+    ) -> Result<(), LibraryError> {
+        let current = self.current_revision(library)?;
+        if current == Some(expected) {
+            Ok(())
+        } else {
+            Err(LibraryError::DocumentChanged(self.conflict_path(library)))
+        }
+    }
+
+    fn persist(
+        &self,
+        archive: &WorldArchive,
+        library: &WorldLibrary,
+    ) -> Result<DocumentRevision, LibraryError> {
+        match self {
+            Self::Library(id) => library.save_with_revision(id, archive),
             Self::File(path) => write_archive_file(path, archive),
         }
     }
@@ -211,6 +278,7 @@ impl WorldDocumentTarget {
 
 pub struct DurableWorldSession {
     target: WorldDocumentTarget,
+    revision: DocumentRevision,
     session: Box<dyn WorldSession>,
 }
 
@@ -226,9 +294,10 @@ impl DurableWorldSession {
         }
         let session = registry.create(pack_id)?;
         let archive = required_archive(session.as_ref())?;
-        library.save(&document_id, &archive)?;
+        let revision = library.save_with_revision(&document_id, &archive)?;
         Ok(Self {
             target: WorldDocumentTarget::Library(document_id),
+            revision,
             session,
         })
     }
@@ -238,21 +307,23 @@ impl DurableWorldSession {
         registry: &WorldRegistry,
         library: &WorldLibrary,
     ) -> Result<Self, LibraryError> {
-        let archive = library
-            .load(&document_id)?
+        let (archive, revision) = library
+            .load_with_revision(&document_id)?
             .ok_or_else(|| LibraryError::UnknownDocument(document_id.clone()))?;
         let session = registry.open_archive(&archive)?;
         Ok(Self {
             target: WorldDocumentTarget::Library(document_id),
+            revision,
             session,
         })
     }
 
     pub fn open_file(path: PathBuf, registry: &WorldRegistry) -> Result<Self, LibraryError> {
-        let archive = read_archive_file(&path)?;
+        let (archive, revision) = read_archive_file_with_revision(&path)?;
         let session = registry.open_archive(&archive)?;
         Ok(Self {
             target: WorldDocumentTarget::File(path),
+            revision,
             session,
         })
     }
@@ -268,9 +339,10 @@ impl DurableWorldSession {
         }
         let archive = read_archive_file(source)?;
         let session = registry.open_archive(&archive)?;
-        library.save(&document_id, &archive)?;
+        let revision = library.save_with_revision(&document_id, &archive)?;
         Ok(Self {
             target: WorldDocumentTarget::Library(document_id),
+            revision,
             session,
         })
     }
@@ -305,11 +377,17 @@ impl DurableWorldSession {
         registry: &WorldRegistry,
         library: &WorldLibrary,
     ) -> Result<ProjectionSnapshot, LibraryError> {
+        self.target.verify_revision(self.revision, library)?;
+
         let current_archive = required_archive(self.session.as_ref())?;
         let mut candidate = registry.open_archive(&current_archive)?;
         let snapshot = candidate.handle(intent)?;
         let next_archive = required_archive(candidate.as_ref())?;
-        self.target.persist(&next_archive, library)?;
+
+        self.target.verify_revision(self.revision, library)?;
+        let next_revision = self.target.persist(&next_archive, library)?;
+
+        self.revision = next_revision;
         self.session = candidate;
         Ok(snapshot)
     }
@@ -325,14 +403,34 @@ fn summary(id: WorldDocumentId, archive: &WorldArchive) -> WorldDocumentSummary 
 }
 
 fn read_archive_file(path: &Path) -> Result<WorldArchive, LibraryError> {
-    let json = fs::read_to_string(path)?;
-    Ok(WorldArchive::from_json(&json)?)
+    Ok(read_archive_file_with_revision(path)?.0)
 }
 
-fn write_archive_file(path: &Path, archive: &WorldArchive) -> Result<(), LibraryError> {
+fn read_archive_file_with_revision(
+    path: &Path,
+) -> Result<(WorldArchive, DocumentRevision), LibraryError> {
+    let json = fs::read_to_string(path)?;
+    let revision = DocumentRevision::from_bytes(json.as_bytes());
+    let archive = WorldArchive::from_json(&json)?;
+    Ok((archive, revision))
+}
+
+fn revision_if_exists(path: &Path) -> Result<Option<DocumentRevision>, LibraryError> {
+    match fs::read(path) {
+        Ok(bytes) => Ok(Some(DocumentRevision::from_bytes(&bytes))),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(LibraryError::Io(error)),
+    }
+}
+
+fn write_archive_file(
+    path: &Path,
+    archive: &WorldArchive,
+) -> Result<DocumentRevision, LibraryError> {
     let json = archive.to_json_pretty()?;
+    let revision = DocumentRevision::from_bytes(json.as_bytes());
     atomic_write(path, json.as_bytes())?;
-    Ok(())
+    Ok(revision)
 }
 
 fn required_archive(session: &dyn WorldSession) -> Result<WorldArchive, LibraryError> {
@@ -367,6 +465,7 @@ pub enum LibraryError {
     UnknownDocument(WorldDocumentId),
     DocumentAlreadyExists(WorldDocumentId),
     ExportDestinationExists(PathBuf),
+    DocumentChanged(PathBuf),
     ArchiveUnsupported(String),
     Io(io::Error),
     Persistence(PersistenceError),
@@ -382,6 +481,11 @@ impl fmt::Display for LibraryError {
             Self::ExportDestinationExists(path) => {
                 write!(f, "export destination already exists: {}", path.display())
             }
+            Self::DocumentChanged(path) => write!(
+                f,
+                "World document changed on disk since it was opened: {}",
+                path.display()
+            ),
             Self::ArchiveUnsupported(pack) => {
                 write!(f, "World Pack does not support durable archives: {pack}")
             }
@@ -402,6 +506,7 @@ impl Error for LibraryError {
             | Self::UnknownDocument(_)
             | Self::DocumentAlreadyExists(_)
             | Self::ExportDestinationExists(_)
+            | Self::DocumentChanged(_)
             | Self::ArchiveUnsupported(_) => None,
         }
     }
@@ -662,6 +767,38 @@ mod tests {
     }
 
     #[test]
+    fn two_library_sessions_do_not_silently_overwrite_each_other() {
+        let root = temp_root("library-conflict");
+        let library = WorldLibrary::new(root.clone());
+        let registry = registry();
+        let id = WorldDocumentId::new("shared").unwrap();
+        let mut first =
+            DurableWorldSession::create(id.clone(), MOCK_PACK, &registry, &library).unwrap();
+        let mut stale = DurableWorldSession::open(id.clone(), &registry, &library).unwrap();
+
+        first
+            .handle(
+                ProjectionIntent::InvokeCommand("mock.advance".into()),
+                &registry,
+                &library,
+            )
+            .unwrap();
+
+        assert!(matches!(
+            stale.handle(
+                ProjectionIntent::InvokeCommand("mock.advance".into()),
+                &registry,
+                &library,
+            ),
+            Err(LibraryError::DocumentChanged(path)) if path == library.path(&id)
+        ));
+        assert_eq!(stale.snapshot().title, "Mock 0");
+        assert_eq!(library.load(&id).unwrap().unwrap().world_time, 1);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn open_file_updates_the_original_world_document() {
         let root = temp_root("open-file");
         let external = root.join("Shared World.world");
@@ -677,17 +814,45 @@ mod tests {
         );
         assert_eq!(session.file_path(), Some(external.as_path()));
         assert!(session.document_id().is_none());
-        session
-            .handle(
+        for _ in 0..2 {
+            session
+                .handle(
+                    ProjectionIntent::InvokeCommand("mock.advance".into()),
+                    &registry,
+                    &library,
+                )
+                .unwrap();
+        }
+
+        assert_eq!(session.snapshot().title, "Mock 5");
+        assert_eq!(read_archive_file(&external).unwrap().world_time, 5);
+        assert!(library.list().unwrap().is_empty());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn external_changes_are_detected_before_overwrite() {
+        let root = temp_root("external-conflict");
+        let external = root.join("Shared World.world");
+        let library = WorldLibrary::new(root.join("library"));
+        let registry = registry();
+        fs::create_dir_all(&root).unwrap();
+        write_archive_file(&external, &mock_archive(3)).unwrap();
+        let mut session = DurableWorldSession::open_file(external.clone(), &registry).unwrap();
+
+        write_archive_file(&external, &mock_archive(9)).unwrap();
+
+        assert!(matches!(
+            session.handle(
                 ProjectionIntent::InvokeCommand("mock.advance".into()),
                 &registry,
                 &library,
-            )
-            .unwrap();
-
-        assert_eq!(session.snapshot().title, "Mock 4");
-        assert_eq!(read_archive_file(&external).unwrap().world_time, 4);
-        assert!(library.list().unwrap().is_empty());
+            ),
+            Err(LibraryError::DocumentChanged(path)) if path == external
+        ));
+        assert_eq!(session.snapshot().title, "Mock 3");
+        assert_eq!(read_archive_file(&external).unwrap().world_time, 9);
 
         let _ = fs::remove_dir_all(root);
     }
@@ -774,7 +939,7 @@ mod tests {
                 &registry,
                 &library,
             ),
-            Err(LibraryError::Io(_))
+            Err(LibraryError::DocumentChanged(_)) | Err(LibraryError::Io(_))
         ));
         assert_eq!(session.snapshot().title, "Mock 0");
 
@@ -802,7 +967,7 @@ mod tests {
                 &registry,
                 &library,
             ),
-            Err(LibraryError::Io(_))
+            Err(LibraryError::DocumentChanged(_)) | Err(LibraryError::Io(_))
         ));
         assert_eq!(session.snapshot().title, "Mock 2");
 
