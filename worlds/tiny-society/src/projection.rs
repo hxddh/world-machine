@@ -16,7 +16,10 @@ pub(crate) fn snapshot(world: &World) -> ProjectionSnapshot {
     snapshot_since(world, None)
 }
 
-pub(crate) fn snapshot_since(world: &World, since_event_count: Option<usize>) -> ProjectionSnapshot {
+pub(crate) fn snapshot_since(
+    world: &World,
+    since_event_count: Option<usize>,
+) -> ProjectionSnapshot {
     ProjectionSnapshot {
         title: "Tiny Society".into(),
         world_time: world.world_time(),
