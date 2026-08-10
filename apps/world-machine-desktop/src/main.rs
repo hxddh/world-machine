@@ -1,4 +1,7 @@
 #[cfg(target_os = "macos")]
+mod system_open;
+
+#[cfg(target_os = "macos")]
 use gpui::{
     div, prelude::*, px, rgb, size, App, AppContext, Bounds, Context, IntoElement,
     PathPromptOptions, Render, SharedString, Styled, Window, WindowBounds, WindowOptions,
@@ -12,7 +15,7 @@ use std::process;
 #[cfg(target_os = "macos")]
 use std::sync::Arc;
 #[cfg(target_os = "macos")]
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 #[cfg(target_os = "macos")]
 use world_library::{
     DurableWorldSession, LibraryError, WorldDocumentId, WorldDocumentSummary, WorldLibrary,
@@ -55,6 +58,34 @@ struct WorldMachineHome {
 
 #[cfg(target_os = "macos")]
 impl WorldMachineHome {
+    fn start_system_open_listener(&mut self, cx: &mut Context<Self>) {
+        cx.spawn(async move |this, cx| loop {
+            cx.background_executor()
+                .timer(Duration::from_millis(200))
+                .await;
+
+            let Some(this) = this.upgrade() else {
+                return;
+            };
+            let paths = system_open::drain_paths();
+            if paths.is_empty() {
+                continue;
+            }
+            this.update(cx, |this, cx| {
+                for path in paths {
+                    match path {
+                        Ok(path) => this.open_external_path(path, cx),
+                        Err(error) => {
+                            this.status = Some(format!("Could not open World file: {error}"));
+                            cx.notify();
+                        }
+                    }
+                }
+            });
+        })
+        .detach();
+    }
+
     fn refresh_documents(&mut self) {
         match self.library.list() {
             Ok(documents) => self.documents = documents,
@@ -137,6 +168,55 @@ impl WorldMachineHome {
         self.open_session(session, title, cx);
     }
 
+    fn open_external_path(&mut self, source: PathBuf, cx: &mut Context<Self>) {
+        if let Some(document_id) = library_document_id_for_path(&source, &self.library) {
+            self.open_document(document_id, cx);
+            return;
+        }
+        self.import_path(source, cx);
+    }
+
+    fn import_path(&mut self, source: PathBuf, cx: &mut Context<Self>) {
+        if !is_world_file(&source) {
+            self.status = Some(format!(
+                "Could not import {}: choose a {} file",
+                source.display(),
+                WORLD_DOCUMENT_SUFFIX
+            ));
+            cx.notify();
+            return;
+        }
+        let document_id = match imported_document_id(&source, &self.library) {
+            Ok(id) => id,
+            Err(error) => {
+                self.status = Some(format!("Could not import {}: {error}", source.display()));
+                cx.notify();
+                return;
+            }
+        };
+        let session = match DurableWorldSession::import_file(
+            document_id,
+            &source,
+            &self.registry,
+            &self.library,
+        ) {
+            Ok(session) => session,
+            Err(error) => {
+                self.status = Some(format!("Could not import {}: {error}", source.display()));
+                cx.notify();
+                return;
+            }
+        };
+        let pack = session.pack();
+        let title = self
+            .registry
+            .descriptor(&pack.id)
+            .map(|descriptor| descriptor.title.clone())
+            .unwrap_or(pack.id);
+        self.refresh_documents();
+        self.open_session(session, title, cx);
+    }
+
     fn import_world(&mut self, cx: &mut Context<Self>) {
         let picker = cx.prompt_for_paths(PathPromptOptions {
             files: true,
@@ -166,49 +246,7 @@ impl WorldMachineHome {
             let Some(source) = source else {
                 return;
             };
-
-            let _ = this.update(cx, |this, cx| {
-                if !is_world_file(&source) {
-                    this.status = Some(format!(
-                        "Could not import {}: choose a {} file",
-                        source.display(),
-                        WORLD_DOCUMENT_SUFFIX
-                    ));
-                    cx.notify();
-                    return;
-                }
-                let document_id = match imported_document_id(&source, &this.library) {
-                    Ok(id) => id,
-                    Err(error) => {
-                        this.status =
-                            Some(format!("Could not import {}: {error}", source.display()));
-                        cx.notify();
-                        return;
-                    }
-                };
-                let session = match DurableWorldSession::import_file(
-                    document_id,
-                    &source,
-                    &this.registry,
-                    &this.library,
-                ) {
-                    Ok(session) => session,
-                    Err(error) => {
-                        this.status =
-                            Some(format!("Could not import {}: {error}", source.display()));
-                        cx.notify();
-                        return;
-                    }
-                };
-                let pack = session.pack();
-                let title = this
-                    .registry
-                    .descriptor(&pack.id)
-                    .map(|descriptor| descriptor.title.clone())
-                    .unwrap_or(pack.id);
-                this.refresh_documents();
-                this.open_session(session, title, cx);
-            });
+            let _ = this.update(cx, |this, cx| this.open_external_path(source, cx));
         })
         .detach();
     }
@@ -498,6 +536,26 @@ fn imported_document_id(
 }
 
 #[cfg(target_os = "macos")]
+fn library_document_id_for_path(
+    source: &Path,
+    library: &WorldLibrary,
+) -> Option<WorldDocumentId> {
+    if source.parent()? != library.root() {
+        return None;
+    }
+    let file_name = source.file_name()?.to_str()?;
+    let raw_id = file_name
+        .strip_suffix(LEGACY_WORLD_DOCUMENT_SUFFIX)
+        .or_else(|| file_name.strip_suffix(WORLD_DOCUMENT_SUFFIX))?;
+    let id = WorldDocumentId::new(raw_id).ok()?;
+    library
+        .contains(&id)
+        .ok()
+        .filter(|exists| *exists)
+        .map(|_| id)
+}
+
+#[cfg(target_os = "macos")]
 fn unique_document_id(
     mut base: String,
     library: Option<&WorldLibrary>,
@@ -546,6 +604,8 @@ fn is_world_file(path: &Path) -> bool {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use gpui_platform::application;
 
+    let application = application();
+    system_open::install(&application);
     let registry = Arc::new(world_builtins::registry()?);
     let library = Arc::new(discover_library()?);
     let (documents, status) = match library.list() {
@@ -555,21 +615,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Some(format!("Could not read World Library: {error}")),
         ),
     };
-    let home = WorldMachineHome {
-        registry,
-        library,
-        documents,
-        status,
-    };
 
-    application().run(move |cx: &mut App| {
+    application.run(move |cx: &mut App| {
+        let home = cx.new(|cx| {
+            let mut home = WorldMachineHome {
+                registry,
+                library,
+                documents,
+                status,
+            };
+            home.start_system_open_listener(cx);
+            home
+        });
         let bounds = Bounds::centered(None, size(px(760.0), px(760.0)), cx);
         cx.open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 ..Default::default()
             },
-            move |_, cx| cx.new(|_| home),
+            move |_, _| home,
         )
         .expect("failed to open World Machine library window");
         cx.activate(true);
