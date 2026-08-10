@@ -241,9 +241,9 @@ impl Error for LibraryError {
             Self::Io(error) => Some(error),
             Self::Persistence(error) => Some(error),
             Self::Host(error) => Some(error),
-            Self::InvalidDocumentId(_)
-            | Self::UnknownDocument(_)
-            | Self::ArchiveUnsupported(_) => None,
+            Self::InvalidDocumentId(_) | Self::UnknownDocument(_) | Self::ArchiveUnsupported(_) => {
+                None
+            }
         }
     }
 }
@@ -269,7 +269,6 @@ impl From<HostError> for LibraryError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::BTreeMap;
     use std::env;
     use std::process;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -429,8 +428,7 @@ mod tests {
         let library = WorldLibrary::new(root.clone());
         let registry = registry();
         let id = WorldDocumentId::new("mock-document").unwrap();
-        let mut session =
-            DurableWorldSession::create(id, MOCK_PACK, &registry, &library).unwrap();
+        let mut session = DurableWorldSession::create(id, MOCK_PACK, &registry, &library).unwrap();
 
         fs::remove_dir_all(&root).unwrap();
         File::create(&root).unwrap();
@@ -474,7 +472,4 @@ mod tests {
 
         let _ = fs::remove_dir_all(root);
     }
-
-    #[allow(dead_code)]
-    fn _keep_btreemap_import_for_future_archive_metadata(_: BTreeMap<String, String>) {}
 }
