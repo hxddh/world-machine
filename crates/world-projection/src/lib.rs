@@ -20,9 +20,17 @@ impl SelectionId {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ProjectionIntent {
     ForkBeforeEvent(EventId),
+    InvokeCommand(String),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProjectionCommand {
+    pub id: String,
+    pub title: String,
+    pub detail: String,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -30,6 +38,7 @@ pub struct ProjectionSnapshot {
     pub title: String,
     pub world_time: u64,
     pub briefing: Option<BriefingProjection>,
+    pub commands: Vec<ProjectionCommand>,
     pub collection: CollectionProjection,
     pub timeline: TimelineProjection,
     pub canvas: CanvasProjection,
@@ -44,6 +53,10 @@ impl ProjectionSnapshot {
 
     pub fn why(&self, event: EventId) -> Option<&WhyProjection> {
         self.why.get(&event)
+    }
+
+    pub fn command(&self, id: &str) -> Option<&ProjectionCommand> {
+        self.commands.iter().find(|command| command.id == id)
     }
 }
 
@@ -388,5 +401,23 @@ mod tests {
             "Workspace"
         );
         assert!(inspectors.contains_key(&SelectionId::Event(EventId::new(1))));
+    }
+
+    #[test]
+    fn snapshot_command_lookup_is_generic() {
+        let snapshot = ProjectionSnapshot {
+            commands: vec![ProjectionCommand {
+                id: "world.continue".into(),
+                title: "Continue".into(),
+                detail: "Let the world keep running".into(),
+            }],
+            ..ProjectionSnapshot::default()
+        };
+
+        assert_eq!(
+            snapshot.command("world.continue").map(|command| command.title.as_str()),
+            Some("Continue")
+        );
+        assert!(snapshot.command("missing").is_none());
     }
 }
