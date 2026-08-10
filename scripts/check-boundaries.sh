@@ -5,10 +5,14 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CORE="$ROOT/crates/world-core/src"
 AGENT="$ROOT/crates/world-agent/src"
 PI_RPC="$ROOT/crates/world-pi-rpc"
+PROJECTION="$ROOT/crates/world-projection"
+GPUI="$ROOT/crates/world-gpui"
 
 core_forbidden=("TinySociety" "Tiny Society" "Person" "Town" "Bakery" "Society" "gpui" "pi_agent" "FootballPlayer" "Evidence" "world_agent")
 agent_forbidden=("pi_agent" "openai" "anthropic" "gpui")
 pi_rpc_forbidden=("pi_agent_rust")
+projection_forbidden=("TinySociety" "Tiny Society" "Bakery" "Society" "gpui" "pi_agent")
+gpui_forbidden=("TinySociety" "tiny_society" "world_core" "pi_agent")
 
 failed=0
 for token in "${core_forbidden[@]}"; do
@@ -34,6 +38,26 @@ if [[ -d "$PI_RPC" ]]; then
     if grep -Rni --exclude-dir=target -i -- "$token" "$PI_RPC" >/tmp/world-machine-pi-boundary-check 2>/dev/null; then
       echo "Boundary violation: '$token' found in out-of-process world-pi-rpc adapter:"
       cat /tmp/world-machine-pi-boundary-check
+      failed=1
+    fi
+  done
+fi
+
+if [[ -d "$PROJECTION" ]]; then
+  for token in "${projection_forbidden[@]}"; do
+    if grep -Rni --exclude-dir=target -i -- "$token" "$PROJECTION" >/tmp/world-machine-projection-boundary-check 2>/dev/null; then
+      echo "Boundary violation: '$token' found in generic world-projection:"
+      cat /tmp/world-machine-projection-boundary-check
+      failed=1
+    fi
+  done
+fi
+
+if [[ -d "$GPUI" ]]; then
+  for token in "${gpui_forbidden[@]}"; do
+    if grep -Rni --exclude-dir=target -i -- "$token" "$GPUI" >/tmp/world-machine-gpui-boundary-check 2>/dev/null; then
+      echo "Boundary violation: '$token' found in world-gpui renderer:"
+      cat /tmp/world-machine-gpui-boundary-check
       failed=1
     fi
   done
