@@ -49,10 +49,9 @@ impl FutureArchaeologist {
                 )?;
                 Ok(event.id)
             }
-            _ => Err(std::io::Error::other(format!(
-                "unknown projection command: {command_id}"
-            ))
-            .into()),
+            _ => Err(
+                std::io::Error::other(format!("unknown projection command: {command_id}")).into(),
+            ),
         }
     }
 }
