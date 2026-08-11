@@ -39,14 +39,14 @@ pub struct StrategyOutcome {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum StrategyRun {
-    Success(StrategyOutcome),
+    Success(Box<StrategyOutcome>),
     Failure(StrategyError),
 }
 
 impl StrategyRun {
     pub fn outcome(&self) -> Option<&StrategyOutcome> {
         match self {
-            Self::Success(outcome) => Some(outcome),
+            Self::Success(outcome) => Some(outcome.as_ref()),
             Self::Failure(_) => None,
         }
     }
@@ -143,7 +143,7 @@ fn run_strategy(
     };
 
     match run_plan(&mut *session, plan, side) {
-        Ok(outcome) => StrategyRun::Success(outcome),
+        Ok(outcome) => StrategyRun::Success(Box::new(outcome)),
         Err(error) => StrategyRun::Failure(error),
     }
 }
@@ -307,7 +307,7 @@ mod tests {
 
     fn success(run: &StrategyRun) -> &StrategyOutcome {
         match run {
-            StrategyRun::Success(outcome) => outcome,
+            StrategyRun::Success(outcome) => outcome.as_ref(),
             StrategyRun::Failure(error) => panic!("expected strategy success: {error}"),
         }
     }
