@@ -1,4 +1,6 @@
 #[cfg(target_os = "macos")]
+mod observer;
+#[cfg(target_os = "macos")]
 mod system_open;
 
 #[cfg(target_os = "macos")]
@@ -303,10 +305,11 @@ impl WorldMachineHome {
 
     fn open_session(
         &mut self,
-        session: DurableWorldSession,
+        mut session: DurableWorldSession,
         title: String,
         cx: &mut Context<Self>,
     ) {
+        let catch_up = observer::catch_up(&mut session, &self.registry, &self.library);
         let document_label = session.display_name();
         let registry = Arc::clone(&self.registry);
         let library = Arc::clone(&self.library);
@@ -323,7 +326,16 @@ impl WorldMachineHome {
         );
 
         self.status = Some(match opened {
-            Ok(_) => format!("Opened {title} · {document_label}"),
+            Ok(_) => match catch_up {
+                Ok(Some(outcome)) => format!(
+                    "Opened {title} · {document_label} · Advanced {} background period(s) · World time {}",
+                    outcome.periods, outcome.world_time
+                ),
+                Ok(None) => format!("Opened {title} · {document_label}"),
+                Err(error) => {
+                    format!("Opened {title} · {document_label} · Catch-up skipped: {error}")
+                }
+            },
             Err(error) => format!("Could not open {title}: {error}"),
         });
         cx.notify();
