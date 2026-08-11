@@ -103,7 +103,9 @@ mod tests {
     use std::fs;
     use std::process;
     use world_host::{HostError, WorldDescriptor, WorldRegistration, WorldRegistry, WorldSession};
-    use world_persistence::{WorldArchive, WorldPackRef, WORLD_ARCHIVE_FORMAT, WORLD_ARCHIVE_VERSION};
+    use world_persistence::{
+        WorldArchive, WorldPackRef, WORLD_ARCHIVE_FORMAT, WORLD_ARCHIVE_VERSION,
+    };
     use world_projection::{ProjectionCapabilities, ProjectionIntent, ProjectionSnapshot};
 
     const PACK: &str = "world-machine.desktop-observer-test";
@@ -131,10 +133,7 @@ mod tests {
             Err(HostError::Session("unused in observer tests".into()))
         }
 
-        fn advance_background(
-            &mut self,
-            periods: u64,
-        ) -> Result<ProjectionSnapshot, HostError> {
+        fn advance_background(&mut self, periods: u64) -> Result<ProjectionSnapshot, HostError> {
             if self.fail_background {
                 return Err(HostError::Session("injected background failure".into()));
             }
