@@ -1,5 +1,6 @@
 mod actions;
 mod behaviors;
+mod fishing;
 mod host;
 mod interventions;
 mod model;
@@ -16,6 +17,9 @@ use world_core::{
     ActionRegistry, ActionRequest, BehaviorRegistry, BehaviorRuntime, Event, EventId, World,
 };
 use world_projection::ProjectionSnapshot;
+
+#[cfg(test)]
+pub(crate) use world_core::Value;
 
 pub use host::tiny_society_registration;
 pub use model::{
@@ -321,6 +325,7 @@ fn build_action_registry() -> Result<ActionRegistry, Box<dyn Error>> {
     society_basic::register_actions(&mut actions)?;
     world_agent::register_actions(&mut actions)?;
     actions::register(&mut actions)?;
+    fishing::register_actions(&mut actions)?;
     interventions::register(&mut actions)?;
     social::register_actions(&mut actions)?;
     Ok(actions)

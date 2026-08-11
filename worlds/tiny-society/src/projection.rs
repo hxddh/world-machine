@@ -130,13 +130,16 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
         .rev()
         .filter_map(|event| {
             let title = match event.kind.as_str() {
+                "fish_sold" => "Jonas's catch reached the mainland",
                 "boat_repaired" => "Sea Finch returned to the water",
                 "bakery_reopened" => "Mara reopened Harbor Bakery",
                 "bakery_closed" => "Harbor Bakery closed its doors",
                 "payroll_shortfall" => "The bakery could not cover payroll",
                 "support_received" => "Leo helped Jonas stay afloat",
                 "support_requested" => "Jonas asked Leo for help",
-                "work_shift_completed" if event.actor == Some(JONAS) => {
+                "work_shift_completed"
+                    if event.actor == Some(JONAS) && event.targets.contains(&BAKERY) =>
+                {
                     "Jonas completed another bakery shift"
                 }
                 "worker_retained" => "Mara gave Jonas another chance",
@@ -310,6 +313,10 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
             let detail = if id == BAKERY {
                 component_text(world, BAKERY, OPERATING_STATUS)
                     .map(|status| format!("Place · {status}"))
+                    .unwrap_or_else(|| "Place".into())
+            } else if id == HARBOR {
+                component_integer(world, HARBOR, CASH)
+                    .map(|cash| format!("Place · cash {cash}"))
                     .unwrap_or_else(|| "Place".into())
             } else {
                 "Place".into()
