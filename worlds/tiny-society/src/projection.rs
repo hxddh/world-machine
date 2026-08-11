@@ -134,6 +134,13 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
                 "boat_repaired" => "Sea Finch returned to the water",
                 "bakery_reopened" => "Mara reopened Harbor Bakery",
                 "bakery_closed" => "Harbor Bakery closed its doors",
+                "payroll_reserve_exhausted" if event.targets.contains(&PUB) => {
+                    "Anchor Pub exhausted its payroll reserve"
+                }
+                "payroll_reserve_exhausted" if event.targets.contains(&SCHOOL) => {
+                    "Island School exhausted its payroll reserve"
+                }
+                "payroll_reserve_exhausted" => "A workplace exhausted its payroll reserve",
                 "payroll_shortfall" => "The bakery could not cover payroll",
                 "support_received" => "Leo helped Jonas stay afloat",
                 "support_requested" => "Jonas asked Leo for help",
