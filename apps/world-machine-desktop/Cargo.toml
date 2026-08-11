@@ -20,6 +20,7 @@ world-projection = { path = "../../crates/world-projection" }
 gpui = { git = "https://github.com/zed-industries/zed", rev = "4e8057d74db3570b3bd419ff296eb84c35b3a5a3", package = "gpui" }
 gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "4e8057d74db3570b3bd419ff296eb84c35b3a5a3", package = "gpui_platform" }
 url = "2"
+world-document = { path = "../../crates/world-document" }
 world-persistence = { path = "../../crates/world-persistence" }
 world-strategy-document = { path = "../../crates/world-strategy-document" }
 world-strategy-gpui = { path = "../../crates/world-strategy-gpui" }
