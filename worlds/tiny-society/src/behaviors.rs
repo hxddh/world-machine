@@ -1,5 +1,5 @@
 use crate::{
-    model::{BAKERY, JONAS, LEO, MARA, SUPPORT_STATUS},
+    model::{BAKERY, HARBOR, JONAS, LEO, MARA, SUPPORT_STATUS},
     social::{JONAS_SUPPORT_THRESHOLD, LEO_SUPPORT_AMOUNT},
 };
 use society_basic::{integer_component, CASH};
@@ -27,6 +27,28 @@ pub(crate) fn register(registry: &mut BehaviorRegistry) -> Result<(), Box<dyn Er
                 .actor(JONAS)
                 .arg("lender", LEO)
                 .arg("amount", 40_i64)]
+        },
+    ))?;
+    registry.register(RuleBehavior::new(
+        "fishing-shift-lands-catch",
+        ["work_shift_completed"],
+        |_state: &WorldState, event: &Event| {
+            if event.actor == Some(JONAS) && event.targets.contains(&HARBOR) {
+                vec![ActionRequest::new("land_catch").actor(JONAS)]
+            } else {
+                Vec::new()
+            }
+        },
+    ))?;
+    registry.register(RuleBehavior::new(
+        "landed-catch-sells-to-mainland",
+        ["catch_landed"],
+        |_state: &WorldState, event: &Event| {
+            if event.actor == Some(JONAS) && event.targets.contains(&HARBOR) {
+                vec![ActionRequest::new("sell_fish").actor(JONAS)]
+            } else {
+                Vec::new()
+            }
         },
     ))?;
     registry.register(RuleBehavior::new(
