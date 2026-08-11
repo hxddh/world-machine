@@ -3,8 +3,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     use gpui::{px, size, App, AppContext, Bounds, WindowBounds, WindowOptions};
     use gpui_platform::application;
     use tiny_society::{
-        tiny_society_registration, TinySociety, LEAN_REOPEN_BAKERY_COMMAND,
-        REOPEN_BAKERY_COMMAND,
+        tiny_society_registration, TinySociety, LEAN_REOPEN_BAKERY_COMMAND, REOPEN_BAKERY_COMMAND,
     };
     use world_host::WorldRegistry;
     use world_strategy::{evaluate_strategies, StrategyPlan};
