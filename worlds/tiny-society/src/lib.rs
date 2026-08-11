@@ -1,5 +1,6 @@
 mod actions;
 mod behaviors;
+mod fishing;
 mod host;
 mod interventions;
 mod model;
@@ -321,6 +322,7 @@ fn build_action_registry() -> Result<ActionRegistry, Box<dyn Error>> {
     society_basic::register_actions(&mut actions)?;
     world_agent::register_actions(&mut actions)?;
     actions::register(&mut actions)?;
+    fishing::register_actions(&mut actions)?;
     interventions::register(&mut actions)?;
     social::register_actions(&mut actions)?;
     Ok(actions)
