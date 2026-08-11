@@ -9,6 +9,7 @@ PROJECTION="$ROOT/crates/world-projection"
 HOST="$ROOT/crates/world-host"
 LIBRARY="$ROOT/crates/world-library"
 GPUI="$ROOT/crates/world-gpui"
+STRATEGY_GPUI="$ROOT/crates/world-strategy-gpui"
 DESKTOP="$ROOT/apps/world-machine-desktop"
 
 core_forbidden=("TinySociety" "Tiny Society" "FutureArchaeologist" "Future Archaeologist" "Person" "Town" "Bakery" "Society" "gpui" "pi_agent" "FootballPlayer" "Evidence" "world_agent")
@@ -18,6 +19,7 @@ projection_forbidden=("TinySociety" "Tiny Society" "FutureArchaeologist" "Future
 host_forbidden=("TinySociety" "tiny_society" "FutureArchaeologist" "future_archaeologist" "gpui" "pi_agent")
 library_forbidden=("TinySociety" "tiny_society" "FutureArchaeologist" "future_archaeologist" "gpui" "pi_agent")
 gpui_forbidden=("TinySociety" "tiny_society" "FutureArchaeologist" "future_archaeologist" "world_core" "pi_agent")
+strategy_gpui_forbidden=("TinySociety" "tiny_society" "FutureArchaeologist" "future_archaeologist" "Bakery" "Mara" "Jonas" "world_core" "pi_agent")
 desktop_forbidden=("TinySociety" "tiny_society" "FutureArchaeologist" "future_archaeologist")
 
 failed=0
@@ -84,6 +86,16 @@ if [[ -d "$GPUI" ]]; then
     if grep -Rni --exclude-dir=target -i -- "$token" "$GPUI" >/tmp/world-machine-gpui-boundary-check 2>/dev/null; then
       echo "Boundary violation: '$token' found in world-gpui renderer:"
       cat /tmp/world-machine-gpui-boundary-check
+      failed=1
+    fi
+  done
+fi
+
+if [[ -d "$STRATEGY_GPUI" ]]; then
+  for token in "${strategy_gpui_forbidden[@]}"; do
+    if grep -Rni --exclude-dir=target -i -- "$token" "$STRATEGY_GPUI" >/tmp/world-machine-strategy-gpui-boundary-check 2>/dev/null; then
+      echo "Boundary violation: '$token' found in generic world-strategy-gpui renderer:"
+      cat /tmp/world-machine-strategy-gpui-boundary-check
       failed=1
     fi
   done
