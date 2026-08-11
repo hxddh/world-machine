@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
+use world_integrity::{check_archive, ArchiveIntegrityError};
 use world_persistence::{WorldArchive, WorldPackRef};
 use world_projection::{ProjectionIntent, ProjectionSnapshot};
 
@@ -109,6 +110,7 @@ impl WorldRegistry {
     }
 
     pub fn open_archive(&self, archive: &WorldArchive) -> Result<Box<dyn WorldSession>, HostError> {
+        check_archive(archive)?;
         let registration = self
             .registrations
             .get(&archive.pack.id)
@@ -139,6 +141,7 @@ pub enum HostError {
     DuplicateWorld(String),
     UnknownWorld(String),
     ArchiveOpenUnsupported(String),
+    ArchiveIntegrity(ArchiveIntegrityError),
     VersionMismatch {
         expected: WorldPackRef,
         found: WorldPackRef,
@@ -161,6 +164,7 @@ impl fmt::Display for HostError {
             Self::ArchiveOpenUnsupported(id) => {
                 write!(f, "world does not support archive opening: {id}")
             }
+            Self::ArchiveIntegrity(error) => write!(f, "world archive failed integrity check: {error}"),
             Self::VersionMismatch { expected, found } => write!(
                 f,
                 "world version mismatch: host has {}@{}, archive requires {}@{}",
@@ -171,7 +175,20 @@ impl fmt::Display for HostError {
     }
 }
 
-impl Error for HostError {}
+impl Error for HostError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::ArchiveIntegrity(error) => Some(error),
+            _ => None,
+        }
+    }
+}
+
+impl From<ArchiveIntegrityError> for HostError {
+    fn from(error: ArchiveIntegrityError) -> Self {
+        Self::ArchiveIntegrity(error)
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -299,6 +316,27 @@ mod tests {
         assert!(matches!(
             registry.open_archive(&archive("mock.world", "1", 0)),
             Err(HostError::ArchiveOpenUnsupported(id)) if id == "mock.world"
+        ));
+    }
+
+    #[test]
+    fn archive_integrity_is_checked_before_pack_opener() {
+        let mut registry = WorldRegistry::new();
+        registry
+            .register(
+                registration("mock.world", "1").with_archive_opener(|_| {
+                    panic!("Pack opener must not receive a structurally invalid archive")
+                }),
+            )
+            .unwrap();
+        let mut invalid = archive("mock.world", "1", 0);
+        invalid.format = "broken-world-format".into();
+
+        assert!(matches!(
+            registry.open_archive(&invalid),
+            Err(HostError::ArchiveIntegrity(
+                ArchiveIntegrityError::UnsupportedFormat(_)
+            ))
         ));
     }
 
