@@ -8,10 +8,10 @@ use world_document::{
     WorldBranchCause, WorldDocument, WorldDocumentMetadata, WorldLineage, WorldParent,
 };
 use world_host::{HostError, WorldDescriptor, WorldRegistration, WorldRegistry, WorldSession};
-use world_persistence::{
-    WorldArchive, WorldPackRef, WORLD_ARCHIVE_FORMAT, WORLD_ARCHIVE_VERSION,
+use world_persistence::{WorldArchive, WorldPackRef, WORLD_ARCHIVE_FORMAT, WORLD_ARCHIVE_VERSION};
+use world_projection::{
+    ProjectionCapabilities, ProjectionCommand, ProjectionIntent, ProjectionSnapshot,
 };
-use world_projection::{ProjectionCapabilities, ProjectionCommand, ProjectionIntent, ProjectionSnapshot};
 
 const MOCK_PACK: &str = "world-machine.metadata-regression";
 
@@ -127,9 +127,7 @@ fn interactive_edits_preserve_document_metadata() {
     let registry = registry();
     let id = WorldDocumentId::new("child").unwrap();
     let source = document(5, "interactive");
-    library
-        .create_from_document(id.clone(), &source)
-        .unwrap();
+    library.create_from_document(id.clone(), &source).unwrap();
     let mut session = DurableWorldSession::open(id.clone(), &registry, &library).unwrap();
 
     session
@@ -155,9 +153,7 @@ fn background_progression_preserves_document_metadata() {
     let registry = registry();
     let id = WorldDocumentId::new("child").unwrap();
     let source = document(5, "background");
-    library
-        .create_from_document(id.clone(), &source)
-        .unwrap();
+    library.create_from_document(id.clone(), &source).unwrap();
     let mut session = DurableWorldSession::open(id.clone(), &registry, &library).unwrap();
 
     session.advance_background(3, &registry, &library).unwrap();
