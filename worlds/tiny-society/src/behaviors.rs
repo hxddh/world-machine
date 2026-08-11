@@ -45,7 +45,8 @@ pub(crate) fn register(registry: &mut BehaviorRegistry) -> Result<(), Box<dyn Er
         "landed-catch-sells-to-mainland",
         ["catch_landed"],
         |state: &WorldState, event: &Event| {
-            let has_contract_demand = contract_remaining(state).is_some_and(|remaining| remaining > 0);
+            let has_contract_demand =
+                contract_remaining(state).is_some_and(|remaining| remaining > 0);
             if event.actor == Some(JONAS)
                 && event.targets.contains(&HARBOR)
                 && has_contract_demand
