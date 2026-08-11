@@ -201,7 +201,10 @@ mod tests {
 
         branch.advance_days(2).unwrap();
 
-        assert_eq!(branch.world.world_time(), starting_time + 2 * WORLD_DAY_TICKS);
+        assert_eq!(
+            branch.world.world_time(),
+            starting_time + 2 * WORLD_DAY_TICKS
+        );
         let new_events = &branch.world.events()[cursor.event_count..];
         let routine_shifts = new_events
             .iter()
@@ -242,9 +245,9 @@ mod tests {
 
         assert_eq!(branch.world.world_time(), starting_time + WORLD_DAY_TICKS);
         let new_events = &branch.world.events()[cursor.event_count..];
-        assert!(new_events.iter().any(|event| {
-            event.kind == "work_shift_completed" && event.actor == Some(JONAS)
-        }));
+        assert!(new_events
+            .iter()
+            .any(|event| { event.kind == "work_shift_completed" && event.actor == Some(JONAS) }));
     }
 
     #[test]
