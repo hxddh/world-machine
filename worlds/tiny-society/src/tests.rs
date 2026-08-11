@@ -358,7 +358,8 @@ fn routine_fishing_pays_jonas_and_earns_export_revenue() {
     let mut simulation = TinySociety::new().unwrap();
     let jonas_before = integer_component(simulation.world().state(), JONAS, CASH).unwrap();
     let harbor_before = integer_component(simulation.world().state(), HARBOR, CASH).unwrap();
-    let market_before = integer_component(simulation.world().state(), MAINLAND_MARKET, CASH).unwrap();
+    let market_before =
+        integer_component(simulation.world().state(), MAINLAND_MARKET, CASH).unwrap();
 
     simulation.advance_checkpoint(5).unwrap();
 
@@ -415,13 +416,10 @@ fn routine_fishing_pays_jonas_and_earns_export_revenue() {
         .is_some());
 
     let snapshot = simulation.projection_snapshot();
-    assert!(snapshot
-        .briefing
-        .as_ref()
-        .is_some_and(|briefing| briefing
-            .items
-            .iter()
-            .any(|item| item.title == "Jonas's catch reached the mainland")));
+    assert!(snapshot.briefing.as_ref().is_some_and(|briefing| briefing
+        .items
+        .iter()
+        .any(|item| item.title == "Jonas's catch reached the mainland")));
     assert!(snapshot
         .canvas
         .items
