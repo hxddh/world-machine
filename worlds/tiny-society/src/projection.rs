@@ -134,6 +134,18 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
                 "boat_repaired" => "Sea Finch returned to the water",
                 "bakery_reopened" => "Mara reopened Harbor Bakery",
                 "bakery_closed" => "Harbor Bakery closed its doors",
+                "bread_budget_cut" if event.actor == Some(LEO) => {
+                    "Leo started protecting his savings"
+                }
+                "bread_budget_cut" if event.actor == Some(EMMA) => {
+                    "Emma started protecting her savings"
+                }
+                "income_disrupted" if event.actor == Some(LEO) => {
+                    "Leo's Pub income was disrupted"
+                }
+                "income_disrupted" if event.actor == Some(EMMA) => {
+                    "Emma's School income was disrupted"
+                }
                 "payroll_reserve_exhausted" if event.targets.contains(&PUB) => {
                     "Anchor Pub exhausted its payroll reserve"
                 }
@@ -405,5 +417,37 @@ fn relation_integer(world: &World, id: RelationId, key: &str) -> Option<i64> {
     match world.state().relation(id)?.properties.get(key)? {
         Value::Integer(value) => Some(*value),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::TinySociety;
+
+    #[test]
+    fn household_savings_cut_is_highlighted_in_return_briefing() {
+        let mut society = TinySociety::new().unwrap();
+        society.run_story().unwrap();
+        let mut branch = society.branch();
+        branch.advance_days(70).unwrap();
+
+        let cut_position = branch
+            .world()
+            .events()
+            .iter()
+            .position(|event| event.kind == "bread_budget_cut" && event.actor == Some(LEO))
+            .expect("Leo eventually cuts his bread budget");
+        let snapshot = snapshot_since(branch.world(), Some(cut_position));
+        let briefing = snapshot.briefing.expect("Tiny Society has a briefing");
+
+        assert!(briefing
+            .items
+            .iter()
+            .any(|item| item.title == "Leo started protecting his savings"));
+        assert!(briefing
+            .items
+            .iter()
+            .any(|item| item.title == "Emma's School income was disrupted"));
     }
 }
