@@ -125,6 +125,10 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
         .collect::<Vec<_>>();
 
     if since_event_count.is_some() {
+        if let Some(sales) = bakery_sales_summary(world, relevant_events) {
+            items.push(sales);
+            items.truncate(4);
+        }
         if let Some(activity) = living_activity_summary(world, relevant_events) {
             items.push(activity);
             items.truncate(4);
@@ -162,6 +166,51 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
         },
         items,
     }
+}
+
+fn bakery_sales_summary(world: &World, events: &[Event]) -> Option<BriefingItem> {
+    let purchases = events
+        .iter()
+        .filter(|event| event.kind == "bread_purchased")
+        .collect::<Vec<_>>();
+    let latest = purchases.last()?;
+
+    let mut customers = Vec::<String>::new();
+    let mut total_revenue = 0_i64;
+    for event in &purchases {
+        if let Some(actor) = event.actor {
+            if let Some(entity) = world.state().entity(actor) {
+                let name = entity_title(entity);
+                if !customers.contains(&name) {
+                    customers.push(name);
+                }
+            }
+        }
+        if let Some(Value::Integer(amount)) = event.payload.get("amount") {
+            total_revenue += amount;
+        }
+    }
+
+    let people = if customers.is_empty() {
+        "Residents".into()
+    } else {
+        customers.join(", ")
+    };
+    let purchase_label = if purchases.len() == 1 {
+        "purchase"
+    } else {
+        "purchases"
+    };
+
+    Some(BriefingItem {
+        selection: Some(SelectionId::Event(latest.id)),
+        title: "Harbor Bakery had customers".into(),
+        detail: format!(
+            "{people} bought bread · {} {purchase_label} · {total_revenue} revenue · latest at World time {}",
+            purchases.len(),
+            latest.world_time
+        ),
+    })
 }
 
 fn living_activity_summary(world: &World, events: &[Event]) -> Option<BriefingItem> {

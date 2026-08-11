@@ -1,3 +1,4 @@
+use crate::model::OPERATING_STATUS;
 use crate::{
     behaviors, build_action_registry, projection, seed, TinySociety, TinySocietyBranch, BAKERY,
     EMMA, HARBOR, JONAS, LEO, MARA, PUB, SCHOOL,
@@ -5,7 +6,8 @@ use crate::{
 use society_basic::{integer_component, CASH, JOB};
 use std::error::Error;
 use world_core::{
-    ActionRequest, BehaviorRegistry, BehaviorRuntime, EntityId, EventId, Value, World,
+    ActionRegistry, ActionRequest, BehaviorRegistry, BehaviorRuntime, EntityId, EventId, Value,
+    World,
 };
 use world_persistence::{PersistenceError, WorldArchive, WorldPackRef};
 use world_projection::ProjectionSnapshot;
@@ -14,6 +16,7 @@ pub const TINY_SOCIETY_PACK_ID: &str = "world-machine.tiny-society";
 pub const TINY_SOCIETY_PACK_VERSION: &str = "0.1.0";
 
 const WORLD_DAY_TICKS: u64 = 10;
+const MORNING_OFFSET_TICKS: u64 = 5;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct VisitCursor {
@@ -87,29 +90,71 @@ impl TinySocietyBranch {
         let mut generated_events = Vec::new();
 
         for _ in 0..days {
-            let next_time = self
-                .world
-                .world_time()
+            let start_time = self.world.world_time();
+            let morning_time = start_time
+                .checked_add(MORNING_OFFSET_TICKS)
+                .ok_or_else(|| std::io::Error::other("Tiny Society world time overflow"))?;
+            let end_time = start_time
                 .checked_add(WORLD_DAY_TICKS)
                 .ok_or_else(|| std::io::Error::other("Tiny Society world time overflow"))?;
-            schedule_daily_shifts(&mut self.world, next_time)?;
-            let scheduled = self.world.advance_to(&actions, next_time)?;
-            generated_events.extend(scheduled.iter().copied());
 
-            for event in scheduled {
-                let run = BehaviorRuntime::run_from_event(
-                    &mut self.world,
-                    &actions,
-                    &behavior_registry,
-                    event,
-                    32,
-                )?;
-                generated_events.extend(run.generated_events);
-            }
+            schedule_daily_bakery_purchases(&mut self.world, morning_time)?;
+            generated_events.extend(advance_branch_checkpoint(
+                &mut self.world,
+                &actions,
+                &behavior_registry,
+                morning_time,
+            )?);
+
+            schedule_daily_shifts(&mut self.world, end_time)?;
+            generated_events.extend(advance_branch_checkpoint(
+                &mut self.world,
+                &actions,
+                &behavior_registry,
+                end_time,
+            )?);
         }
 
         Ok(generated_events)
     }
+}
+
+fn advance_branch_checkpoint(
+    world: &mut World,
+    actions: &ActionRegistry,
+    behaviors: &BehaviorRegistry,
+    world_time: u64,
+) -> Result<Vec<EventId>, Box<dyn Error>> {
+    let scheduled = world.advance_to(actions, world_time)?;
+    let mut generated = scheduled.clone();
+    for event in scheduled {
+        let run = BehaviorRuntime::run_from_event(world, actions, behaviors, event, 32)?;
+        generated.extend(run.generated_events);
+    }
+    Ok(generated)
+}
+
+fn schedule_daily_bakery_purchases(
+    world: &mut World,
+    world_time: u64,
+) -> Result<(), Box<dyn Error>> {
+    if !bakery_is_open(world) {
+        return Ok(());
+    }
+
+    for (customer, amount) in [(EMMA, 9_i64), (LEO, 11_i64)] {
+        if integer_component(world.state(), customer, CASH)? < amount {
+            continue;
+        }
+        world.schedule_at(
+            world_time,
+            ActionRequest::new("buy_bread")
+                .actor(customer)
+                .arg("customer", customer)
+                .arg("amount", amount),
+        )?;
+    }
+    Ok(())
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -197,6 +242,16 @@ fn reserve_wage(
     Ok(WageReservation::Reserved)
 }
 
+fn bakery_is_open(world: &World) -> bool {
+    matches!(
+        world
+            .state()
+            .entity(BAKERY)
+            .and_then(|entity| entity.component(OPERATING_STATUS)),
+        Some(Value::Text(status)) if status == "open"
+    )
+}
+
 fn current_job(world: &World, resident: EntityId) -> Option<&str> {
     match world.state().entity(resident)?.component(JOB)? {
         Value::Text(job) => Some(job.as_str()),
@@ -254,6 +309,62 @@ mod tests {
     }
 
     #[test]
+    fn dismissed_branch_bakery_sales_cover_maras_daily_payroll() {
+        let mut society = TinySociety::new().unwrap();
+        society.run_story().unwrap();
+        let mut branch = society.branch();
+        let cursor = branch.visit_cursor();
+        let bakery_before = integer_component(branch.world.state(), BAKERY, CASH).unwrap();
+        let emma_before = integer_component(branch.world.state(), EMMA, CASH).unwrap();
+        let leo_before = integer_component(branch.world.state(), LEO, CASH).unwrap();
+
+        branch.advance_days(5).unwrap();
+
+        let new_events = &branch.world.events()[cursor.event_count..];
+        let purchases = new_events
+            .iter()
+            .filter(|event| event.kind == "bread_purchased")
+            .collect::<Vec<_>>();
+        assert_eq!(purchases.len(), 10);
+        assert_eq!(
+            purchases
+                .iter()
+                .filter_map(|event| match event.payload.get("amount") {
+                    Some(Value::Integer(amount)) => Some(*amount),
+                    _ => None,
+                })
+                .sum::<i64>(),
+            100
+        );
+        assert_eq!(
+            integer_component(branch.world.state(), BAKERY, CASH).unwrap(),
+            bakery_before
+        );
+        assert_eq!(
+            integer_component(branch.world.state(), EMMA, CASH).unwrap(),
+            emma_before + 5 * (18 - 9)
+        );
+        assert_eq!(
+            integer_component(branch.world.state(), LEO, CASH).unwrap(),
+            leo_before + 5 * (22 - 11)
+        );
+        assert!(!branch
+            .world
+            .events()
+            .iter()
+            .any(|event| event.kind == "bakery_closed"));
+
+        let briefing = branch
+            .projection_snapshot_since(cursor)
+            .briefing
+            .expect("Tiny Society has a return briefing");
+        assert!(briefing
+            .items
+            .iter()
+            .any(|item| item.title == "Harbor Bakery had customers"));
+    }
+
+    #[test]
     fn retained_worker_keeps_working_on_future_days() {
         let mut society = TinySociety::new().unwrap();
         society.run_story().unwrap();
@@ -280,7 +391,7 @@ mod tests {
     }
 
     #[test]
-    fn retaining_jonas_brings_the_bakery_crisis_forward() {
+    fn retaining_jonas_can_close_the_bakery_while_dismissal_stays_stable() {
         let mut society = TinySociety::new().unwrap();
         society.run_story().unwrap();
         let dismissal = society
@@ -292,14 +403,25 @@ mod tests {
             .id;
 
         let mut dismissed_branch = society.branch();
+        let dismissed_cash =
+            integer_component(dismissed_branch.world.state(), BAKERY, CASH).unwrap();
+        dismissed_branch.advance_days(30).unwrap();
+        assert_eq!(
+            integer_component(dismissed_branch.world.state(), BAKERY, CASH).unwrap(),
+            dismissed_cash
+        );
+        assert!(!dismissed_branch
+            .world
+            .events()
+            .iter()
+            .any(|event| event.kind == "bakery_closed"));
+
         let mut retained_branch = society.branch();
         retained_branch.fork_before_event(dismissal).unwrap();
         retained_branch.continue_with_retention().unwrap();
-
-        let dismissed_days = days_until_event(&mut dismissed_branch, "bakery_closed", 30);
         let retained_days = days_until_event(&mut retained_branch, "bakery_closed", 30);
+        assert!(retained_days <= 30);
 
-        assert!(retained_days < dismissed_days);
         let closure = retained_branch
             .world
             .events()
@@ -329,7 +451,16 @@ mod tests {
     fn bakery_stays_closed_after_the_payroll_crisis() {
         let mut society = TinySociety::new().unwrap();
         society.run_story().unwrap();
+        let dismissal = society
+            .world()
+            .events()
+            .iter()
+            .find(|event| event.kind == "worker_dismissed")
+            .expect("story has a dismissal")
+            .id;
         let mut branch = society.branch();
+        branch.fork_before_event(dismissal).unwrap();
+        branch.continue_with_retention().unwrap();
         days_until_event(&mut branch, "bakery_closed", 30);
         let cursor = branch.visit_cursor();
 
@@ -339,6 +470,9 @@ mod tests {
             .iter()
             .filter(|event| event.kind == "work_shift_completed")
             .all(|event| !event.targets.contains(&BAKERY)));
+        assert!(branch.world.events()[cursor.event_count..]
+            .iter()
+            .all(|event| event.kind != "bread_purchased"));
     }
 
     #[test]
@@ -415,6 +549,9 @@ mod tests {
                     && event.actor == Some(MARA)
                     && event.targets.contains(&BAKERY)
             }));
+        assert!(branch.world.events()[cursor.event_count..]
+            .iter()
+            .any(|event| event.kind == "bread_purchased"));
     }
 
     #[test]
