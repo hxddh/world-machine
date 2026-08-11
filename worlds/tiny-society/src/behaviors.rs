@@ -1,6 +1,6 @@
 use crate::{
-    fishing::DAILY_CATCH_VALUE,
-    model::{BAKERY, HARBOR, JONAS, LEO, MAINLAND_MARKET, MARA, SUPPORT_STATUS},
+    fishing::contract_remaining,
+    model::{BAKERY, HARBOR, JONAS, LEO, MARA, SUPPORT_STATUS},
     social::{JONAS_SUPPORT_THRESHOLD, LEO_SUPPORT_AMOUNT},
 };
 use society_basic::{integer_component, CASH};
@@ -45,10 +45,23 @@ pub(crate) fn register(registry: &mut BehaviorRegistry) -> Result<(), Box<dyn Er
         "landed-catch-sells-to-mainland",
         ["catch_landed"],
         |state: &WorldState, event: &Event| {
-            let can_buy = integer_component(state, MAINLAND_MARKET, CASH)
-                .is_ok_and(|cash| cash >= DAILY_CATCH_VALUE);
-            if event.actor == Some(JONAS) && event.targets.contains(&HARBOR) && can_buy {
+            let has_contract_demand = contract_remaining(state).is_some_and(|remaining| remaining > 0);
+            if event.actor == Some(JONAS)
+                && event.targets.contains(&HARBOR)
+                && has_contract_demand
+            {
                 vec![ActionRequest::new("sell_fish").actor(JONAS)]
+            } else {
+                Vec::new()
+            }
+        },
+    ))?;
+    registry.register(RuleBehavior::new(
+        "last-mainland-sale-fulfills-contract",
+        ["fish_sold"],
+        |state: &WorldState, event: &Event| {
+            if event.targets.contains(&HARBOR) && contract_remaining(state) == Some(0) {
+                vec![ActionRequest::new("record_mainland_contract_fulfilled")]
             } else {
                 Vec::new()
             }
