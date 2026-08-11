@@ -38,6 +38,12 @@ mod save_as;
 #[path = "revision/background.rs"]
 mod background;
 
+// Expose the current live archive through the same private durable document
+// machinery. The archive still comes from the Host's integrity-checked session
+// boundary and does not read or mutate the document target.
+#[path = "revision/archive.rs"]
+mod archive;
+
 #[cfg(test)]
 mod tests {
     use super::*;
