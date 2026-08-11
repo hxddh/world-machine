@@ -17,6 +17,7 @@ pub(crate) fn register(registry: &mut ActionRegistry) -> Result<(), ActionError>
     registry.register(DismissWorker)?;
     registry.register(RecordPayrollShortfall)?;
     registry.register(CloseBakery)?;
+    registry.register(ReopenBakery)?;
     Ok(())
 }
 
@@ -425,6 +426,72 @@ impl Action for CloseBakery {
                 },
             ]);
         }
+        Ok(draft)
+    }
+}
+
+struct ReopenBakery;
+
+impl Action for ReopenBakery {
+    fn name(&self) -> &'static str {
+        "reopen_bakery"
+    }
+
+    fn evaluate(
+        &self,
+        state: &WorldState,
+        _request: &ActionRequest,
+    ) -> Result<EventDraft, ActionError> {
+        if text_component(state, BAKERY, OPERATING_STATUS)? != "closed" {
+            return Err(ActionError::Invalid("the bakery is not closed".into()));
+        }
+        if state.relation(MARA_BAKERY_JOB).is_some() {
+            return Err(ActionError::Invalid(
+                "Mara already has an active bakery job relation".into(),
+            ));
+        }
+
+        let investment = crate::BAKERY_REOPEN_INVESTMENT;
+        let mara_cash = integer_component(state, MARA, CASH)?;
+        if mara_cash < investment {
+            return Err(ActionError::Invalid(format!(
+                "Mara needs {investment} cash to reopen the bakery"
+            )));
+        }
+        let bakery_cash = integer_component(state, BAKERY, CASH)?;
+
+        let mut draft = EventDraft::new("bakery_reopened");
+        draft.actor = Some(MARA);
+        draft.targets = vec![BAKERY, MARA];
+        draft.payload.insert("investment".into(), investment.into());
+        draft.changes = vec![
+            StateChange::SetComponent {
+                entity: MARA,
+                key: CASH.into(),
+                value: (mara_cash - investment).into(),
+            },
+            StateChange::SetComponent {
+                entity: BAKERY,
+                key: CASH.into(),
+                value: (bakery_cash + investment).into(),
+            },
+            StateChange::SetComponent {
+                entity: BAKERY,
+                key: OPERATING_STATUS.into(),
+                value: "open".into(),
+            },
+            StateChange::CreateRelation(Relation::new(
+                MARA_BAKERY_JOB,
+                "works_at",
+                MARA,
+                BAKERY,
+            )),
+            StateChange::SetComponent {
+                entity: MARA,
+                key: JOB.into(),
+                value: "baker".into(),
+            },
+        ];
         Ok(draft)
     }
 }
