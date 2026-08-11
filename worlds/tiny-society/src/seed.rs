@@ -44,6 +44,11 @@ pub(crate) fn seed_world() -> Result<WorldState, Box<dyn Error>> {
     }
 
     state.seed_entity(
+        Entity::new(MAINLAND_MARKET, "external_market")
+            .with_component("name", "Mainland Fish Market")
+            .with_component(CASH, 10_000_i64),
+    )?;
+    state.seed_entity(
         Entity::new(JONAS_BOAT, "asset")
             .with_component("name", "Sea Finch")
             .with_component(CONDITION, "sound"),
