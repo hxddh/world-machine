@@ -1,3 +1,4 @@
+use crate::model::OPERATING_STATUS;
 use crate::{
     BAKERY, EMMA, EVAN, HARBOR, JONAS, JONAS_BOAT, LEO, MARA, MIA, NOAH, PUB, SCHOOL, SOFIA,
     WEDDING_ORDER,
@@ -84,6 +85,8 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
         .rev()
         .filter_map(|event| {
             let title = match event.kind.as_str() {
+                "bakery_closed" => "Harbor Bakery closed its doors",
+                "payroll_shortfall" => "The bakery could not cover payroll",
                 "work_shift_completed" if event.actor == Some(JONAS) => {
                     "Jonas completed another bakery shift"
                 }
@@ -206,11 +209,18 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
         (PUB, 0.28, 0.16),
     ] {
         if let Some(entity) = world.state().entity(id) {
+            let detail = if id == BAKERY {
+                component_text(world, BAKERY, OPERATING_STATUS)
+                    .map(|status| format!("Place · {status}"))
+                    .unwrap_or_else(|| "Place".into())
+            } else {
+                "Place".into()
+            };
             items.push(CanvasItem {
                 id: SelectionId::Entity(id),
                 kind: CanvasItemKind::Place,
                 label: entity_title(entity),
-                detail: "Place".into(),
+                detail,
                 x,
                 y,
             });
