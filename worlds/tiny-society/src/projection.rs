@@ -70,7 +70,8 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
         });
     }
 
-    let bakery_closed = component_text(world, BAKERY, OPERATING_STATUS).as_deref() == Some("closed");
+    let bakery_closed =
+        component_text(world, BAKERY, OPERATING_STATUS).as_deref() == Some("closed");
     let mara_can_reopen = component_integer(world, MARA, CASH)
         .is_some_and(|cash| cash >= crate::BAKERY_REOPEN_INVESTMENT);
     if bakery_closed && mara_can_reopen {
