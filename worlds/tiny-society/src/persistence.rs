@@ -408,11 +408,13 @@ mod tests {
 
         let cursor = branch.visit_cursor();
         branch.advance_days(1).unwrap();
-        assert!(branch.world.events()[cursor.event_count..].iter().any(|event| {
-            event.kind == "work_shift_completed"
-                && event.actor == Some(MARA)
-                && event.targets.contains(&BAKERY)
-        }));
+        assert!(branch.world.events()[cursor.event_count..]
+            .iter()
+            .any(|event| {
+                event.kind == "work_shift_completed"
+                    && event.actor == Some(MARA)
+                    && event.targets.contains(&BAKERY)
+            }));
     }
 
     #[test]
