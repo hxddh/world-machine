@@ -1,8 +1,8 @@
 use crate::{actions::text_component, model::*};
 use society_basic::{integer_component, CASH, EMPLOYER, JOB};
 use world_core::{
-    Action, ActionError, ActionRegistry, ActionRequest, EntityId, EventDraft, Relation, StateChange,
-    Value, WorldState,
+    Action, ActionError, ActionRegistry, ActionRequest, EntityId, EventDraft, Relation,
+    StateChange, Value, WorldState,
 };
 
 pub(crate) const JONAS_DAILY_LIVING_COST: i64 = 8;
@@ -275,12 +275,7 @@ impl Action for RepairJonasBoat {
                 key: CONDITION.into(),
                 value: "sound".into(),
             },
-            StateChange::CreateRelation(Relation::new(
-                JONAS_HARBOR_JOB,
-                "works_at",
-                JONAS,
-                HARBOR,
-            )),
+            StateChange::CreateRelation(Relation::new(JONAS_HARBOR_JOB, "works_at", JONAS, HARBOR)),
             StateChange::SetComponent {
                 entity: JONAS,
                 key: JOB.into(),
