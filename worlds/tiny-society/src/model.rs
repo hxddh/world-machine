@@ -16,6 +16,7 @@ pub const PUB: EntityId = EntityId::new(104);
 
 pub const JONAS_BOAT: EntityId = EntityId::new(201);
 pub const WEDDING_ORDER: EntityId = EntityId::new(202);
+pub(crate) const MAINLAND_MARKET: EntityId = EntityId::new(301);
 
 pub(crate) const MARA_EMMA_FRIEND: RelationId = RelationId::new(601);
 pub(crate) const JONAS_LEO_TRUST: RelationId = RelationId::new(602);
