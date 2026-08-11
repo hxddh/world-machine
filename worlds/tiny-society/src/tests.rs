@@ -1,6 +1,7 @@
 use crate::actions::text_component;
 use crate::model::{
-    CONDITION, JONAS_HARBOR_JOB, JONAS_LEO_TRUST, MARA_EMMA_FRIEND, ORDER_STATUS, TEMP_BAKERY_JOB,
+    CONDITION, JONAS_HARBOR_JOB, JONAS_LEO_TRUST, MAINLAND_MARKET, MARA_EMMA_FRIEND, ORDER_STATUS,
+    TEMP_BAKERY_JOB,
 };
 use crate::*;
 use society_basic::{integer_component, CASH, JOB};
@@ -316,34 +317,91 @@ fn social_support_unlocks_a_durable_return_to_fishing() {
 
     let cursor = branch.visit_cursor();
     let jonas_before = integer_component(branch.world().state(), JONAS, CASH).unwrap();
+    let harbor_before = integer_component(branch.world().state(), HARBOR, CASH).unwrap();
+    let market_before = integer_component(branch.world().state(), MAINLAND_MARKET, CASH).unwrap();
     branch.advance_days(1).unwrap();
     let new_events = &branch.world().events()[cursor.event_count..];
-    assert!(new_events.iter().any(|event| {
-        event.kind == "work_shift_completed"
-            && event.actor == Some(JONAS)
-            && event.targets.contains(&HARBOR)
-    }));
+    let shift = new_events
+        .iter()
+        .find(|event| {
+            event.kind == "work_shift_completed"
+                && event.actor == Some(JONAS)
+                && event.targets.contains(&HARBOR)
+        })
+        .expect("repaired Jonas completes a Harbor shift");
+    let catch = new_events
+        .iter()
+        .find(|event| event.kind == "catch_landed")
+        .expect("fishing shift lands a catch");
+    let sale = new_events
+        .iter()
+        .find(|event| event.kind == "fish_sold")
+        .expect("landed catch sells to the mainland");
+    assert_eq!(catch.caused_by, vec![shift.id]);
+    assert_eq!(sale.caused_by, vec![catch.id]);
     assert_eq!(
         integer_component(branch.world().state(), JONAS, CASH).unwrap(),
         jonas_before + 25 - crate::social::JONAS_DAILY_LIVING_COST
     );
+    assert_eq!(
+        integer_component(branch.world().state(), HARBOR, CASH).unwrap(),
+        harbor_before + crate::fishing::DAILY_CATCH_VALUE - 25
+    );
+    assert_eq!(
+        integer_component(branch.world().state(), MAINLAND_MARKET, CASH).unwrap(),
+        market_before - crate::fishing::DAILY_CATCH_VALUE
+    );
 }
 
 #[test]
-fn routine_work_moves_cash_and_relationships_exist() {
+fn routine_fishing_pays_jonas_and_earns_export_revenue() {
     let mut simulation = TinySociety::new().unwrap();
     let jonas_before = integer_component(simulation.world().state(), JONAS, CASH).unwrap();
     let harbor_before = integer_component(simulation.world().state(), HARBOR, CASH).unwrap();
+    let market_before = integer_component(simulation.world().state(), MAINLAND_MARKET, CASH).unwrap();
 
     simulation.advance_checkpoint(5).unwrap();
 
+    let shift = simulation
+        .world()
+        .events()
+        .iter()
+        .find(|event| {
+            event.kind == "work_shift_completed"
+                && event.actor == Some(JONAS)
+                && event.targets.contains(&HARBOR)
+        })
+        .expect("Jonas completes the scheduled Harbor shift");
+    let catch = simulation
+        .world()
+        .events()
+        .iter()
+        .find(|event| event.kind == "catch_landed")
+        .expect("Harbor shift lands a catch");
+    let sale = simulation
+        .world()
+        .events()
+        .iter()
+        .find(|event| event.kind == "fish_sold")
+        .expect("catch sells to mainland demand");
+
+    assert_eq!(catch.caused_by, vec![shift.id]);
+    assert_eq!(sale.caused_by, vec![catch.id]);
+    assert_eq!(
+        sale.payload.get("revenue"),
+        Some(&Value::Integer(crate::fishing::DAILY_CATCH_VALUE))
+    );
     assert_eq!(
         integer_component(simulation.world().state(), JONAS, CASH).unwrap(),
         jonas_before + 25
     );
     assert_eq!(
         integer_component(simulation.world().state(), HARBOR, CASH).unwrap(),
-        harbor_before - 25
+        harbor_before + crate::fishing::DAILY_CATCH_VALUE - 25
+    );
+    assert_eq!(
+        integer_component(simulation.world().state(), MAINLAND_MARKET, CASH).unwrap(),
+        market_before - crate::fishing::DAILY_CATCH_VALUE
     );
     assert!(simulation
         .world()
@@ -355,6 +413,21 @@ fn routine_work_moves_cash_and_relationships_exist() {
         .state()
         .relation(JONAS_LEO_TRUST)
         .is_some());
+
+    let snapshot = simulation.projection_snapshot();
+    assert!(snapshot
+        .briefing
+        .as_ref()
+        .is_some_and(|briefing| briefing
+            .items
+            .iter()
+            .any(|item| item.title == "Jonas's catch reached the mainland")));
+    assert!(snapshot
+        .canvas
+        .items
+        .iter()
+        .find(|item| item.id == SelectionId::Entity(HARBOR))
+        .is_some_and(|item| item.detail == "Place · cash 810"));
 }
 
 #[test]
