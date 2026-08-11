@@ -93,11 +93,11 @@ mod tests {
     use super::*;
     use crate::{read_archive_file, read_document_file, write_archive_file};
     use std::env;
-    use world_document::{
-        WorldBranchCause, WorldDocumentMetadata, WorldLineage, WorldParent,
-    };
+    use world_document::{WorldBranchCause, WorldDocumentMetadata, WorldLineage, WorldParent};
     use world_host::{HostError, WorldSession};
-    use world_persistence::{WorldArchive, WorldPackRef, WORLD_ARCHIVE_FORMAT, WORLD_ARCHIVE_VERSION};
+    use world_persistence::{
+        WorldArchive, WorldPackRef, WORLD_ARCHIVE_FORMAT, WORLD_ARCHIVE_VERSION,
+    };
     use world_projection::{ProjectionCapabilities, ProjectionIntent, ProjectionSnapshot};
 
     const MOCK_PACK: &str = "world-machine.save-as-mock";
@@ -207,7 +207,10 @@ mod tests {
 
         session.save_as_file(destination.clone()).unwrap();
 
-        assert_eq!(read_document_file(&destination).unwrap().metadata, lineage_metadata());
+        assert_eq!(
+            read_document_file(&destination).unwrap().metadata,
+            lineage_metadata()
+        );
         let _ = fs::remove_dir_all(root);
     }
 
