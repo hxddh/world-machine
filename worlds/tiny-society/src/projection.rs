@@ -3,7 +3,7 @@ use crate::{
     WEDDING_ORDER,
 };
 use society_basic::{CASH, JOB};
-use world_core::{EntityId, Value, World};
+use world_core::{EntityId, Event, Value, World};
 use world_projection::{
     entity_title, inspectors_from_world, timeline_from_world, why_map_from_world, BriefingItem,
     BriefingProjection, CanvasItem, CanvasItemKind, CanvasProjection, CollectionItem,
@@ -104,6 +104,13 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
         .take(4)
         .collect::<Vec<_>>();
 
+    if since_event_count.is_some() {
+        if let Some(activity) = living_activity_summary(world, relevant_events) {
+            items.push(activity);
+            items.truncate(4);
+        }
+    }
+
     if since_event_count.is_some() && items.is_empty() {
         let (title, detail) = if relevant_events.is_empty() {
             (
@@ -135,6 +142,47 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
         },
         items,
     }
+}
+
+fn living_activity_summary(world: &World, events: &[Event]) -> Option<BriefingItem> {
+    let shifts = events
+        .iter()
+        .filter(|event| event.kind == "work_shift_completed")
+        .collect::<Vec<_>>();
+    let latest = shifts.last()?;
+
+    let mut residents = Vec::<String>::new();
+    let mut total_wages = 0_i64;
+    for event in &shifts {
+        if let Some(actor) = event.actor {
+            if let Some(entity) = world.state().entity(actor) {
+                let name = entity_title(entity);
+                if !residents.contains(&name) {
+                    residents.push(name);
+                }
+            }
+        }
+        if let Some(Value::Integer(wage)) = event.payload.get("wage") {
+            total_wages += wage;
+        }
+    }
+
+    let people = if residents.is_empty() {
+        "Residents".into()
+    } else {
+        residents.join(", ")
+    };
+    let shift_label = if shifts.len() == 1 { "shift" } else { "shifts" };
+
+    Some(BriefingItem {
+        selection: Some(SelectionId::Event(latest.id)),
+        title: "The world moved forward".into(),
+        detail: format!(
+            "{people} worked · {} {shift_label} · {total_wages} total wages · latest at World time {}",
+            shifts.len(),
+            latest.world_time
+        ),
+    })
 }
 
 fn resident_item(world: &World, id: EntityId) -> Option<CollectionItem> {
