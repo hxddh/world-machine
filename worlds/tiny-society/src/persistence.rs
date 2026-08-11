@@ -342,6 +342,80 @@ mod tests {
     }
 
     #[test]
+    fn mara_can_reopen_the_bakery_without_automatically_rehiring_jonas() {
+        let mut society = TinySociety::new().unwrap();
+        society.run_story().unwrap();
+        let dismissal = society
+            .world()
+            .events()
+            .iter()
+            .find(|event| event.kind == "worker_dismissed")
+            .expect("story has a dismissal")
+            .id;
+        let mut branch = society.branch();
+        branch.fork_before_event(dismissal).unwrap();
+        branch.continue_with_retention().unwrap();
+        days_until_event(&mut branch, "bakery_closed", 30);
+
+        let closure = branch
+            .world
+            .events()
+            .iter()
+            .rev()
+            .find(|event| event.kind == "bakery_closed")
+            .expect("retained branch closes the bakery")
+            .id;
+        let mara_before = integer_component(branch.world.state(), MARA, CASH).unwrap();
+        let bakery_before = integer_component(branch.world.state(), BAKERY, CASH).unwrap();
+        assert_eq!(current_job(&branch.world, JONAS), Some("unemployed"));
+        assert!(branch
+            .projection_snapshot()
+            .commands
+            .iter()
+            .any(|command| command.id == crate::REOPEN_BAKERY_COMMAND));
+
+        let reopened = branch
+            .invoke_projection_command(crate::REOPEN_BAKERY_COMMAND)
+            .unwrap();
+
+        assert_eq!(reopened.len(), 1);
+        let event = branch
+            .world
+            .event(reopened[0])
+            .expect("reopen command creates an event");
+        assert_eq!(event.kind, "bakery_reopened");
+        assert_eq!(event.caused_by, vec![closure]);
+        assert_eq!(
+            integer_component(branch.world.state(), MARA, CASH).unwrap(),
+            mara_before - crate::BAKERY_REOPEN_INVESTMENT
+        );
+        assert_eq!(
+            integer_component(branch.world.state(), BAKERY, CASH).unwrap(),
+            bakery_before + crate::BAKERY_REOPEN_INVESTMENT
+        );
+        assert_eq!(current_job(&branch.world, MARA), Some("baker"));
+        assert_eq!(current_job(&branch.world, JONAS), Some("unemployed"));
+        assert!(!branch
+            .projection_snapshot()
+            .commands
+            .iter()
+            .any(|command| command.id == crate::REOPEN_BAKERY_COMMAND));
+
+        let archive = branch.archive().unwrap();
+        let resumed = TinySociety::resume_archive(&archive).unwrap();
+        assert_eq!(current_job(resumed.world(), MARA), Some("baker"));
+        assert_eq!(current_job(resumed.world(), JONAS), Some("unemployed"));
+
+        let cursor = branch.visit_cursor();
+        branch.advance_days(1).unwrap();
+        assert!(branch.world.events()[cursor.event_count..].iter().any(|event| {
+            event.kind == "work_shift_completed"
+                && event.actor == Some(MARA)
+                && event.targets.contains(&BAKERY)
+        }));
+    }
+
+    #[test]
     fn zero_days_is_a_noop() {
         let society = TinySociety::new().unwrap();
         let mut branch = society.branch();
