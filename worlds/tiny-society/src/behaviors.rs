@@ -118,5 +118,6 @@ pub(crate) fn register(registry: &mut BehaviorRegistry) -> Result<(), Box<dyn Er
     ))?;
     crate::payroll::register_behaviors(registry)?;
     crate::reciprocity::register_behaviors(registry)?;
+    crate::local_economy::register_behaviors(registry)?;
     Ok(())
 }

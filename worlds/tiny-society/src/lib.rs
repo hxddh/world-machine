@@ -3,6 +3,7 @@ mod behaviors;
 mod fishing;
 mod host;
 mod interventions;
+mod local_economy;
 mod model;
 mod payroll;
 mod persistence;
@@ -329,6 +330,7 @@ fn build_action_registry() -> Result<ActionRegistry, Box<dyn Error>> {
     actions::register(&mut actions)?;
     fishing::register_actions(&mut actions)?;
     interventions::register(&mut actions)?;
+    local_economy::register_actions(&mut actions)?;
     payroll::register_actions(&mut actions)?;
     reciprocity::register_actions(&mut actions)?;
     social::register_actions(&mut actions)?;
