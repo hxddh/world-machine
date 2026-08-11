@@ -18,7 +18,11 @@ pub(crate) fn document_actions(
     document: &SharedDocument,
     cx: &mut Context<WorldDocumentView>,
 ) -> Div {
-    let mut actions = div().flex().gap_2();
+    let lineage = document.borrow().session.metadata().lineage.clone();
+    let mut actions = div().flex().gap_2().items_center();
+    if let Some(lineage) = lineage.as_ref() {
+        actions = actions.child(lineage_badge(lineage));
+    }
     if available_choices(&document.borrow().session).len() >= 2 {
         actions = actions.child(
             div()
@@ -589,6 +593,43 @@ impl Render for StrategyResultView {
     }
 }
 
+fn lineage_badge(lineage: &WorldLineage) -> Div {
+    div()
+        .p_2()
+        .rounded_md()
+        .border_1()
+        .border_color(rgb(0xc8cdd7))
+        .bg(rgb(0xf5f6f8))
+        .text_xs()
+        .text_color(rgb(0x5f6570))
+        .child(lineage_label(lineage))
+}
+
+fn lineage_label(lineage: &WorldLineage) -> String {
+    let parent = lineage
+        .parent
+        .document
+        .as_deref()
+        .unwrap_or(lineage.parent.pack.id.as_str());
+    match &lineage.branch {
+        WorldBranchCause::Strategy {
+            choice_title,
+            horizon,
+            ..
+        } => format!(
+            "From {parent} · {choice_title} · +{horizon} · parent t{}",
+            lineage.parent.world_time
+        ),
+        WorldBranchCause::Fork { label: Some(label) } => format!(
+            "From {parent} · Fork {label} · parent t{}",
+            lineage.parent.world_time
+        ),
+        WorldBranchCause::Fork { label: None } => {
+            format!("From {parent} · Fork · parent t{}", lineage.parent.world_time)
+        }
+    }
+}
+
 fn strategy_lineage(
     source_label: &str,
     source_archive: &WorldArchive,
@@ -651,6 +692,48 @@ mod tests {
                 choice_title: "Choose A".into(),
                 horizon: 20,
             }
+        );
+    }
+
+    #[test]
+    fn lineage_label_describes_strategy_origin() {
+        let lineage = WorldLineage {
+            parent: WorldParent {
+                document: Some("Source.world".into()),
+                pack: WorldPackRef::new("world-machine.lineage-mock", "1"),
+                world_time: 42,
+                event_count: 3,
+            },
+            branch: WorldBranchCause::Strategy {
+                choice_id: "mock.choose-a".into(),
+                choice_title: "Choose A".into(),
+                horizon: 20,
+            },
+        };
+
+        assert_eq!(
+            lineage_label(&lineage),
+            "From Source.world · Choose A · +20 · parent t42"
+        );
+    }
+
+    #[test]
+    fn lineage_label_describes_fork_origin_and_falls_back_to_pack() {
+        let lineage = WorldLineage {
+            parent: WorldParent {
+                document: None,
+                pack: WorldPackRef::new("world-machine.parent", "1"),
+                world_time: 7,
+                event_count: 1,
+            },
+            branch: WorldBranchCause::Fork {
+                label: Some("experiment".into()),
+            },
+        };
+
+        assert_eq!(
+            lineage_label(&lineage),
+            "From world-machine.parent · Fork experiment · parent t7"
         );
     }
 }
