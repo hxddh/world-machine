@@ -99,9 +99,7 @@ mod tests {
         let id = WorldDocumentId::new("future-a").unwrap();
         let source = WorldDocument::new(archive(42)).with_lineage(lineage());
 
-        let summary = library
-            .create_from_document(id.clone(), &source)
-            .unwrap();
+        let summary = library.create_from_document(id.clone(), &source).unwrap();
         let stored = library.load_document(&id).unwrap().unwrap();
 
         assert_eq!(summary.id, id);
