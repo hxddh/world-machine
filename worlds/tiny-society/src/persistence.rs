@@ -403,7 +403,8 @@ mod tests {
             .id;
 
         let mut dismissed_branch = society.branch();
-        let dismissed_cash = integer_component(dismissed_branch.world.state(), BAKERY, CASH).unwrap();
+        let dismissed_cash =
+            integer_component(dismissed_branch.world.state(), BAKERY, CASH).unwrap();
         dismissed_branch.advance_days(30).unwrap();
         assert_eq!(
             integer_component(dismissed_branch.world.state(), BAKERY, CASH).unwrap(),
