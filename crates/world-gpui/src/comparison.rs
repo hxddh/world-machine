@@ -1,7 +1,5 @@
 use crate::ProjectionView;
-use gpui::{
-    div, prelude::*, px, rgb, Context, Entity, FontWeight, IntoElement, Render, Window,
-};
+use gpui::{div, prelude::*, px, rgb, Context, Entity, FontWeight, IntoElement, Render, Window};
 use world_compare::{compare_snapshots, DifferenceKind, EntityDifference, SnapshotComparison};
 use world_projection::ProjectionSnapshot;
 
@@ -114,27 +112,19 @@ fn comparison_header(comparison: &SnapshotComparison) -> impl IntoElement {
                                 .text_color(TEXT_PRIMARY)
                                 .child("Strategy comparison"),
                         )
-                        .child(
-                            div()
-                                .text_sm()
-                                .text_color(TEXT_MUTED)
-                                .child(format!(
-                                    "{} · time {}  ↔  {} · time {}",
-                                    comparison.left.title,
-                                    comparison.left.world_time,
-                                    comparison.right.title,
-                                    comparison.right.world_time
-                                )),
-                        ),
+                        .child(div().text_sm().text_color(TEXT_MUTED).child(format!(
+                            "{} · time {}  ↔  {} · time {}",
+                            comparison.left.title,
+                            comparison.left.world_time,
+                            comparison.right.title,
+                            comparison.right.world_time
+                        ))),
                 )
                 .child(
                     div()
                         .flex()
                         .gap_2()
-                        .child(metric_chip(
-                            "Changed entities",
-                            comparison.entities.len(),
-                        ))
+                        .child(metric_chip("Changed entities", comparison.entities.len()))
                         .child(metric_chip("Divergent events", divergent_events))
                         .child(metric_chip("Command differences", command_differences)),
                 ),
