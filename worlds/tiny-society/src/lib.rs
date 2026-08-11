@@ -7,6 +7,7 @@ mod model;
 mod payroll;
 mod persistence;
 mod projection;
+mod reciprocity;
 mod seed;
 mod social;
 
@@ -329,6 +330,7 @@ fn build_action_registry() -> Result<ActionRegistry, Box<dyn Error>> {
     fishing::register_actions(&mut actions)?;
     interventions::register(&mut actions)?;
     payroll::register_actions(&mut actions)?;
+    reciprocity::register_actions(&mut actions)?;
     social::register_actions(&mut actions)?;
     Ok(actions)
 }

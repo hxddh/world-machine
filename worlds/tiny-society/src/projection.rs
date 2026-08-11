@@ -130,6 +130,7 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
         .rev()
         .filter_map(|event| {
             let title = match event.kind.as_str() {
+                "support_repaid" => "Jonas repaid Leo after returning to sea",
                 "fish_sold" => "Jonas's catch reached the mainland",
                 "boat_repaired" => "Sea Finch returned to the water",
                 "bakery_reopened" => "Mara reopened Harbor Bakery",
