@@ -315,8 +315,14 @@ mod tests {
                 .kind,
             "payroll_shortfall"
         );
-        assert_eq!(current_job(&retained_branch.world, MARA), Some("bakery_closed"));
-        assert_eq!(current_job(&retained_branch.world, JONAS), Some("unemployed"));
+        assert_eq!(
+            current_job(&retained_branch.world, MARA),
+            Some("bakery_closed")
+        );
+        assert_eq!(
+            current_job(&retained_branch.world, JONAS),
+            Some("unemployed")
+        );
     }
 
     #[test]
