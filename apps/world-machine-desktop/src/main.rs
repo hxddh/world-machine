@@ -1,6 +1,8 @@
 #[cfg(target_os = "macos")]
 mod observer;
 #[cfg(target_os = "macos")]
+mod strategy_compare;
+#[cfg(target_os = "macos")]
 mod system_open;
 
 #[cfg(target_os = "macos")]
@@ -185,6 +187,7 @@ impl WorldDocumentView {
 impl Render for WorldDocumentView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         window.set_window_title(&format!("{} — {}", self.document_label, self.title));
+        let actions = strategy_compare::document_actions(&self.document, cx);
 
         let mut chrome = div()
             .h(px(48.0))
@@ -209,37 +212,7 @@ impl Render for WorldDocumentView {
                             .child(self.document_label.clone()),
                     ),
             )
-            .child(
-                div()
-                    .flex()
-                    .gap_2()
-                    .child(
-                        div()
-                            .id("save-as-world-document")
-                            .cursor_pointer()
-                            .p_2()
-                            .rounded_md()
-                            .border_1()
-                            .border_color(rgb(0xcacac4))
-                            .bg(rgb(0xffffff))
-                            .text_sm()
-                            .child("Save As…")
-                            .on_click(cx.listener(|this, _, _, cx| this.save_as(cx))),
-                    )
-                    .child(
-                        div()
-                            .id("reload-world-document")
-                            .cursor_pointer()
-                            .p_2()
-                            .rounded_md()
-                            .border_1()
-                            .border_color(rgb(0xcacac4))
-                            .bg(rgb(0xffffff))
-                            .text_sm()
-                            .child("Reload from disk")
-                            .on_click(cx.listener(|this, _, _, cx| this.reload(cx))),
-                    ),
-            );
+            .child(actions);
 
         if let Some(status) = &self.status {
             chrome = chrome.child(
