@@ -236,9 +236,8 @@ impl StrategySetupView {
         let right_label = right.title;
         let comparison_left = left_label.clone();
         let comparison_right = right_label.clone();
-        let comparison = cx.new(|_| {
-            StrategyComparisonView::new(evaluation, comparison_left, comparison_right)
-        });
+        let comparison =
+            cx.new(|_| StrategyComparisonView::new(evaluation, comparison_left, comparison_right));
 
         let result_left = left_label.clone();
         let result_right = right_label.clone();
@@ -396,11 +395,7 @@ impl StrategyResultView {
         Ok(saved_id)
     }
 
-    fn render_save_action(
-        &self,
-        side: FutureSide,
-        cx: &mut Context<Self>,
-    ) -> Option<impl IntoElement> {
+    fn render_save_action(&self, side: FutureSide, cx: &mut Context<Self>) -> Div {
         let (archive_available, saved, button_id, label) = match side {
             FutureSide::Left => (
                 self.left_archive.is_some(),
@@ -416,11 +411,11 @@ impl StrategyResultView {
             ),
         };
         if !archive_available {
-            return None;
+            return div();
         }
 
         if let Some(saved) = saved {
-            return Some(
+            return div().child(
                 div()
                     .p_2()
                     .rounded_md()
@@ -432,7 +427,7 @@ impl StrategyResultView {
             );
         }
 
-        Some(
+        div().child(
             div()
                 .id(button_id)
                 .cursor_pointer()
@@ -457,13 +452,11 @@ impl Render for StrategyResultView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         window.set_window_title("Strategy Comparison — World Machine");
 
-        let mut actions = div().flex().gap_2();
-        if let Some(left) = self.render_save_action(FutureSide::Left, cx) {
-            actions = actions.child(left);
-        }
-        if let Some(right) = self.render_save_action(FutureSide::Right, cx) {
-            actions = actions.child(right);
-        }
+        let actions = div()
+            .flex()
+            .gap_2()
+            .child(self.render_save_action(FutureSide::Left, cx))
+            .child(self.render_save_action(FutureSide::Right, cx));
 
         let mut chrome = div()
             .w_full()
@@ -499,18 +492,13 @@ impl Render for StrategyResultView {
             );
         }
 
-        div()
-            .size_full()
-            .flex()
-            .flex_col()
-            .child(chrome)
-            .child(
-                div()
-                    .flex_1()
-                    .w_full()
-                    .overflow_hidden()
-                    .child(self.comparison.clone()),
-            )
+        div().size_full().flex().flex_col().child(chrome).child(
+            div()
+                .flex_1()
+                .w_full()
+                .overflow_hidden()
+                .child(self.comparison.clone()),
+        )
     }
 }
 
