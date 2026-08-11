@@ -293,13 +293,8 @@ mod tests {
         let library = WorldLibrary::new(root.join("Worlds"));
         let registry = static_registry();
         let document_id = world_library::WorldDocumentId::new("static").unwrap();
-        let mut session = DurableWorldSession::create(
-            document_id.clone(),
-            PACK,
-            &registry,
-            &library,
-        )
-        .unwrap();
+        let mut session =
+            DurableWorldSession::create(document_id.clone(), PACK, &registry, &library).unwrap();
         let policy = CatchUpPolicy::new(60, 3).unwrap();
         catch_up_at(&mut session, &registry, &library, 100, policy).unwrap();
         let before = fs::read(library.path(&document_id)).unwrap();
