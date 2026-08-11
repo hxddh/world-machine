@@ -483,6 +483,7 @@ fn read_document_file_with_revision(
     Ok((document, revision))
 }
 
+#[cfg(test)]
 fn read_archive_file(path: &Path) -> Result<WorldArchive, LibraryError> {
     Ok(read_document_file(path)?.archive)
 }
@@ -505,6 +506,7 @@ fn write_document_file(
     Ok(revision)
 }
 
+#[cfg(test)]
 fn write_archive_file(
     path: &Path,
     archive: &WorldArchive,
