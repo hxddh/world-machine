@@ -112,12 +112,23 @@ impl TinySocietyBranch {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum WageReservation {
+    Reserved,
+    Shortfall,
+}
+
 fn schedule_daily_shifts(world: &mut World, world_time: u64) -> Result<(), Box<dyn Error>> {
-    let mut shifts = vec![
-        (MARA, BAKERY, 20_i64),
-        (EMMA, SCHOOL, 18_i64),
-        (LEO, PUB, 22_i64),
-    ];
+    let mut shifts = Vec::new();
+    if current_job(world, MARA) == Some("baker") {
+        shifts.push((MARA, BAKERY, 20_i64));
+    }
+    if current_job(world, EMMA) == Some("teacher") {
+        shifts.push((EMMA, SCHOOL, 18_i64));
+    }
+    if current_job(world, LEO) == Some("pub_owner") {
+        shifts.push((LEO, PUB, 22_i64));
+    }
 
     match current_job(world, JONAS) {
         Some("fisher") => shifts.push((JONAS, HARBOR, 25_i64)),
@@ -126,16 +137,34 @@ fn schedule_daily_shifts(world: &mut World, world_time: u64) -> Result<(), Box<d
     }
 
     let mut budgets = Vec::<(EntityId, i64)>::new();
+    let mut shortfall_workplaces = Vec::<EntityId>::new();
     for (worker, workplace, wage) in shifts {
-        if reserve_wage(world, &mut budgets, workplace, wage)? {
-            world.schedule_at(
-                world_time,
-                ActionRequest::new("work_shift")
-                    .actor(worker)
-                    .arg("worker", worker)
-                    .arg("workplace", workplace)
-                    .arg("wage", wage),
-            )?;
+        if shortfall_workplaces.contains(&workplace) {
+            continue;
+        }
+        match reserve_wage(world, &mut budgets, workplace, wage)? {
+            WageReservation::Reserved => {
+                world.schedule_at(
+                    world_time,
+                    ActionRequest::new("work_shift")
+                        .actor(worker)
+                        .arg("worker", worker)
+                        .arg("workplace", workplace)
+                        .arg("wage", wage),
+                )?;
+            }
+            WageReservation::Shortfall if workplace == BAKERY => {
+                shortfall_workplaces.push(workplace);
+                world.schedule_at(
+                    world_time,
+                    ActionRequest::new("record_payroll_shortfall")
+                        .actor(worker)
+                        .arg("worker", worker)
+                        .arg("workplace", workplace)
+                        .arg("wage", wage),
+                )?;
+            }
+            WageReservation::Shortfall => {}
         }
     }
     Ok(())
@@ -146,7 +175,7 @@ fn reserve_wage(
     budgets: &mut Vec<(EntityId, i64)>,
     workplace: EntityId,
     wage: i64,
-) -> Result<bool, Box<dyn Error>> {
+) -> Result<WageReservation, Box<dyn Error>> {
     let position = budgets
         .iter()
         .position(|(candidate, _)| *candidate == workplace);
@@ -162,10 +191,10 @@ fn reserve_wage(
     };
 
     if *budget < wage {
-        return Ok(false);
+        return Ok(WageReservation::Shortfall);
     }
     *budget -= wage;
-    Ok(true)
+    Ok(WageReservation::Reserved)
 }
 
 fn current_job(world: &World, resident: EntityId) -> Option<&str> {
@@ -251,6 +280,68 @@ mod tests {
     }
 
     #[test]
+    fn retaining_jonas_brings_the_bakery_crisis_forward() {
+        let mut society = TinySociety::new().unwrap();
+        society.run_story().unwrap();
+        let dismissal = society
+            .world()
+            .events()
+            .iter()
+            .find(|event| event.kind == "worker_dismissed")
+            .expect("story has a dismissal")
+            .id;
+
+        let mut dismissed_branch = society.branch();
+        let mut retained_branch = society.branch();
+        retained_branch.fork_before_event(dismissal).unwrap();
+        retained_branch.continue_with_retention().unwrap();
+
+        let dismissed_days = days_until_event(&mut dismissed_branch, "bakery_closed", 30);
+        let retained_days = days_until_event(&mut retained_branch, "bakery_closed", 30);
+
+        assert!(retained_days < dismissed_days);
+        let closure = retained_branch
+            .world
+            .events()
+            .iter()
+            .find(|event| event.kind == "bakery_closed")
+            .expect("retained branch eventually closes the bakery");
+        assert_eq!(closure.caused_by.len(), 1);
+        assert_eq!(
+            retained_branch
+                .world
+                .event(closure.caused_by[0])
+                .expect("closure cause remains in history")
+                .kind,
+            "payroll_shortfall"
+        );
+        assert_eq!(
+            current_job(&retained_branch.world, MARA),
+            Some("bakery_closed")
+        );
+        assert_eq!(
+            current_job(&retained_branch.world, JONAS),
+            Some("unemployed")
+        );
+    }
+
+    #[test]
+    fn bakery_stays_closed_after_the_payroll_crisis() {
+        let mut society = TinySociety::new().unwrap();
+        society.run_story().unwrap();
+        let mut branch = society.branch();
+        days_until_event(&mut branch, "bakery_closed", 30);
+        let cursor = branch.visit_cursor();
+
+        branch.advance_days(2).unwrap();
+
+        assert!(branch.world.events()[cursor.event_count..]
+            .iter()
+            .filter(|event| event.kind == "work_shift_completed")
+            .all(|event| !event.targets.contains(&BAKERY)));
+    }
+
+    #[test]
     fn zero_days_is_a_noop() {
         let society = TinySociety::new().unwrap();
         let mut branch = society.branch();
@@ -262,5 +353,15 @@ mod tests {
         assert!(generated.is_empty());
         assert_eq!(branch.world.world_time(), starting_time);
         assert_eq!(branch.world.events().len(), starting_events);
+    }
+
+    fn days_until_event(branch: &mut TinySocietyBranch, kind: &str, max_days: u64) -> u64 {
+        for day in 1..=max_days {
+            branch.advance_days(1).unwrap();
+            if branch.world.events().iter().any(|event| event.kind == kind) {
+                return day;
+            }
+        }
+        panic!("event {kind} did not occur within {max_days} days");
     }
 }

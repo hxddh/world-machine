@@ -1,4 +1,4 @@
-use crate::model::{JONAS, LEO, MARA};
+use crate::model::{BAKERY, JONAS, LEO, MARA};
 use std::error::Error;
 use world_core::{ActionRequest, BehaviorRegistry, Event, RuleBehavior, WorldState};
 
@@ -35,6 +35,17 @@ pub(crate) fn register(registry: &mut BehaviorRegistry) -> Result<(), Box<dyn Er
         ["order_lost"],
         |_state: &WorldState, _event: &Event| {
             vec![ActionRequest::new("dismiss_worker").actor(MARA)]
+        },
+    ))?;
+    registry.register(RuleBehavior::new(
+        "bakery-payroll-shortfall-closes-bakery",
+        ["payroll_shortfall"],
+        |_state: &WorldState, event: &Event| {
+            if event.targets.contains(&BAKERY) {
+                vec![ActionRequest::new("close_bakery").actor(MARA)]
+            } else {
+                Vec::new()
+            }
         },
     ))?;
     Ok(())

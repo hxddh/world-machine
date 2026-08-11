@@ -15,6 +15,8 @@ pub(crate) fn register(registry: &mut ActionRegistry) -> Result<(), ActionError>
     registry.register(MissShift)?;
     registry.register(LoseOrder)?;
     registry.register(DismissWorker)?;
+    registry.register(RecordPayrollShortfall)?;
+    registry.register(CloseBakery)?;
     Ok(())
 }
 
@@ -27,6 +29,22 @@ pub(crate) fn text_component<'a>(
         Some(Value::Text(value)) => Ok(value),
         _ => Err(ActionError::Invalid(format!(
             "entity {entity} has no text component {key}"
+        ))),
+    }
+}
+
+fn entity_arg(request: &ActionRequest, name: &str) -> Result<EntityId, ActionError> {
+    match request.args.get(name) {
+        Some(Value::Entity(id)) => Ok(*id),
+        _ => Err(ActionError::Invalid(format!("missing entity arg: {name}"))),
+    }
+}
+
+fn positive_integer_arg(request: &ActionRequest, name: &str) -> Result<i64, ActionError> {
+    match request.args.get(name) {
+        Some(Value::Integer(value)) if *value > 0 => Ok(*value),
+        _ => Err(ActionError::Invalid(format!(
+            "{name} must be a positive integer"
         ))),
     }
 }
@@ -315,6 +333,98 @@ impl Action for DismissWorker {
                 key: EMPLOYER.into(),
             },
         ];
+        Ok(draft)
+    }
+}
+
+struct RecordPayrollShortfall;
+
+impl Action for RecordPayrollShortfall {
+    fn name(&self) -> &'static str {
+        "record_payroll_shortfall"
+    }
+
+    fn evaluate(
+        &self,
+        state: &WorldState,
+        request: &ActionRequest,
+    ) -> Result<EventDraft, ActionError> {
+        let worker = entity_arg(request, "worker")?;
+        let workplace = entity_arg(request, "workplace")?;
+        let wage = positive_integer_arg(request, "wage")?;
+        if workplace != BAKERY {
+            return Err(ActionError::Invalid(
+                "Tiny Society currently models payroll crisis only for the bakery".into(),
+            ));
+        }
+        if text_component(state, BAKERY, OPERATING_STATUS)? != "open" {
+            return Err(ActionError::Invalid("the bakery is already closed".into()));
+        }
+        let cash_available = integer_component(state, workplace, CASH)?;
+        if cash_available >= wage {
+            return Err(ActionError::Invalid(format!(
+                "workplace {workplace} can still cover wage {wage}"
+            )));
+        }
+
+        let mut draft = EventDraft::new("payroll_shortfall");
+        draft.targets = vec![worker, workplace];
+        draft.payload.insert("required_wage".into(), wage.into());
+        draft
+            .payload
+            .insert("cash_available".into(), cash_available.into());
+        Ok(draft)
+    }
+}
+
+struct CloseBakery;
+
+impl Action for CloseBakery {
+    fn name(&self) -> &'static str {
+        "close_bakery"
+    }
+
+    fn evaluate(
+        &self,
+        state: &WorldState,
+        _request: &ActionRequest,
+    ) -> Result<EventDraft, ActionError> {
+        if text_component(state, BAKERY, OPERATING_STATUS)? != "open" {
+            return Err(ActionError::Invalid("the bakery is already closed".into()));
+        }
+
+        let mut draft = EventDraft::new("bakery_closed");
+        draft.actor = Some(MARA);
+        draft.targets = vec![BAKERY, MARA];
+        draft.changes = vec![
+            StateChange::SetComponent {
+                entity: BAKERY,
+                key: OPERATING_STATUS.into(),
+                value: "closed".into(),
+            },
+            StateChange::RemoveRelation(MARA_BAKERY_JOB),
+            StateChange::SetComponent {
+                entity: MARA,
+                key: JOB.into(),
+                value: "bakery_closed".into(),
+            },
+        ];
+
+        if state.relation(TEMP_BAKERY_JOB).is_some() {
+            draft.targets.push(JONAS);
+            draft.changes.extend([
+                StateChange::RemoveRelation(TEMP_BAKERY_JOB),
+                StateChange::SetComponent {
+                    entity: JONAS,
+                    key: JOB.into(),
+                    value: "unemployed".into(),
+                },
+                StateChange::RemoveComponent {
+                    entity: JONAS,
+                    key: EMPLOYER.into(),
+                },
+            ]);
+        }
         Ok(draft)
     }
 }
