@@ -38,10 +38,32 @@ pub struct StrategyOutcome {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub enum StrategyRun {
+    Success(StrategyOutcome),
+    Failure(StrategyError),
+}
+
+impl StrategyRun {
+    pub fn outcome(&self) -> Option<&StrategyOutcome> {
+        match self {
+            Self::Success(outcome) => Some(outcome),
+            Self::Failure(_) => None,
+        }
+    }
+
+    pub fn error(&self) -> Option<&StrategyError> {
+        match self {
+            Self::Success(_) => None,
+            Self::Failure(error) => Some(error),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct StrategyEvaluation {
-    pub left: StrategyOutcome,
-    pub right: StrategyOutcome,
-    pub comparison: SnapshotComparison,
+    pub left: StrategyRun,
+    pub right: StrategyRun,
+    pub comparison: Option<SnapshotComparison>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -86,31 +108,44 @@ pub fn evaluate_strategies(
     source: &WorldArchive,
     left_plan: &StrategyPlan,
     right_plan: &StrategyPlan,
-) -> Result<StrategyEvaluation, StrategyError> {
-    let mut left = registry
-        .open_archive(source)
-        .map_err(|source| StrategyError {
-            side: StrategySide::Left,
-            stage: StrategyStage::Open,
-            source,
-        })?;
-    let mut right = registry
-        .open_archive(source)
-        .map_err(|source| StrategyError {
-            side: StrategySide::Right,
-            stage: StrategyStage::Open,
-            source,
-        })?;
+) -> StrategyEvaluation {
+    let left = run_strategy(registry, source, left_plan, StrategySide::Left);
+    let right = run_strategy(registry, source, right_plan, StrategySide::Right);
+    let comparison = match (&left, &right) {
+        (StrategyRun::Success(left), StrategyRun::Success(right)) => {
+            Some(compare_snapshots(&left.snapshot, &right.snapshot))
+        }
+        _ => None,
+    };
 
-    let left = run_plan(&mut *left, left_plan, StrategySide::Left)?;
-    let right = run_plan(&mut *right, right_plan, StrategySide::Right)?;
-    let comparison = compare_snapshots(&left.snapshot, &right.snapshot);
-
-    Ok(StrategyEvaluation {
+    StrategyEvaluation {
         left,
         right,
         comparison,
-    })
+    }
+}
+
+fn run_strategy(
+    registry: &WorldRegistry,
+    source: &WorldArchive,
+    plan: &StrategyPlan,
+    side: StrategySide,
+) -> StrategyRun {
+    let mut session = match registry.open_archive(source) {
+        Ok(session) => session,
+        Err(source) => {
+            return StrategyRun::Failure(StrategyError {
+                side,
+                stage: StrategyStage::Open,
+                source,
+            });
+        }
+    };
+
+    match run_plan(&mut *session, plan, side) {
+        Ok(outcome) => StrategyRun::Success(outcome),
+        Err(error) => StrategyRun::Failure(error),
+    }
 }
 
 fn run_plan(
@@ -270,6 +305,13 @@ mod tests {
         registry
     }
 
+    fn success(run: &StrategyRun) -> &StrategyOutcome {
+        match run {
+            StrategyRun::Success(outcome) => outcome,
+            StrategyRun::Failure(error) => panic!("expected strategy success: {error}"),
+        }
+    }
+
     #[test]
     fn strategies_open_independent_sessions_and_advance_equally() {
         let left_mutations = Arc::new(AtomicUsize::new(0));
@@ -285,39 +327,43 @@ mod tests {
                 .command("mock.advance")
                 .background_periods(3),
             &StrategyPlan::new().background_periods(3),
-        )
-        .unwrap();
+        );
+        let left = success(&result.left);
+        let right = success(&result.right);
+        let comparison = result.comparison.as_ref().expect("both strategies succeed");
 
         assert_eq!(source, source_before);
-        assert_eq!(result.left.snapshot.world_time, 9);
-        assert_eq!(result.right.snapshot.world_time, 8);
+        assert_eq!(left.snapshot.world_time, 9);
+        assert_eq!(right.snapshot.world_time, 8);
         assert_eq!(left_mutations.load(Ordering::SeqCst), 4);
         assert_eq!(right_mutations.load(Ordering::SeqCst), 3);
-        assert_eq!(result.comparison.left.world_time, 9);
-        assert_eq!(result.comparison.right.world_time, 8);
+        assert_eq!(comparison.left.world_time, 9);
+        assert_eq!(comparison.right.world_time, 8);
     }
 
     #[test]
-    fn left_strategy_failure_does_not_execute_right_or_mutate_source() {
+    fn left_strategy_failure_does_not_block_right_or_mutate_source() {
         let left_mutations = Arc::new(AtomicUsize::new(0));
         let right_mutations = Arc::new(AtomicUsize::new(0));
         let registry = mock_registry(Arc::clone(&left_mutations), Arc::clone(&right_mutations));
         let source = mock_archive(7);
         let source_before = source.clone();
 
-        let error = evaluate_strategies(
+        let result = evaluate_strategies(
             &registry,
             &source,
             &StrategyPlan::new().command("mock.fail"),
             &StrategyPlan::new().command("mock.advance"),
-        )
-        .unwrap_err();
+        );
 
         assert_eq!(source, source_before);
-        assert_eq!(error.side, StrategySide::Left);
-        assert_eq!(error.stage, StrategyStage::Intent(0));
+        let left_error = result.left.error().expect("left strategy fails");
+        assert_eq!(left_error.side, StrategySide::Left);
+        assert_eq!(left_error.stage, StrategyStage::Intent(0));
         assert_eq!(left_mutations.load(Ordering::SeqCst), 0);
-        assert_eq!(right_mutations.load(Ordering::SeqCst), 0);
+        assert_eq!(right_mutations.load(Ordering::SeqCst), 1);
+        assert_eq!(success(&result.right).snapshot.world_time, 8);
+        assert!(result.comparison.is_none());
     }
 
     #[test]
@@ -340,13 +386,17 @@ mod tests {
             &StrategyPlan::new()
                 .command(LEAN_REOPEN_BAKERY_COMMAND)
                 .background_periods(20),
-        )
-        .unwrap();
+        );
+        let left = success(&evaluation.left);
+        let right = success(&evaluation.right);
+        let comparison = evaluation
+            .comparison
+            .as_ref()
+            .expect("both Tiny Society strategies succeed");
 
         assert_eq!(source, source_before);
         assert_eq!(
-            evaluation
-                .comparison
+            comparison
                 .entities
                 .iter()
                 .find(|difference| difference.id == SelectionId::Entity(BAKERY))
@@ -355,8 +405,7 @@ mod tests {
             DifferenceKind::Changed
         );
         assert_eq!(
-            evaluation
-                .comparison
+            comparison
                 .entities
                 .iter()
                 .find(|difference| difference.id == SelectionId::Entity(MARA))
@@ -364,13 +413,12 @@ mod tests {
                 .kind,
             DifferenceKind::Changed
         );
-        assert!(evaluation
-            .comparison
+        assert!(comparison
             .timeline
             .changed
             .iter()
             .any(|event| event.left.title != event.right.title));
-        assert!(evaluation.comparison.entities.iter().any(|difference| {
+        assert!(comparison.entities.iter().any(|difference| {
             difference.id == SelectionId::Entity(BAKERY)
                 && difference
                     .inspector_rows
@@ -378,14 +426,13 @@ mod tests {
                     .any(|row| row.left != row.right)
         }));
 
-        let durable_right = evaluation
-            .right
+        let durable_right = right
             .archive
             .as_ref()
             .expect("Tiny Society exports a durable strategy archive");
         let reopened_right = registry.open_archive(durable_right).unwrap();
-        let replay_comparison =
-            compare_snapshots(&evaluation.right.snapshot, &reopened_right.snapshot());
+        let replay_comparison = compare_snapshots(&right.snapshot, &reopened_right.snapshot());
         assert!(replay_comparison.is_identical());
+        assert!(left.archive.is_some());
     }
 }
