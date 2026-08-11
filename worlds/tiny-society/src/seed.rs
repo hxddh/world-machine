@@ -32,11 +32,13 @@ pub(crate) fn seed_world() -> Result<WorldState, Box<dyn Error>> {
         (SCHOOL, "Island School", 1_000),
         (PUB, "Anchor Pub", 600),
     ] {
-        state.seed_entity(
-            Entity::new(id, "location")
-                .with_component("name", name)
-                .with_component(CASH, cash),
-        )?;
+        let mut entity = Entity::new(id, "location")
+            .with_component("name", name)
+            .with_component(CASH, cash);
+        if id == BAKERY {
+            entity = entity.with_component(OPERATING_STATUS, "open");
+        }
+        state.seed_entity(entity)?;
     }
 
     state.seed_entity(
