@@ -1,3 +1,6 @@
+use crate::fishing::{
+    contract_remaining, MAINLAND_CONTRACT_CRATES, MAINLAND_CONTRACT_RENEWAL_FEE,
+};
 use crate::model::{
     CONDITION, JONAS_HARBOR_JOB, JONAS_LEO_TRUST, OPERATING_STATUS, SUPPORT_STATUS,
 };
@@ -114,6 +117,19 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
         });
     }
 
+    let contract_fulfilled = contract_remaining(world.state()) == Some(0);
+    let harbor_can_renew = component_integer(world, HARBOR, CASH)
+        .is_some_and(|cash| cash >= MAINLAND_CONTRACT_RENEWAL_FEE);
+    if contract_fulfilled && harbor_can_renew {
+        commands.push(ProjectionCommand {
+            id: crate::RENEW_FISH_CONTRACT_COMMAND.into(),
+            title: "Renew mainland fish contract".into(),
+            detail: format!(
+                "Harbor pays {MAINLAND_CONTRACT_RENEWAL_FEE} to open another {MAINLAND_CONTRACT_CRATES} mainland fish orders."
+            ),
+        });
+    }
+
     commands
 }
 
@@ -130,6 +146,8 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
         .rev()
         .filter_map(|event| {
             let title = match event.kind.as_str() {
+                "fish_contract_renewed" => "Harbor renewed its mainland fish contract",
+                "mainland_contract_fulfilled" => "Mainland fish contract is complete",
                 "fish_sold" => "Jonas's catch reached the mainland",
                 "boat_repaired" => "Sea Finch returned to the water",
                 "bakery_reopened" => "Mara reopened Harbor Bakery",
