@@ -15,6 +15,42 @@ pub trait WorldSession {
     }
 }
 
+struct IntegrityCheckedSession {
+    inner: Box<dyn WorldSession>,
+}
+
+impl IntegrityCheckedSession {
+    fn new(inner: Box<dyn WorldSession>) -> Self {
+        Self { inner }
+    }
+}
+
+impl WorldSession for IntegrityCheckedSession {
+    fn pack(&self) -> WorldPackRef {
+        self.inner.pack()
+    }
+
+    fn snapshot(&self) -> ProjectionSnapshot {
+        self.inner.snapshot()
+    }
+
+    fn handle(&mut self, intent: ProjectionIntent) -> Result<ProjectionSnapshot, HostError> {
+        self.inner.handle(intent)
+    }
+
+    fn archive(&self) -> Result<Option<WorldArchive>, HostError> {
+        let archive = self.inner.archive()?;
+        if let Some(archive) = archive.as_ref() {
+            check_archive(archive)?;
+        }
+        Ok(archive)
+    }
+}
+
+fn integrity_checked(session: Box<dyn WorldSession>) -> Box<dyn WorldSession> {
+    Box::new(IntegrityCheckedSession::new(session))
+}
+
 pub type SessionFactory =
     Box<dyn Fn() -> Result<Box<dyn WorldSession>, HostError> + Send + Sync + 'static>;
 pub type ArchiveOpener =
@@ -103,10 +139,12 @@ impl WorldRegistry {
     }
 
     pub fn create(&self, pack_id: &str) -> Result<Box<dyn WorldSession>, HostError> {
-        self.registrations
+        let session = self
+            .registrations
             .get(pack_id)
             .ok_or_else(|| HostError::UnknownWorld(pack_id.into()))?
-            .create()
+            .create()?;
+        Ok(integrity_checked(session))
     }
 
     pub fn open_archive(&self, archive: &WorldArchive) -> Result<Box<dyn WorldSession>, HostError> {
@@ -121,7 +159,8 @@ impl WorldRegistry {
                 found: archive.pack.clone(),
             });
         }
-        registration.open_archive(archive)
+        let session = registration.open_archive(archive)?;
+        Ok(integrity_checked(session))
     }
 }
 
@@ -231,6 +270,28 @@ mod tests {
         }
     }
 
+    struct InvalidArchiveSession;
+
+    impl WorldSession for InvalidArchiveSession {
+        fn pack(&self) -> WorldPackRef {
+            WorldPackRef::new("broken.world", "1")
+        }
+
+        fn snapshot(&self) -> ProjectionSnapshot {
+            ProjectionSnapshot::default()
+        }
+
+        fn handle(&mut self, _intent: ProjectionIntent) -> Result<ProjectionSnapshot, HostError> {
+            Err(HostError::Session("unsupported invalid session intent".into()))
+        }
+
+        fn archive(&self) -> Result<Option<WorldArchive>, HostError> {
+            let mut archive = archive("broken.world", "1", 0);
+            archive.format = "broken-world-format".into();
+            Ok(Some(archive))
+        }
+    }
+
     fn registration(id: &str, version: &str) -> WorldRegistration {
         let pack = WorldPackRef::new(id, version);
         let factory_pack = pack.clone();
@@ -334,6 +395,28 @@ mod tests {
 
         assert!(matches!(
             registry.open_archive(&invalid),
+            Err(HostError::ArchiveIntegrity(
+                ArchiveIntegrityError::UnsupportedFormat(_)
+            ))
+        ));
+    }
+
+    #[test]
+    fn registry_sessions_reject_structurally_invalid_archive_output() {
+        let registration = WorldRegistration::new(
+            WorldDescriptor {
+                pack: WorldPackRef::new("broken.world", "1"),
+                title: "Broken World".into(),
+                description: "Archive output gate regression".into(),
+            },
+            || Ok(Box::new(InvalidArchiveSession)),
+        );
+        let mut registry = WorldRegistry::new();
+        registry.register(registration).unwrap();
+
+        let session = registry.create("broken.world").unwrap();
+        assert!(matches!(
+            session.archive(),
             Err(HostError::ArchiveIntegrity(
                 ArchiveIntegrityError::UnsupportedFormat(_)
             ))
