@@ -1,4 +1,5 @@
 use crate::model::OPERATING_STATUS;
+use crate::social::JONAS_DAILY_LIVING_COST;
 use crate::{
     behaviors, build_action_registry, projection, seed, TinySociety, TinySocietyBranch, BAKERY,
     EMMA, HARBOR, JONAS, LEO, MARA, PUB, SCHOOL,
@@ -98,6 +99,7 @@ impl TinySocietyBranch {
                 .checked_add(WORLD_DAY_TICKS)
                 .ok_or_else(|| std::io::Error::other("Tiny Society world time overflow"))?;
 
+            schedule_jonas_living_cost(&mut self.world, morning_time)?;
             schedule_daily_bakery_purchases(&mut self.world, morning_time)?;
             generated_events.extend(advance_branch_checkpoint(
                 &mut self.world,
@@ -132,6 +134,20 @@ fn advance_branch_checkpoint(
         generated.extend(run.generated_events);
     }
     Ok(generated)
+}
+
+fn schedule_jonas_living_cost(world: &mut World, world_time: u64) -> Result<(), Box<dyn Error>> {
+    if integer_component(world.state(), JONAS, CASH)? < JONAS_DAILY_LIVING_COST {
+        return Ok(());
+    }
+    world.schedule_at(
+        world_time,
+        ActionRequest::new("pay_living_cost")
+            .actor(JONAS)
+            .arg("resident", JONAS)
+            .arg("amount", JONAS_DAILY_LIVING_COST),
+    )?;
+    Ok(())
 }
 
 fn schedule_daily_bakery_purchases(
@@ -274,6 +290,26 @@ fn restored_simulation(world: World) -> Result<TinySociety, Box<dyn Error>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::{JONAS_LEO_TRUST, SUPPORT_STATUS};
+
+    fn support_status(world: &World) -> Option<&str> {
+        match world.state().entity(JONAS)?.component(SUPPORT_STATUS)? {
+            Value::Text(status) => Some(status.as_str()),
+            _ => None,
+        }
+    }
+
+    fn jonas_leo_trust(world: &World) -> Option<i64> {
+        match world
+            .state()
+            .relation(JONAS_LEO_TRUST)?
+            .properties
+            .get("trust")?
+        {
+            Value::Integer(trust) => Some(*trust),
+            _ => None,
+        }
+    }
 
     #[test]
     fn dismissed_worker_does_not_resume_work_when_days_advance() {
@@ -365,6 +401,83 @@ mod tests {
     }
 
     #[test]
+    fn dismissal_eventually_activates_jonas_social_safety_net() {
+        let mut society = TinySociety::new().unwrap();
+        society.run_story().unwrap();
+        let mut branch = society.branch();
+        let cursor = branch.visit_cursor();
+
+        assert_eq!(support_status(&branch.world), Some("none"));
+        assert_eq!(jonas_leo_trust(&branch.world), Some(76));
+        assert_eq!(
+            integer_component(branch.world.state(), JONAS, CASH).unwrap(),
+            85
+        );
+
+        branch.advance_days(10).unwrap();
+
+        let new_events = &branch.world.events()[cursor.event_count..];
+        assert_eq!(
+            new_events
+                .iter()
+                .filter(|event| event.kind == "living_cost_paid")
+                .count(),
+            10
+        );
+        let requests = new_events
+            .iter()
+            .filter(|event| event.kind == "support_requested")
+            .collect::<Vec<_>>();
+        let support = new_events
+            .iter()
+            .filter(|event| event.kind == "support_received")
+            .collect::<Vec<_>>();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(support.len(), 1);
+        let request = requests[0];
+        let received = support[0];
+        assert_eq!(request.caused_by.len(), 1);
+        assert_eq!(
+            branch
+                .world
+                .event(request.caused_by[0])
+                .expect("support request cause remains in history")
+                .kind,
+            "living_cost_paid"
+        );
+        assert_eq!(received.caused_by, vec![request.id]);
+        assert_eq!(received.actor, Some(LEO));
+        assert_eq!(
+            received.payload.get("amount"),
+            Some(&Value::Integer(crate::social::LEO_SUPPORT_AMOUNT))
+        );
+        assert_eq!(support_status(&branch.world), Some("received"));
+        assert_eq!(jonas_leo_trust(&branch.world), Some(84));
+        assert_eq!(
+            integer_component(branch.world.state(), JONAS, CASH).unwrap(),
+            45
+        );
+
+        let briefing = branch
+            .projection_snapshot_since(cursor)
+            .briefing
+            .expect("Tiny Society has a return briefing");
+        assert!(briefing
+            .items
+            .iter()
+            .any(|item| item.title == "Leo helped Jonas stay afloat"));
+
+        let archive = branch.archive().unwrap();
+        let resumed = TinySociety::resume_archive(&archive).unwrap();
+        assert_eq!(support_status(resumed.world()), Some("received"));
+        assert_eq!(jonas_leo_trust(resumed.world()), Some(84));
+        assert_eq!(
+            integer_component(resumed.world().state(), JONAS, CASH).unwrap(),
+            45
+        );
+    }
+
+    #[test]
     fn retained_worker_keeps_working_on_future_days() {
         let mut society = TinySociety::new().unwrap();
         society.run_story().unwrap();
@@ -388,6 +501,37 @@ mod tests {
         assert!(new_events
             .iter()
             .any(|event| { event.kind == "work_shift_completed" && event.actor == Some(JONAS) }));
+    }
+
+    #[test]
+    fn retention_income_keeps_jonas_off_the_social_safety_net() {
+        let mut society = TinySociety::new().unwrap();
+        society.run_story().unwrap();
+        let dismissal = society
+            .world()
+            .events()
+            .iter()
+            .find(|event| event.kind == "worker_dismissed")
+            .expect("story has a dismissal")
+            .id;
+        let mut branch = society.branch();
+        branch.fork_before_event(dismissal).unwrap();
+        branch.continue_with_retention().unwrap();
+        let cursor = branch.visit_cursor();
+        let starting_cash = integer_component(branch.world.state(), JONAS, CASH).unwrap();
+
+        branch.advance_days(12).unwrap();
+
+        let new_events = &branch.world.events()[cursor.event_count..];
+        assert!(new_events
+            .iter()
+            .all(|event| event.kind != "support_requested" && event.kind != "support_received"));
+        assert_eq!(support_status(&branch.world), Some("none"));
+        assert_eq!(jonas_leo_trust(&branch.world), Some(76));
+        assert_eq!(
+            integer_component(branch.world.state(), JONAS, CASH).unwrap(),
+            starting_cash + 12 * (18 - JONAS_DAILY_LIVING_COST)
+        );
     }
 
     #[test]

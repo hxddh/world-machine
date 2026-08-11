@@ -32,4 +32,5 @@ pub(crate) const LOAN_STATUS: &str = "loan_status";
 pub(crate) const MISSED_SHIFTS: &str = "missed_shifts";
 pub(crate) const OPERATING_STATUS: &str = "operating_status";
 pub(crate) const ORDER_STATUS: &str = "status";
+pub(crate) const SUPPORT_STATUS: &str = "support_status";
 pub(crate) const WEATHER: &str = "weather";

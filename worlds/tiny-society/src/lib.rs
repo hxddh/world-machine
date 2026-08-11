@@ -6,6 +6,7 @@ mod model;
 mod persistence;
 mod projection;
 mod seed;
+mod social;
 
 use std::error::Error;
 use world_agent::{
@@ -297,6 +298,7 @@ fn build_action_registry() -> Result<ActionRegistry, Box<dyn Error>> {
     world_agent::register_actions(&mut actions)?;
     actions::register(&mut actions)?;
     interventions::register(&mut actions)?;
+    social::register_actions(&mut actions)?;
     Ok(actions)
 }
 

@@ -104,6 +104,8 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
                 "bakery_reopened" => "Mara reopened Harbor Bakery",
                 "bakery_closed" => "Harbor Bakery closed its doors",
                 "payroll_shortfall" => "The bakery could not cover payroll",
+                "support_received" => "Leo helped Jonas stay afloat",
+                "support_requested" => "Jonas asked Leo for help",
                 "work_shift_completed" if event.actor == Some(JONAS) => {
                     "Jonas completed another bakery shift"
                 }
