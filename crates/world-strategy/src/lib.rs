@@ -87,16 +87,20 @@ pub fn evaluate_strategies(
     left_plan: &StrategyPlan,
     right_plan: &StrategyPlan,
 ) -> Result<StrategyEvaluation, StrategyError> {
-    let mut left = registry.open_archive(source).map_err(|source| StrategyError {
-        side: StrategySide::Left,
-        stage: StrategyStage::Open,
-        source,
-    })?;
-    let mut right = registry.open_archive(source).map_err(|source| StrategyError {
-        side: StrategySide::Right,
-        stage: StrategyStage::Open,
-        source,
-    })?;
+    let mut left = registry
+        .open_archive(source)
+        .map_err(|source| StrategyError {
+            side: StrategySide::Left,
+            stage: StrategyStage::Open,
+            source,
+        })?;
+    let mut right = registry
+        .open_archive(source)
+        .map_err(|source| StrategyError {
+            side: StrategySide::Right,
+            stage: StrategyStage::Open,
+            source,
+        })?;
 
     let left = run_plan(&mut *left, left_plan, StrategySide::Left)?;
     let right = run_plan(&mut *right, right_plan, StrategySide::Right)?;
@@ -209,8 +213,7 @@ mod tests {
                 .count
                 .checked_add(periods as usize)
                 .ok_or_else(|| HostError::session("mock count overflow"))?;
-            self.mutations
-                .fetch_add(periods as usize, Ordering::SeqCst);
+            self.mutations.fetch_add(periods as usize, Ordering::SeqCst);
             Ok(self.snapshot())
         }
 
@@ -271,10 +274,7 @@ mod tests {
     fn strategies_open_independent_sessions_and_advance_equally() {
         let left_mutations = Arc::new(AtomicUsize::new(0));
         let right_mutations = Arc::new(AtomicUsize::new(0));
-        let registry = mock_registry(
-            Arc::clone(&left_mutations),
-            Arc::clone(&right_mutations),
-        );
+        let registry = mock_registry(Arc::clone(&left_mutations), Arc::clone(&right_mutations));
         let source = mock_archive(5);
         let source_before = source.clone();
 
@@ -301,10 +301,7 @@ mod tests {
     fn left_strategy_failure_does_not_execute_right_or_mutate_source() {
         let left_mutations = Arc::new(AtomicUsize::new(0));
         let right_mutations = Arc::new(AtomicUsize::new(0));
-        let registry = mock_registry(
-            Arc::clone(&left_mutations),
-            Arc::clone(&right_mutations),
-        );
+        let registry = mock_registry(Arc::clone(&left_mutations), Arc::clone(&right_mutations));
         let source = mock_archive(7);
         let source_before = source.clone();
 
@@ -387,10 +384,8 @@ mod tests {
             .as_ref()
             .expect("Tiny Society exports a durable strategy archive");
         let reopened_right = registry.open_archive(durable_right).unwrap();
-        let replay_comparison = compare_snapshots(
-            &evaluation.right.snapshot,
-            &reopened_right.snapshot(),
-        );
+        let replay_comparison =
+            compare_snapshots(&evaluation.right.snapshot, &reopened_right.snapshot());
         assert!(replay_comparison.is_identical());
     }
 }
