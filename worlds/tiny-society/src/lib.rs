@@ -28,6 +28,7 @@ pub use persistence::{
 
 pub const RETAIN_WORKER_COMMAND: &str = "tiny-society.retain-worker";
 pub const REOPEN_BAKERY_COMMAND: &str = "tiny-society.reopen-bakery";
+pub const REPAIR_BOAT_COMMAND: &str = "tiny-society.repair-sea-finch";
 pub const BAKERY_REOPEN_INVESTMENT: i64 = 120;
 
 pub struct TinySociety {
@@ -68,6 +69,7 @@ impl TinySocietyBranch {
         match command_id {
             RETAIN_WORKER_COMMAND => self.continue_with_retention(),
             REOPEN_BAKERY_COMMAND => self.reopen_bakery(),
+            REPAIR_BOAT_COMMAND => self.repair_boat_with_leo(),
             _ => Err(
                 std::io::Error::other(format!("unknown projection command: {command_id}")).into(),
             ),
@@ -139,6 +141,28 @@ impl TinySocietyBranch {
             )?
             .id;
         Ok(vec![reopened])
+    }
+
+    pub fn repair_boat_with_leo(&mut self) -> Result<Vec<EventId>, Box<dyn Error>> {
+        let support = self
+            .world
+            .events()
+            .iter()
+            .rev()
+            .find(|event| event.kind == "support_received")
+            .map(|event| event.id)
+            .ok_or_else(|| std::io::Error::other("Leo has not supported Jonas yet"))?;
+        let actions = build_action_registry()?;
+        let repaired = self
+            .world
+            .execute(
+                &actions,
+                &ActionRequest::new("repair_jonas_boat")
+                    .actor(LEO)
+                    .caused_by(support),
+            )?
+            .id;
+        Ok(vec![repaired])
     }
 }
 
