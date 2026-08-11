@@ -44,6 +44,11 @@ mod background;
 #[path = "revision/archive.rs"]
 mod archive;
 
+// Materialize branch/strategy archives through Library's existing atomic write
+// machinery while preserving no-clobber creation semantics.
+#[path = "revision/archive_create.rs"]
+mod archive_create;
+
 #[cfg(test)]
 mod tests {
     use super::*;
