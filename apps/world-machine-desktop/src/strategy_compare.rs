@@ -1,5 +1,8 @@
 use super::{SharedDocument, WorldDocumentView};
-use gpui::{px, size, AppContext, Bounds, Context, WindowBounds, WindowOptions};
+use gpui::{
+    div, prelude::*, px, rgb, size, AppContext, Bounds, Context, Div, Styled, WindowBounds,
+    WindowOptions,
+};
 use std::sync::Arc;
 use world_strategy::{evaluate_strategies, StrategyPlan};
 use world_strategy_gpui::StrategyComparisonView;
@@ -10,7 +13,63 @@ pub(crate) fn can_compare(document: &SharedDocument) -> bool {
     document.borrow().session.snapshot().commands.len() >= 2
 }
 
-pub(crate) fn open_first_two(
+pub(crate) fn document_actions(
+    document: &SharedDocument,
+    cx: &mut Context<WorldDocumentView>,
+) -> Div {
+    let mut actions = div().flex().gap_2();
+    if can_compare(document) {
+        actions = actions.child(
+            div()
+                .id("compare-world-choices")
+                .cursor_pointer()
+                .p_2()
+                .rounded_md()
+                .border_1()
+                .border_color(rgb(0x9eb0d6))
+                .bg(rgb(0xf4f7ff))
+                .text_sm()
+                .child("Compare choices…")
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.status = Some(match open_first_two(&this.document, cx) {
+                        Ok((left, right)) => format!("Comparing {left} vs {right}"),
+                        Err(error) => format!("Compare failed: {error}"),
+                    });
+                    cx.notify();
+                })),
+        );
+    }
+
+    actions
+        .child(
+            div()
+                .id("save-as-world-document")
+                .cursor_pointer()
+                .p_2()
+                .rounded_md()
+                .border_1()
+                .border_color(rgb(0xcacac4))
+                .bg(rgb(0xffffff))
+                .text_sm()
+                .child("Save As…")
+                .on_click(cx.listener(|this, _, _, cx| this.save_as(cx))),
+        )
+        .child(
+            div()
+                .id("reload-world-document")
+                .cursor_pointer()
+                .p_2()
+                .rounded_md()
+                .border_1()
+                .border_color(rgb(0xcacac4))
+                .bg(rgb(0xffffff))
+                .text_sm()
+                .child("Reload from disk")
+                .on_click(cx.listener(|this, _, _, cx| this.reload(cx))),
+        )
+}
+
+fn open_first_two(
     document: &SharedDocument,
     cx: &mut Context<WorldDocumentView>,
 ) -> Result<(String, String), String> {
