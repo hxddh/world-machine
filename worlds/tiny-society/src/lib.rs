@@ -1,6 +1,7 @@
 mod actions;
 mod behaviors;
 mod fishing;
+mod harbor;
 mod host;
 mod interventions;
 mod model;
@@ -33,6 +34,7 @@ pub use persistence::{
 pub const RETAIN_WORKER_COMMAND: &str = "tiny-society.retain-worker";
 pub const REOPEN_BAKERY_COMMAND: &str = "tiny-society.reopen-bakery";
 pub const REPAIR_BOAT_COMMAND: &str = "tiny-society.repair-sea-finch";
+pub const RENEW_FISH_CONTRACT_COMMAND: &str = "tiny-society.renew-mainland-fish-contract";
 pub const BAKERY_REOPEN_INVESTMENT: i64 = 120;
 
 pub struct TinySociety {
@@ -74,6 +76,7 @@ impl TinySocietyBranch {
             RETAIN_WORKER_COMMAND => self.continue_with_retention(),
             REOPEN_BAKERY_COMMAND => self.reopen_bakery(),
             REPAIR_BOAT_COMMAND => self.repair_boat_with_leo(),
+            RENEW_FISH_CONTRACT_COMMAND => self.renew_mainland_fish_contract(),
             _ => Err(
                 std::io::Error::other(format!("unknown projection command: {command_id}")).into(),
             ),
@@ -167,6 +170,30 @@ impl TinySocietyBranch {
             )?
             .id;
         Ok(vec![repaired])
+    }
+
+    pub fn renew_mainland_fish_contract(&mut self) -> Result<Vec<EventId>, Box<dyn Error>> {
+        let cause = self
+            .world
+            .events()
+            .iter()
+            .rev()
+            .find(|event| {
+                event.kind == "mainland_contract_fulfilled" || event.kind == "fish_sold"
+            })
+            .map(|event| event.id)
+            .ok_or_else(|| std::io::Error::other("the mainland fish contract has no history"))?;
+        let actions = build_action_registry()?;
+        let renewed = self
+            .world
+            .execute(
+                &actions,
+                &ActionRequest::new("renew_mainland_contract")
+                    .actor(NOAH)
+                    .caused_by(cause),
+            )?
+            .id;
+        Ok(vec![renewed])
     }
 }
 
@@ -326,6 +353,7 @@ fn build_action_registry() -> Result<ActionRegistry, Box<dyn Error>> {
     world_agent::register_actions(&mut actions)?;
     actions::register(&mut actions)?;
     fishing::register_actions(&mut actions)?;
+    harbor::register_actions(&mut actions)?;
     interventions::register(&mut actions)?;
     social::register_actions(&mut actions)?;
     Ok(actions)
