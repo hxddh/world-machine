@@ -95,7 +95,10 @@ impl fmt::Display for StrategyDocumentError {
             Self::Library(error) => error.fmt(f),
             Self::UnknownChoice(choice) => write!(f, "unknown strategy choice: {choice}"),
             Self::SameChoice(choice) => {
-                write!(f, "strategy comparison requires two different choices: {choice}")
+                write!(
+                    f,
+                    "strategy comparison requires two different choices: {choice}"
+                )
             }
             Self::NotEnoughChoices(count) => write!(
                 f,
@@ -231,7 +234,12 @@ mod tests {
         ))
     }
 
-    fn durable_session() -> (std::path::PathBuf, WorldRegistry, WorldLibrary, DurableWorldSession) {
+    fn durable_session() -> (
+        std::path::PathBuf,
+        WorldRegistry,
+        WorldLibrary,
+        DurableWorldSession,
+    ) {
         let root = temp_root();
         let library = WorldLibrary::new(root.join("library"));
         let registry = registry();
