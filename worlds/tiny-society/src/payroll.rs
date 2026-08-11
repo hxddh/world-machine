@@ -1,3 +1,6 @@
+#[path = "household.rs"]
+mod household;
+
 use crate::{EMMA, LEO, PUB, SCHOOL};
 use society_basic::{integer_component, CASH};
 use std::error::Error;
@@ -8,6 +11,7 @@ use world_core::{
 
 pub(crate) fn register_actions(registry: &mut ActionRegistry) -> Result<(), ActionError> {
     registry.register(RecordPayrollReserveExhausted)?;
+    household::register_actions(registry)?;
     Ok(())
 }
 
@@ -41,6 +45,7 @@ pub(crate) fn register_behaviors(registry: &mut BehaviorRegistry) -> Result<(), 
                 .arg("next_wage", *wage)]
         },
     ))?;
+    household::register_behaviors(registry)?;
     Ok(())
 }
 
