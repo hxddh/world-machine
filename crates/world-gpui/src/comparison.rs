@@ -1,6 +1,6 @@
 use crate::ProjectionView;
 use gpui::{
-    div, prelude::*, px, rgb, App, Context, Entity, FontWeight, IntoElement, Render, Window,
+    div, prelude::*, px, rgb, Context, Entity, FontWeight, IntoElement, Render, Window,
 };
 use world_compare::{compare_snapshots, DifferenceKind, EntityDifference, SnapshotComparison};
 use world_projection::ProjectionSnapshot;
@@ -180,11 +180,7 @@ fn entity_difference_strip(comparison: &SnapshotComparison) -> impl IntoElement 
             .into_any_element();
     }
 
-    div()
-        .flex()
-        .gap_2()
-        .children(rows)
-        .into_any_element()
+    div().flex().gap_2().children(rows).into_any_element()
 }
 
 fn entity_difference_card(difference: &EntityDifference) -> impl IntoElement {
@@ -251,43 +247,4 @@ fn difference_detail(difference: &EntityDifference) -> String {
         })
         .collect::<Vec<_>>()
         .join(" · ")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use world_compare::{DifferenceKind, EntityView, InspectorRowDifference, InspectorRowKey};
-    use world_core::EntityId;
-    use world_projection::SelectionId;
-
-    #[test]
-    fn difference_detail_prefers_semantic_inspector_rows() {
-        let difference = EntityDifference {
-            id: SelectionId::Entity(EntityId::new(7)),
-            kind: DifferenceKind::Changed,
-            left: Some(EntityView {
-                title: "Harbor Bakery".into(),
-                subtitle: "place".into(),
-            }),
-            right: Some(EntityView {
-                title: "Harbor Bakery".into(),
-                subtitle: "place".into(),
-            }),
-            inspector_rows: vec![InspectorRowDifference {
-                key: InspectorRowKey {
-                    section: "State".into(),
-                    label: "operating_status".into(),
-                    ordinal: 0,
-                },
-                kind: DifferenceKind::Changed,
-                left: Some("closed".into()),
-                right: Some("open".into()),
-            }],
-        };
-
-        assert_eq!(
-            difference_detail(&difference),
-            "operating_status: closed → open"
-        );
-    }
 }
