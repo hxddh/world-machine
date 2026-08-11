@@ -124,7 +124,9 @@ mod tests {
         }
 
         fn handle(&mut self, _intent: ProjectionIntent) -> Result<ProjectionSnapshot, HostError> {
-            Err(HostError::Session("unused in static background tests".into()))
+            Err(HostError::Session(
+                "unused in static background tests".into(),
+            ))
         }
 
         fn archive(&self) -> Result<Option<WorldArchive>, HostError> {
