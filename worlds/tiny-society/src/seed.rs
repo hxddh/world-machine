@@ -16,14 +16,16 @@ pub(crate) fn seed_world() -> Result<WorldState, Box<dyn Error>> {
         (EVAN, "Evan", 90, "carpenter", HARBOR),
         (SOFIA, "Sofia", 70, "shop_assistant", PUB),
     ] {
-        state.seed_entity(
-            Entity::new(id, "resident")
-                .with_component("name", name)
-                .with_component(CASH, cash)
-                .with_component(JOB, job)
-                .with_component("location", location)
-                .with_component(MISSED_SHIFTS, 0_i64),
-        )?;
+        let mut resident = Entity::new(id, "resident")
+            .with_component("name", name)
+            .with_component(CASH, cash)
+            .with_component(JOB, job)
+            .with_component("location", location)
+            .with_component(MISSED_SHIFTS, 0_i64);
+        if id == JONAS {
+            resident = resident.with_component(SUPPORT_STATUS, "none");
+        }
+        state.seed_entity(resident)?;
     }
 
     for (id, name, cash) in [
