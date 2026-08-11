@@ -136,31 +136,33 @@ fn compare_entities(
         .collect::<BTreeSet<_>>();
 
     ids.into_iter()
-        .filter_map(|id| match (left_entities.get(&id), right_entities.get(&id)) {
-            (Some(left), Some(right)) if *left == *right => None,
-            (Some(left), Some(right)) => Some(EntityDifference {
-                id,
-                kind: DifferenceKind::Changed,
-                left: Some(entity_view(left)),
-                right: Some(entity_view(right)),
-                inspector_rows: compare_inspector_rows(left, right),
-            }),
-            (Some(left), None) => Some(EntityDifference {
-                id,
-                kind: DifferenceKind::LeftOnly,
-                left: Some(entity_view(left)),
-                right: None,
-                inspector_rows: Vec::new(),
-            }),
-            (None, Some(right)) => Some(EntityDifference {
-                id,
-                kind: DifferenceKind::RightOnly,
-                left: None,
-                right: Some(entity_view(right)),
-                inspector_rows: Vec::new(),
-            }),
-            (None, None) => None,
-        })
+        .filter_map(
+            |id| match (left_entities.get(&id), right_entities.get(&id)) {
+                (Some(left), Some(right)) if *left == *right => None,
+                (Some(left), Some(right)) => Some(EntityDifference {
+                    id,
+                    kind: DifferenceKind::Changed,
+                    left: Some(entity_view(left)),
+                    right: Some(entity_view(right)),
+                    inspector_rows: compare_inspector_rows(left, right),
+                }),
+                (Some(left), None) => Some(EntityDifference {
+                    id,
+                    kind: DifferenceKind::LeftOnly,
+                    left: Some(entity_view(left)),
+                    right: None,
+                    inspector_rows: Vec::new(),
+                }),
+                (None, Some(right)) => Some(EntityDifference {
+                    id,
+                    kind: DifferenceKind::RightOnly,
+                    left: None,
+                    right: Some(entity_view(right)),
+                    inspector_rows: Vec::new(),
+                }),
+                (None, None) => None,
+            },
+        )
         .collect()
 }
 
@@ -388,12 +390,7 @@ mod tests {
 
     #[test]
     fn entity_rows_are_compared_inside_stable_entity_identity() {
-        let left = snapshot(
-            20,
-            [entity_inspector(7, "40", "baker")],
-            vec![],
-            vec![],
-        );
+        let left = snapshot(20, [entity_inspector(7, "40", "baker")], vec![], vec![]);
         let right = snapshot(
             20,
             [entity_inspector(7, "120", "owner_operator")],
