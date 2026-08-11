@@ -140,9 +140,7 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
                 "bread_budget_cut" if event.actor == Some(EMMA) => {
                     "Emma started protecting her savings"
                 }
-                "income_disrupted" if event.actor == Some(LEO) => {
-                    "Leo's Pub income was disrupted"
-                }
+                "income_disrupted" if event.actor == Some(LEO) => "Leo's Pub income was disrupted",
                 "income_disrupted" if event.actor == Some(EMMA) => {
                     "Emma's School income was disrupted"
                 }
