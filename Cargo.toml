@@ -11,6 +11,7 @@ members = [
   "crates/world-strategy-gpui",
   "crates/world-gpui",
   "crates/world-persistence",
+  "crates/world-document",
   "crates/world-integrity",
   "crates/world-host",
   "crates/world-builtins",
