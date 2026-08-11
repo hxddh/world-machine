@@ -9,6 +9,7 @@ publish = false
 world-builtins = { path = "../../crates/world-builtins" }
 world-host = { path = "../../crates/world-host" }
 world-library = { path = "../../crates/world-library" }
+world-observer = { path = "../../crates/world-observer" }
 world-gpui = { path = "../../crates/world-gpui" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
