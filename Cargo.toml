@@ -11,6 +11,7 @@ members = [
   "crates/world-host",
   "crates/world-builtins",
   "crates/world-library",
+  "crates/world-observer",
   "systems/society-basic",
   "worlds/tiny-society",
   "worlds/future-archaeologist",
