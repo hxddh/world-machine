@@ -88,9 +88,7 @@ fn open_first_two(
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             ..Default::default()
         },
-        move |_, cx| {
-            cx.new(|_| StrategyComparisonView::new(evaluation, window_left, window_right))
-        },
+        move |_, cx| cx.new(|_| StrategyComparisonView::new(evaluation, window_left, window_right)),
     )
     .map_err(|error| error.to_string())?;
 
