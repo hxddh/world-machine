@@ -116,5 +116,6 @@ pub(crate) fn register(registry: &mut BehaviorRegistry) -> Result<(), Box<dyn Er
             }
         },
     ))?;
+    crate::payroll::register_behaviors(registry)?;
     Ok(())
 }
