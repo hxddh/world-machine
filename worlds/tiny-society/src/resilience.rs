@@ -80,17 +80,16 @@ impl Action for RecordLocalDemandBuffer {
             ));
         }
         if text_component(state, BAKERY, OPERATING_STATUS)? != "open" {
-            return Err(ActionError::Invalid(
-                "the bakery is already closed".into(),
-            ));
+            return Err(ActionError::Invalid("the bakery is already closed".into()));
         }
 
         let mut draft = EventDraft::new("local_demand_buffered");
         draft.actor = Some(JONAS);
         draft.targets = vec![JONAS, BAKERY, household];
-        draft
-            .payload
-            .insert("daily_recovered_demand".into(), RECOVERED_BREAD_BUDGET.into());
+        draft.payload.insert(
+            "daily_recovered_demand".into(),
+            RECOVERED_BREAD_BUDGET.into(),
+        );
         Ok(draft)
     }
 }
@@ -152,7 +151,10 @@ mod tests {
             .expect("recovered Jonas buffers a later household demand cut");
         assert_eq!(buffered.actor, Some(JONAS));
         assert!(buffered.targets.contains(&BAKERY));
-        assert!(buffered.targets.iter().any(|target| matches!(*target, LEO | EMMA)));
+        assert!(buffered
+            .targets
+            .iter()
+            .any(|target| matches!(*target, LEO | EMMA)));
         assert_eq!(
             buffered.payload.get("daily_recovered_demand"),
             Some(&Value::Integer(RECOVERED_BREAD_BUDGET))
