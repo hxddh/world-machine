@@ -112,10 +112,7 @@ fn pack_report() -> Result<String, Box<dyn Error>> {
     for descriptor in descriptors {
         lines.push(format!(
             "{}@{}\t{}\t{}",
-            descriptor.pack.id,
-            descriptor.pack.version,
-            descriptor.title,
-            descriptor.description
+            descriptor.pack.id, descriptor.pack.version, descriptor.title, descriptor.description
         ));
     }
     Ok(lines.join("\n"))
