@@ -1,4 +1,4 @@
-use crate::model::{JONAS_LEO_TRUST, OPERATING_STATUS, SUPPORT_STATUS};
+use crate::model::OPERATING_STATUS;
 use crate::social::JONAS_DAILY_LIVING_COST;
 use crate::{
     behaviors, build_action_registry, projection, seed, TinySociety, TinySocietyBranch, BAKERY,
@@ -275,25 +275,6 @@ fn current_job(world: &World, resident: EntityId) -> Option<&str> {
     }
 }
 
-fn support_status(world: &World) -> Option<&str> {
-    match world.state().entity(JONAS)?.component(SUPPORT_STATUS)? {
-        Value::Text(status) => Some(status.as_str()),
-        _ => None,
-    }
-}
-
-fn jonas_leo_trust(world: &World) -> Option<i64> {
-    match world
-        .state()
-        .relation(JONAS_LEO_TRUST)?
-        .properties
-        .get("trust")?
-    {
-        Value::Integer(trust) => Some(*trust),
-        _ => None,
-    }
-}
-
 fn restored_simulation(world: World) -> Result<TinySociety, Box<dyn Error>> {
     let actions = build_action_registry()?;
     let mut behaviors = BehaviorRegistry::new();
@@ -309,6 +290,26 @@ fn restored_simulation(world: World) -> Result<TinySociety, Box<dyn Error>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::{JONAS_LEO_TRUST, SUPPORT_STATUS};
+
+    fn support_status(world: &World) -> Option<&str> {
+        match world.state().entity(JONAS)?.component(SUPPORT_STATUS)? {
+            Value::Text(status) => Some(status.as_str()),
+            _ => None,
+        }
+    }
+
+    fn jonas_leo_trust(world: &World) -> Option<i64> {
+        match world
+            .state()
+            .relation(JONAS_LEO_TRUST)?
+            .properties
+            .get("trust")?
+        {
+            Value::Integer(trust) => Some(*trust),
+            _ => None,
+        }
+    }
 
     #[test]
     fn dismissed_worker_does_not_resume_work_when_days_advance() {
@@ -408,7 +409,10 @@ mod tests {
 
         assert_eq!(support_status(&branch.world), Some("none"));
         assert_eq!(jonas_leo_trust(&branch.world), Some(76));
-        assert_eq!(integer_component(branch.world.state(), JONAS, CASH).unwrap(), 85);
+        assert_eq!(
+            integer_component(branch.world.state(), JONAS, CASH).unwrap(),
+            85
+        );
 
         branch.advance_days(10).unwrap();
 
@@ -449,7 +453,10 @@ mod tests {
         );
         assert_eq!(support_status(&branch.world), Some("received"));
         assert_eq!(jonas_leo_trust(&branch.world), Some(84));
-        assert_eq!(integer_component(branch.world.state(), JONAS, CASH).unwrap(), 45);
+        assert_eq!(
+            integer_component(branch.world.state(), JONAS, CASH).unwrap(),
+            45
+        );
 
         let briefing = branch
             .projection_snapshot_since(cursor)
@@ -464,7 +471,10 @@ mod tests {
         let resumed = TinySociety::resume_archive(&archive).unwrap();
         assert_eq!(support_status(resumed.world()), Some("received"));
         assert_eq!(jonas_leo_trust(resumed.world()), Some(84));
-        assert_eq!(integer_component(resumed.world().state(), JONAS, CASH).unwrap(), 45);
+        assert_eq!(
+            integer_component(resumed.world().state(), JONAS, CASH).unwrap(),
+            45
+        );
     }
 
     #[test]
