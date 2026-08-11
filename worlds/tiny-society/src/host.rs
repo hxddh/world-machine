@@ -48,6 +48,13 @@ impl WorldSession for TinySocietySession {
         Ok(self.snapshot())
     }
 
+    fn advance_background(&mut self, periods: u64) -> Result<ProjectionSnapshot, HostError> {
+        self.branch
+            .advance_days(periods)
+            .map_err(HostError::session)?;
+        Ok(self.snapshot())
+    }
+
     fn archive(&self) -> Result<Option<WorldArchive>, HostError> {
         self.branch.archive().map(Some).map_err(HostError::session)
     }
@@ -94,5 +101,23 @@ mod tests {
                     .unwrap();
             }
         }
+    }
+
+    #[test]
+    fn background_periods_advance_tiny_society_days_through_the_host() {
+        let mut registry = world_host::WorldRegistry::new();
+        registry.register(tiny_society_registration()).unwrap();
+        let mut session = registry.create(crate::TINY_SOCIETY_PACK_ID).unwrap();
+        let before = session.snapshot();
+
+        let after = session.advance_background(2).unwrap();
+
+        assert_eq!(after.world_time, before.world_time + 20);
+        assert!(after.timeline.items.len() >= before.timeline.items.len() + 6);
+
+        let archive = session.archive().unwrap().unwrap();
+        let reopened = registry.open_archive(&archive).unwrap();
+        assert_eq!(reopened.snapshot().world_time, after.world_time);
+        assert_eq!(reopened.snapshot().timeline.items, after.timeline.items);
     }
 }
