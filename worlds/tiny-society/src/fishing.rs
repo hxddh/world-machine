@@ -1,7 +1,7 @@
 use crate::{actions::text_component, model::*};
 use society_basic::{integer_component, CASH, JOB};
 use world_core::{
-    Action, ActionError, ActionRegistry, ActionRequest, EventDraft, StateChange, Value, WorldState,
+    Action, ActionError, ActionRegistry, ActionRequest, EventDraft, StateChange, WorldState,
 };
 
 pub(crate) const DAILY_CATCH_CRATES: i64 = 1;
