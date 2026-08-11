@@ -12,6 +12,10 @@ world-library = { path = "../../crates/world-library" }
 world-observer = { path = "../../crates/world-observer" }
 world-gpui = { path = "../../crates/world-gpui" }
 
+[dev-dependencies]
+world-persistence = { path = "../../crates/world-persistence" }
+world-projection = { path = "../../crates/world-projection" }
+
 [target.'cfg(target_os = "macos")'.dependencies]
 gpui = { git = "https://github.com/zed-industries/zed", rev = "4e8057d74db3570b3bd419ff296eb84c35b3a5a3", package = "gpui" }
 gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "4e8057d74db3570b3bd419ff296eb84c35b3a5a3", package = "gpui_platform" }
