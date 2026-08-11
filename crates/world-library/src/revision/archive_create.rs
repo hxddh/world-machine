@@ -70,9 +70,7 @@ mod tests {
         let library = WorldLibrary::new(root.clone());
         let id = WorldDocumentId::new("future-a").unwrap();
         let original = archive(7);
-        library
-            .create_from_archive(id.clone(), &original)
-            .unwrap();
+        library.create_from_archive(id.clone(), &original).unwrap();
 
         let result = library.create_from_archive(id.clone(), &archive(99));
 
