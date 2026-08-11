@@ -32,6 +32,12 @@ impl DocumentRevision {
 #[path = "save_as.rs"]
 mod save_as;
 
+// Keep Pack-defined background progression inside the same private durable
+// document state machinery. The public surface remains an inherent method on
+// DurableWorldSession and preserves the existing candidate/persist/commit model.
+#[path = "revision/background.rs"]
+mod background;
+
 #[cfg(test)]
 mod tests {
     use super::*;
