@@ -183,7 +183,9 @@ impl WorldDocumentView {
 
 #[cfg(target_os = "macos")]
 impl Render for WorldDocumentView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        window.set_window_title(&format!("{} — {}", self.document_label, self.title));
+
         let mut chrome = div()
             .h(px(48.0))
             .w_full()
@@ -646,7 +648,9 @@ impl WorldMachineHome {
 
 #[cfg(target_os = "macos")]
 impl Render for WorldMachineHome {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        window.set_window_title("World Machine");
+
         let documents = self.documents.clone();
         let descriptors = self
             .registry
