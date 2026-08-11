@@ -1,14 +1,17 @@
+use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::error::Error;
 use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
-use world_persistence::WorldArchive;
+use world_persistence::{ArchivedEvent, WorldArchive};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum Command {
     Inspect(PathBuf),
     Validate(PathBuf),
+    Events(PathBuf),
+    Why(PathBuf, u64),
     ListPacks,
     Help,
 }
@@ -29,6 +32,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     match command {
         Command::Inspect(path) => println!("{}", inspect_report(&path)?),
         Command::Validate(path) => println!("{}", validate_report(&path)?),
+        Command::Events(path) => println!("{}", events_report(&path)?),
+        Command::Why(path, event_id) => println!("{}", why_report(&path, event_id)?),
         Command::ListPacks => println!("{}", pack_report()?),
         Command::Help => println!("{}", usage()),
     }
@@ -44,6 +49,13 @@ where
     match args.as_slice() {
         [command, path] if command == "inspect" => Ok(Command::Inspect(PathBuf::from(path))),
         [command, path] if command == "validate" => Ok(Command::Validate(PathBuf::from(path))),
+        [command, path] if command == "events" => Ok(Command::Events(PathBuf::from(path))),
+        [command, path, event_id] if command == "why" => {
+            let event_id = event_id
+                .parse::<u64>()
+                .map_err(|_| CliError(format!("invalid event id: {event_id}")))?;
+            Ok(Command::Why(PathBuf::from(path), event_id))
+        }
         [command] if command == "list-packs" => Ok(Command::ListPacks),
         [command] if matches!(command.as_str(), "help" | "--help" | "-h") => Ok(Command::Help),
         [] => Ok(Command::Help),
@@ -56,9 +68,13 @@ fn usage() -> &'static str {
 Usage:\n\
   world-cli inspect <file.world>\n\
   world-cli validate <file.world>\n\
+  world-cli events <file.world>\n\
+  world-cli why <file.world> <event-id>\n\
   world-cli list-packs\n\n\
 inspect     Parse and summarize a World archive without requiring its Pack.\n\
 validate    Parse the archive and open it through the currently installed Pack registry.\n\
+events      Print the archived event timeline, including actors, targets, and causal links.\n\
+why         Trace an event recursively through its archived caused_by graph.\n\
 list-packs  List World Packs this build can create and restore."
 }
 
@@ -105,6 +121,118 @@ fn validate_report(path: &Path) -> Result<String, Box<dyn Error>> {
     ))
 }
 
+fn events_report(path: &Path) -> Result<String, Box<dyn Error>> {
+    let archive = load_archive(path)?;
+    Ok(events_report_from_archive(path, &archive))
+}
+
+fn events_report_from_archive(path: &Path, archive: &WorldArchive) -> String {
+    let mut lines = vec![format!("file: {}", path.display())];
+    if archive.events.is_empty() {
+        lines.push("events: none".into());
+        return lines.join("\n");
+    }
+
+    lines.push(format!("events: {}", archive.events.len()));
+    for event in &archive.events {
+        lines.push(format_event(event));
+    }
+    lines.join("\n")
+}
+
+fn format_event(event: &ArchivedEvent) -> String {
+    let actor = event
+        .actor
+        .map(|actor| format!("#{actor}"))
+        .unwrap_or_else(|| "-".into());
+    format!(
+        "#{} {} @ t={} actor={} targets={} caused_by={}",
+        event.id,
+        event.kind,
+        event.world_time,
+        actor,
+        format_ids(&event.targets),
+        format_ids(&event.caused_by)
+    )
+}
+
+fn format_ids(ids: &[u64]) -> String {
+    if ids.is_empty() {
+        return "[]".into();
+    }
+    format!(
+        "[{}]",
+        ids.iter()
+            .map(|id| format!("#{id}"))
+            .collect::<Vec<_>>()
+            .join(",")
+    )
+}
+
+fn why_report(path: &Path, event_id: u64) -> Result<String, Box<dyn Error>> {
+    let archive = load_archive(path)?;
+    why_report_from_archive(path, &archive, event_id)
+        .map_err(|error| Box::new(error) as Box<dyn Error>)
+}
+
+fn why_report_from_archive(
+    path: &Path,
+    archive: &WorldArchive,
+    event_id: u64,
+) -> Result<String, CliError> {
+    let events = event_index(archive)?;
+    if !events.contains_key(&event_id) {
+        return Err(CliError(format!("unknown event id: #{event_id}")));
+    }
+
+    let mut lines = vec![
+        format!("file: {}", path.display()),
+        format!("why: #{event_id}"),
+    ];
+    let mut visiting = BTreeSet::new();
+    render_cause(event_id, &events, 0, &mut visiting, &mut lines);
+    Ok(lines.join("\n"))
+}
+
+fn event_index(archive: &WorldArchive) -> Result<BTreeMap<u64, &ArchivedEvent>, CliError> {
+    let mut events = BTreeMap::new();
+    for event in &archive.events {
+        if events.insert(event.id, event).is_some() {
+            return Err(CliError(format!("duplicate event id: #{}", event.id)));
+        }
+    }
+    Ok(events)
+}
+
+fn render_cause(
+    event_id: u64,
+    events: &BTreeMap<u64, &ArchivedEvent>,
+    depth: usize,
+    visiting: &mut BTreeSet<u64>,
+    lines: &mut Vec<String>,
+) {
+    let indent = "  ".repeat(depth);
+    if !visiting.insert(event_id) {
+        lines.push(format!("{indent}[cycle] #{event_id}"));
+        return;
+    }
+
+    match events.get(&event_id) {
+        Some(event) => {
+            lines.push(format!(
+                "{indent}#{} {} @ t={}",
+                event.id, event.kind, event.world_time
+            ));
+            for cause in &event.caused_by {
+                render_cause(*cause, events, depth + 1, visiting, lines);
+            }
+        }
+        None => lines.push(format!("{indent}[missing] #{event_id}")),
+    }
+
+    visiting.remove(&event_id);
+}
+
 fn pack_report() -> Result<String, Box<dyn Error>> {
     let registry = world_builtins::registry()?;
     let descriptors = registry.descriptors();
@@ -134,27 +262,84 @@ mod tests {
             parse_command(["validate", "sample.world"]).unwrap(),
             Command::Validate(PathBuf::from("sample.world"))
         );
+        assert_eq!(
+            parse_command(["events", "sample.world"]).unwrap(),
+            Command::Events(PathBuf::from("sample.world"))
+        );
+        assert_eq!(
+            parse_command(["why", "sample.world", "7"]).unwrap(),
+            Command::Why(PathBuf::from("sample.world"), 7)
+        );
         assert_eq!(parse_command(["list-packs"]).unwrap(), Command::ListPacks);
         assert_eq!(parse_command(Vec::<String>::new()).unwrap(), Command::Help);
         assert!(parse_command(["inspect"]).is_err());
+        assert!(parse_command(["why", "sample.world", "not-a-number"]).is_err());
     }
 
     #[test]
     fn inspect_report_is_pack_independent() {
-        let archive = WorldArchive {
-            format: world_persistence::WORLD_ARCHIVE_FORMAT.into(),
-            format_version: world_persistence::WORLD_ARCHIVE_VERSION,
-            pack: world_persistence::WorldPackRef::new("example.uninstalled", "7"),
-            world_time: 42,
-            events: Vec::new(),
-            pending: Vec::new(),
-        };
+        let archive = empty_archive("example.uninstalled", 42);
         let path = Path::new("sample.world");
         let report = format_archive_report(path, &archive);
 
         assert!(report.contains("file: sample.world"));
         assert!(report.contains("pack: example.uninstalled@7"));
         assert!(report.contains("world_time: 42"));
+    }
+
+    #[test]
+    fn events_report_prints_causal_links() {
+        let mut archive = empty_archive("example.uninstalled", 3);
+        archive.events = vec![
+            event(1, "storm", 1, vec![]),
+            event(2, "damage", 2, vec![1]),
+            event(3, "income_lost", 3, vec![2]),
+        ];
+
+        let report = events_report_from_archive(Path::new("case.world"), &archive);
+
+        assert!(report.contains("#1 storm @ t=1"));
+        assert!(report.contains("#2 damage @ t=2"));
+        assert!(report.contains("caused_by=[#1]"));
+    }
+
+    #[test]
+    fn why_report_traces_recursive_causes() {
+        let mut archive = empty_archive("example.uninstalled", 3);
+        archive.events = vec![
+            event(1, "storm", 1, vec![]),
+            event(2, "damage", 2, vec![1]),
+            event(3, "income_lost", 3, vec![2]),
+        ];
+
+        let report = why_report_from_archive(Path::new("case.world"), &archive, 3).unwrap();
+
+        assert!(report.contains("why: #3"));
+        assert!(report.contains("#3 income_lost @ t=3\n  #2 damage @ t=2\n    #1 storm @ t=1"));
+    }
+
+    #[test]
+    fn why_report_marks_missing_and_cyclic_causes() {
+        let mut missing = empty_archive("example.uninstalled", 2);
+        missing.events = vec![event(2, "damage", 2, vec![99])];
+        let missing_report =
+            why_report_from_archive(Path::new("missing.world"), &missing, 2).unwrap();
+        assert!(missing_report.contains("  [missing] #99"));
+
+        let mut cyclic = empty_archive("example.uninstalled", 2);
+        cyclic.events = vec![event(1, "one", 1, vec![2]), event(2, "two", 2, vec![1])];
+        let cyclic_report = why_report_from_archive(Path::new("cycle.world"), &cyclic, 1).unwrap();
+        assert!(cyclic_report.contains("    [cycle] #1"));
+    }
+
+    #[test]
+    fn why_report_rejects_duplicate_and_unknown_event_ids() {
+        let mut duplicate = empty_archive("example.uninstalled", 1);
+        duplicate.events = vec![event(1, "one", 1, vec![]), event(1, "again", 1, vec![])];
+        assert!(why_report_from_archive(Path::new("duplicate.world"), &duplicate, 1).is_err());
+
+        let archive = empty_archive("example.uninstalled", 0);
+        assert!(why_report_from_archive(Path::new("empty.world"), &archive, 42).is_err());
     }
 
     #[test]
@@ -178,6 +363,30 @@ mod tests {
         let report = pack_report().unwrap();
         assert!(report.starts_with("packs: "));
         assert!(report.lines().count() >= 2);
+    }
+
+    fn empty_archive(pack_id: &str, world_time: u64) -> WorldArchive {
+        WorldArchive {
+            format: world_persistence::WORLD_ARCHIVE_FORMAT.into(),
+            format_version: world_persistence::WORLD_ARCHIVE_VERSION,
+            pack: world_persistence::WorldPackRef::new(pack_id, "7"),
+            world_time,
+            events: Vec::new(),
+            pending: Vec::new(),
+        }
+    }
+
+    fn event(id: u64, kind: &str, world_time: u64, caused_by: Vec<u64>) -> ArchivedEvent {
+        ArchivedEvent {
+            id,
+            kind: kind.into(),
+            world_time,
+            actor: None,
+            targets: Vec::new(),
+            caused_by,
+            payload: BTreeMap::new(),
+            changes: Vec::new(),
+        }
     }
 
     fn temp_world_path(label: &str) -> PathBuf {
