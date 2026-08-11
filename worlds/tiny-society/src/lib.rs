@@ -9,6 +9,7 @@ mod payroll;
 mod persistence;
 mod projection;
 mod reciprocity;
+mod recovery;
 mod seed;
 mod social;
 
@@ -35,6 +36,7 @@ pub use persistence::{
 
 pub const RETAIN_WORKER_COMMAND: &str = "tiny-society.retain-worker";
 pub const REOPEN_BAKERY_COMMAND: &str = "tiny-society.reopen-bakery";
+pub const LEAN_REOPEN_BAKERY_COMMAND: &str = "tiny-society.reopen-bakery-lean";
 pub const REPAIR_BOAT_COMMAND: &str = "tiny-society.repair-sea-finch";
 pub const BAKERY_REOPEN_INVESTMENT: i64 = 120;
 
@@ -76,6 +78,7 @@ impl TinySocietyBranch {
         match command_id {
             RETAIN_WORKER_COMMAND => self.continue_with_retention(),
             REOPEN_BAKERY_COMMAND => self.reopen_bakery(),
+            LEAN_REOPEN_BAKERY_COMMAND => recovery::reopen_lean(self),
             REPAIR_BOAT_COMMAND => self.repair_boat_with_leo(),
             _ => Err(
                 std::io::Error::other(format!("unknown projection command: {command_id}")).into(),
@@ -333,6 +336,7 @@ fn build_action_registry() -> Result<ActionRegistry, Box<dyn Error>> {
     local_economy::register_actions(&mut actions)?;
     payroll::register_actions(&mut actions)?;
     reciprocity::register_actions(&mut actions)?;
+    recovery::register_actions(&mut actions)?;
     social::register_actions(&mut actions)?;
     Ok(actions)
 }

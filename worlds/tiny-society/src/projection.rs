@@ -87,6 +87,19 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
         });
     }
 
+    let mara_can_reopen_lean = component_integer(world, MARA, CASH)
+        .is_some_and(|cash| cash >= crate::recovery::LEAN_REOPEN_INVESTMENT);
+    if bakery_closed && mara_can_reopen_lean {
+        commands.push(ProjectionCommand {
+            id: crate::LEAN_REOPEN_BAKERY_COMMAND.into(),
+            title: "Reopen as an owner-run counter".into(),
+            detail: format!(
+                "Invest {} of Mara's cash and reopen Harbor Bakery without a fixed daily Bakery wage. Lower overhead can survive weak demand, but Mara gives up predictable pay.",
+                crate::recovery::LEAN_REOPEN_INVESTMENT
+            ),
+        });
+    }
+
     let sea_finch_damaged =
         component_text(world, JONAS_BOAT, CONDITION).as_deref() == Some("damaged");
     let jonas_unemployed = component_text(world, JONAS, JOB).as_deref() == Some("unemployed");
@@ -133,6 +146,7 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
                 "support_repaid" => "Jonas repaid Leo after returning to sea",
                 "fish_sold" => "Jonas's catch reached the mainland",
                 "boat_repaired" => "Sea Finch returned to the water",
+                "bakery_reopened_lean" => "Mara reopened Harbor Bakery as an owner-run counter",
                 "bakery_reopened" => "Mara reopened Harbor Bakery",
                 "bakery_closed" => "Harbor Bakery closed its doors",
                 "bread_budget_cut" if event.actor == Some(LEO) => {
