@@ -11,9 +11,7 @@ pub(crate) fn register_actions(registry: &mut ActionRegistry) -> Result<(), Acti
     Ok(())
 }
 
-pub(crate) fn register_behaviors(
-    registry: &mut BehaviorRegistry,
-) -> Result<(), Box<dyn Error>> {
+pub(crate) fn register_behaviors(registry: &mut BehaviorRegistry) -> Result<(), Box<dyn Error>> {
     registry.register(RuleBehavior::new(
         "institution-payroll-reserve-exhausted",
         ["work_shift_completed"],
@@ -63,8 +61,7 @@ impl Action for RecordPayrollReserveExhausted {
         let next_wage = positive_integer_arg(request, "next_wage")?;
         if !matches!((worker, workplace), (LEO, PUB) | (EMMA, SCHOOL)) {
             return Err(ActionError::Invalid(
-                "payroll reserve tracking is currently defined for Leo/Pub and Emma/School"
-                    .into(),
+                "payroll reserve tracking is currently defined for Leo/Pub and Emma/School".into(),
             ));
         }
 
@@ -78,9 +75,7 @@ impl Action for RecordPayrollReserveExhausted {
         let mut draft = EventDraft::new("payroll_reserve_exhausted");
         draft.actor = Some(worker);
         draft.targets = vec![worker, workplace];
-        draft
-            .payload
-            .insert("next_wage".into(), next_wage.into());
+        draft.payload.insert("next_wage".into(), next_wage.into());
         draft
             .payload
             .insert("cash_available".into(), cash_available.into());
@@ -107,7 +102,7 @@ fn positive_integer_arg(request: &ActionRequest, name: &str) -> Result<i64, Acti
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{BAKERY, TinySociety};
+    use crate::{TinySociety, BAKERY};
 
     #[test]
     fn pub_reserve_exhaustion_is_one_shot_while_leo_keeps_buying_from_savings() {
