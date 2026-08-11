@@ -171,7 +171,8 @@ fn format_ids(ids: &[u64]) -> String {
 
 fn why_report(path: &Path, event_id: u64) -> Result<String, Box<dyn Error>> {
     let archive = load_archive(path)?;
-    why_report_from_archive(path, &archive, event_id).map_err(|error| Box::new(error) as Box<dyn Error>)
+    why_report_from_archive(path, &archive, event_id)
+        .map_err(|error| Box::new(error) as Box<dyn Error>)
 }
 
 fn why_report_from_archive(
@@ -327,8 +328,7 @@ mod tests {
 
         let mut cyclic = empty_archive("example.uninstalled", 2);
         cyclic.events = vec![event(1, "one", 1, vec![2]), event(2, "two", 2, vec![1])];
-        let cyclic_report =
-            why_report_from_archive(Path::new("cycle.world"), &cyclic, 1).unwrap();
+        let cyclic_report = why_report_from_archive(Path::new("cycle.world"), &cyclic, 1).unwrap();
         assert!(cyclic_report.contains("    [cycle] #1"));
     }
 
