@@ -164,7 +164,9 @@ impl fmt::Display for HostError {
             Self::ArchiveOpenUnsupported(id) => {
                 write!(f, "world does not support archive opening: {id}")
             }
-            Self::ArchiveIntegrity(error) => write!(f, "world archive failed integrity check: {error}"),
+            Self::ArchiveIntegrity(error) => {
+                write!(f, "world archive failed integrity check: {error}")
+            }
             Self::VersionMismatch { expected, found } => write!(
                 f,
                 "world version mismatch: host has {}@{}, archive requires {}@{}",
@@ -323,11 +325,9 @@ mod tests {
     fn archive_integrity_is_checked_before_pack_opener() {
         let mut registry = WorldRegistry::new();
         registry
-            .register(
-                registration("mock.world", "1").with_archive_opener(|_| {
-                    panic!("Pack opener must not receive a structurally invalid archive")
-                }),
-            )
+            .register(registration("mock.world", "1").with_archive_opener(|_| {
+                panic!("Pack opener must not receive a structurally invalid archive")
+            }))
             .unwrap();
         let mut invalid = archive("mock.world", "1", 0);
         invalid.format = "broken-world-format".into();
