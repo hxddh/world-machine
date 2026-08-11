@@ -117,12 +117,12 @@ impl StrategySetupView {
         selected_index: usize,
         cx: &mut Context<Self>,
     ) -> Div {
-        let mut column = div()
-            .w(px(390.0))
-            .flex()
-            .flex_col()
-            .gap_2()
-            .child(div().text_sm().text_color(rgb(0x666666)).child(label.to_string()));
+        let mut column = div().w(px(390.0)).flex().flex_col().gap_2().child(
+            div()
+                .text_sm()
+                .text_color(rgb(0x666666))
+                .child(label.to_string()),
+        );
 
         for (index, choice) in self.choices.iter().enumerate() {
             let selected = index == selected_index;
