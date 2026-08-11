@@ -5,7 +5,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process;
 use std::time::{SystemTime, UNIX_EPOCH};
-use world_persistence::WorldArchive;
+use world_document::WorldDocument;
 use world_projection::ProjectionSnapshot;
 
 impl DurableWorldSession {
@@ -20,7 +20,11 @@ impl DurableWorldSession {
         destination: PathBuf,
     ) -> Result<ProjectionSnapshot, LibraryError> {
         let archive = required_archive(self.session.as_ref())?;
-        let revision = write_new_archive_file(&destination, &archive)?;
+        let document = WorldDocument {
+            archive,
+            metadata: self.metadata.clone(),
+        };
+        let revision = write_new_document_file(&destination, &document)?;
 
         self.target = WorldDocumentTarget::File(destination);
         self.revision = revision;
@@ -28,15 +32,15 @@ impl DurableWorldSession {
     }
 }
 
-fn write_new_archive_file(
+fn write_new_document_file(
     path: &Path,
-    archive: &WorldArchive,
+    document: &WorldDocument,
 ) -> Result<DocumentRevision, LibraryError> {
     if path.try_exists()? {
         return Err(LibraryError::ExportDestinationExists(path.to_path_buf()));
     }
 
-    let json = archive.to_json_pretty()?;
+    let json = document.to_json_pretty()?;
     let revision = DocumentRevision::from_bytes(json.as_bytes());
     atomic_write_new(path, json.as_bytes())?;
     Ok(revision)
@@ -87,10 +91,13 @@ fn atomic_write_new(path: &Path, bytes: &[u8]) -> Result<(), LibraryError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{read_archive_file, write_archive_file};
+    use crate::{read_archive_file, read_document_file, write_archive_file};
     use std::env;
+    use world_document::{
+        WorldBranchCause, WorldDocumentMetadata, WorldLineage, WorldParent,
+    };
     use world_host::{HostError, WorldSession};
-    use world_persistence::{WorldPackRef, WORLD_ARCHIVE_FORMAT, WORLD_ARCHIVE_VERSION};
+    use world_persistence::{WorldArchive, WorldPackRef, WORLD_ARCHIVE_FORMAT, WORLD_ARCHIVE_VERSION};
     use world_projection::{ProjectionCapabilities, ProjectionIntent, ProjectionSnapshot};
 
     const MOCK_PACK: &str = "world-machine.save-as-mock";
@@ -133,6 +140,22 @@ mod tests {
         }
     }
 
+    fn lineage_metadata() -> WorldDocumentMetadata {
+        WorldDocumentMetadata {
+            lineage: Some(WorldLineage {
+                parent: WorldParent {
+                    document: Some("source".into()),
+                    pack: WorldPackRef::new(MOCK_PACK, "1"),
+                    world_time: 1,
+                    event_count: 0,
+                },
+                branch: WorldBranchCause::Fork {
+                    label: Some("saved branch".into()),
+                },
+            }),
+        }
+    }
+
     fn temp_root(label: &str) -> PathBuf {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -150,6 +173,7 @@ mod tests {
         DurableWorldSession {
             target: WorldDocumentTarget::File(path),
             revision,
+            metadata: WorldDocumentMetadata::default(),
             session: Box::new(MockSession { count }),
         }
     }
@@ -169,6 +193,21 @@ mod tests {
         assert_eq!(session.file_path(), Some(destination.as_path()));
         assert_eq!(fs::read(&original).unwrap(), original_before);
         assert_eq!(read_archive_file(&destination).unwrap().world_time, 4);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn save_as_preserves_document_metadata() {
+        let root = temp_root("metadata");
+        fs::create_dir_all(&root).unwrap();
+        let original = root.join("Original.world");
+        let destination = root.join("Copy.world");
+        let mut session = opened_external(original, 4);
+        session.metadata = lineage_metadata();
+
+        session.save_as_file(destination.clone()).unwrap();
+
+        assert_eq!(read_document_file(&destination).unwrap().metadata, lineage_metadata());
         let _ = fs::remove_dir_all(root);
     }
 
