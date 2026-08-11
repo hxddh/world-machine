@@ -1,7 +1,6 @@
 use crate::actions::text_component;
 use crate::model::{
-    CONDITION, JONAS_HARBOR_JOB, JONAS_LEO_TRUST, MARA_EMMA_FRIEND, ORDER_STATUS,
-    TEMP_BAKERY_JOB,
+    CONDITION, JONAS_HARBOR_JOB, JONAS_LEO_TRUST, MARA_EMMA_FRIEND, ORDER_STATUS, TEMP_BAKERY_JOB,
 };
 use crate::*;
 use society_basic::{integer_component, CASH, JOB};
@@ -287,11 +286,7 @@ fn social_support_unlocks_a_durable_return_to_fishing() {
         text_component(branch.world().state(), JONAS, JOB).unwrap(),
         "fisher"
     );
-    assert!(branch
-        .world()
-        .state()
-        .relation(JONAS_HARBOR_JOB)
-        .is_some());
+    assert!(branch.world().state().relation(JONAS_HARBOR_JOB).is_some());
 
     let snapshot = branch.projection_snapshot();
     assert!(snapshot
@@ -317,11 +312,7 @@ fn social_support_unlocks_a_durable_return_to_fishing() {
         text_component(resumed.world().state(), JONAS, JOB).unwrap(),
         "fisher"
     );
-    assert!(resumed
-        .world()
-        .state()
-        .relation(JONAS_HARBOR_JOB)
-        .is_some());
+    assert!(resumed.world().state().relation(JONAS_HARBOR_JOB).is_some());
 
     let cursor = branch.visit_cursor();
     let jonas_before = integer_component(branch.world().state(), JONAS, CASH).unwrap();
