@@ -1,9 +1,12 @@
-use super::{SharedDocument, WorldDocumentView};
+use super::{sanitize_document_base, unique_document_id, SharedDocument, WorldDocumentView};
 use gpui::{
-    div, prelude::*, px, rgb, size, AppContext, Bounds, Context, Div, IntoElement, Render,
+    div, prelude::*, px, rgb, size, AppContext, Bounds, Context, Div, Entity, IntoElement, Render,
     SharedString, Styled, Window, WindowBounds, WindowOptions,
 };
 use std::rc::Rc;
+use std::sync::Arc;
+use world_library::WorldLibrary;
+use world_persistence::WorldArchive;
 use world_strategy_document::{available_choices, evaluate_choices, StrategyChoice};
 use world_strategy_gpui::StrategyComparisonView;
 
@@ -204,30 +207,60 @@ impl StrategySetupView {
             return Err("Choose two different futures".into());
         }
 
-        let evaluation = {
+        let (evaluation, source_label, library) = {
             let document = self.document.borrow();
-            evaluate_choices(
+            let evaluation = evaluate_choices(
                 &document.session,
                 &document.registry,
                 &left.id,
                 &right.id,
                 self.horizon,
             )
-            .map_err(|error| error.to_string())?
+            .map_err(|error| error.to_string())?;
+            (
+                evaluation,
+                document.session.display_name(),
+                Arc::clone(&document.library),
+            )
         };
 
+        let left_archive = evaluation
+            .left
+            .outcome()
+            .and_then(|outcome| outcome.archive.clone());
+        let right_archive = evaluation
+            .right
+            .outcome()
+            .and_then(|outcome| outcome.archive.clone());
         let left_label = left.title;
         let right_label = right.title;
-        let window_left = left_label.clone();
-        let window_right = right_label.clone();
-        let bounds = Bounds::centered(None, size(px(1220.0), px(920.0)), cx);
+        let comparison_left = left_label.clone();
+        let comparison_right = right_label.clone();
+        let comparison = cx.new(|_| {
+            StrategyComparisonView::new(evaluation, comparison_left, comparison_right)
+        });
+
+        let result_left = left_label.clone();
+        let result_right = right_label.clone();
+        let bounds = Bounds::centered(None, size(px(1240.0), px(980.0)), cx);
         cx.open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 ..Default::default()
             },
             move |_, cx| {
-                cx.new(|_| StrategyComparisonView::new(evaluation, window_left, window_right))
+                cx.new(|_| StrategyResultView {
+                    comparison,
+                    library,
+                    source_label,
+                    left_label: result_left,
+                    right_label: result_right,
+                    left_archive,
+                    right_archive,
+                    left_saved: None,
+                    right_saved: None,
+                    status: None,
+                })
             },
         )
         .map_err(|error| error.to_string())?;
@@ -305,4 +338,185 @@ impl Render for StrategySetupView {
                 })),
         )
     }
+}
+
+#[derive(Clone, Copy)]
+enum FutureSide {
+    Left,
+    Right,
+}
+
+struct StrategyResultView {
+    comparison: Entity<StrategyComparisonView>,
+    library: Arc<WorldLibrary>,
+    source_label: String,
+    left_label: String,
+    right_label: String,
+    left_archive: Option<WorldArchive>,
+    right_archive: Option<WorldArchive>,
+    left_saved: Option<String>,
+    right_saved: Option<String>,
+    status: Option<String>,
+}
+
+impl StrategyResultView {
+    fn save_future(&mut self, side: FutureSide) -> Result<String, String> {
+        let (archive, label, side_label) = match side {
+            FutureSide::Left => (
+                self.left_archive
+                    .clone()
+                    .ok_or_else(|| "Future A has no durable archive".to_string())?,
+                self.left_label.clone(),
+                "Future A",
+            ),
+            FutureSide::Right => (
+                self.right_archive
+                    .clone()
+                    .ok_or_else(|| "Future B has no durable archive".to_string())?,
+                self.right_label.clone(),
+                "Future B",
+            ),
+        };
+
+        let source = source_world_base(&self.source_label);
+        let base = sanitize_document_base(&format!("{source}-{label}"));
+        let id = unique_document_id(base, Some(self.library.as_ref()))
+            .map_err(|error| error.to_string())?;
+        let summary = self
+            .library
+            .create_from_archive(id, &archive)
+            .map_err(|error| error.to_string())?;
+        let saved_id = summary.id.to_string();
+
+        match side {
+            FutureSide::Left => self.left_saved = Some(saved_id.clone()),
+            FutureSide::Right => self.right_saved = Some(saved_id.clone()),
+        }
+        self.status = Some(format!("Saved {side_label} as {saved_id}"));
+        Ok(saved_id)
+    }
+
+    fn render_save_action(
+        &self,
+        side: FutureSide,
+        cx: &mut Context<Self>,
+    ) -> Option<impl IntoElement> {
+        let (archive_available, saved, button_id, label) = match side {
+            FutureSide::Left => (
+                self.left_archive.is_some(),
+                self.left_saved.as_ref(),
+                "save-strategy-future-left",
+                "Future A",
+            ),
+            FutureSide::Right => (
+                self.right_archive.is_some(),
+                self.right_saved.as_ref(),
+                "save-strategy-future-right",
+                "Future B",
+            ),
+        };
+        if !archive_available {
+            return None;
+        }
+
+        if let Some(saved) = saved {
+            return Some(
+                div()
+                    .p_2()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(rgb(0xb9c8b1))
+                    .bg(rgb(0xf1f6ee))
+                    .text_sm()
+                    .child(format!("Saved {label} · {saved}")),
+            );
+        }
+
+        Some(
+            div()
+                .id(button_id)
+                .cursor_pointer()
+                .p_2()
+                .rounded_md()
+                .border_1()
+                .border_color(rgb(0x9eb0d6))
+                .bg(rgb(0xf4f7ff))
+                .text_sm()
+                .child(format!("Save {label}"))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    if let Err(error) = this.save_future(side) {
+                        this.status = Some(format!("Save failed: {error}"));
+                    }
+                    cx.notify();
+                })),
+        )
+    }
+}
+
+impl Render for StrategyResultView {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        window.set_window_title("Strategy Comparison — World Machine");
+
+        let mut actions = div().flex().gap_2();
+        if let Some(left) = self.render_save_action(FutureSide::Left, cx) {
+            actions = actions.child(left);
+        }
+        if let Some(right) = self.render_save_action(FutureSide::Right, cx) {
+            actions = actions.child(right);
+        }
+
+        let mut chrome = div()
+            .w_full()
+            .p_3()
+            .border_b_1()
+            .border_color(rgb(0xd9d9d3))
+            .bg(rgb(0xf7f7f3))
+            .flex()
+            .items_center()
+            .justify_between()
+            .gap_3()
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(div().text_sm().child("Strategy Comparison"))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(0x777770))
+                            .child(format!("Source · {}", self.source_label)),
+                    ),
+            )
+            .child(actions);
+
+        if let Some(status) = &self.status {
+            chrome = chrome.child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0x4e6fb3))
+                    .child(status.clone()),
+            );
+        }
+
+        div()
+            .size_full()
+            .flex()
+            .flex_col()
+            .child(chrome)
+            .child(
+                div()
+                    .flex_1()
+                    .w_full()
+                    .overflow_hidden()
+                    .child(self.comparison.clone()),
+            )
+    }
+}
+
+fn source_world_base(label: &str) -> &str {
+    label
+        .strip_suffix(".world.json")
+        .or_else(|| label.strip_suffix(".world"))
+        .unwrap_or(label)
 }
