@@ -18,9 +18,7 @@ pub(crate) fn register_actions(registry: &mut ActionRegistry) -> Result<(), Acti
     Ok(())
 }
 
-pub(crate) fn register_behaviors(
-    registry: &mut BehaviorRegistry,
-) -> Result<(), Box<dyn Error>> {
+pub(crate) fn register_behaviors(registry: &mut BehaviorRegistry) -> Result<(), Box<dyn Error>> {
     registry.register(RuleBehavior::new(
         "payroll-exhaustion-disrupts-household-income",
         ["payroll_reserve_exhausted"],
@@ -158,7 +156,9 @@ impl Action for EnterSavingsMode {
         let mut draft = EventDraft::new("bread_budget_cut");
         draft.actor = Some(resident);
         draft.targets = vec![resident, BAKERY];
-        draft.payload.insert("protected_savings".into(), cash.into());
+        draft
+            .payload
+            .insert("protected_savings".into(), cash.into());
         draft
             .payload
             .insert("threshold".into(), SAVINGS_BUFFER_THRESHOLD.into());
