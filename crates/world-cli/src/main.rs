@@ -328,7 +328,10 @@ mod tests {
             let archive = session.archive().unwrap().unwrap();
             let report = check_report_from_archive(Path::new("builtin.world"), &archive).unwrap();
             assert!(report.contains("integrity: ok"));
-            assert!(report.contains(&format!("pack: {}@{}", descriptor.pack.id, descriptor.pack.version)));
+            assert!(report.contains(&format!(
+                "pack: {}@{}",
+                descriptor.pack.id, descriptor.pack.version
+            )));
         }
     }
 
