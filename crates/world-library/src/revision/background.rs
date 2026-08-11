@@ -1,4 +1,5 @@
 use crate::{required_archive, DurableWorldSession, LibraryError, WorldLibrary};
+use world_document::WorldDocument;
 use world_host::WorldRegistry;
 use world_projection::ProjectionSnapshot;
 
@@ -47,8 +48,12 @@ impl DurableWorldSession {
             return Ok(None);
         }
 
+        let next_document = WorldDocument {
+            archive: next_archive,
+            metadata: self.metadata.clone(),
+        };
         self.target.verify_revision(self.revision, library)?;
-        let next_revision = self.target.persist(&next_archive, library)?;
+        let next_revision = self.target.persist(&next_document, library)?;
 
         self.revision = next_revision;
         self.session = candidate;
@@ -65,6 +70,7 @@ mod tests {
     use std::path::PathBuf;
     use std::process;
     use std::time::{SystemTime, UNIX_EPOCH};
+    use world_document::WorldDocumentMetadata;
     use world_host::{HostError, WorldDescriptor, WorldRegistration, WorldSession};
     use world_persistence::{
         WorldArchive, WorldPackRef, WORLD_ARCHIVE_FORMAT, WORLD_ARCHIVE_VERSION,
@@ -206,6 +212,7 @@ mod tests {
         DurableWorldSession {
             target: WorldDocumentTarget::File(path),
             revision,
+            metadata: WorldDocumentMetadata::default(),
             session: Box::new(MockSession { count }),
         }
     }

@@ -44,10 +44,14 @@ mod background;
 #[path = "revision/archive.rs"]
 mod archive;
 
-// Materialize branch/strategy archives through Library's existing atomic write
+// Materialize branch/strategy documents through Library's existing atomic write
 // machinery while preserving no-clobber creation semantics.
 #[path = "revision/archive_create.rs"]
 mod archive_create;
+
+#[cfg(test)]
+#[path = "revision/metadata_regression.rs"]
+mod metadata_regression;
 
 #[cfg(test)]
 mod tests {

@@ -18,6 +18,7 @@ mod tests {
     use super::*;
     use crate::{revision::DocumentRevision, WorldDocumentTarget};
     use std::path::PathBuf;
+    use world_document::WorldDocumentMetadata;
     use world_host::{HostError, WorldSession};
     use world_persistence::{WorldPackRef, WORLD_ARCHIVE_FORMAT, WORLD_ARCHIVE_VERSION};
     use world_projection::{ProjectionCapabilities, ProjectionIntent, ProjectionSnapshot};
@@ -63,6 +64,7 @@ mod tests {
         DurableWorldSession {
             target: WorldDocumentTarget::File(PathBuf::from("unused.world")),
             revision: DocumentRevision::from_bytes(b"archive-source-test"),
+            metadata: WorldDocumentMetadata::default(),
             session: Box::new(MockSession {
                 world_time,
                 archive,

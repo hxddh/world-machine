@@ -6,6 +6,7 @@ use std::fmt;
 use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use world_document::{DocumentError, WorldDocument, WorldDocumentMetadata};
 use world_host::{HostError, WorldRegistry, WorldSession};
 use world_persistence::{PersistenceError, WorldArchive, WorldPackRef};
 use world_projection::{ProjectionIntent, ProjectionSnapshot};
@@ -85,33 +86,59 @@ impl WorldLibrary {
         Ok(self.path(id).try_exists()? || self.legacy_path(id).try_exists()?)
     }
 
+    /// Save an archive while preserving document metadata that is already
+    /// attached to this Library World. New documents start with empty metadata.
     pub fn save(&self, id: &WorldDocumentId, archive: &WorldArchive) -> Result<(), LibraryError> {
-        self.save_with_revision(id, archive)?;
+        let metadata = self
+            .load_document(id)?
+            .map(|document| document.metadata)
+            .unwrap_or_default();
+        let document = WorldDocument {
+            archive: archive.clone(),
+            metadata,
+        };
+        self.save_document_with_revision(id, &document)?;
         Ok(())
     }
 
-    fn save_with_revision(
+    pub fn save_document(
         &self,
         id: &WorldDocumentId,
-        archive: &WorldArchive,
+        document: &WorldDocument,
+    ) -> Result<(), LibraryError> {
+        self.save_document_with_revision(id, document)?;
+        Ok(())
+    }
+
+    fn save_document_with_revision(
+        &self,
+        id: &WorldDocumentId,
+        document: &WorldDocument,
     ) -> Result<DocumentRevision, LibraryError> {
-        let revision = write_archive_file(&self.path(id), archive)?;
+        let revision = write_document_file(&self.path(id), document)?;
         let _ = fs::remove_file(self.legacy_path(id));
         Ok(revision)
     }
 
     pub fn load(&self, id: &WorldDocumentId) -> Result<Option<WorldArchive>, LibraryError> {
-        Ok(self
-            .load_with_revision(id)?
-            .map(|(archive, _revision)| archive))
+        Ok(self.load_document(id)?.map(|document| document.archive))
     }
 
-    fn load_with_revision(
+    pub fn load_document(
         &self,
         id: &WorldDocumentId,
-    ) -> Result<Option<(WorldArchive, DocumentRevision)>, LibraryError> {
+    ) -> Result<Option<WorldDocument>, LibraryError> {
+        Ok(self
+            .load_document_with_revision(id)?
+            .map(|(document, _revision)| document))
+    }
+
+    fn load_document_with_revision(
+        &self,
+        id: &WorldDocumentId,
+    ) -> Result<Option<(WorldDocument, DocumentRevision)>, LibraryError> {
         for path in [self.path(id), self.legacy_path(id)] {
-            match read_archive_file_with_revision(&path) {
+            match read_document_file_with_revision(&path) {
                 Ok(value) => return Ok(Some(value)),
                 Err(LibraryError::Io(error)) if error.kind() == io::ErrorKind::NotFound => continue,
                 Err(error) => return Err(error),
@@ -163,10 +190,10 @@ impl WorldLibrary {
 
         let mut documents = Vec::new();
         for id in ids {
-            let Some(archive) = self.load(&id)? else {
+            let Some(document) = self.load_document(&id)? else {
                 continue;
             };
-            documents.push(summary(id, &archive));
+            documents.push(summary(id, &document.archive));
         }
         Ok(documents)
     }
@@ -179,9 +206,9 @@ impl WorldLibrary {
         if self.contains(&id)? {
             return Err(LibraryError::DocumentAlreadyExists(id));
         }
-        let archive = read_archive_file(source)?;
-        self.save(&id, &archive)?;
-        Ok(summary(id, &archive))
+        let document = read_document_file(source)?;
+        self.save_document(&id, &document)?;
+        Ok(summary(id, &document.archive))
     }
 
     pub fn export_file(
@@ -194,10 +221,10 @@ impl WorldLibrary {
                 destination.to_path_buf(),
             ));
         }
-        let archive = self
-            .load(id)?
+        let document = self
+            .load_document(id)?
             .ok_or_else(|| LibraryError::UnknownDocument(id.clone()))?;
-        write_archive_file(destination, &archive)?;
+        write_document_file(destination, &document)?;
         Ok(())
     }
 }
@@ -237,12 +264,12 @@ impl WorldDocumentTarget {
     fn load_with_revision(
         &self,
         library: &WorldLibrary,
-    ) -> Result<(WorldArchive, DocumentRevision), LibraryError> {
+    ) -> Result<(WorldDocument, DocumentRevision), LibraryError> {
         match self {
             Self::Library(id) => library
-                .load_with_revision(id)?
+                .load_document_with_revision(id)?
                 .ok_or_else(|| LibraryError::UnknownDocument(id.clone())),
-            Self::File(path) => read_archive_file_with_revision(path),
+            Self::File(path) => read_document_file_with_revision(path),
         }
     }
 
@@ -278,12 +305,12 @@ impl WorldDocumentTarget {
 
     fn persist(
         &self,
-        archive: &WorldArchive,
+        document: &WorldDocument,
         library: &WorldLibrary,
     ) -> Result<DocumentRevision, LibraryError> {
         match self {
-            Self::Library(id) => library.save_with_revision(id, archive),
-            Self::File(path) => write_archive_file(path, archive),
+            Self::Library(id) => library.save_document_with_revision(id, document),
+            Self::File(path) => write_document_file(path, document),
         }
     }
 }
@@ -291,6 +318,7 @@ impl WorldDocumentTarget {
 pub struct DurableWorldSession {
     target: WorldDocumentTarget,
     revision: DocumentRevision,
+    metadata: WorldDocumentMetadata,
     session: Box<dyn WorldSession>,
 }
 
@@ -306,10 +334,12 @@ impl DurableWorldSession {
         }
         let session = registry.create(pack_id)?;
         let archive = required_archive(session.as_ref())?;
-        let revision = library.save_with_revision(&document_id, &archive)?;
+        let document = WorldDocument::new(archive);
+        let revision = library.save_document_with_revision(&document_id, &document)?;
         Ok(Self {
             target: WorldDocumentTarget::Library(document_id),
             revision,
+            metadata: document.metadata,
             session,
         })
     }
@@ -319,23 +349,25 @@ impl DurableWorldSession {
         registry: &WorldRegistry,
         library: &WorldLibrary,
     ) -> Result<Self, LibraryError> {
-        let (archive, revision) = library
-            .load_with_revision(&document_id)?
+        let (document, revision) = library
+            .load_document_with_revision(&document_id)?
             .ok_or_else(|| LibraryError::UnknownDocument(document_id.clone()))?;
-        let session = registry.open_archive(&archive)?;
+        let session = registry.open_archive(&document.archive)?;
         Ok(Self {
             target: WorldDocumentTarget::Library(document_id),
             revision,
+            metadata: document.metadata,
             session,
         })
     }
 
     pub fn open_file(path: PathBuf, registry: &WorldRegistry) -> Result<Self, LibraryError> {
-        let (archive, revision) = read_archive_file_with_revision(&path)?;
-        let session = registry.open_archive(&archive)?;
+        let (document, revision) = read_document_file_with_revision(&path)?;
+        let session = registry.open_archive(&document.archive)?;
         Ok(Self {
             target: WorldDocumentTarget::File(path),
             revision,
+            metadata: document.metadata,
             session,
         })
     }
@@ -349,12 +381,13 @@ impl DurableWorldSession {
         if library.contains(&document_id)? {
             return Err(LibraryError::DocumentAlreadyExists(document_id));
         }
-        let archive = read_archive_file(source)?;
-        let session = registry.open_archive(&archive)?;
-        let revision = library.save_with_revision(&document_id, &archive)?;
+        let document = read_document_file(source)?;
+        let session = registry.open_archive(&document.archive)?;
+        let revision = library.save_document_with_revision(&document_id, &document)?;
         Ok(Self {
             target: WorldDocumentTarget::Library(document_id),
             revision,
+            metadata: document.metadata,
             session,
         })
     }
@@ -383,16 +416,21 @@ impl DurableWorldSession {
         self.session.snapshot()
     }
 
+    pub fn metadata(&self) -> &WorldDocumentMetadata {
+        &self.metadata
+    }
+
     pub fn reload(
         &mut self,
         registry: &WorldRegistry,
         library: &WorldLibrary,
     ) -> Result<ProjectionSnapshot, LibraryError> {
-        let (archive, revision) = self.target.load_with_revision(library)?;
-        let replacement = registry.open_archive(&archive)?;
+        let (document, revision) = self.target.load_with_revision(library)?;
+        let replacement = registry.open_archive(&document.archive)?;
         let snapshot = replacement.snapshot();
 
         self.revision = revision;
+        self.metadata = document.metadata;
         self.session = replacement;
         Ok(snapshot)
     }
@@ -409,9 +447,13 @@ impl DurableWorldSession {
         let mut candidate = registry.open_archive(&current_archive)?;
         let snapshot = candidate.handle(intent)?;
         let next_archive = required_archive(candidate.as_ref())?;
+        let next_document = WorldDocument {
+            archive: next_archive,
+            metadata: self.metadata.clone(),
+        };
 
         self.target.verify_revision(self.revision, library)?;
-        let next_revision = self.target.persist(&next_archive, library)?;
+        let next_revision = self.target.persist(&next_document, library)?;
 
         self.revision = next_revision;
         self.session = candidate;
@@ -428,17 +470,22 @@ fn summary(id: WorldDocumentId, archive: &WorldArchive) -> WorldDocumentSummary 
     }
 }
 
-fn read_archive_file(path: &Path) -> Result<WorldArchive, LibraryError> {
-    Ok(read_archive_file_with_revision(path)?.0)
+fn read_document_file(path: &Path) -> Result<WorldDocument, LibraryError> {
+    Ok(read_document_file_with_revision(path)?.0)
 }
 
-fn read_archive_file_with_revision(
+fn read_document_file_with_revision(
     path: &Path,
-) -> Result<(WorldArchive, DocumentRevision), LibraryError> {
+) -> Result<(WorldDocument, DocumentRevision), LibraryError> {
     let json = fs::read_to_string(path)?;
     let revision = DocumentRevision::from_bytes(json.as_bytes());
-    let archive = WorldArchive::from_json(&json)?;
-    Ok((archive, revision))
+    let document = WorldDocument::from_json(&json)?;
+    Ok((document, revision))
+}
+
+#[cfg(test)]
+fn read_archive_file(path: &Path) -> Result<WorldArchive, LibraryError> {
+    Ok(read_document_file(path)?.archive)
 }
 
 fn revision_if_exists(path: &Path) -> Result<Option<DocumentRevision>, LibraryError> {
@@ -449,14 +496,22 @@ fn revision_if_exists(path: &Path) -> Result<Option<DocumentRevision>, LibraryEr
     }
 }
 
+fn write_document_file(
+    path: &Path,
+    document: &WorldDocument,
+) -> Result<DocumentRevision, LibraryError> {
+    let json = document.to_json_pretty()?;
+    let revision = DocumentRevision::from_bytes(json.as_bytes());
+    atomic_write(path, json.as_bytes())?;
+    Ok(revision)
+}
+
+#[cfg(test)]
 fn write_archive_file(
     path: &Path,
     archive: &WorldArchive,
 ) -> Result<DocumentRevision, LibraryError> {
-    let json = archive.to_json_pretty()?;
-    let revision = DocumentRevision::from_bytes(json.as_bytes());
-    atomic_write(path, json.as_bytes())?;
-    Ok(revision)
+    write_document_file(path, &WorldDocument::new(archive.clone()))
 }
 
 fn required_archive(session: &dyn WorldSession) -> Result<WorldArchive, LibraryError> {
@@ -494,6 +549,7 @@ pub enum LibraryError {
     DocumentChanged(PathBuf),
     ArchiveUnsupported(String),
     Io(io::Error),
+    Document(DocumentError),
     Persistence(PersistenceError),
     Host(HostError),
 }
@@ -516,6 +572,7 @@ impl fmt::Display for LibraryError {
                 write!(f, "World Pack does not support durable archives: {pack}")
             }
             Self::Io(error) => error.fmt(f),
+            Self::Document(error) => error.fmt(f),
             Self::Persistence(error) => error.fmt(f),
             Self::Host(error) => error.fmt(f),
         }
@@ -526,6 +583,7 @@ impl Error for LibraryError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Io(error) => Some(error),
+            Self::Document(error) => Some(error),
             Self::Persistence(error) => Some(error),
             Self::Host(error) => Some(error),
             Self::InvalidDocumentId(_)
@@ -541,6 +599,12 @@ impl Error for LibraryError {
 impl From<io::Error> for LibraryError {
     fn from(error: io::Error) -> Self {
         Self::Io(error)
+    }
+}
+
+impl From<DocumentError> for LibraryError {
+    fn from(error: DocumentError) -> Self {
+        Self::Document(error)
     }
 }
 
