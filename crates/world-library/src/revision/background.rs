@@ -45,7 +45,9 @@ mod tests {
     use std::process;
     use std::time::{SystemTime, UNIX_EPOCH};
     use world_host::{HostError, WorldDescriptor, WorldRegistration, WorldSession};
-    use world_persistence::{WorldArchive, WorldPackRef, WORLD_ARCHIVE_FORMAT, WORLD_ARCHIVE_VERSION};
+    use world_persistence::{
+        WorldArchive, WorldPackRef, WORLD_ARCHIVE_FORMAT, WORLD_ARCHIVE_VERSION,
+    };
     use world_projection::{ProjectionCapabilities, ProjectionIntent, ProjectionSnapshot};
 
     const MOCK_PACK: &str = "world-machine.background-mock";
@@ -72,10 +74,7 @@ mod tests {
             Err(HostError::Session("unused in background tests".into()))
         }
 
-        fn advance_background(
-            &mut self,
-            periods: u64,
-        ) -> Result<ProjectionSnapshot, HostError> {
+        fn advance_background(&mut self, periods: u64) -> Result<ProjectionSnapshot, HostError> {
             self.count += periods;
             Ok(self.snapshot())
         }
@@ -148,9 +147,7 @@ mod tests {
         let registry = registry();
         let library = WorldLibrary::new(root.join("library"));
 
-        let snapshot = session
-            .advance_background(3, &registry, &library)
-            .unwrap();
+        let snapshot = session.advance_background(3, &registry, &library).unwrap();
 
         assert_eq!(snapshot.world_time, 8);
         assert_eq!(session.snapshot().world_time, 8);
@@ -212,9 +209,7 @@ mod tests {
         let library = WorldLibrary::new(root.join("library"));
         let before = fs::read(&path).unwrap();
 
-        let snapshot = session
-            .advance_background(0, &registry, &library)
-            .unwrap();
+        let snapshot = session.advance_background(0, &registry, &library).unwrap();
 
         assert_eq!(snapshot.world_time, 5);
         assert_eq!(session.snapshot().world_time, 5);
