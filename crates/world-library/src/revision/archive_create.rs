@@ -1,4 +1,5 @@
 use crate::{summary, LibraryError, WorldDocumentId, WorldDocumentSummary, WorldLibrary};
+use world_document::WorldDocument;
 use world_persistence::WorldArchive;
 
 impl WorldLibrary {
@@ -9,12 +10,22 @@ impl WorldLibrary {
         id: WorldDocumentId,
         archive: &WorldArchive,
     ) -> Result<WorldDocumentSummary, LibraryError> {
+        self.create_from_document(id, &WorldDocument::new(archive.clone()))
+    }
+
+    /// Materialize a complete World document, including document metadata, as
+    /// a new Library World without overwriting an existing document.
+    pub fn create_from_document(
+        &self,
+        id: WorldDocumentId,
+        document: &WorldDocument,
+    ) -> Result<WorldDocumentSummary, LibraryError> {
         if self.contains(&id)? {
             return Err(LibraryError::DocumentAlreadyExists(id));
         }
 
-        self.save_with_revision(&id, archive)?;
-        Ok(summary(id, archive))
+        self.save_document_with_revision(&id, document)?;
+        Ok(summary(id, &document.archive))
     }
 }
 
@@ -25,6 +36,7 @@ mod tests {
     use std::fs;
     use std::process;
     use std::time::{SystemTime, UNIX_EPOCH};
+    use world_document::{WorldBranchCause, WorldLineage, WorldParent};
     use world_persistence::{WorldPackRef, WORLD_ARCHIVE_FORMAT, WORLD_ARCHIVE_VERSION};
 
     fn archive(world_time: u64) -> WorldArchive {
@@ -35,6 +47,22 @@ mod tests {
             world_time,
             events: Vec::new(),
             pending: Vec::new(),
+        }
+    }
+
+    fn lineage() -> WorldLineage {
+        WorldLineage {
+            parent: WorldParent {
+                document: Some("source".into()),
+                pack: WorldPackRef::new("world-machine.archive-create-mock", "1"),
+                world_time: 12,
+                event_count: 0,
+            },
+            branch: WorldBranchCause::Strategy {
+                choice_id: "mock.choice".into(),
+                choice_title: "Mock Choice".into(),
+                horizon: 20,
+            },
         }
     }
 
@@ -61,6 +89,23 @@ mod tests {
         assert_eq!(summary.id, id);
         assert_eq!(summary.world_time, 42);
         assert_eq!(library.load(&summary.id).unwrap(), Some(source));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn creates_a_new_library_world_with_document_metadata() {
+        let root = temp_root("document");
+        let library = WorldLibrary::new(root.clone());
+        let id = WorldDocumentId::new("future-a").unwrap();
+        let source = WorldDocument::new(archive(42)).with_lineage(lineage());
+
+        let summary = library
+            .create_from_document(id.clone(), &source)
+            .unwrap();
+        let stored = library.load_document(&id).unwrap().unwrap();
+
+        assert_eq!(summary.id, id);
+        assert_eq!(stored, source);
         let _ = fs::remove_dir_all(root);
     }
 
