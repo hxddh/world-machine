@@ -15,6 +15,7 @@ pub(crate) fn register(registry: &mut ActionRegistry) -> Result<(), ActionError>
     registry.register(MissShift)?;
     registry.register(LoseOrder)?;
     registry.register(DismissWorker)?;
+    registry.register(BuyBread)?;
     registry.register(RecordPayrollShortfall)?;
     registry.register(CloseBakery)?;
     registry.register(ReopenBakery)?;
@@ -332,6 +333,51 @@ impl Action for DismissWorker {
             StateChange::RemoveComponent {
                 entity: JONAS,
                 key: EMPLOYER.into(),
+            },
+        ];
+        Ok(draft)
+    }
+}
+
+struct BuyBread;
+
+impl Action for BuyBread {
+    fn name(&self) -> &'static str {
+        "buy_bread"
+    }
+
+    fn evaluate(
+        &self,
+        state: &WorldState,
+        request: &ActionRequest,
+    ) -> Result<EventDraft, ActionError> {
+        if text_component(state, BAKERY, OPERATING_STATUS)? != "open" {
+            return Err(ActionError::Invalid("the bakery is closed".into()));
+        }
+        let customer = entity_arg(request, "customer")?;
+        let amount = positive_integer_arg(request, "amount")?;
+        let customer_cash = integer_component(state, customer, CASH)?;
+        if customer_cash < amount {
+            return Err(ActionError::Invalid(format!(
+                "customer {customer} cannot afford bread costing {amount}"
+            )));
+        }
+        let bakery_cash = integer_component(state, BAKERY, CASH)?;
+
+        let mut draft = EventDraft::new("bread_purchased");
+        draft.actor = Some(customer);
+        draft.targets = vec![customer, BAKERY];
+        draft.payload.insert("amount".into(), amount.into());
+        draft.changes = vec![
+            StateChange::SetComponent {
+                entity: customer,
+                key: CASH.into(),
+                value: (customer_cash - amount).into(),
+            },
+            StateChange::SetComponent {
+                entity: BAKERY,
+                key: CASH.into(),
+                value: (bakery_cash + amount).into(),
             },
         ];
         Ok(draft)
