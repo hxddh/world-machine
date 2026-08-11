@@ -33,7 +33,12 @@ impl StrategyComparisonView {
                 .flex()
                 .flex_col()
                 .gap_2()
-                .child(div().text_xs().text_color(rgb(0x66705f)).child(label.to_string()))
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(rgb(0x66705f))
+                        .child(label.to_string()),
+                )
                 .child(div().text_lg().child(outcome.snapshot.title.clone()))
                 .child(
                     div()
@@ -41,16 +46,13 @@ impl StrategyComparisonView {
                         .text_color(rgb(0x555555))
                         .child(format!("World time {}", outcome.snapshot.world_time)),
                 )
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(rgb(0x777777))
-                        .child(if outcome.archive.is_some() {
-                            "Durable result"
-                        } else {
-                            "Ephemeral result"
-                        }),
-                ),
+                .child(div().text_xs().text_color(rgb(0x777777)).child(
+                    if outcome.archive.is_some() {
+                        "Durable result"
+                    } else {
+                        "Ephemeral result"
+                    },
+                )),
             StrategyRun::Failure(error) => div()
                 .w(px(320.0))
                 .p_4()
@@ -61,7 +63,12 @@ impl StrategyComparisonView {
                 .flex()
                 .flex_col()
                 .gap_2()
-                .child(div().text_xs().text_color(rgb(0x8b5555)).child(label.to_string()))
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(rgb(0x8b5555))
+                        .child(label.to_string()),
+                )
                 .child(div().text_lg().child("Strategy failed"))
                 .child(
                     div()
@@ -101,26 +108,22 @@ impl StrategyComparisonView {
 
         let mut timeline = div().flex().flex_col().gap_1();
         for item in comparison.timeline.left_only.iter().take(4) {
-            timeline = timeline.child(
-                div()
-                    .text_xs()
-                    .child(format!("Left only · t={} · {}", item.world_time, item.title)),
-            );
+            timeline = timeline.child(div().text_xs().child(format!(
+                "Left only · t={} · {}",
+                item.world_time, item.title
+            )));
         }
         for item in comparison.timeline.right_only.iter().take(4) {
-            timeline = timeline.child(
-                div()
-                    .text_xs()
-                    .child(format!("Right only · t={} · {}", item.world_time, item.title)),
-            );
+            timeline = timeline.child(div().text_xs().child(format!(
+                "Right only · t={} · {}",
+                item.world_time, item.title
+            )));
         }
         for item in comparison.timeline.changed.iter().take(4) {
-            timeline = timeline.child(
-                div().text_xs().child(format!(
-                    "Changed · {} → {}",
-                    item.left.title, item.right.title
-                )),
-            );
+            timeline = timeline.child(div().text_xs().child(format!(
+                "Changed · {} → {}",
+                item.left.title, item.right.title
+            )));
         }
         if timeline_changes == 0 {
             timeline = timeline.child(
