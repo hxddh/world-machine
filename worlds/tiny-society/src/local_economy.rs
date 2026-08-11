@@ -1,3 +1,6 @@
+#[path = "resilience.rs"]
+mod resilience;
+
 use crate::{
     actions::text_component,
     model::{BAKERY, JONAS, OPERATING_STATUS, SUPPORT_STATUS},
@@ -14,6 +17,7 @@ pub(crate) const RECOVERED_BREAD_BUDGET: i64 = 6;
 
 pub(crate) fn register_actions(registry: &mut ActionRegistry) -> Result<(), ActionError> {
     registry.register(ResumeLocalSpending)?;
+    resilience::register_actions(registry)?;
     Ok(())
 }
 
@@ -57,6 +61,7 @@ pub(crate) fn register_behaviors(registry: &mut BehaviorRegistry) -> Result<(), 
                 .arg("amount", RECOVERED_BREAD_BUDGET)]
         },
     ))?;
+    resilience::register_behaviors(registry)?;
     Ok(())
 }
 
