@@ -414,12 +414,9 @@ impl StrategyResultView {
                 .clone()
                 .ok_or_else(|| "Future B has not been saved".to_string())?,
         };
-        let session = DurableWorldSession::open(
-            saved_id,
-            self.registry.as_ref(),
-            self.library.as_ref(),
-        )
-        .map_err(|error| error.to_string())?;
+        let session =
+            DurableWorldSession::open(saved_id, self.registry.as_ref(), self.library.as_ref())
+                .map_err(|error| error.to_string())?;
         let document_label = session.display_name();
         let pack = session.pack();
         let title = self
