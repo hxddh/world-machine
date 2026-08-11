@@ -8,15 +8,32 @@ impl DurableWorldSession {
     ///
     /// The live session is replaced only after the candidate archive has been
     /// integrity-checked by the Host and atomically persisted to the current
-    /// document target.
+    /// document target. Pack-level no-ops remain no-ops and do not rewrite the
+    /// document or replace the live session.
     pub fn advance_background(
         &mut self,
         periods: u64,
         registry: &WorldRegistry,
         library: &WorldLibrary,
     ) -> Result<ProjectionSnapshot, LibraryError> {
+        match self.advance_background_if_changed(periods, registry, library)? {
+            Some(snapshot) => Ok(snapshot),
+            None => Ok(self.session.snapshot()),
+        }
+    }
+
+    /// Advance background periods and report only durable World changes.
+    ///
+    /// `Ok(None)` means the Pack produced the same archive after progression,
+    /// so no document write or live-session replacement occurred.
+    pub fn advance_background_if_changed(
+        &mut self,
+        periods: u64,
+        registry: &WorldRegistry,
+        library: &WorldLibrary,
+    ) -> Result<Option<ProjectionSnapshot>, LibraryError> {
         if periods == 0 {
-            return Ok(self.session.snapshot());
+            return Ok(None);
         }
 
         self.target.verify_revision(self.revision, library)?;
@@ -26,12 +43,16 @@ impl DurableWorldSession {
         let snapshot = candidate.advance_background(periods)?;
         let next_archive = required_archive(candidate.as_ref())?;
 
+        if next_archive == current_archive {
+            return Ok(None);
+        }
+
         self.target.verify_revision(self.revision, library)?;
         let next_revision = self.target.persist(&next_archive, library)?;
 
         self.revision = next_revision;
         self.session = candidate;
-        Ok(snapshot)
+        Ok(Some(snapshot))
     }
 }
 
@@ -84,6 +105,35 @@ mod tests {
         }
     }
 
+    struct StaticSession {
+        count: u64,
+    }
+
+    impl WorldSession for StaticSession {
+        fn pack(&self) -> WorldPackRef {
+            WorldPackRef::new(MOCK_PACK, "1")
+        }
+
+        fn snapshot(&self) -> ProjectionSnapshot {
+            ProjectionSnapshot {
+                title: format!("Static {}", self.count),
+                world_time: self.count,
+                capabilities: ProjectionCapabilities { fork: false },
+                ..ProjectionSnapshot::default()
+            }
+        }
+
+        fn handle(&mut self, _intent: ProjectionIntent) -> Result<ProjectionSnapshot, HostError> {
+            Err(HostError::Session(
+                "unused in static background tests".into(),
+            ))
+        }
+
+        fn archive(&self) -> Result<Option<WorldArchive>, HostError> {
+            Ok(Some(mock_archive(self.count)))
+        }
+    }
+
     fn registry() -> WorldRegistry {
         let mut registry = WorldRegistry::new();
         registry
@@ -98,6 +148,28 @@ mod tests {
                 )
                 .with_archive_opener(|archive| {
                     Ok(Box::new(MockSession {
+                        count: archive.world_time,
+                    }))
+                }),
+            )
+            .unwrap();
+        registry
+    }
+
+    fn static_registry() -> WorldRegistry {
+        let mut registry = WorldRegistry::new();
+        registry
+            .register(
+                WorldRegistration::new(
+                    WorldDescriptor {
+                        pack: WorldPackRef::new(MOCK_PACK, "1"),
+                        title: "Static Background Mock".into(),
+                        description: "No-op durable background regression".into(),
+                    },
+                    || Ok(Box::new(StaticSession { count: 0 })),
+                )
+                .with_archive_opener(|archive| {
+                    Ok(Box::new(StaticSession {
                         count: archive.world_time,
                     }))
                 }),
@@ -155,6 +227,28 @@ mod tests {
 
         let reopened = DurableWorldSession::open_file(path.clone(), &registry).unwrap();
         assert_eq!(reopened.snapshot().world_time, 8);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn unchanged_background_skips_persist_and_live_session_replacement() {
+        let root = temp_root("unchanged");
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("Static.world");
+        let mut session = opened_external(path.clone(), 5);
+        let registry = static_registry();
+        let library = WorldLibrary::new(root.join("library"));
+        let revision = session.revision;
+        let before = fs::read(&path).unwrap();
+
+        let changed = session
+            .advance_background_if_changed(3, &registry, &library)
+            .unwrap();
+
+        assert!(changed.is_none());
+        assert_eq!(session.revision, revision);
+        assert_eq!(session.snapshot().title, "Mock 5");
+        assert_eq!(fs::read(&path).unwrap(), before);
         let _ = fs::remove_dir_all(root);
     }
 

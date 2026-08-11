@@ -44,11 +44,12 @@ fn catch_up_at(
     }
 
     let periods = claim.periods();
-    match session.advance_background(periods, registry, library) {
-        Ok(snapshot) => Ok(Some(CatchUpOutcome {
+    match session.advance_background_if_changed(periods, registry, library) {
+        Ok(Some(snapshot)) => Ok(Some(CatchUpOutcome {
             periods,
             world_time: snapshot.world_time,
         })),
+        Ok(None) => Ok(None),
         Err(error) => {
             if let Err(rollback) = store.rollback(&claim) {
                 return Err(format!(
@@ -146,6 +147,33 @@ mod tests {
         }
     }
 
+    struct StaticSession {
+        time: u64,
+    }
+
+    impl WorldSession for StaticSession {
+        fn pack(&self) -> WorldPackRef {
+            WorldPackRef::new(PACK, "1")
+        }
+
+        fn snapshot(&self) -> ProjectionSnapshot {
+            ProjectionSnapshot {
+                title: "Static Observer Test".into(),
+                world_time: self.time,
+                capabilities: ProjectionCapabilities { fork: false },
+                ..ProjectionSnapshot::default()
+            }
+        }
+
+        fn handle(&mut self, _intent: ProjectionIntent) -> Result<ProjectionSnapshot, HostError> {
+            Err(HostError::Session("unused in static observer tests".into()))
+        }
+
+        fn archive(&self) -> Result<Option<WorldArchive>, HostError> {
+            Ok(Some(archive(self.time)))
+        }
+    }
+
     fn registry(fail_background: bool) -> WorldRegistry {
         let mut registry = WorldRegistry::new();
         registry
@@ -167,6 +195,28 @@ mod tests {
                     Ok(Box::new(MockSession {
                         time: archive.world_time,
                         fail_background,
+                    }))
+                }),
+            )
+            .unwrap();
+        registry
+    }
+
+    fn static_registry() -> WorldRegistry {
+        let mut registry = WorldRegistry::new();
+        registry
+            .register(
+                WorldRegistration::new(
+                    WorldDescriptor {
+                        pack: WorldPackRef::new(PACK, "1"),
+                        title: "Static Observer Test".into(),
+                        description: "Desktop no-op catch-up test".into(),
+                    },
+                    || Ok(Box::new(StaticSession { time: 0 })),
+                )
+                .with_archive_opener(|archive| {
+                    Ok(Box::new(StaticSession {
+                        time: archive.world_time,
                     }))
                 }),
             )
@@ -234,6 +284,29 @@ mod tests {
         )
         .unwrap();
         assert_eq!(reopened.snapshot().world_time, 3);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn static_world_consumes_elapsed_time_without_reporting_progress() {
+        let root = temp_root("static");
+        let library = WorldLibrary::new(root.join("Worlds"));
+        let registry = static_registry();
+        let document_id = world_library::WorldDocumentId::new("static").unwrap();
+        let mut session =
+            DurableWorldSession::create(document_id.clone(), PACK, &registry, &library).unwrap();
+        let policy = CatchUpPolicy::new(60, 3).unwrap();
+        catch_up_at(&mut session, &registry, &library, 100, policy).unwrap();
+        let before = fs::read(library.path(&document_id)).unwrap();
+
+        assert!(catch_up_at(&mut session, &registry, &library, 280, policy)
+            .unwrap()
+            .is_none());
+        assert_eq!(session.snapshot().world_time, 0);
+        assert_eq!(fs::read(library.path(&document_id)).unwrap(), before);
+        assert!(catch_up_at(&mut session, &registry, &library, 280, policy)
+            .unwrap()
+            .is_none());
         let _ = fs::remove_dir_all(root);
     }
 
