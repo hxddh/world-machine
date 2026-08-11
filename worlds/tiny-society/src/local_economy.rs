@@ -203,11 +203,16 @@ mod tests {
         let archive = branch.archive().unwrap();
         let resumed_society = TinySociety::resume_archive(&archive).unwrap();
         let mut resumed_branch = resumed_society.branch();
-        assert_eq!(local_spending_status(resumed_branch.world()), Some("active"));
+        assert_eq!(
+            local_spending_status(resumed_branch.world()),
+            Some("active")
+        );
         let resumed_cursor = resumed_branch.visit_cursor();
         resumed_branch.advance_days(1).unwrap();
-        assert!(resumed_branch.world().events()[resumed_cursor.event_count..]
-            .iter()
-            .any(|event| event.kind == "bread_purchased" && event.actor == Some(JONAS)));
+        assert!(
+            resumed_branch.world().events()[resumed_cursor.event_count..]
+                .iter()
+                .any(|event| event.kind == "bread_purchased" && event.actor == Some(JONAS))
+        );
     }
 }
