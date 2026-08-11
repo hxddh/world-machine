@@ -115,7 +115,8 @@ impl ObserverStore {
     }
 
     fn stamp_path(&self, key: &ObserverKey) -> PathBuf {
-        self.root.join(format!("{}.stamp", stable_digest(key.as_str())))
+        self.root
+            .join(format!("{}.stamp", stable_digest(key.as_str())))
     }
 
     fn write_stamp(&self, path: &Path, unix_seconds: u64) -> Result<(), ObserverError> {
