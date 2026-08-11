@@ -220,9 +220,7 @@ impl Action for RenewMainlandContract {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        TinySociety, RENEW_FISH_CONTRACT_COMMAND, REPAIR_BOAT_COMMAND,
-    };
+    use crate::{TinySociety, RENEW_FISH_CONTRACT_COMMAND, REPAIR_BOAT_COMMAND};
 
     #[test]
     fn fulfilled_mainland_contract_creates_a_real_renewal_choice() {
@@ -235,7 +233,8 @@ mod tests {
             .unwrap();
 
         assert_eq!(contract_remaining(branch.world().state()), Some(5));
-        let harbor_before_contract = integer_component(branch.world().state(), HARBOR, CASH).unwrap();
+        let harbor_before_contract =
+            integer_component(branch.world().state(), HARBOR, CASH).unwrap();
         branch.advance_days(5).unwrap();
 
         assert_eq!(contract_remaining(branch.world().state()), Some(0));
@@ -262,7 +261,8 @@ mod tests {
             .any(|command| command.id == RENEW_FISH_CONTRACT_COMMAND));
 
         let cursor = branch.visit_cursor();
-        let harbor_before_unsold = integer_component(branch.world().state(), HARBOR, CASH).unwrap();
+        let harbor_before_unsold =
+            integer_component(branch.world().state(), HARBOR, CASH).unwrap();
         let market_before_unsold =
             integer_component(branch.world().state(), MAINLAND_MARKET, CASH).unwrap();
         branch.advance_days(1).unwrap();
@@ -282,7 +282,8 @@ mod tests {
             market_before_unsold
         );
 
-        let harbor_before_renewal = integer_component(branch.world().state(), HARBOR, CASH).unwrap();
+        let harbor_before_renewal =
+            integer_component(branch.world().state(), HARBOR, CASH).unwrap();
         let market_before_renewal =
             integer_component(branch.world().state(), MAINLAND_MARKET, CASH).unwrap();
         let renewal = branch
