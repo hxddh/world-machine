@@ -150,10 +150,8 @@ fn compare_entities(
                     inspector_rows: Vec::new(),
                 }),
                 (true, true) => {
-                    let inspector_rows = compare_inspector_rows(
-                        left.inspectors.get(&id),
-                        right.inspectors.get(&id),
-                    );
+                    let inspector_rows =
+                        compare_inspector_rows(left.inspectors.get(&id), right.inspectors.get(&id));
                     if left_summary != right_summary || !inspector_rows.is_empty() {
                         Some(EntityDifference {
                             id,
@@ -252,10 +250,7 @@ fn flatten_inspector_rows(inspector: &InspectorProjection) -> BTreeMap<Inspector
     rows
 }
 
-fn compare_timeline(
-    left: &ProjectionSnapshot,
-    right: &ProjectionSnapshot,
-) -> TimelineDifference {
+fn compare_timeline(left: &ProjectionSnapshot, right: &ProjectionSnapshot) -> TimelineDifference {
     let left_items = timeline_by_id(left);
     let right_items = timeline_by_id(right);
     let ids = left_items
@@ -291,10 +286,7 @@ fn timeline_by_id(snapshot: &ProjectionSnapshot) -> BTreeMap<SelectionId, &Timel
     items
 }
 
-fn compare_commands(
-    left: &ProjectionSnapshot,
-    right: &ProjectionSnapshot,
-) -> CommandDifference {
+fn compare_commands(left: &ProjectionSnapshot, right: &ProjectionSnapshot) -> CommandDifference {
     let left_commands = commands_by_id(left);
     let right_commands = commands_by_id(right);
     let ids = left_commands
@@ -404,10 +396,19 @@ mod tests {
         assert_eq!(comparison.entities[0].id, one);
         assert_eq!(comparison.entities[0].kind, DifferenceKind::Changed);
         assert_eq!(comparison.entities[0].inspector_rows.len(), 1);
-        assert_eq!(comparison.entities[0].inspector_rows[0].key.section, "State");
+        assert_eq!(
+            comparison.entities[0].inspector_rows[0].key.section,
+            "State"
+        );
         assert_eq!(comparison.entities[0].inspector_rows[0].key.label, "Status");
-        assert_eq!(comparison.entities[0].inspector_rows[0].left.as_deref(), Some("active"));
-        assert_eq!(comparison.entities[0].inspector_rows[0].right.as_deref(), Some("paused"));
+        assert_eq!(
+            comparison.entities[0].inspector_rows[0].left.as_deref(),
+            Some("active")
+        );
+        assert_eq!(
+            comparison.entities[0].inspector_rows[0].right.as_deref(),
+            Some("paused")
+        );
         assert_eq!(comparison.entities[1].id, two);
         assert_eq!(comparison.entities[1].kind, DifferenceKind::Removed);
         assert_eq!(comparison.entities[2].id, three);
