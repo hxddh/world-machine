@@ -18,6 +18,9 @@ use world_core::{
 };
 use world_projection::ProjectionSnapshot;
 
+#[cfg(test)]
+pub(crate) use world_core::Value;
+
 pub use host::tiny_society_registration;
 pub use model::{
     BAKERY, EMMA, EVAN, HARBOR, JONAS, JONAS_BOAT, LEO, MARA, MIA, NOAH, PUB, SCHOOL, SOFIA,
