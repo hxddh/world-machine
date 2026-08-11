@@ -480,12 +480,7 @@ impl Action for ReopenBakery {
                 key: OPERATING_STATUS.into(),
                 value: "open".into(),
             },
-            StateChange::CreateRelation(Relation::new(
-                MARA_BAKERY_JOB,
-                "works_at",
-                MARA,
-                BAKERY,
-            )),
+            StateChange::CreateRelation(Relation::new(MARA_BAKERY_JOB, "works_at", MARA, BAKERY)),
             StateChange::SetComponent {
                 entity: MARA,
                 key: JOB.into(),
