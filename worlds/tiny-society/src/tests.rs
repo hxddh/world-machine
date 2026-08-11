@@ -1,5 +1,8 @@
 use crate::actions::text_component;
-use crate::model::{JONAS_LEO_TRUST, MARA_EMMA_FRIEND, ORDER_STATUS, TEMP_BAKERY_JOB};
+use crate::model::{
+    CONDITION, JONAS_HARBOR_JOB, JONAS_LEO_TRUST, MARA_EMMA_FRIEND, ORDER_STATUS,
+    TEMP_BAKERY_JOB,
+};
 use crate::*;
 use society_basic::{integer_component, CASH, JOB};
 use world_agent::MockAgentRuntime;
@@ -228,6 +231,111 @@ fn forked_branch_can_diverge_through_projection_command_and_keep_running() {
             item.title == "Mara gave Jonas another chance"
                 || item.title == "Jonas completed another bakery shift"
         })));
+}
+
+#[test]
+fn social_support_unlocks_a_durable_return_to_fishing() {
+    let mut simulation = TinySociety::new().unwrap();
+    simulation.run_story().unwrap();
+    let mut branch = simulation.branch();
+
+    assert!(branch
+        .projection_snapshot()
+        .commands
+        .iter()
+        .all(|command| command.id != REPAIR_BOAT_COMMAND));
+
+    branch.advance_days(10).unwrap();
+    let support = branch
+        .world()
+        .events()
+        .iter()
+        .rev()
+        .find(|event| event.kind == "support_received")
+        .expect("dismissal branch activates Leo's support")
+        .id;
+    let snapshot = branch.projection_snapshot();
+    assert!(snapshot
+        .commands
+        .iter()
+        .any(|command| command.id == REPAIR_BOAT_COMMAND));
+
+    let leo_before = integer_component(branch.world().state(), LEO, CASH).unwrap();
+    let evan_before = integer_component(branch.world().state(), EVAN, CASH).unwrap();
+    let repaired = branch
+        .invoke_projection_command(REPAIR_BOAT_COMMAND)
+        .unwrap();
+
+    assert_eq!(repaired.len(), 1);
+    let repair = branch.world().event(repaired[0]).unwrap();
+    assert_eq!(repair.kind, "boat_repaired");
+    assert_eq!(repair.caused_by, vec![support]);
+    assert_eq!(repair.actor, Some(LEO));
+    assert_eq!(
+        integer_component(branch.world().state(), LEO, CASH).unwrap(),
+        leo_before - crate::social::SEA_FINCH_REPAIR_COST
+    );
+    assert_eq!(
+        integer_component(branch.world().state(), EVAN, CASH).unwrap(),
+        evan_before + crate::social::SEA_FINCH_REPAIR_COST
+    );
+    assert_eq!(
+        text_component(branch.world().state(), JONAS_BOAT, CONDITION).unwrap(),
+        "sound"
+    );
+    assert_eq!(
+        text_component(branch.world().state(), JONAS, JOB).unwrap(),
+        "fisher"
+    );
+    assert!(branch
+        .world()
+        .state()
+        .relation(JONAS_HARBOR_JOB)
+        .is_some());
+
+    let snapshot = branch.projection_snapshot();
+    assert!(snapshot
+        .commands
+        .iter()
+        .all(|command| command.id != REPAIR_BOAT_COMMAND));
+    assert!(snapshot
+        .canvas
+        .items
+        .iter()
+        .find(|item| item.id == SelectionId::Entity(JONAS_BOAT))
+        .is_some_and(|item| item.detail == "asset · sound"));
+    let why = snapshot.why(repair.id).unwrap();
+    assert!(why.nodes.iter().any(|node| node.event == support));
+
+    let json = branch.archive_json().unwrap();
+    let resumed = TinySociety::resume_json(&json).unwrap();
+    assert_eq!(
+        text_component(resumed.world().state(), JONAS_BOAT, CONDITION).unwrap(),
+        "sound"
+    );
+    assert_eq!(
+        text_component(resumed.world().state(), JONAS, JOB).unwrap(),
+        "fisher"
+    );
+    assert!(resumed
+        .world()
+        .state()
+        .relation(JONAS_HARBOR_JOB)
+        .is_some());
+
+    let cursor = branch.visit_cursor();
+    let jonas_before = integer_component(branch.world().state(), JONAS, CASH).unwrap();
+    branch.advance_days(1).unwrap();
+    let new_events = &branch.world().events()[cursor.event_count..];
+    assert!(new_events.iter().any(|event| {
+        event.kind == "work_shift_completed"
+            && event.actor == Some(JONAS)
+            && event.targets.contains(&HARBOR)
+    }));
+    assert_eq!(
+        integer_component(branch.world().state(), JONAS, CASH).unwrap(),
+        jonas_before + 25 - crate::social::JONAS_DAILY_LIVING_COST
+    );
 }
 
 #[test]
