@@ -5,7 +5,8 @@ use gpui::{
 };
 use std::rc::Rc;
 use std::sync::Arc;
-use world_library::WorldLibrary;
+use world_host::WorldRegistry;
+use world_library::{DurableWorldSession, WorldDocumentId, WorldLibrary};
 use world_persistence::WorldArchive;
 use world_strategy_document::{available_choices, evaluate_choices, StrategyChoice};
 use world_strategy_gpui::StrategyComparisonView;
@@ -207,7 +208,7 @@ impl StrategySetupView {
             return Err("Choose two different futures".into());
         }
 
-        let (evaluation, source_label, library) = {
+        let (evaluation, source_label, registry, library) = {
             let document = self.document.borrow();
             let evaluation = evaluate_choices(
                 &document.session,
@@ -220,6 +221,7 @@ impl StrategySetupView {
             (
                 evaluation,
                 document.session.display_name(),
+                Arc::clone(&document.registry),
                 Arc::clone(&document.library),
             )
         };
@@ -250,6 +252,7 @@ impl StrategySetupView {
             move |_, cx| {
                 cx.new(|_| StrategyResultView {
                     comparison,
+                    registry,
                     library,
                     source_label,
                     left_label: result_left,
@@ -347,19 +350,20 @@ enum FutureSide {
 
 struct StrategyResultView {
     comparison: Entity<StrategyComparisonView>,
+    registry: Arc<WorldRegistry>,
     library: Arc<WorldLibrary>,
     source_label: String,
     left_label: String,
     right_label: String,
     left_archive: Option<WorldArchive>,
     right_archive: Option<WorldArchive>,
-    left_saved: Option<String>,
-    right_saved: Option<String>,
+    left_saved: Option<WorldDocumentId>,
+    right_saved: Option<WorldDocumentId>,
     status: Option<String>,
 }
 
 impl StrategyResultView {
-    fn save_future(&mut self, side: FutureSide) -> Result<String, String> {
+    fn save_future(&mut self, side: FutureSide) -> Result<WorldDocumentId, String> {
         let (archive, label, side_label) = match side {
             FutureSide::Left => (
                 self.left_archive
@@ -385,7 +389,7 @@ impl StrategyResultView {
             .library
             .create_from_archive(id, &archive)
             .map_err(|error| error.to_string())?;
-        let saved_id = summary.id.to_string();
+        let saved_id = summary.id;
 
         match side {
             FutureSide::Left => self.left_saved = Some(saved_id.clone()),
@@ -395,18 +399,66 @@ impl StrategyResultView {
         Ok(saved_id)
     }
 
+    fn open_saved_future(
+        &mut self,
+        side: FutureSide,
+        cx: &mut Context<Self>,
+    ) -> Result<String, String> {
+        let saved_id = match side {
+            FutureSide::Left => self
+                .left_saved
+                .clone()
+                .ok_or_else(|| "Future A has not been saved".to_string())?,
+            FutureSide::Right => self
+                .right_saved
+                .clone()
+                .ok_or_else(|| "Future B has not been saved".to_string())?,
+        };
+        let session = DurableWorldSession::open(
+            saved_id,
+            self.registry.as_ref(),
+            self.library.as_ref(),
+        )
+        .map_err(|error| error.to_string())?;
+        let document_label = session.display_name();
+        let pack = session.pack();
+        let title = self
+            .registry
+            .descriptor(&pack.id)
+            .map(|descriptor| descriptor.title.clone())
+            .unwrap_or(pack.id);
+        let registry = Arc::clone(&self.registry);
+        let library = Arc::clone(&self.library);
+        let window_title = title.clone();
+        let bounds = Bounds::centered(None, size(px(1100.0), px(900.0)), cx);
+        cx.open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                ..Default::default()
+            },
+            move |_, cx| {
+                cx.new(|cx| WorldDocumentView::new(session, window_title, registry, library, cx))
+            },
+        )
+        .map_err(|error| error.to_string())?;
+
+        Ok(document_label)
+    }
+
     fn render_save_action(&self, side: FutureSide, cx: &mut Context<Self>) -> Div {
-        let (archive_available, saved, button_id, label) = match side {
+        let (archive_available, saved, save_button_id, open_button_id, label) = match side {
             FutureSide::Left => (
                 self.left_archive.is_some(),
                 self.left_saved.as_ref(),
                 "save-strategy-future-left",
+                "open-strategy-future-left",
                 "Future A",
             ),
             FutureSide::Right => (
                 self.right_archive.is_some(),
                 self.right_saved.as_ref(),
                 "save-strategy-future-right",
+                "open-strategy-future-right",
                 "Future B",
             ),
         };
@@ -415,21 +467,44 @@ impl StrategyResultView {
         }
 
         if let Some(saved) = saved {
-            return div().child(
-                div()
-                    .p_2()
-                    .rounded_md()
-                    .border_1()
-                    .border_color(rgb(0xb9c8b1))
-                    .bg(rgb(0xf1f6ee))
-                    .text_sm()
-                    .child(format!("Saved {label} · {saved}")),
-            );
+            return div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(
+                    div()
+                        .p_2()
+                        .rounded_md()
+                        .border_1()
+                        .border_color(rgb(0xb9c8b1))
+                        .bg(rgb(0xf1f6ee))
+                        .text_sm()
+                        .child(format!("Saved {label} · {saved}")),
+                )
+                .child(
+                    div()
+                        .id(open_button_id)
+                        .cursor_pointer()
+                        .p_2()
+                        .rounded_md()
+                        .border_1()
+                        .border_color(rgb(0x9eb0d6))
+                        .bg(rgb(0xf4f7ff))
+                        .text_sm()
+                        .child("Open")
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.status = Some(match this.open_saved_future(side, cx) {
+                                Ok(document) => format!("Opened saved {label} · {document}"),
+                                Err(error) => format!("Open failed: {error}"),
+                            });
+                            cx.notify();
+                        })),
+                );
         }
 
         div().child(
             div()
-                .id(button_id)
+                .id(save_button_id)
                 .cursor_pointer()
                 .p_2()
                 .rounded_md()
