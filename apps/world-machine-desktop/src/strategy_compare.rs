@@ -5,6 +5,7 @@ use gpui::{
 };
 use std::rc::Rc;
 use std::sync::Arc;
+use world_document::{WorldBranchCause, WorldDocument, WorldLineage, WorldParent};
 use world_host::WorldRegistry;
 use world_library::{DurableWorldSession, WorldDocumentId, WorldLibrary};
 use world_persistence::WorldArchive;
@@ -208,8 +209,12 @@ impl StrategySetupView {
             return Err("Choose two different futures".into());
         }
 
-        let (evaluation, source_label, registry, library) = {
+        let (evaluation, source_label, source_archive, registry, library) = {
             let document = self.document.borrow();
+            let source_archive = document
+                .session
+                .current_archive()
+                .map_err(|error| error.to_string())?;
             let evaluation = evaluate_choices(
                 &document.session,
                 &document.registry,
@@ -221,6 +226,7 @@ impl StrategySetupView {
             (
                 evaluation,
                 document.session.display_name(),
+                source_archive,
                 Arc::clone(&document.registry),
                 Arc::clone(&document.library),
             )
@@ -234,6 +240,8 @@ impl StrategySetupView {
             .right
             .outcome()
             .and_then(|outcome| outcome.archive.clone());
+        let left_lineage = strategy_lineage(&source_label, &source_archive, &left, self.horizon);
+        let right_lineage = strategy_lineage(&source_label, &source_archive, &right, self.horizon);
         let left_label = left.title;
         let right_label = right.title;
         let comparison_left = left_label.clone();
@@ -259,6 +267,8 @@ impl StrategySetupView {
                     right_label: result_right,
                     left_archive,
                     right_archive,
+                    left_lineage,
+                    right_lineage,
                     left_saved: None,
                     right_saved: None,
                     status: None,
@@ -357,6 +367,8 @@ struct StrategyResultView {
     right_label: String,
     left_archive: Option<WorldArchive>,
     right_archive: Option<WorldArchive>,
+    left_lineage: WorldLineage,
+    right_lineage: WorldLineage,
     left_saved: Option<WorldDocumentId>,
     right_saved: Option<WorldDocumentId>,
     status: Option<String>,
@@ -364,11 +376,12 @@ struct StrategyResultView {
 
 impl StrategyResultView {
     fn save_future(&mut self, side: FutureSide) -> Result<WorldDocumentId, String> {
-        let (archive, label, side_label) = match side {
+        let (archive, lineage, label, side_label) = match side {
             FutureSide::Left => (
                 self.left_archive
                     .clone()
                     .ok_or_else(|| "Future A has no durable archive".to_string())?,
+                self.left_lineage.clone(),
                 self.left_label.clone(),
                 "Future A",
             ),
@@ -376,6 +389,7 @@ impl StrategyResultView {
                 self.right_archive
                     .clone()
                     .ok_or_else(|| "Future B has no durable archive".to_string())?,
+                self.right_lineage.clone(),
                 self.right_label.clone(),
                 "Future B",
             ),
@@ -385,9 +399,10 @@ impl StrategyResultView {
         let base = sanitize_document_base(&format!("{source}-{label}"));
         let id = unique_document_id(base, Some(self.library.as_ref()))
             .map_err(|error| error.to_string())?;
+        let future = WorldDocument::new(archive).with_lineage(lineage);
         let summary = self
             .library
-            .create_from_archive(id, &archive)
+            .create_from_document(id, &future)
             .map_err(|error| error.to_string())?;
         let saved_id = summary.id;
 
@@ -574,9 +589,68 @@ impl Render for StrategyResultView {
     }
 }
 
+fn strategy_lineage(
+    source_label: &str,
+    source_archive: &WorldArchive,
+    choice: &StrategyChoice,
+    horizon: u64,
+) -> WorldLineage {
+    WorldLineage {
+        parent: WorldParent {
+            document: Some(source_label.to_owned()),
+            pack: source_archive.pack.clone(),
+            world_time: source_archive.world_time,
+            event_count: source_archive.events.len(),
+        },
+        branch: WorldBranchCause::Strategy {
+            choice_id: choice.id.clone(),
+            choice_title: choice.title.clone(),
+            horizon,
+        },
+    }
+}
+
 fn source_world_base(label: &str) -> &str {
     label
         .strip_suffix(".world.json")
         .or_else(|| label.strip_suffix(".world"))
         .unwrap_or(label)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use world_persistence::{WorldPackRef, WORLD_ARCHIVE_FORMAT, WORLD_ARCHIVE_VERSION};
+
+    #[test]
+    fn strategy_lineage_records_the_parent_branch_point_before_the_future_runs() {
+        let source = WorldArchive {
+            format: WORLD_ARCHIVE_FORMAT.into(),
+            format_version: WORLD_ARCHIVE_VERSION,
+            pack: WorldPackRef::new("world-machine.lineage-mock", "1"),
+            world_time: 42,
+            events: Vec::new(),
+            pending: Vec::new(),
+        };
+        let choice = StrategyChoice {
+            id: "mock.choose-a".into(),
+            title: "Choose A".into(),
+            detail: "A possible future".into(),
+        };
+
+        let lineage = strategy_lineage("Source.world", &source, &choice, 20);
+
+        assert_eq!(lineage.parent.document.as_deref(), Some("Source.world"));
+        assert_eq!(lineage.parent.pack, source.pack);
+        assert_eq!(lineage.parent.world_time, 42);
+        assert_eq!(lineage.parent.event_count, 0);
+        assert_eq!(
+            lineage.branch,
+            WorldBranchCause::Strategy {
+                choice_id: "mock.choose-a".into(),
+                choice_title: "Choose A".into(),
+                horizon: 20,
+            }
+        );
+    }
 }
