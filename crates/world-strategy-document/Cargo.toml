@@ -1,0 +1,11 @@
+[package]
+name = "world-strategy-document"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+world-host = { path = "../world-host" }
+world-library = { path = "../world-library" }
+world-strategy = { path = "../world-strategy" }
