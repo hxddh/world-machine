@@ -6,6 +6,7 @@ license = "Apache-2.0"
 publish = false
 
 [dependencies]
+world-document = { path = "../world-document" }
 world-host = { path = "../world-host" }
 world-persistence = { path = "../world-persistence" }
 world-projection = { path = "../world-projection" }
