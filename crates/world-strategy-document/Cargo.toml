@@ -9,3 +9,7 @@ publish = false
 world-host = { path = "../world-host" }
 world-library = { path = "../world-library" }
 world-strategy = { path = "../world-strategy" }
+
+[dev-dependencies]
+world-persistence = { path = "../world-persistence" }
+world-projection = { path = "../world-projection" }
