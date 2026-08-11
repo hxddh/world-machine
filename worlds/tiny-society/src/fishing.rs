@@ -26,7 +26,9 @@ impl Action for LandCatch {
         _request: &ActionRequest,
     ) -> Result<EventDraft, ActionError> {
         if text_component(state, JONAS, JOB)? != "fisher" {
-            return Err(ActionError::Invalid("Jonas is not currently fishing".into()));
+            return Err(ActionError::Invalid(
+                "Jonas is not currently fishing".into(),
+            ));
         }
         if text_component(state, JONAS_BOAT, CONDITION)? != "sound" {
             return Err(ActionError::Invalid("Sea Finch is not seaworthy".into()));
