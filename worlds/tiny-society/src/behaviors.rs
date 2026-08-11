@@ -1,6 +1,10 @@
-use crate::model::{BAKERY, JONAS, LEO, MARA};
+use crate::{
+    model::{BAKERY, JONAS, LEO, MARA, SUPPORT_STATUS},
+    social::{JONAS_SUPPORT_THRESHOLD, LEO_SUPPORT_AMOUNT},
+};
+use society_basic::{integer_component, CASH};
 use std::error::Error;
-use world_core::{ActionRequest, BehaviorRegistry, Event, RuleBehavior, WorldState};
+use world_core::{ActionRequest, BehaviorRegistry, Event, RuleBehavior, Value, WorldState};
 
 pub(crate) fn register(registry: &mut BehaviorRegistry) -> Result<(), Box<dyn Error>> {
     registry.register(RuleBehavior::new(
@@ -35,6 +39,45 @@ pub(crate) fn register(registry: &mut BehaviorRegistry) -> Result<(), Box<dyn Er
         ["order_lost"],
         |_state: &WorldState, _event: &Event| {
             vec![ActionRequest::new("dismiss_worker").actor(MARA)]
+        },
+    ))?;
+    registry.register(RuleBehavior::new(
+        "jonas-low-cash-prompts-support",
+        ["living_cost_paid"],
+        |state: &WorldState, event: &Event| {
+            if event.actor != Some(JONAS) {
+                return Vec::new();
+            }
+            let cash = integer_component(state, JONAS, CASH).ok();
+            let status = state
+                .entity(JONAS)
+                .and_then(|entity| entity.component(SUPPORT_STATUS));
+            match (cash, status) {
+                (Some(cash), Some(Value::Text(status)))
+                    if cash <= JONAS_SUPPORT_THRESHOLD && status == "none" =>
+                {
+                    vec![ActionRequest::new("request_support")
+                        .actor(JONAS)
+                        .arg("resident", JONAS)
+                        .arg("supporter", LEO)]
+                }
+                _ => Vec::new(),
+            }
+        },
+    ))?;
+    registry.register(RuleBehavior::new(
+        "leo-answers-support-request",
+        ["support_requested"],
+        |_state: &WorldState, event: &Event| {
+            if event.actor == Some(JONAS) && event.targets.contains(&LEO) {
+                vec![ActionRequest::new("provide_support")
+                    .actor(LEO)
+                    .arg("resident", JONAS)
+                    .arg("supporter", LEO)
+                    .arg("amount", LEO_SUPPORT_AMOUNT)]
+            } else {
+                Vec::new()
+            }
         },
     ))?;
     registry.register(RuleBehavior::new(
