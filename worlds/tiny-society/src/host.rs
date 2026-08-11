@@ -126,7 +126,10 @@ mod tests {
 
         assert_eq!(after.world_time, before.world_time + 20);
         assert!(after.timeline.items.len() >= before.timeline.items.len() + 6);
-        let briefing = after.briefing.as_ref().expect("Tiny Society has a briefing");
+        let briefing = after
+            .briefing
+            .as_ref()
+            .expect("Tiny Society has a briefing");
         assert_eq!(briefing.title, "While you were away");
         assert!(briefing
             .items
