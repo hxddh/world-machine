@@ -216,10 +216,7 @@ mod tests {
     #[test]
     fn accepts_well_formed_archive() {
         let mut archive = archive(5);
-        archive.events = vec![
-            event(1, "storm", 1, vec![]),
-            event(2, "damage", 2, vec![1]),
-        ];
+        archive.events = vec![event(1, "storm", 1, vec![]), event(2, "damage", 2, vec![1])];
         archive.pending = vec![pending(7, "repair", vec![2])];
 
         let summary = check_archive(&archive).unwrap();
