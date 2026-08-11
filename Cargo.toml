@@ -7,6 +7,7 @@ members = [
   "crates/world-projection",
   "crates/world-gpui",
   "crates/world-persistence",
+  "crates/world-integrity",
   "crates/world-host",
   "crates/world-builtins",
   "crates/world-library",
