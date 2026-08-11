@@ -282,7 +282,9 @@ mod tests {
         }
 
         fn handle(&mut self, _intent: ProjectionIntent) -> Result<ProjectionSnapshot, HostError> {
-            Err(HostError::Session("unsupported invalid session intent".into()))
+            Err(HostError::Session(
+                "unsupported invalid session intent".into(),
+            ))
         }
 
         fn archive(&self) -> Result<Option<WorldArchive>, HostError> {
