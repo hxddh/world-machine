@@ -1,5 +1,6 @@
 use crate::{
-    model::{BAKERY, HARBOR, JONAS, LEO, MARA, SUPPORT_STATUS},
+    fishing::DAILY_CATCH_VALUE,
+    model::{BAKERY, HARBOR, JONAS, LEO, MAINLAND_MARKET, MARA, SUPPORT_STATUS},
     social::{JONAS_SUPPORT_THRESHOLD, LEO_SUPPORT_AMOUNT},
 };
 use society_basic::{integer_component, CASH};
@@ -43,8 +44,10 @@ pub(crate) fn register(registry: &mut BehaviorRegistry) -> Result<(), Box<dyn Er
     registry.register(RuleBehavior::new(
         "landed-catch-sells-to-mainland",
         ["catch_landed"],
-        |_state: &WorldState, event: &Event| {
-            if event.actor == Some(JONAS) && event.targets.contains(&HARBOR) {
+        |state: &WorldState, event: &Event| {
+            let can_buy = integer_component(state, MAINLAND_MARKET, CASH)
+                .is_ok_and(|cash| cash >= DAILY_CATCH_VALUE);
+            if event.actor == Some(JONAS) && event.targets.contains(&HARBOR) && can_buy {
                 vec![ActionRequest::new("sell_fish").actor(JONAS)]
             } else {
                 Vec::new()
