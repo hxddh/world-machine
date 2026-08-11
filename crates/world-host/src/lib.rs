@@ -10,6 +10,11 @@ pub trait WorldSession {
     fn snapshot(&self) -> ProjectionSnapshot;
     fn handle(&mut self, intent: ProjectionIntent) -> Result<ProjectionSnapshot, HostError>;
 
+    fn advance_background(&mut self, periods: u64) -> Result<ProjectionSnapshot, HostError> {
+        let _ = periods;
+        Ok(self.snapshot())
+    }
+
     fn archive(&self) -> Result<Option<WorldArchive>, HostError> {
         Ok(None)
     }
@@ -36,6 +41,10 @@ impl WorldSession for IntegrityCheckedSession {
 
     fn handle(&mut self, intent: ProjectionIntent) -> Result<ProjectionSnapshot, HostError> {
         self.inner.handle(intent)
+    }
+
+    fn advance_background(&mut self, periods: u64) -> Result<ProjectionSnapshot, HostError> {
+        self.inner.advance_background(periods)
     }
 
     fn archive(&self) -> Result<Option<WorldArchive>, HostError> {
@@ -268,6 +277,14 @@ mod tests {
                 _ => Err(HostError::Session("unsupported mock intent".into())),
             }
         }
+
+        fn advance_background(&mut self, periods: u64) -> Result<ProjectionSnapshot, HostError> {
+            self.count = self
+                .count
+                .checked_add(periods as usize)
+                .ok_or_else(|| HostError::Session("mock background overflow".into()))?;
+            Ok(self.snapshot())
+        }
     }
 
     struct InvalidArchiveSession;
@@ -341,6 +358,7 @@ mod tests {
                 .title,
             "Mock 1"
         );
+        assert_eq!(session.advance_background(2).unwrap().title, "Mock 3");
     }
 
     #[test]
