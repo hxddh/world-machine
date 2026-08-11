@@ -4,11 +4,13 @@ use std::error::Error;
 use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
+use world_integrity::{check_archive, ArchiveIntegrityError};
 use world_persistence::{ArchivedEvent, WorldArchive};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum Command {
     Inspect(PathBuf),
+    Check(PathBuf),
     Validate(PathBuf),
     Events(PathBuf),
     Why(PathBuf, u64),
@@ -31,6 +33,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let command = parse_command(env::args().skip(1))?;
     match command {
         Command::Inspect(path) => println!("{}", inspect_report(&path)?),
+        Command::Check(path) => println!("{}", check_report(&path)?),
         Command::Validate(path) => println!("{}", validate_report(&path)?),
         Command::Events(path) => println!("{}", events_report(&path)?),
         Command::Why(path, event_id) => println!("{}", why_report(&path, event_id)?),
@@ -48,6 +51,7 @@ where
     let args = args.into_iter().map(Into::into).collect::<Vec<String>>();
     match args.as_slice() {
         [command, path] if command == "inspect" => Ok(Command::Inspect(PathBuf::from(path))),
+        [command, path] if command == "check" => Ok(Command::Check(PathBuf::from(path))),
         [command, path] if command == "validate" => Ok(Command::Validate(PathBuf::from(path))),
         [command, path] if command == "events" => Ok(Command::Events(PathBuf::from(path))),
         [command, path, event_id] if command == "why" => {
@@ -67,11 +71,13 @@ fn usage() -> &'static str {
     "World Machine document tools\n\n\
 Usage:\n\
   world-cli inspect <file.world>\n\
+  world-cli check <file.world>\n\
   world-cli validate <file.world>\n\
   world-cli events <file.world>\n\
   world-cli why <file.world> <event-id>\n\
   world-cli list-packs\n\n\
 inspect     Parse and summarize a World archive without requiring its Pack.\n\
+check       Verify Pack-independent archive structure and causal integrity.\n\
 validate    Parse the archive and open it through the currently installed Pack registry.\n\
 events      Print the archived event timeline, including actors, targets, and causal links.\n\
 why         Trace an event recursively through its archived caused_by graph.\n\
@@ -105,6 +111,29 @@ fn format_archive_report(path: &Path, archive: &WorldArchive) -> String {
         ));
     }
     lines.join("\n")
+}
+
+fn check_report(path: &Path) -> Result<String, Box<dyn Error>> {
+    let archive = load_archive(path)?;
+    Ok(check_report_from_archive(path, &archive)?)
+}
+
+fn check_report_from_archive(
+    path: &Path,
+    archive: &WorldArchive,
+) -> Result<String, ArchiveIntegrityError> {
+    let summary = check_archive(archive)?;
+    let latest_event_time = summary
+        .latest_event_time
+        .map(|time| time.to_string())
+        .unwrap_or_else(|| "-".into());
+    Ok(format!(
+        "{}\nintegrity: ok\nchecked_events: {}\nchecked_pending: {}\nlatest_event_time: {}",
+        format_archive_report(path, archive),
+        summary.event_count,
+        summary.pending_count,
+        latest_event_time
+    ))
 }
 
 fn validate_report(path: &Path) -> Result<String, Box<dyn Error>> {
@@ -259,6 +288,10 @@ mod tests {
             Command::Inspect(PathBuf::from("sample.world"))
         );
         assert_eq!(
+            parse_command(["check", "sample.world"]).unwrap(),
+            Command::Check(PathBuf::from("sample.world"))
+        );
+        assert_eq!(
             parse_command(["validate", "sample.world"]).unwrap(),
             Command::Validate(PathBuf::from("sample.world"))
         );
@@ -285,6 +318,21 @@ mod tests {
         assert!(report.contains("file: sample.world"));
         assert!(report.contains("pack: example.uninstalled@7"));
         assert!(report.contains("world_time: 42"));
+    }
+
+    #[test]
+    fn check_report_accepts_every_builtin_world_archive() {
+        let registry = world_builtins::registry().unwrap();
+        for descriptor in registry.descriptors() {
+            let session = registry.create(&descriptor.pack.id).unwrap();
+            let archive = session.archive().unwrap().unwrap();
+            let report = check_report_from_archive(Path::new("builtin.world"), &archive).unwrap();
+            assert!(report.contains("integrity: ok"));
+            assert!(report.contains(&format!(
+                "pack: {}@{}",
+                descriptor.pack.id, descriptor.pack.version
+            )));
+        }
     }
 
     #[test]
