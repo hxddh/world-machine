@@ -1,10 +1,12 @@
-use crate::model::OPERATING_STATUS;
+use crate::model::{
+    CONDITION, JONAS_HARBOR_JOB, JONAS_LEO_TRUST, OPERATING_STATUS, SUPPORT_STATUS,
+};
 use crate::{
     BAKERY, EMMA, EVAN, HARBOR, JONAS, JONAS_BOAT, LEO, MARA, MIA, NOAH, PUB, SCHOOL, SOFIA,
     WEDDING_ORDER,
 };
 use society_basic::{CASH, JOB};
-use world_core::{EntityId, Event, Value, World};
+use world_core::{EntityId, Event, RelationId, Value, World};
 use world_projection::{
     entity_title, inspectors_from_world, timeline_from_world, why_map_from_world, BriefingItem,
     BriefingProjection, CanvasItem, CanvasItemKind, CanvasProjection, CollectionItem,
@@ -85,6 +87,33 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
         });
     }
 
+    let sea_finch_damaged =
+        component_text(world, JONAS_BOAT, CONDITION).as_deref() == Some("damaged");
+    let jonas_unemployed = component_text(world, JONAS, JOB).as_deref() == Some("unemployed");
+    let support_received =
+        component_text(world, JONAS, SUPPORT_STATUS).as_deref() == Some("received");
+    let trust_ready = relation_integer(world, JONAS_LEO_TRUST, "trust")
+        .is_some_and(|trust| trust >= crate::social::SEA_FINCH_REPAIR_TRUST);
+    let leo_can_afford = component_integer(world, LEO, CASH)
+        .is_some_and(|cash| cash >= crate::social::SEA_FINCH_REPAIR_COST);
+    let harbor_job_missing = world.state().relation(JONAS_HARBOR_JOB).is_none();
+    if sea_finch_damaged
+        && jonas_unemployed
+        && support_received
+        && trust_ready
+        && leo_can_afford
+        && harbor_job_missing
+    {
+        commands.push(ProjectionCommand {
+            id: crate::REPAIR_BOAT_COMMAND.into(),
+            title: "Repair Sea Finch with Leo's backing".into(),
+            detail: format!(
+                "Leo pays Evan {} to repair Sea Finch. Jonas returns to Harbor fishing once the boat is sound.",
+                crate::social::SEA_FINCH_REPAIR_COST
+            ),
+        });
+    }
+
     commands
 }
 
@@ -101,6 +130,7 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
         .rev()
         .filter_map(|event| {
             let title = match event.kind.as_str() {
+                "boat_repaired" => "Sea Finch returned to the water",
                 "bakery_reopened" => "Mara reopened Harbor Bakery",
                 "bakery_closed" => "Harbor Bakery closed its doors",
                 "payroll_shortfall" => "The bakery could not cover payroll",
@@ -319,11 +349,18 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
 
     for (id, x, y) in [(JONAS_BOAT, 0.02, 0.42), (WEDDING_ORDER, 0.84, 0.22)] {
         if let Some(entity) = world.state().entity(id) {
+            let detail = if id == JONAS_BOAT {
+                component_text(world, JONAS_BOAT, CONDITION)
+                    .map(|condition| format!("asset · {condition}"))
+                    .unwrap_or_else(|| entity.kind.clone())
+            } else {
+                entity.kind.clone()
+            };
             items.push(CanvasItem {
                 id: SelectionId::Entity(id),
                 kind: CanvasItemKind::Object,
                 label: entity_title(entity),
-                detail: entity.kind.clone(),
+                detail,
                 x,
                 y,
             });
@@ -345,6 +382,13 @@ fn component_text(world: &World, id: EntityId, key: &str) -> Option<String> {
 
 fn component_integer(world: &World, id: EntityId, key: &str) -> Option<i64> {
     match world.state().entity(id)?.component(key)? {
+        Value::Integer(value) => Some(*value),
+        _ => None,
+    }
+}
+
+fn relation_integer(world: &World, id: RelationId, key: &str) -> Option<i64> {
+    match world.state().relation(id)?.properties.get(key)? {
         Value::Integer(value) => Some(*value),
         _ => None,
     }

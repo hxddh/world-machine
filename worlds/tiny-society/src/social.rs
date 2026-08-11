@@ -1,19 +1,22 @@
 use crate::{actions::text_component, model::*};
-use society_basic::{integer_component, CASH};
+use society_basic::{integer_component, CASH, EMPLOYER, JOB};
 use world_core::{
-    Action, ActionError, ActionRegistry, ActionRequest, EntityId, EventDraft, StateChange, Value,
-    WorldState,
+    Action, ActionError, ActionRegistry, ActionRequest, EntityId, EventDraft, Relation,
+    StateChange, Value, WorldState,
 };
 
 pub(crate) const JONAS_DAILY_LIVING_COST: i64 = 8;
 pub(crate) const JONAS_SUPPORT_THRESHOLD: i64 = 20;
 pub(crate) const LEO_SUPPORT_AMOUNT: i64 = 40;
 pub(crate) const LEO_SUPPORT_TRUST_GAIN: i64 = 8;
+pub(crate) const SEA_FINCH_REPAIR_COST: i64 = 50;
+pub(crate) const SEA_FINCH_REPAIR_TRUST: i64 = 84;
 
 pub(crate) fn register_actions(registry: &mut ActionRegistry) -> Result<(), ActionError> {
     registry.register(PayLivingCost)?;
     registry.register(RequestSupport)?;
     registry.register(ProvideSupport)?;
+    registry.register(RepairJonasBoat)?;
     Ok(())
 }
 
@@ -30,6 +33,18 @@ fn positive_integer_arg(request: &ActionRequest, name: &str) -> Result<i64, Acti
         _ => Err(ActionError::Invalid(format!(
             "{name} must be a positive integer"
         ))),
+    }
+}
+
+fn jonas_leo_trust(state: &WorldState) -> Result<i64, ActionError> {
+    let relation = state
+        .relation(JONAS_LEO_TRUST)
+        .ok_or_else(|| ActionError::Invalid("Jonas and Leo have no trust relation".into()))?;
+    match relation.properties.get("trust") {
+        Some(Value::Integer(value)) => Ok(*value),
+        _ => Err(ActionError::Invalid(
+            "Jonas and Leo trust relation has no integer trust score".into(),
+        )),
     }
 }
 
@@ -147,17 +162,7 @@ impl Action for ProvideSupport {
         let jonas_after = jonas_cash
             .checked_add(amount)
             .ok_or_else(|| ActionError::Invalid("Jonas cash overflow".into()))?;
-        let relation = state
-            .relation(JONAS_LEO_TRUST)
-            .ok_or_else(|| ActionError::Invalid("Jonas and Leo have no trust relation".into()))?;
-        let trust_before = match relation.properties.get("trust") {
-            Some(Value::Integer(value)) => *value,
-            _ => {
-                return Err(ActionError::Invalid(
-                    "Jonas and Leo trust relation has no integer trust score".into(),
-                ));
-            }
-        };
+        let trust_before = jonas_leo_trust(state)?;
         let trust_after = trust_before.saturating_add(LEO_SUPPORT_TRUST_GAIN).min(100);
 
         let mut draft = EventDraft::new("support_received");
@@ -190,6 +195,96 @@ impl Action for ProvideSupport {
                 entity: JONAS,
                 key: SUPPORT_STATUS.into(),
                 value: "received".into(),
+            },
+        ];
+        Ok(draft)
+    }
+}
+
+struct RepairJonasBoat;
+
+impl Action for RepairJonasBoat {
+    fn name(&self) -> &'static str {
+        "repair_jonas_boat"
+    }
+
+    fn evaluate(
+        &self,
+        state: &WorldState,
+        _request: &ActionRequest,
+    ) -> Result<EventDraft, ActionError> {
+        if text_component(state, JONAS_BOAT, CONDITION)? != "damaged" {
+            return Err(ActionError::Invalid("Sea Finch is not damaged".into()));
+        }
+        if text_component(state, JONAS, JOB)? != "unemployed" {
+            return Err(ActionError::Invalid(
+                "Jonas must be unemployed before returning to fishing".into(),
+            ));
+        }
+        if text_component(state, JONAS, SUPPORT_STATUS)? != "received" {
+            return Err(ActionError::Invalid(
+                "Jonas has not yet activated Leo's support".into(),
+            ));
+        }
+        if state.relation(JONAS_HARBOR_JOB).is_some() {
+            return Err(ActionError::Invalid(
+                "Jonas already has an active Harbor job relation".into(),
+            ));
+        }
+
+        let trust = jonas_leo_trust(state)?;
+        if trust < SEA_FINCH_REPAIR_TRUST {
+            return Err(ActionError::Invalid(format!(
+                "Jonas and Leo need trust {SEA_FINCH_REPAIR_TRUST} to finance the repair"
+            )));
+        }
+        let leo_cash = integer_component(state, LEO, CASH)?;
+        if leo_cash < SEA_FINCH_REPAIR_COST {
+            return Err(ActionError::Invalid(format!(
+                "Leo needs {SEA_FINCH_REPAIR_COST} cash to finance the repair"
+            )));
+        }
+        let evan_cash = integer_component(state, EVAN, CASH)?;
+        let evan_after = evan_cash
+            .checked_add(SEA_FINCH_REPAIR_COST)
+            .ok_or_else(|| ActionError::Invalid("Evan cash overflow".into()))?;
+
+        let mut draft = EventDraft::new("boat_repaired");
+        draft.actor = Some(LEO);
+        draft.targets = vec![JONAS, LEO, EVAN, JONAS_BOAT, HARBOR];
+        draft
+            .payload
+            .insert("repair_cost".into(), SEA_FINCH_REPAIR_COST.into());
+        draft
+            .payload
+            .insert("trust_required".into(), SEA_FINCH_REPAIR_TRUST.into());
+        draft.payload.insert("trust_observed".into(), trust.into());
+        draft.changes = vec![
+            StateChange::SetComponent {
+                entity: LEO,
+                key: CASH.into(),
+                value: (leo_cash - SEA_FINCH_REPAIR_COST).into(),
+            },
+            StateChange::SetComponent {
+                entity: EVAN,
+                key: CASH.into(),
+                value: evan_after.into(),
+            },
+            StateChange::SetComponent {
+                entity: JONAS_BOAT,
+                key: CONDITION.into(),
+                value: "sound".into(),
+            },
+            StateChange::CreateRelation(Relation::new(JONAS_HARBOR_JOB, "works_at", JONAS, HARBOR)),
+            StateChange::SetComponent {
+                entity: JONAS,
+                key: JOB.into(),
+                value: "fisher".into(),
+            },
+            StateChange::SetComponent {
+                entity: JONAS,
+                key: EMPLOYER.into(),
+                value: HARBOR.into(),
             },
         ];
         Ok(draft)
