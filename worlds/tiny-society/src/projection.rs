@@ -45,6 +45,7 @@ pub(crate) fn snapshot_since(
 }
 
 fn available_commands(world: &World) -> Vec<ProjectionCommand> {
+    let mut commands = Vec::new();
     let has_order_loss = world
         .events()
         .iter()
@@ -60,16 +61,31 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
     let jonas_is_temp = component_text(world, JONAS, JOB).as_deref() == Some("bakery_temp");
 
     if has_order_loss && !has_dismissal && !has_retention && jonas_is_temp {
-        vec![ProjectionCommand {
+        commands.push(ProjectionCommand {
             id: crate::RETAIN_WORKER_COMMAND.into(),
             title: "Give Jonas another chance".into(),
             detail:
                 "Keep Jonas at the bakery and let this branch continue into a different future."
                     .into(),
-        }]
-    } else {
-        Vec::new()
+        });
     }
+
+    let bakery_closed =
+        component_text(world, BAKERY, OPERATING_STATUS).as_deref() == Some("closed");
+    let mara_can_reopen = component_integer(world, MARA, CASH)
+        .is_some_and(|cash| cash >= crate::BAKERY_REOPEN_INVESTMENT);
+    if bakery_closed && mara_can_reopen {
+        commands.push(ProjectionCommand {
+            id: crate::REOPEN_BAKERY_COMMAND.into(),
+            title: "Reopen with Mara's savings".into(),
+            detail: format!(
+                "Invest {} of Mara's cash to reopen Harbor Bakery. Mara returns to work; former workers are not automatically rehired.",
+                crate::BAKERY_REOPEN_INVESTMENT
+            ),
+        });
+    }
+
+    commands
 }
 
 fn society_briefing(world: &World, since_event_count: Option<usize>) -> BriefingProjection {
@@ -85,6 +101,7 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
         .rev()
         .filter_map(|event| {
             let title = match event.kind.as_str() {
+                "bakery_reopened" => "Mara reopened Harbor Bakery",
                 "bakery_closed" => "Harbor Bakery closed its doors",
                 "payroll_shortfall" => "The bakery could not cover payroll",
                 "work_shift_completed" if event.actor == Some(JONAS) => {
@@ -272,5 +289,12 @@ fn component_text(world: &World, id: EntityId, key: &str) -> Option<String> {
         Value::Bool(value) => Some(value.to_string()),
         Value::Entity(value) => world.state().entity(*value).map(entity_title),
         Value::Null | Value::List(_) | Value::Map(_) => None,
+    }
+}
+
+fn component_integer(world: &World, id: EntityId, key: &str) -> Option<i64> {
+    match world.state().entity(id)?.component(key)? {
+        Value::Integer(value) => Some(*value),
+        _ => None,
     }
 }

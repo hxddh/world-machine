@@ -26,6 +26,8 @@ pub use persistence::{
 };
 
 pub const RETAIN_WORKER_COMMAND: &str = "tiny-society.retain-worker";
+pub const REOPEN_BAKERY_COMMAND: &str = "tiny-society.reopen-bakery";
+pub const BAKERY_REOPEN_INVESTMENT: i64 = 120;
 
 pub struct TinySociety {
     world: World,
@@ -64,6 +66,7 @@ impl TinySocietyBranch {
     ) -> Result<Vec<EventId>, Box<dyn Error>> {
         match command_id {
             RETAIN_WORKER_COMMAND => self.continue_with_retention(),
+            REOPEN_BAKERY_COMMAND => self.reopen_bakery(),
             _ => Err(
                 std::io::Error::other(format!("unknown projection command: {command_id}")).into(),
             ),
@@ -113,6 +116,28 @@ impl TinySocietyBranch {
         let mut events = vec![retained];
         events.extend(self.world.advance_to(&actions, next_shift)?);
         Ok(events)
+    }
+
+    pub fn reopen_bakery(&mut self) -> Result<Vec<EventId>, Box<dyn Error>> {
+        let closure = self
+            .world
+            .events()
+            .iter()
+            .rev()
+            .find(|event| event.kind == "bakery_closed")
+            .map(|event| event.id)
+            .ok_or_else(|| std::io::Error::other("the bakery has not closed"))?;
+        let actions = build_action_registry()?;
+        let reopened = self
+            .world
+            .execute(
+                &actions,
+                &ActionRequest::new("reopen_bakery")
+                    .actor(MARA)
+                    .caused_by(closure),
+            )?
+            .id;
+        Ok(vec![reopened])
     }
 }
 
