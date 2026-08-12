@@ -8,6 +8,11 @@ use world_library::{
     DurableWorldSession, WorldDocumentId, LEGACY_WORLD_DOCUMENT_SUFFIX, WORLD_DOCUMENT_SUFFIX,
 };
 
+struct ForkResult {
+    id: WorldDocumentId,
+    warning: Option<String>,
+}
+
 pub(crate) fn document_action(
     document: &SharedDocument,
     cx: &mut Context<WorldDocumentView>,
@@ -25,8 +30,11 @@ pub(crate) fn document_action(
         .child("Fork World")
         .on_click(cx.listener(move |this, _, _, cx| {
             this.status = Some(match fork_world(&document, cx) {
-                Ok(id) => format!("Forked as {id}"),
-                Err(error) => format!("Fork failed: {error}"),
+                Ok(result) => match result.warning {
+                    Some(warning) => format!("Forked as {} · {warning}", result.id),
+                    None => format!("Forked as {}", result.id),
+                },
+                Err(error) => format!("Fork failed before saving: {error}"),
             });
             cx.notify();
         }))
@@ -35,7 +43,7 @@ pub(crate) fn document_action(
 fn fork_world(
     document: &SharedDocument,
     cx: &mut Context<WorldDocumentView>,
-) -> Result<WorldDocumentId, String> {
+) -> Result<ForkResult, String> {
     let (source_label, registry, library) = {
         let document = document.borrow();
         (
@@ -59,9 +67,30 @@ fn fork_world(
             .map_err(|error| error.to_string())?;
     }
 
-    let session =
-        DurableWorldSession::open(document_id.clone(), registry.as_ref(), library.as_ref())
-            .map_err(|error| error.to_string())?;
+    // From this point on the fork is durable. Reopening, observer initialization,
+    // or window creation failures must not be reported as if persistence failed.
+    let mut session = match DurableWorldSession::open(
+        document_id.clone(),
+        registry.as_ref(),
+        library.as_ref(),
+    ) {
+        Ok(session) => session,
+        Err(error) => {
+            return Ok(ForkResult {
+                id: document_id,
+                warning: Some(format!("saved, but could not reopen it: {error}")),
+            });
+        }
+    };
+
+    let observer_warning = super::observer::catch_up(
+        &mut session,
+        registry.as_ref(),
+        library.as_ref(),
+    )
+    .err()
+    .map(|error| format!("observer clock initialization skipped: {error}"));
+
     let pack = session.pack();
     let title = registry
         .descriptor(&pack.id)
@@ -71,7 +100,7 @@ fn fork_world(
     let library_for_window = Arc::clone(&library);
     let window_title = title.clone();
     let bounds = Bounds::centered(None, size(px(1100.0), px(900.0)), cx);
-    cx.open_window(
+    let opened = cx.open_window(
         WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             ..Default::default()
@@ -87,10 +116,21 @@ fn fork_world(
                 )
             })
         },
-    )
-    .map_err(|error| error.to_string())?;
+    );
 
-    Ok(document_id)
+    let warning = match (observer_warning, opened.err()) {
+        (None, None) => None,
+        (Some(observer), None) => Some(observer),
+        (None, Some(error)) => Some(format!("saved, but could not open its window: {error}")),
+        (Some(observer), Some(error)) => Some(format!(
+            "{observer}; saved, but could not open its window: {error}"
+        )),
+    };
+
+    Ok(ForkResult {
+        id: document_id,
+        warning,
+    })
 }
 
 fn source_world_base(label: &str) -> &str {
