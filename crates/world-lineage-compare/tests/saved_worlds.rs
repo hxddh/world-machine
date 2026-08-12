@@ -94,6 +94,48 @@ fn unrelated_roots_are_not_given_a_false_common_history() {
 }
 
 #[test]
+fn detached_ancestry_is_not_misclassified_as_unrelated() {
+    let index = world_lineage::build_index([
+        detached_record("detached", "External.world"),
+        root_record("local-root"),
+    ])
+    .unwrap();
+
+    assert_eq!(
+        relation_between(&index, &id("detached"), &id("local-root")),
+        SavedWorldRelation::UnresolvedAncestry {
+            left: Some(id("detached")),
+            right: None,
+        }
+    );
+}
+
+#[test]
+fn local_relationships_are_still_provable_below_detached_ancestry() {
+    let index = world_lineage::build_index([
+        detached_record("detached", "External.world"),
+        child_record("left", "detached"),
+        child_record("right", "detached"),
+        child_record("grandchild", "left"),
+    ])
+    .unwrap();
+
+    assert_eq!(
+        relation_between(&index, &id("left"), &id("right")),
+        SavedWorldRelation::Siblings {
+            parent: id("detached")
+        }
+    );
+    assert_eq!(
+        relation_between(&index, &id("left"), &id("grandchild")),
+        SavedWorldRelation::AncestorDescendant {
+            ancestor: id("left"),
+            descendant: id("grandchild"),
+        }
+    );
+}
+
+#[test]
 fn rejects_cross_pack_or_cross_version_saved_worlds() {
     let root = temp_root("pack-mismatch");
     let library = WorldLibrary::new(root.clone());
@@ -118,14 +160,7 @@ fn rejects_cross_pack_or_cross_version_saved_worlds() {
 
 #[test]
 fn relation_helper_reports_missing_nodes_as_unavailable() {
-    let records = vec![LineageRecord {
-        id: id("root"),
-        pack: pack(),
-        world_time: 0,
-        event_count: 0,
-        lineage: None,
-    }];
-    let index = world_lineage::build_index(records).unwrap();
+    let index = world_lineage::build_index([root_record("root")]).unwrap();
 
     assert!(matches!(
         relation_between(&index, &id("root"), &id("missing")),
@@ -212,6 +247,38 @@ fn save_future(
         },
     });
     library.save_document(&id(document), &future).unwrap();
+}
+
+fn root_record(document: &str) -> LineageRecord {
+    LineageRecord {
+        id: id(document),
+        pack: pack(),
+        world_time: 0,
+        event_count: 0,
+        lineage: None,
+    }
+}
+
+fn child_record(document: &str, parent: &str) -> LineageRecord {
+    LineageRecord {
+        id: id(document),
+        pack: pack(),
+        world_time: 10,
+        event_count: 0,
+        lineage: Some(WorldLineage {
+            parent: WorldParent {
+                document: Some(parent.into()),
+                pack: pack(),
+                world_time: 0,
+                event_count: 0,
+            },
+            branch: WorldBranchCause::Fork { label: None },
+        }),
+    }
+}
+
+fn detached_record(document: &str, external_parent: &str) -> LineageRecord {
+    child_record(document, external_parent)
 }
 
 fn archive(pack: WorldPackRef, world_time: u64) -> WorldArchive {
