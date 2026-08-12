@@ -21,7 +21,7 @@ jobs:
       - run: python scripts/m56_fix_script.py
       - run: python scripts/m56_fix_newline.py
       - run: python scripts/m56_managed_store.py
-      - name: Tighten managed-store cleanup and tests
+      - name: Tighten managed-store cleanup, validation, and errors
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -42,6 +42,16 @@ jobs:
               '        validate_entries(&entries)?;\n        validate_managed_entries(&self.path, &entries)?;\n        persist_document(&self.path, &entries)?;',
               1,
           )
+          enum_start = s.index('pub enum CatalogError {')
+          enum_end = s.index('\n}\n\nimpl fmt::Display for CatalogError', enum_start)
+          enum_text = s[enum_start:enum_end]
+          if 'InvalidManagedPath(WorldPackRef)' not in enum_text:
+              enum_text = enum_text.replace(
+                  '    InvalidStoredPath(WorldPackRef),\n',
+                  '    InvalidStoredPath(WorldPackRef),\n    InvalidManagedPath(WorldPackRef),\n    ManagedDestinationExists(WorldPackRef),\n',
+                  1,
+              )
+              s = s[:enum_start] + enum_text + s[enum_end:]
           p.write_text(s)
           PY
       - run: cargo fmt --all
