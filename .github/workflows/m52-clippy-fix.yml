@@ -1,4 +1,4 @@
-name: M52 Clippy Diagnostics
+name: M52 Test Fix
 
 on:
   push:
@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  diagnose:
+  fix:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -17,13 +17,26 @@ jobs:
           ref: m52-pack-process-protocol
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy
-      - name: Capture clippy diagnostics
-        run: cargo clippy -p world-pack-protocol --all-targets --message-format=short -- -D warnings > M52_CLIPPY_LOG.txt 2>&1 || true
-      - name: Commit diagnostics
+          components: rustfmt
+      - name: Fix shadowed snapshot fixture
         run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('crates/world-pack-protocol/src/lib.rs')
+          text = path.read_text()
+          text = text.replace('fn snapshot() -> ProjectionSnapshot {', 'fn sample_snapshot() -> ProjectionSnapshot {')
+          text = text.replace('let snapshot = snapshot();', 'let snapshot = sample_snapshot();')
+          path.write_text(text)
+          PY
+          rm -f M52_CLIPPY_LOG.txt
+          cargo fmt --all
+      - name: Commit fixed sources
+        run: |
+          if git diff --quiet; then
+            exit 0
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add M52_CLIPPY_LOG.txt
-          git commit -m "M52: capture clippy diagnostics" || exit 0
+          git add -A
+          git commit -m "M52: fix projection protocol fixture shadowing"
           git push origin HEAD:m52-pack-process-protocol
