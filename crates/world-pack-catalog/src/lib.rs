@@ -8,9 +8,9 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process;
 use std::sync::atomic::{AtomicU64, Ordering};
-use world_pack_bundle::PackBundle;
+use world_pack_bundle::{PackBundle, PackBundleHeader, PACK_BUNDLE_SUFFIX};
 use world_pack_process::{ProcessPack, ProcessPackPin, ProcessPackSource};
-use world_pack_protocol::PackManifest;
+use world_pack_protocol::{PackDescriptor, PackManifest};
 use world_persistence::WorldPackRef;
 
 pub const PACK_CATALOG_FORMAT: &str = "world-machine-pack-catalog";
@@ -53,6 +53,80 @@ pub enum PackAvailability {
     Invalid { reason: String },
     MissingVersion { installed_versions: Vec<String> },
     NotInstalled,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PackInstallKind {
+    PortableBundle,
+    DeveloperManifest,
+}
+
+impl PackInstallKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::PortableBundle => "Portable .worldpack",
+            Self::DeveloperManifest => "Developer manifest",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct PackInstallPreview {
+    source_path: PathBuf,
+    kind: PackInstallKind,
+    pack: WorldPackRef,
+    title: String,
+    description: String,
+    runtime_name: String,
+    program_bytes: u64,
+    program_sha256: String,
+    evidence: PackInstallEvidence,
+}
+
+impl PackInstallPreview {
+    pub fn source_path(&self) -> &Path {
+        &self.source_path
+    }
+
+    pub fn kind(&self) -> PackInstallKind {
+        self.kind
+    }
+
+    pub fn pack(&self) -> &WorldPackRef {
+        &self.pack
+    }
+
+    pub fn title(&self) -> &str {
+        &self.title
+    }
+
+    pub fn description(&self) -> &str {
+        &self.description
+    }
+
+    pub fn runtime_name(&self) -> &str {
+        &self.runtime_name
+    }
+
+    pub fn program_bytes(&self) -> u64 {
+        self.program_bytes
+    }
+
+    pub fn program_sha256(&self) -> &str {
+        &self.program_sha256
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+enum PackInstallEvidence {
+    Bundle {
+        header: PackBundleHeader,
+    },
+    Manifest {
+        descriptor: PackDescriptor,
+        command_path: PathBuf,
+        pin: ProcessPackPin,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -124,13 +198,125 @@ impl PackCatalog {
         self.entries.iter().find(|entry| entry.pack == *pack)
     }
 
-    /// Explicit installation is the trust decision. It reads and validates the
-    /// manifest but never launches Pack code, then pins both manifest and process
-    /// executable content by SHA-256.
+    /// Inspect installable Pack content without launching it or mutating the catalog.
+    /// The returned preview contains private evidence binding a later approval to the
+    /// exact descriptor/runtime/content identity that was reviewed.
+    pub fn inspect_install(
+        &self,
+        source_path: impl AsRef<Path>,
+    ) -> Result<PackInstallPreview, CatalogError> {
+        let source_path = source_path.as_ref();
+        if source_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.ends_with(PACK_BUNDLE_SUFFIX))
+        {
+            self.inspect_bundle(source_path)
+        } else {
+            self.inspect_manifest(source_path)
+        }
+    }
+
+    /// Explicit installation is the trust decision. Legacy/direct callers still get
+    /// the same behavior, but the operation now goes through the same inspect + exact
+    /// revalidation path used by the Desktop review UI.
     pub fn install_manifest(
         &mut self,
         manifest_path: impl AsRef<Path>,
     ) -> Result<InstalledPack, CatalogError> {
+        let preview = self.inspect_manifest(manifest_path.as_ref())?;
+        self.install_reviewed(&preview)
+    }
+
+    /// Install a portable `.worldpack` without executing any code from the bundle.
+    pub fn install_bundle(
+        &mut self,
+        bundle_path: impl AsRef<Path>,
+    ) -> Result<InstalledPack, CatalogError> {
+        let preview = self.inspect_bundle(bundle_path.as_ref())?;
+        self.install_reviewed(&preview)
+    }
+
+    /// Install only if the source still represents the exact executable identity that
+    /// was inspected. If source content changes between review and approval, no Pack is
+    /// added to the catalog and any managed copy is removed.
+    pub fn install_reviewed(
+        &mut self,
+        preview: &PackInstallPreview,
+    ) -> Result<InstalledPack, CatalogError> {
+        if self.entry(&preview.pack).is_some() {
+            return Err(CatalogError::AlreadyInstalled(preview.pack.clone()));
+        }
+
+        match &preview.evidence {
+            PackInstallEvidence::Bundle { header } => {
+                let bundle = PackBundle::open(&preview.source_path).map_err(bundle_error)?;
+                if bundle.header() != header {
+                    return Err(reviewed_content_changed(
+                        &preview.pack,
+                        "portable bundle header changed after review",
+                    ));
+                }
+                let managed = self.materialize_managed_bundle(bundle)?;
+                self.record_managed_install(managed)
+            }
+            PackInstallEvidence::Manifest {
+                descriptor,
+                command_path,
+                pin,
+            } => {
+                let source = ProcessPack::load(&preview.source_path).map_err(process_error)?;
+                if !source.args.is_empty() {
+                    return Err(CatalogError::RuntimeArgumentsNotPinnable(
+                        source.descriptor.pack,
+                    ));
+                }
+                let current_pin = source.current_pin().map_err(process_error)?;
+                if source.descriptor != *descriptor
+                    || source.command != *command_path
+                    || current_pin != *pin
+                {
+                    return Err(reviewed_content_changed(
+                        &preview.pack,
+                        "developer manifest or executable changed after review",
+                    ));
+                }
+
+                let managed = self.materialize_managed_pack(&source)?;
+                self.verify_reviewed_managed_program(&managed, pin.command_sha256())?;
+                self.record_managed_install(managed)
+            }
+        }
+    }
+
+    fn inspect_bundle(&self, bundle_path: &Path) -> Result<PackInstallPreview, CatalogError> {
+        let source_path = bundle_path
+            .canonicalize()
+            .map_err(|error| CatalogError::Io {
+                operation: "resolve Pack bundle",
+                path: bundle_path.to_path_buf(),
+                message: error.to_string(),
+            })?;
+        let bundle = PackBundle::open(&source_path).map_err(bundle_error)?;
+        let header = bundle.header().clone();
+        let descriptor = &header.manifest.descriptor;
+        if self.entry(&descriptor.pack).is_some() {
+            return Err(CatalogError::AlreadyInstalled(descriptor.pack.clone()));
+        }
+        Ok(PackInstallPreview {
+            source_path,
+            kind: PackInstallKind::PortableBundle,
+            pack: descriptor.pack.clone(),
+            title: descriptor.title.clone(),
+            description: descriptor.description.clone(),
+            runtime_name: bundle.program_name().to_owned(),
+            program_bytes: header.program_bytes,
+            program_sha256: header.program_sha256.clone(),
+            evidence: PackInstallEvidence::Bundle { header },
+        })
+    }
+
+    fn inspect_manifest(&self, manifest_path: &Path) -> Result<PackInstallPreview, CatalogError> {
         let source = ProcessPack::load(manifest_path).map_err(process_error)?;
         if !source.args.is_empty() {
             return Err(CatalogError::RuntimeArgumentsNotPinnable(
@@ -140,27 +326,34 @@ impl PackCatalog {
         if self.entry(&source.descriptor.pack).is_some() {
             return Err(CatalogError::AlreadyInstalled(source.descriptor.pack));
         }
-
-        // The explicit approval is materialized into a World Machine-owned copy.
-        // The catalog never relies on the user's download/source path after this point.
-        let managed = self.materialize_managed_pack(&source)?;
-        self.record_managed_install(managed)
-    }
-
-    /// Install a portable `.worldpack` without executing any code from the bundle.
-    /// v1 bundles contain one direct program only; extraction verifies the embedded
-    /// SHA-256 before the managed Pack is published and pinned for runtime launch.
-    pub fn install_bundle(
-        &mut self,
-        bundle_path: impl AsRef<Path>,
-    ) -> Result<InstalledPack, CatalogError> {
-        let bundle = PackBundle::open(bundle_path).map_err(bundle_error)?;
-        let pack = bundle.manifest().descriptor.pack.clone();
-        if self.entry(&pack).is_some() {
-            return Err(CatalogError::AlreadyInstalled(pack));
-        }
-        let managed = self.materialize_managed_bundle(bundle)?;
-        self.record_managed_install(managed)
+        let pin = source.current_pin().map_err(process_error)?;
+        let program_bytes = fs::metadata(&source.command)
+            .map_err(|error| CatalogError::Io {
+                operation: "inspect Pack executable",
+                path: source.command.clone(),
+                message: error.to_string(),
+            })?
+            .len();
+        let runtime_name = source
+            .command
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| source.command.display().to_string());
+        Ok(PackInstallPreview {
+            source_path: source.manifest_path.clone(),
+            kind: PackInstallKind::DeveloperManifest,
+            pack: source.descriptor.pack.clone(),
+            title: source.descriptor.title.clone(),
+            description: source.descriptor.description.clone(),
+            runtime_name,
+            program_bytes,
+            program_sha256: pin.command_sha256().into(),
+            evidence: PackInstallEvidence::Manifest {
+                descriptor: source.descriptor,
+                command_path: source.command,
+                pin,
+            },
+        })
     }
 
     pub fn set_enabled(&mut self, pack: &WorldPackRef, enabled: bool) -> Result<(), CatalogError> {
@@ -291,6 +484,26 @@ impl PackCatalog {
         } else {
             PackAvailability::MissingVersion { installed_versions }
         }
+    }
+
+    fn verify_reviewed_managed_program(
+        &self,
+        managed: &ProcessPack,
+        expected_sha256: &str,
+    ) -> Result<(), CatalogError> {
+        let pack = managed.descriptor.pack.clone();
+        let result = match managed.current_pin() {
+            Ok(pin) if pin.command_sha256() == expected_sha256 => Ok(()),
+            Ok(_) => Err(reviewed_content_changed(
+                &pack,
+                "executable changed while it was copied into the managed store",
+            )),
+            Err(error) => Err(process_error(error)),
+        };
+        if result.is_err() {
+            cleanup_managed_pack_identity(&self.path, &pack);
+        }
+        result
     }
 
     fn record_managed_install(
@@ -439,20 +652,17 @@ impl PackCatalog {
                 path: staged_program.clone(),
                 message: error.to_string(),
             })?;
-            let permissions = fs::metadata(&source.command)
-                .map_err(|error| CatalogError::Io {
-                    operation: "read approved Pack executable permissions",
-                    path: source.command.clone(),
-                    message: error.to_string(),
-                })?
-                .permissions();
-            fs::set_permissions(&staged_program, permissions).map_err(|error| {
-                CatalogError::Io {
-                    operation: "set managed Pack executable permissions",
-                    path: staged_program.clone(),
-                    message: error.to_string(),
-                }
-            })?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                fs::set_permissions(&staged_program, fs::Permissions::from_mode(0o700)).map_err(
+                    |error| CatalogError::Io {
+                        operation: "set managed Pack executable permissions",
+                        path: staged_program.clone(),
+                        message: error.to_string(),
+                    },
+                )?;
+            }
             if let Ok(file) = OpenOptions::new().read(true).open(&staged_program) {
                 file.sync_all().map_err(|error| CatalogError::Io {
                     operation: "sync managed Pack executable",
@@ -778,6 +988,13 @@ fn persist_document(path: &Path, entries: &[InstalledPack]) -> Result<(), Catalo
     Ok(())
 }
 
+fn reviewed_content_changed(pack: &WorldPackRef, reason: impl Into<String>) -> CatalogError {
+    CatalogError::ReviewedContentChanged {
+        pack: pack.clone(),
+        reason: reason.into(),
+    }
+}
+
 fn bundle_error(error: impl fmt::Display) -> CatalogError {
     CatalogError::Bundle(error.to_string())
 }
@@ -808,6 +1025,10 @@ pub enum CatalogError {
     InvalidStoredPath(WorldPackRef),
     InvalidManagedPath(WorldPackRef),
     ManagedDestinationExists(WorldPackRef),
+    ReviewedContentChanged {
+        pack: WorldPackRef,
+        reason: String,
+    },
     PackIdentityChanged {
         expected: WorldPackRef,
         found: WorldPackRef,
@@ -866,6 +1087,11 @@ impl fmt::Display for CatalogError {
             Self::ManagedDestinationExists(pack) => write!(
                 f,
                 "managed Pack destination already exists for {}@{}",
+                pack.id, pack.version
+            ),
+            Self::ReviewedContentChanged { pack, reason } => write!(
+                f,
+                "reviewed Pack {}@{} changed before installation: {reason}",
                 pack.id, pack.version
             ),
             Self::PackIdentityChanged { expected, found } => write!(f, "installed Pack identity changed: expected {}@{}, found {}@{}", expected.id, expected.version, found.id, found.version),
@@ -941,6 +1167,112 @@ mod tests {
     }
 
     #[test]
+    fn inspection_never_executes_a_developer_pack() {
+        let root = temp_dir("review-no-exec");
+        let marker = root.join("executed");
+        let runtime = root.join("runtime.sh");
+        fs::write(
+            &runtime,
+            format!("#!/bin/sh\ntouch '{}'\n", marker.display()),
+        )
+        .unwrap();
+        let descriptor = PackDescriptor::new(pack("fixture.review", "v1"), "Review", "fixture");
+        let manifest = PackManifest::process(
+            descriptor,
+            runtime.file_name().unwrap().to_string_lossy(),
+            Vec::new(),
+        );
+        let manifest_path = root.join("fixture.world-pack.json");
+        fs::write(&manifest_path, manifest.to_json_pretty().unwrap()).unwrap();
+
+        let catalog = PackCatalog::open(root.join("catalog.json")).unwrap();
+        let preview = catalog.inspect_install(&manifest_path).unwrap();
+        assert_eq!(preview.kind, PackInstallKind::DeveloperManifest);
+        assert_eq!(preview.pack, pack("fixture.review", "v1"));
+        assert_eq!(preview.runtime_name, "runtime.sh");
+        assert!(!marker.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn reviewed_manifest_normalizes_managed_executable_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = temp_dir("review-permissions");
+        let manifest_path = write_pack(&root, "fixture.review-mode", "v1");
+        let runtime = root.join("fixture.review-mode-v1-runtime.sh");
+        fs::set_permissions(&runtime, fs::Permissions::from_mode(0o700)).unwrap();
+
+        let mut catalog = PackCatalog::open(root.join("catalog.json")).unwrap();
+        let preview = catalog.inspect_install(&manifest_path).unwrap();
+        fs::set_permissions(&runtime, fs::Permissions::from_mode(0o600)).unwrap();
+
+        let installed = catalog.install_reviewed(&preview).unwrap();
+        let mode = fs::metadata(&installed.command_path)
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(mode, 0o700);
+    }
+
+    #[test]
+    fn failed_post_copy_pin_verification_removes_managed_destination() {
+        let root = temp_dir("review-post-copy-cleanup");
+        let manifest_path = write_pack(&root, "fixture.review-cleanup", "v1");
+        let source = ProcessPack::load(&manifest_path).unwrap();
+        let catalog = PackCatalog::open(root.join("catalog.json")).unwrap();
+        let managed = catalog.materialize_managed_pack(&source).unwrap();
+        let pack = managed.descriptor.pack.clone();
+        fs::remove_file(&managed.command).unwrap();
+
+        let error = catalog
+            .verify_reviewed_managed_program(&managed, "not-used-after-read-failure")
+            .unwrap_err();
+        assert!(matches!(error, CatalogError::Process(_)));
+        assert!(!managed_pack_dir(catalog.path(), &pack).exists());
+    }
+
+    #[test]
+    fn reviewed_manifest_refuses_changed_executable_without_installing() {
+        let root = temp_dir("review-manifest-change");
+        let manifest_path = write_pack(&root, "fixture.review-change", "v1");
+        let mut catalog = PackCatalog::open(root.join("catalog.json")).unwrap();
+        let preview = catalog.inspect_install(&manifest_path).unwrap();
+        let runtime = root.join("fixture.review-change-v1-runtime.sh");
+        fs::write(&runtime, "#!/bin/sh\necho changed\n").unwrap();
+
+        let error = catalog.install_reviewed(&preview).unwrap_err();
+        assert!(matches!(error, CatalogError::ReviewedContentChanged { .. }));
+        assert!(catalog.entries().is_empty());
+        assert!(!managed_pack_dir(catalog.path(), &preview.pack).exists());
+    }
+
+    #[test]
+    fn reviewed_bundle_refuses_replacement_without_installing() {
+        use world_pack_bundle::write_program_bundle;
+
+        let root = temp_dir("review-bundle-change");
+        let program = root.join("bundle-runtime");
+        fs::write(&program, b"approved-program").unwrap();
+        let descriptor =
+            PackDescriptor::new(pack("fixture.review-bundle", "v1"), "Bundle", "fixture");
+        let bundle_path = root.join("fixture.worldpack");
+        write_program_bundle(&bundle_path, descriptor.clone(), &program).unwrap();
+
+        let mut catalog = PackCatalog::open(root.join("catalog.json")).unwrap();
+        let preview = catalog.inspect_install(&bundle_path).unwrap();
+        fs::remove_file(&bundle_path).unwrap();
+        fs::write(&program, b"replacement-program").unwrap();
+        write_program_bundle(&bundle_path, descriptor, &program).unwrap();
+
+        let error = catalog.install_reviewed(&preview).unwrap_err();
+        assert!(matches!(error, CatalogError::ReviewedContentChanged { .. }));
+        assert!(catalog.entries().is_empty());
+        assert!(!managed_pack_dir(catalog.path(), &preview.pack).exists());
+    }
+
+    #[test]
     fn portable_bundle_preserves_executable_suffix_in_managed_manifest() {
         use world_pack_bundle::write_program_bundle;
 
@@ -982,7 +1314,9 @@ mod tests {
         let mut catalog = PackCatalog::open(root.join("catalog.json")).unwrap();
         let installed = catalog.install_bundle(&bundle_path).unwrap();
         assert!(installed.managed);
-        assert!(installed.command_path.starts_with(root.join("Installed")));
+        assert!(installed
+            .command_path
+            .starts_with(managed_store_root(catalog.path())));
         fs::remove_file(&bundle_path).unwrap();
         fs::remove_file(&program).unwrap();
         assert!(catalog.trusted_source().is_ok());

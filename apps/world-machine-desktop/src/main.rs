@@ -36,9 +36,7 @@ use world_library::{
 #[cfg(target_os = "macos")]
 use world_lineage::LineageIndex;
 #[cfg(target_os = "macos")]
-use world_pack_bundle::PACK_BUNDLE_SUFFIX;
-#[cfg(target_os = "macos")]
-use world_pack_catalog::{InstalledPack, PackAvailability, PackCatalog};
+use world_pack_catalog::{InstalledPack, PackAvailability, PackCatalog, PackInstallPreview};
 #[cfg(target_os = "macos")]
 use world_persistence::WorldPackRef;
 
@@ -259,6 +257,7 @@ struct WorldMachineHome {
     pack_catalog_path: PathBuf,
     documents: Vec<WorldDocumentSummary>,
     lineage: Option<LineageIndex>,
+    pending_pack_install: Option<PackInstallPreview>,
     status: Option<String>,
 }
 
@@ -341,43 +340,65 @@ impl WorldMachineHome {
                         }
                     }
                 }
-                let catalog = this.pack_catalog.as_mut().unwrap();
-                let install_result = if manifest
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .is_some_and(|name| name.ends_with(PACK_BUNDLE_SUFFIX))
-                {
-                    catalog.install_bundle(&manifest)
-                } else {
-                    catalog.install_manifest(&manifest)
-                };
-                let installed = match install_result {
-                    Ok(installed) => installed,
+                let catalog = this.pack_catalog.as_ref().unwrap();
+                match catalog.inspect_install(&manifest) {
+                    Ok(preview) => {
+                        this.status = Some(format!(
+                            "Review {} @ {} before trusting its executable bytes",
+                            preview.pack().id,
+                            preview.pack().version
+                        ));
+                        this.pending_pack_install = Some(preview);
+                    }
                     Err(error) => {
+                        this.pending_pack_install = None;
                         this.status =
-                            Some(format!("Could not install {}: {error}", manifest.display()));
-                        cx.notify();
-                        return;
-                    }
-                };
-                match this.rebuild_registry() {
-                    Ok(()) => {
-                        this.status = Some(format!(
-                            "Installed {} · {} @ {} is now active for new Worlds",
-                            installed.title, installed.pack.id, installed.pack.version
-                        ));
-                    }
-                    Err(error) => {
-                        this.status = Some(format!(
-                            "Installed {} @ {}, but external Packs could not be activated: {error}",
-                            installed.pack.id, installed.pack.version
-                        ));
+                            Some(format!("Could not inspect {}: {error}", manifest.display()));
                     }
                 }
                 cx.notify();
             });
         })
         .detach();
+    }
+
+    fn confirm_pack_install(&mut self, cx: &mut Context<Self>) {
+        let Some(preview) = self.pending_pack_install.clone() else {
+            return;
+        };
+        let Some(catalog) = self.pack_catalog.as_mut() else {
+            return;
+        };
+        let result = catalog.install_reviewed(&preview);
+        self.pending_pack_install = None;
+        match result {
+            Ok(installed) => match self.rebuild_registry() {
+                Ok(()) => {
+                    self.status = Some(format!(
+                        "Installed and trusted {} · {} @ {} is now active for new Worlds",
+                        installed.title, installed.pack.id, installed.pack.version
+                    ));
+                }
+                Err(error) => {
+                    self.status = Some(format!(
+                        "Installed {} @ {}, but external Packs could not be activated: {error}",
+                        installed.pack.id, installed.pack.version
+                    ));
+                }
+            },
+            Err(error) => {
+                self.status = Some(format!(
+                    "Pack was not installed. Re-open it to review current content: {error}"
+                ));
+            }
+        }
+        cx.notify();
+    }
+
+    fn cancel_pack_install(&mut self, cx: &mut Context<Self>) {
+        self.pending_pack_install = None;
+        self.status = Some("Pack installation cancelled; no external code was installed.".into());
+        cx.notify();
     }
 
     fn activate_pack(&mut self, pack: WorldPackRef, cx: &mut Context<Self>) {
@@ -902,6 +923,83 @@ impl WorldMachineHome {
             )
     }
 
+    fn pack_install_review_card(
+        &self,
+        preview: PackInstallPreview,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let format = preview.kind().label();
+        let size = format_program_size(preview.program_bytes());
+        let source = preview.source_path().display().to_string();
+        let pack = format!("{} @ {}", preview.pack().id, preview.pack().version);
+        let runtime = preview.runtime_name().to_owned();
+        let sha = preview.program_sha256().to_owned();
+
+        div()
+            .id("pack-install-review")
+            .w_full()
+            .p_4()
+            .rounded_md()
+            .border_1()
+            .border_color(rgb(0xc7a85a))
+            .bg(rgb(0xfffbeb))
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(div().text_lg().child("Review Pack Install"))
+            .child(div().text_lg().child(preview.title().to_owned()))
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(rgb(0x666666))
+                    .child(preview.description().to_owned()),
+            )
+            .child(div().text_xs().child(format!("Identity · {pack}")))
+            .child(div().text_xs().child(format!("Format · {format}")))
+            .child(div().text_xs().child(format!("Will execute · {runtime}")))
+            .child(div().text_xs().child(format!("Executable · {size}")))
+            .child(div().text_xs().child(format!("SHA-256 · {sha}")))
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0x777770))
+                    .child(format!("Source · {source}")),
+            )
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(rgb(0x6f5420))
+                    .child("No Pack code has run. Install & Trust approves these exact executable bytes; any change before installation is rejected."),
+            )
+            .child(
+                div()
+                    .flex()
+                    .gap_2()
+                    .child(
+                        div()
+                            .id("confirm-pack-install")
+                            .cursor_pointer()
+                            .p_2()
+                            .rounded_md()
+                            .border_1()
+                            .border_color(rgb(0x8c6a23))
+                            .child("Install & Trust")
+                            .on_click(cx.listener(|this, _, _, cx| this.confirm_pack_install(cx))),
+                    )
+                    .child(
+                        div()
+                            .id("cancel-pack-install")
+                            .cursor_pointer()
+                            .p_2()
+                            .rounded_md()
+                            .border_1()
+                            .border_color(rgb(0xd9d9d3))
+                            .child("Cancel")
+                            .on_click(cx.listener(|this, _, _, cx| this.cancel_pack_install(cx))),
+                    ),
+            )
+    }
+
     fn installed_pack_card(&self, pack: InstalledPack, cx: &mut Context<Self>) -> impl IntoElement {
         let availability = self
             .pack_catalog
@@ -1136,7 +1234,13 @@ impl Render for WorldMachineHome {
             )
             .child(div().text_sm().text_color(rgb(0x666666)).child(
                 "Worlds are portable documents. Double-click an external .world to edit it in place; Import copies it into My Worlds.",
-            ))
+            ));
+
+        if let Some(preview) = self.pending_pack_install.clone() {
+            body = body.child(self.pack_install_review_card(preview, cx));
+        }
+
+        body = body
             .child(div().text_sm().child("My Worlds"))
             .child(saved)
             .child(div().text_sm().child("Installed Packs"))
@@ -1155,6 +1259,19 @@ impl Render for WorldMachineHome {
             );
         }
         body
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn format_program_size(bytes: u64) -> String {
+    const KIB: u64 = 1024;
+    const MIB: u64 = 1024 * KIB;
+    if bytes >= MIB {
+        format!("{:.1} MiB · {bytes} bytes", bytes as f64 / MIB as f64)
+    } else if bytes >= KIB {
+        format!("{:.1} KiB · {bytes} bytes", bytes as f64 / KIB as f64)
+    } else {
+        format!("{bytes} bytes")
     }
 }
 
@@ -1388,6 +1505,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 pack_catalog_path,
                 documents,
                 lineage,
+                pending_pack_install: None,
                 status,
             };
             home.start_system_open_listener(cx);
