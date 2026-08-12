@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt;
 use std::fs::{self, OpenOptions};
@@ -26,6 +26,7 @@ pub struct InstalledPack {
     pub command_sha256: String,
     pub approval: PackApproval,
     pub enabled: bool,
+    pub active: bool,
 }
 
 impl InstalledPack {
@@ -136,12 +137,19 @@ impl PackCatalog {
             command_sha256: identity.command_sha256().into(),
             approval: PackApproval::ExplicitInstall,
             enabled: true,
+            active: true,
         };
         if self.entry(&installed.pack).is_some() {
             return Err(CatalogError::AlreadyInstalled(installed.pack));
         }
 
         let mut entries = self.entries.clone();
+        for entry in entries
+            .iter_mut()
+            .filter(|entry| entry.pack.id == installed.pack.id)
+        {
+            entry.active = false;
+        }
         entries.push(installed.clone());
         sort_entries(&mut entries);
         self.commit(entries)?;
@@ -150,17 +158,67 @@ impl PackCatalog {
 
     pub fn set_enabled(&mut self, pack: &WorldPackRef, enabled: bool) -> Result<(), CatalogError> {
         let mut entries = self.entries.clone();
-        let entry = entries
-            .iter_mut()
-            .find(|entry| entry.pack == *pack)
+        let index = entries
+            .iter()
+            .position(|entry| entry.pack == *pack)
             .ok_or_else(|| CatalogError::NotInstalled(pack.clone()))?;
-        entry.enabled = enabled;
+
+        if enabled {
+            if entries[index].enabled {
+                return Ok(());
+            }
+            let has_active = entries
+                .iter()
+                .any(|entry| entry.pack.id == pack.id && entry.enabled && entry.active);
+            entries[index].enabled = true;
+            entries[index].active = !has_active;
+        } else {
+            if !entries[index].enabled {
+                return Ok(());
+            }
+            if entries[index].active
+                && entries.iter().enumerate().any(|(candidate, entry)| {
+                    candidate != index && entry.pack.id == pack.id && entry.enabled
+                })
+            {
+                return Err(CatalogError::ActivePackRequiresReplacement(pack.clone()));
+            }
+            entries[index].enabled = false;
+            entries[index].active = false;
+        }
+        self.commit(entries)
+    }
+
+    /// Explicitly choose which installed, enabled version is used for new Worlds.
+    /// Version strings remain opaque; activation is a product decision, never a sort result.
+    pub fn activate(&mut self, pack: &WorldPackRef) -> Result<(), CatalogError> {
+        let mut entries = self.entries.clone();
+        let index = entries
+            .iter()
+            .position(|entry| entry.pack == *pack)
+            .ok_or_else(|| CatalogError::NotInstalled(pack.clone()))?;
+        if !entries[index].enabled {
+            return Err(CatalogError::DisabledCannotActivate(pack.clone()));
+        }
+        for entry in entries.iter_mut().filter(|entry| entry.pack.id == pack.id) {
+            entry.active = false;
+        }
+        entries[index].active = true;
         self.commit(entries)
     }
 
     pub fn uninstall(&mut self, pack: &WorldPackRef) -> Result<(), CatalogError> {
-        if self.entry(pack).is_none() {
-            return Err(CatalogError::NotInstalled(pack.clone()));
+        let index = self
+            .entries
+            .iter()
+            .position(|entry| entry.pack == *pack)
+            .ok_or_else(|| CatalogError::NotInstalled(pack.clone()))?;
+        if self.entries[index].active
+            && self.entries.iter().enumerate().any(|(candidate, entry)| {
+                candidate != index && entry.pack.id == pack.id && entry.enabled
+            })
+        {
+            return Err(CatalogError::ActivePackRequiresReplacement(pack.clone()));
         }
         let entries = self
             .entries
@@ -175,10 +233,25 @@ impl PackCatalog {
     /// The returned ProcessPack values also carry the stored pins, so the same
     /// content check runs again immediately before each child process launch.
     pub fn trusted_source(&self) -> Result<ProcessPackSource, CatalogError> {
-        let mut packs = Vec::new();
-        for entry in self.entries.iter().filter(|entry| entry.enabled) {
-            packs.push(self.verified_pack(entry)?);
-        }
+        let mut entries = self
+            .entries
+            .iter()
+            .filter(|entry| entry.enabled)
+            .collect::<Vec<_>>();
+        // Host intentionally makes the last registration for one Pack id active.
+        // We only use ordering to encode the catalog's explicit `active` bit;
+        // version strings are opaque and merely stabilize ordering among historical versions.
+        entries.sort_by(|left, right| {
+            (&left.pack.id, left.active, &left.pack.version).cmp(&(
+                &right.pack.id,
+                right.active,
+                &right.pack.version,
+            ))
+        });
+        let packs = entries
+            .into_iter()
+            .map(|entry| self.verified_pack(entry))
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(ProcessPackSource::from_packs(packs))
     }
 
@@ -259,6 +332,8 @@ impl PackCatalog {
 
 fn validate_entries(entries: &[InstalledPack]) -> Result<(), CatalogError> {
     let mut identities = BTreeSet::new();
+    let mut enabled_by_id = BTreeMap::<String, usize>::new();
+    let mut active_by_id = BTreeMap::<String, usize>::new();
     for entry in entries {
         if entry.pack.id.trim().is_empty()
             || entry.pack.version.trim().is_empty()
@@ -267,6 +342,7 @@ fn validate_entries(entries: &[InstalledPack]) -> Result<(), CatalogError> {
             || entry.command_sha256.len() != 64
             || !entry.manifest_path.is_absolute()
             || !entry.command_path.is_absolute()
+            || (entry.active && !entry.enabled)
         {
             return Err(CatalogError::InvalidEntry(entry.pack.clone()));
         }
@@ -274,10 +350,20 @@ fn validate_entries(entries: &[InstalledPack]) -> Result<(), CatalogError> {
         if !identities.insert(key) {
             return Err(CatalogError::DuplicateEntry(entry.pack.clone()));
         }
+        if entry.enabled {
+            *enabled_by_id.entry(entry.pack.id.clone()).or_default() += 1;
+        }
+        if entry.active {
+            *active_by_id.entry(entry.pack.id.clone()).or_default() += 1;
+        }
+    }
+    for (id, enabled) in enabled_by_id {
+        if enabled > 0 && active_by_id.get(&id).copied().unwrap_or_default() != 1 {
+            return Err(CatalogError::InvalidActiveSelection(id));
+        }
     }
     Ok(())
 }
-
 fn sort_entries(entries: &mut [InstalledPack]) {
     entries.sort_by(|left, right| {
         (&left.pack.id, &left.pack.version).cmp(&(&right.pack.id, &right.pack.version))
@@ -356,6 +442,9 @@ pub enum CatalogError {
     DuplicateEntry(WorldPackRef),
     AlreadyInstalled(WorldPackRef),
     NotInstalled(WorldPackRef),
+    DisabledCannotActivate(WorldPackRef),
+    ActivePackRequiresReplacement(WorldPackRef),
+    InvalidActiveSelection(String),
     InvalidStoredPath(WorldPackRef),
     PackIdentityChanged {
         expected: WorldPackRef,
@@ -386,6 +475,20 @@ impl fmt::Display for CatalogError {
             Self::DuplicateEntry(pack) => write!(f, "duplicate installed Pack entry: {}@{}", pack.id, pack.version),
             Self::AlreadyInstalled(pack) => write!(f, "Pack is already installed: {}@{}", pack.id, pack.version),
             Self::NotInstalled(pack) => write!(f, "Pack is not installed: {}@{}", pack.id, pack.version),
+            Self::DisabledCannotActivate(pack) => write!(
+                f,
+                "disabled Pack cannot become active: {}@{}",
+                pack.id, pack.version
+            ),
+            Self::ActivePackRequiresReplacement(pack) => write!(
+                f,
+                "active Pack {}@{} has another enabled version; activate its replacement first",
+                pack.id, pack.version
+            ),
+            Self::InvalidActiveSelection(id) => write!(
+                f,
+                "Pack catalog must select exactly one active enabled version for {id}"
+            ),
             Self::InvalidStoredPath(pack) => write!(f, "installed Pack contains a non-absolute path: {}@{}", pack.id, pack.version),
             Self::PackIdentityChanged { expected, found } => write!(f, "installed Pack identity changed: expected {}@{}, found {}@{}", expected.id, expected.version, found.id, found.version),
             Self::CommandPathChanged { pack, expected, found } => write!(f, "installed Pack {}@{} executable path changed: expected {}, found {}", pack.id, pack.version, expected.display(), found.display()),
@@ -446,6 +549,7 @@ mod tests {
         let installed = catalog.install_manifest(&manifest).unwrap();
         assert_eq!(installed.pack, pack("fixture", "1"));
         assert!(installed.enabled);
+        assert!(installed.active);
         assert_eq!(installed.approval, PackApproval::ExplicitInstall);
         assert!(installed.manifest_path.is_absolute());
         assert!(installed.command_path.is_absolute());
@@ -469,6 +573,68 @@ mod tests {
             Err(CatalogError::AlreadyInstalled(found)) if found == installed.pack
         ));
         assert_eq!(catalog.entries(), &[installed]);
+    }
+
+    #[test]
+    fn explicit_install_and_activate_choose_active_version_without_interpreting_versions() {
+        let root = temp_dir("active-version");
+        let catalog_path = root.join("catalog.json");
+        let old_manifest = write_pack(&root, "fixture", "z-old");
+        let new_manifest = write_pack(&root, "fixture", "a-new");
+        let mut catalog = PackCatalog::open(&catalog_path).unwrap();
+        let old = catalog.install_manifest(&old_manifest).unwrap();
+        let new = catalog.install_manifest(&new_manifest).unwrap();
+
+        assert!(!catalog.entry(&old.pack).unwrap().active);
+        assert!(catalog.entry(&new.pack).unwrap().active);
+        let source = catalog.trusted_source().unwrap();
+        let mut registry = WorldRegistry::new();
+        registry.install_source(&source).unwrap();
+        assert_eq!(
+            registry.descriptor("fixture").unwrap().pack.version,
+            "a-new"
+        );
+        assert!(registry.descriptor_for(&old.pack).is_some());
+
+        catalog.activate(&old.pack).unwrap();
+        let source = catalog.trusted_source().unwrap();
+        let mut registry = WorldRegistry::new();
+        registry.install_source(&source).unwrap();
+        assert_eq!(
+            registry.descriptor("fixture").unwrap().pack.version,
+            "z-old"
+        );
+        assert!(registry.descriptor_for(&new.pack).is_some());
+    }
+
+    #[test]
+    fn active_enabled_version_requires_explicit_replacement_before_disable_or_uninstall() {
+        let root = temp_dir("active-replacement");
+        let catalog_path = root.join("catalog.json");
+        let first = write_pack(&root, "fixture", "one");
+        let second = write_pack(&root, "fixture", "two");
+        let mut catalog = PackCatalog::open(&catalog_path).unwrap();
+        let first = catalog.install_manifest(&first).unwrap();
+        let second = catalog.install_manifest(&second).unwrap();
+
+        assert!(matches!(
+            catalog.set_enabled(&second.pack, false),
+            Err(CatalogError::ActivePackRequiresReplacement(found)) if found == second.pack
+        ));
+        assert!(matches!(
+            catalog.uninstall(&second.pack),
+            Err(CatalogError::ActivePackRequiresReplacement(found)) if found == second.pack
+        ));
+
+        catalog.activate(&first.pack).unwrap();
+        catalog.set_enabled(&second.pack, false).unwrap();
+        assert!(catalog.entry(&first.pack).unwrap().active);
+        assert!(!catalog.entry(&second.pack).unwrap().enabled);
+        assert!(!catalog.entry(&second.pack).unwrap().active);
+        assert!(matches!(
+            catalog.activate(&second.pack),
+            Err(CatalogError::DisabledCannotActivate(found)) if found == second.pack
+        ));
     }
 
     #[test]
