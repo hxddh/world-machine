@@ -24,6 +24,7 @@ jobs:
               - 'crates/world-strategy-gpui/**'
               - 'crates/world-lineage-gpui/**'
               - 'crates/world-pack-protocol/**'
+              - 'crates/world-pack-bundle/**'
               - 'crates/world-pack-process/**'
               - 'crates/world-pack-catalog/**'
               - 'crates/world-pack-server/**'
