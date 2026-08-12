@@ -22,6 +22,8 @@ jobs:
             gpui:
               - 'crates/world-gpui/**'
               - 'crates/world-strategy-gpui/**'
+              - 'crates/world-lineage-gpui/**'
+              - 'crates/world-lineage/**'
               - 'crates/world-projection/**'
               - 'crates/world-compare/**'
               - 'crates/world-strategy/**'
@@ -32,6 +34,7 @@ jobs:
               - 'apps/future-archaeologist-desktop/**'
               - 'apps/world-machine-desktop/**'
               - 'apps/strategy-comparison-desktop/**'
+              - 'apps/lineage-library-desktop/**'
               - 'worlds/tiny-society/**'
               - 'worlds/future-archaeologist/**'
               - 'Cargo.toml'
@@ -51,8 +54,8 @@ jobs:
           shared-key: semantic
       - run: bash ./scripts/check-boundaries.sh
       - run: cargo fmt --all -- --check
-      - run: cargo clippy --workspace --exclude world-gpui --exclude world-strategy-gpui --exclude tiny-society-desktop --exclude future-archaeologist-desktop --exclude world-machine-desktop --exclude strategy-comparison-desktop --all-targets -- -D warnings
-      - run: cargo test --workspace --exclude world-gpui --exclude world-strategy-gpui --exclude tiny-society-desktop --exclude future-archaeologist-desktop --exclude world-machine-desktop --exclude strategy-comparison-desktop
+      - run: cargo clippy --workspace --exclude world-gpui --exclude world-strategy-gpui --exclude world-lineage-gpui --exclude tiny-society-desktop --exclude future-archaeologist-desktop --exclude world-machine-desktop --exclude strategy-comparison-desktop --exclude lineage-library-desktop --all-targets -- -D warnings
+      - run: cargo test --workspace --exclude world-gpui --exclude world-strategy-gpui --exclude world-lineage-gpui --exclude tiny-society-desktop --exclude future-archaeologist-desktop --exclude world-machine-desktop --exclude strategy-comparison-desktop --exclude lineage-library-desktop
 
   gpui-macos:
     needs: changes
@@ -67,10 +70,12 @@ jobs:
       - run: cargo test -p world-library
       - run: cargo check -p world-gpui
       - run: cargo check -p world-strategy-gpui
+      - run: cargo check -p world-lineage-gpui
       - run: cargo test -p tiny-society-desktop
       - run: cargo test -p future-archaeologist-desktop
       - run: cargo test -p world-machine-desktop
       - run: cargo test -p strategy-comparison-desktop
+      - run: cargo test -p lineage-library-desktop
       - name: Build and validate World Machine.app
         run: bash apps/world-machine-desktop/macos/build-app.sh
       - name: Archive World Machine.app
