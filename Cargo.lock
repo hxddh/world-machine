@@ -3842,8 +3842,9 @@ dependencies = [
 
 [[package]]
 name = "pocket-universe"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
+ "world-agent",
  "world-core",
  "world-host",
  "world-persistence",
@@ -3852,7 +3853,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-universe-pack"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "pocket-universe",
  "world-host",

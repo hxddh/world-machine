@@ -1,4 +1,7 @@
-use pocket_universe::{BOLD_PATH_COMMAND, POCKET_UNIVERSE_PACK_ID, SEED_MARS_COLONY_COMMAND};
+use pocket_universe::{
+    BOLD_PATH_COMMAND, POCKET_UNIVERSE_PACK_ID, POCKET_UNIVERSE_PACK_VERSION,
+    SEED_MARS_COLONY_COMMAND,
+};
 use std::env;
 use std::fs;
 use std::path::PathBuf;
@@ -36,6 +39,7 @@ fn pocket_universe_is_a_real_external_pack_with_durable_seed_and_growth() {
     let mut catalog = PackCatalog::open(root.join("catalog.json")).unwrap();
     let preview = catalog.inspect_install(&bundle_path).unwrap();
     assert_eq!(preview.pack().id, POCKET_UNIVERSE_PACK_ID);
+    assert_eq!(preview.pack().version, POCKET_UNIVERSE_PACK_VERSION);
     let installed = catalog.install_reviewed_pending_probe(&preview).unwrap();
     assert!(!installed.enabled);
     assert!(!installed.active);
@@ -87,6 +91,13 @@ fn pocket_universe_is_a_real_external_pack_with_durable_seed_and_growth() {
     assert_eq!(chosen.briefing.as_ref().unwrap().title, "Generation 3");
 
     let archive = session.archive().unwrap().unwrap();
+    assert!(archive
+        .events
+        .iter()
+        .any(|event| event.kind == "agent_decision_recorded"));
+    assert!(archive.events.iter().any(|event| {
+        event.kind == "agent_cared_for_world" || event.kind == "agent_explored_world"
+    }));
     let before = session.snapshot();
     drop(session);
 

@@ -151,6 +151,8 @@ fn return_item(event: &Event) -> BriefingItem {
             "universe_grew" => "The world moved".into(),
             "universe_intervened" => "Your choice took hold".into(),
             "universe_seeded" => "A world began".into(),
+            "agent_cared_for_world" => "Someone cared for the world".into(),
+            "agent_explored_world" => "Someone explored beyond routine".into(),
             _ => event.kind.replace('_', " "),
         },
         detail,

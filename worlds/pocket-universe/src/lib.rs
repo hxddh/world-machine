@@ -1,6 +1,10 @@
 mod projection;
 
 use std::error::Error;
+use world_agent::{
+    register_actions as register_agent_actions, AgentDecision, AgentExecutor, AgentObservation,
+    AgentRuntime, AgentRuntimeError, AvailableAction, ScopedPerception,
+};
 use world_core::{
     Action, ActionError, ActionRegistry, ActionRequest, Entity, EntityId, EventDraft, EventId,
     StateChange, Value, World, WorldState, WorldStateError,
@@ -10,7 +14,7 @@ use world_persistence::{PersistenceError, WorldArchive, WorldPackRef};
 use world_projection::{ProjectionIntent, ProjectionSnapshot};
 
 pub const POCKET_UNIVERSE_PACK_ID: &str = "world-machine.pocket-universe";
-pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.2.0";
+pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.3.0";
 
 pub const SEED_MARS_COLONY_COMMAND: &str = "pocket-universe.seed-mars-colony";
 pub const SEED_1980S_TOWN_COMMAND: &str = "pocket-universe.seed-1980s-town";
@@ -32,21 +36,66 @@ pub(crate) const DECISION: &str = "decision";
 const ANCHOR_PULSE: &str = "pulse";
 const UNSEEDED: &str = "unseeded";
 const BACKGROUND_PERIOD: u64 = 10;
+const AGENT_CARE_ACTION: &str = "pocket_agent.care";
+const AGENT_EXPLORE_ACTION: &str = "pocket_agent.explore";
+const AGENT_CARE_COUNT: &str = "care_count";
+const AGENT_EXPLORE_COUNT: &str = "explore_count";
 
 pub fn pocket_universe_pack_ref() -> WorldPackRef {
     WorldPackRef::new(POCKET_UNIVERSE_PACK_ID, POCKET_UNIVERSE_PACK_VERSION)
 }
 
-pub struct PocketUniverse {
-    world: World,
-    actions: ActionRegistry,
+#[derive(Clone, Debug, Default)]
+pub struct PocketMind;
+
+impl AgentRuntime for PocketMind {
+    fn decide(
+        &mut self,
+        observation: &AgentObservation,
+        actions: &[AvailableAction],
+    ) -> Result<AgentDecision, AgentRuntimeError> {
+        let desired = if (observation.world_time / BACKGROUND_PERIOD).is_multiple_of(2) {
+            AGENT_CARE_ACTION
+        } else {
+            AGENT_EXPLORE_ACTION
+        };
+        if !actions.iter().any(|action| action.name() == desired) {
+            return Err(AgentRuntimeError::new(format!(
+                "Pocket Mind expected offered action {desired}"
+            )));
+        }
+        Ok(AgentDecision::choose(desired))
+    }
 }
 
-impl PocketUniverse {
+pub struct PocketUniverse<R = PocketMind>
+where
+    R: AgentRuntime,
+{
+    world: World,
+    actions: ActionRegistry,
+    mind: R,
+}
+
+impl PocketUniverse<PocketMind> {
     pub fn new() -> Result<Self, Box<dyn Error>> {
+        Self::with_agent_runtime(PocketMind)
+    }
+
+    pub fn resume_archive(archive: &WorldArchive) -> Result<Self, Box<dyn Error>> {
+        Self::resume_archive_with_agent_runtime(archive, PocketMind)
+    }
+}
+
+impl<R> PocketUniverse<R>
+where
+    R: AgentRuntime,
+{
+    pub fn with_agent_runtime(mind: R) -> Result<Self, Box<dyn Error>> {
         Ok(Self {
             world: World::new(baseline()?),
             actions: build_action_registry()?,
+            mind,
         })
     }
 
@@ -69,11 +118,21 @@ impl PocketUniverse {
         &mut self,
         command_id: &str,
     ) -> Result<EventId, Box<dyn Error>> {
+        if command_id == NUDGE_COMMAND {
+            let growth = self
+                .world
+                .execute(
+                    &self.actions,
+                    &ActionRequest::new("grow_universe").actor(UNIVERSE),
+                )?
+                .id;
+            return self.run_agent_turn(&[growth]);
+        }
+
         let action = match command_id {
             SEED_MARS_COLONY_COMMAND => "seed_mars_colony",
             SEED_1980S_TOWN_COMMAND => "seed_1980s_town",
             SEED_PENGUIN_CIVILIZATION_COMMAND => "seed_penguin_civilization",
-            NUDGE_COMMAND => "grow_universe",
             BOLD_PATH_COMMAND => "choose_bold_path",
             CAREFUL_PATH_COMMAND => "choose_careful_path",
             _ => {
@@ -90,31 +149,49 @@ impl PocketUniverse {
     }
 
     pub fn advance_periods(&mut self, periods: u64) -> Result<(), Box<dyn Error>> {
-        if periods == 0 {
-            return Ok(());
-        }
-        let delta = periods
-            .checked_mul(BACKGROUND_PERIOD)
-            .ok_or_else(|| std::io::Error::other("Pocket Universe time overflow"))?;
-        let target = self
-            .world
-            .world_time()
-            .checked_add(delta)
-            .ok_or_else(|| std::io::Error::other("Pocket Universe time overflow"))?;
-
-        if seed_id(&self.world) != UNSEEDED {
-            for period in 1..=periods {
-                let at = self
-                    .world
-                    .world_time()
-                    .checked_add(period * BACKGROUND_PERIOD)
-                    .ok_or_else(|| std::io::Error::other("Pocket Universe time overflow"))?;
-                self.world
-                    .schedule_at(at, ActionRequest::new("grow_universe").actor(UNIVERSE))?;
+        for _ in 0..periods {
+            let target = self
+                .world
+                .world_time()
+                .checked_add(BACKGROUND_PERIOD)
+                .ok_or_else(|| std::io::Error::other("Pocket Universe time overflow"))?;
+            if seed_id(&self.world) == UNSEEDED {
+                self.world.advance_to(&self.actions, target)?;
+                continue;
             }
+
+            self.world
+                .schedule_at(target, ActionRequest::new("grow_universe").actor(UNIVERSE))?;
+            let executed = self.world.advance_to(&self.actions, target)?;
+            let growth = executed.last().copied().ok_or_else(|| {
+                std::io::Error::other("scheduled Pocket Universe growth did not run")
+            })?;
+            self.run_agent_turn(&[growth])?;
         }
-        self.world.advance_to(&self.actions, target)?;
         Ok(())
+    }
+
+    fn run_agent_turn(&mut self, caused_by: &[EventId]) -> Result<EventId, Box<dyn Error>> {
+        let actions = vec![
+            AvailableAction::new(
+                "Care for the small world and reinforce what already exists.",
+                ActionRequest::new(AGENT_CARE_ACTION),
+            ),
+            AvailableAction::new(
+                "Explore beyond the familiar routine and bring back a new thread.",
+                ActionRequest::new(AGENT_EXPLORE_ACTION),
+            ),
+        ];
+        let execution = AgentExecutor::decide_and_execute(
+            &mut self.mind,
+            &ScopedPerception::new([UNIVERSE, SLOT_A]),
+            &mut self.world,
+            &self.actions,
+            SLOT_B,
+            &actions,
+            caused_by,
+        )?;
+        Ok(execution.outcome_event)
     }
 
     pub fn fork_before_event(&mut self, event_id: EventId) -> Result<(), Box<dyn Error>> {
@@ -132,10 +209,14 @@ impl PocketUniverse {
         WorldArchive::capture(pocket_universe_pack_ref(), &self.world)
     }
 
-    pub fn resume_archive(archive: &WorldArchive) -> Result<Self, Box<dyn Error>> {
+    pub fn resume_archive_with_agent_runtime(
+        archive: &WorldArchive,
+        mind: R,
+    ) -> Result<Self, Box<dyn Error>> {
         Ok(Self {
             world: archive.restore(&pocket_universe_pack_ref(), baseline()?)?,
             actions: build_action_registry()?,
+            mind,
         })
     }
 }
@@ -231,12 +312,15 @@ fn baseline() -> Result<WorldState, WorldStateError> {
 
 fn build_action_registry() -> Result<ActionRegistry, ActionError> {
     let mut actions = ActionRegistry::new();
+    register_agent_actions(&mut actions)?;
     actions.register(SeedMarsColony)?;
     actions.register(Seed1980sTown)?;
     actions.register(SeedPenguinCivilization)?;
     actions.register(GrowUniverse)?;
     actions.register(ChooseBoldPath)?;
     actions.register(ChooseCarefulPath)?;
+    actions.register(CareForWorld)?;
+    actions.register(ExploreWorld)?;
     Ok(actions)
 }
 
@@ -246,6 +330,8 @@ struct SeedPenguinCivilization;
 struct GrowUniverse;
 struct ChooseBoldPath;
 struct ChooseCarefulPath;
+struct CareForWorld;
+struct ExploreWorld;
 
 impl Action for SeedMarsColony {
     fn name(&self) -> &'static str {
@@ -269,7 +355,9 @@ impl Action for SeedMarsColony {
                     .with_component("water_cycles", 0_i64),
                 Entity::new(SLOT_B, "person")
                     .with_component("name", "Nia Chen")
-                    .with_component("role", "systems keeper"),
+                    .with_component("role", "systems keeper")
+                    .with_component(AGENT_CARE_COUNT, 0_i64)
+                    .with_component(AGENT_EXPLORE_COUNT, 0_i64),
                 Entity::new(SLOT_C, "place")
                     .with_component("name", "Hydroponics Bay")
                     .with_component("crop", "dwarf wheat"),
@@ -303,7 +391,9 @@ impl Action for Seed1980sTown {
                     .with_component("high_scores", 0_i64),
                 Entity::new(SLOT_B, "person")
                     .with_component("name", "Lena Ortiz")
-                    .with_component("role", "night-shift student"),
+                    .with_component("role", "night-shift student")
+                    .with_component(AGENT_CARE_COUNT, 0_i64)
+                    .with_component(AGENT_EXPLORE_COUNT, 0_i64),
                 Entity::new(SLOT_C, "radio_station")
                     .with_component("name", "K-88 Radio")
                     .with_component("format", "local mix"),
@@ -337,7 +427,9 @@ impl Action for SeedPenguinCivilization {
                     .with_component("bridge_spans", 1_i64),
                 Entity::new(SLOT_B, "penguin")
                     .with_component("name", "Piko")
-                    .with_component("role", "bridge keeper"),
+                    .with_component("role", "bridge keeper")
+                    .with_component(AGENT_CARE_COUNT, 0_i64)
+                    .with_component(AGENT_EXPLORE_COUNT, 0_i64),
                 Entity::new(SLOT_C, "storehouse")
                     .with_component("name", "Fish Vault")
                     .with_component("reserve", "steady"),
@@ -400,6 +492,147 @@ impl Action for GrowUniverse {
         ];
         Ok(draft)
     }
+}
+
+impl Action for CareForWorld {
+    fn name(&self) -> &'static str {
+        AGENT_CARE_ACTION
+    }
+
+    fn evaluate(
+        &self,
+        state: &WorldState,
+        request: &ActionRequest,
+    ) -> Result<EventDraft, ActionError> {
+        mind_action_draft(state, request, true)
+    }
+}
+
+impl Action for ExploreWorld {
+    fn name(&self) -> &'static str {
+        AGENT_EXPLORE_ACTION
+    }
+
+    fn evaluate(
+        &self,
+        state: &WorldState,
+        request: &ActionRequest,
+    ) -> Result<EventDraft, ActionError> {
+        mind_action_draft(state, request, false)
+    }
+}
+
+fn mind_action_draft(
+    state: &WorldState,
+    request: &ActionRequest,
+    care: bool,
+) -> Result<EventDraft, ActionError> {
+    let actor = request
+        .actor
+        .ok_or_else(|| ActionError::Invalid("Pocket Mind action requires an actor".into()))?;
+    if actor != SLOT_B {
+        return Err(ActionError::Invalid(format!(
+            "Pocket Mind action requires seed actor {SLOT_B}, got {actor}"
+        )));
+    }
+    let seed = seed_id_from_state(state)?;
+    if seed == UNSEEDED {
+        return Err(ActionError::Invalid(
+            "Pocket Mind cannot act before its world is seeded".into(),
+        ));
+    }
+    let count_key = if care {
+        AGENT_CARE_COUNT
+    } else {
+        AGENT_EXPLORE_COUNT
+    };
+    let next = integer_component(state, actor, count_key)? + 1;
+    let (target, key, value, change) = mind_outcome(&seed, care, next)?;
+    let mut draft = EventDraft::new(if care {
+        "agent_cared_for_world"
+    } else {
+        "agent_explored_world"
+    });
+    draft.targets = vec![actor, target];
+    draft.payload.insert("seed".into(), seed.into());
+    draft.payload.insert("change".into(), change.clone().into());
+    draft.payload.insert("turn".into(), next.into());
+    draft.changes = vec![
+        StateChange::SetComponent {
+            entity: actor,
+            key: count_key.into(),
+            value: next.into(),
+        },
+        StateChange::SetComponent {
+            entity: actor,
+            key: "last_intent".into(),
+            value: if care { "care" } else { "explore" }.into(),
+        },
+        StateChange::SetComponent {
+            entity: target,
+            key: key.into(),
+            value: value.into(),
+        },
+        StateChange::SetComponent {
+            entity: UNIVERSE,
+            key: LAST_CHANGE.into(),
+            value: change.into(),
+        },
+    ];
+    Ok(draft)
+}
+
+fn mind_outcome(
+    seed: &str,
+    care: bool,
+    turn: i64,
+) -> Result<(EntityId, &'static str, String, String), ActionError> {
+    let outcome = match (seed, care) {
+        ("mars-colony", true) => (
+            SLOT_C,
+            "crop",
+            format!("Nia tending cycle {turn}"),
+            format!("Nia tuned the hydroponics loop for care cycle {turn}."),
+        ),
+        ("mars-colony", false) => (
+            SLOT_D,
+            "range",
+            format!("survey route {turn}"),
+            format!("Nia sent Kestrel onto survey route {turn} beyond the familiar markers."),
+        ),
+        ("1980s-town", true) => (
+            SLOT_A,
+            "status",
+            format!("Lena's community night {turn}"),
+            format!("Lena kept Maple Arcade open for community night {turn}."),
+        ),
+        ("1980s-town", false) => (
+            SLOT_D,
+            "route",
+            format!("Lena's late loop {turn}"),
+            format!(
+                "Lena rode Night Bus 6 through late loop {turn} and came back with a new story."
+            ),
+        ),
+        ("penguin-civilization", true) => (
+            SLOT_A,
+            "status",
+            format!("Piko reinforced span {turn}"),
+            format!("Piko reinforced Icebridge span {turn} before the next cold tide."),
+        ),
+        ("penguin-civilization", false) => (
+            SLOT_D,
+            "custom",
+            format!("Piko's edge report {turn}"),
+            format!("Piko returned from edge scout {turn} with a new route under the aurora."),
+        ),
+        _ => {
+            return Err(ActionError::Invalid(format!(
+                "unsupported Pocket Universe seed: {seed}"
+            )))
+        }
+    };
+    Ok(outcome)
 }
 
 impl Action for ChooseBoldPath {
@@ -689,6 +922,7 @@ fn anchor_pulse(seed: &str, generation: i64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use world_agent::MockAgentRuntime;
 
     fn registry() -> world_host::WorldRegistry {
         let mut registry = world_host::WorldRegistry::new();
@@ -781,10 +1015,33 @@ mod tests {
         let after = session.advance_background(2).unwrap();
 
         assert_eq!(after.world_time, before.world_time + 20);
-        assert_eq!(after.timeline.items.len(), before.timeline.items.len() + 2);
+        let new_events = &session.archive().unwrap().unwrap().events[before.timeline.items.len()..];
+        assert_eq!(
+            new_events
+                .iter()
+                .filter(|event| event.kind == "universe_grew")
+                .count(),
+            2
+        );
+        assert_eq!(
+            new_events
+                .iter()
+                .filter(|event| event.kind == "agent_decision_recorded")
+                .count(),
+            2
+        );
+        assert_eq!(
+            new_events
+                .iter()
+                .filter(|event| {
+                    event.kind == "agent_cared_for_world" || event.kind == "agent_explored_world"
+                })
+                .count(),
+            2
+        );
         let briefing = after.briefing.as_ref().unwrap();
         assert_eq!(briefing.title, "While you were away");
-        assert_eq!(briefing.items.len(), 2);
+        assert_eq!(briefing.items.len(), 3);
         assert!(briefing
             .items
             .iter()
@@ -812,6 +1069,113 @@ mod tests {
 
         assert_eq!(reopened.snapshot(), before);
         assert_eq!(reopened.archive().unwrap().unwrap(), archive);
+    }
+
+    #[test]
+    fn scripted_mind_selects_only_offered_actions_and_records_causal_outcome() {
+        let mut universe =
+            PocketUniverse::with_agent_runtime(MockAgentRuntime::scripted([AGENT_EXPLORE_ACTION]))
+                .unwrap();
+        universe
+            .invoke_projection_command(SEED_MARS_COLONY_COMMAND)
+            .unwrap();
+        universe.advance_periods(1).unwrap();
+
+        let decision = universe
+            .world()
+            .events()
+            .iter()
+            .find(|event| event.kind == "agent_decision_recorded")
+            .unwrap();
+        let outcome = universe
+            .world()
+            .events()
+            .iter()
+            .find(|event| event.kind == "agent_explored_world")
+            .unwrap();
+        assert_eq!(decision.actor, Some(SLOT_B));
+        assert!(outcome.caused_by.contains(&decision.id));
+        assert!(outcome.caused_by.iter().any(|cause| universe
+            .world()
+            .event(*cause)
+            .is_some_and(|event| event.kind == "universe_grew")));
+        assert_eq!(
+            universe
+                .world()
+                .state()
+                .entity(SLOT_B)
+                .unwrap()
+                .component(AGENT_EXPLORE_COUNT),
+            Some(&Value::Integer(1))
+        );
+    }
+
+    #[test]
+    fn deterministic_default_mind_keeps_identical_worlds_reproducible() {
+        let mut left = PocketUniverse::new().unwrap();
+        let mut right = PocketUniverse::new().unwrap();
+        left.invoke_projection_command(SEED_PENGUIN_CIVILIZATION_COMMAND)
+            .unwrap();
+        right
+            .invoke_projection_command(SEED_PENGUIN_CIVILIZATION_COMMAND)
+            .unwrap();
+
+        left.advance_periods(4).unwrap();
+        right.advance_periods(4).unwrap();
+
+        assert_eq!(left.archive().unwrap(), right.archive().unwrap());
+        assert_eq!(left.projection_snapshot(), right.projection_snapshot());
+    }
+
+    #[test]
+    fn return_briefing_hides_agent_plumbing_but_keeps_agent_outcomes() {
+        let registry = registry();
+        let mut session = registry.create(POCKET_UNIVERSE_PACK_ID).unwrap();
+        session
+            .handle(ProjectionIntent::InvokeCommand(
+                SEED_1980S_TOWN_COMMAND.into(),
+            ))
+            .unwrap();
+        let returned = session.advance_background(2).unwrap();
+        let briefing = returned.briefing.as_ref().unwrap();
+
+        assert_eq!(briefing.title, "While you were away");
+        assert!(briefing
+            .items
+            .iter()
+            .all(|item| item.title != "Agent Decision Recorded"));
+        assert!(briefing
+            .items
+            .iter()
+            .any(|item| { item.detail.contains("Lena") }));
+    }
+
+    struct PanicMind;
+
+    impl AgentRuntime for PanicMind {
+        fn decide(
+            &mut self,
+            _observation: &AgentObservation,
+            _actions: &[AvailableAction],
+        ) -> Result<AgentDecision, AgentRuntimeError> {
+            panic!("archive restore must never call the agent runtime")
+        }
+    }
+
+    #[test]
+    fn archive_restore_does_not_call_the_mind() {
+        let mut universe = PocketUniverse::new().unwrap();
+        universe
+            .invoke_projection_command(SEED_MARS_COLONY_COMMAND)
+            .unwrap();
+        universe.advance_periods(2).unwrap();
+        let archive = universe.archive().unwrap();
+
+        let restored =
+            PocketUniverse::resume_archive_with_agent_runtime(&archive, PanicMind).unwrap();
+
+        assert_eq!(restored.archive().unwrap(), archive);
+        assert_eq!(restored.world().events(), universe.world().events());
     }
 
     #[test]
