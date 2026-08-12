@@ -1,4 +1,6 @@
-use gpui::{div, prelude::*, px, rgb, Context, Div, IntoElement, Render, SharedString, Styled, Window};
+use gpui::{
+    div, prelude::*, px, rgb, Context, Div, IntoElement, Render, SharedString, Styled, Window,
+};
 use world_document::WorldBranchCause;
 use world_lineage::{LineageIndex, LineageNode};
 
@@ -47,25 +49,27 @@ impl LineageExplorerView {
             .flex_col()
             .gap_1()
             .child(div().text_sm().child(label.clone()))
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(rgb(0x777777))
-                    .child(format!("t={} · {} events · {branch}", node.world_time, node.event_count)),
-            );
+            .child(div().text_xs().text_color(rgb(0x777777)).child(format!(
+                "t={} · {} events · {branch}",
+                node.world_time, node.event_count
+            )));
         card = if selected {
             card.border_color(rgb(0x6f7fb8)).bg(rgb(0xf0f4ff))
         } else {
             card.border_color(rgb(0xd8d8d2)).bg(rgb(0xffffff))
         };
 
-        let mut tree = div().flex().flex_col().gap_1().child(card.on_click(cx.listener({
-            let label = label.clone();
-            move |this, _, _, cx| {
-                this.selected = Some(label.clone());
-                cx.notify();
-            }
-        })));
+        let mut tree = div()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(card.on_click(cx.listener({
+                let label = label.clone();
+                move |this, _, _, cx| {
+                    this.selected = Some(label.clone());
+                    cx.notify();
+                }
+            })));
         for child in children {
             tree = tree.child(self.render_tree_node(child, depth + 1, cx));
         }
@@ -84,7 +88,10 @@ impl LineageExplorerView {
             .parent
             .as_ref()
             .map(|parent| {
-                let reference = parent.document.as_deref().unwrap_or("external or unlabeled");
+                let reference = parent
+                    .document
+                    .as_deref()
+                    .unwrap_or("external or unlabeled");
                 let resolved = parent
                     .resolved
                     .as_ref()
@@ -99,8 +106,14 @@ impl LineageExplorerView {
 
         detail_shell()
             .child(div().text_xl().child(node.id.to_string()))
-            .child(detail_row("Pack", format!("{}@{}", node.pack.id, node.pack.version)))
-            .child(detail_row("Current World time", node.world_time.to_string()))
+            .child(detail_row(
+                "Pack",
+                format!("{}@{}", node.pack.id, node.pack.version),
+            ))
+            .child(detail_row(
+                "Current World time",
+                node.world_time.to_string(),
+            ))
             .child(detail_row("Current events", node.event_count.to_string()))
             .child(detail_row("Branch", branch_label(node.branch.as_ref())))
             .child(detail_row("Parent", parent))
@@ -130,17 +143,12 @@ impl Render for LineageExplorerView {
             .p_4()
             .border_r_1()
             .border_color(rgb(0xd9d9d3))
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(rgb(0x666666))
-                    .child(format!(
-                        "{} Worlds · {} roots · {} detached",
-                        self.index.nodes().len(),
-                        self.index.roots().len(),
-                        self.index.detached().len()
-                    )),
-            )
+            .child(div().text_sm().text_color(rgb(0x666666)).child(format!(
+                "{} Worlds · {} roots · {} detached",
+                self.index.nodes().len(),
+                self.index.roots().len(),
+                self.index.detached().len()
+            )))
             .child(div().text_sm().child("Roots"))
             .child(roots);
         if !self.index.detached().is_empty() {
@@ -259,6 +267,9 @@ mod tests {
             choice_title: "Choose A".into(),
             horizon: 5,
         };
-        assert_eq!(branch_label(Some(&branch)), "Strategy: Choose A · 5 periods");
+        assert_eq!(
+            branch_label(Some(&branch)),
+            "Strategy: Choose A · 5 periods"
+        );
     }
 }
