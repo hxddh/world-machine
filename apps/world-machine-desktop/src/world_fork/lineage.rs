@@ -42,9 +42,10 @@ fn open_lineage(
 ) -> Result<usize, String> {
     let (current, registry, library) = {
         let document = document.borrow();
-        let current = document.session.document_id().cloned().ok_or_else(|| {
-            "Import this World into My Worlds before opening lineage".to_string()
-        })?;
+        let current =
+            document.session.document_id().cloned().ok_or_else(|| {
+                "Import this World into My Worlds before opening lineage".to_string()
+            })?;
         (
             current,
             Arc::clone(&document.registry),
