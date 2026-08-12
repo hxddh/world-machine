@@ -9,6 +9,7 @@ publish = false
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
+world-pack-bundle = { path = "../world-pack-bundle" }
 world-pack-process = { path = "../world-pack-process" }
 world-pack-protocol = { path = "../world-pack-protocol" }
 world-persistence = { path = "../world-persistence" }
