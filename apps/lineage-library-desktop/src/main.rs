@@ -1,6 +1,6 @@
 #[cfg(target_os = "macos")]
 fn main() {
-    use gpui::{px, size, App, Bounds, WindowBounds, WindowOptions};
+    use gpui::{px, size, App, AppContext, Bounds, WindowBounds, WindowOptions};
     use gpui_platform::application;
     use world_document::{WorldBranchCause, WorldLineage, WorldParent};
     use world_library::WorldDocumentId;
