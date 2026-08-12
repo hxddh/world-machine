@@ -5,6 +5,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CORE="$ROOT/crates/world-core/src"
 AGENT="$ROOT/crates/world-agent/src"
 PI_RPC="$ROOT/crates/world-pi-rpc"
+PACK_PROTOCOL="$ROOT/crates/world-pack-protocol"
 PROJECTION="$ROOT/crates/world-projection"
 HOST="$ROOT/crates/world-host"
 LIBRARY="$ROOT/crates/world-library"
@@ -17,6 +18,7 @@ DESKTOP="$ROOT/apps/world-machine-desktop"
 core_forbidden=("TinySociety" "Tiny Society" "FutureArchaeologist" "Future Archaeologist" "Person" "Town" "Bakery" "Society" "gpui" "pi_agent" "FootballPlayer" "Evidence" "world_agent")
 agent_forbidden=("pi_agent" "openai" "anthropic" "gpui")
 pi_rpc_forbidden=("pi_agent_rust")
+pack_protocol_forbidden=("TinySociety" "tiny_society" "tiny-society" "Tiny Society" "FutureArchaeologist" "future_archaeologist" "future-archaeologist" "Future Archaeologist" "gpui" "pi_agent" "openai" "anthropic")
 projection_forbidden=("TinySociety" "Tiny Society" "FutureArchaeologist" "Future Archaeologist" "Bakery" "Society" "gpui" "pi_agent")
 host_forbidden=("TinySociety" "tiny_society" "FutureArchaeologist" "future_archaeologist" "gpui" "pi_agent")
 library_forbidden=("TinySociety" "tiny_society" "FutureArchaeologist" "future_archaeologist" "gpui" "pi_agent")
@@ -50,6 +52,16 @@ if [[ -d "$PI_RPC" ]]; then
     if grep -Rni --exclude-dir=target -i -- "$token" "$PI_RPC" >/tmp/world-machine-pi-boundary-check 2>/dev/null; then
       echo "Boundary violation: '$token' found in out-of-process world-pi-rpc adapter:"
       cat /tmp/world-machine-pi-boundary-check
+      failed=1
+    fi
+  done
+fi
+
+if [[ -d "$PACK_PROTOCOL" ]]; then
+  for token in "${pack_protocol_forbidden[@]}"; do
+    if grep -Rni --exclude-dir=target -i -- "$token" "$PACK_PROTOCOL" >/tmp/world-machine-pack-protocol-boundary-check 2>/dev/null; then
+      echo "Boundary violation: '$token' found in generic world-pack-protocol:"
+      cat /tmp/world-machine-pack-protocol-boundary-check
       failed=1
     fi
   done
