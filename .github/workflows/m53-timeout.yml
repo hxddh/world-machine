@@ -1,0 +1,263 @@
+name: M53 Timeout Containment
+
+on:
+  push:
+    branches:
+      - m53-process-backed-pack-runtime
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: m53-process-backed-pack-runtime
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt,clippy
+      - name: Sync and add timeout containment
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin m53-process-backed-pack-runtime
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('crates/world-pack-process/src/lib.rs')
+          text = path.read_text()
+          text = text.replace('BufWriter, Read, Write', 'BufWriter, Write')
+          process_import = 'use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};\n'
+          extra = process_import + 'use std::sync::mpsc::{self, Receiver, RecvTimeoutError};\nuse std::thread;\nuse std::time::Duration;\n'
+          if 'use std::sync::mpsc::' not in text:
+              text = text.replace(process_import, extra)
+          max_const = 'pub const DEFAULT_MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;\n'
+          if 'DEFAULT_REQUEST_TIMEOUT' not in text:
+              text = text.replace(max_const, max_const + 'pub const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);\n')
+
+          start = text.index('struct ProcessClient {')
+          end = text.index('fn read_bounded_line', start)
+          replacement = r'''struct ProcessClient {
+    child: Child,
+    stdin: Option<BufWriter<ChildStdin>>,
+    responses: Receiver<io::Result<String>>,
+    next_request_id: u64,
+    request_timeout: Duration,
+}
+
+impl ProcessClient {
+    fn spawn(pack: &ProcessPack) -> Result<Self, HostError> {
+        let mut child = Command::new(&pack.command)
+            .args(&pack.args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .map_err(|error| {
+                HostError::session(format!(
+                    "could not launch external Pack {}: {error}",
+                    pack.command.display()
+                ))
+            })?;
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| HostError::session("external Pack stdin was not piped"))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| HostError::session("external Pack stdout was not piped"))?;
+        Ok(Self {
+            child,
+            stdin: Some(BufWriter::new(stdin)),
+            responses: spawn_response_reader(stdout, DEFAULT_MAX_RESPONSE_BYTES),
+            next_request_id: 1,
+            request_timeout: DEFAULT_REQUEST_TIMEOUT,
+        })
+    }
+
+    fn request(&mut self, request: PackRequest) -> Result<PackResponse, HostError> {
+        let request_id = self.next_request_id;
+        self.next_request_id = self
+            .next_request_id
+            .checked_add(1)
+            .ok_or_else(|| HostError::session("external Pack request id overflow"))?;
+        let envelope = PackRequestEnvelope::new(request_id, request);
+        let encoded = encode_request(&envelope)
+            .map_err(|error| HostError::session(format!("could not encode Pack request: {error}")))?;
+        let send_result = self
+            .stdin
+            .as_mut()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::BrokenPipe, "external Pack stdin is closed"))
+            .and_then(|stdin| {
+                stdin
+                    .write_all(encoded.as_bytes())
+                    .and_then(|_| stdin.write_all(b"\n"))
+                    .and_then(|_| stdin.flush())
+            });
+        if let Err(error) = send_result {
+            self.terminate();
+            return Err(HostError::session(format!(
+                "could not send Pack request: {error}"
+            )));
+        }
+
+        let line = match self.responses.recv_timeout(self.request_timeout) {
+            Ok(Ok(line)) => line,
+            Ok(Err(error)) => {
+                self.terminate();
+                return Err(HostError::session(format!(
+                    "could not read Pack response: {error}"
+                )));
+            }
+            Err(RecvTimeoutError::Timeout) => {
+                let timeout_ms = self.request_timeout.as_millis();
+                self.terminate();
+                return Err(HostError::session(format!(
+                    "external Pack timed out after {timeout_ms} ms"
+                )));
+            }
+            Err(RecvTimeoutError::Disconnected) => {
+                self.terminate();
+                return Err(HostError::session(
+                    "external Pack response reader disconnected",
+                ));
+            }
+        };
+        if line.is_empty() {
+            let status = self.child.try_wait().ok().flatten();
+            self.terminate();
+            return Err(HostError::session(match status {
+                Some(status) => format!("external Pack exited before responding: {status}"),
+                None => "external Pack closed stdout before responding".into(),
+            }));
+        }
+        let response = match decode_response(line.trim_end()) {
+            Ok(response) => response,
+            Err(error) => {
+                self.terminate();
+                return Err(HostError::session(format!(
+                    "could not decode Pack response: {error}"
+                )));
+            }
+        };
+        if response.request_id != request_id {
+            let actual = response.request_id;
+            self.terminate();
+            return Err(HostError::session(format!(
+                "external Pack response id mismatch: expected {request_id}, got {actual}"
+            )));
+        }
+        match response.response {
+            PackResponse::Error { message } => Err(HostError::session(format!(
+                "external Pack rejected request: {message}"
+            ))),
+            response => Ok(response),
+        }
+    }
+
+    fn send_shutdown(&mut self) {
+        let request_id = self.next_request_id;
+        let envelope = PackRequestEnvelope::new(request_id, PackRequest::Shutdown);
+        if let (Ok(encoded), Some(stdin)) = (encode_request(&envelope), self.stdin.as_mut()) {
+            let _ = stdin.write_all(encoded.as_bytes());
+            let _ = stdin.write_all(b"\n");
+            let _ = stdin.flush();
+        }
+        self.stdin.take();
+    }
+
+    fn terminate(&mut self) {
+        self.stdin.take();
+        match self.child.try_wait() {
+            Ok(Some(_)) => {}
+            _ => {
+                let _ = self.child.kill();
+                let _ = self.child.wait();
+            }
+        }
+    }
+}
+
+impl Drop for ProcessClient {
+    fn drop(&mut self) {
+        self.send_shutdown();
+        for _ in 0..5 {
+            if matches!(self.child.try_wait(), Ok(Some(_))) {
+                return;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        self.terminate();
+    }
+}
+
+fn spawn_response_reader(
+    stdout: ChildStdout,
+    max_response_bytes: usize,
+) -> Receiver<io::Result<String>> {
+    let (sender, receiver) = mpsc::channel();
+    thread::spawn(move || {
+        let mut stdout = BufReader::new(stdout);
+        loop {
+            let line = read_bounded_line(&mut stdout, max_response_bytes);
+            let finished = line.as_ref().is_err_or(String::is_empty);
+            if sender.send(line).is_err() || finished {
+                break;
+            }
+        }
+    });
+    receiver
+}
+
+'''
+          text = text[:start] + replacement + text[end:]
+
+          marker = '    #[cfg(unix)]\n    #[test]\n    fn process_descriptor_must_match_the_manifest() {'
+          if 'hung_process_is_timed_out_and_terminated' not in text:
+              test = r'''    #[cfg(unix)]
+    #[test]
+    fn hung_process_is_timed_out_and_terminated() {
+        let root = temp_dir("timeout");
+        let runtime = root.join("runtime.sh");
+        fs::write(
+            &runtime,
+            "#!/bin/sh\nIFS= read -r _line || exit 1\nsleep 2\n",
+        )
+        .unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = fs::metadata(&runtime).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&runtime, permissions).unwrap();
+
+        let manifest = PackManifest::process(descriptor(), "runtime.sh", Vec::new());
+        let manifest_path = root.join("fixture.world-pack.json");
+        fs::write(&manifest_path, manifest.to_json_pretty().unwrap()).unwrap();
+        let pack = ProcessPack::load(manifest_path).unwrap();
+        let mut client = ProcessClient::spawn(&pack).unwrap();
+        client.request_timeout = Duration::from_millis(50);
+
+        let error = client.request(PackRequest::Describe).err().unwrap();
+        assert!(error.to_string().contains("timed out"));
+        assert!(client.child.try_wait().unwrap().is_some());
+    }
+
+'''
+              if marker not in text:
+                  raise SystemExit('descriptor-test marker not found')
+              text = text.replace(marker, test + marker, 1)
+          path.write_text(text)
+          PY
+          cargo fmt --all
+          cargo test -p world-pack-process
+          cargo clippy -p world-pack-process --all-targets -- -D warnings
+          rm -f .github/workflows/m53-timeout.yml .github/workflows/m53-fix.yml .github/workflows/m53-cleanup.yml
+          git add -A
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "M53: contain hung or desynchronized Pack processes"
+          git pull --rebase origin m53-process-backed-pack-runtime
+          git push origin HEAD:m53-process-backed-pack-runtime
