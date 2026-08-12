@@ -36,8 +36,6 @@ use world_library::{
 #[cfg(target_os = "macos")]
 use world_lineage::LineageIndex;
 #[cfg(target_os = "macos")]
-use world_pack_bundle::PACK_BUNDLE_SUFFIX;
-#[cfg(target_os = "macos")]
 use world_pack_catalog::{InstalledPack, PackAvailability, PackCatalog, PackInstallPreview};
 #[cfg(target_os = "macos")]
 use world_persistence::WorldPackRef;
@@ -347,7 +345,8 @@ impl WorldMachineHome {
                     Ok(preview) => {
                         this.status = Some(format!(
                             "Review {} @ {} before trusting its executable bytes",
-                            preview.pack.id, preview.pack.version
+                            preview.pack().id,
+                            preview.pack().version
                         ));
                         this.pending_pack_install = Some(preview);
                     }
@@ -929,12 +928,12 @@ impl WorldMachineHome {
         preview: PackInstallPreview,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let format = preview.kind.label();
-        let size = format_program_size(preview.program_bytes);
-        let source = preview.source_path.display().to_string();
-        let pack = format!("{} @ {}", preview.pack.id, preview.pack.version);
-        let runtime = preview.runtime_name.clone();
-        let sha = preview.program_sha256.clone();
+        let format = preview.kind().label();
+        let size = format_program_size(preview.program_bytes());
+        let source = preview.source_path().display().to_string();
+        let pack = format!("{} @ {}", preview.pack().id, preview.pack().version);
+        let runtime = preview.runtime_name().to_owned();
+        let sha = preview.program_sha256().to_owned();
 
         div()
             .id("pack-install-review")
@@ -948,8 +947,13 @@ impl WorldMachineHome {
             .flex_col()
             .gap_2()
             .child(div().text_lg().child("Review Pack Install"))
-            .child(div().text_lg().child(preview.title))
-            .child(div().text_sm().text_color(rgb(0x666666)).child(preview.description))
+            .child(div().text_lg().child(preview.title().to_owned()))
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(rgb(0x666666))
+                    .child(preview.description().to_owned()),
+            )
             .child(div().text_xs().child(format!("Identity · {pack}")))
             .child(div().text_xs().child(format!("Format · {format}")))
             .child(div().text_xs().child(format!("Will execute · {runtime}")))

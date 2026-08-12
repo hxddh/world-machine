@@ -72,15 +72,49 @@ impl PackInstallKind {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PackInstallPreview {
-    pub source_path: PathBuf,
-    pub kind: PackInstallKind,
-    pub pack: WorldPackRef,
-    pub title: String,
-    pub description: String,
-    pub runtime_name: String,
-    pub program_bytes: u64,
-    pub program_sha256: String,
+    source_path: PathBuf,
+    kind: PackInstallKind,
+    pack: WorldPackRef,
+    title: String,
+    description: String,
+    runtime_name: String,
+    program_bytes: u64,
+    program_sha256: String,
     evidence: PackInstallEvidence,
+}
+
+impl PackInstallPreview {
+    pub fn source_path(&self) -> &Path {
+        &self.source_path
+    }
+
+    pub fn kind(&self) -> PackInstallKind {
+        self.kind
+    }
+
+    pub fn pack(&self) -> &WorldPackRef {
+        &self.pack
+    }
+
+    pub fn title(&self) -> &str {
+        &self.title
+    }
+
+    pub fn description(&self) -> &str {
+        &self.description
+    }
+
+    pub fn runtime_name(&self) -> &str {
+        &self.runtime_name
+    }
+
+    pub fn program_bytes(&self) -> u64 {
+        self.program_bytes
+    }
+
+    pub fn program_sha256(&self) -> &str {
+        &self.program_sha256
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -249,14 +283,7 @@ impl PackCatalog {
                 }
 
                 let managed = self.materialize_managed_pack(&source)?;
-                let managed_pin = managed.current_pin().map_err(process_error)?;
-                if managed_pin.command_sha256() != pin.command_sha256() {
-                    cleanup_managed_pack_identity(&self.path, &preview.pack);
-                    return Err(reviewed_content_changed(
-                        &preview.pack,
-                        "executable changed while it was copied into the managed store",
-                    ));
-                }
+                self.verify_reviewed_managed_program(&managed, pin.command_sha256())?;
                 self.record_managed_install(managed)
             }
         }
@@ -459,6 +486,26 @@ impl PackCatalog {
         }
     }
 
+    fn verify_reviewed_managed_program(
+        &self,
+        managed: &ProcessPack,
+        expected_sha256: &str,
+    ) -> Result<(), CatalogError> {
+        let pack = managed.descriptor.pack.clone();
+        let result = match managed.current_pin() {
+            Ok(pin) if pin.command_sha256() == expected_sha256 => Ok(()),
+            Ok(_) => Err(reviewed_content_changed(
+                &pack,
+                "executable changed while it was copied into the managed store",
+            )),
+            Err(error) => Err(process_error(error)),
+        };
+        if result.is_err() {
+            cleanup_managed_pack_identity(&self.path, &pack);
+        }
+        result
+    }
+
     fn record_managed_install(
         &mut self,
         managed: ProcessPack,
@@ -605,20 +652,17 @@ impl PackCatalog {
                 path: staged_program.clone(),
                 message: error.to_string(),
             })?;
-            let permissions = fs::metadata(&source.command)
-                .map_err(|error| CatalogError::Io {
-                    operation: "read approved Pack executable permissions",
-                    path: source.command.clone(),
-                    message: error.to_string(),
-                })?
-                .permissions();
-            fs::set_permissions(&staged_program, permissions).map_err(|error| {
-                CatalogError::Io {
-                    operation: "set managed Pack executable permissions",
-                    path: staged_program.clone(),
-                    message: error.to_string(),
-                }
-            })?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                fs::set_permissions(&staged_program, fs::Permissions::from_mode(0o700)).map_err(
+                    |error| CatalogError::Io {
+                        operation: "set managed Pack executable permissions",
+                        path: staged_program.clone(),
+                        message: error.to_string(),
+                    },
+                )?;
+            }
             if let Ok(file) = OpenOptions::new().read(true).open(&staged_program) {
                 file.sync_all().map_err(|error| CatalogError::Io {
                     operation: "sync managed Pack executable",
@@ -1147,6 +1191,46 @@ mod tests {
         assert_eq!(preview.pack, pack("fixture.review", "v1"));
         assert_eq!(preview.runtime_name, "runtime.sh");
         assert!(!marker.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn reviewed_manifest_normalizes_managed_executable_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = temp_dir("review-permissions");
+        let manifest_path = write_pack(&root, "fixture.review-mode", "v1");
+        let runtime = root.join("fixture.review-mode-v1-runtime.sh");
+        fs::set_permissions(&runtime, fs::Permissions::from_mode(0o700)).unwrap();
+
+        let mut catalog = PackCatalog::open(root.join("catalog.json")).unwrap();
+        let preview = catalog.inspect_install(&manifest_path).unwrap();
+        fs::set_permissions(&runtime, fs::Permissions::from_mode(0o600)).unwrap();
+
+        let installed = catalog.install_reviewed(&preview).unwrap();
+        let mode = fs::metadata(&installed.command_path)
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(mode, 0o700);
+    }
+
+    #[test]
+    fn failed_post_copy_pin_verification_removes_managed_destination() {
+        let root = temp_dir("review-post-copy-cleanup");
+        let manifest_path = write_pack(&root, "fixture.review-cleanup", "v1");
+        let source = ProcessPack::load(&manifest_path).unwrap();
+        let catalog = PackCatalog::open(root.join("catalog.json")).unwrap();
+        let managed = catalog.materialize_managed_pack(&source).unwrap();
+        let pack = managed.descriptor.pack.clone();
+        fs::remove_file(&managed.command).unwrap();
+
+        let error = catalog
+            .verify_reviewed_managed_program(&managed, "not-used-after-read-failure")
+            .unwrap_err();
+        assert!(matches!(error, CatalogError::Process(_)));
+        assert!(!managed_pack_dir(catalog.path(), &pack).exists());
     }
 
     #[test]
