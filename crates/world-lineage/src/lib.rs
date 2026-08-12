@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
 use world_document::{WorldBranchCause, WorldDocument, WorldLineage};
@@ -87,14 +87,9 @@ pub fn build_index(
 ) -> Result<LineageIndex, LineageError> {
     let mut records_by_id = BTreeMap::new();
     for record in records {
-        if records_by_id.insert(record.id.clone(), record).is_some() {
-            return Err(LineageError::DuplicateDocumentId(
-                records_by_id
-                    .last_key_value()
-                    .expect("duplicate insertion leaves map non-empty")
-                    .0
-                    .clone(),
-            ));
+        let id = record.id.clone();
+        if records_by_id.insert(id.clone(), record).is_some() {
+            return Err(LineageError::DuplicateDocumentId(id));
         }
     }
 
@@ -102,10 +97,7 @@ pub fn build_index(
         .keys()
         .map(|id| (id.as_str().to_owned(), id.clone()))
         .collect::<BTreeMap<_, _>>();
-    let normalized_ids = records_by_id
-        .keys()
-        .map(|id| (normalize_document_label(id.as_str()).to_owned(), id.clone()))
-        .collect::<BTreeMap<_, _>>();
+    let normalized_ids = normalized_id_lookup(records_by_id.keys());
 
     let mut nodes = BTreeMap::new();
     let mut roots = Vec::new();
@@ -118,7 +110,7 @@ pub fn build_index(
                     exact_ids.get(label).cloned().or_else(|| {
                         normalized_ids
                             .get(normalize_document_label(label))
-                            .cloned()
+                            .and_then(Clone::clone)
                     })
                 });
                 let parent = LineageParent {
@@ -136,7 +128,10 @@ pub fn build_index(
             }
         };
 
-        if parent.as_ref().is_some_and(|parent| parent.resolved.is_none()) {
+        if parent
+            .as_ref()
+            .is_some_and(|parent| parent.resolved.is_none())
+        {
             detached.push(record.id.clone());
         }
 
@@ -181,6 +176,24 @@ pub fn build_index(
         roots,
         detached,
     })
+}
+
+fn normalized_id_lookup<'a>(
+    ids: impl IntoIterator<Item = &'a WorldDocumentId>,
+) -> BTreeMap<String, Option<WorldDocumentId>> {
+    let mut lookup = BTreeMap::new();
+    for id in ids {
+        let label = normalize_document_label(id.as_str()).to_owned();
+        match lookup.entry(label) {
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                entry.insert(Some(id.clone()));
+            }
+            std::collections::btree_map::Entry::Occupied(mut entry) => {
+                entry.insert(None);
+            }
+        }
+    }
+    lookup
 }
 
 fn detect_cycle(nodes: &BTreeMap<WorldDocumentId, LineageNode>) -> Result<(), LineageError> {
@@ -352,10 +365,33 @@ mod tests {
     }
 
     #[test]
+    fn ambiguous_normalized_parent_stays_detached() {
+        let index = build_index([
+            record("source"),
+            record("source.world"),
+            strategy_child("future", Some("source.world.json")),
+        ])
+        .unwrap();
+
+        assert_eq!(index.detached(), &[id("future")]);
+        assert_eq!(
+            index
+                .node(&id("future"))
+                .unwrap()
+                .parent
+                .as_ref()
+                .unwrap()
+                .resolved,
+            None
+        );
+    }
+
+    #[test]
     fn rejects_duplicate_document_ids() {
+        let error = build_index([record("same"), record("same")]).unwrap_err();
         assert!(matches!(
-            build_index([record("same"), record("same")]),
-            Err(LineageError::DuplicateDocumentId(_))
+            error,
+            LineageError::DuplicateDocumentId(ref duplicate) if duplicate == &id("same")
         ));
     }
 
