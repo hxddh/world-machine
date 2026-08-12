@@ -55,7 +55,8 @@ fn open_setup(
             Arc::clone(&document.library),
         )
     };
-    let candidates = comparison_candidates(&current, &pack, library.list().map_err(|e| e.to_string())?);
+    let candidates =
+        comparison_candidates(&current, &pack, library.list().map_err(|e| e.to_string())?);
     if candidates.is_empty() {
         return Err("No other saved Worlds use this Pack".into());
     }
@@ -145,15 +146,10 @@ impl gpui::Render for SavedWorldSetupView {
                 .flex_col()
                 .gap_1()
                 .child(div().text_sm().child(candidate.id.to_string()))
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(rgb(0x777777))
-                        .child(format!(
-                            "World time {} · {} events",
-                            candidate.world_time, candidate.event_count
-                        )),
-                );
+                .child(div().text_xs().text_color(rgb(0x777777)).child(format!(
+                    "World time {} · {} events",
+                    candidate.world_time, candidate.event_count
+                )));
             card = if selected {
                 card.border_color(rgb(0x6684c4)).bg(rgb(0xf2f6ff))
             } else {
