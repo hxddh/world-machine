@@ -898,7 +898,9 @@ mod tests {
         let manifest_path = root.join("fixture.world-pack.json");
         fs::write(&manifest_path, manifest.to_json_pretty().unwrap()).unwrap();
 
-        let source = ProcessPackSource::from_manifest_paths([manifest_path]).unwrap();
+        let pack = ProcessPack::load(manifest_path).unwrap();
+        let pin = pack.current_pin().unwrap();
+        let source = ProcessPackSource::from_packs(vec![pack.with_pin(pin)]);
         let mut registry = WorldRegistry::new();
         registry.install_source(&source).unwrap();
         let mut session = registry.create("fixture.external").unwrap();
