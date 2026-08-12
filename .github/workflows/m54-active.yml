@@ -18,6 +18,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt,clippy
+      - run: python scripts/m54_fix_active_script.py
       - run: python scripts/m54_active_patch.py
       - run: cargo fmt --all
       - run: cargo test -p world-pack-catalog -p world-pack-process
@@ -25,7 +26,7 @@ jobs:
       - run: bash ./scripts/check-boundaries.sh
       - name: Commit active-version semantics
         run: |
-          rm -f scripts/m54_active_patch.py .github/workflows/m54-active.yml
+          rm -f scripts/m54_fix_active_script.py scripts/m54_active_patch.py .github/workflows/m54-active.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
