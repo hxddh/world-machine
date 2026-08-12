@@ -8,7 +8,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process;
 use std::sync::atomic::{AtomicU64, Ordering};
-use world_pack_bundle::{PackBundle, PACK_BUNDLE_PROGRAM_NAME};
+use world_pack_bundle::PackBundle;
 use world_pack_process::{ProcessPack, ProcessPackPin, ProcessPackSource};
 use world_pack_protocol::PackManifest;
 use world_persistence::WorldPackRef;
@@ -334,6 +334,7 @@ impl PackCatalog {
 
     fn materialize_managed_bundle(&self, bundle: PackBundle) -> Result<ProcessPack, CatalogError> {
         let descriptor = bundle.manifest().descriptor.clone();
+        let program_name = bundle.program_name().to_owned();
         let final_dir = managed_pack_dir(&self.path, &descriptor.pack);
         if final_dir.try_exists().map_err(|error| CatalogError::Io {
             operation: "check managed Pack destination",
@@ -357,13 +358,13 @@ impl PackCatalog {
         })?;
 
         let result = (|| {
-            let staged_program = stage.join(PACK_BUNDLE_PROGRAM_NAME);
+            let staged_program = stage.join(&program_name);
             bundle
                 .extract_program(&staged_program)
                 .map_err(bundle_error)?;
 
             let managed_manifest =
-                PackManifest::process(descriptor.clone(), PACK_BUNDLE_PROGRAM_NAME, Vec::new());
+                PackManifest::process(descriptor.clone(), program_name.clone(), Vec::new());
             let manifest_path = stage.join("pack.world-pack.json");
             let mut manifest_json = managed_manifest
                 .to_json_pretty()
@@ -937,6 +938,33 @@ mod tests {
                 .join("catalog.json")
         );
         fs::remove_file(alias).unwrap();
+    }
+
+    #[test]
+    fn portable_bundle_preserves_executable_suffix_in_managed_manifest() {
+        use world_pack_bundle::write_program_bundle;
+
+        let root = temp_dir("bundle-suffix");
+        let program = root.join("bundle-runtime.exe");
+        fs::write(&program, b"portable-runtime").unwrap();
+        let descriptor = PackDescriptor::new(pack("fixture.bundle.exe", "v1"), "Bundle", "fixture");
+        let bundle_path = root.join("fixture.worldpack");
+        write_program_bundle(&bundle_path, descriptor, &program).unwrap();
+
+        let mut catalog = PackCatalog::open(root.join("catalog.json")).unwrap();
+        let installed = catalog.install_bundle(&bundle_path).unwrap();
+        assert_eq!(
+            installed
+                .command_path
+                .file_name()
+                .and_then(|name| name.to_str()),
+            Some("program.exe")
+        );
+        let managed = ProcessPack::load(&installed.manifest_path).unwrap();
+        assert_eq!(
+            managed.command.file_name().and_then(|name| name.to_str()),
+            Some("program.exe")
+        );
     }
 
     #[test]

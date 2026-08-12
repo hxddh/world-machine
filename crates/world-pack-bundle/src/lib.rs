@@ -38,7 +38,7 @@ impl PackBundleHeader {
             .map_err(|error| PackBundleError::Manifest(error.to_string()))?;
         match &self.manifest.runtime {
             PackRuntimeManifest::Process { command, args }
-                if command == PACK_BUNDLE_PROGRAM_NAME && args.is_empty() => {}
+                if is_portable_program_name(command) && args.is_empty() => {}
             _ => return Err(PackBundleError::NonPortableRuntime),
         }
         if self.program_bytes == 0 || self.program_bytes > MAX_BUNDLE_PROGRAM_BYTES {
@@ -56,8 +56,46 @@ impl PackBundleHeader {
     }
 }
 
-pub fn portable_process_manifest(descriptor: PackDescriptor) -> PackManifest {
-    PackManifest::process(descriptor, PACK_BUNDLE_PROGRAM_NAME, Vec::new())
+pub fn portable_process_manifest(
+    descriptor: PackDescriptor,
+    program_name: impl Into<String>,
+) -> Result<PackManifest, PackBundleError> {
+    let program_name = program_name.into();
+    if !is_portable_program_name(&program_name) {
+        return Err(PackBundleError::InvalidProgramName(program_name));
+    }
+    Ok(PackManifest::process(descriptor, program_name, Vec::new()))
+}
+
+fn program_name_for_path(path: &Path) -> Result<String, PackBundleError> {
+    match path.extension() {
+        None => Ok(PACK_BUNDLE_PROGRAM_NAME.into()),
+        Some(extension) => {
+            let extension = extension
+                .to_str()
+                .ok_or_else(|| PackBundleError::InvalidProgramExtension(path.to_path_buf()))?;
+            let name = format!("{PACK_BUNDLE_PROGRAM_NAME}.{extension}");
+            if is_portable_program_name(&name) {
+                Ok(name)
+            } else {
+                Err(PackBundleError::InvalidProgramExtension(path.to_path_buf()))
+            }
+        }
+    }
+}
+
+fn is_portable_program_name(name: &str) -> bool {
+    if name == PACK_BUNDLE_PROGRAM_NAME {
+        return true;
+    }
+    let Some(extension) = name.strip_prefix("program.") else {
+        return false;
+    };
+    !extension.is_empty()
+        && extension.len() <= 32
+        && extension
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
 }
 
 pub struct PackBundle {
@@ -130,6 +168,12 @@ impl PackBundle {
         &self.header.manifest
     }
 
+    pub fn program_name(&self) -> &str {
+        match &self.header.manifest.runtime {
+            PackRuntimeManifest::Process { command, .. } => command,
+        }
+    }
+
     pub fn extract_program(mut self, destination: impl AsRef<Path>) -> Result<(), PackBundleError> {
         let destination = destination.as_ref().to_path_buf();
         let result = (|| {
@@ -199,9 +243,11 @@ pub fn write_program_bundle(
     descriptor: PackDescriptor,
     program_path: impl AsRef<Path>,
 ) -> Result<PackBundleHeader, PackBundleError> {
+    let program_path = program_path.as_ref();
+    let program_name = program_name_for_path(program_path)?;
     write_bundle(
         destination,
-        portable_process_manifest(descriptor),
+        portable_process_manifest(descriptor, program_name)?,
         program_path,
     )
 }
@@ -218,7 +264,7 @@ pub fn write_bundle(
         .map_err(|error| PackBundleError::Manifest(error.to_string()))?;
     match &manifest.runtime {
         PackRuntimeManifest::Process { command, args }
-            if command == PACK_BUNDLE_PROGRAM_NAME && args.is_empty() => {}
+            if is_portable_program_name(command) && args.is_empty() => {}
         _ => return Err(PackBundleError::NonPortableRuntime),
     }
 
@@ -347,6 +393,8 @@ pub enum PackBundleError {
     InvalidHeaderSize(u64),
     InvalidProgramSize(u64),
     InvalidProgramDigest,
+    InvalidProgramName(String),
+    InvalidProgramExtension(PathBuf),
     InvalidLayout,
     NonPortableRuntime,
     ProgramNotFile(PathBuf),
@@ -379,6 +427,14 @@ impl fmt::Display for PackBundleError {
                 write!(f, "invalid Pack bundle program size: {bytes}")
             }
             Self::InvalidProgramDigest => write!(f, "invalid Pack bundle program digest"),
+            Self::InvalidProgramName(name) => {
+                write!(f, "invalid portable Pack program name: {name}")
+            }
+            Self::InvalidProgramExtension(path) => write!(
+                f,
+                "Pack program extension cannot be represented safely in bundle v1: {}",
+                path.display()
+            ),
             Self::InvalidLayout => {
                 write!(f, "Pack bundle layout is truncated or has trailing data")
             }
@@ -456,6 +512,26 @@ mod tests {
         let extracted = root.join("extracted-program");
         bundle.extract_program(&extracted).unwrap();
         assert_eq!(fs::read(extracted).unwrap(), b"portable-program-bytes");
+    }
+
+    #[test]
+    fn bundle_preserves_a_safe_executable_suffix_without_allowing_paths() {
+        let root = temp_dir("suffix");
+        let program = root.join("fixture.exe");
+        fs::write(&program, b"windows-program").unwrap();
+        let bundle_path = root.join(format!("fixture{PACK_BUNDLE_SUFFIX}"));
+        write_program_bundle(&bundle_path, descriptor(), &program).unwrap();
+        let bundle = PackBundle::open(&bundle_path).unwrap();
+        assert_eq!(bundle.program_name(), "program.exe");
+
+        assert!(matches!(
+            portable_process_manifest(descriptor(), "../program.exe").unwrap_err(),
+            PackBundleError::InvalidProgramName(_)
+        ));
+        assert!(matches!(
+            portable_process_manifest(descriptor(), r"dir\program.exe").unwrap_err(),
+            PackBundleError::InvalidProgramName(_)
+        ));
     }
 
     #[test]
