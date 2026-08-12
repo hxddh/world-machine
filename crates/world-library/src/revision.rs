@@ -49,6 +49,12 @@ mod archive;
 #[path = "revision/archive_create.rs"]
 mod archive_create;
 
+// Fork a durable World through the same document revision boundary. Forking is
+// a Library/document operation: it snapshots the current World and records a new
+// immediate-parent lineage without changing Host, Projection, or Pack semantics.
+#[path = "revision/fork.rs"]
+mod fork;
+
 #[cfg(test)]
 #[path = "revision/metadata_regression.rs"]
 mod metadata_regression;
