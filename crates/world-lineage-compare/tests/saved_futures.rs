@@ -36,8 +36,14 @@ fn compares_current_durable_sibling_worlds_without_modifying_them() {
         result.left.branch,
         WorldBranchCause::Strategy { ref choice_title, .. } if choice_title == "Choose Left"
     ));
-    assert_eq!(library.load_document(&left_id).unwrap().unwrap(), left_before);
-    assert_eq!(library.load_document(&right_id).unwrap().unwrap(), right_before);
+    assert_eq!(
+        library.load_document(&left_id).unwrap().unwrap(),
+        left_before
+    );
+    assert_eq!(
+        library.load_document(&right_id).unwrap().unwrap(),
+        right_before
+    );
     let _ = fs::remove_dir_all(root);
 }
 
@@ -51,8 +57,7 @@ fn rejects_saved_worlds_from_different_parents() {
     save_future(&library, "left", "source-a", 30, "Left");
     save_future(&library, "right", "source-b", 30, "Right");
 
-    let error = compare_saved_siblings(&library, &registry, &id("left"), &id("right"))
-        .unwrap_err();
+    let error = compare_saved_siblings(&library, &registry, &id("left"), &id("right")).unwrap_err();
 
     assert!(matches!(
         error,
@@ -69,8 +74,7 @@ fn rejects_detached_lineage_instead_of_guessing_a_parent() {
     save_future(&library, "left", "external-source", 30, "Left");
     save_future(&library, "right", "external-source", 35, "Right");
 
-    let error = compare_saved_siblings(&library, &registry, &id("left"), &id("right"))
-        .unwrap_err();
+    let error = compare_saved_siblings(&library, &registry, &id("left"), &id("right")).unwrap_err();
 
     assert!(matches!(error, SavedFutureCompareError::DetachedParent(_)));
     let _ = fs::remove_dir_all(root);
