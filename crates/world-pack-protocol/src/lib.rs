@@ -900,7 +900,7 @@ mod tests {
         )
     }
 
-    fn snapshot() -> ProjectionSnapshot {
+    fn sample_snapshot() -> ProjectionSnapshot {
         let entity = SelectionId::Entity(EntityId::new(7));
         let event = SelectionId::Event(EventId::new(9));
         ProjectionSnapshot {
@@ -1048,7 +1048,7 @@ mod tests {
 
     #[test]
     fn projection_snapshot_wire_round_trip_preserves_all_generic_surfaces() {
-        let snapshot = snapshot();
+        let snapshot = sample_snapshot();
         let wire = ProjectionSnapshotWire::from(&snapshot);
         let json = serde_json::to_string(&wire).unwrap();
         let decoded = serde_json::from_str::<ProjectionSnapshotWire>(&json).unwrap();
@@ -1058,7 +1058,7 @@ mod tests {
 
     #[test]
     fn projection_wire_rejects_duplicate_map_keys() {
-        let snapshot = snapshot();
+        let snapshot = sample_snapshot();
         let mut wire = ProjectionSnapshotWire::from(&snapshot);
         wire.inspectors.push(wire.inspectors[0].clone());
         assert!(matches!(
@@ -1066,7 +1066,7 @@ mod tests {
             Err(ProtocolError::DuplicateInspector(_))
         ));
 
-        let snapshot = snapshot();
+        let snapshot = sample_snapshot();
         let mut wire = ProjectionSnapshotWire::from(&snapshot);
         wire.why.push(wire.why[0].clone());
         assert!(matches!(
