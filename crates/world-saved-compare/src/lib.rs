@@ -121,10 +121,9 @@ pub fn relation_between(
         };
     }
 
-    if let (Some(left_parent), Some(right_parent)) = (
-        resolved_parent(left_node),
-        resolved_parent(right_node),
-    ) {
+    if let (Some(left_parent), Some(right_parent)) =
+        (resolved_parent(left_node), resolved_parent(right_node))
+    {
         if left_parent == right_parent {
             return SavedWorldRelation::Siblings {
                 parent: left_parent.clone(),
@@ -354,7 +353,10 @@ mod tests {
         assert_eq!(result.comparison.left.world_time, 10);
         assert_eq!(result.comparison.right.world_time, 20);
         assert_eq!(library.load_document(&left).unwrap().unwrap(), left_before);
-        assert_eq!(library.load_document(&right).unwrap().unwrap(), right_before);
+        assert_eq!(
+            library.load_document(&right).unwrap().unwrap(),
+            right_before
+        );
         let _ = fs::remove_dir_all(root);
     }
 
