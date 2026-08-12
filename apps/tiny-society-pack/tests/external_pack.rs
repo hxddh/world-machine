@@ -133,3 +133,37 @@ fn corrupt_portable_bundle_leaves_no_catalog_or_managed_pack() {
         .unwrap_or(0);
     assert_eq!(leftovers, 0);
 }
+
+#[test]
+fn tiny_society_pending_install_is_probed_before_enablement() {
+    let binary = env!("CARGO_BIN_EXE_tiny-society-pack");
+    let root = temp_dir();
+    let bundle_path = root.join("tiny-society-probe.worldpack");
+    let status = Command::new(binary)
+        .arg("--write-bundle")
+        .arg(&bundle_path)
+        .status()
+        .unwrap();
+    assert!(status.success());
+
+    let mut catalog = PackCatalog::open(root.join("catalog.json")).unwrap();
+    let preview = catalog.inspect_install(&bundle_path).unwrap();
+    let installed = catalog.install_reviewed_pending_probe(&preview).unwrap();
+    assert!(!installed.enabled);
+    assert!(!installed.active);
+    assert!(catalog.trusted_source().unwrap().packs().is_empty());
+
+    fs::remove_file(&bundle_path).unwrap();
+    let probe = catalog.probe(&installed.pack).unwrap();
+    assert_eq!(probe.pack, installed.pack);
+    assert_eq!(probe.created_world_time, probe.reopened_world_time);
+
+    catalog.set_enabled(&installed.pack, true).unwrap();
+    catalog.activate(&installed.pack).unwrap();
+    let source = catalog.trusted_source().unwrap();
+    assert_eq!(source.packs().len(), 1);
+    let mut registry = WorldRegistry::new();
+    registry.install_source(&source).unwrap();
+    let session = registry.create(TINY_SOCIETY_PACK_ID).unwrap();
+    assert_eq!(session.pack(), installed.pack);
+}

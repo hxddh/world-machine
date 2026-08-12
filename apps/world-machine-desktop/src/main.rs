@@ -258,6 +258,7 @@ struct WorldMachineHome {
     documents: Vec<WorldDocumentSummary>,
     lineage: Option<LineageIndex>,
     pending_pack_install: Option<PackInstallPreview>,
+    probing_packs: Vec<WorldPackRef>,
     status: Option<String>,
 }
 
@@ -369,30 +370,105 @@ impl WorldMachineHome {
         let Some(catalog) = self.pack_catalog.as_mut() else {
             return;
         };
-        let result = catalog.install_reviewed(&preview);
+        let result = catalog.install_reviewed_pending_probe(&preview);
         self.pending_pack_install = None;
         match result {
-            Ok(installed) => match self.rebuild_registry() {
-                Ok(()) => {
-                    self.status = Some(format!(
-                        "Installed and trusted {} · {} @ {} is now active for new Worlds",
-                        installed.title, installed.pack.id, installed.pack.version
-                    ));
-                }
-                Err(error) => {
-                    self.status = Some(format!(
-                        "Installed {} @ {}, but external Packs could not be activated: {error}",
-                        installed.pack.id, installed.pack.version
-                    ));
-                }
-            },
+            Ok(installed) => {
+                self.start_pack_probe(installed.pack, true, cx);
+            }
             Err(error) => {
                 self.status = Some(format!(
                     "Pack was not installed. Re-open it to review current content: {error}"
                 ));
+                cx.notify();
             }
         }
+    }
+
+    fn is_pack_probing(&self, pack: &WorldPackRef) -> bool {
+        self.probing_packs.iter().any(|candidate| candidate == pack)
+    }
+
+    fn start_pack_probe(
+        &mut self,
+        pack: WorldPackRef,
+        activate_on_success: bool,
+        cx: &mut Context<Self>,
+    ) {
+        if self.is_pack_probing(&pack) {
+            return;
+        }
+        let Some(catalog) = self.pack_catalog.clone() else {
+            return;
+        };
+        self.probing_packs.push(pack.clone());
+        self.status = Some(format!(
+            "Testing trusted Pack {} @ {} · Create → Archive → fresh-process Open…",
+            pack.id, pack.version
+        ));
         cx.notify();
+
+        let probe_pack = pack.clone();
+        let task = cx
+            .background_executor()
+            .spawn(async move { catalog.probe(&probe_pack) });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                this.probing_packs.retain(|candidate| candidate != &pack);
+                match result {
+                    Ok(probe) => {
+                        let transition = this
+                            .pack_catalog
+                            .as_mut()
+                            .ok_or_else(|| "Installed Packs catalog is unavailable".to_string())
+                            .and_then(|catalog| {
+                                catalog
+                                    .set_enabled(&pack, true)
+                                    .map_err(|error| error.to_string())?;
+                                if activate_on_success {
+                                    catalog.activate(&pack).map_err(|error| error.to_string())?;
+                                }
+                                Ok(())
+                            });
+                        match transition {
+                            Ok(()) => match this.rebuild_registry() {
+                                Ok(()) => {
+                                    this.status = Some(format!(
+                                        "Trusted and tested {} @ {} · durable Create/Archive/Open succeeded · World time {} → {}",
+                                        pack.id,
+                                        pack.version,
+                                        probe.created_world_time,
+                                        probe.reopened_world_time
+                                    ));
+                                }
+                                Err(error) => {
+                                    this.status = Some(format!(
+                                        "Pack {} @ {} passed its durable probe, but Registry rebuild failed: {error}",
+                                        pack.id, pack.version
+                                    ));
+                                }
+                            },
+                            Err(error) => {
+                                this.status = Some(format!(
+                                    "Pack {} @ {} passed its durable probe, but could not be enabled: {error}",
+                                    pack.id, pack.version
+                                ));
+                            }
+                        }
+                    }
+                    Err(error) => {
+                        let _ = this.rebuild_registry();
+                        this.status = Some(format!(
+                            "Installed and trusted {} @ {}, but its durable activation probe failed. The Pack remains disabled: {error}",
+                            pack.id, pack.version
+                        ));
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     fn cancel_pack_install(&mut self, cx: &mut Context<Self>) {
@@ -475,7 +551,7 @@ impl WorldMachineHome {
                 pack.id, pack.version
             ),
             PackAvailability::Disabled => format!(
-                "Could not open World: {} @ {} is installed but disabled. Enable it under Installed Packs.",
+                "Could not open World: {} @ {} is installed but disabled. Use Test & Enable under Installed Packs.",
                 pack.id, pack.version
             ),
             PackAvailability::Invalid { reason } => format!(
@@ -1006,21 +1082,29 @@ impl WorldMachineHome {
             .as_ref()
             .map(|catalog| catalog.availability(&pack.pack))
             .unwrap_or(PackAvailability::NotInstalled);
-        let state = match &availability {
-            PackAvailability::Ready if pack.active => "Active".to_string(),
-            PackAvailability::Ready => "Historical · available for saved Worlds".to_string(),
-            PackAvailability::Disabled => "Disabled".to_string(),
-            PackAvailability::Invalid { reason } => format!("Invalid · {reason}"),
-            PackAvailability::MissingVersion { .. } => "Missing exact version".to_string(),
-            PackAvailability::NotInstalled => "Not installed".to_string(),
+        let probing = self.is_pack_probing(&pack.pack);
+        let state = if probing {
+            "Testing durable round-trip…".to_string()
+        } else {
+            match &availability {
+                PackAvailability::Ready if pack.active => "Active".to_string(),
+                PackAvailability::Ready => "Historical · available for saved Worlds".to_string(),
+                PackAvailability::Disabled => {
+                    "Disabled · trusted, not runnable until tested".to_string()
+                }
+                PackAvailability::Invalid { reason } => format!("Invalid · {reason}"),
+                PackAvailability::MissingVersion { .. } => "Missing exact version".to_string(),
+                PackAvailability::NotInstalled => "Not installed".to_string(),
+            }
         };
         let activate_pack = pack.pack.clone();
         let toggle_pack = pack.pack.clone();
+        let test_pack = pack.pack.clone();
         let enabled = pack.enabled;
         let active = pack.active;
 
         let mut actions = div().flex().gap_2();
-        if enabled && !active {
+        if !probing && enabled && !active {
             actions = actions.child(
                 div()
                     .id(SharedString::from(format!(
@@ -1039,23 +1123,43 @@ impl WorldMachineHome {
                     })),
             );
         }
-        actions = actions.child(
-            div()
-                .id(SharedString::from(format!(
-                    "toggle-pack-{}-{}",
-                    pack.pack.id, pack.pack.version
-                )))
-                .cursor_pointer()
-                .p_2()
-                .rounded_md()
-                .border_1()
-                .border_color(rgb(0xd9d9d3))
-                .text_sm()
-                .child(if enabled { "Disable" } else { "Enable" })
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.set_pack_enabled(toggle_pack.clone(), !enabled, cx)
-                })),
-        );
+        if !probing && enabled {
+            actions = actions.child(
+                div()
+                    .id(SharedString::from(format!(
+                        "toggle-pack-{}-{}",
+                        pack.pack.id, pack.pack.version
+                    )))
+                    .cursor_pointer()
+                    .p_2()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(rgb(0xd9d9d3))
+                    .text_sm()
+                    .child("Disable")
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.set_pack_enabled(toggle_pack.clone(), false, cx)
+                    })),
+            );
+        } else if !probing && !enabled {
+            actions = actions.child(
+                div()
+                    .id(SharedString::from(format!(
+                        "test-enable-pack-{}-{}",
+                        pack.pack.id, pack.pack.version
+                    )))
+                    .cursor_pointer()
+                    .p_2()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(rgb(0xd9d9d3))
+                    .text_sm()
+                    .child("Test & Enable")
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.start_pack_probe(test_pack.clone(), false, cx)
+                    })),
+            );
+        }
 
         div()
             .id(SharedString::from(format!(
@@ -1506,6 +1610,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 documents,
                 lineage,
                 pending_pack_install: None,
+                probing_packs: Vec::new(),
                 status,
             };
             home.start_system_open_listener(cx);

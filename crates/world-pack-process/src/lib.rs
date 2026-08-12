@@ -9,7 +9,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::thread;
 use std::time::Duration;
-use world_host::{HostError, WorldDescriptor, WorldPackSource, WorldRegistration, WorldSession};
+use world_host::{
+    HostError, WorldDescriptor, WorldPackSource, WorldRegistration, WorldRegistry, WorldSession,
+};
 use world_pack_protocol::{
     decode_response, encode_request, PackDescriptor, PackManifest, PackRequest,
     PackRequestEnvelope, PackResponse, PackRuntimeManifest, ProjectionIntentWire,
@@ -22,6 +24,15 @@ pub const DEFAULT_MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 pub const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 
 static LAUNCH_NONCE: AtomicU64 = AtomicU64::new(1);
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProcessPackProbe {
+    pub pack: WorldPackRef,
+    pub created_title: String,
+    pub created_world_time: u64,
+    pub reopened_title: String,
+    pub reopened_world_time: u64,
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProcessPackPin {
@@ -115,6 +126,36 @@ impl ProcessPack {
             )));
         }
         Ok(())
+    }
+
+    /// Launch the already-approved Pack and prove the minimum durable World contract:
+    /// exact Describe handshake, Create/Snapshot, Archive, then a fresh-process Open/Snapshot.
+    /// No business command is invoked and World time is never advanced by the probe itself.
+    pub fn probe_durable(&self) -> Result<ProcessPackProbe, HostError> {
+        self.verify_pin()?;
+        let source = ProcessPackSource::from_packs(vec![self.clone()]);
+        let mut registry = WorldRegistry::new();
+        registry.install_source(&source)?;
+
+        let created = registry.create_exact(&self.descriptor.pack)?;
+        let created_snapshot = created.snapshot();
+        let archive = created.archive()?.ok_or_else(|| {
+            HostError::session(format!(
+                "external Pack {}@{} does not provide a durable archive",
+                self.descriptor.pack.id, self.descriptor.pack.version
+            ))
+        })?;
+        drop(created);
+
+        let reopened = registry.open_archive(&archive)?;
+        let reopened_snapshot = reopened.snapshot();
+        Ok(ProcessPackProbe {
+            pack: self.descriptor.pack.clone(),
+            created_title: created_snapshot.title,
+            created_world_time: created_snapshot.world_time,
+            reopened_title: reopened_snapshot.title,
+            reopened_world_time: reopened_snapshot.world_time,
+        })
     }
 
     fn prepare_launch_program(&self) -> Result<(PathBuf, Option<PathBuf>), HostError> {
@@ -923,6 +964,91 @@ mod tests {
         let reopened = registry.open_archive(&archive).unwrap();
         assert_eq!(reopened.pack(), descriptor().pack);
         assert_eq!(reopened.snapshot().title, "Created externally");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn durable_probe_creates_archives_and_reopens_in_a_fresh_process() {
+        let root = temp_dir("durable-probe");
+        let runtime = root.join("runtime.sh");
+        let archive = WorldArchive {
+            format: WORLD_ARCHIVE_FORMAT.into(),
+            format_version: WORLD_ARCHIVE_VERSION,
+            pack: descriptor().pack.clone(),
+            world_time: 3,
+            events: Vec::new(),
+            pending: Vec::new(),
+        };
+        write_fixture_process(
+            &runtime,
+            &[
+                response_line(
+                    1,
+                    PackResponse::Descriptor {
+                        descriptor: descriptor(),
+                    },
+                ),
+                response_line(
+                    2,
+                    PackResponse::Snapshot {
+                        snapshot: wire_snapshot(3, "Created for probe"),
+                    },
+                ),
+                response_line(
+                    3,
+                    PackResponse::Archive {
+                        archive: Some(archive),
+                    },
+                ),
+            ],
+        );
+        let manifest = PackManifest::process(descriptor(), "runtime.sh", Vec::new());
+        let manifest_path = root.join("fixture.world-pack.json");
+        fs::write(&manifest_path, manifest.to_json_pretty().unwrap()).unwrap();
+        let pack = ProcessPack::load(manifest_path).unwrap();
+        let pin = pack.current_pin().unwrap();
+
+        let probe = pack.with_pin(pin).probe_durable().unwrap();
+        assert_eq!(probe.pack, descriptor().pack);
+        assert_eq!(probe.created_title, "Created for probe");
+        assert_eq!(probe.created_world_time, 3);
+        assert_eq!(probe.reopened_title, "Created for probe");
+        assert_eq!(probe.reopened_world_time, 3);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn durable_probe_rejects_packs_without_archives() {
+        let root = temp_dir("durable-probe-no-archive");
+        let runtime = root.join("runtime.sh");
+        write_fixture_process(
+            &runtime,
+            &[
+                response_line(
+                    1,
+                    PackResponse::Descriptor {
+                        descriptor: descriptor(),
+                    },
+                ),
+                response_line(
+                    2,
+                    PackResponse::Snapshot {
+                        snapshot: wire_snapshot(0, "Created without archive"),
+                    },
+                ),
+                response_line(3, PackResponse::Archive { archive: None }),
+            ],
+        );
+        let manifest = PackManifest::process(descriptor(), "runtime.sh", Vec::new());
+        let manifest_path = root.join("fixture.world-pack.json");
+        fs::write(&manifest_path, manifest.to_json_pretty().unwrap()).unwrap();
+        let pack = ProcessPack::load(manifest_path).unwrap();
+        let pin = pack.current_pin().unwrap();
+
+        let error = pack.with_pin(pin).probe_durable().unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("does not provide a durable archive"));
     }
 
     #[cfg(unix)]
