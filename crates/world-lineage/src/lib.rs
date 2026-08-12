@@ -107,11 +107,13 @@ pub fn build_index(
         let (branch, parent) = match &record.lineage {
             Some(lineage) => {
                 let resolved = lineage.parent.document.as_deref().and_then(|label| {
-                    exact_ids.get(label).cloned().or_else(|| {
-                        normalized_ids
-                            .get(normalize_document_label(label))
-                            .and_then(Clone::clone)
-                    })
+                    resolve_parent_document(
+                        label,
+                        &lineage.parent.pack,
+                        &records_by_id,
+                        &exact_ids,
+                        &normalized_ids,
+                    )
                 });
                 let parent = LineageParent {
                     document: lineage.parent.document.clone(),
@@ -176,6 +178,25 @@ pub fn build_index(
         roots,
         detached,
     })
+}
+
+fn resolve_parent_document(
+    label: &str,
+    parent_pack: &WorldPackRef,
+    records_by_id: &BTreeMap<WorldDocumentId, LineageRecord>,
+    exact_ids: &BTreeMap<String, WorldDocumentId>,
+    normalized_ids: &BTreeMap<String, Option<WorldDocumentId>>,
+) -> Option<WorldDocumentId> {
+    let candidate = exact_ids.get(label).cloned().or_else(|| {
+        normalized_ids
+            .get(normalize_document_label(label))
+            .and_then(Clone::clone)
+    })?;
+
+    records_by_id
+        .get(&candidate)
+        .filter(|record| record.pack == *parent_pack)
+        .map(|_| candidate)
 }
 
 fn normalized_id_lookup<'a>(
