@@ -50,7 +50,9 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
     use world_document::WorldDocumentMetadata;
     use world_host::{HostError, WorldDescriptor, WorldRegistration, WorldRegistry, WorldSession};
-    use world_persistence::{WorldArchive, WorldPackRef, WORLD_ARCHIVE_FORMAT, WORLD_ARCHIVE_VERSION};
+    use world_persistence::{
+        WorldArchive, WorldPackRef, WORLD_ARCHIVE_FORMAT, WORLD_ARCHIVE_VERSION,
+    };
     use world_projection::{ProjectionCapabilities, ProjectionIntent, ProjectionSnapshot};
 
     const MOCK_PACK: &str = "world-machine.fork-mock";
@@ -200,7 +202,12 @@ mod tests {
             Err(LibraryError::DocumentAlreadyExists(existing)) if existing == child_id
         ));
         assert_eq!(
-            library.load_document(&child_id).unwrap().unwrap().archive.world_time,
+            library
+                .load_document(&child_id)
+                .unwrap()
+                .unwrap()
+                .archive
+                .world_time,
             99
         );
         let _ = fs::remove_dir_all(root);

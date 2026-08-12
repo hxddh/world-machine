@@ -58,8 +58,9 @@ fn fork_world(
             .map_err(|error| error.to_string())?;
     }
 
-    let session = DurableWorldSession::open(document_id.clone(), registry.as_ref(), library.as_ref())
-        .map_err(|error| error.to_string())?;
+    let session =
+        DurableWorldSession::open(document_id.clone(), registry.as_ref(), library.as_ref())
+            .map_err(|error| error.to_string())?;
     let pack = session.pack();
     let title = registry
         .descriptor(&pack.id)
