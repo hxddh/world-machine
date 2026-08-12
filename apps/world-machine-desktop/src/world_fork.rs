@@ -8,6 +8,7 @@ use world_library::{
     DurableWorldSession, WorldDocumentId, LEGACY_WORLD_DOCUMENT_SUFFIX, WORLD_DOCUMENT_SUFFIX,
 };
 
+mod lineage;
 #[path = "saved_compare.rs"]
 mod saved_compare;
 
@@ -47,6 +48,7 @@ pub(crate) fn document_action(
         .gap_2()
         .child(fork)
         .child(saved_compare::document_action(document, cx))
+        .child(lineage::document_action(document, cx))
 }
 
 fn fork_world(
