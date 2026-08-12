@@ -10,11 +10,25 @@ pub trait LineageController {
         document: &str,
         cx: &mut Context<LineageExplorerView>,
     ) -> Result<(), String>;
+
+    fn can_compare(&self) -> bool {
+        false
+    }
+
+    fn compare_documents(
+        &mut self,
+        _left: &str,
+        _right: &str,
+        _cx: &mut Context<LineageExplorerView>,
+    ) -> Result<(), String> {
+        Err("This lineage view cannot compare saved Worlds".into())
+    }
 }
 
 pub struct LineageExplorerView {
     index: LineageIndex,
     selected: Option<String>,
+    compare_from: Option<String>,
     controller: Option<Box<dyn LineageController>>,
     status: Option<String>,
 }
@@ -43,6 +57,7 @@ impl LineageExplorerView {
         Self {
             index,
             selected,
+            compare_from: None,
             controller,
             status: None,
         }
@@ -68,11 +83,44 @@ impl LineageExplorerView {
         Ok(document)
     }
 
+    fn mark_comparison_source(&mut self) -> Result<String, String> {
+        let document = self
+            .selected
+            .clone()
+            .ok_or_else(|| "Select a World before starting comparison".to_string())?;
+        self.compare_from = Some(document.clone());
+        Ok(document)
+    }
+
+    fn compare_selected(&mut self, cx: &mut Context<Self>) -> Result<(String, String), String> {
+        let left = self
+            .compare_from
+            .clone()
+            .ok_or_else(|| "Choose a comparison source first".to_string())?;
+        let right = self
+            .selected
+            .clone()
+            .ok_or_else(|| "Select another World before comparing".to_string())?;
+        if left == right {
+            return Err("Choose a different World for the right side".into());
+        }
+        let controller = self
+            .controller
+            .as_mut()
+            .ok_or_else(|| "This lineage view cannot compare saved Worlds".to_string())?;
+        if !controller.can_compare() {
+            return Err("This lineage view cannot compare saved Worlds".into());
+        }
+        controller.compare_documents(&left, &right, cx)?;
+        Ok((left, right))
+    }
+
     fn render_tree_node(&self, label: String, depth: usize, cx: &mut Context<Self>) -> Div {
         let Some(node) = self.node_by_label(&label) else {
             return div();
         };
         let selected = self.selected.as_deref() == Some(label.as_str());
+        let comparison_source = self.compare_from.as_deref() == Some(label.as_str());
         let branch = branch_label(node.branch.as_ref());
         let children = node
             .children
@@ -90,7 +138,24 @@ impl LineageExplorerView {
             .flex()
             .flex_col()
             .gap_1()
-            .child(div().text_sm().child(label.clone()))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(div().text_sm().child(label.clone()))
+                    .when(comparison_source, |row| {
+                        row.child(
+                            div()
+                                .px_2()
+                                .rounded_md()
+                                .bg(rgb(0xe9eefc))
+                                .text_xs()
+                                .text_color(rgb(0x4c65a7))
+                                .child("A"),
+                        )
+                    }),
+            )
             .child(div().text_xs().text_color(rgb(0x777777)).child(format!(
                 "t={} · {} events · {branch}",
                 node.world_time, node.event_count
@@ -161,6 +226,54 @@ impl LineageExplorerView {
             .child(detail_row("Branch", branch_label(node.branch.as_ref())))
             .child(detail_row("Parent", parent))
             .child(detail_row("Children", node.children.len().to_string()));
+
+        if let Some(controller) = self.controller.as_ref() {
+            if controller.can_compare() {
+                detail = detail.child(
+                    div()
+                        .id("mark-lineage-comparison-source")
+                        .cursor_pointer()
+                        .p_2()
+                        .rounded_md()
+                        .border_1()
+                        .border_color(rgb(0x9aa6cc))
+                        .bg(rgb(0xf4f6ff))
+                        .text_sm()
+                        .child("Mark as comparison A")
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.status = Some(match this.mark_comparison_source() {
+                                Ok(document) => format!("Comparison A: {document}"),
+                                Err(error) => format!("Could not start comparison: {error}"),
+                            });
+                            cx.notify();
+                        })),
+                );
+                if let Some(left) = &self.compare_from {
+                    if left != label {
+                        let left = left.clone();
+                        detail = detail.child(
+                            div()
+                                .id("compare-lineage-worlds")
+                                .cursor_pointer()
+                                .p_2()
+                                .rounded_md()
+                                .border_1()
+                                .border_color(rgb(0x7a8dbb))
+                                .bg(rgb(0xeef3ff))
+                                .text_sm()
+                                .child(format!("Compare {left} ↔ {label}"))
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.status = Some(match this.compare_selected(cx) {
+                                        Ok((left, right)) => format!("Comparing {left} ↔ {right}"),
+                                        Err(error) => format!("Compare failed: {error}"),
+                                    });
+                                    cx.notify();
+                                })),
+                        );
+                    }
+                }
+            }
+        }
 
         if self.controller.is_some() {
             detail = detail.child(
@@ -352,6 +465,28 @@ mod tests {
         let index = build_index([record("root", None), record("future", Some("root"))]).unwrap();
         let view = LineageExplorerView::controlled(index, NoopController);
         assert!(view.controller.is_some());
+    }
+
+    #[test]
+    fn comparison_capability_is_opt_in() {
+        struct CompareController;
+        impl LineageController for CompareController {
+            fn open_document(
+                &mut self,
+                _document: &str,
+                _cx: &mut Context<LineageExplorerView>,
+            ) -> Result<(), String> {
+                Ok(())
+            }
+
+            fn can_compare(&self) -> bool {
+                true
+            }
+        }
+
+        let index = build_index([record("root", None), record("future", Some("root"))]).unwrap();
+        let view = LineageExplorerView::controlled(index, CompareController);
+        assert!(view.controller.as_ref().unwrap().can_compare());
     }
 
     #[test]
