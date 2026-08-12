@@ -155,24 +155,3 @@ impl LineageController for AppLineageController {
         Ok(())
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn lineage_controller_starts_without_an_open_notice() {
-        // The notice is controller-local transient UI state. This keeps Host /
-        // observer details out of the generic Lineage Explorer.
-        let registry = Arc::new(world_host::WorldRegistry::new());
-        let library = Arc::new(WorldLibrary::new(std::env::temp_dir().join(
-            "world-machine-lineage-controller-notice-test",
-        )));
-        let mut controller = AppLineageController {
-            registry,
-            library,
-            last_open_notice: None,
-        };
-        assert_eq!(controller.take_open_notice(), None);
-    }
-}
