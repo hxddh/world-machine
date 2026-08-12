@@ -4,6 +4,8 @@ mod observer;
 mod strategy_compare;
 #[cfg(target_os = "macos")]
 mod system_open;
+#[cfg(target_os = "macos")]
+mod world_fork;
 
 #[cfg(target_os = "macos")]
 use gpui::{
@@ -191,7 +193,11 @@ impl WorldDocumentView {
 impl Render for WorldDocumentView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         window.set_window_title(&format!("{} — {}", self.document_label, self.title));
-        let actions = strategy_compare::document_actions(&self.document, cx);
+        let actions = div()
+            .flex()
+            .gap_2()
+            .child(world_fork::document_action(&self.document, cx))
+            .child(strategy_compare::document_actions(&self.document, cx));
 
         let mut chrome = div()
             .h(px(48.0))
