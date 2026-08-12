@@ -340,7 +340,7 @@ impl StrategyComparisonView {
                 "Two independent futures evaluated from the same durable World",
             ),
             ComparisonSource::Saved { .. } => (
-                "Saved Future Comparison",
+                "Saved World Comparison",
                 "Two saved Worlds compared at their current durable state",
             ),
         }
@@ -351,8 +351,10 @@ impl Render for StrategyComparisonView {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         let (title, subtitle) = self.heading();
         let mut body = div()
+            .id("strategy-comparison-scroll")
             .w_full()
             .h_full()
+            .overflow_y_scroll()
             .p_5()
             .flex()
             .flex_col()
