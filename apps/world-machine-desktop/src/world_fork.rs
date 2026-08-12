@@ -1,6 +1,7 @@
 use super::{sanitize_document_base, unique_document_id, SharedDocument, WorldDocumentView};
 use gpui::{
-    div, prelude::*, px, rgb, size, AppContext, Bounds, Context, Div, WindowBounds, WindowOptions,
+    div, prelude::*, px, rgb, size, AppContext, Bounds, Context, Div, Styled, WindowBounds,
+    WindowOptions,
 };
 use std::sync::Arc;
 use world_library::{
