@@ -1,8 +1,9 @@
 use crate::{
-    seed_id, GENERATION, LAST_CHANGE, NUDGE_COMMAND, SEED_1980S_TOWN_COMMAND,
-    SEED_MARS_COLONY_COMMAND, SEED_PENGUIN_CIVILIZATION_COMMAND, UNIVERSE,
+    seed_id, BOLD_PATH_COMMAND, CAREFUL_PATH_COMMAND, DECISION, GENERATION, LAST_CHANGE,
+    NUDGE_COMMAND, SEED_1980S_TOWN_COMMAND, SEED_MARS_COLONY_COMMAND,
+    SEED_PENGUIN_CIVILIZATION_COMMAND, UNIVERSE,
 };
-use world_core::{Entity, Value, World};
+use world_core::{Entity, Event, Value, World};
 use world_projection::{
     entity_title, inspectors_from_world, timeline_from_world, why_map_from_world, BriefingItem,
     BriefingProjection, CanvasItem, CanvasItemKind, CanvasProjection, CollectionItem,
@@ -11,6 +12,13 @@ use world_projection::{
 };
 
 pub(crate) fn snapshot(world: &World) -> ProjectionSnapshot {
+    snapshot_since(world, None)
+}
+
+pub(crate) fn snapshot_since(
+    world: &World,
+    since_event_count: Option<usize>,
+) -> ProjectionSnapshot {
     let seed = seed_id(world);
     let seeded = seed != "unseeded";
     ProjectionSnapshot {
@@ -23,8 +31,8 @@ pub(crate) fn snapshot(world: &World) -> ProjectionSnapshot {
         capabilities: ProjectionCapabilities {
             fork: !world.events().is_empty(),
         },
-        briefing: Some(briefing(world, seeded)),
-        commands: commands(seeded),
+        briefing: Some(briefing(world, seeded, since_event_count)),
+        commands: commands(world, seeded),
         collection: collection(world),
         timeline: timeline_from_world(world),
         canvas: canvas(world),
@@ -33,37 +41,55 @@ pub(crate) fn snapshot(world: &World) -> ProjectionSnapshot {
     }
 }
 
-fn commands(seeded: bool) -> Vec<ProjectionCommand> {
-    if seeded {
-        return vec![ProjectionCommand {
-            id: NUDGE_COMMAND.into(),
-            title: "Nudge the world".into(),
-            detail: "Let one small, persistent change happen now.".into(),
-        }];
+fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
+    if !seeded {
+        return vec![
+            ProjectionCommand {
+                id: SEED_MARS_COLONY_COMMAND.into(),
+                title: "Start a Mars colony".into(),
+                detail: "A tiny habitat, one keeper, hydroponics, and a rover on a red horizon."
+                    .into(),
+            },
+            ProjectionCommand {
+                id: SEED_1980S_TOWN_COMMAND.into(),
+                title: "Start a town in 1987".into(),
+                detail: "An arcade, local radio, a night bus, and a neighborhood that remembers."
+                    .into(),
+            },
+            ProjectionCommand {
+                id: SEED_PENGUIN_CIVILIZATION_COMMAND.into(),
+                title: "Start a penguin civilization".into(),
+                detail: "An ice bridge, a fish vault, a moonrise council, and one bridge keeper."
+                    .into(),
+            },
+        ];
     }
 
-    vec![
-        ProjectionCommand {
-            id: SEED_MARS_COLONY_COMMAND.into(),
-            title: "Start a Mars colony".into(),
-            detail: "A tiny habitat, one keeper, hydroponics, and a rover on a red horizon.".into(),
-        },
-        ProjectionCommand {
-            id: SEED_1980S_TOWN_COMMAND.into(),
-            title: "Start a town in 1987".into(),
-            detail: "An arcade, local radio, a night bus, and a neighborhood that remembers."
-                .into(),
-        },
-        ProjectionCommand {
-            id: SEED_PENGUIN_CIVILIZATION_COMMAND.into(),
-            title: "Start a penguin civilization".into(),
-            detail: "An ice bridge, a fish vault, a moonrise council, and one bridge keeper."
-                .into(),
-        },
-    ]
+    let mut commands = vec![ProjectionCommand {
+        id: NUDGE_COMMAND.into(),
+        title: "Nudge the world".into(),
+        detail: "Let one small, persistent change happen now.".into(),
+    }];
+    let generation = integer_component(world, GENERATION).unwrap_or_default();
+    let decision = text_component(world.state().entity(UNIVERSE), DECISION, "none");
+    if generation >= 3 && decision == "none" {
+        let (bold_title, bold_detail, careful_title, careful_detail) =
+            intervention_copy(seed_id(world));
+        commands.push(ProjectionCommand {
+            id: BOLD_PATH_COMMAND.into(),
+            title: bold_title.into(),
+            detail: bold_detail.into(),
+        });
+        commands.push(ProjectionCommand {
+            id: CAREFUL_PATH_COMMAND.into(),
+            title: careful_title.into(),
+            detail: careful_detail.into(),
+        });
+    }
+    commands
 }
 
-fn briefing(world: &World, seeded: bool) -> BriefingProjection {
+fn briefing(world: &World, seeded: bool, since_event_count: Option<usize>) -> BriefingProjection {
     if !seeded {
         return BriefingProjection {
             eyebrow: "Pocket Universe".into(),
@@ -85,6 +111,15 @@ fn briefing(world: &World, seeded: bool) -> BriefingProjection {
         };
     }
 
+    if let Some(since) = since_event_count.filter(|since| *since < world.events().len()) {
+        let events = &world.events()[since..];
+        return BriefingProjection {
+            eyebrow: format!("Pocket Universe · {}", seed_label(seed_id(world))),
+            title: "While you were away".into(),
+            items: events.iter().rev().take(3).map(return_item).collect(),
+        };
+    }
+
     let generation = integer_component(world, GENERATION).unwrap_or_default();
     let last_change = text_component(
         world.state().entity(UNIVERSE),
@@ -96,9 +131,29 @@ fn briefing(world: &World, seeded: bool) -> BriefingProjection {
         title: format!("Generation {generation}"),
         items: vec![BriefingItem {
             selection: Some(SelectionId::Entity(UNIVERSE)),
-            title: "Since the last visit".into(),
+            title: "Current thread".into(),
             detail: last_change,
         }],
+    }
+}
+
+fn return_item(event: &Event) -> BriefingItem {
+    let detail = ["change", "summary"]
+        .into_iter()
+        .find_map(|key| match event.payload.get(key) {
+            Some(Value::Text(value)) => Some(value.clone()),
+            _ => None,
+        })
+        .unwrap_or_else(|| event.kind.replace('_', " "));
+    BriefingItem {
+        selection: Some(SelectionId::Event(event.id)),
+        title: match event.kind.as_str() {
+            "universe_grew" => "The world moved".into(),
+            "universe_intervened" => "Your choice took hold".into(),
+            "universe_seeded" => "A world began".into(),
+            _ => event.kind.replace('_', " "),
+        },
+        detail,
     }
 }
 
@@ -180,5 +235,34 @@ fn seed_label(seed: &str) -> &'static str {
         "1980s-town" => "1987 Town",
         "penguin-civilization" => "Penguin Civilization",
         _ => "Unseeded",
+    }
+}
+
+fn intervention_copy(seed: &str) -> (&'static str, &'static str, &'static str, &'static str) {
+    match seed {
+        "mars-colony" => (
+            "Follow the rover signal",
+            "Send Kestrel beyond the safe ridge after a repeating signal.",
+            "Fortify Ares Habitat",
+            "Spend the colony's spare capacity sealing the habitat before the next dust front.",
+        ),
+        "1980s-town" => (
+            "Make the arcade a community hub",
+            "Keep Maple Arcade open late as a neighborhood club.",
+            "Keep the arcade a steady business",
+            "Protect its small cash buffer and avoid becoming the town's unofficial clubhouse.",
+        ),
+        "penguin-civilization" => (
+            "Open the Fish Vault for a feast",
+            "Invite distant colonies across Icebridge for a winter feast.",
+            "Conserve the winter reserves",
+            "Keep the Fish Vault sealed and plan for the dark season.",
+        ),
+        _ => (
+            "Take the bold path",
+            "Choose a visible change with uncertain consequences.",
+            "Take the careful path",
+            "Protect what already exists and reduce immediate risk.",
+        ),
     }
 }
