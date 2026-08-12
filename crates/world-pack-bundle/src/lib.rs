@@ -154,9 +154,9 @@ impl PackBundle {
                 if read == 0 {
                     return Err(PackBundleError::InvalidLayout);
                 }
-                output
-                    .write_all(&buffer[..read])
-                    .map_err(|error| io_error("write extracted Pack program", &destination, error))?;
+                output.write_all(&buffer[..read]).map_err(|error| {
+                    io_error("write extracted Pack program", &destination, error)
+                })?;
                 hasher.update(&buffer[..read]);
                 remaining -= read as u64;
             }
@@ -175,7 +175,13 @@ impl PackBundle {
             {
                 use std::os::unix::fs::PermissionsExt;
                 fs::set_permissions(&destination, fs::Permissions::from_mode(0o700)).map_err(
-                    |error| io_error("mark extracted Pack program executable", &destination, error),
+                    |error| {
+                        io_error(
+                            "mark extracted Pack program executable",
+                            &destination,
+                            error,
+                        )
+                    },
                 )?;
             }
             Ok(())
@@ -230,8 +236,8 @@ pub fn write_bundle(
         program_bytes,
     };
     header.validate()?;
-    let header_json = serde_json::to_vec(&header)
-        .map_err(|error| PackBundleError::Json(error.to_string()))?;
+    let header_json =
+        serde_json::to_vec(&header).map_err(|error| PackBundleError::Json(error.to_string()))?;
     if header_json.is_empty() || header_json.len() as u64 > MAX_BUNDLE_HEADER_BYTES {
         return Err(PackBundleError::InvalidHeaderSize(header_json.len() as u64));
     }
@@ -344,7 +350,10 @@ pub enum PackBundleError {
     InvalidLayout,
     NonPortableRuntime,
     ProgramNotFile(PathBuf),
-    ProgramDigestMismatch { expected: String, found: String },
+    ProgramDigestMismatch {
+        expected: String,
+        found: String,
+    },
     ProgramChangedDuringBundleCreation,
 }
 
@@ -358,21 +367,31 @@ impl fmt::Display for PackBundleError {
             } => write!(f, "could not {operation} {}: {message}", path.display()),
             Self::Json(error) => write!(f, "could not decode Pack bundle header: {error}"),
             Self::Manifest(error) => write!(f, "invalid Pack bundle manifest: {error}"),
-            Self::UnsupportedFormat(format) => write!(f, "unsupported Pack bundle format: {format}"),
+            Self::UnsupportedFormat(format) => {
+                write!(f, "unsupported Pack bundle format: {format}")
+            }
             Self::UnsupportedVersion(version) => {
                 write!(f, "unsupported Pack bundle version: {version}")
             }
             Self::InvalidMagic => write!(f, "file is not a World Machine Pack bundle"),
             Self::InvalidHeaderSize(bytes) => write!(f, "invalid Pack bundle header size: {bytes}"),
-            Self::InvalidProgramSize(bytes) => write!(f, "invalid Pack bundle program size: {bytes}"),
+            Self::InvalidProgramSize(bytes) => {
+                write!(f, "invalid Pack bundle program size: {bytes}")
+            }
             Self::InvalidProgramDigest => write!(f, "invalid Pack bundle program digest"),
-            Self::InvalidLayout => write!(f, "Pack bundle layout is truncated or has trailing data"),
+            Self::InvalidLayout => {
+                write!(f, "Pack bundle layout is truncated or has trailing data")
+            }
             Self::NonPortableRuntime => write!(
                 f,
                 "Pack bundle v1 must contain exactly one direct program with no runtime arguments"
             ),
             Self::ProgramNotFile(path) => {
-                write!(f, "Pack bundle program is not a regular file: {}", path.display())
+                write!(
+                    f,
+                    "Pack bundle program is not a regular file: {}",
+                    path.display()
+                )
             }
             Self::ProgramDigestMismatch { expected, found } => write!(
                 f,
@@ -469,7 +488,11 @@ mod tests {
         let bundle = PackBundle::open(&bundle_path).unwrap();
         let offset = bundle.program_offset;
         drop(bundle);
-        let mut file = OpenOptions::new().read(true).write(true).open(&bundle_path).unwrap();
+        let mut file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&bundle_path)
+            .unwrap();
         file.seek(SeekFrom::Start(offset)).unwrap();
         file.write_all(b"X").unwrap();
         file.sync_all().unwrap();
@@ -477,7 +500,10 @@ mod tests {
         let bundle = PackBundle::open(&bundle_path).unwrap();
         let extracted = root.join("tampered-program");
         let error = bundle.extract_program(&extracted).unwrap_err();
-        assert!(matches!(error, PackBundleError::ProgramDigestMismatch { .. }));
+        assert!(matches!(
+            error,
+            PackBundleError::ProgramDigestMismatch { .. }
+        ));
         assert!(!extracted.exists());
     }
 
