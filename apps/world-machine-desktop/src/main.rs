@@ -612,16 +612,12 @@ impl WorldMachineHome {
             }
 
             if !node.children.is_empty() {
-                let mut branches = div()
-                    .flex()
-                    .flex_col()
-                    .gap_1()
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(rgb(0x777770))
-                            .child(format!("Branches · {}", node.children.len())),
-                    );
+                let mut branches = div().flex().flex_col().gap_1().child(
+                    div()
+                        .text_xs()
+                        .text_color(rgb(0x777770))
+                        .child(format!("Branches · {}", node.children.len())),
+                );
                 for child_id in &node.children {
                     let child_label = child_id.to_string();
                     let child_branch = self
