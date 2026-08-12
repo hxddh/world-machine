@@ -5345,6 +5345,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "tiny-society-pack"
+version = "0.1.0"
+dependencies = [
+ "tiny-society",
+ "world-host",
+ "world-pack-catalog",
+ "world-pack-protocol",
+ "world-pack-server",
+ "world-projection",
+]
+
+[[package]]
 name = "tinystr"
 version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6708,6 +6720,16 @@ dependencies = [
  "serde",
  "serde_json",
  "world-core",
+ "world-persistence",
+ "world-projection",
+]
+
+[[package]]
+name = "world-pack-server"
+version = "0.1.0"
+dependencies = [
+ "world-host",
+ "world-pack-protocol",
  "world-persistence",
  "world-projection",
 ]

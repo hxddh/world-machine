@@ -8,6 +8,7 @@ PI_RPC="$ROOT/crates/world-pi-rpc"
 PACK_PROTOCOL="$ROOT/crates/world-pack-protocol"
 PACK_PROCESS="$ROOT/crates/world-pack-process"
 PACK_CATALOG="$ROOT/crates/world-pack-catalog"
+PACK_SERVER="$ROOT/crates/world-pack-server"
 PROJECTION="$ROOT/crates/world-projection"
 HOST="$ROOT/crates/world-host"
 LIBRARY="$ROOT/crates/world-library"
@@ -20,6 +21,7 @@ DESKTOP="$ROOT/apps/world-machine-desktop"
 core_forbidden=("TinySociety" "Tiny Society" "FutureArchaeologist" "Future Archaeologist" "Person" "Town" "Bakery" "Society" "gpui" "pi_agent" "FootballPlayer" "Evidence" "world_agent")
 agent_forbidden=("pi_agent" "openai" "anthropic" "gpui")
 pi_rpc_forbidden=("pi_agent_rust")
+pack_server_forbidden=("TinySociety" "tiny_society" "tiny-society" "Tiny Society" "FutureArchaeologist" "future_archaeologist" "future-archaeologist" "Future Archaeologist" "gpui" "pi_agent" "openai" "anthropic")
 pack_catalog_forbidden=("TinySociety" "tiny_society" "tiny-society" "Tiny Society" "FutureArchaeologist" "future_archaeologist" "future-archaeologist" "Future Archaeologist" "gpui" "pi_agent" "openai" "anthropic")
 pack_process_forbidden=("TinySociety" "tiny_society" "tiny-society" "Tiny Society" "FutureArchaeologist" "future_archaeologist" "future-archaeologist" "Future Archaeologist" "gpui" "pi_agent" "openai" "anthropic")
 pack_protocol_forbidden=("TinySociety" "tiny_society" "tiny-society" "Tiny Society" "FutureArchaeologist" "future_archaeologist" "future-archaeologist" "Future Archaeologist" "gpui" "pi_agent" "openai" "anthropic")
@@ -66,6 +68,16 @@ if [[ -d "$PACK_PROTOCOL" ]]; then
     if grep -Rni --exclude-dir=target -i -- "$token" "$PACK_PROTOCOL" >/tmp/world-machine-pack-protocol-boundary-check 2>/dev/null; then
       echo "Boundary violation: '$token' found in generic world-pack-protocol:"
       cat /tmp/world-machine-pack-protocol-boundary-check
+      failed=1
+    fi
+  done
+fi
+
+if [[ -d "$PACK_SERVER" ]]; then
+  for token in "${pack_server_forbidden[@]}"; do
+    if grep -Rni --exclude-dir=target -i -- "$token" "$PACK_SERVER" >/tmp/world-machine-pack-server-boundary-check 2>/dev/null; then
+      echo "Boundary violation: '$token' found in generic world-pack-server:"
+      cat /tmp/world-machine-pack-server-boundary-check
       failed=1
     fi
   done

@@ -32,10 +32,7 @@ fn tiny_society_can_be_installed_and_run_as_a_real_external_pack() {
     let manifest_json = String::from_utf8(output.stdout).unwrap();
     let manifest = PackManifest::from_json(&manifest_json).unwrap();
     assert_eq!(manifest.descriptor.pack.id, TINY_SOCIETY_PACK_ID);
-    assert_eq!(
-        manifest.descriptor.pack.version,
-        TINY_SOCIETY_PACK_VERSION
-    );
+    assert_eq!(manifest.descriptor.pack.version, TINY_SOCIETY_PACK_VERSION);
     match &manifest.runtime {
         PackRuntimeManifest::Process { command, args } => {
             assert!(PathBuf::from(command).is_absolute());

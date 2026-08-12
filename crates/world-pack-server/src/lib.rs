@@ -1,12 +1,11 @@
 use std::env;
 use std::error::Error;
 use std::fmt;
-use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};
-use std::path::PathBuf;
+use std::io::{self, BufRead, BufWriter, Read, Write};
 use world_host::{HostError, WorldDescriptor, WorldRegistration, WorldRegistry, WorldSession};
 use world_pack_protocol::{
-    decode_request, encode_response, PackDescriptor, PackManifest, PackRequest, PackRequestEnvelope,
-    PackResponse, PackResponseEnvelope, ProjectionSnapshotWire,
+    decode_request, encode_response, PackDescriptor, PackManifest, PackRequest,
+    PackRequestEnvelope, PackResponse, PackResponseEnvelope, ProjectionSnapshotWire,
 };
 use world_persistence::WorldPackRef;
 
@@ -30,7 +29,9 @@ impl PackServer {
         let descriptor = protocol_descriptor(&registration.descriptor);
         let pack = registration.descriptor.pack.clone();
         let mut registry = WorldRegistry::new();
-        registry.register(registration).map_err(PackServerError::Host)?;
+        registry
+            .register(registration)
+            .map_err(PackServerError::Host)?;
         Ok(Self {
             registry,
             descriptor,
@@ -148,11 +149,11 @@ impl PackServer {
     }
 
     fn session(&self, operation: &'static str) -> Result<&dyn WorldSession, PackServerError> {
-        self.session
-            .as_deref()
-            .ok_or_else(|| PackServerError::InvalidSequence(format!(
+        self.session.as_deref().ok_or_else(|| {
+            PackServerError::InvalidSequence(format!(
                 "cannot {operation}: create or open a World first"
-            )))
+            ))
+        })
     }
 
     fn session_mut(
@@ -245,8 +246,8 @@ fn write_response<W: Write>(
     response: PackResponseEnvelope,
 ) -> Result<(), PackServerError> {
     let request_id = response.request_id;
-    let mut encoded = encode_response(&response)
-        .map_err(|error| PackServerError::Protocol(error.to_string()))?;
+    let mut encoded =
+        encode_response(&response).map_err(|error| PackServerError::Protocol(error.to_string()))?;
     if encoded.len().saturating_add(1) > DEFAULT_MAX_RESPONSE_BYTES {
         encoded = encode_response(&PackResponseEnvelope::new(
             request_id,
@@ -309,6 +310,7 @@ impl Error for PackServerError {}
 mod tests {
     use super::*;
     use std::io::Cursor;
+    use std::path::PathBuf;
     use world_pack_protocol::{
         decode_response, encode_request, PackRequest, PackRequestEnvelope, PackResponse,
         ProjectionIntentWire,
@@ -336,10 +338,7 @@ mod tests {
             }
         }
 
-        fn handle(
-            &mut self,
-            intent: ProjectionIntent,
-        ) -> Result<ProjectionSnapshot, HostError> {
+        fn handle(&mut self, intent: ProjectionIntent) -> Result<ProjectionSnapshot, HostError> {
             match intent {
                 ProjectionIntent::InvokeCommand(command) if command == "increment" => {
                     self.world_time += 1;
@@ -442,7 +441,10 @@ mod tests {
         ));
         assert!(matches!(responses[5].response, PackResponse::Ok));
         assert_eq!(
-            responses.iter().map(|response| response.request_id).collect::<Vec<_>>(),
+            responses
+                .iter()
+                .map(|response| response.request_id)
+                .collect::<Vec<_>>(),
             vec![1, 2, 3, 4, 5, 6]
         );
     }
