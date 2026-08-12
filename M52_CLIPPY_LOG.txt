@@ -1,0 +1,39 @@
+[1m[92m    Updating[0m crates.io index
+[1m[92m    Updating[0m git repository `https://github.com/zed-industries/zed`
+[1m[92m    Updating[0m git repository `https://github.com/zed-industries/wasm_thread`
+[1m[92m    Updating[0m git repository `https://github.com/zed-industries/font-kit`
+[1m[92m    Updating[0m git repository `https://github.com/zed-industries/scap`
+[1m[92m     Locking[0m 669 packages to latest compatible versions
+[1m[92m      Adding[0m cocoa v0.26.0 [1m[33m(available: v0.26.1)[0m
+[1m[92m      Adding[0m cocoa-foundation v0.2.0 [1m[33m(available: v0.2.1)[0m
+[1m[92m      Adding[0m generic-array v0.14.7 [1m[33m(available: v0.14.9)[0m
+[1m[92m Downloading[0m crates ...
+[1m[92m  Downloaded[0m itoa v1.0.18
+[1m[92m  Downloaded[0m proc-macro2 v1.0.107
+[1m[92m  Downloaded[0m quote v1.0.47
+[1m[92m  Downloaded[0m memchr v2.8.3
+[1m[92m  Downloaded[0m zmij v1.0.23
+[1m[92m  Downloaded[0m unicode-ident v1.0.24
+[1m[92m  Downloaded[0m serde_core v1.0.229
+[1m[92m  Downloaded[0m serde v1.0.229
+[1m[92m  Downloaded[0m serde_derive v1.0.229
+[1m[92m  Downloaded[0m serde_json v1.0.151
+[1m[92m  Downloaded[0m syn v3.0.3
+[1m[92m   Compiling[0m proc-macro2 v1.0.107
+[1m[92m   Compiling[0m quote v1.0.47
+[1m[92m   Compiling[0m unicode-ident v1.0.24
+[1m[92m   Compiling[0m serde_core v1.0.229
+[1m[92m   Compiling[0m zmij v1.0.23
+[1m[92m   Compiling[0m serde v1.0.229
+[1m[92m   Compiling[0m serde_json v1.0.151
+[1m[92m    Checking[0m world-core v0.1.0 (/home/runner/work/world-machine/world-machine/crates/world-core)
+[1m[92m    Checking[0m itoa v1.0.18
+[1m[92m    Checking[0m memchr v2.8.3
+[1m[92m   Compiling[0m syn v3.0.3
+[1m[92m    Checking[0m world-projection v0.1.0 (/home/runner/work/world-machine/world-machine/crates/world-projection)
+[1m[92m   Compiling[0m serde_derive v1.0.229
+[1m[92m    Checking[0m world-persistence v0.1.0 (/home/runner/work/world-machine/world-machine/crates/world-persistence)
+[1m[92m    Checking[0m world-pack-protocol v0.1.0 (/home/runner/work/world-machine/world-machine/crates/world-pack-protocol)
+crates/world-pack-protocol/src/lib.rs:1069:24: [1m[91merror[E0618][0m: expected function, found `world_projection::ProjectionSnapshot`
+[1m[91merror[0m: could not compile `world-pack-protocol` (lib test) due to 1 previous error
+[1m[33mwarning[0m: build failed, waiting for other jobs to finish...
