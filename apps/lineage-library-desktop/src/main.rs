@@ -17,8 +17,20 @@ fn main() {
         lineage: None,
     };
     let future_a = strategy_record("future-a", "source-world", "Choose A", 20, pack.clone());
-    let future_b = strategy_record("future-b", "source-world.world", "Choose B", 100, pack.clone());
-    let detached = strategy_record("detached-future", "External.world", "External choice", 20, pack);
+    let future_b = strategy_record(
+        "future-b",
+        "source-world.world",
+        "Choose B",
+        100,
+        pack.clone(),
+    );
+    let detached = strategy_record(
+        "detached-future",
+        "External.world",
+        "External choice",
+        20,
+        pack,
+    );
     let index = build_index([root, future_a, future_b, detached]).unwrap();
 
     application().run(move |cx: &mut App| {
