@@ -156,7 +156,10 @@ fn lineage_label(lineage: &WorldLineage) -> String {
             lineage.parent.world_time
         ),
         WorldBranchCause::Fork { label: None } => {
-            format!("From {parent} · Fork · parent t{}", lineage.parent.world_time)
+            format!(
+                "From {parent} · Fork · parent t{}",
+                lineage.parent.world_time
+            )
         }
     }
 }
