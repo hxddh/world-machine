@@ -114,9 +114,33 @@ impl WorldRegistration {
     }
 }
 
+struct WorldFamily {
+    active_version: String,
+    registrations: BTreeMap<String, WorldRegistration>,
+}
+
+impl WorldFamily {
+    fn new(version: String, registration: WorldRegistration) -> Self {
+        let mut registrations = BTreeMap::new();
+        registrations.insert(version.clone(), registration);
+        Self {
+            active_version: version,
+            registrations,
+        }
+    }
+
+    fn active(&self) -> Option<&WorldRegistration> {
+        self.registrations.get(&self.active_version)
+    }
+
+    fn version(&self, version: &str) -> Option<&WorldRegistration> {
+        self.registrations.get(version)
+    }
+}
+
 #[derive(Default)]
 pub struct WorldRegistry {
-    registrations: BTreeMap<String, WorldRegistration>,
+    families: BTreeMap<String, WorldFamily>,
 }
 
 impl WorldRegistry {
@@ -124,50 +148,130 @@ impl WorldRegistry {
         Self::default()
     }
 
+    /// Register a Pack version and make it the active version used for new Worlds.
+    /// Older registered versions remain available for exact archive restoration.
     pub fn register(&mut self, registration: WorldRegistration) -> Result<(), HostError> {
         validate_descriptor(&registration.descriptor)?;
         let id = registration.descriptor.pack.id.clone();
-        if self.registrations.contains_key(&id) {
-            return Err(HostError::DuplicateWorld(id));
+        let version = registration.descriptor.pack.version.clone();
+
+        if let Some(family) = self.families.get_mut(&id) {
+            if family.registrations.contains_key(&version) {
+                return Err(HostError::DuplicateWorld(format!("{id}@{version}")));
+            }
+            family.registrations.insert(version.clone(), registration);
+            family.active_version = version;
+        } else {
+            self.families
+                .insert(id, WorldFamily::new(version, registration));
         }
-        self.registrations.insert(id, registration);
         Ok(())
     }
 
+    /// Active descriptors only. Historical compatible versions stay hidden from
+    /// ordinary World creation/catalog surfaces.
     pub fn descriptors(&self) -> Vec<&WorldDescriptor> {
-        self.registrations
+        self.families
             .values()
+            .filter_map(WorldFamily::active)
             .map(|registration| &registration.descriptor)
             .collect()
     }
 
+    /// The active descriptor used for new Worlds with this Pack id.
     pub fn descriptor(&self, pack_id: &str) -> Option<&WorldDescriptor> {
-        self.registrations
+        self.families
             .get(pack_id)
+            .and_then(WorldFamily::active)
             .map(|registration| &registration.descriptor)
     }
 
-    pub fn create(&self, pack_id: &str) -> Result<Box<dyn WorldSession>, HostError> {
-        let session = self
-            .registrations
+    /// An exact registered Pack descriptor, including a historical compatible version.
+    pub fn descriptor_for(&self, pack: &WorldPackRef) -> Option<&WorldDescriptor> {
+        self.families
+            .get(&pack.id)
+            .and_then(|family| family.version(&pack.version))
+            .map(|registration| &registration.descriptor)
+    }
+
+    /// All registered descriptors for a Pack id. Ordering is deterministic but
+    /// version strings are opaque and are not interpreted as semantic versions.
+    pub fn descriptors_for(&self, pack_id: &str) -> Vec<&WorldDescriptor> {
+        self.families
             .get(pack_id)
-            .ok_or_else(|| HostError::UnknownWorld(pack_id.into()))?
-            .create()?;
+            .map(|family| {
+                family
+                    .registrations
+                    .values()
+                    .map(|registration| &registration.descriptor)
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Explicitly choose which already-registered version is used for new Worlds.
+    pub fn activate(&mut self, pack: &WorldPackRef) -> Result<(), HostError> {
+        let family = self
+            .families
+            .get_mut(&pack.id)
+            .ok_or_else(|| HostError::UnknownWorld(pack.id.clone()))?;
+        if !family.registrations.contains_key(&pack.version) {
+            let expected = family
+                .active()
+                .map(|registration| registration.descriptor.pack.clone())
+                .unwrap_or_else(|| WorldPackRef::new(pack.id.clone(), "<none>"));
+            return Err(HostError::VersionMismatch {
+                expected,
+                found: pack.clone(),
+            });
+        }
+        family.active_version = pack.version.clone();
+        Ok(())
+    }
+
+    pub fn create(&self, pack_id: &str) -> Result<Box<dyn WorldSession>, HostError> {
+        let registration = self
+            .families
+            .get(pack_id)
+            .and_then(WorldFamily::active)
+            .ok_or_else(|| HostError::UnknownWorld(pack_id.into()))?;
+        let session = registration.create()?;
+        Ok(integrity_checked(session))
+    }
+
+    pub fn create_exact(&self, pack: &WorldPackRef) -> Result<Box<dyn WorldSession>, HostError> {
+        let family = self
+            .families
+            .get(&pack.id)
+            .ok_or_else(|| HostError::UnknownWorld(pack.id.clone()))?;
+        let registration = family.version(&pack.version).ok_or_else(|| {
+            HostError::VersionMismatch {
+                expected: family
+                    .active()
+                    .map(|registration| registration.descriptor.pack.clone())
+                    .unwrap_or_else(|| WorldPackRef::new(pack.id.clone(), "<none>")),
+                found: pack.clone(),
+            }
+        })?;
+        let session = registration.create()?;
         Ok(integrity_checked(session))
     }
 
     pub fn open_archive(&self, archive: &WorldArchive) -> Result<Box<dyn WorldSession>, HostError> {
         check_archive(archive)?;
-        let registration = self
-            .registrations
+        let family = self
+            .families
             .get(&archive.pack.id)
             .ok_or_else(|| HostError::UnknownWorld(archive.pack.id.clone()))?;
-        if registration.descriptor.pack.version != archive.pack.version {
-            return Err(HostError::VersionMismatch {
-                expected: registration.descriptor.pack.clone(),
+        let registration = family.version(&archive.pack.version).ok_or_else(|| {
+            HostError::VersionMismatch {
+                expected: family
+                    .active()
+                    .map(|registration| registration.descriptor.pack.clone())
+                    .unwrap_or_else(|| WorldPackRef::new(archive.pack.id.clone(), "<none>")),
                 found: archive.pack.clone(),
-            });
-        }
+            }
+        })?;
         let session = registration.open_archive(archive)?;
         Ok(integrity_checked(session))
     }
@@ -329,6 +433,16 @@ mod tests {
         )
     }
 
+    fn openable_registration(id: &str, version: &str) -> WorldRegistration {
+        let opener_pack = WorldPackRef::new(id, version);
+        registration(id, version).with_archive_opener(move |archive| {
+            Ok(Box::new(MockSession {
+                pack: opener_pack.clone(),
+                count: archive.world_time as usize,
+            }))
+        })
+    }
+
     fn archive(id: &str, version: &str, world_time: u64) -> WorldArchive {
         WorldArchive {
             format: world_persistence::WORLD_ARCHIVE_FORMAT.into(),
@@ -362,13 +476,66 @@ mod tests {
     }
 
     #[test]
-    fn registry_rejects_duplicates_and_unknown_worlds() {
+    fn pack_versions_coexist_and_latest_registration_is_active() {
+        let mut registry = WorldRegistry::new();
+        registry
+            .register(openable_registration("mock.world", "1"))
+            .unwrap();
+        registry
+            .register(openable_registration("mock.world", "2"))
+            .unwrap();
+
+        assert_eq!(registry.descriptors().len(), 1);
+        assert_eq!(registry.descriptor("mock.world").unwrap().pack.version, "2");
+        assert_eq!(registry.descriptors_for("mock.world").len(), 2);
+        assert!(registry
+            .descriptor_for(&WorldPackRef::new("mock.world", "1"))
+            .is_some());
+
+        assert_eq!(
+            registry.create("mock.world").unwrap().pack(),
+            WorldPackRef::new("mock.world", "2")
+        );
+        assert_eq!(
+            registry
+                .create_exact(&WorldPackRef::new("mock.world", "1"))
+                .unwrap()
+                .pack(),
+            WorldPackRef::new("mock.world", "1")
+        );
+
+        let restored_v1 = registry
+            .open_archive(&archive("mock.world", "1", 7))
+            .unwrap();
+        assert_eq!(restored_v1.pack(), WorldPackRef::new("mock.world", "1"));
+        assert_eq!(restored_v1.snapshot().title, "Mock 7");
+    }
+
+    #[test]
+    fn active_pack_version_can_be_selected_explicitly() {
         let mut registry = WorldRegistry::new();
         registry.register(registration("mock.world", "1")).unwrap();
+        registry.register(registration("mock.world", "2")).unwrap();
+        registry
+            .activate(&WorldPackRef::new("mock.world", "1"))
+            .unwrap();
+
+        assert_eq!(registry.descriptor("mock.world").unwrap().pack.version, "1");
+        assert_eq!(
+            registry.create("mock.world").unwrap().pack(),
+            WorldPackRef::new("mock.world", "1")
+        );
+    }
+
+    #[test]
+    fn registry_rejects_exact_duplicates_and_unknown_worlds() {
+        let mut registry = WorldRegistry::new();
+        registry.register(registration("mock.world", "1")).unwrap();
+        registry.register(registration("mock.world", "2")).unwrap();
 
         assert!(matches!(
-            registry.register(registration("mock.world", "1")),
-            Err(HostError::DuplicateWorld(_))
+            registry.register(registration("mock.world", "2")),
+            Err(HostError::DuplicateWorld(id)) if id == "mock.world@2"
         ));
         assert!(matches!(
             registry.create("missing.world"),
