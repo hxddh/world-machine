@@ -127,11 +127,7 @@ fn proves_unrelated_only_when_both_local_ancestries_reach_roots() {
 
 #[test]
 fn reports_unresolved_ancestry_instead_of_guessing_unrelated() {
-    let index = build_index([
-        child("detached", "External.world"),
-        root("local-root"),
-    ])
-    .unwrap();
+    let index = build_index([child("detached", "External.world"), root("local-root")]).unwrap();
 
     assert_eq!(
         relation_between(&index, &id("detached"), &id("local-root")).unwrap(),
