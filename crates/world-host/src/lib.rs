@@ -129,8 +129,10 @@ impl WorldFamily {
         }
     }
 
-    fn active(&self) -> Option<&WorldRegistration> {
-        self.registrations.get(&self.active_version)
+    fn active(&self) -> &WorldRegistration {
+        self.registrations
+            .get(&self.active_version)
+            .expect("WorldFamily active version must remain registered")
     }
 
     fn version(&self, version: &str) -> Option<&WorldRegistration> {
@@ -173,8 +175,7 @@ impl WorldRegistry {
     pub fn descriptors(&self) -> Vec<&WorldDescriptor> {
         self.families
             .values()
-            .filter_map(WorldFamily::active)
-            .map(|registration| &registration.descriptor)
+            .map(|family| &family.active().descriptor)
             .collect()
     }
 
@@ -182,8 +183,7 @@ impl WorldRegistry {
     pub fn descriptor(&self, pack_id: &str) -> Option<&WorldDescriptor> {
         self.families
             .get(pack_id)
-            .and_then(WorldFamily::active)
-            .map(|registration| &registration.descriptor)
+            .map(|family| &family.active().descriptor)
     }
 
     /// An exact registered Pack descriptor, including a historical compatible version.
@@ -216,12 +216,8 @@ impl WorldRegistry {
             .get_mut(&pack.id)
             .ok_or_else(|| HostError::UnknownWorld(pack.id.clone()))?;
         if !family.registrations.contains_key(&pack.version) {
-            let expected = family
-                .active()
-                .map(|registration| registration.descriptor.pack.clone())
-                .unwrap_or_else(|| WorldPackRef::new(pack.id.clone(), "<none>"));
             return Err(HostError::VersionMismatch {
-                expected,
+                expected: family.active().descriptor.pack.clone(),
                 found: pack.clone(),
             });
         }
@@ -230,12 +226,11 @@ impl WorldRegistry {
     }
 
     pub fn create(&self, pack_id: &str) -> Result<Box<dyn WorldSession>, HostError> {
-        let registration = self
+        let family = self
             .families
             .get(pack_id)
-            .and_then(WorldFamily::active)
             .ok_or_else(|| HostError::UnknownWorld(pack_id.into()))?;
-        let session = registration.create()?;
+        let session = family.active().create()?;
         Ok(integrity_checked(session))
     }
 
@@ -244,15 +239,13 @@ impl WorldRegistry {
             .families
             .get(&pack.id)
             .ok_or_else(|| HostError::UnknownWorld(pack.id.clone()))?;
-        let registration = family.version(&pack.version).ok_or_else(|| {
-            HostError::VersionMismatch {
-                expected: family
-                    .active()
-                    .map(|registration| registration.descriptor.pack.clone())
-                    .unwrap_or_else(|| WorldPackRef::new(pack.id.clone(), "<none>")),
-                found: pack.clone(),
-            }
-        })?;
+        let registration =
+            family
+                .version(&pack.version)
+                .ok_or_else(|| HostError::VersionMismatch {
+                    expected: family.active().descriptor.pack.clone(),
+                    found: pack.clone(),
+                })?;
         let session = registration.create()?;
         Ok(integrity_checked(session))
     }
@@ -263,15 +256,13 @@ impl WorldRegistry {
             .families
             .get(&archive.pack.id)
             .ok_or_else(|| HostError::UnknownWorld(archive.pack.id.clone()))?;
-        let registration = family.version(&archive.pack.version).ok_or_else(|| {
-            HostError::VersionMismatch {
-                expected: family
-                    .active()
-                    .map(|registration| registration.descriptor.pack.clone())
-                    .unwrap_or_else(|| WorldPackRef::new(archive.pack.id.clone(), "<none>")),
-                found: archive.pack.clone(),
-            }
-        })?;
+        let registration =
+            family
+                .version(&archive.pack.version)
+                .ok_or_else(|| HostError::VersionMismatch {
+                    expected: family.active().descriptor.pack.clone(),
+                    found: archive.pack.clone(),
+                })?;
         let session = registration.open_archive(archive)?;
         Ok(integrity_checked(session))
     }
