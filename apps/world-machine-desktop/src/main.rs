@@ -25,10 +25,14 @@ use std::sync::Arc;
 #[cfg(target_os = "macos")]
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 #[cfg(target_os = "macos")]
+use world_document::WorldBranchCause;
+#[cfg(target_os = "macos")]
 use world_library::{
     DurableWorldSession, LibraryError, WorldDocumentId, WorldDocumentSummary, WorldLibrary,
     LEGACY_WORLD_DOCUMENT_SUFFIX, WORLD_DOCUMENT_SUFFIX,
 };
+#[cfg(target_os = "macos")]
+use world_lineage::LineageIndex;
 
 #[cfg(target_os = "macos")]
 const LIBRARY_OVERRIDE_ENV: &str = "WORLD_MACHINE_LIBRARY_DIR";
@@ -238,6 +242,7 @@ struct WorldMachineHome {
     registry: Arc<world_host::WorldRegistry>,
     library: Arc<WorldLibrary>,
     documents: Vec<WorldDocumentSummary>,
+    lineage: Option<LineageIndex>,
     status: Option<String>,
 }
 
@@ -273,8 +278,21 @@ impl WorldMachineHome {
 
     fn refresh_documents(&mut self) {
         match self.library.list() {
-            Ok(documents) => self.documents = documents,
+            Ok(documents) => {
+                self.documents = documents;
+                self.refresh_lineage();
+            }
             Err(error) => self.status = Some(format!("Could not read World Library: {error}")),
+        }
+    }
+
+    fn refresh_lineage(&mut self) {
+        match LineageIndex::from_library(self.library.as_ref()) {
+            Ok(lineage) => self.lineage = Some(lineage),
+            Err(error) => {
+                self.lineage = None;
+                self.status = Some(format!("Could not build World lineage: {error}"));
+            }
         }
     }
 
@@ -524,6 +542,115 @@ impl WorldMachineHome {
             .map(|descriptor| descriptor.title.clone())
             .unwrap_or_else(|| document.pack.id.clone());
         let document_label = document.id.to_string();
+        let lineage_node = self
+            .lineage
+            .as_ref()
+            .and_then(|lineage| lineage.node(&document.id))
+            .cloned();
+
+        let mut details = div()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(div().text_lg().child(title))
+            .child(div().text_sm().text_color(rgb(0x666666)).child(format!(
+                "World time {} · {} events",
+                document.world_time, document.event_count
+            )))
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0x8a8a82))
+                    .child(document_label.clone()),
+            );
+
+        if let Some(node) = lineage_node {
+            if let Some(parent) = node.parent.as_ref() {
+                let branch_label = node.branch.as_ref().map(lineage_branch_label);
+                let mut origin = div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .text_xs()
+                    .child(div().text_color(rgb(0x777770)).child("Origin"));
+
+                if let Some(parent_id) = parent.resolved.clone() {
+                    let open_parent = parent_id.clone();
+                    let parent_label = parent_id.to_string();
+                    origin = origin.child(
+                        div()
+                            .id(SharedString::from(format!(
+                                "lineage-parent-{document_label}-{parent_label}"
+                            )))
+                            .cursor_pointer()
+                            .text_color(rgb(0x4e6fb3))
+                            .child(parent_label)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.open_document(open_parent.clone(), cx)
+                            })),
+                    );
+                } else {
+                    let parent_label = parent
+                        .document
+                        .clone()
+                        .unwrap_or_else(|| parent.pack.id.clone());
+                    origin = origin.child(
+                        div()
+                            .text_color(rgb(0x777770))
+                            .child(format!("{parent_label} · outside My Worlds")),
+                    );
+                }
+
+                if let Some(branch_label) = branch_label {
+                    origin = origin.child(
+                        div()
+                            .text_color(rgb(0x777770))
+                            .child(format!("· {branch_label}")),
+                    );
+                }
+                details = details.child(origin);
+            }
+
+            if !node.children.is_empty() {
+                let mut branches = div()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(0x777770))
+                            .child(format!("Branches · {}", node.children.len())),
+                    );
+                for child_id in &node.children {
+                    let child_label = child_id.to_string();
+                    let child_branch = self
+                        .lineage
+                        .as_ref()
+                        .and_then(|lineage| lineage.node(child_id))
+                        .and_then(|child| child.branch.as_ref())
+                        .map(lineage_branch_label);
+                    let open_child = child_id.clone();
+                    let link_label = child_branch
+                        .map(|branch| format!("{child_label} · {branch}"))
+                        .unwrap_or_else(|| child_label.clone());
+                    branches = branches.child(
+                        div()
+                            .id(SharedString::from(format!(
+                                "lineage-child-{document_label}-{child_label}"
+                            )))
+                            .cursor_pointer()
+                            .text_xs()
+                            .text_color(rgb(0x4e6fb3))
+                            .child(link_label)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.open_document(open_child.clone(), cx)
+                            })),
+                    );
+                }
+                details = details.child(branches);
+            }
+        }
 
         div()
             .id(SharedString::from(format!("document-{document_label}")))
@@ -537,23 +664,7 @@ impl WorldMachineHome {
             .justify_between()
             .items_center()
             .gap_3()
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_1()
-                    .child(div().text_lg().child(title))
-                    .child(div().text_sm().text_color(rgb(0x666666)).child(format!(
-                        "World time {} · {} events",
-                        document.world_time, document.event_count
-                    )))
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(rgb(0x8a8a82))
-                            .child(document_label),
-                    ),
-            )
+            .child(details)
             .child(
                 div()
                     .flex()
@@ -719,6 +830,19 @@ impl Render for WorldMachineHome {
 }
 
 #[cfg(target_os = "macos")]
+fn lineage_branch_label(branch: &WorldBranchCause) -> String {
+    match branch {
+        WorldBranchCause::Strategy {
+            choice_title,
+            horizon,
+            ..
+        } => format!("{choice_title} · +{horizon}"),
+        WorldBranchCause::Fork { label: Some(label) } => format!("Fork · {label}"),
+        WorldBranchCause::Fork { label: None } => "Fork".into(),
+    }
+}
+
+#[cfg(target_os = "macos")]
 fn discover_library() -> std::io::Result<WorldLibrary> {
     if let Some(path) = env::var_os(LIBRARY_OVERRIDE_ENV) {
         return Ok(WorldLibrary::new(PathBuf::from(path)));
@@ -857,10 +981,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     system_open::install(&application);
     let registry = Arc::new(world_builtins::registry()?);
     let library = Arc::new(discover_library()?);
-    let (documents, status) = match library.list() {
-        Ok(documents) => (documents, None),
+    let (documents, lineage, status) = match library.list() {
+        Ok(documents) => match LineageIndex::from_library(library.as_ref()) {
+            Ok(lineage) => (documents, Some(lineage), None),
+            Err(error) => (
+                documents,
+                None,
+                Some(format!("Could not build World lineage: {error}")),
+            ),
+        },
         Err(error) => (
             Vec::new(),
+            None,
             Some(format!("Could not read World Library: {error}")),
         ),
     };
@@ -871,6 +1003,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 registry,
                 library,
                 documents,
+                lineage,
                 status,
             };
             home.start_system_open_listener(cx);
