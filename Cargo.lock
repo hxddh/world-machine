@@ -6665,6 +6665,7 @@ dependencies = [
  "world-lineage-compare",
  "world-lineage-gpui",
  "world-observer",
+ "world-pack-catalog",
  "world-persistence",
  "world-projection",
  "world-strategy-document",
