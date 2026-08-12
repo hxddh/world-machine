@@ -1,0 +1,32 @@
+name: M54 Pinned Session Coverage
+
+on:
+  push:
+    branches:
+      - m54-installed-pack-catalog
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: m54-installed-pack-catalog
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt,clippy
+      - run: python scripts/m54_pinned_session_test.py
+      - run: cargo fmt --all
+      - run: cargo test -p world-pack-process -p world-pack-catalog
+      - run: cargo clippy -p world-pack-process -p world-pack-catalog --all-targets -- -D warnings
+      - name: Commit pinned-session coverage
+        run: |
+          rm -f scripts/m54_pinned_session_test.py .github/workflows/m54-pinned-test.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "M54: exercise successful pinned Pack sessions" || exit 0
+          git push origin HEAD:m54-installed-pack-catalog
