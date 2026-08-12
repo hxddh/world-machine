@@ -6,6 +6,7 @@ members = [
   "crates/world-pi-rpc",
   "crates/world-projection",
   "crates/world-compare",
+  "crates/world-saved-compare",
   "crates/world-strategy",
   "crates/world-strategy-document",
   "crates/world-strategy-gpui",
