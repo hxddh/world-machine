@@ -98,7 +98,7 @@ fn fork_world(
 
     let pack = session.pack();
     let title = registry
-        .descriptor(&pack.id)
+        .descriptor_for(&pack)
         .map(|descriptor| descriptor.title.clone())
         .unwrap_or(pack.id);
     let registry_for_window = Arc::clone(&registry);
