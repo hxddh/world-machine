@@ -1,0 +1,31 @@
+name: M55 Apply Desktop Packs
+
+on:
+  push:
+    branches:
+      - m55-desktop-installed-packs
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: m55-desktop-installed-packs
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: python scripts/m55_desktop_patch.py
+      - run: cargo fmt --all
+      - run: cargo test -p world-machine-desktop
+      - name: Commit desktop Pack integration
+        run: |
+          rm -f scripts/m55_desktop_patch.py .github/workflows/m55-apply.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "M55: add explicit installed Pack desktop workflow" || exit 0
+          git push origin HEAD:m55-desktop-installed-packs
