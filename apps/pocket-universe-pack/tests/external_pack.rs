@@ -1,4 +1,4 @@
-use pocket_universe::{POCKET_UNIVERSE_PACK_ID, SEED_MARS_COLONY_COMMAND};
+use pocket_universe::{BOLD_PATH_COMMAND, POCKET_UNIVERSE_PACK_ID, SEED_MARS_COLONY_COMMAND};
 use std::env;
 use std::fs;
 use std::path::PathBuf;
@@ -67,14 +67,24 @@ fn pocket_universe_is_a_real_external_pack_with_durable_seed_and_growth() {
         .iter()
         .any(|item| item.title == "Ares Habitat"));
 
-    let grown = session.advance_background(2).unwrap();
-    assert_eq!(grown.world_time, 20);
+    let grown = session.advance_background(3).unwrap();
+    assert_eq!(grown.world_time, 30);
+    assert_eq!(
+        grown
+            .briefing
+            .as_ref()
+            .expect("Pocket Universe has a return briefing")
+            .title,
+        "While you were away"
+    );
     assert!(grown
-        .briefing
-        .as_ref()
-        .expect("Pocket Universe has a briefing")
-        .title
-        .contains("Generation 2"));
+        .commands
+        .iter()
+        .any(|command| command.id == BOLD_PATH_COMMAND));
+    let chosen = session
+        .handle(ProjectionIntent::InvokeCommand(BOLD_PATH_COMMAND.into()))
+        .unwrap();
+    assert_eq!(chosen.briefing.as_ref().unwrap().title, "Generation 3");
 
     let archive = session.archive().unwrap().unwrap();
     let before = session.snapshot();

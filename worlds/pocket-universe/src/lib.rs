@@ -10,12 +10,14 @@ use world_persistence::{PersistenceError, WorldArchive, WorldPackRef};
 use world_projection::{ProjectionIntent, ProjectionSnapshot};
 
 pub const POCKET_UNIVERSE_PACK_ID: &str = "world-machine.pocket-universe";
-pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.1.0";
+pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.2.0";
 
 pub const SEED_MARS_COLONY_COMMAND: &str = "pocket-universe.seed-mars-colony";
 pub const SEED_1980S_TOWN_COMMAND: &str = "pocket-universe.seed-1980s-town";
 pub const SEED_PENGUIN_CIVILIZATION_COMMAND: &str = "pocket-universe.seed-penguin-civilization";
 pub const NUDGE_COMMAND: &str = "pocket-universe.nudge";
+pub const BOLD_PATH_COMMAND: &str = "pocket-universe.choose-bold-path";
+pub const CAREFUL_PATH_COMMAND: &str = "pocket-universe.choose-careful-path";
 
 pub(crate) const UNIVERSE: EntityId = EntityId::new(1);
 pub(crate) const SLOT_A: EntityId = EntityId::new(10);
@@ -26,6 +28,7 @@ pub(crate) const SLOT_D: EntityId = EntityId::new(13);
 pub(crate) const SEED: &str = "seed";
 pub(crate) const GENERATION: &str = "generation";
 pub(crate) const LAST_CHANGE: &str = "last_change";
+pub(crate) const DECISION: &str = "decision";
 const ANCHOR_PULSE: &str = "pulse";
 const UNSEEDED: &str = "unseeded";
 const BACKGROUND_PERIOD: u64 = 10;
@@ -55,6 +58,13 @@ impl PocketUniverse {
         projection::snapshot(&self.world)
     }
 
+    pub fn projection_snapshot_since(
+        &self,
+        since_event_count: Option<usize>,
+    ) -> ProjectionSnapshot {
+        projection::snapshot_since(&self.world, since_event_count)
+    }
+
     pub fn invoke_projection_command(
         &mut self,
         command_id: &str,
@@ -64,6 +74,8 @@ impl PocketUniverse {
             SEED_1980S_TOWN_COMMAND => "seed_1980s_town",
             SEED_PENGUIN_CIVILIZATION_COMMAND => "seed_penguin_civilization",
             NUDGE_COMMAND => "grow_universe",
+            BOLD_PATH_COMMAND => "choose_bold_path",
+            CAREFUL_PATH_COMMAND => "choose_careful_path",
             _ => {
                 return Err(std::io::Error::other(format!(
                     "unknown projection command: {command_id}"
@@ -130,18 +142,21 @@ impl PocketUniverse {
 
 struct PocketUniverseSession {
     world: PocketUniverse,
+    return_since_event_count: Option<usize>,
 }
 
 impl PocketUniverseSession {
     fn fresh() -> Result<Box<dyn WorldSession>, HostError> {
         Ok(Box::new(Self {
             world: PocketUniverse::new().map_err(HostError::session)?,
+            return_since_event_count: None,
         }))
     }
 
     fn open_archive(archive: &WorldArchive) -> Result<Box<dyn WorldSession>, HostError> {
         Ok(Box::new(Self {
             world: PocketUniverse::resume_archive(archive).map_err(HostError::session)?,
+            return_since_event_count: None,
         }))
     }
 }
@@ -152,7 +167,8 @@ impl WorldSession for PocketUniverseSession {
     }
 
     fn snapshot(&self) -> ProjectionSnapshot {
-        self.world.projection_snapshot()
+        self.world
+            .projection_snapshot_since(self.return_since_event_count)
     }
 
     fn handle(&mut self, intent: ProjectionIntent) -> Result<ProjectionSnapshot, HostError> {
@@ -167,13 +183,17 @@ impl WorldSession for PocketUniverseSession {
                     .map_err(HostError::session)?;
             }
         }
+        self.return_since_event_count = None;
         Ok(self.snapshot())
     }
 
     fn advance_background(&mut self, periods: u64) -> Result<ProjectionSnapshot, HostError> {
+        let before = self.world.world().events().len();
         self.world
             .advance_periods(periods)
             .map_err(HostError::session)?;
+        self.return_since_event_count =
+            (self.world.world().events().len() > before).then_some(before);
         Ok(self.snapshot())
     }
 
@@ -203,6 +223,7 @@ fn baseline() -> Result<WorldState, WorldStateError> {
             .with_component("name", "Untitled Pocket Universe")
             .with_component(SEED, UNSEEDED)
             .with_component(GENERATION, 0_i64)
+            .with_component(DECISION, "none")
             .with_component(LAST_CHANGE, "Nothing exists here yet."),
     )?;
     Ok(state)
@@ -214,6 +235,8 @@ fn build_action_registry() -> Result<ActionRegistry, ActionError> {
     actions.register(Seed1980sTown)?;
     actions.register(SeedPenguinCivilization)?;
     actions.register(GrowUniverse)?;
+    actions.register(ChooseBoldPath)?;
+    actions.register(ChooseCarefulPath)?;
     Ok(actions)
 }
 
@@ -221,6 +244,8 @@ struct SeedMarsColony;
 struct Seed1980sTown;
 struct SeedPenguinCivilization;
 struct GrowUniverse;
+struct ChooseBoldPath;
+struct ChooseCarefulPath;
 
 impl Action for SeedMarsColony {
     fn name(&self) -> &'static str {
@@ -240,7 +265,8 @@ impl Action for SeedMarsColony {
                 Entity::new(SLOT_A, "habitat")
                     .with_component("name", "Ares Habitat")
                     .with_component("status", "pressurized")
-                    .with_component(ANCHOR_PULSE, "first lights"),
+                    .with_component(ANCHOR_PULSE, "first lights")
+                    .with_component("water_cycles", 0_i64),
                 Entity::new(SLOT_B, "person")
                     .with_component("name", "Nia Chen")
                     .with_component("role", "systems keeper"),
@@ -273,7 +299,8 @@ impl Action for Seed1980sTown {
                 Entity::new(SLOT_A, "place")
                     .with_component("name", "Maple Arcade")
                     .with_component("status", "open late")
-                    .with_component(ANCHOR_PULSE, "new high score"),
+                    .with_component(ANCHOR_PULSE, "new high score")
+                    .with_component("high_scores", 0_i64),
                 Entity::new(SLOT_B, "person")
                     .with_component("name", "Lena Ortiz")
                     .with_component("role", "night-shift student"),
@@ -306,7 +333,8 @@ impl Action for SeedPenguinCivilization {
                 Entity::new(SLOT_A, "colony")
                     .with_component("name", "Icebridge")
                     .with_component("status", "lanterns lit")
-                    .with_component(ANCHOR_PULSE, "first fish bell"),
+                    .with_component(ANCHOR_PULSE, "first fish bell")
+                    .with_component("bridge_spans", 1_i64),
                 Entity::new(SLOT_B, "penguin")
                     .with_component("name", "Piko")
                     .with_component("role", "bridge keeper"),
@@ -339,12 +367,15 @@ impl Action for GrowUniverse {
         }
         let generation = integer_component(state, UNIVERSE, GENERATION)?;
         let next = generation + 1;
-        let change = growth_message(&seed, next);
+        let decision = decision_id_from_state(state)?;
+        let change = growth_message(&seed, next, &decision);
         let pulse = anchor_pulse(&seed, next);
+        let (metric_key, metric_value) = growth_metric(state, &seed)?;
         let mut draft = EventDraft::new("universe_grew");
         draft.targets = vec![UNIVERSE, SLOT_A];
         draft.payload.insert("seed".into(), seed.into());
         draft.payload.insert("generation".into(), next.into());
+        draft.payload.insert("change".into(), change.clone().into());
         draft.changes = vec![
             StateChange::SetComponent {
                 entity: UNIVERSE,
@@ -361,9 +392,134 @@ impl Action for GrowUniverse {
                 key: ANCHOR_PULSE.into(),
                 value: pulse.into(),
             },
+            StateChange::SetComponent {
+                entity: SLOT_A,
+                key: metric_key.into(),
+                value: metric_value.into(),
+            },
         ];
         Ok(draft)
     }
+}
+
+impl Action for ChooseBoldPath {
+    fn name(&self) -> &'static str {
+        "choose_bold_path"
+    }
+
+    fn evaluate(
+        &self,
+        state: &WorldState,
+        _request: &ActionRequest,
+    ) -> Result<EventDraft, ActionError> {
+        choice_draft(state, true)
+    }
+}
+
+impl Action for ChooseCarefulPath {
+    fn name(&self) -> &'static str {
+        "choose_careful_path"
+    }
+
+    fn evaluate(
+        &self,
+        state: &WorldState,
+        _request: &ActionRequest,
+    ) -> Result<EventDraft, ActionError> {
+        choice_draft(state, false)
+    }
+}
+
+fn choice_draft(state: &WorldState, bold: bool) -> Result<EventDraft, ActionError> {
+    let seed = seed_id_from_state(state)?;
+    if seed == UNSEEDED {
+        return Err(ActionError::Invalid(
+            "choose a Pocket Universe seed before intervening".into(),
+        ));
+    }
+    if integer_component(state, UNIVERSE, GENERATION)? < 3 {
+        return Err(ActionError::Invalid(
+            "this Pocket Universe has not grown enough for that choice yet".into(),
+        ));
+    }
+    if decision_id_from_state(state)? != "none" {
+        return Err(ActionError::Invalid(
+            "this Pocket Universe has already crossed its first intervention point".into(),
+        ));
+    }
+
+    let (choice, summary, target, key, value) = match (seed.as_str(), bold) {
+        ("mars-colony", true) => (
+            "follow-signal",
+            "Kestrel leaves the safe route to follow a repeating signal beyond the ridge.",
+            SLOT_D,
+            "status",
+            "signal expedition",
+        ),
+        ("mars-colony", false) => (
+            "fortify-habitat",
+            "The colony diverts its spare capacity into sealing Ares Habitat before the next dust front.",
+            SLOT_A,
+            "status",
+            "storm sealed",
+        ),
+        ("1980s-town", true) => (
+            "community-arcade",
+            "Maple Arcade turns its late hours into a neighborhood club instead of closing the shutters.",
+            SLOT_A,
+            "status",
+            "community nights",
+        ),
+        ("1980s-town", false) => (
+            "steady-business",
+            "Maple Arcade keeps a quieter commercial rhythm and protects its small cash buffer.",
+            SLOT_A,
+            "status",
+            "steady business",
+        ),
+        ("penguin-civilization", true) => (
+            "winter-feast",
+            "Icebridge opens the Fish Vault for a winter feast that brings distant colonies onto the bridge.",
+            SLOT_C,
+            "reserve",
+            "festival opened",
+        ),
+        ("penguin-civilization", false) => (
+            "conserve-reserves",
+            "The Aurora Council keeps the Fish Vault sealed and stores extra reserves for the dark season.",
+            SLOT_C,
+            "reserve",
+            "winter conserved",
+        ),
+        _ => {
+            return Err(ActionError::Invalid(format!(
+                "unsupported Pocket Universe seed: {seed}"
+            )))
+        }
+    };
+
+    let mut draft = EventDraft::new("universe_intervened");
+    draft.targets = vec![UNIVERSE, target];
+    draft.payload.insert("choice".into(), choice.into());
+    draft.payload.insert("summary".into(), summary.into());
+    draft.changes = vec![
+        StateChange::SetComponent {
+            entity: UNIVERSE,
+            key: DECISION.into(),
+            value: choice.into(),
+        },
+        StateChange::SetComponent {
+            entity: UNIVERSE,
+            key: LAST_CHANGE.into(),
+            value: summary.into(),
+        },
+        StateChange::SetComponent {
+            entity: target,
+            key: key.into(),
+            value: value.into(),
+        },
+    ];
+    Ok(draft)
 }
 
 fn seed_draft(
@@ -395,6 +551,11 @@ fn seed_draft(
             entity: UNIVERSE,
             key: GENERATION.into(),
             value: 0_i64.into(),
+        },
+        StateChange::SetComponent {
+            entity: UNIVERSE,
+            key: DECISION.into(),
+            value: "none".into(),
         },
         StateChange::SetComponent {
             entity: UNIVERSE,
@@ -432,6 +593,32 @@ fn seed_id_from_state(state: &WorldState) -> Result<String, ActionError> {
     }
 }
 
+fn decision_id_from_state(state: &WorldState) -> Result<String, ActionError> {
+    match state
+        .entity(UNIVERSE)
+        .and_then(|entity| entity.component(DECISION))
+    {
+        Some(Value::Text(decision)) => Ok(decision.clone()),
+        _ => Err(ActionError::Invalid(
+            "Pocket Universe decision state is missing".into(),
+        )),
+    }
+}
+
+fn growth_metric(state: &WorldState, seed: &str) -> Result<(&'static str, i64), ActionError> {
+    let key = match seed {
+        "mars-colony" => "water_cycles",
+        "1980s-town" => "high_scores",
+        "penguin-civilization" => "bridge_spans",
+        _ => {
+            return Err(ActionError::Invalid(format!(
+                "unsupported Pocket Universe seed: {seed}"
+            )))
+        }
+    };
+    Ok((key, integer_component(state, SLOT_A, key)? + 1))
+}
+
 fn integer_component(state: &WorldState, entity: EntityId, key: &str) -> Result<i64, ActionError> {
     match state
         .entity(entity)
@@ -444,7 +631,7 @@ fn integer_component(state: &WorldState, entity: EntityId, key: &str) -> Result<
     }
 }
 
-fn growth_message(seed: &str, generation: i64) -> String {
+fn growth_message(seed: &str, generation: i64, decision: &str) -> String {
     let cycle = ((generation - 1).rem_euclid(3)) as usize;
     let messages: [&[&str]; 3] = [
         &[
@@ -463,13 +650,31 @@ fn growth_message(seed: &str, generation: i64) -> String {
             "The Aurora Council adopted a new moonrise signal.",
         ],
     ];
-    match seed {
+    let base = match seed {
         "mars-colony" => messages[0][cycle],
         "1980s-town" => messages[1][cycle],
         "penguin-civilization" => messages[2][cycle],
         _ => "The world changed in a small but persistent way.",
+    };
+    if decision == "none" {
+        return base.into();
     }
-    .into()
+    let consequence = match decision {
+        "follow-signal" => "The signal expedition keeps pulling attention beyond the safe ridge.",
+        "fortify-habitat" => "The stronger habitat makes every later risk feel more deliberate.",
+        "community-arcade" => {
+            "The arcade is becoming a place people organize their evenings around."
+        }
+        "steady-business" => "The arcade survives by staying small, predictable, and open.",
+        "winter-feast" => {
+            "The feast has turned Icebridge into a meeting point for distant colonies."
+        }
+        "conserve-reserves" => {
+            "The sealed reserve gives the council more room to plan for the dark season."
+        }
+        _ => "The earlier intervention is still shaping what happens next.",
+    };
+    format!("{base} {consequence}")
 }
 
 fn anchor_pulse(seed: &str, generation: i64) -> String {
@@ -577,12 +782,13 @@ mod tests {
 
         assert_eq!(after.world_time, before.world_time + 20);
         assert_eq!(after.timeline.items.len(), before.timeline.items.len() + 2);
-        assert!(after
-            .briefing
-            .as_ref()
-            .unwrap()
-            .title
-            .contains("Generation 2"));
+        let briefing = after.briefing.as_ref().unwrap();
+        assert_eq!(briefing.title, "While you were away");
+        assert_eq!(briefing.items.len(), 2);
+        assert!(briefing
+            .items
+            .iter()
+            .all(|item| !item.detail.trim().is_empty()));
     }
 
     #[test]
@@ -595,6 +801,9 @@ mod tests {
             ))
             .unwrap();
         session.advance_background(3).unwrap();
+        session
+            .handle(ProjectionIntent::InvokeCommand(NUDGE_COMMAND.into()))
+            .unwrap();
         let before = session.snapshot();
         let archive = session.archive().unwrap().unwrap();
         drop(session);
@@ -603,6 +812,90 @@ mod tests {
 
         assert_eq!(reopened.snapshot(), before);
         assert_eq!(reopened.archive().unwrap().unwrap(), archive);
+    }
+
+    #[test]
+    fn generation_three_exposes_a_durable_intervention() {
+        let registry = registry();
+        let mut session = registry.create(POCKET_UNIVERSE_PACK_ID).unwrap();
+        session
+            .handle(ProjectionIntent::InvokeCommand(
+                SEED_1980S_TOWN_COMMAND.into(),
+            ))
+            .unwrap();
+        let grown = session.advance_background(3).unwrap();
+        let command_ids = grown
+            .commands
+            .iter()
+            .map(|command| command.id.as_str())
+            .collect::<Vec<_>>();
+        assert!(command_ids.contains(&BOLD_PATH_COMMAND));
+        assert!(command_ids.contains(&CAREFUL_PATH_COMMAND));
+
+        let chosen = session
+            .handle(ProjectionIntent::InvokeCommand(BOLD_PATH_COMMAND.into()))
+            .unwrap();
+        assert_eq!(chosen.briefing.as_ref().unwrap().title, "Generation 3");
+        assert!(!chosen
+            .commands
+            .iter()
+            .any(|command| command.id == BOLD_PATH_COMMAND || command.id == CAREFUL_PATH_COMMAND));
+        let universe = chosen
+            .inspectors
+            .get(&world_projection::SelectionId::Entity(UNIVERSE))
+            .unwrap();
+        assert!(universe
+            .sections
+            .iter()
+            .flat_map(|section| &section.rows)
+            .any(|row| { row.label == "Decision" && row.value == "community-arcade" }));
+
+        let archive = session.archive().unwrap().unwrap();
+        drop(session);
+        let reopened = registry.open_archive(&archive).unwrap();
+        assert_eq!(reopened.archive().unwrap().unwrap(), archive);
+        assert!(!reopened
+            .snapshot()
+            .commands
+            .iter()
+            .any(|command| command.id == BOLD_PATH_COMMAND || command.id == CAREFUL_PATH_COMMAND));
+    }
+
+    #[test]
+    fn forking_before_intervention_reopens_the_choice() {
+        let registry = registry();
+        let mut session = registry.create(POCKET_UNIVERSE_PACK_ID).unwrap();
+        session
+            .handle(ProjectionIntent::InvokeCommand(
+                SEED_PENGUIN_CIVILIZATION_COMMAND.into(),
+            ))
+            .unwrap();
+        session.advance_background(3).unwrap();
+        let chosen = session
+            .handle(ProjectionIntent::InvokeCommand(CAREFUL_PATH_COMMAND.into()))
+            .unwrap();
+        let intervention = chosen
+            .timeline
+            .items
+            .iter()
+            .find(|item| item.title == "Universe Intervened")
+            .and_then(|item| match item.id {
+                world_projection::SelectionId::Event(id) => Some(id),
+                _ => None,
+            })
+            .unwrap();
+
+        let forked = session
+            .handle(ProjectionIntent::ForkBeforeEvent(intervention))
+            .unwrap();
+        assert!(forked
+            .commands
+            .iter()
+            .any(|command| command.id == BOLD_PATH_COMMAND));
+        assert!(forked
+            .commands
+            .iter()
+            .any(|command| command.id == CAREFUL_PATH_COMMAND));
     }
 
     #[test]
