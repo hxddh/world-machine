@@ -1,9 +1,11 @@
 use sha2::{Digest, Sha256};
 use std::cell::RefCell;
-use std::fs::{self, File};
+use std::env;
+use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::process::{self, Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::thread;
 use std::time::Duration;
@@ -18,6 +20,8 @@ use world_projection::{ProjectionIntent, ProjectionSnapshot};
 pub const PACK_MANIFEST_SUFFIX: &str = ".world-pack.json";
 pub const DEFAULT_MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 pub const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
+
+static LAUNCH_NONCE: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProcessPackPin {
@@ -113,6 +117,40 @@ impl ProcessPack {
         Ok(())
     }
 
+    fn prepare_launch_program(&self) -> Result<(PathBuf, Option<PathBuf>), HostError> {
+        let Some(expected) = self.pin.as_ref() else {
+            return Ok((self.command.clone(), None));
+        };
+        if !self.args.is_empty() {
+            return Err(HostError::session(format!(
+                "pinned external Pack {}@{} cannot use runtime arguments; package the approved program as the direct command",
+                self.descriptor.pack.id, self.descriptor.pack.version
+            )));
+        }
+
+        let manifest_sha256 = sha256_file(&self.manifest_path)?;
+        if manifest_sha256 != expected.manifest_sha256() {
+            return Err(content_pin_mismatch(
+                self,
+                expected,
+                &manifest_sha256,
+                "not-read",
+            ));
+        }
+
+        let (bytes, command_sha256, permissions) = read_command_image(&self.command)?;
+        if command_sha256 != expected.command_sha256() {
+            return Err(content_pin_mismatch(
+                self,
+                expected,
+                &manifest_sha256,
+                &command_sha256,
+            ));
+        }
+        let launch_path = write_launch_image(&self.command, &bytes, permissions)?;
+        Ok((launch_path.clone(), Some(launch_path)))
+    }
+
     fn registration(&self) -> WorldRegistration {
         let descriptor = WorldDescriptor {
             pack: self.descriptor.pack.clone(),
@@ -195,6 +233,94 @@ impl WorldPackSource for ProcessPackSource {
     }
 }
 
+fn content_pin_mismatch(
+    pack: &ProcessPack,
+    expected: &ProcessPackPin,
+    manifest_sha256: &str,
+    command_sha256: &str,
+) -> HostError {
+    HostError::session(format!(
+        "external Pack content pin mismatch for {}@{}: expected manifest sha256 {} and executable sha256 {}, found manifest sha256 {} and executable sha256 {}",
+        pack.descriptor.pack.id,
+        pack.descriptor.pack.version,
+        expected.manifest_sha256(),
+        expected.command_sha256(),
+        manifest_sha256,
+        command_sha256,
+    ))
+}
+
+fn read_command_image(path: &Path) -> Result<(Vec<u8>, String, fs::Permissions), HostError> {
+    let mut file = File::open(path).map_err(|error| {
+        HostError::pack_source(format!(
+            "could not open {} for approved launch: {error}",
+            path.display()
+        ))
+    })?;
+    let permissions = file
+        .metadata()
+        .map_err(|error| {
+            HostError::pack_source(format!(
+                "could not stat {} for approved launch: {error}",
+                path.display()
+            ))
+        })?
+        .permissions();
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes).map_err(|error| {
+        HostError::pack_source(format!(
+            "could not read {} for approved launch: {error}",
+            path.display()
+        ))
+    })?;
+    let mut hasher = Sha256::new();
+    hasher.update(&bytes);
+    Ok((bytes, format!("{:x}", hasher.finalize()), permissions))
+}
+
+fn write_launch_image(
+    source: &Path,
+    bytes: &[u8],
+    permissions: fs::Permissions,
+) -> Result<PathBuf, HostError> {
+    let nonce = LAUNCH_NONCE.fetch_add(1, Ordering::Relaxed);
+    let extension = source
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(|extension| format!(".{extension}"))
+        .unwrap_or_default();
+    let path = env::temp_dir().join(format!(
+        "world-machine-pack-launch-{}-{nonce}{extension}",
+        process::id()
+    ));
+    let mut file = OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&path)
+        .map_err(|error| {
+            HostError::session(format!(
+                "could not create approved Pack launch image {}: {error}",
+                path.display()
+            ))
+        })?;
+    if let Err(error) = file.write_all(bytes).and_then(|_| file.sync_all()) {
+        let _ = fs::remove_file(&path);
+        return Err(HostError::session(format!(
+            "could not write approved Pack launch image {}: {error}",
+            path.display()
+        )));
+    }
+    drop(file);
+    if let Err(error) = fs::set_permissions(&path, permissions) {
+        let _ = fs::remove_file(&path);
+        return Err(HostError::session(format!(
+            "could not set approved Pack launch permissions {}: {error}",
+            path.display()
+        )));
+    }
+    Ok(path)
+}
+
 fn sha256_file(path: &Path) -> Result<String, HostError> {
     let mut file = File::open(path).map_err(|error| {
         HostError::pack_source(format!(
@@ -269,7 +395,6 @@ impl ProcessWorldSession {
     }
 
     fn start(pack: ProcessPack, archive: Option<WorldArchive>) -> Result<Self, HostError> {
-        pack.verify_pin()?;
         let mut client = ProcessClient::spawn(&pack)?;
         let described = match client.request(PackRequest::Describe)? {
             PackResponse::Descriptor { descriptor } => descriptor,
@@ -390,12 +515,17 @@ struct ProcessClient {
     responses: Receiver<io::Result<String>>,
     next_request_id: u64,
     request_timeout: Duration,
+    launch_cleanup: Option<PathBuf>,
 }
 
 impl ProcessClient {
     fn spawn(pack: &ProcessPack) -> Result<Self, HostError> {
-        let mut child = Command::new(&pack.command)
-            .args(&pack.args)
+        let (program, launch_cleanup) = pack.prepare_launch_program()?;
+        let mut command = Command::new(&program);
+        if pack.pin.is_none() {
+            command.args(&pack.args);
+        }
+        let child = command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -403,9 +533,18 @@ impl ProcessClient {
             .map_err(|error| {
                 HostError::session(format!(
                     "could not launch external Pack {}: {error}",
-                    pack.command.display()
+                    program.display()
                 ))
-            })?;
+            });
+        let mut child = match child {
+            Ok(child) => child,
+            Err(error) => {
+                if let Some(path) = launch_cleanup.as_ref() {
+                    let _ = fs::remove_file(path);
+                }
+                return Err(error);
+            }
+        };
         let stdin = child
             .stdin
             .take()
@@ -420,6 +559,7 @@ impl ProcessClient {
             responses: spawn_response_reader(stdout, DEFAULT_MAX_RESPONSE_BYTES),
             next_request_id: 1,
             request_timeout: DEFAULT_REQUEST_TIMEOUT,
+            launch_cleanup,
         })
     }
 
@@ -526,6 +666,13 @@ impl ProcessClient {
                 let _ = self.child.wait();
             }
         }
+        self.cleanup_launch_image();
+    }
+
+    fn cleanup_launch_image(&mut self) {
+        if let Some(path) = self.launch_cleanup.take() {
+            let _ = fs::remove_file(path);
+        }
     }
 }
 
@@ -534,6 +681,7 @@ impl Drop for ProcessClient {
         self.send_shutdown();
         for _ in 0..5 {
             if matches!(self.child.try_wait(), Ok(Some(_))) {
+                self.cleanup_launch_image();
                 return;
             }
             thread::sleep(Duration::from_millis(10));

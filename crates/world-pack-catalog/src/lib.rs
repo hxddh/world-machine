@@ -126,6 +126,11 @@ impl PackCatalog {
         manifest_path: impl AsRef<Path>,
     ) -> Result<InstalledPack, CatalogError> {
         let pack = ProcessPack::load(manifest_path).map_err(process_error)?;
+        if !pack.args.is_empty() {
+            return Err(CatalogError::RuntimeArgumentsNotPinnable(
+                pack.descriptor.pack,
+            ));
+        }
         let identity = pack.current_pin().map_err(process_error)?;
         let installed = InstalledPack {
             pack: pack.descriptor.pack.clone(),
@@ -441,6 +446,7 @@ pub enum CatalogError {
     InvalidEntry(WorldPackRef),
     DuplicateEntry(WorldPackRef),
     AlreadyInstalled(WorldPackRef),
+    RuntimeArgumentsNotPinnable(WorldPackRef),
     NotInstalled(WorldPackRef),
     DisabledCannotActivate(WorldPackRef),
     ActivePackRequiresReplacement(WorldPackRef),
@@ -474,6 +480,11 @@ impl fmt::Display for CatalogError {
             Self::InvalidEntry(pack) => write!(f, "invalid installed Pack entry: {}@{}", pack.id, pack.version),
             Self::DuplicateEntry(pack) => write!(f, "duplicate installed Pack entry: {}@{}", pack.id, pack.version),
             Self::AlreadyInstalled(pack) => write!(f, "Pack is already installed: {}@{}", pack.id, pack.version),
+            Self::RuntimeArgumentsNotPinnable(pack) => write!(
+                f,
+                "installed Pack {}@{} uses runtime arguments that are outside the v1 content pin; package the approved program as the direct command",
+                pack.id, pack.version
+            ),
             Self::NotInstalled(pack) => write!(f, "Pack is not installed: {}@{}", pack.id, pack.version),
             Self::DisabledCannotActivate(pack) => write!(
                 f,
@@ -658,6 +669,32 @@ mod tests {
             catalog.availability(&pack("unknown", "1")),
             PackAvailability::NotInstalled
         );
+    }
+
+    #[test]
+    fn launcher_style_runtime_arguments_are_rejected_at_install() {
+        let root = temp_dir("launcher-args");
+        let script = root.join("runtime.sh");
+        fs::write(
+            &script, "exit 0
+",
+        )
+        .unwrap();
+        let descriptor = PackDescriptor::new(pack("fixture", "1"), "fixture", "fixture");
+        let manifest = PackManifest::process(
+            descriptor,
+            "/bin/sh",
+            vec![script.to_string_lossy().into_owned()],
+        );
+        let manifest_path = root.join("fixture.world-pack.json");
+        fs::write(&manifest_path, manifest.to_json_pretty().unwrap()).unwrap();
+        let mut catalog = PackCatalog::open(root.join("catalog.json")).unwrap();
+
+        assert!(matches!(
+            catalog.install_manifest(&manifest_path),
+            Err(CatalogError::RuntimeArgumentsNotPinnable(found)) if found == pack("fixture", "1")
+        ));
+        assert!(catalog.entries().is_empty());
     }
 
     #[test]
