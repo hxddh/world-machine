@@ -8,6 +8,9 @@ use world_library::{
     DurableWorldSession, WorldDocumentId, LEGACY_WORLD_DOCUMENT_SUFFIX, WORLD_DOCUMENT_SUFFIX,
 };
 
+#[path = "saved_compare.rs"]
+mod saved_compare;
+
 struct ForkResult {
     id: WorldDocumentId,
     warning: Option<String>,
@@ -17,8 +20,8 @@ pub(crate) fn document_action(
     document: &SharedDocument,
     cx: &mut Context<WorldDocumentView>,
 ) -> impl IntoElement {
-    let document = document.clone();
-    div()
+    let fork_document = document.clone();
+    let fork = div()
         .id("fork-world-document")
         .cursor_pointer()
         .p_2()
@@ -29,7 +32,7 @@ pub(crate) fn document_action(
         .text_sm()
         .child("Fork World")
         .on_click(cx.listener(move |this, _, _, cx| {
-            this.status = Some(match fork_world(&document, cx) {
+            this.status = Some(match fork_world(&fork_document, cx) {
                 Ok(result) => match result.warning {
                     Some(warning) => format!("Forked as {} · {warning}", result.id),
                     None => format!("Forked as {}", result.id),
@@ -37,7 +40,13 @@ pub(crate) fn document_action(
                 Err(error) => format!("Fork failed before saving: {error}"),
             });
             cx.notify();
-        }))
+        }));
+
+    div()
+        .flex()
+        .gap_2()
+        .child(fork)
+        .child(saved_compare::document_action(document, cx))
 }
 
 fn fork_world(
