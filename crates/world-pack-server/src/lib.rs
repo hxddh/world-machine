@@ -4,6 +4,7 @@ use std::fmt;
 use std::io::{self, BufRead, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 use world_host::{HostError, WorldDescriptor, WorldRegistration, WorldRegistry, WorldSession};
+use world_pack_bundle::{write_program_bundle, PackBundleHeader};
 use world_pack_protocol::{
     decode_request, encode_response, PackDescriptor, PackManifest, PackRequest,
     PackRequestEnvelope, PackResponse, PackResponseEnvelope, ProjectionSnapshotWire,
@@ -236,6 +237,21 @@ pub fn manifest_for_current_exe(
     manifest_for_canonical_exe(descriptor, &executable)
 }
 
+/// Write a portable v1 `.worldpack` containing this Pack executable.
+/// The bundle manifest always names the single embedded program and carries no
+/// runtime arguments, so installing it does not expand the v1 trust surface.
+pub fn write_current_exe_bundle(
+    descriptor: &WorldDescriptor,
+    destination: impl AsRef<Path>,
+) -> Result<PackBundleHeader, PackServerError> {
+    let executable = env::current_exe()
+        .map_err(PackServerError::Io)?
+        .canonicalize()
+        .map_err(PackServerError::Io)?;
+    write_program_bundle(destination, protocol_descriptor(descriptor), executable)
+        .map_err(|error| PackServerError::Bundle(error.to_string()))
+}
+
 fn manifest_for_canonical_exe(
     descriptor: &WorldDescriptor,
     executable: &Path,
@@ -317,6 +333,7 @@ pub enum PackServerError {
     Io(io::Error),
     Host(HostError),
     Protocol(String),
+    Bundle(String),
     ResponseTooLarge { request_id: u64, max_bytes: usize },
     ManifestPathNotUtf8(PathBuf),
     InvalidSequence(String),
@@ -328,6 +345,7 @@ impl fmt::Display for PackServerError {
             Self::Io(error) => write!(f, "Pack server I/O failed: {error}"),
             Self::Host(error) => write!(f, "Pack Host operation failed: {error}"),
             Self::Protocol(error) => write!(f, "Pack protocol failed: {error}"),
+            Self::Bundle(error) => write!(f, "Pack bundle failed: {error}"),
             Self::ResponseTooLarge {
                 request_id,
                 max_bytes,

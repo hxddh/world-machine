@@ -6677,6 +6677,7 @@ dependencies = [
  "world-lineage-compare",
  "world-lineage-gpui",
  "world-observer",
+ "world-pack-bundle",
  "world-pack-catalog",
  "world-persistence",
  "world-projection",
@@ -6689,6 +6690,17 @@ name = "world-observer"
 version = "0.1.0"
 
 [[package]]
+name = "world-pack-bundle"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2",
+ "world-pack-protocol",
+ "world-persistence",
+]
+
+[[package]]
 name = "world-pack-catalog"
 version = "0.1.0"
 dependencies = [
@@ -6696,6 +6708,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "world-host",
+ "world-pack-bundle",
  "world-pack-process",
  "world-pack-protocol",
  "world-persistence",
@@ -6729,6 +6742,7 @@ name = "world-pack-server"
 version = "0.1.0"
 dependencies = [
  "world-host",
+ "world-pack-bundle",
  "world-pack-protocol",
  "world-persistence",
  "world-projection",

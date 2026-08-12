@@ -36,6 +36,8 @@ use world_library::{
 #[cfg(target_os = "macos")]
 use world_lineage::LineageIndex;
 #[cfg(target_os = "macos")]
+use world_pack_bundle::PACK_BUNDLE_SUFFIX;
+#[cfg(target_os = "macos")]
 use world_pack_catalog::{InstalledPack, PackAvailability, PackCatalog};
 #[cfg(target_os = "macos")]
 use world_persistence::WorldPackRef;
@@ -339,12 +341,17 @@ impl WorldMachineHome {
                         }
                     }
                 }
-                let installed = match this
-                    .pack_catalog
-                    .as_mut()
-                    .unwrap()
-                    .install_manifest(&manifest)
+                let catalog = this.pack_catalog.as_mut().unwrap();
+                let install_result = if manifest
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.ends_with(PACK_BUNDLE_SUFFIX))
                 {
+                    catalog.install_bundle(&manifest)
+                } else {
+                    catalog.install_manifest(&manifest)
+                };
+                let installed = match install_result {
                     Ok(installed) => installed,
                     Err(error) => {
                         this.status =
