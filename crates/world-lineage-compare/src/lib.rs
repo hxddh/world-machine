@@ -44,6 +44,13 @@ pub enum SavedWorldRelation {
     Related {
         common_ancestor: WorldDocumentId,
     },
+    /// At least one local ancestry chain ends at an unresolved/external parent,
+    /// so the current Library cannot prove whether the two Worlds meet outside
+    /// the available lineage graph.
+    UnresolvedAncestry {
+        left: Option<WorldDocumentId>,
+        right: Option<WorldDocumentId>,
+    },
     Unrelated,
     Unavailable(String),
 }
@@ -191,16 +198,16 @@ fn relation_between_nodes(
         return SavedWorldRelation::Same;
     }
 
-    let left_ancestors = ancestor_distances(index, &left.id);
-    let right_ancestors = ancestor_distances(index, &right.id);
+    let left_ancestry = ancestry(index, left);
+    let right_ancestry = ancestry(index, right);
 
-    if right_ancestors.contains_key(&left.id) {
+    if right_ancestry.distances.contains_key(&left.id) {
         return SavedWorldRelation::AncestorDescendant {
             ancestor: left.id.clone(),
             descendant: right.id.clone(),
         };
     }
-    if left_ancestors.contains_key(&right.id) {
+    if left_ancestry.distances.contains_key(&right.id) {
         return SavedWorldRelation::AncestorDescendant {
             ancestor: right.id.clone(),
             descendant: left.id.clone(),
@@ -217,40 +224,74 @@ fn relation_between_nodes(
         }
     }
 
-    let common_ancestor = right_ancestors
+    if let Some(common_ancestor) = nearest_common_ancestor(&left_ancestry, &right_ancestry) {
+        return SavedWorldRelation::Related { common_ancestor };
+    }
+
+    if left_ancestry.detached_at.is_some() || right_ancestry.detached_at.is_some() {
+        return SavedWorldRelation::UnresolvedAncestry {
+            left: left_ancestry.detached_at,
+            right: right_ancestry.detached_at,
+        };
+    }
+
+    SavedWorldRelation::Unrelated
+}
+
+#[derive(Debug)]
+struct Ancestry {
+    distances: BTreeMap<WorldDocumentId, usize>,
+    detached_at: Option<WorldDocumentId>,
+}
+
+fn ancestry(index: &LineageIndex, start: &LineageNode) -> Ancestry {
+    let mut distances = BTreeMap::new();
+    let mut current_id = start.id.clone();
+    let mut current_node = start;
+    let mut distance = 0usize;
+    let mut detached_at = None;
+
+    loop {
+        distances.insert(current_id.clone(), distance);
+        let Some(parent) = current_node.parent.as_ref() else {
+            break;
+        };
+        let Some(parent_id) = parent.resolved.as_ref() else {
+            detached_at = Some(current_id);
+            break;
+        };
+        let Some(parent_node) = index.node(parent_id) else {
+            // A valid LineageIndex should not expose a resolved id without a
+            // local node. Stay conservative if a caller supplies such an index.
+            detached_at = Some(current_id);
+            break;
+        };
+        current_id = parent_id.clone();
+        current_node = parent_node;
+        distance += 1;
+    }
+
+    Ancestry {
+        distances,
+        detached_at,
+    }
+}
+
+fn nearest_common_ancestor(left: &Ancestry, right: &Ancestry) -> Option<WorldDocumentId> {
+    left.distances
         .iter()
-        .filter_map(|(candidate, right_distance)| {
-            left_ancestors
+        .filter_map(|(candidate, left_distance)| {
+            right
+                .distances
                 .get(candidate)
-                .map(|left_distance| (candidate, left_distance + right_distance))
+                .map(|right_distance| (candidate, left_distance + right_distance))
         })
         .min_by(|(left_id, left_distance), (right_id, right_distance)| {
             left_distance
                 .cmp(right_distance)
                 .then_with(|| left_id.cmp(right_id))
         })
-        .map(|(candidate, _)| candidate.clone());
-
-    common_ancestor
-        .map(|common_ancestor| SavedWorldRelation::Related { common_ancestor })
-        .unwrap_or(SavedWorldRelation::Unrelated)
-}
-
-fn ancestor_distances(
-    index: &LineageIndex,
-    start: &WorldDocumentId,
-) -> BTreeMap<WorldDocumentId, usize> {
-    let mut distances = BTreeMap::new();
-    let mut current = Some(start.clone());
-    let mut distance = 0usize;
-    while let Some(id) = current {
-        if distances.insert(id.clone(), distance).is_some() {
-            break;
-        }
-        current = index.node(&id).and_then(resolved_parent_id).cloned();
-        distance += 1;
-    }
-    distances
+        .map(|(candidate, _)| candidate.clone())
 }
 
 fn resolved_parent_id(node: &LineageNode) -> Option<&WorldDocumentId> {
