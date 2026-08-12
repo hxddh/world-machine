@@ -37,6 +37,7 @@ jobs:
               - 'crates/world-builtins/**'
               - 'crates/world-library/**'
               - 'apps/tiny-society-pack/**'
+              - 'apps/pocket-universe-pack/**'
               - 'apps/tiny-society-desktop/**'
               - 'apps/future-archaeologist-desktop/**'
               - 'apps/world-machine-desktop/**'
@@ -44,6 +45,7 @@ jobs:
               - 'apps/lineage-explorer-desktop/**'
               - 'worlds/tiny-society/**'
               - 'worlds/future-archaeologist/**'
+              - 'worlds/pocket-universe/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'rust-toolchain.toml'
@@ -76,6 +78,7 @@ jobs:
           shared-key: gpui-macos
       - run: cargo test -p world-library
       - run: cargo test -p tiny-society-pack
+      - run: cargo test -p pocket-universe-pack
       - run: cargo check -p world-gpui
       - run: cargo check -p world-strategy-gpui
       - run: cargo check -p world-lineage-gpui
