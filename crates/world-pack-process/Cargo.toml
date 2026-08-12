@@ -6,6 +6,7 @@ license = "Apache-2.0"
 publish = false
 
 [dependencies]
+sha2 = "0.10"
 world-host = { path = "../world-host" }
 world-pack-protocol = { path = "../world-pack-protocol" }
 world-persistence = { path = "../world-persistence" }
