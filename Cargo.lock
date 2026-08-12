@@ -6676,10 +6676,23 @@ name = "world-observer"
 version = "0.1.0"
 
 [[package]]
+name = "world-pack-catalog"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "world-host",
+ "world-pack-process",
+ "world-pack-protocol",
+ "world-persistence",
+]
+
+[[package]]
 name = "world-pack-process"
 version = "0.1.0"
 dependencies = [
  "serde_json",
+ "sha2",
  "world-host",
  "world-pack-protocol",
  "world-persistence",

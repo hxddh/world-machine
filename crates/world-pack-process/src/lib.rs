@@ -1,6 +1,7 @@
+use sha2::{Digest, Sha256};
 use std::cell::RefCell;
-use std::fs;
-use std::io::{self, BufRead, BufReader, BufWriter, Write};
+use std::fs::{self, File};
+use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
@@ -19,11 +20,33 @@ pub const DEFAULT_MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 pub const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProcessPackPin {
+    manifest_sha256: String,
+    command_sha256: String,
+}
+
+impl ProcessPackPin {
+    pub fn new(manifest_sha256: impl Into<String>, command_sha256: impl Into<String>) -> Self {
+        Self {
+            manifest_sha256: manifest_sha256.into(),
+            command_sha256: command_sha256.into(),
+        }
+    }
+    pub fn manifest_sha256(&self) -> &str {
+        &self.manifest_sha256
+    }
+    pub fn command_sha256(&self) -> &str {
+        &self.command_sha256
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProcessPack {
     pub manifest_path: PathBuf,
     pub descriptor: PackDescriptor,
     pub command: PathBuf,
     pub args: Vec<String>,
+    pin: Option<ProcessPackPin>,
 }
 
 impl ProcessPack {
@@ -54,7 +77,40 @@ impl ProcessPack {
             descriptor: manifest.descriptor,
             command,
             args,
+            pin: None,
         })
+    }
+
+    pub fn current_pin(&self) -> Result<ProcessPackPin, HostError> {
+        Ok(ProcessPackPin::new(
+            sha256_file(&self.manifest_path)?,
+            sha256_file(&self.command)?,
+        ))
+    }
+
+    pub fn with_pin(mut self, pin: ProcessPackPin) -> Self {
+        self.pin = Some(pin);
+        self
+    }
+
+    pub fn pin(&self) -> Option<&ProcessPackPin> {
+        self.pin.as_ref()
+    }
+
+    pub fn verify_pin(&self) -> Result<(), HostError> {
+        let Some(expected) = self.pin.as_ref() else {
+            return Ok(());
+        };
+        let current = self.current_pin()?;
+        if current != *expected {
+            return Err(HostError::session(format!(
+                "external Pack content pin mismatch for {}@{}: expected manifest sha256 {} and executable sha256 {}, found manifest sha256 {} and executable sha256 {}",
+                self.descriptor.pack.id, self.descriptor.pack.version,
+                expected.manifest_sha256(), expected.command_sha256(),
+                current.manifest_sha256(), current.command_sha256(),
+            )));
+        }
+        Ok(())
     }
 
     fn registration(&self) -> WorldRegistration {
@@ -82,6 +138,10 @@ pub struct ProcessPackSource {
 }
 
 impl ProcessPackSource {
+    pub fn from_packs(packs: Vec<ProcessPack>) -> Self {
+        Self { packs }
+    }
+
     pub fn from_manifest_paths(
         paths: impl IntoIterator<Item = PathBuf>,
     ) -> Result<Self, HostError> {
@@ -135,6 +195,30 @@ impl WorldPackSource for ProcessPackSource {
     }
 }
 
+fn sha256_file(path: &Path) -> Result<String, HostError> {
+    let mut file = File::open(path).map_err(|error| {
+        HostError::pack_source(format!(
+            "could not open {} for sha256: {error}",
+            path.display()
+        ))
+    })?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let read = file.read(&mut buffer).map_err(|error| {
+            HostError::pack_source(format!(
+                "could not read {} for sha256: {error}",
+                path.display()
+            ))
+        })?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
 fn resolve_command(manifest_path: &Path, command: &str) -> Result<PathBuf, HostError> {
     let command = PathBuf::from(command);
     let resolved = if command.is_absolute() {
@@ -185,6 +269,7 @@ impl ProcessWorldSession {
     }
 
     fn start(pack: ProcessPack, archive: Option<WorldArchive>) -> Result<Self, HostError> {
+        pack.verify_pin()?;
         let mut client = ProcessClient::spawn(&pack)?;
         let described = match client.request(PackRequest::Describe)? {
             PackResponse::Descriptor { descriptor } => descriptor,

@@ -30,10 +30,7 @@ pub struct InstalledPack {
 
 impl InstalledPack {
     fn expected_pin(&self) -> ProcessPackPin {
-        ProcessPackPin::new(
-            self.manifest_sha256.clone(),
-            self.command_sha256.clone(),
-        )
+        ProcessPackPin::new(self.manifest_sha256.clone(), self.command_sha256.clone())
     }
 }
 
@@ -151,11 +148,7 @@ impl PackCatalog {
         Ok(installed)
     }
 
-    pub fn set_enabled(
-        &mut self,
-        pack: &WorldPackRef,
-        enabled: bool,
-    ) -> Result<(), CatalogError> {
+    pub fn set_enabled(&mut self, pack: &WorldPackRef, enabled: bool) -> Result<(), CatalogError> {
         let mut entries = self.entries.clone();
         let entry = entries
             .iter_mut()
@@ -292,7 +285,10 @@ fn sort_entries(entries: &mut [InstalledPack]) {
 }
 
 fn persist_document(path: &Path, entries: &[InstalledPack]) -> Result<(), CatalogError> {
-    let parent = path.parent().filter(|path| !path.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."));
+    let parent = path
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
     fs::create_dir_all(parent).map_err(|error| CatalogError::Io {
         operation: "create catalog directory",
         path: parent.to_path_buf(),
@@ -382,60 +378,24 @@ pub enum CatalogError {
 impl fmt::Display for CatalogError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Io {
-                operation,
-                path,
-                message,
-            } => write!(f, "could not {operation} {}: {message}", path.display()),
+            Self::Io { operation, path, message } => write!(f, "could not {operation} {}: {message}", path.display()),
             Self::Json(error) => write!(f, "could not decode Pack catalog: {error}"),
-            Self::UnsupportedFormat(format) => {
-                write!(f, "unsupported Pack catalog format: {format}")
-            }
-            Self::UnsupportedVersion(version) => {
-                write!(f, "unsupported Pack catalog version: {version}")
-            }
-            Self::InvalidEntry(pack) => write!(f, "invalid installed Pack entry: {pack}"),
-            Self::DuplicateEntry(pack) => write!(f, "duplicate installed Pack entry: {pack}"),
-            Self::AlreadyInstalled(pack) => write!(f, "Pack is already installed: {pack}"),
-            Self::NotInstalled(pack) => write!(f, "Pack is not installed: {pack}"),
-            Self::InvalidStoredPath(pack) => {
-                write!(f, "installed Pack contains a non-absolute path: {pack}")
-            }
-            Self::PackIdentityChanged { expected, found } => write!(
-                f,
-                "installed Pack identity changed: expected {expected}, found {found}"
-            ),
-            Self::CommandPathChanged {
-                pack,
-                expected,
-                found,
-            } => write!(
-                f,
-                "installed Pack {pack} executable path changed: expected {}, found {}",
-                expected.display(),
-                found.display()
-            ),
-            Self::ContentChanged {
-                pack,
-                component,
-                expected,
-                found,
-            } => write!(
-                f,
-                "installed Pack {pack} {component} content changed: expected sha256 {expected}, found {found}"
-            ),
+            Self::UnsupportedFormat(format) => write!(f, "unsupported Pack catalog format: {format}"),
+            Self::UnsupportedVersion(version) => write!(f, "unsupported Pack catalog version: {version}"),
+            Self::InvalidEntry(pack) => write!(f, "invalid installed Pack entry: {}@{}", pack.id, pack.version),
+            Self::DuplicateEntry(pack) => write!(f, "duplicate installed Pack entry: {}@{}", pack.id, pack.version),
+            Self::AlreadyInstalled(pack) => write!(f, "Pack is already installed: {}@{}", pack.id, pack.version),
+            Self::NotInstalled(pack) => write!(f, "Pack is not installed: {}@{}", pack.id, pack.version),
+            Self::InvalidStoredPath(pack) => write!(f, "installed Pack contains a non-absolute path: {}@{}", pack.id, pack.version),
+            Self::PackIdentityChanged { expected, found } => write!(f, "installed Pack identity changed: expected {}@{}, found {}@{}", expected.id, expected.version, found.id, found.version),
+            Self::CommandPathChanged { pack, expected, found } => write!(f, "installed Pack {}@{} executable path changed: expected {}, found {}", pack.id, pack.version, expected.display(), found.display()),
+            Self::ContentChanged { pack, component, expected, found } => write!(f, "installed Pack {}@{} {component} content changed: expected sha256 {expected}, found {found}", pack.id, pack.version),
             Self::Process(error) => write!(f, "could not validate installed Pack: {error}"),
         }
     }
 }
 
 impl Error for CatalogError {}
-
-impl fmt::Display for WorldPackRef {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}@{}", self.id, self.version)
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -549,7 +509,10 @@ mod tests {
         ));
         assert!(matches!(
             catalog.trusted_source(),
-            Err(CatalogError::ContentChanged { component: "executable", .. })
+            Err(CatalogError::ContentChanged {
+                component: "executable",
+                ..
+            })
         ));
     }
 
@@ -592,6 +555,9 @@ mod tests {
         catalog.uninstall(&installed.pack).unwrap();
 
         assert!(catalog.entries().is_empty());
-        assert!(PackCatalog::open(&catalog_path).unwrap().entries().is_empty());
+        assert!(PackCatalog::open(&catalog_path)
+            .unwrap()
+            .entries()
+            .is_empty());
     }
 }
