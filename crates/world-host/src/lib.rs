@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt;
 use world_integrity::{check_archive, ArchiveIntegrityError};
@@ -114,6 +114,15 @@ impl WorldRegistration {
     }
 }
 
+/// Supplies one coherent set of Pack registrations to a Host registry.
+///
+/// Sources only describe registrations. Filesystem discovery, process launch,
+/// trust policy, and code loading belong outside the Host and can be added by
+/// future source implementations without changing registry semantics.
+pub trait WorldPackSource {
+    fn registrations(&self) -> Result<Vec<WorldRegistration>, HostError>;
+}
+
 struct WorldFamily {
     active_version: String,
     registrations: BTreeMap<String, WorldRegistration>,
@@ -150,24 +159,67 @@ impl WorldRegistry {
         Self::default()
     }
 
-    /// Register a Pack version and make it the active version used for new Worlds.
+    /// Register one Pack version and make it the active version used for new Worlds.
     /// Older registered versions remain available for exact archive restoration.
     pub fn register(&mut self, registration: WorldRegistration) -> Result<(), HostError> {
-        validate_descriptor(&registration.descriptor)?;
+        self.register_batch([registration])
+    }
+
+    /// Install all registrations produced by one source as a single transaction.
+    /// A source failure or any invalid/duplicate registration leaves the registry
+    /// completely unchanged.
+    pub fn install_source<S>(&mut self, source: &S) -> Result<(), HostError>
+    where
+        S: WorldPackSource + ?Sized,
+    {
+        let registrations = source.registrations()?;
+        self.register_batch(registrations)
+    }
+
+    /// Atomically register a batch in iteration order. If several versions of
+    /// one Pack id are present, the last version in the batch becomes active.
+    /// Version strings remain opaque and are never semver-sorted by the Host.
+    pub fn register_batch(
+        &mut self,
+        registrations: impl IntoIterator<Item = WorldRegistration>,
+    ) -> Result<(), HostError> {
+        let registrations = registrations.into_iter().collect::<Vec<_>>();
+        let mut incoming = BTreeSet::new();
+
+        for registration in &registrations {
+            validate_descriptor(&registration.descriptor)?;
+            let id = registration.descriptor.pack.id.clone();
+            let version = registration.descriptor.pack.version.clone();
+            let key = (id.clone(), version.clone());
+
+            if !incoming.insert(key) || self.contains_exact(&id, &version) {
+                return Err(HostError::DuplicateWorld(format!("{id}@{version}")));
+            }
+        }
+
+        for registration in registrations {
+            self.insert_validated(registration);
+        }
+        Ok(())
+    }
+
+    fn contains_exact(&self, id: &str, version: &str) -> bool {
+        self.families
+            .get(id)
+            .is_some_and(|family| family.registrations.contains_key(version))
+    }
+
+    fn insert_validated(&mut self, registration: WorldRegistration) {
         let id = registration.descriptor.pack.id.clone();
         let version = registration.descriptor.pack.version.clone();
 
         if let Some(family) = self.families.get_mut(&id) {
-            if family.registrations.contains_key(&version) {
-                return Err(HostError::DuplicateWorld(format!("{id}@{version}")));
-            }
             family.registrations.insert(version.clone(), registration);
             family.active_version = version;
         } else {
             self.families
                 .insert(id, WorldFamily::new(version, registration));
         }
-        Ok(())
     }
 
     /// Active descriptors only. Historical compatible versions stay hidden from
@@ -285,6 +337,7 @@ pub enum HostError {
     UnknownWorld(String),
     ArchiveOpenUnsupported(String),
     ArchiveIntegrity(ArchiveIntegrityError),
+    PackSource(String),
     VersionMismatch {
         expected: WorldPackRef,
         found: WorldPackRef,
@@ -293,6 +346,10 @@ pub enum HostError {
 }
 
 impl HostError {
+    pub fn pack_source(error: impl fmt::Display) -> Self {
+        Self::PackSource(error.to_string())
+    }
+
     pub fn session(error: impl fmt::Display) -> Self {
         Self::Session(error.to_string())
     }
@@ -310,6 +367,7 @@ impl fmt::Display for HostError {
             Self::ArchiveIntegrity(error) => {
                 write!(f, "world archive failed integrity check: {error}")
             }
+            Self::PackSource(message) => write!(f, "world Pack source failed: {message}"),
             Self::VersionMismatch { expected, found } => write!(
                 f,
                 "world version mismatch: host has {}@{}, archive requires {}@{}",
@@ -406,6 +464,28 @@ mod tests {
         }
     }
 
+    struct StaticSource {
+        registrations: Vec<(&'static str, &'static str)>,
+    }
+
+    impl WorldPackSource for StaticSource {
+        fn registrations(&self) -> Result<Vec<WorldRegistration>, HostError> {
+            Ok(self
+                .registrations
+                .iter()
+                .map(|(id, version)| registration(id, version))
+                .collect())
+        }
+    }
+
+    struct FailingSource;
+
+    impl WorldPackSource for FailingSource {
+        fn registrations(&self) -> Result<Vec<WorldRegistration>, HostError> {
+            Err(HostError::pack_source("source unavailable"))
+        }
+    }
+
     fn registration(id: &str, version: &str) -> WorldRegistration {
         let pack = WorldPackRef::new(id, version);
         let factory_pack = pack.clone();
@@ -418,6 +498,22 @@ mod tests {
             move || {
                 Ok(Box::new(MockSession {
                     pack: factory_pack.clone(),
+                    count: 0,
+                }))
+            },
+        )
+    }
+
+    fn invalid_registration() -> WorldRegistration {
+        WorldRegistration::new(
+            WorldDescriptor {
+                pack: WorldPackRef::new("invalid.world", ""),
+                title: "Invalid World".into(),
+                description: "A deliberately invalid descriptor".into(),
+            },
+            || {
+                Ok(Box::new(MockSession {
+                    pack: WorldPackRef::new("invalid.world", ""),
                     count: 0,
                 }))
             },
@@ -464,6 +560,83 @@ mod tests {
             "Mock 1"
         );
         assert_eq!(session.advance_background(2).unwrap().title, "Mock 3");
+    }
+
+    #[test]
+    fn source_installs_multiple_pack_families() {
+        let source = StaticSource {
+            registrations: vec![("alpha.world", "1"), ("beta.world", "1")],
+        };
+        let mut registry = WorldRegistry::new();
+        registry.install_source(&source).unwrap();
+
+        assert!(registry.descriptor("alpha.world").is_some());
+        assert!(registry.descriptor("beta.world").is_some());
+    }
+
+    #[test]
+    fn source_order_selects_active_version_without_interpreting_version_strings() {
+        let source = StaticSource {
+            registrations: vec![("mock.world", "2027"), ("mock.world", "10")],
+        };
+        let mut registry = WorldRegistry::new();
+        registry.install_source(&source).unwrap();
+
+        assert_eq!(registry.descriptors().len(), 1);
+        assert_eq!(registry.descriptor("mock.world").unwrap().pack.version, "10");
+        assert!(registry
+            .descriptor_for(&WorldPackRef::new("mock.world", "2027"))
+            .is_some());
+    }
+
+    #[test]
+    fn source_install_is_atomic_against_existing_duplicates() {
+        let mut registry = WorldRegistry::new();
+        registry
+            .register(registration("existing.world", "1"))
+            .unwrap();
+        let source = StaticSource {
+            registrations: vec![("new.world", "1"), ("existing.world", "1")],
+        };
+
+        assert!(matches!(
+            registry.install_source(&source),
+            Err(HostError::DuplicateWorld(id)) if id == "existing.world@1"
+        ));
+        assert!(registry.descriptor("new.world").is_none());
+        assert!(registry.descriptor("existing.world").is_some());
+    }
+
+    #[test]
+    fn batch_install_is_atomic_for_internal_duplicate_or_invalid_descriptor() {
+        let mut registry = WorldRegistry::new();
+        assert!(matches!(
+            registry.register_batch([
+                registration("new.world", "1"),
+                registration("new.world", "1")
+            ]),
+            Err(HostError::DuplicateWorld(id)) if id == "new.world@1"
+        ));
+        assert!(registry.descriptor("new.world").is_none());
+
+        assert!(matches!(
+            registry.register_batch([registration("valid.world", "1"), invalid_registration()]),
+            Err(HostError::InvalidDescriptor)
+        ));
+        assert!(registry.descriptor("valid.world").is_none());
+    }
+
+    #[test]
+    fn failing_source_leaves_registry_unchanged() {
+        let mut registry = WorldRegistry::new();
+        registry.register(registration("keep.world", "1")).unwrap();
+
+        assert!(matches!(
+            registry.install_source(&FailingSource),
+            Err(HostError::PackSource(message)) if message == "source unavailable"
+        ));
+        assert!(registry.descriptor("keep.world").is_some());
+        assert_eq!(registry.descriptors().len(), 1);
     }
 
     #[test]
