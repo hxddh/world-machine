@@ -293,7 +293,7 @@ impl StrategyComparisonView {
     }
 
     fn heading(&self) -> (&'static str, &'static str) {
-        match self.source {
+        match &self.source {
             ComparisonSource::Strategies(_) => (
                 "Strategy Comparison",
                 "Two independent futures evaluated from the same durable World",
