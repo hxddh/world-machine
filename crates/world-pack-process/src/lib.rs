@@ -5,8 +5,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use world_host::{HostError, WorldDescriptor, WorldPackSource, WorldRegistration, WorldSession};
 use world_pack_protocol::{
-    decode_response, encode_request, PackDescriptor, PackManifest, PackRequest, PackRequestEnvelope,
-    PackResponse, PackRuntimeManifest, ProjectionIntentWire, ProjectionSnapshotWire,
+    decode_response, encode_request, PackDescriptor, PackManifest, PackRequest,
+    PackRequestEnvelope, PackResponse, PackRuntimeManifest, ProjectionIntentWire,
+    ProjectionSnapshotWire,
 };
 use world_persistence::{WorldArchive, WorldPackRef};
 use world_projection::{ProjectionIntent, ProjectionSnapshot};
@@ -196,7 +197,11 @@ impl ProcessWorldSession {
         })
     }
 
-    fn request_snapshot(&self, request: PackRequest, operation: &str) -> Result<ProjectionSnapshot, HostError> {
+    fn request_snapshot(
+        &self,
+        request: PackRequest,
+        operation: &str,
+    ) -> Result<ProjectionSnapshot, HostError> {
         let response = self.client.borrow_mut().request(request)?;
         snapshot_response(operation, response)
     }
@@ -229,10 +234,7 @@ impl WorldSession for ProcessWorldSession {
     }
 
     fn archive(&self) -> Result<Option<WorldArchive>, HostError> {
-        let response = self
-            .client
-            .borrow_mut()
-            .request(PackRequest::Archive)?;
+        let response = self.client.borrow_mut().request(PackRequest::Archive)?;
         let archive = match response {
             PackResponse::Archive { archive } => archive,
             response => return Err(unexpected_response("archive", &response)),
@@ -249,10 +251,18 @@ impl WorldSession for ProcessWorldSession {
     }
 }
 
-fn snapshot_response(operation: &str, response: PackResponse) -> Result<ProjectionSnapshot, HostError> {
+fn snapshot_response(
+    operation: &str,
+    response: PackResponse,
+) -> Result<ProjectionSnapshot, HostError> {
     match response {
-        PackResponse::Snapshot { snapshot } => ProjectionSnapshot::try_from(snapshot)
-            .map_err(|error| HostError::session(format!("external Pack {operation} snapshot is invalid: {error}"))),
+        PackResponse::Snapshot { snapshot } => {
+            ProjectionSnapshot::try_from(snapshot).map_err(|error| {
+                HostError::session(format!(
+                    "external Pack {operation} snapshot is invalid: {error}"
+                ))
+            })
+        }
         response => Err(unexpected_response(operation, &response)),
     }
 }
@@ -320,8 +330,9 @@ impl ProcessClient {
             .checked_add(1)
             .ok_or_else(|| HostError::session("external Pack request id overflow"))?;
         let envelope = PackRequestEnvelope::new(request_id, request);
-        let encoded = encode_request(&envelope)
-            .map_err(|error| HostError::session(format!("could not encode Pack request: {error}")))?;
+        let encoded = encode_request(&envelope).map_err(|error| {
+            HostError::session(format!("could not encode Pack request: {error}"))
+        })?;
         let stdin = self
             .stdin
             .as_mut()
@@ -332,9 +343,10 @@ impl ProcessClient {
             .and_then(|_| stdin.flush())
             .map_err(|error| HostError::session(format!("could not send Pack request: {error}")))?;
 
-        let line = read_bounded_line(&mut self.stdout, self.max_response_bytes).map_err(|error| {
-            HostError::session(format!("could not read Pack response: {error}"))
-        })?;
+        let line =
+            read_bounded_line(&mut self.stdout, self.max_response_bytes).map_err(|error| {
+                HostError::session(format!("could not read Pack response: {error}"))
+            })?;
         if line.is_empty() {
             let status = self.child.try_wait().ok().flatten();
             return Err(HostError::session(match status {
@@ -405,8 +417,7 @@ fn read_bounded_line(reader: &mut impl BufRead, max_bytes: usize) -> io::Result<
             break;
         }
     }
-    String::from_utf8(bytes)
-        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+    String::from_utf8(bytes).map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
 }
 
 #[cfg(test)]
@@ -414,9 +425,7 @@ mod tests {
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
     use world_host::WorldRegistry;
-    use world_pack_protocol::{
-        encode_response, PackResponseEnvelope, ProjectionCapabilitiesWire,
-    };
+    use world_pack_protocol::{encode_response, PackResponseEnvelope, ProjectionCapabilitiesWire};
     use world_persistence::{WORLD_ARCHIVE_FORMAT, WORLD_ARCHIVE_VERSION};
 
     fn temp_dir(label: &str) -> PathBuf {
@@ -491,7 +500,10 @@ mod tests {
         let nested = root.join("nested");
         fs::create_dir_all(&nested).unwrap();
 
-        for (name, id) in [("b.world-pack.json", "pack.b"), ("a.world-pack.json", "pack.a")] {
+        for (name, id) in [
+            ("b.world-pack.json", "pack.b"),
+            ("a.world-pack.json", "pack.a"),
+        ] {
             let manifest = PackManifest::process(
                 PackDescriptor::new(WorldPackRef::new(id, "1"), id, "fixture"),
                 "runtime",
