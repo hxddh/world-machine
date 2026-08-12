@@ -1,10 +1,12 @@
+use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
 use world_compare::{compare_snapshots, SnapshotComparison};
 use world_document::WorldBranchCause;
 use world_host::{HostError, WorldRegistry};
 use world_library::{LibraryError, WorldDocumentId, WorldLibrary};
-use world_lineage::{LineageError, LineageIndex};
+use world_lineage::{LineageError, LineageIndex, LineageNode};
+use world_persistence::WorldPackRef;
 use world_projection::ProjectionSnapshot;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -19,6 +21,45 @@ pub struct SavedFutureComparison {
     pub parent: WorldDocumentId,
     pub left: SavedFutureSide,
     pub right: SavedFutureSide,
+    pub comparison: SnapshotComparison,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SavedWorldSide {
+    pub document: WorldDocumentId,
+    pub branch: Option<WorldBranchCause>,
+    pub snapshot: ProjectionSnapshot,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SavedWorldRelation {
+    Same,
+    AncestorDescendant {
+        ancestor: WorldDocumentId,
+        descendant: WorldDocumentId,
+    },
+    Siblings {
+        parent: WorldDocumentId,
+    },
+    Related {
+        common_ancestor: WorldDocumentId,
+    },
+    /// At least one local ancestry chain ends at an unresolved/external parent,
+    /// so the current Library cannot prove whether the two Worlds meet outside
+    /// the available lineage graph.
+    UnresolvedAncestry {
+        left: Option<WorldDocumentId>,
+        right: Option<WorldDocumentId>,
+    },
+    Unrelated,
+    Unavailable(String),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SavedWorldComparison {
+    pub left: SavedWorldSide,
+    pub right: SavedWorldSide,
+    pub relation: SavedWorldRelation,
     pub comparison: SnapshotComparison,
 }
 
@@ -85,9 +126,183 @@ pub fn compare_saved_siblings(
     })
 }
 
+pub fn compare_saved_worlds(
+    library: &WorldLibrary,
+    registry: &WorldRegistry,
+    left: &WorldDocumentId,
+    right: &WorldDocumentId,
+) -> Result<SavedWorldComparison, SavedFutureCompareError> {
+    let left_document = library
+        .load_document(left)?
+        .ok_or_else(|| SavedFutureCompareError::UnknownDocument(left.clone()))?;
+    let right_document = library
+        .load_document(right)?
+        .ok_or_else(|| SavedFutureCompareError::UnknownDocument(right.clone()))?;
+
+    if left_document.archive.pack != right_document.archive.pack {
+        return Err(SavedFutureCompareError::PackMismatch {
+            left: left_document.archive.pack,
+            right: right_document.archive.pack,
+        });
+    }
+
+    let lineage = LineageIndex::from_library(library)?;
+    let left_node = lineage
+        .node(left)
+        .ok_or_else(|| SavedFutureCompareError::UnknownDocument(left.clone()))?;
+    let right_node = lineage
+        .node(right)
+        .ok_or_else(|| SavedFutureCompareError::UnknownDocument(right.clone()))?;
+    let relation = relation_between_nodes(&lineage, left_node, right_node);
+
+    let left_snapshot = registry.open_archive(&left_document.archive)?.snapshot();
+    let right_snapshot = registry.open_archive(&right_document.archive)?.snapshot();
+    let comparison = compare_snapshots(&left_snapshot, &right_snapshot);
+
+    Ok(SavedWorldComparison {
+        left: SavedWorldSide {
+            document: left.clone(),
+            branch: left_node.branch.clone(),
+            snapshot: left_snapshot,
+        },
+        right: SavedWorldSide {
+            document: right.clone(),
+            branch: right_node.branch.clone(),
+            snapshot: right_snapshot,
+        },
+        relation,
+        comparison,
+    })
+}
+
+pub fn relation_between(
+    index: &LineageIndex,
+    left: &WorldDocumentId,
+    right: &WorldDocumentId,
+) -> SavedWorldRelation {
+    let Some(left_node) = index.node(left) else {
+        return SavedWorldRelation::Unavailable(format!("missing lineage node: {left}"));
+    };
+    let Some(right_node) = index.node(right) else {
+        return SavedWorldRelation::Unavailable(format!("missing lineage node: {right}"));
+    };
+    relation_between_nodes(index, left_node, right_node)
+}
+
+fn relation_between_nodes(
+    index: &LineageIndex,
+    left: &LineageNode,
+    right: &LineageNode,
+) -> SavedWorldRelation {
+    if left.id == right.id {
+        return SavedWorldRelation::Same;
+    }
+
+    let left_ancestry = ancestry(index, left);
+    let right_ancestry = ancestry(index, right);
+
+    if right_ancestry.distances.contains_key(&left.id) {
+        return SavedWorldRelation::AncestorDescendant {
+            ancestor: left.id.clone(),
+            descendant: right.id.clone(),
+        };
+    }
+    if left_ancestry.distances.contains_key(&right.id) {
+        return SavedWorldRelation::AncestorDescendant {
+            ancestor: right.id.clone(),
+            descendant: left.id.clone(),
+        };
+    }
+
+    if let (Some(left_parent), Some(right_parent)) =
+        (resolved_parent_id(left), resolved_parent_id(right))
+    {
+        if left_parent == right_parent {
+            return SavedWorldRelation::Siblings {
+                parent: left_parent.clone(),
+            };
+        }
+    }
+
+    if let Some(common_ancestor) = nearest_common_ancestor(&left_ancestry, &right_ancestry) {
+        return SavedWorldRelation::Related { common_ancestor };
+    }
+
+    if left_ancestry.detached_at.is_some() || right_ancestry.detached_at.is_some() {
+        return SavedWorldRelation::UnresolvedAncestry {
+            left: left_ancestry.detached_at,
+            right: right_ancestry.detached_at,
+        };
+    }
+
+    SavedWorldRelation::Unrelated
+}
+
+#[derive(Debug)]
+struct Ancestry {
+    distances: BTreeMap<WorldDocumentId, usize>,
+    detached_at: Option<WorldDocumentId>,
+}
+
+fn ancestry(index: &LineageIndex, start: &LineageNode) -> Ancestry {
+    let mut distances = BTreeMap::new();
+    let mut current_id = start.id.clone();
+    let mut current_node = start;
+    let mut distance = 0usize;
+    let mut detached_at = None;
+
+    loop {
+        distances.insert(current_id.clone(), distance);
+        let Some(parent) = current_node.parent.as_ref() else {
+            break;
+        };
+        let Some(parent_id) = parent.resolved.as_ref() else {
+            detached_at = Some(current_id);
+            break;
+        };
+        let Some(parent_node) = index.node(parent_id) else {
+            // A valid LineageIndex should not expose a resolved id without a
+            // local node. Stay conservative if a caller supplies such an index.
+            detached_at = Some(current_id);
+            break;
+        };
+        current_id = parent_id.clone();
+        current_node = parent_node;
+        distance += 1;
+    }
+
+    Ancestry {
+        distances,
+        detached_at,
+    }
+}
+
+fn nearest_common_ancestor(left: &Ancestry, right: &Ancestry) -> Option<WorldDocumentId> {
+    left.distances
+        .iter()
+        .filter_map(|(candidate, left_distance)| {
+            right
+                .distances
+                .get(candidate)
+                .map(|right_distance| (candidate, left_distance + right_distance))
+        })
+        .min_by(|(left_id, left_distance), (right_id, right_distance)| {
+            left_distance
+                .cmp(right_distance)
+                .then_with(|| left_id.cmp(right_id))
+        })
+        .map(|(candidate, _)| candidate.clone())
+}
+
+fn resolved_parent_id(node: &LineageNode) -> Option<&WorldDocumentId> {
+    node.parent
+        .as_ref()
+        .and_then(|parent| parent.resolved.as_ref())
+}
+
 fn resolved_parent(
     document: &WorldDocumentId,
-    node: &world_lineage::LineageNode,
+    node: &LineageNode,
 ) -> Result<WorldDocumentId, SavedFutureCompareError> {
     let parent = node
         .parent
@@ -112,6 +327,10 @@ pub enum SavedFutureCompareError {
         left: WorldDocumentId,
         right: WorldDocumentId,
     },
+    PackMismatch {
+        left: WorldPackRef,
+        right: WorldPackRef,
+    },
 }
 
 impl fmt::Display for SavedFutureCompareError {
@@ -130,6 +349,11 @@ impl fmt::Display for SavedFutureCompareError {
             Self::DifferentParents { left, right } => {
                 write!(f, "saved Worlds are not siblings: {left} vs {right}")
             }
+            Self::PackMismatch { left, right } => write!(
+                f,
+                "saved World comparison requires the same Pack version: left={}@{}, right={}@{}",
+                left.id, left.version, right.id, right.version
+            ),
         }
     }
 }
@@ -144,7 +368,8 @@ impl Error for SavedFutureCompareError {
             | Self::SameDocument(_)
             | Self::MissingLineage(_)
             | Self::DetachedParent(_)
-            | Self::DifferentParents { .. } => None,
+            | Self::DifferentParents { .. }
+            | Self::PackMismatch { .. } => None,
         }
     }
 }
