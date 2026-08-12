@@ -3,12 +3,20 @@ use world_compare::{DifferenceKind, EntityDifference, SnapshotComparison};
 use world_projection::ProjectionSnapshot;
 use world_strategy::{StrategyEvaluation, StrategyRun};
 
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct SavedComparisonContext {
+    pub relation: Option<String>,
+    pub left_provenance: Option<String>,
+    pub right_provenance: Option<String>,
+}
+
 enum ComparisonSource {
     Strategies(StrategyEvaluation),
     Saved {
         left: ProjectionSnapshot,
         right: ProjectionSnapshot,
         comparison: SnapshotComparison,
+        context: SavedComparisonContext,
     },
 }
 
@@ -38,11 +46,30 @@ impl StrategyComparisonView {
         left_label: impl Into<String>,
         right_label: impl Into<String>,
     ) -> Self {
+        Self::saved_with_context(
+            left,
+            right,
+            comparison,
+            left_label,
+            right_label,
+            SavedComparisonContext::default(),
+        )
+    }
+
+    pub fn saved_with_context(
+        left: ProjectionSnapshot,
+        right: ProjectionSnapshot,
+        comparison: SnapshotComparison,
+        left_label: impl Into<String>,
+        right_label: impl Into<String>,
+        context: SavedComparisonContext,
+    ) -> Self {
         Self {
             source: ComparisonSource::Saved {
                 left,
                 right,
                 comparison,
+                context,
             },
             left_label: left_label.into(),
             right_label: right_label.into(),
@@ -113,8 +140,13 @@ impl StrategyComparisonView {
         }
     }
 
-    fn render_saved_side(&self, label: &str, snapshot: &ProjectionSnapshot) -> Div {
-        div()
+    fn render_saved_side(
+        &self,
+        label: &str,
+        snapshot: &ProjectionSnapshot,
+        provenance: Option<&str>,
+    ) -> Div {
+        let mut card = div()
             .w(px(320.0))
             .p_4()
             .rounded_md()
@@ -142,7 +174,16 @@ impl StrategyComparisonView {
                     .text_xs()
                     .text_color(rgb(0x777777))
                     .child("Saved World"),
-            )
+            );
+        if let Some(provenance) = provenance {
+            card = card.child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0x4e6fb3))
+                    .child(provenance.to_string()),
+            );
+        }
+        card
     }
 
     fn render_comparison(&self, comparison: &SnapshotComparison) -> Div {
@@ -300,7 +341,7 @@ impl StrategyComparisonView {
             ),
             ComparisonSource::Saved { .. } => (
                 "Saved Future Comparison",
-                "Two saved sibling Worlds compared at their current durable state",
+                "Two saved Worlds compared at their current durable state",
             ),
         }
     }
@@ -320,6 +361,19 @@ impl Render for StrategyComparisonView {
             .child(div().text_xl().child(title))
             .child(div().text_sm().text_color(rgb(0x666666)).child(subtitle));
 
+        if let ComparisonSource::Saved { context, .. } = &self.source {
+            if let Some(relation) = &context.relation {
+                body = body.child(
+                    div()
+                        .p_2()
+                        .rounded_md()
+                        .bg(rgb(0xe9edf5))
+                        .text_sm()
+                        .child(format!("Lineage relation · {relation}")),
+                );
+            }
+        }
+
         body = match &self.source {
             ComparisonSource::Strategies(evaluation) => body.child(
                 div()
@@ -328,12 +382,25 @@ impl Render for StrategyComparisonView {
                     .child(self.render_strategy_run(&self.left_label, &evaluation.left))
                     .child(self.render_strategy_run(&self.right_label, &evaluation.right)),
             ),
-            ComparisonSource::Saved { left, right, .. } => body.child(
+            ComparisonSource::Saved {
+                left,
+                right,
+                context,
+                ..
+            } => body.child(
                 div()
                     .flex()
                     .gap_4()
-                    .child(self.render_saved_side(&self.left_label, left))
-                    .child(self.render_saved_side(&self.right_label, right)),
+                    .child(self.render_saved_side(
+                        &self.left_label,
+                        left,
+                        context.left_provenance.as_deref(),
+                    ))
+                    .child(self.render_saved_side(
+                        &self.right_label,
+                        right,
+                        context.right_provenance.as_deref(),
+                    )),
             ),
         };
 
