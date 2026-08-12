@@ -69,27 +69,21 @@ fn fork_world(
 
     // From this point on the fork is durable. Reopening, observer initialization,
     // or window creation failures must not be reported as if persistence failed.
-    let mut session = match DurableWorldSession::open(
-        document_id.clone(),
-        registry.as_ref(),
-        library.as_ref(),
-    ) {
-        Ok(session) => session,
-        Err(error) => {
-            return Ok(ForkResult {
-                id: document_id,
-                warning: Some(format!("saved, but could not reopen it: {error}")),
-            });
-        }
-    };
+    let mut session =
+        match DurableWorldSession::open(document_id.clone(), registry.as_ref(), library.as_ref()) {
+            Ok(session) => session,
+            Err(error) => {
+                return Ok(ForkResult {
+                    id: document_id,
+                    warning: Some(format!("saved, but could not reopen it: {error}")),
+                });
+            }
+        };
 
-    let observer_warning = super::observer::catch_up(
-        &mut session,
-        registry.as_ref(),
-        library.as_ref(),
-    )
-    .err()
-    .map(|error| format!("observer clock initialization skipped: {error}"));
+    let observer_warning =
+        super::observer::catch_up(&mut session, registry.as_ref(), library.as_ref())
+            .err()
+            .map(|error| format!("observer clock initialization skipped: {error}"));
 
     let pack = session.pack();
     let title = registry

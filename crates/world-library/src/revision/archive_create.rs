@@ -65,10 +65,8 @@ fn atomic_create(path: &Path, bytes: &[u8]) -> io::Result<()> {
         .to_string_lossy();
     let (mut temp_file, temp_path) = loop {
         let nonce = CREATE_TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
-        let candidate = path.with_file_name(format!(
-            ".{file_name}.create-{}-{nonce}.tmp",
-            process::id()
-        ));
+        let candidate =
+            path.with_file_name(format!(".{file_name}.create-{}-{nonce}.tmp", process::id()));
         match OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -227,10 +225,7 @@ mod tests {
                     || matches!(result, Err(LibraryError::DocumentAlreadyExists(existing)) if existing == &id)
             );
         }
-        assert_eq!(
-            library.load(&id).unwrap().unwrap().world_time,
-            winners[0]
-        );
+        assert_eq!(library.load(&id).unwrap().unwrap().world_time, winners[0]);
         let _ = fs::remove_dir_all(root);
     }
 }
