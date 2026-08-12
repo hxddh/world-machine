@@ -35,9 +35,15 @@ use world_library::{
 };
 #[cfg(target_os = "macos")]
 use world_lineage::LineageIndex;
+#[cfg(target_os = "macos")]
+use world_pack_catalog::{InstalledPack, PackAvailability, PackCatalog};
+#[cfg(target_os = "macos")]
+use world_persistence::WorldPackRef;
 
 #[cfg(target_os = "macos")]
 const LIBRARY_OVERRIDE_ENV: &str = "WORLD_MACHINE_LIBRARY_DIR";
+#[cfg(target_os = "macos")]
+const PACK_CATALOG_OVERRIDE_ENV: &str = "WORLD_MACHINE_PACK_CATALOG";
 
 #[cfg(target_os = "macos")]
 struct SharedDocumentState {
@@ -247,6 +253,8 @@ impl Render for WorldDocumentView {
 struct WorldMachineHome {
     registry: Arc<world_host::WorldRegistry>,
     library: Arc<WorldLibrary>,
+    pack_catalog: Option<PackCatalog>,
+    pack_catalog_path: PathBuf,
     documents: Vec<WorldDocumentSummary>,
     lineage: Option<LineageIndex>,
     status: Option<String>,
@@ -280,6 +288,183 @@ impl WorldMachineHome {
             });
         })
         .detach();
+    }
+
+    fn rebuild_registry(&mut self) -> Result<(), String> {
+        let registry = build_registry(self.pack_catalog.as_ref())?;
+        self.registry = Arc::new(registry);
+        Ok(())
+    }
+
+    fn install_pack(&mut self, cx: &mut Context<Self>) {
+        let picker = cx.prompt_for_paths(PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some("Install World Pack".into()),
+        });
+        cx.spawn(async move |this, cx| {
+            let manifest = match picker.await {
+                Ok(Ok(Some(mut paths))) => paths.pop(),
+                Ok(Ok(None)) => return,
+                Ok(Err(error)) => {
+                    let _ = this.update(cx, |this, cx| {
+                        this.status = Some(format!("Could not open Install Pack dialog: {error}"));
+                        cx.notify();
+                    });
+                    return;
+                }
+                Err(error) => {
+                    let _ = this.update(cx, |this, cx| {
+                        this.status = Some(format!("Install Pack dialog was interrupted: {error}"));
+                        cx.notify();
+                    });
+                    return;
+                }
+            };
+            let Some(manifest) = manifest else {
+                return;
+            };
+            let _ = this.update(cx, |this, cx| {
+                if this.pack_catalog.is_none() {
+                    match PackCatalog::open(&this.pack_catalog_path) {
+                        Ok(catalog) => this.pack_catalog = Some(catalog),
+                        Err(error) => {
+                            this.status = Some(format!(
+                                "Could not open Installed Packs catalog {}: {error}",
+                                this.pack_catalog_path.display()
+                            ));
+                            cx.notify();
+                            return;
+                        }
+                    }
+                }
+                let installed = match this
+                    .pack_catalog
+                    .as_mut()
+                    .unwrap()
+                    .install_manifest(&manifest)
+                {
+                    Ok(installed) => installed,
+                    Err(error) => {
+                        this.status =
+                            Some(format!("Could not install {}: {error}", manifest.display()));
+                        cx.notify();
+                        return;
+                    }
+                };
+                match this.rebuild_registry() {
+                    Ok(()) => {
+                        this.status = Some(format!(
+                            "Installed {} · {} @ {} is now active for new Worlds",
+                            installed.title, installed.pack.id, installed.pack.version
+                        ));
+                    }
+                    Err(error) => {
+                        this.status = Some(format!(
+                            "Installed {} @ {}, but external Packs could not be activated: {error}",
+                            installed.pack.id, installed.pack.version
+                        ));
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn activate_pack(&mut self, pack: WorldPackRef, cx: &mut Context<Self>) {
+        let Some(catalog) = self.pack_catalog.as_mut() else {
+            return;
+        };
+        match catalog.activate(&pack) {
+            Ok(()) => match self.rebuild_registry() {
+                Ok(()) => {
+                    self.status = Some(format!(
+                        "Activated {} @ {} for new Worlds",
+                        pack.id, pack.version
+                    ))
+                }
+                Err(error) => {
+                    self.status = Some(format!(
+                        "Changed active Pack to {} @ {}, but Registry rebuild failed: {error}",
+                        pack.id, pack.version
+                    ))
+                }
+            },
+            Err(error) => {
+                self.status = Some(format!(
+                    "Could not activate {} @ {}: {error}",
+                    pack.id, pack.version
+                ))
+            }
+        }
+        cx.notify();
+    }
+
+    fn set_pack_enabled(&mut self, pack: WorldPackRef, enabled: bool, cx: &mut Context<Self>) {
+        let Some(catalog) = self.pack_catalog.as_mut() else {
+            return;
+        };
+        match catalog.set_enabled(&pack, enabled) {
+            Ok(()) => match self.rebuild_registry() {
+                Ok(()) => {
+                    self.status = Some(format!(
+                        "{} {} @ {}",
+                        if enabled { "Enabled" } else { "Disabled" },
+                        pack.id,
+                        pack.version
+                    ))
+                }
+                Err(error) => {
+                    self.status = Some(format!(
+                        "Updated {} @ {}, but Registry rebuild failed: {error}",
+                        pack.id, pack.version
+                    ))
+                }
+            },
+            Err(error) => {
+                self.status = Some(format!(
+                    "Could not {} {} @ {}: {error}",
+                    if enabled { "enable" } else { "disable" },
+                    pack.id,
+                    pack.version
+                ))
+            }
+        }
+        cx.notify();
+    }
+
+    fn missing_pack_message(&self, pack: &WorldPackRef) -> String {
+        let availability = self
+            .pack_catalog
+            .as_ref()
+            .map(|catalog| catalog.availability(pack))
+            .unwrap_or(PackAvailability::NotInstalled);
+        match availability {
+            PackAvailability::Ready => format!(
+                "Could not open World: {} @ {} should be available, but is not registered",
+                pack.id, pack.version
+            ),
+            PackAvailability::Disabled => format!(
+                "Could not open World: {} @ {} is installed but disabled. Enable it under Installed Packs.",
+                pack.id, pack.version
+            ),
+            PackAvailability::Invalid { reason } => format!(
+                "Could not open World: {} @ {} is installed but no longer matches its approved content: {reason}",
+                pack.id, pack.version
+            ),
+            PackAvailability::MissingVersion { installed_versions } => format!(
+                "Could not open World: it requires {} @ {}, but installed versions are {}. Install that exact Pack version.",
+                pack.id,
+                pack.version,
+                installed_versions.join(", ")
+            ),
+            PackAvailability::NotInstalled => format!(
+                "Could not open World: it requires {} @ {}, which is not installed. Use Install Pack… to add that exact version.",
+                pack.id, pack.version
+            ),
+        }
     }
 
     fn refresh_documents(&mut self) {
@@ -369,10 +554,18 @@ impl WorldMachineHome {
     }
 
     fn open_document(&mut self, document_id: WorldDocumentId, cx: &mut Context<Self>) {
-        let title = self
+        let summary = self
             .documents
             .iter()
-            .find(|document| document.id == document_id)
+            .find(|document| document.id == document_id);
+        if let Some(document) = summary {
+            if self.registry.descriptor_for(&document.pack).is_none() {
+                self.status = Some(self.missing_pack_message(&document.pack));
+                cx.notify();
+                return;
+            }
+        }
+        let title = summary
             .and_then(|document| self.registry.descriptor_for(&document.pack))
             .map(|descriptor| descriptor.title.clone())
             .unwrap_or_else(|| document_id.to_string());
@@ -702,6 +895,98 @@ impl WorldMachineHome {
             )
     }
 
+    fn installed_pack_card(&self, pack: InstalledPack, cx: &mut Context<Self>) -> impl IntoElement {
+        let availability = self
+            .pack_catalog
+            .as_ref()
+            .map(|catalog| catalog.availability(&pack.pack))
+            .unwrap_or(PackAvailability::NotInstalled);
+        let state = match &availability {
+            PackAvailability::Ready if pack.active => "Active".to_string(),
+            PackAvailability::Ready => "Historical · available for saved Worlds".to_string(),
+            PackAvailability::Disabled => "Disabled".to_string(),
+            PackAvailability::Invalid { reason } => format!("Invalid · {reason}"),
+            PackAvailability::MissingVersion { .. } => "Missing exact version".to_string(),
+            PackAvailability::NotInstalled => "Not installed".to_string(),
+        };
+        let activate_pack = pack.pack.clone();
+        let toggle_pack = pack.pack.clone();
+        let enabled = pack.enabled;
+        let active = pack.active;
+
+        let mut actions = div().flex().gap_2();
+        if enabled && !active {
+            actions = actions.child(
+                div()
+                    .id(SharedString::from(format!(
+                        "activate-pack-{}-{}",
+                        pack.pack.id, pack.pack.version
+                    )))
+                    .cursor_pointer()
+                    .p_2()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(rgb(0xd9d9d3))
+                    .text_sm()
+                    .child("Activate")
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.activate_pack(activate_pack.clone(), cx)
+                    })),
+            );
+        }
+        actions = actions.child(
+            div()
+                .id(SharedString::from(format!(
+                    "toggle-pack-{}-{}",
+                    pack.pack.id, pack.pack.version
+                )))
+                .cursor_pointer()
+                .p_2()
+                .rounded_md()
+                .border_1()
+                .border_color(rgb(0xd9d9d3))
+                .text_sm()
+                .child(if enabled { "Disable" } else { "Enable" })
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.set_pack_enabled(toggle_pack.clone(), !enabled, cx)
+                })),
+        );
+
+        div()
+            .id(SharedString::from(format!(
+                "installed-pack-{}-{}",
+                pack.pack.id, pack.pack.version
+            )))
+            .w_full()
+            .p_4()
+            .rounded_md()
+            .border_1()
+            .border_color(rgb(0xd9d9d3))
+            .bg(rgb(0xffffff))
+            .flex()
+            .justify_between()
+            .items_center()
+            .gap_3()
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(div().text_lg().child(pack.title))
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(0x666666))
+                            .child(pack.description),
+                    )
+                    .child(div().text_xs().text_color(rgb(0x8a8a82)).child(format!(
+                        "{} @ {} · {state}",
+                        pack.pack.id, pack.pack.version
+                    ))),
+            )
+            .child(actions)
+    }
+
     fn new_world_card(
         &self,
         descriptor: world_host::WorldDescriptor,
@@ -763,6 +1048,29 @@ impl Render for WorldMachineHome {
             }
         }
 
+        let installed_packs = self
+            .pack_catalog
+            .as_ref()
+            .map(|catalog| catalog.entries().to_vec())
+            .unwrap_or_default();
+        let mut installed = div().w_full().flex().flex_col().gap_3();
+        if installed_packs.is_empty() {
+            installed = installed.child(
+                div()
+                    .p_4()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(rgb(0xe1e1dc))
+                    .text_sm()
+                    .text_color(rgb(0x777770))
+                    .child("No external Packs installed. Built-in Worlds remain available below."),
+            );
+        } else {
+            for pack in installed_packs {
+                installed = installed.child(self.installed_pack_card(pack, cx));
+            }
+        }
+
         let mut available = div().w_full().flex().flex_col().gap_3();
         for descriptor in descriptors {
             available = available.child(self.new_world_card(descriptor, cx));
@@ -781,6 +1089,16 @@ impl Render for WorldMachineHome {
                 this.refresh_documents();
                 cx.notify();
             }));
+        let install_pack = div()
+            .id("install-world-pack")
+            .cursor_pointer()
+            .p_2()
+            .rounded_md()
+            .border_1()
+            .border_color(rgb(0xd9d9d3))
+            .text_sm()
+            .child("Install Pack…")
+            .on_click(cx.listener(|this, _, _, cx| this.install_pack(cx)));
         let import = div()
             .id("import-world-file")
             .cursor_pointer()
@@ -807,13 +1125,15 @@ impl Render for WorldMachineHome {
                     .justify_between()
                     .items_center()
                     .child(div().text_lg().child("World Machine"))
-                    .child(div().flex().gap_2().child(import).child(refresh)),
+                    .child(div().flex().gap_2().child(install_pack).child(import).child(refresh)),
             )
             .child(div().text_sm().text_color(rgb(0x666666)).child(
                 "Worlds are portable documents. Double-click an external .world to edit it in place; Import copies it into My Worlds.",
             ))
             .child(div().text_sm().child("My Worlds"))
             .child(saved)
+            .child(div().text_sm().child("Installed Packs"))
+            .child(installed)
             .child(div().text_sm().child("New World"))
             .child(available);
 
@@ -858,6 +1178,39 @@ fn discover_library() -> std::io::Result<WorldLibrary> {
             .join("World Machine")
             .join("Worlds"),
     ))
+}
+
+#[cfg(target_os = "macos")]
+fn discover_pack_catalog_path(library: &WorldLibrary) -> PathBuf {
+    if let Some(path) = env::var_os(PACK_CATALOG_OVERRIDE_ENV) {
+        return PathBuf::from(path);
+    }
+    if env::var_os(LIBRARY_OVERRIDE_ENV).is_some() {
+        return library
+            .root()
+            .join(".world-machine-packs")
+            .join("catalog.json");
+    }
+    library
+        .root()
+        .parent()
+        .unwrap_or_else(|| library.root())
+        .join("Packs")
+        .join("catalog.json")
+}
+
+#[cfg(target_os = "macos")]
+fn build_registry(catalog: Option<&PackCatalog>) -> Result<world_host::WorldRegistry, String> {
+    let mut registry = world_builtins::registry().map_err(|error| error.to_string())?;
+    if let Some(catalog) = catalog {
+        let source = catalog
+            .trusted_source()
+            .map_err(|error| error.to_string())?;
+        registry
+            .install_source(&source)
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(registry)
 }
 
 #[cfg(target_os = "macos")]
@@ -981,9 +1334,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let application = application();
     system_open::install(&application);
-    let registry = Arc::new(world_builtins::registry()?);
     let library = Arc::new(discover_library()?);
-    let (documents, lineage, status) = match library.list() {
+    let pack_catalog_path = discover_pack_catalog_path(library.as_ref());
+    let (pack_catalog, registry, pack_status) = match PackCatalog::open(&pack_catalog_path) {
+        Ok(catalog) => match build_registry(Some(&catalog)) {
+            Ok(registry) => (Some(catalog), Arc::new(registry), None),
+            Err(error) => (
+                Some(catalog),
+                Arc::new(world_builtins::registry()?),
+                Some(format!("Installed Packs were not activated: {error}")),
+            ),
+        },
+        Err(error) => (
+            None,
+            Arc::new(world_builtins::registry()?),
+            Some(format!(
+                "Could not open Installed Packs catalog {}: {error}",
+                pack_catalog_path.display()
+            )),
+        ),
+    };
+    let (documents, lineage, library_status) = match library.list() {
         Ok(documents) => match LineageIndex::from_library(library.as_ref()) {
             Ok(lineage) => (documents, Some(lineage), None),
             Err(error) => (
@@ -999,11 +1370,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ),
     };
 
+    let status = pack_status.or(library_status);
+
     application.run(move |cx: &mut App| {
         let home = cx.new(|cx| {
             let mut home = WorldMachineHome {
                 registry,
                 library,
+                pack_catalog,
+                pack_catalog_path,
                 documents,
                 lineage,
                 status,
