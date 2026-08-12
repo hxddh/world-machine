@@ -9,3 +9,7 @@ publish = false
 gpui = { git = "https://github.com/zed-industries/zed", rev = "4e8057d74db3570b3bd419ff296eb84c35b3a5a3", package = "gpui" }
 world-document = { path = "../world-document" }
 world-lineage = { path = "../world-lineage" }
+
+[dev-dependencies]
+world-library = { path = "../world-library" }
+world-persistence = { path = "../world-persistence" }
