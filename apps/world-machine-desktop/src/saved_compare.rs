@@ -210,46 +210,61 @@ impl SavedWorldSetupView {
             return Err("Choose two different saved Worlds".into());
         }
 
-        let result = compare_saved_worlds(
+        open_saved_comparison(
             self.library.as_ref(),
             self.registry.as_ref(),
             &self.left,
             &right,
+            cx,
         )
-        .map_err(|error| error.to_string())?;
-        let relation = relation_label(&result.relation);
-        let context = SavedComparisonContext {
-            relation: Some(relation),
-            left_provenance: branch_label(result.left.branch.as_ref()),
-            right_provenance: branch_label(result.right.branch.as_ref()),
-        };
-        let left_label = result.left.document.to_string();
-        let right_label = result.right.document.to_string();
-        let status_left = left_label.clone();
-        let status_right = right_label.clone();
-        let bounds = Bounds::centered(None, size(px(1240.0), px(980.0)), cx);
-        cx.open_window(
-            WindowOptions {
-                window_bounds: Some(WindowBounds::Windowed(bounds)),
-                ..Default::default()
-            },
-            move |_, cx| {
-                cx.new(|_| {
-                    StrategyComparisonView::saved_with_context(
-                        result.left.snapshot,
-                        result.right.snapshot,
-                        result.comparison,
-                        left_label,
-                        right_label,
-                        context,
-                    )
-                })
-            },
-        )
-        .map_err(|error| error.to_string())?;
-
-        Ok((status_left, status_right))
     }
+}
+
+pub(super) fn open_saved_comparison<T: 'static>(
+    library: &WorldLibrary,
+    registry: &world_host::WorldRegistry,
+    left: &WorldDocumentId,
+    right: &WorldDocumentId,
+    cx: &mut Context<T>,
+) -> Result<(String, String), String> {
+    if left == right {
+        return Err("Choose two different saved Worlds".into());
+    }
+
+    let result = compare_saved_worlds(library, registry, left, right)
+        .map_err(|error| error.to_string())?;
+    let relation = relation_label(&result.relation);
+    let context = SavedComparisonContext {
+        relation: Some(relation),
+        left_provenance: branch_label(result.left.branch.as_ref()),
+        right_provenance: branch_label(result.right.branch.as_ref()),
+    };
+    let left_label = result.left.document.to_string();
+    let right_label = result.right.document.to_string();
+    let status_left = left_label.clone();
+    let status_right = right_label.clone();
+    let bounds = Bounds::centered(None, size(px(1240.0), px(980.0)), cx);
+    cx.open_window(
+        WindowOptions {
+            window_bounds: Some(WindowBounds::Windowed(bounds)),
+            ..Default::default()
+        },
+        move |_, cx| {
+            cx.new(|_| {
+                StrategyComparisonView::saved_with_context(
+                    result.left.snapshot,
+                    result.right.snapshot,
+                    result.comparison,
+                    left_label,
+                    right_label,
+                    context,
+                )
+            })
+        },
+    )
+    .map_err(|error| error.to_string())?;
+
+    Ok((status_left, status_right))
 }
 
 impl gpui::Render for SavedWorldSetupView {
