@@ -6,9 +6,9 @@ use world_core::{EntityId, EventId};
 use world_persistence::{WorldArchive, WorldPackRef};
 use world_projection::{
     BriefingItem, BriefingProjection, CanvasItem, CanvasItemKind, CanvasProjection, CollectionItem,
-    CollectionProjection, InspectorProjection, InspectorRow, InspectorSection, ProjectionCapabilities,
-    ProjectionCommand, ProjectionIntent, ProjectionSnapshot, SelectionId, TimelineItem,
-    TimelineProjection, WhyNode, WhyProjection,
+    CollectionProjection, InspectorProjection, InspectorRow, InspectorSection,
+    ProjectionCapabilities, ProjectionCommand, ProjectionIntent, ProjectionSnapshot, SelectionId,
+    TimelineItem, TimelineProjection, WhyNode, WhyProjection,
 };
 
 pub const PACK_MANIFEST_FORMAT: &str = "world-machine-pack";
@@ -189,10 +189,9 @@ pub fn encode_request(request: &PackRequestEnvelope) -> Result<String, serde_jso
 }
 
 pub fn decode_request(json: &str) -> Result<PackRequestEnvelope, ProtocolDecodeError> {
-    let request = serde_json::from_str::<PackRequestEnvelope>(json).map_err(ProtocolDecodeError::Json)?;
-    request
-        .validate()
-        .map_err(ProtocolDecodeError::Protocol)?;
+    let request =
+        serde_json::from_str::<PackRequestEnvelope>(json).map_err(ProtocolDecodeError::Json)?;
+    request.validate().map_err(ProtocolDecodeError::Protocol)?;
     Ok(request)
 }
 
@@ -203,9 +202,7 @@ pub fn encode_response(response: &PackResponseEnvelope) -> Result<String, serde_
 pub fn decode_response(json: &str) -> Result<PackResponseEnvelope, ProtocolDecodeError> {
     let response =
         serde_json::from_str::<PackResponseEnvelope>(json).map_err(ProtocolDecodeError::Json)?;
-    response
-        .validate()
-        .map_err(ProtocolDecodeError::Protocol)?;
+    response.validate().map_err(ProtocolDecodeError::Protocol)?;
     Ok(response)
 }
 
@@ -778,8 +775,8 @@ impl TryFrom<WhyNodeWire> for WhyNode {
     type Error = ProtocolError;
 
     fn try_from(node: WhyNodeWire) -> Result<Self, Self::Error> {
-        let depth = usize::try_from(node.depth)
-            .map_err(|_| ProtocolError::DepthOverflow(node.depth))?;
+        let depth =
+            usize::try_from(node.depth).map_err(|_| ProtocolError::DepthOverflow(node.depth))?;
         Ok(Self {
             event: EventId::new(node.event),
             depth,
@@ -823,7 +820,10 @@ impl fmt::Display for ProtocolError {
                 write!(f, "Pack snapshot contains duplicate inspector: {selection}")
             }
             Self::DuplicateWhy(event) => {
-                write!(f, "Pack snapshot contains duplicate why projection for event {event}")
+                write!(
+                    f,
+                    "Pack snapshot contains duplicate why projection for event {event}"
+                )
             }
             Self::DepthOverflow(depth) => {
                 write!(f, "Pack why-node depth does not fit this platform: {depth}")
@@ -982,11 +982,8 @@ mod tests {
 
     #[test]
     fn manifest_round_trip_preserves_process_contract() {
-        let manifest = PackManifest::process(
-            descriptor(),
-            "bin/external-world",
-            vec!["--stdio".into()],
-        );
+        let manifest =
+            PackManifest::process(descriptor(), "bin/external-world", vec!["--stdio".into()]);
         manifest.validate().unwrap();
         let json = manifest.to_json_pretty().unwrap();
         let decoded = PackManifest::from_json(&json).unwrap();
