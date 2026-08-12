@@ -6682,6 +6682,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "sha2",
  "world-host",
  "world-pack-process",
  "world-pack-protocol",
