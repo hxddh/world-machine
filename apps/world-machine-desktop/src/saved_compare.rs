@@ -1,6 +1,6 @@
 use crate::{SharedDocument, WorldDocumentView};
 use gpui::{
-    div, prelude::*, px, rgb, size, AppContext, Bounds, Context, Div, SharedString, Styled,
+    div, prelude::*, px, rgb, size, AppContext, Bounds, Context, IntoElement, SharedString, Styled,
     WindowBounds, WindowOptions,
 };
 use std::sync::Arc;
@@ -12,9 +12,9 @@ use world_strategy_gpui::StrategyComparisonView;
 pub(super) fn document_action(
     document: &SharedDocument,
     cx: &mut Context<WorldDocumentView>,
-) -> Div {
+) -> impl IntoElement {
     if document.borrow().session.document_id().is_none() {
-        return div();
+        return div().id("compare-saved-world-unavailable");
     }
 
     let document = document.clone();
@@ -258,7 +258,7 @@ mod tests {
             &pack,
             vec![
                 summary("current", pack.clone()),
-                summary("sibling", pack),
+                summary("sibling", pack.clone()),
                 summary("other", other_pack),
             ],
         );
