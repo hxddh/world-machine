@@ -120,6 +120,31 @@ fn ambiguous_normalized_parent_stays_detached() {
 }
 
 #[test]
+fn same_named_document_from_different_pack_stays_detached() {
+    let mut unrelated = record("source");
+    unrelated.pack = WorldPackRef::new("world-machine.other-pack", "1");
+
+    let index = build_index([
+        unrelated,
+        strategy_child("future", Some("source.world")),
+    ])
+    .unwrap();
+
+    assert_eq!(index.detached(), &[id("future")]);
+    assert!(index.node(&id("source")).unwrap().children.is_empty());
+    assert_eq!(
+        index
+            .node(&id("future"))
+            .unwrap()
+            .parent
+            .as_ref()
+            .unwrap()
+            .resolved,
+        None
+    );
+}
+
+#[test]
 fn rejects_duplicate_document_ids() {
     let error = build_index([record("same"), record("same")]).unwrap_err();
     assert!(matches!(
