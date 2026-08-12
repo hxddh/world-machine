@@ -1,9 +1,19 @@
 use gpui::{div, prelude::*, px, rgb, Context, Div, Render, Styled, Window};
 use world_compare::{DifferenceKind, EntityDifference, SnapshotComparison};
+use world_projection::ProjectionSnapshot;
 use world_strategy::{StrategyEvaluation, StrategyRun};
 
+enum ComparisonSource {
+    Strategies(StrategyEvaluation),
+    Saved {
+        left: ProjectionSnapshot,
+        right: ProjectionSnapshot,
+        comparison: SnapshotComparison,
+    },
+}
+
 pub struct StrategyComparisonView {
-    evaluation: StrategyEvaluation,
+    source: ComparisonSource,
     left_label: String,
     right_label: String,
 }
@@ -15,13 +25,31 @@ impl StrategyComparisonView {
         right_label: impl Into<String>,
     ) -> Self {
         Self {
-            evaluation,
+            source: ComparisonSource::Strategies(evaluation),
             left_label: left_label.into(),
             right_label: right_label.into(),
         }
     }
 
-    fn render_run(&self, label: &str, run: &StrategyRun) -> Div {
+    pub fn saved(
+        left: ProjectionSnapshot,
+        right: ProjectionSnapshot,
+        comparison: SnapshotComparison,
+        left_label: impl Into<String>,
+        right_label: impl Into<String>,
+    ) -> Self {
+        Self {
+            source: ComparisonSource::Saved {
+                left,
+                right,
+                comparison,
+            },
+            left_label: left_label.into(),
+            right_label: right_label.into(),
+        }
+    }
+
+    fn render_strategy_run(&self, label: &str, run: &StrategyRun) -> Div {
         match run {
             StrategyRun::Success(outcome) => div()
                 .w(px(320.0))
@@ -83,6 +111,38 @@ impl StrategyComparisonView {
                         .child(error.source.to_string()),
                 ),
         }
+    }
+
+    fn render_saved_side(&self, label: &str, snapshot: &ProjectionSnapshot) -> Div {
+        div()
+            .w(px(320.0))
+            .p_4()
+            .rounded_md()
+            .border_1()
+            .border_color(rgb(0xcfd8c8))
+            .bg(rgb(0xf7faf5))
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0x66705f))
+                    .child(label.to_string()),
+            )
+            .child(div().text_lg().child(snapshot.title.clone()))
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(rgb(0x555555))
+                    .child(format!("World time {}", snapshot.world_time)),
+            )
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0x777777))
+                    .child("Saved World"),
+            )
     }
 
     fn render_comparison(&self, comparison: &SnapshotComparison) -> Div {
@@ -231,10 +291,24 @@ impl StrategyComparisonView {
             )
             .child(rows)
     }
+
+    fn heading(&self) -> (&'static str, &'static str) {
+        match &self.source {
+            ComparisonSource::Strategies(_) => (
+                "Strategy Comparison",
+                "Two independent futures evaluated from the same durable World",
+            ),
+            ComparisonSource::Saved { .. } => (
+                "Saved Future Comparison",
+                "Two saved sibling Worlds compared at their current durable state",
+            ),
+        }
+    }
 }
 
 impl Render for StrategyComparisonView {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        let (title, subtitle) = self.heading();
         let mut body = div()
             .w_full()
             .h_full()
@@ -243,22 +317,31 @@ impl Render for StrategyComparisonView {
             .flex_col()
             .gap_4()
             .bg(rgb(0xf3f4f2))
-            .child(div().text_xl().child("Strategy Comparison"))
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(rgb(0x666666))
-                    .child("Two independent futures evaluated from the same durable World"),
-            )
-            .child(
+            .child(div().text_xl().child(title))
+            .child(div().text_sm().text_color(rgb(0x666666)).child(subtitle));
+
+        body = match &self.source {
+            ComparisonSource::Strategies(evaluation) => body.child(
                 div()
                     .flex()
                     .gap_4()
-                    .child(self.render_run(&self.left_label, &self.evaluation.left))
-                    .child(self.render_run(&self.right_label, &self.evaluation.right)),
-            );
+                    .child(self.render_strategy_run(&self.left_label, &evaluation.left))
+                    .child(self.render_strategy_run(&self.right_label, &evaluation.right)),
+            ),
+            ComparisonSource::Saved { left, right, .. } => body.child(
+                div()
+                    .flex()
+                    .gap_4()
+                    .child(self.render_saved_side(&self.left_label, left))
+                    .child(self.render_saved_side(&self.right_label, right)),
+            ),
+        };
 
-        body = if let Some(comparison) = self.evaluation.comparison.as_ref() {
+        let comparison = match &self.source {
+            ComparisonSource::Strategies(evaluation) => evaluation.comparison.as_ref(),
+            ComparisonSource::Saved { comparison, .. } => Some(comparison),
+        };
+        body = if let Some(comparison) = comparison {
             body.child(self.render_comparison(comparison))
         } else {
             body.child(
