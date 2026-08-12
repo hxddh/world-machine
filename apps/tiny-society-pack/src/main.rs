@@ -11,10 +11,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
     if !args.is_empty() {
-        return Err(format!(
+        return Err(
             "unsupported arguments; run without arguments as a Pack server or use --print-manifest"
-        )
-        .into());
+                .to_string()
+                .into(),
+        );
     }
     serve_stdio(registration)?;
     Ok(())
