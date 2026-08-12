@@ -48,6 +48,62 @@ if old not in s:
     raise SystemExit('probe archive block not found')
 s = s.replace(old, new, 1)
 
+# ETXTBSY/ExecutableFileBusy means spawn failed before a child exists, so a
+# short bounded retry is safe and does not risk executing a Pack twice.
+old_spawn = '''        let child = command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .map_err(|error| {
+                HostError::session(format!(
+                    "could not launch external Pack {}: {error}",
+                    program.display()
+                ))
+            });
+'''
+new_spawn = '''        command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit());
+        let child = retry_executable_busy(|| command.spawn()).map_err(|error| {
+            HostError::session(format!(
+                "could not launch external Pack {}: {error}",
+                program.display()
+            ))
+        });
+'''
+if old_spawn not in s:
+    raise SystemExit('process spawn block not found')
+s = s.replace(old_spawn, new_spawn, 1)
+
+reader_marker = '''fn spawn_response_reader(
+    stdout: ChildStdout,
+    max_response_bytes: usize,
+) -> Receiver<io::Result<String>> {
+'''
+retry_helper = '''const EXECUTABLE_BUSY_RETRIES: usize = 3;
+
+fn retry_executable_busy<T>(mut operation: impl FnMut() -> io::Result<T>) -> io::Result<T> {
+    for attempt in 0..=EXECUTABLE_BUSY_RETRIES {
+        match operation() {
+            Err(error)
+                if error.kind() == io::ErrorKind::ExecutableFileBusy
+                    && attempt < EXECUTABLE_BUSY_RETRIES =>
+            {
+                thread::sleep(Duration::from_millis(10 * (attempt as u64 + 1)));
+            }
+            result => return result,
+        }
+    }
+    unreachable!("bounded executable-busy retry loop always returns")
+}
+
+'''
+if reader_marker not in s:
+    raise SystemExit('response reader marker not found')
+s = s.replace(reader_marker, retry_helper + reader_marker, 1)
+
 marker = '''    #[cfg(unix)]
     #[test]
     fn durable_probe_rejects_packs_without_archives() {
@@ -97,6 +153,31 @@ extra = '''    #[cfg(unix)]
         let error = pack.with_pin(pin).probe_durable().unwrap_err();
         assert!(error.to_string().contains("archived World time 4"));
         assert!(error.to_string().contains("reported 3"));
+    }
+
+    #[test]
+    fn executable_busy_spawn_errors_are_retried_but_other_errors_are_not() {
+        let mut busy_attempts = 0;
+        let value = retry_executable_busy(|| {
+            busy_attempts += 1;
+            if busy_attempts < 3 {
+                Err(io::Error::from(io::ErrorKind::ExecutableFileBusy))
+            } else {
+                Ok(7_u8)
+            }
+        })
+        .unwrap();
+        assert_eq!(value, 7);
+        assert_eq!(busy_attempts, 3);
+
+        let mut other_attempts = 0;
+        let error = retry_executable_busy(|| -> io::Result<()> {
+            other_attempts += 1;
+            Err(io::Error::from(io::ErrorKind::PermissionDenied))
+        })
+        .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+        assert_eq!(other_attempts, 1);
     }
 
 '''
