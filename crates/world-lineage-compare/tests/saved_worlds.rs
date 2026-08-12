@@ -40,7 +40,10 @@ fn compares_saved_siblings_without_modifying_either_document() {
     assert_eq!(result.comparison.left.world_time, 10);
     assert_eq!(result.comparison.right.world_time, 20);
     assert_eq!(library.load_document(&left).unwrap().unwrap(), left_before);
-    assert_eq!(library.load_document(&right).unwrap().unwrap(), right_before);
+    assert_eq!(
+        library.load_document(&right).unwrap().unwrap(),
+        right_before
+    );
     let _ = fs::remove_dir_all(root);
 }
 
@@ -106,7 +109,10 @@ fn rejects_cross_pack_or_cross_version_saved_worlds() {
 
     let error = compare_saved_worlds(&library, &registry, &id("left"), &right).unwrap_err();
 
-    assert!(matches!(error, SavedFutureCompareError::PackMismatch { .. }));
+    assert!(matches!(
+        error,
+        SavedFutureCompareError::PackMismatch { .. }
+    ));
     let _ = fs::remove_dir_all(root);
 }
 
