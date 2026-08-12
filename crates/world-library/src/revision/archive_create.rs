@@ -80,19 +80,16 @@ fn atomic_create(path: &Path, bytes: &[u8]) -> io::Result<()> {
         }
     };
 
-    let prepared = (|| {
+    let published = (|| {
         temp_file.write_all(bytes)?;
         temp_file.sync_all()?;
         drop(temp_file);
         fs::hard_link(&temp_path, path)
     })();
-    let cleanup = fs::remove_file(&temp_path);
-
-    match (prepared, cleanup) {
-        (Err(error), _) => Err(error),
-        (Ok(()), Err(error)) if error.kind() != io::ErrorKind::NotFound => Err(error),
-        (Ok(()), _) => Ok(()),
-    }
+    // Once the hard link succeeds, the World is durably published. A leftover
+    // hidden preparation file is cleanup debt, not a failed create operation.
+    let _ = fs::remove_file(&temp_path);
+    published
 }
 
 #[cfg(test)]
