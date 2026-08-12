@@ -8,3 +8,6 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
 world-pack-protocol = { path = "../world-pack-protocol" }
+
+[dev-dependencies]
+world-persistence = { path = "../world-persistence" }
