@@ -6,4 +6,4 @@ A Pack author keeps implementing the ordinary `WorldRegistration` / `WorldSessio
 
 A Pack executable can expose `--print-manifest` with `manifest_for_current_exe(&registration.descriptor)`. The resulting v1 manifest points directly at the current executable with no runtime arguments, so it is compatible with the installed Pack catalog's explicit approval, managed-copy, and content-pin model.
 
-`tiny-society-pack` is the executable reference implementation: the same Tiny Society registration used as a built-in World is served out-of-process without changing its World implementation.
+Executable examples live outside this generic crate so the authoring adapter remains independent of any concrete World implementation.
