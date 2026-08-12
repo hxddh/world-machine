@@ -1,0 +1,34 @@
+name: M60 Reopened Archive Consistency
+
+on:
+  push:
+    branches: [m60-pack-activation-probe]
+    paths:
+      - '.github/workflows/m60-rearchive.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: m60-pack-activation-probe
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: python scripts/m60_rearchive_fix.py
+      - run: cargo fmt --all
+      - run: cargo test -p world-pack-process
+      - run: cargo clippy -p world-pack-process --all-targets -- -D warnings
+      - run: cargo test -p tiny-society-pack
+      - run: bash ./scripts/check-boundaries.sh
+      - name: Commit reopened archive consistency gate
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add crates/world-pack-process/src/lib.rs
+          git commit -m 'M60: require reopened archives to round-trip exactly'
+          git push origin HEAD:m60-pack-activation-probe
