@@ -19,7 +19,7 @@ jobs:
         with:
           components: clippy
       - name: Capture clippy diagnostics
-        run: cargo clippy --workspace --all-targets --message-format=short -- -D warnings > M52_CLIPPY_LOG.txt 2>&1 || true
+        run: cargo clippy -p world-pack-protocol --all-targets --message-format=short -- -D warnings > M52_CLIPPY_LOG.txt 2>&1 || true
       - name: Commit diagnostics
         run: |
           git config user.name "github-actions[bot]"
