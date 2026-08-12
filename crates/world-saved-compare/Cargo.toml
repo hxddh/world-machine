@@ -1,0 +1,17 @@
+[package]
+name = "world-saved-compare"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+world-compare = { path = "../world-compare" }
+world-host = { path = "../world-host" }
+world-library = { path = "../world-library" }
+world-lineage = { path = "../world-lineage" }
+world-persistence = { path = "../world-persistence" }
+
+[dev-dependencies]
+world-document = { path = "../world-document" }
+world-projection = { path = "../world-projection" }
