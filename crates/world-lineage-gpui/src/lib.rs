@@ -11,6 +11,14 @@ pub trait LineageController {
         cx: &mut Context<LineageExplorerView>,
     ) -> Result<(), String>;
 
+    /// Return a non-fatal notice produced by the last successful open, if any.
+    /// Controllers can use this for degraded initialization such as observer
+    /// catch-up failures without teaching the generic lineage UI about Host or
+    /// Library details.
+    fn take_open_notice(&mut self) -> Option<String> {
+        None
+    }
+
     fn can_compare(&self) -> bool {
         false
     }
@@ -35,24 +43,40 @@ pub struct LineageExplorerView {
 
 impl LineageExplorerView {
     pub fn new(index: LineageIndex) -> Self {
-        Self::with_controller(index, None)
+        Self::with_controller(index, None, None)
     }
 
     pub fn controlled<C>(index: LineageIndex, controller: C) -> Self
     where
         C: LineageController + 'static,
     {
-        Self::with_controller(index, Some(Box::new(controller)))
+        Self::with_controller(index, None, Some(Box::new(controller)))
+    }
+
+    pub fn controlled_selected<C>(
+        index: LineageIndex,
+        selected: impl Into<String>,
+        controller: C,
+    ) -> Self
+    where
+        C: LineageController + 'static,
+    {
+        Self::with_controller(index, Some(selected.into()), Some(Box::new(controller)))
     }
 
     fn with_controller(
         index: LineageIndex,
+        selected: Option<String>,
         controller: Option<Box<dyn LineageController>>,
     ) -> Self {
-        let selected = index
-            .roots()
-            .first()
-            .map(ToString::to_string)
+        let selected = selected
+            .filter(|selected| {
+                index
+                    .nodes()
+                    .values()
+                    .any(|node| node.id.as_str() == selected)
+            })
+            .or_else(|| index.roots().first().map(ToString::to_string))
             .or_else(|| index.nodes().keys().next().map(ToString::to_string));
         Self {
             index,
@@ -70,7 +94,10 @@ impl LineageExplorerView {
             .find(|node| node.id.as_str() == label)
     }
 
-    fn open_selected(&mut self, cx: &mut Context<Self>) -> Result<String, String> {
+    fn open_selected(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> Result<(String, Option<String>), String> {
         let document = self
             .selected
             .clone()
@@ -80,7 +107,8 @@ impl LineageExplorerView {
             .as_mut()
             .ok_or_else(|| "This lineage view cannot open Worlds".to_string())?;
         controller.open_document(&document, cx)?;
-        Ok(document)
+        let notice = controller.take_open_notice();
+        Ok((document, notice))
     }
 
     fn mark_comparison_source(&mut self) -> Result<String, String> {
@@ -289,7 +317,10 @@ impl LineageExplorerView {
                     .child("Open World")
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.status = Some(match this.open_selected(cx) {
-                            Ok(document) => format!("Opened {document}"),
+                            Ok((document, Some(notice))) => {
+                                format!("Opened {document} · {notice}")
+                            }
+                            Ok((document, None)) => format!("Opened {document}"),
                             Err(error) => format!("Could not open World: {error}"),
                         });
                         cx.notify();
@@ -465,6 +496,42 @@ mod tests {
         let index = build_index([record("root", None), record("future", Some("root"))]).unwrap();
         let view = LineageExplorerView::controlled(index, NoopController);
         assert!(view.controller.is_some());
+    }
+
+    #[test]
+    fn controlled_selected_prefers_the_requested_world() {
+        struct NoopController;
+        impl LineageController for NoopController {
+            fn open_document(
+                &mut self,
+                _document: &str,
+                _cx: &mut Context<LineageExplorerView>,
+            ) -> Result<(), String> {
+                Ok(())
+            }
+        }
+
+        let index = build_index([record("root", None), record("future", Some("root"))]).unwrap();
+        let view = LineageExplorerView::controlled_selected(index, "future", NoopController);
+        assert_eq!(view.selected.as_deref(), Some("future"));
+    }
+
+    #[test]
+    fn controlled_selected_falls_back_when_the_requested_world_is_missing() {
+        struct NoopController;
+        impl LineageController for NoopController {
+            fn open_document(
+                &mut self,
+                _document: &str,
+                _cx: &mut Context<LineageExplorerView>,
+            ) -> Result<(), String> {
+                Ok(())
+            }
+        }
+
+        let index = build_index([record("root", None), record("future", Some("root"))]).unwrap();
+        let view = LineageExplorerView::controlled_selected(index, "missing", NoopController);
+        assert_eq!(view.selected.as_deref(), Some("root"));
     }
 
     #[test]
