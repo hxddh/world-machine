@@ -65,15 +65,10 @@ impl LineageTreeView {
                             .child(format!("{} child branch(es)", node.children.len())),
                     ),
             )
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(rgb(0x666666))
-                    .child(format!(
-                        "{} @ {} · World time {} · {} events",
-                        node.pack.id, node.pack.version, node.world_time, node.event_count
-                    )),
-            );
+            .child(div().text_xs().text_color(rgb(0x666666)).child(format!(
+                "{} @ {} · World time {} · {} events",
+                node.pack.id, node.pack.version, node.world_time, node.event_count
+            )));
         if let Some(branch) = &node.branch {
             row = row.child(
                 div()
@@ -112,12 +107,10 @@ impl LineageTreeView {
                     .text_color(rgb(0x8a6840))
                     .child(format!("Detached lineage · parent {parent}")),
             )
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(rgb(0x777777))
-                    .child(format!("World time {} · {} events", node.world_time, node.event_count)),
-            );
+            .child(div().text_xs().text_color(rgb(0x777777)).child(format!(
+                "World time {} · {} events",
+                node.world_time, node.event_count
+            )));
         if let Some(branch) = &node.branch {
             card = card.child(
                 div()
