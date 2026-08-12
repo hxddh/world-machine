@@ -1,18 +1,22 @@
 use std::cell::RefCell;
 use std::fs;
-use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};
+use std::io::{self, BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
+use std::thread;
+use std::time::Duration;
 use world_host::{HostError, WorldDescriptor, WorldPackSource, WorldRegistration, WorldSession};
 use world_pack_protocol::{
-    decode_response, encode_request, PackDescriptor, PackManifest, PackRequest, PackRequestEnvelope,
-    PackResponse, PackRuntimeManifest, ProjectionIntentWire, ProjectionSnapshotWire,
+    decode_response, encode_request, PackDescriptor, PackManifest, PackRequest,
+    PackRequestEnvelope, PackResponse, PackRuntimeManifest, ProjectionIntentWire,
 };
 use world_persistence::{WorldArchive, WorldPackRef};
 use world_projection::{ProjectionIntent, ProjectionSnapshot};
 
 pub const PACK_MANIFEST_SUFFIX: &str = ".world-pack.json";
 pub const DEFAULT_MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
+pub const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProcessPack {
@@ -24,7 +28,13 @@ pub struct ProcessPack {
 
 impl ProcessPack {
     pub fn load(manifest_path: impl AsRef<Path>) -> Result<Self, HostError> {
-        let manifest_path = manifest_path.as_ref().to_path_buf();
+        let requested_manifest_path = manifest_path.as_ref();
+        let manifest_path = requested_manifest_path.canonicalize().map_err(|error| {
+            HostError::pack_source(format!(
+                "could not resolve Pack manifest {}: {error}",
+                requested_manifest_path.display()
+            ))
+        })?;
         let json = fs::read_to_string(&manifest_path).map_err(|error| {
             HostError::pack_source(format!(
                 "could not read {}: {error}",
@@ -135,6 +145,12 @@ fn resolve_command(manifest_path: &Path, command: &str) -> Result<PathBuf, HostE
             .unwrap_or_else(|| Path::new("."))
             .join(command)
     };
+    let resolved = resolved.canonicalize().map_err(|error| {
+        HostError::pack_source(format!(
+            "could not resolve Pack process command {}: {error}",
+            resolved.display()
+        ))
+    })?;
     if !resolved.is_file() {
         return Err(HostError::pack_source(format!(
             "Pack process command is not a file: {}",
@@ -196,7 +212,11 @@ impl ProcessWorldSession {
         })
     }
 
-    fn request_snapshot(&self, request: PackRequest, operation: &str) -> Result<ProjectionSnapshot, HostError> {
+    fn request_snapshot(
+        &self,
+        request: PackRequest,
+        operation: &str,
+    ) -> Result<ProjectionSnapshot, HostError> {
         let response = self.client.borrow_mut().request(request)?;
         snapshot_response(operation, response)
     }
@@ -229,10 +249,7 @@ impl WorldSession for ProcessWorldSession {
     }
 
     fn archive(&self) -> Result<Option<WorldArchive>, HostError> {
-        let response = self
-            .client
-            .borrow_mut()
-            .request(PackRequest::Archive)?;
+        let response = self.client.borrow_mut().request(PackRequest::Archive)?;
         let archive = match response {
             PackResponse::Archive { archive } => archive,
             response => return Err(unexpected_response("archive", &response)),
@@ -249,10 +266,18 @@ impl WorldSession for ProcessWorldSession {
     }
 }
 
-fn snapshot_response(operation: &str, response: PackResponse) -> Result<ProjectionSnapshot, HostError> {
+fn snapshot_response(
+    operation: &str,
+    response: PackResponse,
+) -> Result<ProjectionSnapshot, HostError> {
     match response {
-        PackResponse::Snapshot { snapshot } => ProjectionSnapshot::try_from(snapshot)
-            .map_err(|error| HostError::session(format!("external Pack {operation} snapshot is invalid: {error}"))),
+        PackResponse::Snapshot { snapshot } => {
+            ProjectionSnapshot::try_from(snapshot).map_err(|error| {
+                HostError::session(format!(
+                    "external Pack {operation} snapshot is invalid: {error}"
+                ))
+            })
+        }
         response => Err(unexpected_response(operation, &response)),
     }
 }
@@ -277,9 +302,9 @@ fn response_kind(response: &PackResponse) -> &'static str {
 struct ProcessClient {
     child: Child,
     stdin: Option<BufWriter<ChildStdin>>,
-    stdout: BufReader<ChildStdout>,
+    responses: Receiver<io::Result<String>>,
     next_request_id: u64,
-    max_response_bytes: usize,
+    request_timeout: Duration,
 }
 
 impl ProcessClient {
@@ -307,9 +332,9 @@ impl ProcessClient {
         Ok(Self {
             child,
             stdin: Some(BufWriter::new(stdin)),
-            stdout: BufReader::new(stdout),
+            responses: spawn_response_reader(stdout, DEFAULT_MAX_RESPONSE_BYTES),
             next_request_id: 1,
-            max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
+            request_timeout: DEFAULT_REQUEST_TIMEOUT,
         })
     }
 
@@ -320,35 +345,72 @@ impl ProcessClient {
             .checked_add(1)
             .ok_or_else(|| HostError::session("external Pack request id overflow"))?;
         let envelope = PackRequestEnvelope::new(request_id, request);
-        let encoded = encode_request(&envelope)
-            .map_err(|error| HostError::session(format!("could not encode Pack request: {error}")))?;
-        let stdin = self
+        let encoded = encode_request(&envelope).map_err(|error| {
+            HostError::session(format!("could not encode Pack request: {error}"))
+        })?;
+        let send_result = self
             .stdin
             .as_mut()
-            .ok_or_else(|| HostError::session("external Pack stdin is closed"))?;
-        stdin
-            .write_all(encoded.as_bytes())
-            .and_then(|_| stdin.write_all(b"\n"))
-            .and_then(|_| stdin.flush())
-            .map_err(|error| HostError::session(format!("could not send Pack request: {error}")))?;
+            .ok_or_else(|| {
+                io::Error::new(io::ErrorKind::BrokenPipe, "external Pack stdin is closed")
+            })
+            .and_then(|stdin| {
+                stdin
+                    .write_all(encoded.as_bytes())
+                    .and_then(|_| stdin.write_all(b"\n"))
+                    .and_then(|_| stdin.flush())
+            });
+        if let Err(error) = send_result {
+            self.terminate();
+            return Err(HostError::session(format!(
+                "could not send Pack request: {error}"
+            )));
+        }
 
-        let line = read_bounded_line(&mut self.stdout, self.max_response_bytes).map_err(|error| {
-            HostError::session(format!("could not read Pack response: {error}"))
-        })?;
+        let line = match self.responses.recv_timeout(self.request_timeout) {
+            Ok(Ok(line)) => line,
+            Ok(Err(error)) => {
+                self.terminate();
+                return Err(HostError::session(format!(
+                    "could not read Pack response: {error}"
+                )));
+            }
+            Err(RecvTimeoutError::Timeout) => {
+                let timeout_ms = self.request_timeout.as_millis();
+                self.terminate();
+                return Err(HostError::session(format!(
+                    "external Pack timed out after {timeout_ms} ms"
+                )));
+            }
+            Err(RecvTimeoutError::Disconnected) => {
+                self.terminate();
+                return Err(HostError::session(
+                    "external Pack response reader disconnected",
+                ));
+            }
+        };
         if line.is_empty() {
             let status = self.child.try_wait().ok().flatten();
+            self.terminate();
             return Err(HostError::session(match status {
                 Some(status) => format!("external Pack exited before responding: {status}"),
                 None => "external Pack closed stdout before responding".into(),
             }));
         }
-        let response = decode_response(line.trim_end()).map_err(|error| {
-            HostError::session(format!("could not decode Pack response: {error}"))
-        })?;
+        let response = match decode_response(line.trim_end()) {
+            Ok(response) => response,
+            Err(error) => {
+                self.terminate();
+                return Err(HostError::session(format!(
+                    "could not decode Pack response: {error}"
+                )));
+            }
+        };
         if response.request_id != request_id {
+            let actual = response.request_id;
+            self.terminate();
             return Err(HostError::session(format!(
-                "external Pack response id mismatch: expected {request_id}, got {}",
-                response.request_id
+                "external Pack response id mismatch: expected {request_id}, got {actual}"
             )));
         }
         match response.response {
@@ -369,11 +431,9 @@ impl ProcessClient {
         }
         self.stdin.take();
     }
-}
 
-impl Drop for ProcessClient {
-    fn drop(&mut self) {
-        self.send_shutdown();
+    fn terminate(&mut self) {
+        self.stdin.take();
         match self.child.try_wait() {
             Ok(Some(_)) => {}
             _ => {
@@ -382,6 +442,40 @@ impl Drop for ProcessClient {
             }
         }
     }
+}
+
+impl Drop for ProcessClient {
+    fn drop(&mut self) {
+        self.send_shutdown();
+        for _ in 0..5 {
+            if matches!(self.child.try_wait(), Ok(Some(_))) {
+                return;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        self.terminate();
+    }
+}
+
+fn spawn_response_reader(
+    stdout: ChildStdout,
+    max_response_bytes: usize,
+) -> Receiver<io::Result<String>> {
+    let (sender, receiver) = mpsc::channel();
+    thread::spawn(move || {
+        let mut stdout = BufReader::new(stdout);
+        loop {
+            let line = read_bounded_line(&mut stdout, max_response_bytes);
+            let finished = match &line {
+                Ok(line) => line.is_empty(),
+                Err(_) => true,
+            };
+            if sender.send(line).is_err() || finished {
+                break;
+            }
+        }
+    });
+    receiver
 }
 
 fn read_bounded_line(reader: &mut impl BufRead, max_bytes: usize) -> io::Result<String> {
@@ -405,8 +499,7 @@ fn read_bounded_line(reader: &mut impl BufRead, max_bytes: usize) -> io::Result<
             break;
         }
     }
-    String::from_utf8(bytes)
-        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+    String::from_utf8(bytes).map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
 }
 
 #[cfg(test)]
@@ -415,7 +508,7 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
     use world_host::WorldRegistry;
     use world_pack_protocol::{
-        encode_response, PackResponseEnvelope, ProjectionCapabilitiesWire,
+        encode_response, PackResponseEnvelope, ProjectionCapabilitiesWire, ProjectionSnapshotWire,
     };
     use world_persistence::{WORLD_ARCHIVE_FORMAT, WORLD_ARCHIVE_VERSION};
 
@@ -491,7 +584,10 @@ mod tests {
         let nested = root.join("nested");
         fs::create_dir_all(&nested).unwrap();
 
-        for (name, id) in [("b.world-pack.json", "pack.b"), ("a.world-pack.json", "pack.a")] {
+        for (name, id) in [
+            ("b.world-pack.json", "pack.b"),
+            ("a.world-pack.json", "pack.a"),
+        ] {
             let manifest = PackManifest::process(
                 PackDescriptor::new(WorldPackRef::new(id, "1"), id, "fixture"),
                 "runtime",
@@ -586,7 +682,40 @@ mod tests {
             session.advance_background(6).unwrap().title,
             "Advanced externally"
         );
-        assert_eq!(session.archive().unwrap(), Some(archive));
+        assert_eq!(session.archive().unwrap(), Some(archive.clone()));
+        drop(session);
+
+        let reopened = registry.open_archive(&archive).unwrap();
+        assert_eq!(reopened.pack(), descriptor().pack);
+        assert_eq!(reopened.snapshot().title, "Created externally");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hung_process_is_timed_out_and_terminated() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = temp_dir("timeout");
+        let runtime = root.join("runtime.sh");
+        fs::write(
+            &runtime,
+            "#!/bin/sh\nIFS= read -r _line || exit 1\nsleep 2\n",
+        )
+        .unwrap();
+        let mut permissions = fs::metadata(&runtime).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&runtime, permissions).unwrap();
+
+        let manifest = PackManifest::process(descriptor(), "runtime.sh", Vec::new());
+        let manifest_path = root.join("fixture.world-pack.json");
+        fs::write(&manifest_path, manifest.to_json_pretty().unwrap()).unwrap();
+        let pack = ProcessPack::load(manifest_path).unwrap();
+        let mut client = ProcessClient::spawn(&pack).unwrap();
+        client.request_timeout = Duration::from_millis(50);
+
+        let error = client.request(PackRequest::Describe).err().unwrap();
+        assert!(error.to_string().contains("timed out"));
+        assert!(client.child.try_wait().unwrap().is_some());
     }
 
     #[cfg(unix)]
@@ -613,7 +742,7 @@ mod tests {
         let source = ProcessPackSource::from_manifest_paths([manifest_path]).unwrap();
         let mut registry = WorldRegistry::new();
         registry.install_source(&source).unwrap();
-        let error = registry.create("fixture.external").unwrap_err();
+        let error = registry.create("fixture.external").err().unwrap();
         assert!(error.to_string().contains("descriptor mismatch"));
     }
 }

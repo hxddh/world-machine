@@ -6,6 +6,7 @@ CORE="$ROOT/crates/world-core/src"
 AGENT="$ROOT/crates/world-agent/src"
 PI_RPC="$ROOT/crates/world-pi-rpc"
 PACK_PROTOCOL="$ROOT/crates/world-pack-protocol"
+PACK_PROCESS="$ROOT/crates/world-pack-process"
 PROJECTION="$ROOT/crates/world-projection"
 HOST="$ROOT/crates/world-host"
 LIBRARY="$ROOT/crates/world-library"
@@ -18,6 +19,7 @@ DESKTOP="$ROOT/apps/world-machine-desktop"
 core_forbidden=("TinySociety" "Tiny Society" "FutureArchaeologist" "Future Archaeologist" "Person" "Town" "Bakery" "Society" "gpui" "pi_agent" "FootballPlayer" "Evidence" "world_agent")
 agent_forbidden=("pi_agent" "openai" "anthropic" "gpui")
 pi_rpc_forbidden=("pi_agent_rust")
+pack_process_forbidden=("TinySociety" "tiny_society" "tiny-society" "Tiny Society" "FutureArchaeologist" "future_archaeologist" "future-archaeologist" "Future Archaeologist" "gpui" "pi_agent" "openai" "anthropic")
 pack_protocol_forbidden=("TinySociety" "tiny_society" "tiny-society" "Tiny Society" "FutureArchaeologist" "future_archaeologist" "future-archaeologist" "Future Archaeologist" "gpui" "pi_agent" "openai" "anthropic")
 projection_forbidden=("TinySociety" "Tiny Society" "FutureArchaeologist" "Future Archaeologist" "Bakery" "Society" "gpui" "pi_agent")
 host_forbidden=("TinySociety" "tiny_society" "FutureArchaeologist" "future_archaeologist" "gpui" "pi_agent")
@@ -62,6 +64,16 @@ if [[ -d "$PACK_PROTOCOL" ]]; then
     if grep -Rni --exclude-dir=target -i -- "$token" "$PACK_PROTOCOL" >/tmp/world-machine-pack-protocol-boundary-check 2>/dev/null; then
       echo "Boundary violation: '$token' found in generic world-pack-protocol:"
       cat /tmp/world-machine-pack-protocol-boundary-check
+      failed=1
+    fi
+  done
+fi
+
+if [[ -d "$PACK_PROCESS" ]]; then
+  for token in "${pack_process_forbidden[@]}"; do
+    if grep -Rni --exclude-dir=target -i -- "$token" "$PACK_PROCESS" >/tmp/world-machine-pack-process-boundary-check 2>/dev/null; then
+      echo "Boundary violation: '$token' found in generic world-pack-process:"
+      cat /tmp/world-machine-pack-process-boundary-check
       failed=1
     fi
   done
