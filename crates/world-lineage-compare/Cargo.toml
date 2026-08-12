@@ -1,0 +1,17 @@
+[package]
+name = "world-lineage-compare"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+world-compare = { path = "../world-compare" }
+world-document = { path = "../world-document" }
+world-host = { path = "../world-host" }
+world-library = { path = "../world-library" }
+world-lineage = { path = "../world-lineage" }
+world-projection = { path = "../world-projection" }
+
+[dev-dependencies]
+world-persistence = { path = "../world-persistence" }

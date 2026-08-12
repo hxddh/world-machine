@@ -9,6 +9,7 @@ members = [
   "crates/world-strategy",
   "crates/world-strategy-document",
   "crates/world-strategy-gpui",
+  "crates/world-lineage-compare",
   "crates/world-gpui",
   "crates/world-persistence",
   "crates/world-document",
