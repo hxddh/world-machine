@@ -7,7 +7,6 @@ use std::sync::Arc;
 use world_document::WorldBranchCause;
 use world_library::{WorldDocumentId, WorldDocumentSummary, WorldLibrary};
 use world_lineage_compare::{compare_saved_worlds, SavedWorldRelation};
-use world_persistence::WorldPackRef;
 use world_strategy_gpui::{SavedComparisonContext, StrategyComparisonView};
 
 pub(super) fn document_action(
@@ -28,11 +27,11 @@ pub(super) fn document_action(
         .border_color(rgb(0x9eb0d6))
         .bg(rgb(0xf4f7ff))
         .text_sm()
-        .child("Compare saved World…")
+        .child("Compare saved Worlds…")
         .on_click(cx.listener(move |this, _, _, cx| {
             this.status = Some(match open_setup(&document, cx) {
-                Ok(count) => format!("Opened saved World comparison · {count} candidate(s)"),
-                Err(error) => format!("Could not compare saved World: {error}"),
+                Ok(count) => format!("Opened saved World comparison · {count} Worlds"),
+                Err(error) => format!("Could not compare saved Worlds: {error}"),
             });
             cx.notify();
         }))
@@ -42,7 +41,7 @@ fn open_setup(
     document: &SharedDocument,
     cx: &mut Context<WorldDocumentView>,
 ) -> Result<usize, String> {
-    let (current, pack, registry, library) = {
+    let (current, registry, library) = {
         let document = document.borrow();
         let current = document
             .session
@@ -51,18 +50,18 @@ fn open_setup(
             .ok_or_else(|| "Only My Worlds documents can compare saved Worlds".to_string())?;
         (
             current,
-            document.session.pack(),
             Arc::clone(&document.registry),
             Arc::clone(&document.library),
         )
     };
-    let candidates =
-        comparison_candidates(&current, &pack, library.list().map_err(|e| e.to_string())?);
-    if candidates.is_empty() {
-        return Err("No other saved Worlds use this Pack".into());
+
+    let documents = library.list().map_err(|error| error.to_string())?;
+    if documents.len() < 2 {
+        return Err("My Worlds needs at least two saved Worlds to compare".into());
     }
-    let count = candidates.len();
-    let bounds = Bounds::centered(None, size(px(760.0), px(660.0)), cx);
+    let default_right = default_right_for(&current, &documents);
+    let count = documents.len();
+    let bounds = Bounds::centered(None, size(px(940.0), px(760.0)), cx);
     cx.open_window(
         WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
@@ -70,49 +69,164 @@ fn open_setup(
         },
         move |_, cx| {
             cx.new(|_| SavedWorldSetupView {
-                current,
-                candidates,
-                selected: 0,
                 registry,
                 library,
+                documents,
+                left: current,
+                right: default_right,
                 status: None,
             })
         },
     )
     .map_err(|error| error.to_string())?;
+
     Ok(count)
 }
 
+fn default_right_for(
+    current: &WorldDocumentId,
+    documents: &[WorldDocumentSummary],
+) -> Option<WorldDocumentId> {
+    let current_pack = documents
+        .iter()
+        .find(|document| document.id == *current)
+        .map(|document| document.pack.clone());
+
+    current_pack
+        .as_ref()
+        .and_then(|pack| {
+            documents
+                .iter()
+                .find(|candidate| candidate.id != *current && candidate.pack == *pack)
+        })
+        .or_else(|| documents.iter().find(|candidate| candidate.id != *current))
+        .map(|candidate| candidate.id.clone())
+}
+
+#[derive(Clone, Copy)]
+enum CompareSide {
+    Left,
+    Right,
+}
+
 struct SavedWorldSetupView {
-    current: WorldDocumentId,
-    candidates: Vec<WorldDocumentSummary>,
-    selected: usize,
     registry: Arc<world_host::WorldRegistry>,
     library: Arc<WorldLibrary>,
+    documents: Vec<WorldDocumentSummary>,
+    left: WorldDocumentId,
+    right: Option<WorldDocumentId>,
     status: Option<String>,
 }
 
 impl SavedWorldSetupView {
-    fn run_comparison(&self, cx: &mut Context<Self>) -> Result<String, String> {
-        let candidate = self
-            .candidates
-            .get(self.selected)
-            .ok_or_else(|| "Choose a saved World to compare".to_string())?;
+    fn render_world_column(
+        &self,
+        label: &str,
+        side: CompareSide,
+        selected: Option<&WorldDocumentId>,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let column_id = match side {
+            CompareSide::Left => "saved-compare-left-column",
+            CompareSide::Right => "saved-compare-right-column",
+        };
+        let mut column = div()
+            .id(column_id)
+            .w(px(420.0))
+            .h(px(520.0))
+            .overflow_y_scroll()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(rgb(0x666666))
+                    .child(label.to_string()),
+            );
+
+        for document in &self.documents {
+            let id = document.id.clone();
+            let is_selected = selected.is_some_and(|selected| selected == &id);
+            let title = self
+                .registry
+                .descriptor(&document.pack.id)
+                .map(|descriptor| descriptor.title.clone())
+                .unwrap_or_else(|| document.pack.id.clone());
+            let mut card = div()
+                .id(SharedString::from(format!(
+                    "saved-compare-{}-{id}",
+                    match side {
+                        CompareSide::Left => "left",
+                        CompareSide::Right => "right",
+                    }
+                )))
+                .w_full()
+                .cursor_pointer()
+                .p_3()
+                .rounded_md()
+                .border_1()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .child(
+                    div()
+                        .flex()
+                        .justify_between()
+                        .child(div().text_sm().child(id.to_string()))
+                        .child(div().text_xs().text_color(rgb(0x777770)).child(format!(
+                            "t={} · {} events",
+                            document.world_time, document.event_count
+                        ))),
+                )
+                .child(div().text_xs().text_color(rgb(0x777770)).child(format!(
+                    "{title} · {} @ {}",
+                    document.pack.id, document.pack.version
+                )));
+            card = if is_selected {
+                card.border_color(rgb(0x6684c4)).bg(rgb(0xf2f6ff))
+            } else {
+                card.border_color(rgb(0xd8d8d2)).bg(rgb(0xffffff))
+            };
+            column = column.child(card.on_click(cx.listener(move |this, _, _, cx| {
+                match side {
+                    CompareSide::Left => this.left = id.clone(),
+                    CompareSide::Right => this.right = Some(id.clone()),
+                }
+                this.status = None;
+                cx.notify();
+            })));
+        }
+
+        column
+    }
+
+    fn run_comparison(&self, cx: &mut Context<Self>) -> Result<(String, String), String> {
+        let right = self
+            .right
+            .clone()
+            .ok_or_else(|| "Choose a World on the right".to_string())?;
+        if self.left == right {
+            return Err("Choose two different saved Worlds".into());
+        }
+
         let result = compare_saved_worlds(
             self.library.as_ref(),
             self.registry.as_ref(),
-            &self.current,
-            &candidate.id,
+            &self.left,
+            &right,
         )
         .map_err(|error| error.to_string())?;
         let relation = relation_label(&result.relation);
         let context = SavedComparisonContext {
-            relation: Some(relation.clone()),
+            relation: Some(relation),
             left_provenance: branch_label(result.left.branch.as_ref()),
             right_provenance: branch_label(result.right.branch.as_ref()),
         };
         let left_label = result.left.document.to_string();
         let right_label = result.right.document.to_string();
+        let status_left = left_label.clone();
+        let status_right = right_label.clone();
         let bounds = Bounds::centered(None, size(px(1240.0), px(980.0)), cx);
         cx.open_window(
             WindowOptions {
@@ -133,41 +247,14 @@ impl SavedWorldSetupView {
             },
         )
         .map_err(|error| error.to_string())?;
-        Ok(relation)
+
+        Ok((status_left, status_right))
     }
 }
 
 impl gpui::Render for SavedWorldSetupView {
     fn render(&mut self, window: &mut gpui::Window, cx: &mut Context<Self>) -> impl IntoElement {
         window.set_window_title("Compare Saved Worlds — World Machine");
-        let mut candidates = div().flex().flex_col().gap_2();
-        for (index, candidate) in self.candidates.iter().enumerate() {
-            let selected = index == self.selected;
-            let mut card = div()
-                .id(SharedString::from(format!("saved-world-candidate-{index}")))
-                .cursor_pointer()
-                .p_3()
-                .rounded_md()
-                .border_1()
-                .flex()
-                .flex_col()
-                .gap_1()
-                .child(div().text_sm().child(candidate.id.to_string()))
-                .child(div().text_xs().text_color(rgb(0x777777)).child(format!(
-                    "World time {} · {} events",
-                    candidate.world_time, candidate.event_count
-                )));
-            card = if selected {
-                card.border_color(rgb(0x6684c4)).bg(rgb(0xf2f6ff))
-            } else {
-                card.border_color(rgb(0xd8d8d2)).bg(rgb(0xffffff))
-            };
-            candidates = candidates.child(card.on_click(cx.listener(move |this, _, _, cx| {
-                this.selected = index;
-                this.status = None;
-                cx.notify();
-            })));
-        }
 
         let mut body = div()
             .size_full()
@@ -182,10 +269,34 @@ impl gpui::Render for SavedWorldSetupView {
                 div()
                     .text_sm()
                     .text_color(rgb(0x666666))
-                    .child(format!("Current World · {}", self.current)),
+                    .child("Choose any two Worlds from My Worlds. Comparison reads their current durable state, never advances either World, and requires the same Pack version."),
             )
-            .child(candidates);
+            .child(
+                div()
+                    .flex()
+                    .gap_4()
+                    .child(self.render_world_column(
+                        "World A",
+                        CompareSide::Left,
+                        Some(&self.left),
+                        cx,
+                    ))
+                    .child(self.render_world_column(
+                        "World B",
+                        CompareSide::Right,
+                        self.right.as_ref(),
+                        cx,
+                    )),
+            );
 
+        if self.right.as_ref().is_some_and(|right| right == &self.left) {
+            body = body.child(
+                div()
+                    .text_sm()
+                    .text_color(rgb(0x9b5a4f))
+                    .child("Choose two different saved Worlds."),
+            );
+        }
         if let Some(status) = &self.status {
             body = body.child(
                 div()
@@ -207,27 +318,16 @@ impl gpui::Render for SavedWorldSetupView {
                 .border_color(rgb(0x6684c4))
                 .bg(rgb(0xeaf0ff))
                 .text_sm()
-                .child("Compare current durable state")
+                .child("Compare current saved state")
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.status = Some(match this.run_comparison(cx) {
-                        Ok(relation) => format!("Opened comparison · {relation}"),
+                        Ok((left, right)) => format!("Opened comparison · {left} ↔ {right}"),
                         Err(error) => format!("Could not compare: {error}"),
                     });
                     cx.notify();
                 })),
         )
     }
-}
-
-fn comparison_candidates(
-    current: &WorldDocumentId,
-    pack: &WorldPackRef,
-    documents: Vec<WorldDocumentSummary>,
-) -> Vec<WorldDocumentSummary> {
-    documents
-        .into_iter()
-        .filter(|document| document.id != *current && document.pack == *pack)
-        .collect()
 }
 
 fn relation_label(relation: &SavedWorldRelation) -> String {
@@ -277,6 +377,7 @@ fn branch_label(branch: Option<&WorldBranchCause>) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use world_persistence::WorldPackRef;
 
     fn summary(id: &str, pack: WorldPackRef) -> WorldDocumentSummary {
         WorldDocumentSummary {
@@ -288,22 +389,34 @@ mod tests {
     }
 
     #[test]
-    fn candidates_exclude_current_and_other_packs() {
+    fn default_right_prefers_same_exact_pack_version() {
         let pack = WorldPackRef::new("pack-a", "1");
-        let other_pack = WorldPackRef::new("pack-b", "1");
+        let newer = WorldPackRef::new("pack-a", "2");
         let current = WorldDocumentId::new("current").unwrap();
-        let candidates = comparison_candidates(
-            &current,
-            &pack,
-            vec![
-                summary("current", pack.clone()),
-                summary("sibling", pack.clone()),
-                summary("other", other_pack),
-            ],
-        );
+        let documents = vec![
+            summary("current", pack.clone()),
+            summary("other-version", newer),
+            summary("compatible", pack),
+        ];
 
-        assert_eq!(candidates.len(), 1);
-        assert_eq!(candidates[0].id.as_str(), "sibling");
+        assert_eq!(
+            default_right_for(&current, &documents).unwrap().as_str(),
+            "compatible"
+        );
+    }
+
+    #[test]
+    fn default_right_falls_back_to_any_other_world() {
+        let current = WorldDocumentId::new("current").unwrap();
+        let documents = vec![
+            summary("current", WorldPackRef::new("pack-a", "1")),
+            summary("other", WorldPackRef::new("pack-b", "1")),
+        ];
+
+        assert_eq!(
+            default_right_for(&current, &documents).unwrap().as_str(),
+            "other"
+        );
     }
 
     #[test]
