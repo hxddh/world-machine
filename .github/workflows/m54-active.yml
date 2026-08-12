@@ -1,0 +1,33 @@
+name: M54 Active Version Semantics
+
+on:
+  push:
+    branches:
+      - m54-installed-pack-catalog
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: m54-installed-pack-catalog
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt,clippy
+      - run: python scripts/m54_active_patch.py
+      - run: cargo fmt --all
+      - run: cargo test -p world-pack-catalog -p world-pack-process
+      - run: cargo clippy -p world-pack-catalog -p world-pack-process --all-targets -- -D warnings
+      - run: bash ./scripts/check-boundaries.sh
+      - name: Commit active-version semantics
+        run: |
+          rm -f scripts/m54_active_patch.py .github/workflows/m54-active.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "M54: make Pack activation explicit" || exit 0
+          git push origin HEAD:m54-installed-pack-catalog
