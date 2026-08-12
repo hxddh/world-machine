@@ -583,7 +583,10 @@ mod tests {
         registry.install_source(&source).unwrap();
 
         assert_eq!(registry.descriptors().len(), 1);
-        assert_eq!(registry.descriptor("mock.world").unwrap().pack.version, "10");
+        assert_eq!(
+            registry.descriptor("mock.world").unwrap().pack.version,
+            "10"
+        );
         assert!(registry
             .descriptor_for(&WorldPackRef::new("mock.world", "2027"))
             .is_some());
