@@ -231,8 +231,8 @@ pub(super) fn open_saved_comparison<T: 'static>(
         return Err("Choose two different saved Worlds".into());
     }
 
-    let result = compare_saved_worlds(library, registry, left, right)
-        .map_err(|error| error.to_string())?;
+    let result =
+        compare_saved_worlds(library, registry, left, right).map_err(|error| error.to_string())?;
     let relation = relation_label(&result.relation);
     let context = SavedComparisonContext {
         relation: Some(relation),
