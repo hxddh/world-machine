@@ -4,6 +4,7 @@ members = [
   "crates/world-cli",
   "crates/world-agent",
   "crates/world-pi-rpc",
+  "crates/world-pack-protocol",
   "crates/world-projection",
   "crates/world-compare",
   "crates/world-strategy",
