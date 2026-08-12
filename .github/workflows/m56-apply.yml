@@ -1,0 +1,51 @@
+name: M56 Apply Managed Pack Store
+
+on:
+  push:
+    branches:
+      - m56-managed-pack-store
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: m56-managed-pack-store
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt,clippy
+      - run: python scripts/m56_managed_store.py
+      - name: Tighten managed-store cleanup and tests
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('crates/world-pack-catalog/src/lib.rs')
+          s = p.read_text()
+          s = s.replace(
+              '        if result.is_err() {\n            let _ = fs::remove_dir_all(&stage);\n        }',
+              '        if result.is_err() {\n            let _ = fs::remove_dir_all(&stage);\n            let _ = fs::remove_dir_all(&final_dir);\n        }',
+              1,
+          )
+          s = s.replace(
+              'catalog.trusted_source().unwrap().packs().len()',
+              'catalog.trusted_source().unwrap().registrations().unwrap().len()',
+              1,
+          )
+          p.write_text(s)
+          PY
+      - run: cargo fmt --all
+      - run: cargo test -p world-pack-catalog
+      - run: cargo clippy -p world-pack-catalog --all-targets -- -D warnings
+      - run: bash ./scripts/check-boundaries.sh
+      - name: Commit managed Pack store
+        run: |
+          rm -f scripts/m56_managed_store.py .github/workflows/m56-apply.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "M56: materialize approved Packs into managed storage" || exit 0
+          git push origin HEAD:m56-managed-pack-store
