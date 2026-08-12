@@ -2,6 +2,7 @@ use std::env;
 use std::error::Error;
 use std::fmt;
 use std::io::{self, BufRead, BufWriter, Read, Write};
+use std::path::{Path, PathBuf};
 use world_host::{HostError, WorldDescriptor, WorldRegistration, WorldRegistry, WorldSession};
 use world_pack_protocol::{
     decode_request, encode_response, PackDescriptor, PackManifest, PackRequest,
@@ -209,7 +210,13 @@ where
         let envelope = decode_request(line.trim_end())
             .map_err(|error| PackServerError::Protocol(error.to_string()))?;
         let (response, shutdown) = server.handle_request(envelope);
-        write_response(&mut writer, response)?;
+        let request_id = response.request_id;
+        if write_response(&mut writer, response)? == ResponseWrite::Oversized {
+            return Err(PackServerError::ResponseTooLarge {
+                request_id,
+                max_bytes: DEFAULT_MAX_RESPONSE_BYTES,
+            });
+        }
         if shutdown {
             writer.flush().map_err(PackServerError::Io)?;
             return Ok(());
@@ -226,9 +233,19 @@ pub fn manifest_for_current_exe(
         .map_err(PackServerError::Io)?
         .canonicalize()
         .map_err(PackServerError::Io)?;
+    manifest_for_canonical_exe(descriptor, &executable)
+}
+
+fn manifest_for_canonical_exe(
+    descriptor: &WorldDescriptor,
+    executable: &Path,
+) -> Result<PackManifest, PackServerError> {
+    let command = executable
+        .to_str()
+        .ok_or_else(|| PackServerError::ManifestPathNotUtf8(executable.to_path_buf()))?;
     Ok(PackManifest::process(
         protocol_descriptor(descriptor),
-        executable.to_string_lossy().into_owned(),
+        command,
         Vec::new(),
     ))
 }
@@ -241,30 +258,40 @@ fn protocol_descriptor(descriptor: &WorldDescriptor) -> PackDescriptor {
     )
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ResponseWrite {
+    Sent,
+    Oversized,
+}
+
 fn write_response<W: Write>(
     writer: &mut W,
     response: PackResponseEnvelope,
-) -> Result<(), PackServerError> {
+) -> Result<ResponseWrite, PackServerError> {
     let request_id = response.request_id;
     let mut encoded =
         encode_response(&response).map_err(|error| PackServerError::Protocol(error.to_string()))?;
-    if encoded.len().saturating_add(1) > DEFAULT_MAX_RESPONSE_BYTES {
+    let outcome = if encoded.len().saturating_add(1) > DEFAULT_MAX_RESPONSE_BYTES {
         encoded = encode_response(&PackResponseEnvelope::new(
             request_id,
             PackResponse::Error {
                 message: format!(
-                    "Pack response exceeds {} byte protocol limit",
+                    "Pack response exceeds {} byte protocol limit; session terminated to avoid state desynchronization",
                     DEFAULT_MAX_RESPONSE_BYTES
                 ),
             },
         ))
         .map_err(|error| PackServerError::Protocol(error.to_string()))?;
-    }
+        ResponseWrite::Oversized
+    } else {
+        ResponseWrite::Sent
+    };
     writer
         .write_all(encoded.as_bytes())
         .and_then(|_| writer.write_all(b"\n"))
         .and_then(|_| writer.flush())
-        .map_err(PackServerError::Io)
+        .map_err(PackServerError::Io)?;
+    Ok(outcome)
 }
 
 fn read_bounded_line<R: BufRead>(
@@ -290,6 +317,8 @@ pub enum PackServerError {
     Io(io::Error),
     Host(HostError),
     Protocol(String),
+    ResponseTooLarge { request_id: u64, max_bytes: usize },
+    ManifestPathNotUtf8(PathBuf),
     InvalidSequence(String),
 }
 
@@ -299,6 +328,18 @@ impl fmt::Display for PackServerError {
             Self::Io(error) => write!(f, "Pack server I/O failed: {error}"),
             Self::Host(error) => write!(f, "Pack Host operation failed: {error}"),
             Self::Protocol(error) => write!(f, "Pack protocol failed: {error}"),
+            Self::ResponseTooLarge {
+                request_id,
+                max_bytes,
+            } => write!(
+                f,
+                "Pack response for request {request_id} exceeded {max_bytes} bytes; session terminated"
+            ),
+            Self::ManifestPathNotUtf8(path) => write!(
+                f,
+                "Pack executable path cannot be represented in the v1 manifest: {}",
+                path.display()
+            ),
             Self::InvalidSequence(error) => write!(f, "Pack request sequence is invalid: {error}"),
         }
     }
@@ -310,7 +351,6 @@ impl Error for PackServerError {}
 mod tests {
     use super::*;
     use std::io::Cursor;
-    use std::path::PathBuf;
     use world_pack_protocol::{
         decode_response, encode_request, PackRequest, PackRequestEnvelope, PackResponse,
         ProjectionIntentWire,
@@ -343,6 +383,12 @@ mod tests {
                 ProjectionIntent::InvokeCommand(command) if command == "increment" => {
                     self.world_time += 1;
                     Ok(self.snapshot())
+                }
+                ProjectionIntent::InvokeCommand(command) if command == "huge" => {
+                    self.world_time += 1;
+                    let mut snapshot = self.snapshot();
+                    snapshot.title = "x".repeat(DEFAULT_MAX_RESPONSE_BYTES);
+                    Ok(snapshot)
                 }
                 _ => Err(HostError::session("unsupported fixture intent")),
             }
@@ -495,6 +541,62 @@ mod tests {
             PackResponse::Error { message } if message.contains("create or open")
         ));
         assert!(matches!(responses[1].response, PackResponse::Ok));
+    }
+
+    #[test]
+    fn oversized_mutating_response_is_fatal_before_any_followup_request() {
+        let input = [
+            request(1, PackRequest::Create),
+            request(
+                2,
+                PackRequest::Handle {
+                    intent: ProjectionIntentWire::InvokeCommand {
+                        command: "huge".into(),
+                    },
+                },
+            ),
+            request(
+                3,
+                PackRequest::Handle {
+                    intent: ProjectionIntentWire::InvokeCommand {
+                        command: "increment".into(),
+                    },
+                },
+            ),
+        ]
+        .concat();
+        let mut server = PackServer::new(registration()).unwrap();
+        let mut output = Vec::new();
+        let error = serve_server_jsonl(&mut server, Cursor::new(input.into_bytes()), &mut output)
+            .unwrap_err();
+
+        assert!(matches!(
+            error,
+            PackServerError::ResponseTooLarge { request_id: 2, .. }
+        ));
+        let responses = responses(output);
+        assert_eq!(responses.len(), 2);
+        assert!(matches!(
+            &responses[1].response,
+            PackResponse::Error { message } if message.contains("session terminated")
+        ));
+        assert_eq!(server.session.as_ref().unwrap().snapshot().world_time, 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn manifest_rejects_non_utf8_executable_paths() {
+        use std::ffi::OsString;
+        use std::os::unix::ffi::OsStringExt;
+
+        let descriptor = WorldDescriptor {
+            pack: WorldPackRef::new(PACK_ID, PACK_VERSION),
+            title: "Fixture Pack".into(),
+            description: "server fixture".into(),
+        };
+        let path = PathBuf::from(OsString::from_vec(vec![b'/', b't', b'm', b'p', b'/', 0xff]));
+        let error = manifest_for_canonical_exe(&descriptor, &path).unwrap_err();
+        assert!(matches!(error, PackServerError::ManifestPathNotUtf8(found) if found == path));
     }
 
     #[test]
