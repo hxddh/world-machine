@@ -318,12 +318,7 @@ impl Render for StrategyComparisonView {
             .gap_4()
             .bg(rgb(0xf3f4f2))
             .child(div().text_xl().child(title))
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(rgb(0x666666))
-                    .child(subtitle),
-            );
+            .child(div().text_sm().text_color(rgb(0x666666)).child(subtitle));
 
         body = match &self.source {
             ComparisonSource::Strategies(evaluation) => body.child(
