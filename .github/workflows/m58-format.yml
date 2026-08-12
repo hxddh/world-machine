@@ -1,0 +1,30 @@
+name: M58 Final Format
+
+on:
+  push:
+    branches: [m58-portable-pack-bundle]
+    paths:
+      - '.github/workflows/m58-format.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: m58-portable-pack-bundle
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all
+      - name: Commit rustfmt output
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add crates/world-pack-bundle/src/lib.rs apps/tiny-society-pack/tests/external_pack.rs
+          git diff --cached --quiet && exit 0
+          git commit -m 'M58: format portable Pack sources'
+          git push origin HEAD:m58-portable-pack-bundle
