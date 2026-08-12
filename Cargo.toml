@@ -9,6 +9,7 @@ members = [
   "crates/world-strategy",
   "crates/world-strategy-document",
   "crates/world-strategy-gpui",
+  "crates/world-lineage-gpui",
   "crates/world-gpui",
   "crates/world-persistence",
   "crates/world-document",
@@ -25,5 +26,6 @@ members = [
   "apps/future-archaeologist-desktop",
   "apps/world-machine-desktop",
   "apps/strategy-comparison-desktop",
+  "apps/lineage-library-desktop",
 ]
 resolver = "2"
