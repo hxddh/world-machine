@@ -11,7 +11,5 @@ world-document = { path = "../world-document" }
 world-host = { path = "../world-host" }
 world-library = { path = "../world-library" }
 world-lineage = { path = "../world-lineage" }
-world-projection = { path = "../world-projection" }
-
-[dev-dependencies]
 world-persistence = { path = "../world-persistence" }
+world-projection = { path = "../world-projection" }
