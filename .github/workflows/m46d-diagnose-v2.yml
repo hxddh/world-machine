@@ -1,0 +1,36 @@
+name: M46D Diagnose macOS v2
+
+on:
+  push:
+    branches:
+      - m46c-generic-world-fork
+    paths:
+      - .github/workflows/m46d-diagnose-v2.yml
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: m46c-generic-world-fork
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Capture world-machine-desktop compiler output
+        shell: bash
+        run: |
+          set +e
+          cargo test -p world-machine-desktop > M46D_CI_LOG.txt 2>&1
+          status=$?
+          cat M46D_CI_LOG.txt
+          if [ "$status" -eq 0 ]; then
+            printf 'world-machine-desktop passed\n' > M46D_CI_LOG.txt
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add M46D_CI_LOG.txt
+          git commit -m "M46D: capture macOS desktop compiler output"
+          git push origin HEAD:m46c-generic-world-fork
