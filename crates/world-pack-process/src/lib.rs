@@ -9,7 +9,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::thread;
 use std::time::Duration;
-use world_host::{HostError, WorldDescriptor, WorldPackSource, WorldRegistration, WorldSession};
+use world_host::{
+    HostError, WorldDescriptor, WorldPackSource, WorldRegistration, WorldRegistry, WorldSession,
+};
 use world_pack_protocol::{
     decode_response, encode_request, PackDescriptor, PackManifest, PackRequest,
     PackRequestEnvelope, PackResponse, PackRuntimeManifest, ProjectionIntentWire,
@@ -22,6 +24,15 @@ pub const DEFAULT_MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 pub const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 
 static LAUNCH_NONCE: AtomicU64 = AtomicU64::new(1);
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProcessPackProbe {
+    pub pack: WorldPackRef,
+    pub created_title: String,
+    pub created_world_time: u64,
+    pub reopened_title: String,
+    pub reopened_world_time: u64,
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProcessPackPin {
@@ -115,6 +126,66 @@ impl ProcessPack {
             )));
         }
         Ok(())
+    }
+
+    /// Launch the already-approved Pack and prove the minimum durable World contract:
+    /// exact Describe handshake, Create/Snapshot, Archive, then a fresh-process Open/Snapshot.
+    /// No business command is invoked and World time is never advanced by the probe itself.
+    pub fn probe_durable(&self) -> Result<ProcessPackProbe, HostError> {
+        self.verify_pin()?;
+        let source = ProcessPackSource::from_packs(vec![self.clone()]);
+        let mut registry = WorldRegistry::new();
+        registry.install_source(&source)?;
+
+        let created = registry.create_exact(&self.descriptor.pack)?;
+        let created_snapshot = created.snapshot();
+        let archive = created.archive()?.ok_or_else(|| {
+            HostError::session(format!(
+                "external Pack {}@{} does not provide a durable archive",
+                self.descriptor.pack.id, self.descriptor.pack.version
+            ))
+        })?;
+        if archive.world_time != created_snapshot.world_time {
+            return Err(HostError::session(format!(
+                "external Pack {}@{} archived World time {} after Create snapshot reported {}",
+                self.descriptor.pack.id,
+                self.descriptor.pack.version,
+                archive.world_time,
+                created_snapshot.world_time
+            )));
+        }
+        drop(created);
+
+        let reopened = registry.open_archive(&archive)?;
+        let reopened_snapshot = reopened.snapshot();
+        if reopened_snapshot.world_time != archive.world_time {
+            return Err(HostError::session(format!(
+                "external Pack {}@{} reopened archive at World time {}, expected {}",
+                self.descriptor.pack.id,
+                self.descriptor.pack.version,
+                reopened_snapshot.world_time,
+                archive.world_time
+            )));
+        }
+        let reopened_archive = reopened.archive()?.ok_or_else(|| {
+            HostError::session(format!(
+                "external Pack {}@{} stopped providing a durable archive after reopen",
+                self.descriptor.pack.id, self.descriptor.pack.version
+            ))
+        })?;
+        if reopened_archive != archive {
+            return Err(HostError::session(format!(
+                "external Pack {}@{} reopened archive did not round-trip durable state exactly",
+                self.descriptor.pack.id, self.descriptor.pack.version
+            )));
+        }
+        Ok(ProcessPackProbe {
+            pack: self.descriptor.pack.clone(),
+            created_title: created_snapshot.title,
+            created_world_time: created_snapshot.world_time,
+            reopened_title: reopened_snapshot.title,
+            reopened_world_time: reopened_snapshot.world_time,
+        })
     }
 
     fn prepare_launch_program(&self) -> Result<(PathBuf, Option<PathBuf>), HostError> {
@@ -525,17 +596,16 @@ impl ProcessClient {
         if pack.pin.is_none() {
             command.args(&pack.args);
         }
-        let child = command
+        command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
-            .spawn()
-            .map_err(|error| {
-                HostError::session(format!(
-                    "could not launch external Pack {}: {error}",
-                    program.display()
-                ))
-            });
+            .stderr(Stdio::inherit());
+        let child = retry_executable_busy(|| command.spawn()).map_err(|error| {
+            HostError::session(format!(
+                "could not launch external Pack {}: {error}",
+                program.display()
+            ))
+        });
         let mut child = match child {
             Ok(child) => child,
             Err(error) => {
@@ -690,6 +760,23 @@ impl Drop for ProcessClient {
     }
 }
 
+const EXECUTABLE_BUSY_RETRIES: usize = 3;
+
+fn retry_executable_busy<T>(mut operation: impl FnMut() -> io::Result<T>) -> io::Result<T> {
+    for attempt in 0..=EXECUTABLE_BUSY_RETRIES {
+        match operation() {
+            Err(error)
+                if error.kind() == io::ErrorKind::ExecutableFileBusy
+                    && attempt < EXECUTABLE_BUSY_RETRIES =>
+            {
+                thread::sleep(Duration::from_millis(10 * (attempt as u64 + 1)));
+            }
+            result => return result,
+        }
+    }
+    unreachable!("bounded executable-busy retry loop always returns")
+}
+
 fn spawn_response_reader(
     stdout: ChildStdout,
     max_response_bytes: usize,
@@ -743,7 +830,7 @@ mod tests {
     use world_pack_protocol::{
         encode_response, PackResponseEnvelope, ProjectionCapabilitiesWire, ProjectionSnapshotWire,
     };
-    use world_persistence::{WORLD_ARCHIVE_FORMAT, WORLD_ARCHIVE_VERSION};
+    use world_persistence::{ArchivedEvent, WORLD_ARCHIVE_FORMAT, WORLD_ARCHIVE_VERSION};
 
     fn temp_dir(label: &str) -> PathBuf {
         let nonce = SystemTime::now()
@@ -923,6 +1010,253 @@ mod tests {
         let reopened = registry.open_archive(&archive).unwrap();
         assert_eq!(reopened.pack(), descriptor().pack);
         assert_eq!(reopened.snapshot().title, "Created externally");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn durable_probe_creates_archives_and_reopens_in_a_fresh_process() {
+        let root = temp_dir("durable-probe");
+        let runtime = root.join("runtime.sh");
+        let archive = WorldArchive {
+            format: WORLD_ARCHIVE_FORMAT.into(),
+            format_version: WORLD_ARCHIVE_VERSION,
+            pack: descriptor().pack.clone(),
+            world_time: 3,
+            events: Vec::new(),
+            pending: Vec::new(),
+        };
+        write_fixture_process(
+            &runtime,
+            &[
+                response_line(
+                    1,
+                    PackResponse::Descriptor {
+                        descriptor: descriptor(),
+                    },
+                ),
+                response_line(
+                    2,
+                    PackResponse::Snapshot {
+                        snapshot: wire_snapshot(3, "Created for probe"),
+                    },
+                ),
+                response_line(
+                    3,
+                    PackResponse::Archive {
+                        archive: Some(archive),
+                    },
+                ),
+            ],
+        );
+        let manifest = PackManifest::process(descriptor(), "runtime.sh", Vec::new());
+        let manifest_path = root.join("fixture.world-pack.json");
+        fs::write(&manifest_path, manifest.to_json_pretty().unwrap()).unwrap();
+        let pack = ProcessPack::load(manifest_path).unwrap();
+        let pin = pack.current_pin().unwrap();
+
+        let probe = pack.with_pin(pin).probe_durable().unwrap();
+        assert_eq!(probe.pack, descriptor().pack);
+        assert_eq!(probe.created_title, "Created for probe");
+        assert_eq!(probe.created_world_time, 3);
+        assert_eq!(probe.reopened_title, "Created for probe");
+        assert_eq!(probe.reopened_world_time, 3);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn durable_probe_rejects_archive_state_drift() {
+        let root = temp_dir("durable-probe-state-drift");
+        let runtime = root.join("runtime.sh");
+        let archive = WorldArchive {
+            format: WORLD_ARCHIVE_FORMAT.into(),
+            format_version: WORLD_ARCHIVE_VERSION,
+            pack: descriptor().pack.clone(),
+            world_time: 4,
+            events: Vec::new(),
+            pending: Vec::new(),
+        };
+        write_fixture_process(
+            &runtime,
+            &[
+                response_line(
+                    1,
+                    PackResponse::Descriptor {
+                        descriptor: descriptor(),
+                    },
+                ),
+                response_line(
+                    2,
+                    PackResponse::Snapshot {
+                        snapshot: wire_snapshot(3, "Created for probe"),
+                    },
+                ),
+                response_line(
+                    3,
+                    PackResponse::Archive {
+                        archive: Some(archive),
+                    },
+                ),
+            ],
+        );
+        let manifest = PackManifest::process(descriptor(), "runtime.sh", Vec::new());
+        let manifest_path = root.join("fixture.world-pack.json");
+        fs::write(&manifest_path, manifest.to_json_pretty().unwrap()).unwrap();
+        let pack = ProcessPack::load(manifest_path).unwrap();
+        let pin = pack.current_pin().unwrap();
+
+        let error = pack.with_pin(pin).probe_durable().unwrap_err();
+        assert!(error.to_string().contains("archived World time 4"));
+        assert!(error.to_string().contains("reported 3"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn durable_probe_rejects_reopened_archive_content_drift_at_same_world_time() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = temp_dir("durable-probe-rearchive-drift");
+        let runtime = root.join("runtime.sh");
+        let launch_marker = root.join("launched-once");
+        let original = WorldArchive {
+            format: WORLD_ARCHIVE_FORMAT.into(),
+            format_version: WORLD_ARCHIVE_VERSION,
+            pack: descriptor().pack.clone(),
+            world_time: 3,
+            events: Vec::new(),
+            pending: Vec::new(),
+        };
+        let mut changed = original.clone();
+        changed.events.push(ArchivedEvent {
+            id: 1,
+            kind: "unexpected".into(),
+            world_time: 3,
+            actor: None,
+            targets: Vec::new(),
+            caused_by: Vec::new(),
+            payload: Default::default(),
+            changes: Vec::new(),
+        });
+
+        let describe = response_line(
+            1,
+            PackResponse::Descriptor {
+                descriptor: descriptor(),
+            },
+        );
+        let snapshot = response_line(
+            2,
+            PackResponse::Snapshot {
+                snapshot: wire_snapshot(3, "Created for probe"),
+            },
+        );
+        let original_archive = response_line(
+            3,
+            PackResponse::Archive {
+                archive: Some(original),
+            },
+        );
+        let changed_archive = response_line(
+            3,
+            PackResponse::Archive {
+                archive: Some(changed),
+            },
+        );
+        let mut script = String::from("#!/bin/sh\n");
+        script.push_str(&format!(
+            "if [ -e {} ]; then changed=1; else touch {}; changed=0; fi\n",
+            shell_quote(launch_marker.to_str().unwrap()),
+            shell_quote(launch_marker.to_str().unwrap())
+        ));
+        script.push_str("IFS= read -r _line || exit 1\n");
+        script.push_str(&format!("printf '%s\\n' {}\n", shell_quote(&describe)));
+        script.push_str("IFS= read -r _line || exit 1\n");
+        script.push_str(&format!("printf '%s\\n' {}\n", shell_quote(&snapshot)));
+        script.push_str("IFS= read -r _line || exit 1\n");
+        script.push_str("if [ \"$changed\" = 1 ]; then\n");
+        script.push_str(&format!(
+            "  printf '%s\\n' {}\n",
+            shell_quote(&changed_archive)
+        ));
+        script.push_str("else\n");
+        script.push_str(&format!(
+            "  printf '%s\\n' {}\n",
+            shell_quote(&original_archive)
+        ));
+        script.push_str("fi\n");
+        script.push_str("IFS= read -r _shutdown || true\n");
+        fs::write(&runtime, script).unwrap();
+        fs::set_permissions(&runtime, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let manifest = PackManifest::process(descriptor(), "runtime.sh", Vec::new());
+        let manifest_path = root.join("fixture.world-pack.json");
+        fs::write(&manifest_path, manifest.to_json_pretty().unwrap()).unwrap();
+        let pack = ProcessPack::load(manifest_path).unwrap();
+        let pin = pack.current_pin().unwrap();
+
+        let error = pack.with_pin(pin).probe_durable().unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("did not round-trip durable state exactly"));
+    }
+
+    #[test]
+    fn executable_busy_spawn_errors_are_retried_but_other_errors_are_not() {
+        let mut busy_attempts = 0;
+        let value = retry_executable_busy(|| {
+            busy_attempts += 1;
+            if busy_attempts < 3 {
+                Err(io::Error::from(io::ErrorKind::ExecutableFileBusy))
+            } else {
+                Ok(7_u8)
+            }
+        })
+        .unwrap();
+        assert_eq!(value, 7);
+        assert_eq!(busy_attempts, 3);
+
+        let mut other_attempts = 0;
+        let error = retry_executable_busy(|| -> io::Result<()> {
+            other_attempts += 1;
+            Err(io::Error::from(io::ErrorKind::PermissionDenied))
+        })
+        .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+        assert_eq!(other_attempts, 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn durable_probe_rejects_packs_without_archives() {
+        let root = temp_dir("durable-probe-no-archive");
+        let runtime = root.join("runtime.sh");
+        write_fixture_process(
+            &runtime,
+            &[
+                response_line(
+                    1,
+                    PackResponse::Descriptor {
+                        descriptor: descriptor(),
+                    },
+                ),
+                response_line(
+                    2,
+                    PackResponse::Snapshot {
+                        snapshot: wire_snapshot(0, "Created without archive"),
+                    },
+                ),
+                response_line(3, PackResponse::Archive { archive: None }),
+            ],
+        );
+        let manifest = PackManifest::process(descriptor(), "runtime.sh", Vec::new());
+        let manifest_path = root.join("fixture.world-pack.json");
+        fs::write(&manifest_path, manifest.to_json_pretty().unwrap()).unwrap();
+        let pack = ProcessPack::load(manifest_path).unwrap();
+        let pin = pack.current_pin().unwrap();
+
+        let error = pack.with_pin(pin).probe_durable().unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("does not provide a durable archive"));
     }
 
     #[cfg(unix)]

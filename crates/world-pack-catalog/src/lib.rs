@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process;
 use std::sync::atomic::{AtomicU64, Ordering};
 use world_pack_bundle::{PackBundle, PackBundleHeader, PACK_BUNDLE_SUFFIX};
-use world_pack_process::{ProcessPack, ProcessPackPin, ProcessPackSource};
+use world_pack_process::{ProcessPack, ProcessPackPin, ProcessPackProbe, ProcessPackSource};
 use world_pack_protocol::{PackDescriptor, PackManifest};
 use world_persistence::WorldPackRef;
 
@@ -244,6 +244,24 @@ impl PackCatalog {
         &mut self,
         preview: &PackInstallPreview,
     ) -> Result<InstalledPack, CatalogError> {
+        self.install_reviewed_with_activation(preview, true)
+    }
+
+    /// Persist trusted bytes in a disabled, non-active quarantine state. This is the
+    /// Desktop install path: a crash before the activation probe finishes cannot make
+    /// never-probed external code eligible for automatic registration on restart.
+    pub fn install_reviewed_pending_probe(
+        &mut self,
+        preview: &PackInstallPreview,
+    ) -> Result<InstalledPack, CatalogError> {
+        self.install_reviewed_with_activation(preview, false)
+    }
+
+    fn install_reviewed_with_activation(
+        &mut self,
+        preview: &PackInstallPreview,
+        activate_now: bool,
+    ) -> Result<InstalledPack, CatalogError> {
         if self.entry(&preview.pack).is_some() {
             return Err(CatalogError::AlreadyInstalled(preview.pack.clone()));
         }
@@ -258,7 +276,7 @@ impl PackCatalog {
                     ));
                 }
                 let managed = self.materialize_managed_bundle(bundle)?;
-                self.record_managed_install(managed)
+                self.record_managed_install(managed, activate_now)
             }
             PackInstallEvidence::Manifest {
                 descriptor,
@@ -284,7 +302,7 @@ impl PackCatalog {
 
                 let managed = self.materialize_managed_pack(&source)?;
                 self.verify_reviewed_managed_program(&managed, pin.command_sha256())?;
-                self.record_managed_install(managed)
+                self.record_managed_install(managed, activate_now)
             }
         }
     }
@@ -354,6 +372,16 @@ impl PackCatalog {
                 pin,
             },
         })
+    }
+
+    /// Execute a trusted managed Pack only for a bounded durable activation probe.
+    /// Disabled Packs are intentionally probeable so the user can explicitly retry them.
+    pub fn probe(&self, pack: &WorldPackRef) -> Result<ProcessPackProbe, CatalogError> {
+        let entry = self
+            .entry(pack)
+            .ok_or_else(|| CatalogError::NotInstalled(pack.clone()))?;
+        let verified = self.verified_pack(entry)?;
+        verified.probe_durable().map_err(process_error)
     }
 
     pub fn set_enabled(&mut self, pack: &WorldPackRef, enabled: bool) -> Result<(), CatalogError> {
@@ -509,6 +537,7 @@ impl PackCatalog {
     fn record_managed_install(
         &mut self,
         managed: ProcessPack,
+        activate_now: bool,
     ) -> Result<InstalledPack, CatalogError> {
         let managed_pack = managed.descriptor.pack.clone();
         let result = (|| {
@@ -522,17 +551,19 @@ impl PackCatalog {
                 manifest_sha256: identity.manifest_sha256().into(),
                 command_sha256: identity.command_sha256().into(),
                 approval: PackApproval::ExplicitInstall,
-                enabled: true,
-                active: true,
+                enabled: activate_now,
+                active: activate_now,
                 managed: true,
             };
 
             let mut entries = self.entries.clone();
-            for entry in entries
-                .iter_mut()
-                .filter(|entry| entry.pack.id == installed.pack.id)
-            {
-                entry.active = false;
+            if activate_now {
+                for entry in entries
+                    .iter_mut()
+                    .filter(|entry| entry.pack.id == installed.pack.id)
+                {
+                    entry.active = false;
+                }
             }
             entries.push(installed.clone());
             sort_entries(&mut entries);
@@ -1270,6 +1301,25 @@ mod tests {
         assert!(matches!(error, CatalogError::ReviewedContentChanged { .. }));
         assert!(catalog.entries().is_empty());
         assert!(!managed_pack_dir(catalog.path(), &preview.pack).exists());
+    }
+
+    #[test]
+    fn pending_probe_install_preserves_existing_active_version() {
+        let root = temp_dir("pending-probe-version");
+        let v1_manifest = write_pack(&root, "fixture.probe", "z-old");
+        let v2_manifest = write_pack(&root, "fixture.probe", "a-new");
+        let mut catalog = PackCatalog::open(root.join("catalog.json")).unwrap();
+
+        let v1 = catalog.install_manifest(&v1_manifest).unwrap();
+        assert!(v1.enabled && v1.active);
+        let preview = catalog.inspect_install(&v2_manifest).unwrap();
+        let v2 = catalog.install_reviewed_pending_probe(&preview).unwrap();
+        assert!(!v2.enabled && !v2.active);
+
+        let stored_v1 = catalog.entry(&pack("fixture.probe", "z-old")).unwrap();
+        let stored_v2 = catalog.entry(&pack("fixture.probe", "a-new")).unwrap();
+        assert!(stored_v1.enabled && stored_v1.active);
+        assert!(!stored_v2.enabled && !stored_v2.active);
     }
 
     #[test]
