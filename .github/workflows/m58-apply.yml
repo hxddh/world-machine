@@ -1,0 +1,36 @@
+name: M58 Portable Pack Bundle
+
+on:
+  push:
+    branches: [m58-portable-pack-bundle]
+    paths:
+      - '.github/workflows/m58-apply.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: m58-portable-pack-bundle
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: python scripts/m58_apply.py
+      - run: cargo fmt --all
+      - run: cargo test -p world-pack-bundle
+      - run: cargo test -p world-pack-catalog
+      - run: cargo test -p world-pack-server
+      - run: cargo test -p tiny-society-pack
+      - run: cargo clippy -p world-pack-bundle -p world-pack-catalog -p world-pack-server -p tiny-society-pack --all-targets -- -D warnings
+      - run: bash ./scripts/check-boundaries.sh
+      - name: Commit portable bundle implementation
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add Cargo.lock crates/world-pack-server/src/lib.rs crates/world-pack-server/README.md crates/world-pack-catalog/src/lib.rs apps/tiny-society-pack/src/main.rs apps/tiny-society-pack/tests/external_pack.rs apps/world-machine-desktop/src/main.rs scripts/check-boundaries.sh .github/workflows/ci.yml
+          git commit -m 'M58: install portable single-executable Pack bundles'
+          git push origin HEAD:m58-portable-pack-bundle
