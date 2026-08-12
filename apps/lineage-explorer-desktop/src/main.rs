@@ -11,6 +11,20 @@ impl world_lineage_gpui::LineageController for DemoController {
         println!("Lineage Explorer demo would open {document}");
         Ok(())
     }
+
+    fn can_compare(&self) -> bool {
+        true
+    }
+
+    fn compare_documents(
+        &mut self,
+        left: &str,
+        right: &str,
+        _cx: &mut gpui::Context<world_lineage_gpui::LineageExplorerView>,
+    ) -> Result<(), String> {
+        println!("Lineage Explorer demo would compare {left} ↔ {right}");
+        Ok(())
+    }
 }
 
 #[cfg(target_os = "macos")]
