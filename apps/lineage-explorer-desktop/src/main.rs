@@ -3,7 +3,11 @@ struct DemoController;
 
 #[cfg(target_os = "macos")]
 impl world_lineage_gpui::LineageController for DemoController {
-    fn open_document(&mut self, document: &str) -> Result<(), String> {
+    fn open_document(
+        &mut self,
+        document: &str,
+        _cx: &mut gpui::Context<world_lineage_gpui::LineageExplorerView>,
+    ) -> Result<(), String> {
         println!("Lineage Explorer demo would open {document}");
         Ok(())
     }
