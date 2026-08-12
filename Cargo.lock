@@ -3841,6 +3841,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "pocket-universe"
+version = "0.1.0"
+dependencies = [
+ "world-core",
+ "world-host",
+ "world-persistence",
+ "world-projection",
+]
+
+[[package]]
+name = "pocket-universe-pack"
+version = "0.1.0"
+dependencies = [
+ "pocket-universe",
+ "world-host",
+ "world-pack-catalog",
+ "world-pack-server",
+ "world-projection",
+]
+
+[[package]]
 name = "polling"
 version = "3.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

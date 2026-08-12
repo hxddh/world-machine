@@ -46,8 +46,7 @@ fn commands(seeded: bool) -> Vec<ProjectionCommand> {
         ProjectionCommand {
             id: SEED_MARS_COLONY_COMMAND.into(),
             title: "Start a Mars colony".into(),
-            detail: "A tiny habitat, one keeper, hydroponics, and a rover on a red horizon."
-                .into(),
+            detail: "A tiny habitat, one keeper, hydroponics, and a rover on a red horizon.".into(),
         },
         ProjectionCommand {
             id: SEED_1980S_TOWN_COMMAND.into(),

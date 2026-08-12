@@ -1,11 +1,9 @@
+use pocket_universe::{POCKET_UNIVERSE_PACK_ID, SEED_MARS_COLONY_COMMAND};
 use std::env;
 use std::fs;
 use std::path::PathBuf;
 use std::process::{self, Command};
 use std::time::{SystemTime, UNIX_EPOCH};
-use pocket_universe::{
-    POCKET_UNIVERSE_PACK_ID, SEED_MARS_COLONY_COMMAND,
-};
 use world_host::WorldRegistry;
 use world_pack_catalog::PackCatalog;
 use world_projection::ProjectionIntent;

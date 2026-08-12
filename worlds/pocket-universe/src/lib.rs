@@ -14,8 +14,7 @@ pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.1.0";
 
 pub const SEED_MARS_COLONY_COMMAND: &str = "pocket-universe.seed-mars-colony";
 pub const SEED_1980S_TOWN_COMMAND: &str = "pocket-universe.seed-1980s-town";
-pub const SEED_PENGUIN_CIVILIZATION_COMMAND: &str =
-    "pocket-universe.seed-penguin-civilization";
+pub const SEED_PENGUIN_CIVILIZATION_COMMAND: &str = "pocket-universe.seed-penguin-civilization";
 pub const NUDGE_COMMAND: &str = "pocket-universe.nudge";
 
 pub(crate) const UNIVERSE: EntityId = EntityId::new(1);
@@ -66,10 +65,10 @@ impl PocketUniverse {
             SEED_PENGUIN_CIVILIZATION_COMMAND => "seed_penguin_civilization",
             NUDGE_COMMAND => "grow_universe",
             _ => {
-                return Err(
-                    std::io::Error::other(format!("unknown projection command: {command_id}"))
-                        .into(),
-                )
+                return Err(std::io::Error::other(format!(
+                    "unknown projection command: {command_id}"
+                ))
+                .into())
             }
         };
         Ok(self
@@ -98,10 +97,8 @@ impl PocketUniverse {
                     .world_time()
                     .checked_add(period * BACKGROUND_PERIOD)
                     .ok_or_else(|| std::io::Error::other("Pocket Universe time overflow"))?;
-                self.world.schedule_at(
-                    at,
-                    ActionRequest::new("grow_universe").actor(UNIVERSE),
-                )?;
+                self.world
+                    .schedule_at(at, ActionRequest::new("grow_universe").actor(UNIVERSE))?;
             }
         }
         self.world.advance_to(&self.actions, target)?;
@@ -435,12 +432,11 @@ fn seed_id_from_state(state: &WorldState) -> Result<String, ActionError> {
     }
 }
 
-fn integer_component(
-    state: &WorldState,
-    entity: EntityId,
-    key: &str,
-) -> Result<i64, ActionError> {
-    match state.entity(entity).and_then(|entity| entity.component(key)) {
+fn integer_component(state: &WorldState, entity: EntityId, key: &str) -> Result<i64, ActionError> {
+    match state
+        .entity(entity)
+        .and_then(|entity| entity.component(key))
+    {
         Some(Value::Integer(value)) => Ok(*value),
         _ => Err(ActionError::Invalid(format!(
             "entity {entity} has no integer component {key}"
@@ -532,7 +528,10 @@ mod tests {
 
         assert_eq!(mars.pack(), town.pack());
         assert_ne!(mars_snapshot.title, town_snapshot.title);
-        assert_ne!(mars_snapshot.collection.items, town_snapshot.collection.items);
+        assert_ne!(
+            mars_snapshot.collection.items,
+            town_snapshot.collection.items
+        );
         assert!(mars_snapshot
             .collection
             .items
