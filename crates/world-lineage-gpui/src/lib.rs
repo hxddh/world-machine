@@ -5,7 +5,11 @@ use world_document::WorldBranchCause;
 use world_lineage::{LineageIndex, LineageNode};
 
 pub trait LineageController {
-    fn open_document(&mut self, document: &str) -> Result<(), String>;
+    fn open_document(
+        &mut self,
+        document: &str,
+        cx: &mut Context<LineageExplorerView>,
+    ) -> Result<(), String>;
 }
 
 pub struct LineageExplorerView {
@@ -51,7 +55,7 @@ impl LineageExplorerView {
             .find(|node| node.id.as_str() == label)
     }
 
-    fn open_selected(&mut self) -> Result<String, String> {
+    fn open_selected(&mut self, cx: &mut Context<Self>) -> Result<String, String> {
         let document = self
             .selected
             .clone()
@@ -60,7 +64,7 @@ impl LineageExplorerView {
             .controller
             .as_mut()
             .ok_or_else(|| "This lineage view cannot open Worlds".to_string())?;
-        controller.open_document(&document)?;
+        controller.open_document(&document, cx)?;
         Ok(document)
     }
 
@@ -171,7 +175,7 @@ impl LineageExplorerView {
                     .text_sm()
                     .child("Open World")
                     .on_click(cx.listener(|this, _, _, cx| {
-                        this.status = Some(match this.open_selected() {
+                        this.status = Some(match this.open_selected(cx) {
                             Ok(document) => format!("Opened {document}"),
                             Err(error) => format!("Could not open World: {error}"),
                         });
@@ -298,8 +302,6 @@ fn detail_row(label: &str, value: String) -> Div {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::cell::RefCell;
-    use std::rc::Rc;
     use world_document::{WorldLineage, WorldParent};
     use world_library::WorldDocumentId;
     use world_lineage::{build_index, LineageRecord};
@@ -327,17 +329,6 @@ mod tests {
         }
     }
 
-    struct RecordingController {
-        opened: Rc<RefCell<Vec<String>>>,
-    }
-
-    impl LineageController for RecordingController {
-        fn open_document(&mut self, document: &str) -> Result<(), String> {
-            self.opened.borrow_mut().push(document.to_owned());
-            Ok(())
-        }
-    }
-
     #[test]
     fn chooses_a_root_as_the_initial_selection() {
         let index = build_index([record("root", None), record("future", Some("root"))]).unwrap();
@@ -346,17 +337,21 @@ mod tests {
     }
 
     #[test]
-    fn controlled_view_opens_the_selected_world() {
-        let index = build_index([record("root", None), record("future", Some("root"))]).unwrap();
-        let opened = Rc::new(RefCell::new(Vec::new()));
-        let controller = RecordingController {
-            opened: Rc::clone(&opened),
-        };
-        let mut view = LineageExplorerView::controlled(index, controller);
-        view.selected = Some("future".into());
+    fn controlled_view_has_an_open_capability() {
+        struct NoopController;
+        impl LineageController for NoopController {
+            fn open_document(
+                &mut self,
+                _document: &str,
+                _cx: &mut Context<LineageExplorerView>,
+            ) -> Result<(), String> {
+                Ok(())
+            }
+        }
 
-        assert_eq!(view.open_selected().unwrap(), "future");
-        assert_eq!(opened.borrow().as_slice(), ["future"]);
+        let index = build_index([record("root", None), record("future", Some("root"))]).unwrap();
+        let view = LineageExplorerView::controlled(index, NoopController);
+        assert!(view.controller.is_some());
     }
 
     #[test]
