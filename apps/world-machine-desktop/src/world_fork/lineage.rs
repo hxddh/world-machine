@@ -9,6 +9,8 @@ use world_library::{DurableWorldSession, WorldDocumentId, WorldLibrary};
 use world_lineage::LineageIndex;
 use world_lineage_gpui::{LineageController, LineageExplorerView};
 
+const LINEAGE_BADGE_MAX_CHARS: usize = 34;
+
 pub(super) fn document_action(
     document: &SharedDocument,
     cx: &mut Context<WorldDocumentView>,
@@ -46,7 +48,7 @@ pub(super) fn document_action(
                 .border_color(rgb(0xa9b7d5))
                 .bg(rgb(0xf3f6fc))
                 .text_sm()
-                .child("Compare with parent")
+                .child("↔ Parent")
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.status = Some(match compare_with_parent(&document, cx) {
                         Ok((parent, current)) => {
@@ -126,6 +128,8 @@ fn compare_with_parent(
 
 fn lineage_badge(lineage: &WorldLineage) -> impl IntoElement {
     div()
+        .w(px(190.0))
+        .overflow_hidden()
         .p_2()
         .rounded_md()
         .border_1()
@@ -133,7 +137,10 @@ fn lineage_badge(lineage: &WorldLineage) -> impl IntoElement {
         .bg(rgb(0xf5f6f8))
         .text_xs()
         .text_color(rgb(0x5f6570))
-        .child(lineage_label(lineage))
+        .child(truncate_for_chrome(
+            &lineage_label(lineage),
+            LINEAGE_BADGE_MAX_CHARS,
+        ))
 }
 
 fn lineage_label(lineage: &WorldLineage) -> String {
@@ -162,6 +169,23 @@ fn lineage_label(lineage: &WorldLineage) -> String {
             )
         }
     }
+}
+
+fn truncate_for_chrome(label: &str, max_chars: usize) -> String {
+    let count = label.chars().count();
+    if count <= max_chars {
+        return label.to_owned();
+    }
+    if max_chars == 0 {
+        return String::new();
+    }
+    if max_chars == 1 {
+        return "…".into();
+    }
+
+    let mut compact = label.chars().take(max_chars - 1).collect::<String>();
+    compact.push('…');
+    compact
 }
 
 fn open_lineage(
@@ -326,5 +350,14 @@ mod tests {
             lineage_label(&lineage),
             "From world-machine.parent · Fork experiment · parent t7"
         );
+    }
+
+    #[test]
+    fn lineage_badge_text_is_unicode_safe_and_bounded() {
+        let long = "From 世界世界世界世界世界 · a very long strategy choice · +20";
+        let compact = truncate_for_chrome(long, 18);
+        assert_eq!(compact.chars().count(), 18);
+        assert!(compact.ends_with('…'));
+        assert_eq!(truncate_for_chrome("short", 18), "short");
     }
 }
