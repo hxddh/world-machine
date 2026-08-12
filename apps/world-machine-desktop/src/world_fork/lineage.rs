@@ -42,11 +42,9 @@ fn open_lineage(
 ) -> Result<usize, String> {
     let (current, registry, library) = {
         let document = document.borrow();
-        let current = document
-            .session
-            .document_id()
-            .cloned()
-            .ok_or_else(|| "Import this World into My Worlds before opening lineage".to_string())?;
+        let current = document.session.document_id().cloned().ok_or_else(|| {
+            "Import this World into My Worlds before opening lineage".to_string()
+        })?;
         (
             current,
             Arc::clone(&document.registry),
@@ -93,18 +91,15 @@ impl LineageController for AppLineageController {
         let mut session =
             DurableWorldSession::open(document_id, self.registry.as_ref(), self.library.as_ref())
                 .map_err(|error| error.to_string())?;
-        let notice = match observer::catch_up(
-            &mut session,
-            self.registry.as_ref(),
-            self.library.as_ref(),
-        ) {
-            Ok(Some(outcome)) => Some(format!(
-                "Advanced {} background period(s) · World time {}",
-                outcome.periods, outcome.world_time
-            )),
-            Ok(None) => None,
-            Err(error) => Some(format!("Catch-up skipped: {error}")),
-        };
+        let notice =
+            match observer::catch_up(&mut session, self.registry.as_ref(), self.library.as_ref()) {
+                Ok(Some(outcome)) => Some(format!(
+                    "Advanced {} background period(s) · World time {}",
+                    outcome.periods, outcome.world_time
+                )),
+                Ok(None) => None,
+                Err(error) => Some(format!("Catch-up skipped: {error}")),
+            };
         let pack = session.pack();
         let title = self
             .registry
