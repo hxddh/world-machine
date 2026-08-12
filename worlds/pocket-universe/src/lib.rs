@@ -54,7 +54,22 @@ impl AgentRuntime for PocketMind {
         observation: &AgentObservation,
         actions: &[AvailableAction],
     ) -> Result<AgentDecision, AgentRuntimeError> {
-        let desired = if (observation.world_time / BACKGROUND_PERIOD).is_multiple_of(2) {
+        let actor = observation
+            .entities
+            .iter()
+            .find(|entity| entity.id == observation.actor)
+            .ok_or_else(|| {
+                AgentRuntimeError::new("Pocket Mind observation is missing its actor")
+            })?;
+        let count = |key: &str| match actor.component(key) {
+            Some(Value::Integer(value)) => Ok(*value),
+            _ => Err(AgentRuntimeError::new(format!(
+                "Pocket Mind actor is missing integer component {key}"
+            ))),
+        };
+        let care_count = count(AGENT_CARE_COUNT)?;
+        let explore_count = count(AGENT_EXPLORE_COUNT)?;
+        let desired = if care_count <= explore_count {
             AGENT_CARE_ACTION
         } else {
             AGENT_EXPLORE_ACTION
@@ -1107,6 +1122,39 @@ mod tests {
                 .unwrap()
                 .component(AGENT_EXPLORE_COUNT),
             Some(&Value::Integer(1))
+        );
+    }
+
+    #[test]
+    fn deterministic_mind_uses_durable_actor_memory_even_without_time_advancing() {
+        let mut universe = PocketUniverse::new().unwrap();
+        universe
+            .invoke_projection_command(SEED_MARS_COLONY_COMMAND)
+            .unwrap();
+
+        universe.invoke_projection_command(NUDGE_COMMAND).unwrap();
+        universe.invoke_projection_command(NUDGE_COMMAND).unwrap();
+
+        let actor = universe.world().state().entity(SLOT_B).unwrap();
+        assert_eq!(actor.component(AGENT_CARE_COUNT), Some(&Value::Integer(1)));
+        assert_eq!(
+            actor.component(AGENT_EXPLORE_COUNT),
+            Some(&Value::Integer(1))
+        );
+        assert_eq!(universe.world().world_time(), 0);
+        let decisions = universe
+            .world()
+            .events()
+            .iter()
+            .filter(|event| event.kind == "agent_decision_recorded")
+            .filter_map(|event| event.payload.get("selected_action"))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            decisions,
+            vec![
+                &Value::Text(AGENT_CARE_ACTION.into()),
+                &Value::Text(AGENT_EXPLORE_ACTION.into())
+            ]
         );
     }
 
