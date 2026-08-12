@@ -1,0 +1,32 @@
+name: M53A Apply Runtime Patch
+
+on:
+  push:
+    branches:
+      - m53a-harden-process-pack-runtime
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: m53a-harden-process-pack-runtime
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt,clippy
+      - run: python scripts/m53a_apply.py
+      - run: cargo fmt --all
+      - run: cargo test -p world-pack-process
+      - run: cargo clippy -p world-pack-process --all-targets -- -D warnings
+      - run: bash ./scripts/check-boundaries.sh
+      - run: |
+          rm -f scripts/m53a_apply.py .github/workflows/m53a-apply.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "M53A: harden process Pack runtime" || exit 0
+          git push origin HEAD:m53a-harden-process-pack-runtime
