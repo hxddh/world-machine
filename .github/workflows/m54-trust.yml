@@ -1,0 +1,33 @@
+name: M54 Harden Content Trust
+
+on:
+  push:
+    branches:
+      - m54-installed-pack-catalog
+
+permissions:
+  contents: write
+
+jobs:
+  harden:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: m54-installed-pack-catalog
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt,clippy
+      - run: python scripts/m54_trust_patch.py
+      - run: cargo fmt --all
+      - run: cargo test -p world-pack-process -p world-pack-catalog
+      - run: cargo clippy -p world-pack-process -p world-pack-catalog --all-targets -- -D warnings
+      - run: bash ./scripts/check-boundaries.sh
+      - name: Commit hardened trust boundary
+        run: |
+          rm -f scripts/m54_trust_patch.py .github/workflows/m54-trust.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "M54: execute pinned Pack bytes and reject launcher args" || exit 0
+          git push origin HEAD:m54-installed-pack-catalog
