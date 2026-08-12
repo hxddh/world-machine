@@ -23,6 +23,7 @@ url = "2"
 world-document = { path = "../../crates/world-document" }
 world-lineage = { path = "../../crates/world-lineage" }
 world-lineage-compare = { path = "../../crates/world-lineage-compare" }
+world-lineage-gpui = { path = "../../crates/world-lineage-gpui" }
 world-persistence = { path = "../../crates/world-persistence" }
 world-strategy-document = { path = "../../crates/world-strategy-document" }
 world-strategy-gpui = { path = "../../crates/world-strategy-gpui" }
