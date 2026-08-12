@@ -23,6 +23,10 @@ jobs:
               - 'crates/world-gpui/**'
               - 'crates/world-strategy-gpui/**'
               - 'crates/world-lineage-gpui/**'
+              - 'crates/world-pack-protocol/**'
+              - 'crates/world-pack-process/**'
+              - 'crates/world-pack-catalog/**'
+              - 'crates/world-pack-server/**'
               - 'crates/world-projection/**'
               - 'crates/world-compare/**'
               - 'crates/world-strategy/**'
@@ -31,6 +35,7 @@ jobs:
               - 'crates/world-host/**'
               - 'crates/world-builtins/**'
               - 'crates/world-library/**'
+              - 'apps/tiny-society-pack/**'
               - 'apps/tiny-society-desktop/**'
               - 'apps/future-archaeologist-desktop/**'
               - 'apps/world-machine-desktop/**'
@@ -69,6 +74,7 @@ jobs:
         with:
           shared-key: gpui-macos
       - run: cargo test -p world-library
+      - run: cargo test -p tiny-society-pack
       - run: cargo check -p world-gpui
       - run: cargo check -p world-strategy-gpui
       - run: cargo check -p world-lineage-gpui
