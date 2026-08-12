@@ -1,6 +1,6 @@
 use super::{sanitize_document_base, unique_document_id, SharedDocument, WorldDocumentView};
 use gpui::{
-    div, prelude::*, px, rgb, size, AppContext, Bounds, Context, Div, Styled, WindowBounds,
+    div, prelude::*, px, rgb, size, AppContext, Bounds, Context, IntoElement, Styled, WindowBounds,
     WindowOptions,
 };
 use std::sync::Arc;
@@ -11,7 +11,7 @@ use world_library::{
 pub(crate) fn document_action(
     document: &SharedDocument,
     cx: &mut Context<WorldDocumentView>,
-) -> Div {
+) -> impl IntoElement {
     let document = document.clone();
     div()
         .id("fork-world-document")
