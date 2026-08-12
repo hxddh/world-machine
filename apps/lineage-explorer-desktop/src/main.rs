@@ -1,4 +1,19 @@
 #[cfg(target_os = "macos")]
+struct DemoController;
+
+#[cfg(target_os = "macos")]
+impl world_lineage_gpui::LineageController for DemoController {
+    fn open_document(
+        &mut self,
+        document: &str,
+        _cx: &mut gpui::Context<world_lineage_gpui::LineageExplorerView>,
+    ) -> Result<(), String> {
+        println!("Lineage Explorer demo would open {document}");
+        Ok(())
+    }
+}
+
+#[cfg(target_os = "macos")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use gpui::{px, size, App, AppContext, Bounds, WindowBounds, WindowOptions};
     use gpui_platform::application;
@@ -46,7 +61,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 ..Default::default()
             },
-            move |_, cx| cx.new(|_| LineageExplorerView::new(index)),
+            move |_, cx| cx.new(|_| LineageExplorerView::controlled(index, DemoController)),
         )
         .expect("failed to open World Lineage window");
         cx.activate(true);

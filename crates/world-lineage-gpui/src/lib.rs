@@ -4,19 +4,48 @@ use gpui::{
 use world_document::WorldBranchCause;
 use world_lineage::{LineageIndex, LineageNode};
 
+pub trait LineageController {
+    fn open_document(
+        &mut self,
+        document: &str,
+        cx: &mut Context<LineageExplorerView>,
+    ) -> Result<(), String>;
+}
+
 pub struct LineageExplorerView {
     index: LineageIndex,
     selected: Option<String>,
+    controller: Option<Box<dyn LineageController>>,
+    status: Option<String>,
 }
 
 impl LineageExplorerView {
     pub fn new(index: LineageIndex) -> Self {
+        Self::with_controller(index, None)
+    }
+
+    pub fn controlled<C>(index: LineageIndex, controller: C) -> Self
+    where
+        C: LineageController + 'static,
+    {
+        Self::with_controller(index, Some(Box::new(controller)))
+    }
+
+    fn with_controller(
+        index: LineageIndex,
+        controller: Option<Box<dyn LineageController>>,
+    ) -> Self {
         let selected = index
             .roots()
             .first()
             .map(ToString::to_string)
             .or_else(|| index.nodes().keys().next().map(ToString::to_string));
-        Self { index, selected }
+        Self {
+            index,
+            selected,
+            controller,
+            status: None,
+        }
     }
 
     fn node_by_label(&self, label: &str) -> Option<&LineageNode> {
@@ -24,6 +53,19 @@ impl LineageExplorerView {
             .nodes()
             .values()
             .find(|node| node.id.as_str() == label)
+    }
+
+    fn open_selected(&mut self, cx: &mut Context<Self>) -> Result<String, String> {
+        let document = self
+            .selected
+            .clone()
+            .ok_or_else(|| "Select a World before opening it".to_string())?;
+        let controller = self
+            .controller
+            .as_mut()
+            .ok_or_else(|| "This lineage view cannot open Worlds".to_string())?;
+        controller.open_document(&document, cx)?;
+        Ok(document)
     }
 
     fn render_tree_node(&self, label: String, depth: usize, cx: &mut Context<Self>) -> Div {
@@ -67,6 +109,7 @@ impl LineageExplorerView {
                 let label = label.clone();
                 move |this, _, _, cx| {
                     this.selected = Some(label.clone());
+                    this.status = None;
                     cx.notify();
                 }
             })));
@@ -76,7 +119,7 @@ impl LineageExplorerView {
         tree
     }
 
-    fn render_detail(&self) -> Div {
+    fn render_detail(&self, cx: &mut Context<Self>) -> Div {
         let Some(label) = self.selected.as_deref() else {
             return detail_shell().child("Select a World to inspect its lineage.");
         };
@@ -104,7 +147,7 @@ impl LineageExplorerView {
             })
             .unwrap_or_else(|| "Root World".into());
 
-        detail_shell()
+        let mut detail = detail_shell()
             .child(div().text_xl().child(node.id.to_string()))
             .child(detail_row(
                 "Pack",
@@ -117,7 +160,40 @@ impl LineageExplorerView {
             .child(detail_row("Current events", node.event_count.to_string()))
             .child(detail_row("Branch", branch_label(node.branch.as_ref())))
             .child(detail_row("Parent", parent))
-            .child(detail_row("Children", node.children.len().to_string()))
+            .child(detail_row("Children", node.children.len().to_string()));
+
+        if self.controller.is_some() {
+            detail = detail.child(
+                div()
+                    .id("open-lineage-world")
+                    .cursor_pointer()
+                    .p_2()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(rgb(0x6684c4))
+                    .bg(rgb(0xf2f6ff))
+                    .text_sm()
+                    .child("Open World")
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.status = Some(match this.open_selected(cx) {
+                            Ok(document) => format!("Opened {document}"),
+                            Err(error) => format!("Could not open World: {error}"),
+                        });
+                        cx.notify();
+                    })),
+            );
+        }
+        if let Some(status) = &self.status {
+            detail = detail.child(
+                div()
+                    .p_2()
+                    .rounded_md()
+                    .bg(rgb(0xeef2ea))
+                    .text_sm()
+                    .child(status.clone()),
+            );
+        }
+        detail
     }
 }
 
@@ -179,7 +255,7 @@ impl Render for LineageExplorerView {
                     .w_full()
                     .flex()
                     .child(tree)
-                    .child(self.render_detail()),
+                    .child(self.render_detail(cx)),
             )
     }
 }
@@ -258,6 +334,24 @@ mod tests {
         let index = build_index([record("root", None), record("future", Some("root"))]).unwrap();
         let view = LineageExplorerView::new(index);
         assert_eq!(view.selected.as_deref(), Some("root"));
+    }
+
+    #[test]
+    fn controlled_view_has_an_open_capability() {
+        struct NoopController;
+        impl LineageController for NoopController {
+            fn open_document(
+                &mut self,
+                _document: &str,
+                _cx: &mut Context<LineageExplorerView>,
+            ) -> Result<(), String> {
+                Ok(())
+            }
+        }
+
+        let index = build_index([record("root", None), record("future", Some("root"))]).unwrap();
+        let view = LineageExplorerView::controlled(index, NoopController);
+        assert!(view.controller.is_some());
     }
 
     #[test]
