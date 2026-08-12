@@ -1,9 +1,19 @@
-use world_host::{HostError, WorldRegistry};
+use world_host::{HostError, WorldPackSource, WorldRegistration, WorldRegistry};
+
+pub struct BuiltinWorlds;
+
+impl WorldPackSource for BuiltinWorlds {
+    fn registrations(&self) -> Result<Vec<WorldRegistration>, HostError> {
+        Ok(vec![
+            tiny_society::tiny_society_registration(),
+            future_archaeologist::future_archaeologist_registration(),
+        ])
+    }
+}
 
 pub fn registry() -> Result<WorldRegistry, HostError> {
     let mut registry = WorldRegistry::new();
-    registry.register(tiny_society::tiny_society_registration())?;
-    registry.register(future_archaeologist::future_archaeologist_registration())?;
+    registry.install_source(&BuiltinWorlds)?;
     Ok(registry)
 }
 
@@ -11,6 +21,19 @@ pub fn registry() -> Result<WorldRegistry, HostError> {
 mod tests {
     use super::*;
     use std::collections::BTreeSet;
+
+    #[test]
+    fn builtin_source_exposes_both_benchmark_worlds() {
+        let registrations = BuiltinWorlds.registrations().unwrap();
+        let ids = registrations
+            .iter()
+            .map(|registration| registration.descriptor.pack.id.as_str())
+            .collect::<BTreeSet<_>>();
+
+        assert_eq!(ids.len(), 2);
+        assert!(ids.contains(tiny_society::TINY_SOCIETY_PACK_ID));
+        assert!(ids.contains(future_archaeologist::FUTURE_ARCHAEOLOGIST_PACK_ID));
+    }
 
     #[test]
     fn catalog_lists_both_benchmark_worlds() {
