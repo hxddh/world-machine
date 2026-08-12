@@ -7,3 +7,5 @@ A Pack author keeps implementing the ordinary `WorldRegistration` / `WorldSessio
 A Pack executable can expose `--print-manifest` with `manifest_for_current_exe(&registration.descriptor)`. The resulting v1 manifest points directly at the current executable with no runtime arguments, so it is compatible with the installed Pack catalog's explicit approval, managed-copy, and content-pin model.
 
 Executable examples live outside this generic crate so the authoring adapter remains independent of any concrete World implementation.
+
+For distribution, `write_current_exe_bundle(&registration.descriptor, path)` writes a portable single-file `.worldpack`. Bundle v1 embeds exactly one executable, rewrites runtime identity to the bundle-owned `program`, and carries no launcher arguments. Desktop installation parses and verifies the bundle before materializing it into the managed Pack store; it does not execute source bundle code during installation.

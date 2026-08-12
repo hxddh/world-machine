@@ -8,6 +8,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process;
 use std::sync::atomic::{AtomicU64, Ordering};
+use world_pack_bundle::{PackBundle, PACK_BUNDLE_PROGRAM_NAME};
 use world_pack_process::{ProcessPack, ProcessPackPin, ProcessPackSource};
 use world_pack_protocol::PackManifest;
 use world_persistence::WorldPackRef;
@@ -143,35 +144,23 @@ impl PackCatalog {
         // The explicit approval is materialized into a World Machine-owned copy.
         // The catalog never relies on the user's download/source path after this point.
         let managed = self.materialize_managed_pack(&source)?;
-        let identity = managed.current_pin().map_err(process_error)?;
-        let installed = InstalledPack {
-            pack: managed.descriptor.pack.clone(),
-            title: managed.descriptor.title.clone(),
-            description: managed.descriptor.description.clone(),
-            manifest_path: managed.manifest_path.clone(),
-            command_path: managed.command.clone(),
-            manifest_sha256: identity.manifest_sha256().into(),
-            command_sha256: identity.command_sha256().into(),
-            approval: PackApproval::ExplicitInstall,
-            enabled: true,
-            active: true,
-            managed: true,
-        };
+        self.record_managed_install(managed)
+    }
 
-        let mut entries = self.entries.clone();
-        for entry in entries
-            .iter_mut()
-            .filter(|entry| entry.pack.id == installed.pack.id)
-        {
-            entry.active = false;
+    /// Install a portable `.worldpack` without executing any code from the bundle.
+    /// v1 bundles contain one direct program only; extraction verifies the embedded
+    /// SHA-256 before the managed Pack is published and pinned for runtime launch.
+    pub fn install_bundle(
+        &mut self,
+        bundle_path: impl AsRef<Path>,
+    ) -> Result<InstalledPack, CatalogError> {
+        let bundle = PackBundle::open(bundle_path).map_err(bundle_error)?;
+        let pack = bundle.manifest().descriptor.pack.clone();
+        if self.entry(&pack).is_some() {
+            return Err(CatalogError::AlreadyInstalled(pack));
         }
-        entries.push(installed.clone());
-        sort_entries(&mut entries);
-        if let Err(error) = self.commit(entries) {
-            cleanup_managed_pack(&self.path, &installed);
-            return Err(error);
-        }
-        Ok(installed)
+        let managed = self.materialize_managed_bundle(bundle)?;
+        self.record_managed_install(managed)
     }
 
     pub fn set_enabled(&mut self, pack: &WorldPackRef, enabled: bool) -> Result<(), CatalogError> {
@@ -302,6 +291,118 @@ impl PackCatalog {
         } else {
             PackAvailability::MissingVersion { installed_versions }
         }
+    }
+
+    fn record_managed_install(
+        &mut self,
+        managed: ProcessPack,
+    ) -> Result<InstalledPack, CatalogError> {
+        let managed_pack = managed.descriptor.pack.clone();
+        let result = (|| {
+            let identity = managed.current_pin().map_err(process_error)?;
+            let installed = InstalledPack {
+                pack: managed.descriptor.pack.clone(),
+                title: managed.descriptor.title.clone(),
+                description: managed.descriptor.description.clone(),
+                manifest_path: managed.manifest_path.clone(),
+                command_path: managed.command.clone(),
+                manifest_sha256: identity.manifest_sha256().into(),
+                command_sha256: identity.command_sha256().into(),
+                approval: PackApproval::ExplicitInstall,
+                enabled: true,
+                active: true,
+                managed: true,
+            };
+
+            let mut entries = self.entries.clone();
+            for entry in entries
+                .iter_mut()
+                .filter(|entry| entry.pack.id == installed.pack.id)
+            {
+                entry.active = false;
+            }
+            entries.push(installed.clone());
+            sort_entries(&mut entries);
+            self.commit(entries)?;
+            Ok(installed)
+        })();
+        if result.is_err() {
+            cleanup_managed_pack_identity(&self.path, &managed_pack);
+        }
+        result
+    }
+
+    fn materialize_managed_bundle(&self, bundle: PackBundle) -> Result<ProcessPack, CatalogError> {
+        let descriptor = bundle.manifest().descriptor.clone();
+        let final_dir = managed_pack_dir(&self.path, &descriptor.pack);
+        if final_dir.try_exists().map_err(|error| CatalogError::Io {
+            operation: "check managed Pack destination",
+            path: final_dir.clone(),
+            message: error.to_string(),
+        })? {
+            return Err(CatalogError::ManagedDestinationExists(descriptor.pack));
+        }
+        let store = managed_store_root(&self.path);
+        fs::create_dir_all(&store).map_err(|error| CatalogError::Io {
+            operation: "create managed Pack store",
+            path: store.clone(),
+            message: error.to_string(),
+        })?;
+        let nonce = TEMP_NONCE.fetch_add(1, Ordering::Relaxed);
+        let stage = store.join(format!(".install-{}-{nonce}.tmp", process::id()));
+        fs::create_dir(&stage).map_err(|error| CatalogError::Io {
+            operation: "create managed Pack staging directory",
+            path: stage.clone(),
+            message: error.to_string(),
+        })?;
+
+        let result = (|| {
+            let staged_program = stage.join(PACK_BUNDLE_PROGRAM_NAME);
+            bundle
+                .extract_program(&staged_program)
+                .map_err(bundle_error)?;
+
+            let managed_manifest =
+                PackManifest::process(descriptor.clone(), PACK_BUNDLE_PROGRAM_NAME, Vec::new());
+            let manifest_path = stage.join("pack.world-pack.json");
+            let mut manifest_json = managed_manifest
+                .to_json_pretty()
+                .map_err(|error| CatalogError::Json(error.to_string()))?
+                .into_bytes();
+            manifest_json.push(b'\n');
+            let mut manifest_file = OpenOptions::new()
+                .create_new(true)
+                .write(true)
+                .open(&manifest_path)
+                .map_err(|error| CatalogError::Io {
+                    operation: "create managed Pack manifest",
+                    path: manifest_path.clone(),
+                    message: error.to_string(),
+                })?;
+            manifest_file
+                .write_all(&manifest_json)
+                .and_then(|_| manifest_file.sync_all())
+                .map_err(|error| CatalogError::Io {
+                    operation: "write managed Pack manifest",
+                    path: manifest_path.clone(),
+                    message: error.to_string(),
+                })?;
+            drop(manifest_file);
+
+            fs::rename(&stage, &final_dir).map_err(|error| CatalogError::Io {
+                operation: "publish managed Pack",
+                path: final_dir.clone(),
+                message: error.to_string(),
+            })?;
+            sync_directory(&store);
+            ProcessPack::load(final_dir.join("pack.world-pack.json")).map_err(process_error)
+        })();
+
+        if result.is_err() {
+            let _ = fs::remove_dir_all(&stage);
+            let _ = fs::remove_dir_all(&final_dir);
+        }
+        result
     }
 
     fn materialize_managed_pack(&self, source: &ProcessPack) -> Result<ProcessPack, CatalogError> {
@@ -556,6 +657,12 @@ fn validate_managed_entries(
     Ok(())
 }
 
+fn cleanup_managed_pack_identity(catalog_path: &Path, pack: &WorldPackRef) {
+    let expected = managed_pack_dir(catalog_path, pack);
+    let _ = fs::remove_dir_all(expected);
+    sync_directory(&managed_store_root(catalog_path));
+}
+
 fn cleanup_managed_pack(catalog_path: &Path, entry: &InstalledPack) {
     if !entry.managed {
         return;
@@ -670,6 +777,10 @@ fn persist_document(path: &Path, entries: &[InstalledPack]) -> Result<(), Catalo
     Ok(())
 }
 
+fn bundle_error(error: impl fmt::Display) -> CatalogError {
+    CatalogError::Bundle(error.to_string())
+}
+
 fn process_error(error: impl fmt::Display) -> CatalogError {
     CatalogError::Process(error.to_string())
 }
@@ -682,6 +793,7 @@ pub enum CatalogError {
         message: String,
     },
     Json(String),
+    Bundle(String),
     UnsupportedFormat(String),
     UnsupportedVersion(u32),
     InvalidEntry(WorldPackRef),
@@ -718,6 +830,7 @@ impl fmt::Display for CatalogError {
         match self {
             Self::Io { operation, path, message } => write!(f, "could not {operation} {}: {message}", path.display()),
             Self::Json(error) => write!(f, "could not decode Pack catalog: {error}"),
+            Self::Bundle(error) => write!(f, "could not install Pack bundle: {error}"),
             Self::UnsupportedFormat(format) => write!(f, "unsupported Pack catalog format: {format}"),
             Self::UnsupportedVersion(version) => write!(f, "unsupported Pack catalog version: {version}"),
             Self::InvalidEntry(pack) => write!(f, "invalid installed Pack entry: {}@{}", pack.id, pack.version),
@@ -824,6 +937,28 @@ mod tests {
                 .join("catalog.json")
         );
         fs::remove_file(alias).unwrap();
+    }
+
+    #[test]
+    fn portable_bundle_install_owns_program_after_source_is_removed() {
+        use world_pack_bundle::write_program_bundle;
+
+        let root = temp_dir("bundle-install");
+        let program = root.join("bundle-runtime");
+        fs::write(&program, b"portable-runtime").unwrap();
+        let descriptor =
+            PackDescriptor::new(pack("fixture.bundle", "opaque-v1"), "Bundle", "fixture");
+        let bundle_path = root.join("fixture.worldpack");
+        write_program_bundle(&bundle_path, descriptor, &program).unwrap();
+
+        let mut catalog = PackCatalog::open(root.join("catalog.json")).unwrap();
+        let installed = catalog.install_bundle(&bundle_path).unwrap();
+        assert!(installed.managed);
+        assert!(installed.command_path.starts_with(root.join("Installed")));
+        fs::remove_file(&bundle_path).unwrap();
+        fs::remove_file(&program).unwrap();
+        assert!(catalog.trusted_source().is_ok());
+        assert!(installed.command_path.exists());
     }
 
     #[test]
