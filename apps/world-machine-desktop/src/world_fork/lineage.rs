@@ -256,7 +256,7 @@ impl LineageController for AppLineageController {
         let pack = session.pack();
         let title = self
             .registry
-            .descriptor(&pack.id)
+            .descriptor_for(&pack)
             .map(|descriptor| descriptor.title.clone())
             .unwrap_or(pack.id);
         let registry = Arc::clone(&self.registry);

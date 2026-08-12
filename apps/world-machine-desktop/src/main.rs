@@ -373,7 +373,7 @@ impl WorldMachineHome {
             .documents
             .iter()
             .find(|document| document.id == document_id)
-            .and_then(|document| self.registry.descriptor(&document.pack.id))
+            .and_then(|document| self.registry.descriptor_for(&document.pack))
             .map(|descriptor| descriptor.title.clone())
             .unwrap_or_else(|| document_id.to_string());
         let session = match DurableWorldSession::open(document_id, &self.registry, &self.library) {
@@ -412,7 +412,7 @@ impl WorldMachineHome {
         let pack = session.pack();
         let title = self
             .registry
-            .descriptor(&pack.id)
+            .descriptor_for(&pack)
             .map(|descriptor| descriptor.title.clone())
             .unwrap_or(pack.id);
         self.open_session(session, title, cx);
@@ -452,7 +452,7 @@ impl WorldMachineHome {
         let pack = session.pack();
         let title = self
             .registry
-            .descriptor(&pack.id)
+            .descriptor_for(&pack)
             .map(|descriptor| descriptor.title.clone())
             .unwrap_or(pack.id);
         self.refresh_documents();
@@ -544,7 +544,7 @@ impl WorldMachineHome {
         let export_id = document.id.clone();
         let title = self
             .registry
-            .descriptor(&document.pack.id)
+            .descriptor_for(&document.pack)
             .map(|descriptor| descriptor.title.clone())
             .unwrap_or_else(|| document.pack.id.clone());
         let document_label = document.id.to_string();

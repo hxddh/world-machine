@@ -150,7 +150,7 @@ impl SavedWorldSetupView {
             let is_selected = selected.is_some_and(|selected| selected == &id);
             let title = self
                 .registry
-                .descriptor(&document.pack.id)
+                .descriptor_for(&document.pack)
                 .map(|descriptor| descriptor.title.clone())
                 .unwrap_or_else(|| document.pack.id.clone());
             let mut card = div()
