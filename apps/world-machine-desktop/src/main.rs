@@ -246,6 +246,45 @@ impl Render for WorldDocumentView {
 }
 
 #[cfg(target_os = "macos")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum HomeStatusTone {
+    Info,
+    Success,
+    Error,
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct HomeStatus {
+    message: String,
+    tone: HomeStatusTone,
+}
+
+#[cfg(target_os = "macos")]
+impl HomeStatus {
+    fn info(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            tone: HomeStatusTone::Info,
+        }
+    }
+
+    fn success(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            tone: HomeStatusTone::Success,
+        }
+    }
+
+    fn error(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            tone: HomeStatusTone::Error,
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
 struct WorldMachineHome {
     registry: Arc<world_host::WorldRegistry>,
     library: Arc<WorldLibrary>,
@@ -258,7 +297,7 @@ struct WorldMachineHome {
     pending_start_after_install: Option<WorldPackRef>,
     ready_pack_to_create: Option<WorldPackRef>,
     probing_packs: Vec<WorldPackRef>,
-    status: Option<String>,
+    status: Option<HomeStatus>,
 }
 
 #[cfg(target_os = "macos")]
@@ -281,7 +320,9 @@ impl WorldMachineHome {
                     match path {
                         Ok(path) => this.open_external_path(path, cx),
                         Err(error) => {
-                            this.status = Some(format!("Could not open World file: {error}"));
+                            this.status = Some(HomeStatus::error(format!(
+                                "Could not open World file: {error}"
+                            )));
                             cx.notify();
                         }
                     }
@@ -309,10 +350,10 @@ impl WorldMachineHome {
             match PackCatalog::open(&self.pack_catalog_path) {
                 Ok(catalog) => self.pack_catalog = Some(catalog),
                 Err(error) => {
-                    self.status = Some(format!(
+                    self.status = Some(HomeStatus::error(format!(
                         "Could not open Installed Packs catalog {}: {error}",
                         self.pack_catalog_path.display()
-                    ));
+                    )));
                     cx.notify();
                     return;
                 }
@@ -328,28 +369,31 @@ impl WorldMachineHome {
                 {
                     let expected = expected_pack.unwrap();
                     self.pending_pack_install = None;
-                    self.status = Some(format!(
+                    self.status = Some(HomeStatus::error(format!(
                         "Included Pack identity mismatch: expected {} @ {}, found {} @ {}",
                         expected.id,
                         expected.version,
                         preview.pack().id,
                         preview.pack().version
-                    ));
+                    )));
                     cx.notify();
                     return;
                 }
-                self.status = Some(format!(
+                self.status = Some(HomeStatus::info(format!(
                     "Review {} @ {} before trusting its executable bytes",
                     preview.pack().id,
                     preview.pack().version
-                ));
+                )));
                 self.pending_start_after_install =
                     start_after_install.then(|| preview.pack().clone());
                 self.pending_pack_install = Some(preview);
             }
             Err(error) => {
                 self.pending_pack_install = None;
-                self.status = Some(format!("Could not inspect {}: {error}", source.display()));
+                self.status = Some(HomeStatus::error(format!(
+                    "Could not inspect {}: {error}",
+                    source.display()
+                )));
             }
         }
         cx.notify();
@@ -377,14 +421,18 @@ impl WorldMachineHome {
                 Ok(Ok(None)) => return,
                 Ok(Err(error)) => {
                     let _ = this.update(cx, |this, cx| {
-                        this.status = Some(format!("Could not open Install Pack dialog: {error}"));
+                        this.status = Some(HomeStatus::error(format!(
+                            "Could not open Install Pack dialog: {error}"
+                        )));
                         cx.notify();
                     });
                     return;
                 }
                 Err(error) => {
                     let _ = this.update(cx, |this, cx| {
-                        this.status = Some(format!("Install Pack dialog was interrupted: {error}"));
+                        this.status = Some(HomeStatus::error(format!(
+                            "Install Pack dialog was interrupted: {error}"
+                        )));
                         cx.notify();
                     });
                     return;
@@ -418,9 +466,9 @@ impl WorldMachineHome {
                 self.start_pack_probe(installed.pack, true, start_after_install, cx);
             }
             Err(error) => {
-                self.status = Some(format!(
+                self.status = Some(HomeStatus::error(format!(
                     "Pack was not installed. Re-open it to review current content: {error}"
-                ));
+                )));
                 cx.notify();
             }
         }
@@ -444,14 +492,14 @@ impl WorldMachineHome {
             return;
         };
         self.probing_packs.push(pack.clone());
-        self.status = Some(if create_on_success {
+        self.status = Some(HomeStatus::info(if create_on_success {
             "Testing this World before first launch…".into()
         } else {
             format!(
                 "Testing trusted Pack {} @ {} · Create → Archive → fresh-process Open…",
                 pack.id, pack.version
             )
-        });
+        }));
         cx.notify();
 
         let probe_pack = pack.clone();
@@ -488,26 +536,26 @@ impl WorldMachineHome {
                                     if activate_on_success {
                                         this.ready_pack_to_create = Some(pack.clone());
                                     }
-                                    this.status = Some(format!(
+                                    this.status = Some(HomeStatus::success(format!(
                                         "Trusted and tested {} @ {} · durable Create/Archive/Open succeeded · World time {} → {}",
                                         pack.id,
                                         pack.version,
                                         probe.created_world_time,
                                         probe.reopened_world_time
-                                    ));
+                                    )));
                                 }
                                 Err(error) => {
-                                    this.status = Some(format!(
+                                    this.status = Some(HomeStatus::error(format!(
                                         "Pack {} @ {} passed its durable probe, but Registry rebuild failed: {error}",
                                         pack.id, pack.version
-                                    ));
+                                    )));
                                 }
                             },
                             Err(error) => {
-                                this.status = Some(format!(
+                                this.status = Some(HomeStatus::error(format!(
                                     "Pack {} @ {} passed its durable probe, but could not be enabled: {error}",
                                     pack.id, pack.version
-                                ));
+                                )));
                             }
                         }
                     }
@@ -516,10 +564,10 @@ impl WorldMachineHome {
                             this.ready_pack_to_create = None;
                         }
                         let _ = this.rebuild_registry();
-                        this.status = Some(format!(
+                        this.status = Some(HomeStatus::error(format!(
                             "Installed and trusted {} @ {}, but its durable activation probe failed. The Pack remains disabled: {error}",
                             pack.id, pack.version
-                        ));
+                        )));
                     }
                 }
                 cx.notify();
@@ -549,7 +597,9 @@ impl WorldMachineHome {
     fn cancel_pack_install(&mut self, cx: &mut Context<Self>) {
         self.pending_pack_install = None;
         self.pending_start_after_install = None;
-        self.status = Some("Pack installation cancelled; no external code was installed.".into());
+        self.status = Some(HomeStatus::info(
+            "Pack installation cancelled; no external code was installed.",
+        ));
         cx.notify();
     }
 
@@ -567,23 +617,23 @@ impl WorldMachineHome {
         match catalog.activate(&pack) {
             Ok(()) => match self.rebuild_registry() {
                 Ok(()) => {
-                    self.status = Some(format!(
+                    self.status = Some(HomeStatus::success(format!(
                         "Activated {} @ {} for new Worlds",
                         pack.id, pack.version
-                    ))
+                    )))
                 }
                 Err(error) => {
-                    self.status = Some(format!(
+                    self.status = Some(HomeStatus::error(format!(
                         "Changed active Pack to {} @ {}, but Registry rebuild failed: {error}",
                         pack.id, pack.version
-                    ))
+                    )))
                 }
             },
             Err(error) => {
-                self.status = Some(format!(
+                self.status = Some(HomeStatus::error(format!(
                     "Could not activate {} @ {}: {error}",
                     pack.id, pack.version
-                ))
+                )))
             }
         }
         cx.notify();
@@ -599,27 +649,27 @@ impl WorldMachineHome {
         match catalog.set_enabled(&pack, enabled) {
             Ok(()) => match self.rebuild_registry() {
                 Ok(()) => {
-                    self.status = Some(format!(
+                    self.status = Some(HomeStatus::success(format!(
                         "{} {} @ {}",
                         if enabled { "Enabled" } else { "Disabled" },
                         pack.id,
                         pack.version
-                    ))
+                    )))
                 }
                 Err(error) => {
-                    self.status = Some(format!(
+                    self.status = Some(HomeStatus::error(format!(
                         "Updated {} @ {}, but Registry rebuild failed: {error}",
                         pack.id, pack.version
-                    ))
+                    )))
                 }
             },
             Err(error) => {
-                self.status = Some(format!(
+                self.status = Some(HomeStatus::error(format!(
                     "Could not {} {} @ {}: {error}",
                     if enabled { "enable" } else { "disable" },
                     pack.id,
                     pack.version
-                ))
+                )))
             }
         }
         cx.notify();
@@ -663,7 +713,11 @@ impl WorldMachineHome {
                 self.documents = documents;
                 self.refresh_lineage();
             }
-            Err(error) => self.status = Some(format!("Could not read World Library: {error}")),
+            Err(error) => {
+                self.status = Some(HomeStatus::error(format!(
+                    "Could not read World Library: {error}"
+                )))
+            }
         }
     }
 
@@ -672,7 +726,9 @@ impl WorldMachineHome {
             Ok(lineage) => self.lineage = Some(lineage),
             Err(error) => {
                 self.lineage = None;
-                self.status = Some(format!("Could not build World lineage: {error}"));
+                self.status = Some(HomeStatus::error(format!(
+                    "Could not build World lineage: {error}"
+                )));
             }
         }
     }
@@ -698,16 +754,16 @@ impl WorldMachineHome {
 
         self.status = Some(match opened {
             Ok(_) => match catch_up {
-                Ok(Some(outcome)) => format!(
+                Ok(Some(outcome)) => HomeStatus::success(format!(
                     "Opened {title} · {document_label} · Advanced {} background period(s) · World time {}",
                     outcome.periods, outcome.world_time
-                ),
-                Ok(None) => format!("Opened {title} · {document_label}"),
-                Err(error) => {
-                    format!("Opened {title} · {document_label} · Catch-up skipped: {error}")
-                }
+                )),
+                Ok(None) => HomeStatus::success(format!("Opened {title} · {document_label}")),
+                Err(error) => HomeStatus::info(format!(
+                    "Opened {title} · {document_label} · Catch-up skipped: {error}"
+                )),
             },
-            Err(error) => format!("Could not open {title}: {error}"),
+            Err(error) => HomeStatus::error(format!("Could not open {title}: {error}")),
         });
         cx.notify();
     }
@@ -721,7 +777,9 @@ impl WorldMachineHome {
         let document_id = match new_document_id(&pack_id, &self.library) {
             Ok(id) => id,
             Err(error) => {
-                self.status = Some(format!("Could not create {title}: {error}"));
+                self.status = Some(HomeStatus::error(format!(
+                    "Could not create {title}: {error}"
+                )));
                 cx.notify();
                 return;
             }
@@ -731,7 +789,9 @@ impl WorldMachineHome {
             {
                 Ok(session) => session,
                 Err(error) => {
-                    self.status = Some(format!("Could not create {title}: {error}"));
+                    self.status = Some(HomeStatus::error(format!(
+                        "Could not create {title}: {error}"
+                    )));
                     cx.notify();
                     return;
                 }
@@ -754,7 +814,7 @@ impl WorldMachineHome {
             .find(|document| document.id == document_id);
         if let Some(document) = summary {
             if self.registry.descriptor_for(&document.pack).is_none() {
-                self.status = Some(self.missing_pack_message(&document.pack));
+                self.status = Some(HomeStatus::error(self.missing_pack_message(&document.pack)));
                 cx.notify();
                 return;
             }
@@ -766,7 +826,9 @@ impl WorldMachineHome {
         let session = match DurableWorldSession::open(document_id, &self.registry, &self.library) {
             Ok(session) => session,
             Err(error) => {
-                self.status = Some(format!("Could not open {title}: {error}"));
+                self.status = Some(HomeStatus::error(format!(
+                    "Could not open {title}: {error}"
+                )));
                 cx.notify();
                 return;
             }
@@ -784,19 +846,22 @@ impl WorldMachineHome {
             return;
         }
         if !is_world_file(&source) {
-            self.status = Some(format!(
+            self.status = Some(HomeStatus::error(format!(
                 "Could not open {}: choose a {} document or {} Pack",
                 source.display(),
                 WORLD_DOCUMENT_SUFFIX,
                 PACK_BUNDLE_SUFFIX
-            ));
+            )));
             cx.notify();
             return;
         }
         let session = match DurableWorldSession::open_file(source.clone(), &self.registry) {
             Ok(session) => session,
             Err(error) => {
-                self.status = Some(format!("Could not open {}: {error}", source.display()));
+                self.status = Some(HomeStatus::error(format!(
+                    "Could not open {}: {error}",
+                    source.display()
+                )));
                 cx.notify();
                 return;
             }
@@ -812,18 +877,21 @@ impl WorldMachineHome {
 
     fn import_path(&mut self, source: PathBuf, cx: &mut Context<Self>) {
         if !is_world_file(&source) {
-            self.status = Some(format!(
+            self.status = Some(HomeStatus::error(format!(
                 "Could not import {}: choose a {} file",
                 source.display(),
                 WORLD_DOCUMENT_SUFFIX
-            ));
+            )));
             cx.notify();
             return;
         }
         let document_id = match imported_document_id(&source, &self.library) {
             Ok(id) => id,
             Err(error) => {
-                self.status = Some(format!("Could not import {}: {error}", source.display()));
+                self.status = Some(HomeStatus::error(format!(
+                    "Could not import {}: {error}",
+                    source.display()
+                )));
                 cx.notify();
                 return;
             }
@@ -836,7 +904,10 @@ impl WorldMachineHome {
         ) {
             Ok(session) => session,
             Err(error) => {
-                self.status = Some(format!("Could not import {}: {error}", source.display()));
+                self.status = Some(HomeStatus::error(format!(
+                    "Could not import {}: {error}",
+                    source.display()
+                )));
                 cx.notify();
                 return;
             }
@@ -864,14 +935,18 @@ impl WorldMachineHome {
                 Ok(Ok(None)) => return,
                 Ok(Err(error)) => {
                     let _ = this.update(cx, |this, cx| {
-                        this.status = Some(format!("Could not open Import dialog: {error}"));
+                        this.status = Some(HomeStatus::error(format!(
+                            "Could not open Import dialog: {error}"
+                        )));
                         cx.notify();
                     });
                     return;
                 }
                 Err(error) => {
                     let _ = this.update(cx, |this, cx| {
-                        this.status = Some(format!("Import dialog was interrupted: {error}"));
+                        this.status = Some(HomeStatus::error(format!(
+                            "Import dialog was interrupted: {error}"
+                        )));
                         cx.notify();
                     });
                     return;
@@ -894,14 +969,18 @@ impl WorldMachineHome {
                 Ok(Ok(None)) => return,
                 Ok(Err(error)) => {
                     let _ = this.update(cx, |this, cx| {
-                        this.status = Some(format!("Could not open Export dialog: {error}"));
+                        this.status = Some(HomeStatus::error(format!(
+                            "Could not open Export dialog: {error}"
+                        )));
                         cx.notify();
                     });
                     return;
                 }
                 Err(error) => {
                     let _ = this.update(cx, |this, cx| {
-                        this.status = Some(format!("Export dialog was interrupted: {error}"));
+                        this.status = Some(HomeStatus::error(format!(
+                            "Export dialog was interrupted: {error}"
+                        )));
                         cx.notify();
                     });
                     return;
@@ -911,14 +990,16 @@ impl WorldMachineHome {
             let _ = this.update(cx, |this, cx| {
                 match this.library.export_file(&document_id, &destination) {
                     Ok(()) => {
-                        this.status = Some(format!(
+                        this.status = Some(HomeStatus::success(format!(
                             "Exported {} to {}",
                             document_id,
                             destination.display()
-                        ));
+                        )));
                     }
                     Err(error) => {
-                        this.status = Some(format!("Could not export {document_id}: {error}"));
+                        this.status = Some(HomeStatus::error(format!(
+                            "Could not export {document_id}: {error}"
+                        )));
                     }
                 }
                 cx.notify();
@@ -1771,13 +1852,19 @@ impl Render for WorldMachineHome {
         }
 
         if let Some(status) = &self.status {
+            let (background, foreground) = match status.tone {
+                HomeStatusTone::Info => (0xf1f5fb, 0x4e6fb3),
+                HomeStatusTone::Success => (0xeef2ea, 0x4d6748),
+                HomeStatusTone::Error => (0xfbf0ee, 0x9b4a42),
+            };
             body = body.child(
                 div()
                     .p_3()
                     .rounded_md()
-                    .bg(rgb(0xeef2ea))
+                    .bg(rgb(background))
+                    .text_color(rgb(foreground))
                     .text_sm()
-                    .child(status.clone()),
+                    .child(status.message.clone()),
             );
         }
         body
@@ -2007,6 +2094,18 @@ mod file_type_tests {
     use super::*;
 
     #[test]
+    fn home_status_tone_is_explicit_not_inferred_from_message_text() {
+        let info = HomeStatus::info("Could not-looking informational text");
+        let success = HomeStatus::success("done");
+        let error = HomeStatus::error("failed");
+
+        assert_eq!(info.tone, HomeStatusTone::Info);
+        assert_eq!(success.tone, HomeStatusTone::Success);
+        assert_eq!(error.tone, HomeStatusTone::Error);
+        assert_eq!(info.message, "Could not-looking informational text");
+    }
+
+    #[test]
     fn world_summary_title_prefers_semantic_title_and_falls_back_cleanly() {
         let pack = WorldPackRef::new("pocket-universe", "0.10.0");
         let mut summary = WorldDocumentSummary {
@@ -2120,7 +2219,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ),
     };
 
-    let status = pack_status.or(library_status).or(included_status);
+    let status = pack_status
+        .or(library_status)
+        .or(included_status)
+        .map(HomeStatus::error);
 
     application.run(move |cx: &mut App| {
         let home = cx.new(|cx| {
