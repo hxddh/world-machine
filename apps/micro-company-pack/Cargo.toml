@@ -1,0 +1,17 @@
+[package]
+name = "micro-company-pack"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+micro-company = { path = "../../worlds/micro-company" }
+world-pack-server = { path = "../../crates/world-pack-server" }
+world-pi-rpc = { path = "../../crates/world-pi-rpc" }
+
+[dev-dependencies]
+world-host = { path = "../../crates/world-host" }
+world-pack-catalog = { path = "../../crates/world-pack-catalog" }
+world-persistence = { path = "../../crates/world-persistence" }
+world-projection = { path = "../../crates/world-projection" }
