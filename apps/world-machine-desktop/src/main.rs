@@ -756,29 +756,35 @@ impl WorldMachineHome {
         }
     }
 
-    fn refresh_documents(&mut self) {
-        match self.library.list() {
-            Ok(documents) => {
-                self.documents = documents;
-                self.refresh_lineage();
+    fn refresh_documents(&mut self) -> Result<usize, HomeStatus> {
+        let documents = self
+            .library
+            .list()
+            .map_err(|error| HomeStatus::error(format!("Could not read World Library: {error}")))?;
+        let count = documents.len();
+        self.documents = documents;
+        self.refresh_lineage()?;
+        Ok(count)
+    }
+
+    fn refresh_lineage(&mut self) -> Result<(), HomeStatus> {
+        match LineageIndex::from_library(self.library.as_ref()) {
+            Ok(lineage) => {
+                self.lineage = Some(lineage);
+                Ok(())
             }
             Err(error) => {
-                self.status = Some(HomeStatus::error(format!(
-                    "Could not read World Library: {error}"
+                self.lineage = None;
+                Err(HomeStatus::error(format!(
+                    "Could not build World lineage: {error}"
                 )))
             }
         }
     }
 
-    fn refresh_lineage(&mut self) {
-        match LineageIndex::from_library(self.library.as_ref()) {
-            Ok(lineage) => self.lineage = Some(lineage),
-            Err(error) => {
-                self.lineage = None;
-                self.status = Some(HomeStatus::error(format!(
-                    "Could not build World lineage: {error}"
-                )));
-            }
+    fn sync_documents_after_mutation(&mut self) {
+        if let Err(status) = self.refresh_documents() {
+            self.status = Some(status);
         }
     }
 
@@ -845,7 +851,7 @@ impl WorldMachineHome {
                     return;
                 }
             };
-        self.refresh_documents();
+        self.sync_documents_after_mutation();
         if self
             .ready_pack_to_create
             .as_ref()
@@ -967,7 +973,7 @@ impl WorldMachineHome {
             .descriptor_for(&pack)
             .map(|descriptor| descriptor.title.clone())
             .unwrap_or(pack.id);
-        self.refresh_documents();
+        self.sync_documents_after_mutation();
         self.open_session(session, title, cx);
     }
 
@@ -1798,7 +1804,12 @@ impl Render for WorldMachineHome {
             .text_sm()
             .child("Refresh")
             .on_click(cx.listener(|this, _, _, cx| {
-                this.refresh_documents();
+                this.status = Some(match this.refresh_documents() {
+                    Ok(count) => {
+                        HomeStatus::success(format!("Refreshed My Worlds · {count} World(s)"))
+                    }
+                    Err(status) => status,
+                });
                 cx.notify();
             }));
         let install_pack = div()
