@@ -207,6 +207,22 @@ fn pocket_universe_is_a_real_external_pack_with_durable_seed_and_growth() {
             "fresh Open must restore recorded truth without invoking Pi"
         );
         let reopened_snapshot = reopened_without_pi.snapshot();
+        let relationship = reopened_snapshot
+            .inspectors
+            .values()
+            .find(|inspector| inspector.title == "Nia ↔ Tomas")
+            .expect("Pi relationship inspector");
+        assert!(relationship
+            .sections
+            .iter()
+            .flat_map(|section| &section.rows)
+            .any(|row| row.label == "Trust" && row.value == "0"));
+        assert!(relationship
+            .sections
+            .iter()
+            .flat_map(|section| &section.rows)
+            .any(|row| row.label == "Tension" && row.value == "2"));
+
         for actor_title in ["Nia Chen", "Tomas Vale"] {
             let actor = reopened_snapshot
                 .inspectors

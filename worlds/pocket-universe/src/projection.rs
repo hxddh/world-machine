@@ -1,7 +1,7 @@
 use crate::{
     seed_id, BOLD_PATH_COMMAND, CAREFUL_PATH_COMMAND, DECISION, GENERATION, LAST_CHANGE,
-    NUDGE_COMMAND, SEED_1980S_TOWN_COMMAND, SEED_MARS_COLONY_COMMAND,
-    SEED_PENGUIN_CIVILIZATION_COMMAND, UNIVERSE,
+    NUDGE_COMMAND, RELATIONSHIP, RELATIONSHIP_DIRECTION, RIVALRY_COMMAND, SEED_1980S_TOWN_COMMAND,
+    SEED_MARS_COLONY_COMMAND, SEED_PENGUIN_CIVILIZATION_COMMAND, SHARED_PROJECT_COMMAND, UNIVERSE,
 };
 use world_core::{Entity, Event, Value, World};
 use world_projection::{
@@ -71,6 +71,23 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
         detail: "Let one small, persistent change happen now.".into(),
     }];
     let generation = integer_component(world, GENERATION).unwrap_or_default();
+    let relationship_direction = text_component(
+        world.state().entity(RELATIONSHIP),
+        RELATIONSHIP_DIRECTION,
+        "none",
+    );
+    if generation >= 2 && relationship_direction == "none" {
+        commands.push(ProjectionCommand {
+            id: SHARED_PROJECT_COMMAND.into(),
+            title: "Give them a shared project".into(),
+            detail: "Create a goal that neither actor can complete alone; future interactions will lean toward trust.".into(),
+        });
+        commands.push(ProjectionCommand {
+            id: RIVALRY_COMMAND.into(),
+            title: "Let rivalry sharpen them".into(),
+            detail: "Keep both actors independent and let competition add pressure to future interactions.".into(),
+        });
+    }
     let decision = text_component(world.state().entity(UNIVERSE), DECISION, "none");
     if generation >= 3 && decision == "none" {
         let (bold_title, bold_detail, careful_title, careful_detail) =
@@ -159,6 +176,8 @@ fn return_item(event: &Event) -> BriefingItem {
             "universe_seeded" => "A world began".into(),
             "agent_cared_for_world" => "Someone cared for the world".into(),
             "agent_explored_world" => "Someone explored beyond routine".into(),
+            "relationship_shifted" => "Their relationship changed".into(),
+            "relationship_steered" => "You steered their relationship".into(),
             _ => event.kind.replace('_', " "),
         },
         detail,
@@ -182,12 +201,13 @@ fn collection(world: &World) -> CollectionProjection {
 }
 
 fn canvas(world: &World) -> CanvasProjection {
-    const POSITIONS: [(f32, f32); 5] = [
-        (0.16, 0.28),
-        (0.72, 0.24),
-        (0.18, 0.76),
-        (0.76, 0.72),
-        (0.48, 0.52),
+    const POSITIONS: [(f32, f32); 6] = [
+        (0.14, 0.24),
+        (0.72, 0.22),
+        (0.16, 0.78),
+        (0.78, 0.74),
+        (0.50, 0.48),
+        (0.50, 0.82),
     ];
     let items = world
         .state()
