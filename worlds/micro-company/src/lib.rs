@@ -79,7 +79,10 @@ impl AgentRuntime for CompanyMind {
         } else if observation.actor == GROWTH_LEAD {
             let product_outcome = observation.events.iter().rev().find(|event| {
                 event.actor == Some(PRODUCT_LEAD)
-                    && matches!(event.kind.as_str(), "agent_built_product" | "agent_sold_product")
+                    && matches!(
+                        event.kind.as_str(),
+                        "agent_built_product" | "agent_sold_product"
+                    )
             });
             match product_outcome.map(|event| event.kind.as_str()) {
                 Some("agent_built_product") => SELL_ACTION,
@@ -87,7 +90,9 @@ impl AgentRuntime for CompanyMind {
                 _ => SELL_ACTION,
             }
         } else {
-            return Err(AgentRuntimeError::new("Company Mind received an unknown actor"));
+            return Err(AgentRuntimeError::new(
+                "Company Mind received an unknown actor",
+            ));
         };
 
         if !actions.iter().any(|action| action.name() == desired) {
@@ -169,10 +174,9 @@ where
 
     pub fn invoke_projection_command(&mut self, command_id: &str) -> Result<(), Box<dyn Error>> {
         if command_id != RUN_CYCLE_COMMAND {
-            return Err(std::io::Error::other(format!(
-                "unknown projection command: {command_id}"
-            ))
-            .into());
+            return Err(
+                std::io::Error::other(format!("unknown projection command: {command_id}")).into(),
+            );
         }
         self.advance_cycles(1)
     }
@@ -187,10 +191,7 @@ where
                 .world_time()
                 .checked_add(BACKGROUND_PERIOD)
                 .ok_or_else(|| std::io::Error::other("Micro Company time overflow"))?;
-            candidate.schedule_at(
-                target,
-                ActionRequest::new("market_cycle").actor(COMPANY),
-            )?;
+            candidate.schedule_at(target, ActionRequest::new("market_cycle").actor(COMPANY))?;
             let executed = candidate.advance_to(&self.actions, target)?;
             let market_event = executed.last().copied().ok_or_else(|| {
                 std::io::Error::other("scheduled Micro Company market cycle did not run")
@@ -531,7 +532,9 @@ impl Action for MarketCycle {
         let mut draft = EventDraft::new("market_cycle_started");
         draft.targets = vec![COMPANY, PRODUCT, MARKET];
         draft.payload.insert("cycle".into(), next_cycle.into());
-        draft.payload.insert("summary".into(), summary.clone().into());
+        draft
+            .payload
+            .insert("summary".into(), summary.clone().into());
         draft.changes = vec![
             StateChange::SetComponent {
                 entity: COMPANY,
@@ -649,7 +652,9 @@ fn agent_action_draft(
         let summary = format!(
             "{actor_name} spent one unit of runway and pushed Northstar to quality {quality}."
         );
-        draft.payload.insert("summary".into(), summary.clone().into());
+        draft
+            .payload
+            .insert("summary".into(), summary.clone().into());
         changes.extend([
             StateChange::SetComponent {
                 entity: PRODUCT,
@@ -673,7 +678,9 @@ fn agent_action_draft(
         let summary = format!(
             "{actor_name} won customer {customers} and brought two units of cash back into Northstar."
         );
-        draft.payload.insert("summary".into(), summary.clone().into());
+        draft
+            .payload
+            .insert("summary".into(), summary.clone().into());
         changes.extend([
             StateChange::SetComponent {
                 entity: MARKET,
@@ -821,12 +828,11 @@ fn company_status(state: &WorldState) -> Result<String, ActionError> {
     text_component(state, COMPANY, STATUS)
 }
 
-fn text_component(
-    state: &WorldState,
-    entity: EntityId,
-    key: &str,
-) -> Result<String, ActionError> {
-    match state.entity(entity).and_then(|entity| entity.component(key)) {
+fn text_component(state: &WorldState, entity: EntityId, key: &str) -> Result<String, ActionError> {
+    match state
+        .entity(entity)
+        .and_then(|entity| entity.component(key))
+    {
         Some(Value::Text(value)) => Ok(value.clone()),
         _ => Err(ActionError::Invalid(format!(
             "entity {entity} has no text component {key}"
@@ -834,12 +840,11 @@ fn text_component(
     }
 }
 
-fn integer_component(
-    state: &WorldState,
-    entity: EntityId,
-    key: &str,
-) -> Result<i64, ActionError> {
-    match state.entity(entity).and_then(|entity| entity.component(key)) {
+fn integer_component(state: &WorldState, entity: EntityId, key: &str) -> Result<i64, ActionError> {
+    match state
+        .entity(entity)
+        .and_then(|entity| entity.component(key))
+    {
         Some(Value::Integer(value)) => Ok(*value),
         _ => Err(ActionError::Invalid(format!(
             "entity {entity} has no integer component {key}"
@@ -918,16 +923,15 @@ mod tests {
 
     #[test]
     fn same_build_runtime_burns_runway_and_builds_tension() {
-        let mind = MockAgentRuntime::scripted([
-            BUILD_ACTION,
-            BUILD_ACTION,
-            BUILD_ACTION,
-            BUILD_ACTION,
-        ]);
+        let mind =
+            MockAgentRuntime::scripted([BUILD_ACTION, BUILD_ACTION, BUILD_ACTION, BUILD_ACTION]);
         let mut company = MicroCompany::with_agent_runtime(mind).unwrap();
         company.advance_cycles(2).unwrap();
 
-        assert_eq!(text(company.world().state(), COMPANY, STATUS), "out-of-cash");
+        assert_eq!(
+            text(company.world().state(), COMPANY, STATUS),
+            "out-of-cash"
+        );
         assert_eq!(integer(company.world().state(), COMPANY, CASH), 0);
         assert_eq!(integer(company.world().state(), PRODUCT, QUALITY), 5);
         assert_eq!(integer(company.world().state(), MARKET, CUSTOMERS), 1);
@@ -991,6 +995,9 @@ mod tests {
             .id;
         company.fork_before_event(resolution).unwrap();
         assert_eq!(text(company.world().state(), COMPANY, STATUS), "searching");
-        assert!(company.projection_snapshot().command(RUN_CYCLE_COMMAND).is_some());
+        assert!(company
+            .projection_snapshot()
+            .command(RUN_CYCLE_COMMAND)
+            .is_some());
     }
 }

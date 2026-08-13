@@ -3071,6 +3071,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "micro-company"
+version = "0.1.0"
+dependencies = [
+ "world-agent",
+ "world-core",
+ "world-host",
+ "world-persistence",
+ "world-projection",
+]
+
+[[package]]
+name = "micro-company-pack"
+version = "0.1.0"
+dependencies = [
+ "micro-company",
+ "world-host",
+ "world-pack-catalog",
+ "world-pack-server",
+ "world-persistence",
+ "world-pi-rpc",
+ "world-projection",
+]
+
+[[package]]
 name = "minimal-lexical"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

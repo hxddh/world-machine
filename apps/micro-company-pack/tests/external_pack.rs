@@ -127,19 +127,13 @@ fn micro_company_is_a_real_external_pack_with_distinct_deterministic_and_pi_futu
         inspector_row(&traction, "Northstar Micro Company", "Cash"),
         Some("6")
     );
-    assert_eq!(
-        inspector_row(&traction, "Northstar", "Quality"),
-        Some("3")
-    );
+    assert_eq!(inspector_row(&traction, "Northstar", "Quality"), Some("3"));
     assert_eq!(
         inspector_row(&traction, "First Customers", "Customers"),
         Some("3")
     );
     assert_eq!(inspector_row(&traction, "Maya ↔ Jon", "Trust"), Some("2"));
-    assert_eq!(
-        inspector_row(&traction, "Maya ↔ Jon", "Tension"),
-        Some("0")
-    );
+    assert_eq!(inspector_row(&traction, "Maya ↔ Jon", "Tension"), Some("0"));
     assert!(traction.command(RUN_CYCLE_COMMAND).is_none());
 
     let deterministic_archive = deterministic.archive().unwrap().unwrap();
@@ -155,7 +149,10 @@ fn micro_company_is_a_real_external_pack_with_distinct_deterministic_and_pi_futu
     drop(deterministic);
     let reopened = registry.open_archive(&deterministic_archive).unwrap();
     let reopened_snapshot = reopened.snapshot();
-    assert_eq!(reopened_snapshot.title, "Northstar Micro Company · Traction");
+    assert_eq!(
+        reopened_snapshot.title,
+        "Northstar Micro Company · Traction"
+    );
     assert_eq!(reopened_snapshot.world_time, 20);
     assert_eq!(
         reopened_snapshot
@@ -223,8 +220,7 @@ fn micro_company_is_a_real_external_pack_with_distinct_deterministic_and_pi_futu
             .any(|event| event.kind == "agent_sold_product"));
         assert!(shutdown_archive.events.iter().any(|event| {
             event.kind == "agent_built_product"
-                && event.payload.get("mind_profile")
-                    == Some(&ArchivedValue::Text("pi".into()))
+                && event.payload.get("mind_profile") == Some(&ArchivedValue::Text("pi".into()))
         }));
         assert!(shutdown_archive
             .events
