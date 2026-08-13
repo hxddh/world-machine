@@ -1,0 +1,130 @@
+name: M101 semantic World filenames
+
+on:
+  push:
+    branches:
+      - m101-semantic-world-filenames
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: m101-semantic-world-filenames
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Prefer semantic World titles for exported filenames
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('apps/world-machine-desktop/src/main.rs')
+          text = path.read_text()
+
+          old = '        let suggested_name = canonical_world_name(&self.document_label);\n'
+          new = '''        let semantic_title = self.document.borrow().session.snapshot().title;
+          let suggested_name = suggested_world_file_name(&semantic_title, &self.document_label);
+          '''
+          assert text.count(old) == 1, 'Save As suggested-name anchor changed'
+          text = text.replace(old, new, 1)
+
+          old = '        let suggested_name = format!("{}{WORLD_DOCUMENT_SUFFIX}", document_id.as_str());\n'
+          new = '''        let semantic_title = self
+              .documents
+              .iter()
+              .find(|document| document.id == document_id)
+              .and_then(|document| document.display_title.as_deref())
+              .unwrap_or_default();
+          let suggested_name = suggested_world_file_name(semantic_title, document_id.as_str());
+          '''
+          assert text.count(old) == 1, 'Export suggested-name anchor changed'
+          text = text.replace(old, new, 1)
+
+          marker = '''#[cfg(target_os = "macos")]
+          fn canonical_world_name(label: &str) -> String {
+          '''
+          helper = '''#[cfg(target_os = "macos")]
+          fn suggested_world_file_name(semantic_title: &str, fallback_label: &str) -> String {
+              let semantic_title = semantic_title.trim();
+              let source = if semantic_title.is_empty() {
+                  fallback_label
+              } else {
+                  semantic_title
+              };
+              let source = source
+                  .strip_suffix(LEGACY_WORLD_DOCUMENT_SUFFIX)
+                  .or_else(|| source.strip_suffix(WORLD_DOCUMENT_SUFFIX))
+                  .unwrap_or(source);
+              let stem = source
+                  .chars()
+                  .map(|ch| {
+                      if ch.is_control()
+                          || matches!(ch, '/' | '\\\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|')
+                      {
+                          '-'
+                      } else {
+                          ch
+                      }
+                  })
+                  .take(80)
+                  .collect::<String>();
+              let stem = stem.trim_matches(|ch: char| ch.is_whitespace() || matches!(ch, '.' | '-'));
+              let stem = if stem.is_empty() { "World" } else { stem };
+              format!("{stem}{WORLD_DOCUMENT_SUFFIX}")
+          }
+
+          '''
+          assert text.count(marker) == 1, 'canonical_world_name marker changed'
+          text = text.replace(marker, helper + marker, 1)
+
+          marker = '''    #[test]
+              fn document_window_title_uses_stable_durable_identity() {
+          '''
+          tests = '''    #[test]
+              fn suggested_world_file_name_prefers_semantic_unicode_title() {
+                  assert_eq!(
+                      suggested_world_file_name("  Maple Street · 1987  ", "pocket-universe-42"),
+                      "Maple Street · 1987.world"
+                  );
+                  assert_eq!(
+                      suggested_world_file_name("Ares / Ice: Colony?", "pocket-universe-42"),
+                      "Ares - Ice- Colony.world"
+                  );
+              }
+
+              #[test]
+              fn suggested_world_file_name_falls_back_to_durable_identity() {
+                  assert_eq!(
+                      suggested_world_file_name("   ", "pocket-universe-42"),
+                      "pocket-universe-42.world"
+                  );
+                  assert_eq!(
+                      suggested_world_file_name("", "legacy.world.json"),
+                      "legacy.world"
+                  );
+              }
+
+          '''
+          assert text.count(marker) == 1, 'document window title test marker changed'
+          text = text.replace(marker, tests + marker, 1)
+
+          path.write_text(text)
+          PY
+          cargo fmt --all
+          cargo test -p world-machine-desktop
+          git diff --check
+      - name: Commit source and remove helper
+        if: success()
+        shell: bash
+        run: |
+          rm .github/workflows/m101-apply-semantic-world-filenames.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/world-machine-desktop/src/main.rs \
+                  .github/workflows/m101-apply-semantic-world-filenames.yml
+          git commit -m "M101: use semantic World titles for filenames"
+          git push origin HEAD:m101-semantic-world-filenames
