@@ -28,18 +28,11 @@ text = replace_once(
     '.component("social_status"),\n            Some(&Value::Text("joint expedition crew".into()))',
     'partnership assertion field',
 )
-text = replace_once(
-    text,
-    '.component("status"),\n            Some(&Value::Text("split survey routes".into()))',
-    '.component("social_status"),\n            Some(&Value::Text("split survey routes".into()))',
-    'fracture assertion field',
-)
-text = replace_once(
-    text,
-    '.component("status"),\n            Some(&Value::Text("split survey routes".into()))\n        );',
-    '.component("social_status"),\n            Some(&Value::Text("split survey routes".into()))\n        );',
-    'fork fracture assertion field',
-)
+fracture_old = '.component("status"),\n            Some(&Value::Text("split survey routes".into()))'
+fracture_new = '.component("social_status"),\n            Some(&Value::Text("split survey routes".into()))'
+if text.count(fracture_old) != 2:
+    raise SystemExit(f"fracture assertion fields: expected two matches, found {text.count(fracture_old)}")
+text = text.replace(fracture_old, fracture_new)
 text = replace_once(
     text,
     '''        universe.advance_periods(1).unwrap();
