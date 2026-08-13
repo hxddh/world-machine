@@ -1,6 +1,6 @@
 use crate::{
-    required_archive, DurableWorldSession, LibraryError, WorldDocumentId, WorldDocumentSummary,
-    WorldLibrary,
+    required_archive, snapshot_display_title, DurableWorldSession, LibraryError, WorldDocumentId,
+    WorldDocumentSummary, WorldLibrary,
 };
 use world_document::{WorldBranchCause, WorldDocument, WorldLineage, WorldParent};
 
@@ -30,7 +30,9 @@ impl DurableWorldSession {
             },
             branch: WorldBranchCause::Fork { label },
         };
-        let fork = WorldDocument::new(archive).with_lineage(lineage);
+        let mut fork = WorldDocument::new(archive).with_lineage(lineage);
+        fork.metadata.display_title = snapshot_display_title(&self.session.snapshot())
+            .or_else(|| self.metadata.display_title.clone());
 
         // Re-check after materializing the live archive so a concurrent source
         // edit cannot be ignored between the first revision check and creation.
@@ -259,6 +261,10 @@ mod tests {
         assert_eq!(lineage.parent.pack, WorldPackRef::new(MOCK_PACK, "1"));
         assert_eq!(lineage.parent.world_time, 21);
         assert_eq!(lineage.branch, WorldBranchCause::Fork { label: None });
+        assert_eq!(
+            child.metadata.display_title.as_deref(),
+            Some("Fork Mock 21")
+        );
         let _ = fs::remove_dir_all(root);
     }
 
@@ -270,6 +276,7 @@ mod tests {
         let source_id = WorldDocumentId::new("source").unwrap();
         let child_id = WorldDocumentId::new("child").unwrap();
         let metadata = WorldDocumentMetadata {
+            display_title: Some("Fork Source".into()),
             lineage: Some(inherited_lineage()),
         };
         let source = WorldDocument {

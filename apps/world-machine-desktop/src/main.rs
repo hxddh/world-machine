@@ -945,11 +945,15 @@ impl WorldMachineHome {
     ) -> impl IntoElement {
         let open_id = document.id.clone();
         let export_id = document.id.clone();
-        let title = self
+        let pack_title = self
             .registry
             .descriptor_for(&document.pack)
             .map(|descriptor| descriptor.title.clone())
             .unwrap_or_else(|| document.pack.id.clone());
+        let title = document
+            .display_title
+            .clone()
+            .unwrap_or_else(|| pack_title.clone());
         let document_label = document.id.to_string();
         let lineage_node = self
             .lineage
@@ -961,11 +965,23 @@ impl WorldMachineHome {
             .flex()
             .flex_col()
             .gap_1()
-            .child(div().text_lg().child(title))
-            .child(div().text_sm().text_color(rgb(0x666666)).child(format!(
-                "World time {} · {} events",
-                document.world_time, document.event_count
-            )))
+            .child(div().text_lg().child(title.clone()))
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(rgb(0x666666))
+                    .child(if title == pack_title {
+                        format!(
+                            "World time {} · {} events",
+                            document.world_time, document.event_count
+                        )
+                    } else {
+                        format!(
+                            "{} · World time {} · {} events",
+                            pack_title, document.world_time, document.event_count
+                        )
+                    }),
+            )
             .child(
                 div()
                     .text_xs()

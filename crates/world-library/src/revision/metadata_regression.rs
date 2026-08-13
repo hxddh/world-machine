@@ -106,7 +106,9 @@ fn lineage(label: &str) -> WorldLineage {
 }
 
 fn document(world_time: u64, label: &str) -> WorldDocument {
-    WorldDocument::new(archive(world_time)).with_lineage(lineage(label))
+    WorldDocument::new(archive(world_time))
+        .with_display_title(format!("Metadata Mock {world_time}"))
+        .with_lineage(lineage(label))
 }
 
 fn temp_root(label: &str) -> PathBuf {
@@ -139,10 +141,18 @@ fn interactive_edits_preserve_document_metadata() {
         .unwrap();
 
     assert_eq!(session.snapshot().world_time, 6);
-    assert_eq!(session.metadata(), &source.metadata);
+    assert_eq!(session.metadata().lineage, source.metadata.lineage);
+    assert_eq!(
+        session.metadata().display_title.as_deref(),
+        Some("Metadata Mock 6")
+    );
     let stored = library.load_document(&id).unwrap().unwrap();
     assert_eq!(stored.archive.world_time, 6);
-    assert_eq!(stored.metadata, source.metadata);
+    assert_eq!(stored.metadata.lineage, source.metadata.lineage);
+    assert_eq!(
+        stored.metadata.display_title.as_deref(),
+        Some("Metadata Mock 6")
+    );
     let _ = fs::remove_dir_all(root);
 }
 
@@ -159,10 +169,16 @@ fn background_progression_preserves_document_metadata() {
     session.advance_background(3, &registry, &library).unwrap();
 
     assert_eq!(session.snapshot().world_time, 8);
-    assert_eq!(session.metadata(), &source.metadata);
+    assert_eq!(session.metadata().lineage, source.metadata.lineage);
     assert_eq!(
-        library.load_document(&id).unwrap().unwrap().metadata,
-        source.metadata
+        session.metadata().display_title.as_deref(),
+        Some("Metadata Mock 8")
+    );
+    let stored = library.load_document(&id).unwrap().unwrap();
+    assert_eq!(stored.metadata.lineage, source.metadata.lineage);
+    assert_eq!(
+        stored.metadata.display_title.as_deref(),
+        Some("Metadata Mock 8")
     );
     let _ = fs::remove_dir_all(root);
 }
@@ -215,6 +231,7 @@ fn metadata_only_external_changes_participate_in_revision_conflicts() {
     let first = document(5, "first");
     let mut second = first.clone();
     second.metadata = WorldDocumentMetadata {
+        display_title: first.metadata.display_title.clone(),
         lineage: Some(lineage("second")),
     };
     library.create_from_document(id.clone(), &first).unwrap();
