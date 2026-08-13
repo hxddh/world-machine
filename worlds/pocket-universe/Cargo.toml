@@ -1,6 +1,6 @@
 [package]
 name = "pocket-universe"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 license = "Apache-2.0"
 publish = false
@@ -11,3 +11,7 @@ world-core = { path = "../../crates/world-core" }
 world-host = { path = "../../crates/world-host" }
 world-persistence = { path = "../../crates/world-persistence" }
 world-projection = { path = "../../crates/world-projection" }
+
+
+[dev-dependencies]
+world-compare = { path = "../../crates/world-compare" }

@@ -142,6 +142,13 @@ fn pocket_universe_is_a_real_external_pack_with_durable_seed_and_growth() {
     assert!(archive.events.iter().any(|event| {
         event.kind == "agent_cared_for_world" || event.kind == "agent_explored_world"
     }));
+    assert!(archive.events.iter().any(|event| {
+        (event.kind == "agent_cared_for_world" || event.kind == "agent_explored_world")
+            && event.payload.get("mind_profile")
+                == Some(&world_persistence::ArchivedValue::Text(
+                    "deterministic".into(),
+                ))
+    }));
     let before = session.snapshot();
     drop(session);
 
@@ -175,6 +182,11 @@ fn pocket_universe_is_a_real_external_pack_with_durable_seed_and_growth() {
             .events
             .iter()
             .any(|event| event.kind == "agent_explored_world"));
+        assert!(pi_archive.events.iter().any(|event| {
+            event.kind == "agent_explored_world"
+                && event.payload.get("mind_profile")
+                    == Some(&world_persistence::ArchivedValue::Text("pi".into()))
+        }));
         assert!(!pi_archive
             .events
             .iter()
@@ -190,6 +202,17 @@ fn pocket_universe_is_a_real_external_pack_with_durable_seed_and_growth() {
             pi_archive,
             "fresh Open must restore recorded truth without invoking Pi"
         );
+        let reopened_snapshot = reopened_without_pi.snapshot();
+        let actor = reopened_snapshot
+            .inspectors
+            .values()
+            .find(|inspector| inspector.title == "Nia Chen")
+            .expect("Pi actor inspector");
+        assert!(actor
+            .sections
+            .iter()
+            .flat_map(|section| &section.rows)
+            .any(|row| { row.label == "Last Mind Profile" && row.value == "pi" }));
 
         let error = reopened_without_pi.advance_background(1).unwrap_err();
         assert!(error

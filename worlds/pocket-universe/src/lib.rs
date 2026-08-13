@@ -15,7 +15,7 @@ use world_persistence::{PersistenceError, WorldArchive, WorldPackRef};
 use world_projection::{ProjectionIntent, ProjectionSnapshot};
 
 pub const POCKET_UNIVERSE_PACK_ID: &str = "world-machine.pocket-universe";
-pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.4.0";
+pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.5.0";
 
 pub const SEED_MARS_COLONY_COMMAND: &str = "pocket-universe.seed-mars-colony";
 pub const SEED_1980S_TOWN_COMMAND: &str = "pocket-universe.seed-1980s-town";
@@ -41,6 +41,10 @@ const AGENT_CARE_ACTION: &str = "pocket_agent.care";
 const AGENT_EXPLORE_ACTION: &str = "pocket_agent.explore";
 const AGENT_CARE_COUNT: &str = "care_count";
 const AGENT_EXPLORE_COUNT: &str = "explore_count";
+const MIND_PROFILE_ARG: &str = "mind_profile";
+const LAST_MIND_PROFILE: &str = "last_mind_profile";
+const DETERMINISTIC_MIND_PROFILE: &str = "deterministic";
+const CUSTOM_MIND_PROFILE: &str = "custom";
 
 pub fn pocket_universe_pack_ref() -> WorldPackRef {
     WorldPackRef::new(POCKET_UNIVERSE_PACK_ID, POCKET_UNIVERSE_PACK_VERSION)
@@ -91,15 +95,20 @@ where
     world: World,
     actions: ActionRegistry,
     mind: R,
+    mind_profile: String,
 }
 
 impl PocketUniverse<PocketMind> {
     pub fn new() -> Result<Self, Box<dyn Error>> {
-        Self::with_agent_runtime(PocketMind)
+        Self::with_agent_runtime_profile(PocketMind, DETERMINISTIC_MIND_PROFILE)
     }
 
     pub fn resume_archive(archive: &WorldArchive) -> Result<Self, Box<dyn Error>> {
-        Self::resume_archive_with_agent_runtime(archive, PocketMind)
+        Self::resume_archive_with_agent_runtime_profile(
+            archive,
+            PocketMind,
+            DETERMINISTIC_MIND_PROFILE,
+        )
     }
 }
 
@@ -108,10 +117,18 @@ where
     R: AgentRuntime,
 {
     pub fn with_agent_runtime(mind: R) -> Result<Self, Box<dyn Error>> {
+        Self::with_agent_runtime_profile(mind, CUSTOM_MIND_PROFILE)
+    }
+
+    pub fn with_agent_runtime_profile(
+        mind: R,
+        mind_profile: impl Into<String>,
+    ) -> Result<Self, Box<dyn Error>> {
         Ok(Self {
             world: World::new(baseline()?),
             actions: build_action_registry()?,
             mind,
+            mind_profile: validate_mind_profile(mind_profile.into())?,
         })
     }
 
@@ -142,8 +159,13 @@ where
                     &ActionRequest::new("grow_universe").actor(UNIVERSE),
                 )?
                 .id;
-            let outcome =
-                Self::run_agent_turn_on(&mut self.mind, &mut candidate, &self.actions, &[growth])?;
+            let outcome = Self::run_agent_turn_on(
+                &mut self.mind,
+                &mut candidate,
+                &self.actions,
+                &self.mind_profile,
+                &[growth],
+            )?;
             self.world = candidate;
             return Ok(outcome);
         }
@@ -184,7 +206,13 @@ where
             let growth = executed.last().copied().ok_or_else(|| {
                 std::io::Error::other("scheduled Pocket Universe growth did not run")
             })?;
-            Self::run_agent_turn_on(&mut self.mind, &mut candidate, &self.actions, &[growth])?;
+            Self::run_agent_turn_on(
+                &mut self.mind,
+                &mut candidate,
+                &self.actions,
+                &self.mind_profile,
+                &[growth],
+            )?;
         }
         self.world = candidate;
         Ok(())
@@ -194,16 +222,17 @@ where
         mind: &mut R,
         world: &mut World,
         registry: &ActionRegistry,
+        mind_profile: &str,
         caused_by: &[EventId],
     ) -> Result<EventId, Box<dyn Error>> {
         let actions = vec![
             AvailableAction::new(
                 "Care for the small world and reinforce what already exists.",
-                ActionRequest::new(AGENT_CARE_ACTION),
+                ActionRequest::new(AGENT_CARE_ACTION).arg(MIND_PROFILE_ARG, mind_profile),
             ),
             AvailableAction::new(
                 "Explore beyond the familiar routine and bring back a new thread.",
-                ActionRequest::new(AGENT_EXPLORE_ACTION),
+                ActionRequest::new(AGENT_EXPLORE_ACTION).arg(MIND_PROFILE_ARG, mind_profile),
             ),
         ];
         let execution = AgentExecutor::decide_and_execute(
@@ -237,10 +266,19 @@ where
         archive: &WorldArchive,
         mind: R,
     ) -> Result<Self, Box<dyn Error>> {
+        Self::resume_archive_with_agent_runtime_profile(archive, mind, CUSTOM_MIND_PROFILE)
+    }
+
+    pub fn resume_archive_with_agent_runtime_profile(
+        archive: &WorldArchive,
+        mind: R,
+        mind_profile: impl Into<String>,
+    ) -> Result<Self, Box<dyn Error>> {
         Ok(Self {
             world: archive.restore(&pocket_universe_pack_ref(), baseline()?)?,
             actions: build_action_registry()?,
             mind,
+            mind_profile: validate_mind_profile(mind_profile.into())?,
         })
     }
 }
@@ -257,17 +295,26 @@ impl<R> PocketUniverseSession<R>
 where
     R: AgentRuntime + 'static,
 {
-    fn fresh(mind: R) -> Result<Box<dyn WorldSession>, HostError> {
+    fn fresh(mind: R, mind_profile: &str) -> Result<Box<dyn WorldSession>, HostError> {
         Ok(Box::new(Self {
-            world: PocketUniverse::with_agent_runtime(mind).map_err(HostError::session)?,
+            world: PocketUniverse::with_agent_runtime_profile(mind, mind_profile)
+                .map_err(HostError::session)?,
             return_since_event_count: None,
         }))
     }
 
-    fn open_archive(archive: &WorldArchive, mind: R) -> Result<Box<dyn WorldSession>, HostError> {
+    fn open_archive(
+        archive: &WorldArchive,
+        mind: R,
+        mind_profile: &str,
+    ) -> Result<Box<dyn WorldSession>, HostError> {
         Ok(Box::new(Self {
-            world: PocketUniverse::resume_archive_with_agent_runtime(archive, mind)
-                .map_err(HostError::session)?,
+            world: PocketUniverse::resume_archive_with_agent_runtime_profile(
+                archive,
+                mind,
+                mind_profile,
+            )
+            .map_err(HostError::session)?,
             return_since_event_count: None,
         }))
     }
@@ -327,7 +374,10 @@ pub fn pocket_universe_descriptor() -> WorldDescriptor {
 }
 
 pub fn pocket_universe_registration() -> WorldRegistration {
-    pocket_universe_registration_with_agent_runtime(|| PocketMind)
+    pocket_universe_registration_with_agent_runtime_profile(
+        || PocketMind,
+        DETERMINISTIC_MIND_PROFILE,
+    )
 }
 
 pub fn pocket_universe_registration_with_agent_runtime<R, F>(factory: F) -> WorldRegistration
@@ -335,14 +385,31 @@ where
     R: AgentRuntime + 'static,
     F: Fn() -> R + Send + Sync + 'static,
 {
+    pocket_universe_registration_with_agent_runtime_profile(factory, CUSTOM_MIND_PROFILE)
+}
+
+pub fn pocket_universe_registration_with_agent_runtime_profile<R, F>(
+    factory: F,
+    mind_profile: impl Into<String>,
+) -> WorldRegistration
+where
+    R: AgentRuntime + 'static,
+    F: Fn() -> R + Send + Sync + 'static,
+{
     let factory = Arc::new(factory);
+    let mind_profile = Arc::new(
+        validate_mind_profile(mind_profile.into())
+            .expect("Pocket Universe registration mind profile must be a safe non-secret label"),
+    );
     let create_factory = Arc::clone(&factory);
     let open_factory = Arc::clone(&factory);
+    let create_profile = Arc::clone(&mind_profile);
+    let open_profile = Arc::clone(&mind_profile);
     WorldRegistration::new(pocket_universe_descriptor(), move || {
-        PocketUniverseSession::fresh(create_factory())
+        PocketUniverseSession::fresh(create_factory(), create_profile.as_str())
     })
     .with_archive_opener(move |archive| {
-        PocketUniverseSession::open_archive(archive, open_factory())
+        PocketUniverseSession::open_archive(archive, open_factory(), open_profile.as_str())
     })
 }
 
@@ -406,7 +473,8 @@ impl Action for SeedMarsColony {
                     .with_component("name", "Nia Chen")
                     .with_component("role", "systems keeper")
                     .with_component(AGENT_CARE_COUNT, 0_i64)
-                    .with_component(AGENT_EXPLORE_COUNT, 0_i64),
+                    .with_component(AGENT_EXPLORE_COUNT, 0_i64)
+                    .with_component(LAST_MIND_PROFILE, "none"),
                 Entity::new(SLOT_C, "place")
                     .with_component("name", "Hydroponics Bay")
                     .with_component("crop", "dwarf wheat"),
@@ -442,7 +510,8 @@ impl Action for Seed1980sTown {
                     .with_component("name", "Lena Ortiz")
                     .with_component("role", "night-shift student")
                     .with_component(AGENT_CARE_COUNT, 0_i64)
-                    .with_component(AGENT_EXPLORE_COUNT, 0_i64),
+                    .with_component(AGENT_EXPLORE_COUNT, 0_i64)
+                    .with_component(LAST_MIND_PROFILE, "none"),
                 Entity::new(SLOT_C, "radio_station")
                     .with_component("name", "K-88 Radio")
                     .with_component("format", "local mix"),
@@ -478,7 +547,8 @@ impl Action for SeedPenguinCivilization {
                     .with_component("name", "Piko")
                     .with_component("role", "bridge keeper")
                     .with_component(AGENT_CARE_COUNT, 0_i64)
-                    .with_component(AGENT_EXPLORE_COUNT, 0_i64),
+                    .with_component(AGENT_EXPLORE_COUNT, 0_i64)
+                    .with_component(LAST_MIND_PROFILE, "none"),
                 Entity::new(SLOT_C, "storehouse")
                     .with_component("name", "Fish Vault")
                     .with_component("reserve", "steady"),
@@ -584,6 +654,14 @@ fn mind_action_draft(
             "Pocket Mind action requires seed actor {SLOT_B}, got {actor}"
         )));
     }
+    let mind_profile = match request.args.get(MIND_PROFILE_ARG) {
+        Some(Value::Text(profile)) if is_valid_mind_profile(profile) => profile.clone(),
+        _ => {
+            return Err(ActionError::Invalid(
+                "Pocket Mind action requires a valid mind_profile label".into(),
+            ))
+        }
+    };
     let seed = seed_id_from_state(state)?;
     if seed == UNSEEDED {
         return Err(ActionError::Invalid(
@@ -606,6 +684,9 @@ fn mind_action_draft(
     draft.payload.insert("seed".into(), seed.into());
     draft.payload.insert("change".into(), change.clone().into());
     draft.payload.insert("turn".into(), next.into());
+    draft
+        .payload
+        .insert(MIND_PROFILE_ARG.into(), mind_profile.clone().into());
     draft.changes = vec![
         StateChange::SetComponent {
             entity: actor,
@@ -616,6 +697,11 @@ fn mind_action_draft(
             entity: actor,
             key: "last_intent".into(),
             value: if care { "care" } else { "explore" }.into(),
+        },
+        StateChange::SetComponent {
+            entity: actor,
+            key: LAST_MIND_PROFILE.into(),
+            value: mind_profile.into(),
         },
         StateChange::SetComponent {
             entity: target,
@@ -849,6 +935,24 @@ fn seed_draft(
         .changes
         .extend(entities.into_iter().map(StateChange::CreateEntity));
     Ok(draft)
+}
+
+fn validate_mind_profile(profile: String) -> Result<String, std::io::Error> {
+    if is_valid_mind_profile(&profile) {
+        Ok(profile)
+    } else {
+        Err(std::io::Error::other(
+            "mind profile must be a non-empty <=64 character label using a-z, 0-9, '.', '_' or '-'",
+        ))
+    }
+}
+
+fn is_valid_mind_profile(profile: &str) -> bool {
+    !profile.is_empty()
+        && profile.len() <= 64
+        && profile.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'.' | b'_' | b'-')
+        })
 }
 
 pub(crate) fn seed_id(world: &World) -> &str {
@@ -1228,6 +1332,64 @@ mod tests {
         assert!(error.to_string().contains("unavailable action"));
         assert_eq!(universe.archive().unwrap(), before);
         assert_eq!(universe.world().world_time(), 0);
+    }
+
+    #[test]
+    fn mind_profile_is_durable_and_visible_to_snapshot_compare() {
+        use world_compare::{compare_snapshots, DifferenceKind};
+
+        let mut left = PocketUniverse::with_agent_runtime_profile(
+            MockAgentRuntime::scripted([AGENT_CARE_ACTION]),
+            "mind-a",
+        )
+        .unwrap();
+        let mut right = PocketUniverse::with_agent_runtime_profile(
+            MockAgentRuntime::scripted([AGENT_CARE_ACTION]),
+            "mind-b",
+        )
+        .unwrap();
+        left.invoke_projection_command(SEED_MARS_COLONY_COMMAND)
+            .unwrap();
+        right
+            .invoke_projection_command(SEED_MARS_COLONY_COMMAND)
+            .unwrap();
+        left.advance_periods(1).unwrap();
+        right.advance_periods(1).unwrap();
+
+        let left_outcome = left
+            .world()
+            .events()
+            .iter()
+            .find(|event| event.kind == "agent_cared_for_world")
+            .unwrap();
+        assert_eq!(
+            left_outcome.payload.get(MIND_PROFILE_ARG),
+            Some(&Value::Text("mind-a".into()))
+        );
+
+        let comparison =
+            compare_snapshots(&left.projection_snapshot(), &right.projection_snapshot());
+        let actor = comparison
+            .entities
+            .iter()
+            .find(|difference| difference.id == world_projection::SelectionId::Entity(SLOT_B))
+            .unwrap();
+        assert_eq!(actor.kind, DifferenceKind::Changed);
+        let profile = actor
+            .inspector_rows
+            .iter()
+            .find(|row| row.key.label == "Last Mind Profile")
+            .unwrap();
+        assert_eq!(profile.left.as_deref(), Some("mind-a"));
+        assert_eq!(profile.right.as_deref(), Some("mind-b"));
+    }
+
+    #[test]
+    fn mind_profile_rejects_secret_shaped_or_freeform_values() {
+        let error = PocketUniverse::with_agent_runtime_profile(PocketMind, "pi api-key=secret")
+            .err()
+            .expect("freeform mind profile must be rejected");
+        assert!(error.to_string().contains("mind profile must be"));
     }
 
     #[test]

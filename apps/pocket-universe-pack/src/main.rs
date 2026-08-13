@@ -1,6 +1,6 @@
 use pocket_universe::{
     pocket_universe_descriptor, pocket_universe_registration,
-    pocket_universe_registration_with_agent_runtime,
+    pocket_universe_registration_with_agent_runtime_profile,
 };
 use std::env;
 use std::error::Error;
@@ -35,9 +35,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         "pi" => {
             let program = env::var(PI_PROGRAM_ENV).unwrap_or_else(|_| "pi".into());
             let command = PiCommand::decision_only(program);
-            serve_stdio(pocket_universe_registration_with_agent_runtime(move || {
-                PiRpcRuntime::new(ProcessPiRpcTransport::new(command.clone()))
-            }))?;
+            serve_stdio(pocket_universe_registration_with_agent_runtime_profile(
+                move || PiRpcRuntime::new(ProcessPiRpcTransport::new(command.clone())),
+                "pi",
+            ))?;
         }
         other => {
             return Err(format!(
