@@ -1,0 +1,43 @@
+name: M99 refresh Home after host Library mutations v2
+
+on:
+  push:
+    branches:
+      - m99-refresh-home-after-host-mutations
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: m99-refresh-home-after-host-mutations
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Apply and validate host Library mutation revision
+        shell: bash
+        run: |
+          python3 .github/scripts/m99_patch.py
+          cargo fmt --all
+          cargo test -p world-machine-desktop
+          git diff --check
+      - name: Commit source and remove one-shot helpers
+        if: success()
+        shell: bash
+        run: |
+          rm .github/workflows/m99-apply-home-library-revision.yml
+          rm .github/workflows/m99-apply-home-library-revision-v2.yml
+          rm .github/scripts/m99_patch.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/world-machine-desktop/src/main.rs \
+                  apps/world-machine-desktop/src/world_fork.rs \
+                  apps/world-machine-desktop/src/strategy_compare.rs \
+                  apps/world-machine-desktop/src/world_fork/lineage.rs \
+                  .github/workflows/m99-apply-home-library-revision.yml \
+                  .github/workflows/m99-apply-home-library-revision-v2.yml \
+                  .github/scripts/m99_patch.py
+          git commit -m "M99: refresh Home after host Library mutations"
+          git push origin HEAD:m99-refresh-home-after-host-mutations
