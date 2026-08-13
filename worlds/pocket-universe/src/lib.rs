@@ -15,7 +15,7 @@ use world_persistence::{PersistenceError, WorldArchive, WorldPackRef};
 use world_projection::{ProjectionIntent, ProjectionSnapshot};
 
 pub const POCKET_UNIVERSE_PACK_ID: &str = "world-machine.pocket-universe";
-pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.6.0";
+pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.7.0";
 
 pub const SEED_MARS_COLONY_COMMAND: &str = "pocket-universe.seed-mars-colony";
 pub const SEED_1980S_TOWN_COMMAND: &str = "pocket-universe.seed-1980s-town";
@@ -23,6 +23,8 @@ pub const SEED_PENGUIN_CIVILIZATION_COMMAND: &str = "pocket-universe.seed-pengui
 pub const NUDGE_COMMAND: &str = "pocket-universe.nudge";
 pub const BOLD_PATH_COMMAND: &str = "pocket-universe.choose-bold-path";
 pub const CAREFUL_PATH_COMMAND: &str = "pocket-universe.choose-careful-path";
+pub const SHARED_PROJECT_COMMAND: &str = "pocket-universe.relationship-shared-project";
+pub const RIVALRY_COMMAND: &str = "pocket-universe.relationship-rivalry";
 
 pub(crate) const UNIVERSE: EntityId = EntityId::new(1);
 pub(crate) const SLOT_A: EntityId = EntityId::new(10);
@@ -30,11 +32,16 @@ pub(crate) const SLOT_B: EntityId = EntityId::new(11);
 pub(crate) const SLOT_C: EntityId = EntityId::new(12);
 pub(crate) const SLOT_D: EntityId = EntityId::new(13);
 pub(crate) const SLOT_E: EntityId = EntityId::new(14);
+pub(crate) const RELATIONSHIP: EntityId = EntityId::new(15);
 
 pub(crate) const SEED: &str = "seed";
 pub(crate) const GENERATION: &str = "generation";
 pub(crate) const LAST_CHANGE: &str = "last_change";
 pub(crate) const DECISION: &str = "decision";
+pub(crate) const RELATIONSHIP_DIRECTION: &str = "direction";
+const RELATIONSHIP_TRUST: &str = "trust";
+const RELATIONSHIP_TENSION: &str = "tension";
+const RELATIONSHIP_LAST_DYNAMIC: &str = "last_dynamic";
 const ANCHOR_PULSE: &str = "pulse";
 const UNSEEDED: &str = "unseeded";
 const BACKGROUND_PERIOD: u64 = 10;
@@ -190,8 +197,16 @@ where
                 SLOT_E,
                 &[primary_outcome],
             )?;
+            let relationship = candidate
+                .execute(
+                    &self.actions,
+                    &ActionRequest::new("update_relationship")
+                        .caused_by(primary_outcome)
+                        .caused_by(secondary_outcome),
+                )?
+                .id;
             self.world = candidate;
-            return Ok(secondary_outcome);
+            return Ok(relationship);
         }
 
         let action = match command_id {
@@ -200,6 +215,8 @@ where
             SEED_PENGUIN_CIVILIZATION_COMMAND => "seed_penguin_civilization",
             BOLD_PATH_COMMAND => "choose_bold_path",
             CAREFUL_PATH_COMMAND => "choose_careful_path",
+            SHARED_PROJECT_COMMAND => "steer_shared_project",
+            RIVALRY_COMMAND => "steer_rivalry",
             _ => {
                 return Err(std::io::Error::other(format!(
                     "unknown projection command: {command_id}"
@@ -238,13 +255,19 @@ where
                 SLOT_B,
                 &[growth],
             )?;
-            Self::run_agent_turn_on(
+            let secondary_outcome = Self::run_agent_turn_on(
                 &mut self.mind,
                 &mut candidate,
                 &self.actions,
                 &self.mind_profile,
                 SLOT_E,
                 &[primary_outcome],
+            )?;
+            candidate.execute(
+                &self.actions,
+                &ActionRequest::new("update_relationship")
+                    .caused_by(primary_outcome)
+                    .caused_by(secondary_outcome),
             )?;
         }
         self.world = candidate;
@@ -477,6 +500,9 @@ fn build_action_registry() -> Result<ActionRegistry, ActionError> {
     actions.register(ChooseCarefulPath)?;
     actions.register(CareForWorld)?;
     actions.register(ExploreWorld)?;
+    actions.register(UpdateRelationship)?;
+    actions.register(SteerSharedProject)?;
+    actions.register(SteerRivalry)?;
     Ok(actions)
 }
 
@@ -488,6 +514,9 @@ struct ChooseBoldPath;
 struct ChooseCarefulPath;
 struct CareForWorld;
 struct ExploreWorld;
+struct UpdateRelationship;
+struct SteerSharedProject;
+struct SteerRivalry;
 
 impl Action for SeedMarsColony {
     fn name(&self) -> &'static str {
@@ -527,6 +556,7 @@ impl Action for SeedMarsColony {
                     .with_component(AGENT_CARE_COUNT, 0_i64)
                     .with_component(AGENT_EXPLORE_COUNT, 0_i64)
                     .with_component(LAST_MIND_PROFILE, "none"),
+                relationship_entity("Nia ↔ Tomas"),
             ],
         )
     }
@@ -570,6 +600,7 @@ impl Action for Seed1980sTown {
                     .with_component(AGENT_CARE_COUNT, 0_i64)
                     .with_component(AGENT_EXPLORE_COUNT, 0_i64)
                     .with_component(LAST_MIND_PROFILE, "none"),
+                relationship_entity("Lena ↔ Max"),
             ],
         )
     }
@@ -613,6 +644,7 @@ impl Action for SeedPenguinCivilization {
                     .with_component(AGENT_CARE_COUNT, 0_i64)
                     .with_component(AGENT_EXPLORE_COUNT, 0_i64)
                     .with_component(LAST_MIND_PROFILE, "none"),
+                relationship_entity("Piko ↔ Miri"),
             ],
         )
     }
@@ -863,6 +895,185 @@ fn mind_outcome(
     Ok(outcome)
 }
 
+impl Action for UpdateRelationship {
+    fn name(&self) -> &'static str {
+        "update_relationship"
+    }
+
+    fn evaluate(
+        &self,
+        state: &WorldState,
+        _request: &ActionRequest,
+    ) -> Result<EventDraft, ActionError> {
+        let primary = text_component_from_state(state, SLOT_B, "last_intent")?;
+        let secondary = text_component_from_state(state, SLOT_E, "last_intent")?;
+        let direction = text_component_from_state(state, RELATIONSHIP, RELATIONSHIP_DIRECTION)?;
+        let trust = integer_component(state, RELATIONSHIP, RELATIONSHIP_TRUST)?;
+        let tension = integer_component(state, RELATIONSHIP, RELATIONSHIP_TENSION)?;
+
+        let (mut trust_delta, mut tension_delta, dynamic) =
+            match (primary.as_str(), secondary.as_str()) {
+                ("care", "care") => (2, -1, "They reinforced the same fragile thing together."),
+                ("explore", "explore") => (
+                    -1,
+                    2,
+                    "They chased the same frontier and began to compete for it.",
+                ),
+                ("care", "explore") | ("explore", "care") => (
+                    1,
+                    -1,
+                    "Their different instincts covered each other's blind spots.",
+                ),
+                _ => {
+                    return Err(ActionError::Invalid(
+                        "relationship update requires both actors to have acted".into(),
+                    ))
+                }
+            };
+        match direction.as_str() {
+            "shared-project" => {
+                trust_delta += 1;
+                tension_delta -= 1;
+            }
+            "rivalry" => {
+                tension_delta += 1;
+            }
+            "none" => {}
+            other => {
+                return Err(ActionError::Invalid(format!(
+                    "unknown relationship direction: {other}"
+                )))
+            }
+        }
+
+        let next_trust = (trust + trust_delta).clamp(0, 10);
+        let next_tension = (tension + tension_delta).clamp(0, 10);
+        let summary = format!("{dynamic} Trust is {next_trust}; tension is {next_tension}.");
+        let mut draft = EventDraft::new("relationship_shifted");
+        draft.targets = vec![RELATIONSHIP, SLOT_B, SLOT_E];
+        draft
+            .payload
+            .insert("summary".into(), summary.clone().into());
+        draft.payload.insert("trust".into(), next_trust.into());
+        draft.payload.insert("tension".into(), next_tension.into());
+        draft.payload.insert("direction".into(), direction.into());
+        draft.changes = vec![
+            StateChange::SetComponent {
+                entity: RELATIONSHIP,
+                key: RELATIONSHIP_TRUST.into(),
+                value: next_trust.into(),
+            },
+            StateChange::SetComponent {
+                entity: RELATIONSHIP,
+                key: RELATIONSHIP_TENSION.into(),
+                value: next_tension.into(),
+            },
+            StateChange::SetComponent {
+                entity: RELATIONSHIP,
+                key: RELATIONSHIP_LAST_DYNAMIC.into(),
+                value: summary.clone().into(),
+            },
+            StateChange::SetComponent {
+                entity: UNIVERSE,
+                key: LAST_CHANGE.into(),
+                value: summary.into(),
+            },
+        ];
+        Ok(draft)
+    }
+}
+
+impl Action for SteerSharedProject {
+    fn name(&self) -> &'static str {
+        "steer_shared_project"
+    }
+
+    fn evaluate(
+        &self,
+        state: &WorldState,
+        _request: &ActionRequest,
+    ) -> Result<EventDraft, ActionError> {
+        steer_relationship_draft(state, "shared-project")
+    }
+}
+
+impl Action for SteerRivalry {
+    fn name(&self) -> &'static str {
+        "steer_rivalry"
+    }
+
+    fn evaluate(
+        &self,
+        state: &WorldState,
+        _request: &ActionRequest,
+    ) -> Result<EventDraft, ActionError> {
+        steer_relationship_draft(state, "rivalry")
+    }
+}
+
+fn steer_relationship_draft(
+    state: &WorldState,
+    direction: &str,
+) -> Result<EventDraft, ActionError> {
+    if integer_component(state, UNIVERSE, GENERATION)? < 2 {
+        return Err(ActionError::Invalid(
+            "the relationship has not developed enough to steer yet".into(),
+        ));
+    }
+    if text_component_from_state(state, RELATIONSHIP, RELATIONSHIP_DIRECTION)? != "none" {
+        return Err(ActionError::Invalid(
+            "this relationship already has a chosen direction".into(),
+        ));
+    }
+    let trust = integer_component(state, RELATIONSHIP, RELATIONSHIP_TRUST)?;
+    let tension = integer_component(state, RELATIONSHIP, RELATIONSHIP_TENSION)?;
+    let (next_trust, next_tension, summary) = match direction {
+        "shared-project" => (
+            (trust + 2).clamp(0, 10),
+            (tension - 1).clamp(0, 10),
+            "You gave them something neither could finish alone. Their relationship now leans toward a shared project.",
+        ),
+        "rivalry" => (
+            trust,
+            (tension + 2).clamp(0, 10),
+            "You let competition sharpen the space between them. Their relationship now leans toward rivalry.",
+        ),
+        _ => return Err(ActionError::Invalid("unknown relationship direction".into())),
+    };
+    let mut draft = EventDraft::new("relationship_steered");
+    draft.targets = vec![RELATIONSHIP, SLOT_B, SLOT_E];
+    draft.payload.insert("direction".into(), direction.into());
+    draft.payload.insert("summary".into(), summary.into());
+    draft.changes = vec![
+        StateChange::SetComponent {
+            entity: RELATIONSHIP,
+            key: RELATIONSHIP_DIRECTION.into(),
+            value: direction.into(),
+        },
+        StateChange::SetComponent {
+            entity: RELATIONSHIP,
+            key: RELATIONSHIP_TRUST.into(),
+            value: next_trust.into(),
+        },
+        StateChange::SetComponent {
+            entity: RELATIONSHIP,
+            key: RELATIONSHIP_TENSION.into(),
+            value: next_tension.into(),
+        },
+        StateChange::SetComponent {
+            entity: RELATIONSHIP,
+            key: RELATIONSHIP_LAST_DYNAMIC.into(),
+            value: summary.into(),
+        },
+        StateChange::SetComponent {
+            entity: UNIVERSE,
+            key: LAST_CHANGE.into(),
+            value: summary.into(),
+        },
+    ];
+    Ok(draft)
+}
+
 impl Action for ChooseBoldPath {
     fn name(&self) -> &'static str {
         "choose_bold_path"
@@ -983,11 +1194,22 @@ fn choice_draft(state: &WorldState, bold: bool) -> Result<EventDraft, ActionErro
     Ok(draft)
 }
 
+fn relationship_entity(name: &str) -> Entity {
+    Entity::new(RELATIONSHIP, "relationship")
+        .with_component("name", name)
+        .with_component("primary", Value::Entity(SLOT_B))
+        .with_component("secondary", Value::Entity(SLOT_E))
+        .with_component(RELATIONSHIP_TRUST, 0_i64)
+        .with_component(RELATIONSHIP_TENSION, 0_i64)
+        .with_component(RELATIONSHIP_DIRECTION, "none")
+        .with_component(RELATIONSHIP_LAST_DYNAMIC, "forming")
+}
+
 fn seed_draft(
     state: &WorldState,
     seed: &str,
     universe_name: &str,
-    entities: [Entity; 5],
+    entities: [Entity; 6],
 ) -> Result<EventDraft, ActionError> {
     if seed_id_from_state(state)? != UNSEEDED {
         return Err(ActionError::Invalid(
@@ -1095,6 +1317,22 @@ fn growth_metric(state: &WorldState, seed: &str) -> Result<(&'static str, i64), 
         }
     };
     Ok((key, integer_component(state, SLOT_A, key)? + 1))
+}
+
+fn text_component_from_state(
+    state: &WorldState,
+    entity: EntityId,
+    key: &str,
+) -> Result<String, ActionError> {
+    match state
+        .entity(entity)
+        .and_then(|entity| entity.component(key))
+    {
+        Some(Value::Text(value)) => Ok(value.clone()),
+        _ => Err(ActionError::Invalid(format!(
+            "entity {entity} has no text component {key}"
+        ))),
+    }
 }
 
 fn integer_component(state: &WorldState, entity: EntityId, key: &str) -> Result<i64, ActionError> {
@@ -1708,6 +1946,140 @@ mod tests {
 
         assert_eq!(restored.archive().unwrap(), archive);
         assert_eq!(restored.world().events(), universe.world().events());
+    }
+
+    #[test]
+    fn complementary_deterministic_agents_build_trust() {
+        let mut universe = PocketUniverse::new().unwrap();
+        universe
+            .invoke_projection_command(SEED_MARS_COLONY_COMMAND)
+            .unwrap();
+        universe.advance_periods(2).unwrap();
+
+        let relationship = universe.world().state().entity(RELATIONSHIP).unwrap();
+        assert_eq!(
+            relationship.component(RELATIONSHIP_TRUST),
+            Some(&Value::Integer(2))
+        );
+        assert_eq!(
+            relationship.component(RELATIONSHIP_TENSION),
+            Some(&Value::Integer(0))
+        );
+        assert_eq!(
+            relationship.component(RELATIONSHIP_DIRECTION),
+            Some(&Value::Text("none".into()))
+        );
+        assert_eq!(
+            universe
+                .world()
+                .events()
+                .iter()
+                .filter(|event| event.kind == "relationship_shifted")
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn same_explore_choices_raise_tension_and_keep_full_causal_why() {
+        let mut universe = PocketUniverse::with_agent_runtime(MockAgentRuntime::scripted([
+            AGENT_EXPLORE_ACTION,
+            AGENT_EXPLORE_ACTION,
+        ]))
+        .unwrap();
+        universe
+            .invoke_projection_command(SEED_MARS_COLONY_COMMAND)
+            .unwrap();
+        universe.advance_periods(1).unwrap();
+
+        let relationship = universe.world().state().entity(RELATIONSHIP).unwrap();
+        assert_eq!(
+            relationship.component(RELATIONSHIP_TRUST),
+            Some(&Value::Integer(0))
+        );
+        assert_eq!(
+            relationship.component(RELATIONSHIP_TENSION),
+            Some(&Value::Integer(2))
+        );
+        let shifted = universe
+            .world()
+            .events()
+            .iter()
+            .find(|event| event.kind == "relationship_shifted")
+            .unwrap();
+        assert_eq!(shifted.caused_by.len(), 2);
+        let explored = universe
+            .world()
+            .events()
+            .iter()
+            .find(|event| event.kind == "agent_explored_world")
+            .unwrap()
+            .id;
+        let growth = universe
+            .world()
+            .events()
+            .iter()
+            .find(|event| event.kind == "universe_grew")
+            .unwrap()
+            .id;
+        let why = universe.projection_snapshot().why;
+        let chain = why.get(&shifted.id).unwrap();
+        assert!(chain.nodes.iter().any(|node| node.event == explored));
+        assert!(chain.nodes.iter().any(|node| node.event == growth));
+    }
+
+    #[test]
+    fn relationship_direction_is_durable_compareable_and_forkable() {
+        use world_compare::{compare_snapshots, DifferenceKind};
+
+        let mut shared = PocketUniverse::new().unwrap();
+        let mut rivalry = PocketUniverse::new().unwrap();
+        shared
+            .invoke_projection_command(SEED_1980S_TOWN_COMMAND)
+            .unwrap();
+        rivalry
+            .invoke_projection_command(SEED_1980S_TOWN_COMMAND)
+            .unwrap();
+        shared.advance_periods(2).unwrap();
+        rivalry.advance_periods(2).unwrap();
+
+        let before_choice = shared.archive().unwrap();
+        let shared_snapshot = shared
+            .invoke_projection_command(SHARED_PROJECT_COMMAND)
+            .map(|_| shared.projection_snapshot())
+            .unwrap();
+        let rivalry_snapshot = rivalry
+            .invoke_projection_command(RIVALRY_COMMAND)
+            .map(|_| rivalry.projection_snapshot())
+            .unwrap();
+
+        let comparison = compare_snapshots(&shared_snapshot, &rivalry_snapshot);
+        let relationship = comparison
+            .entities
+            .iter()
+            .find(|difference| difference.id == world_projection::SelectionId::Entity(RELATIONSHIP))
+            .unwrap();
+        assert_eq!(relationship.kind, DifferenceKind::Changed);
+        assert!(relationship.inspector_rows.iter().any(|row| {
+            row.key.label == "Direction"
+                && row.left.as_deref() == Some("shared-project")
+                && row.right.as_deref() == Some("rivalry")
+        }));
+
+        let steer_event = shared
+            .world()
+            .events()
+            .iter()
+            .find(|event| event.kind == "relationship_steered")
+            .unwrap()
+            .id;
+        shared.fork_before_event(steer_event).unwrap();
+        assert_eq!(shared.archive().unwrap(), before_choice);
+        let commands = shared.projection_snapshot().commands;
+        assert!(commands
+            .iter()
+            .any(|command| command.id == SHARED_PROJECT_COMMAND));
+        assert!(commands.iter().any(|command| command.id == RIVALRY_COMMAND));
     }
 
     #[test]
