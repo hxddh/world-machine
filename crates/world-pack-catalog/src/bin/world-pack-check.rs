@@ -28,12 +28,9 @@ enum Command {
 }
 
 fn main() {
-    match run(env::args_os().skip(1)) {
-        Ok(()) => {}
-        Err(error) => {
-            eprintln!("world-pack-check: {error}");
-            process::exit(1);
-        }
+    if let Err(error) = run(env::args_os().skip(1)) {
+        eprintln!("world-pack-check: {error}");
+        process::exit(1);
     }
 }
 
@@ -61,19 +58,21 @@ where
     let mut source = None;
 
     for arg in args {
-        if arg == "-h" || arg == "--help" {
-            return Ok(Command::Help);
+        match arg.to_str() {
+            Some("-h" | "--help") => return Ok(Command::Help),
+            Some("--inspect-only") => {
+                inspect_only = true;
+                continue;
+            }
+            Some(option) if option.starts_with('-') => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("unknown option {option}\n\n{USAGE}"),
+                ));
+            }
+            _ => {}
         }
-        if arg == "--inspect-only" {
-            inspect_only = true;
-            continue;
-        }
-        if arg.to_string_lossy().starts_with('-') {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!("unknown option {}\n\n{USAGE}", arg.to_string_lossy()),
-            ));
-        }
+
         if source.replace(PathBuf::from(arg)).is_some() {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -110,7 +109,7 @@ fn check_pack(source: &Path, inspect_only: bool) -> Result<(), Box<dyn Error>> {
 
     println!("Installing reviewed bytes into an isolated temporary catalog…");
     let installed = catalog.install_reviewed_pending_probe(&preview)?;
-    if installed.pack != *preview.pack() {
+    if &installed.pack != preview.pack() {
         return Err(io::Error::other(format!(
             "isolated install changed Pack identity from {} @ {} to {} @ {}",
             preview.pack().id,
@@ -123,7 +122,7 @@ fn check_pack(source: &Path, inspect_only: bool) -> Result<(), Box<dyn Error>> {
 
     println!("Running durable activation probe from the isolated managed copy…");
     let probe = catalog.probe(preview.pack())?;
-    if probe.pack != *preview.pack() {
+    if &probe.pack != preview.pack() {
         return Err(io::Error::other(format!(
             "probe reported unexpected Pack identity {} @ {}",
             probe.pack.id, probe.pack.version
