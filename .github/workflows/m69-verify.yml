@@ -1,0 +1,35 @@
+name: M69 Pocket Universe Social Arcs Verify
+
+on:
+  push:
+    branches: [m69-pocket-universe-social-arcs]
+    paths:
+      - '.github/workflows/m69-verify.yml'
+      - 'scripts/m69_social_arcs.py'
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: m69-pocket-universe-social-arcs
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: python scripts/m69_social_arcs.py
+      - run: cargo fmt --all
+      - run: cargo test -p pocket-universe
+      - run: cargo test -p pocket-universe-pack
+      - run: cargo clippy -p pocket-universe -p pocket-universe-pack --all-targets -- -D warnings
+      - run: bash ./scripts/check-boundaries.sh
+      - name: Commit verified social arc slice
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add Cargo.lock worlds/pocket-universe apps/pocket-universe-pack
+          git commit -m 'M69: let social arcs change the physical world'
+          git push origin HEAD:m69-pocket-universe-social-arcs
