@@ -1179,6 +1179,11 @@ fn steer_relationship_draft(
             "the relationship has not developed enough to steer yet".into(),
         ));
     }
+    if text_component_from_state(state, RELATIONSHIP, RELATIONSHIP_SOCIAL_ARC)? != "forming" {
+        return Err(ActionError::Invalid(
+            "this relationship has already resolved into a social arc".into(),
+        ));
+    }
     if text_component_from_state(state, RELATIONSHIP, RELATIONSHIP_DIRECTION)? != "none" {
         return Err(ActionError::Invalid(
             "this relationship already has a chosen direction".into(),
@@ -2306,6 +2311,46 @@ mod tests {
                 .component("social_status"),
             Some(&Value::Text("split survey routes".into()))
         );
+    }
+
+    #[test]
+    fn resolved_social_arc_closes_relationship_steering() {
+        let mut universe = PocketUniverse::new().unwrap();
+        universe
+            .invoke_projection_command(SEED_MARS_COLONY_COMMAND)
+            .unwrap();
+        universe.advance_periods(5).unwrap();
+
+        assert_eq!(
+            universe
+                .world()
+                .state()
+                .entity(RELATIONSHIP)
+                .unwrap()
+                .component(RELATIONSHIP_SOCIAL_ARC),
+            Some(&Value::Text("partnership".into()))
+        );
+        assert_eq!(
+            universe
+                .world()
+                .state()
+                .entity(RELATIONSHIP)
+                .unwrap()
+                .component(RELATIONSHIP_DIRECTION),
+            Some(&Value::Text("none".into()))
+        );
+        let snapshot = universe.projection_snapshot();
+        assert!(snapshot.command(SHARED_PROJECT_COMMAND).is_none());
+        assert!(snapshot.command(RIVALRY_COMMAND).is_none());
+
+        let before = universe.archive().unwrap();
+        let error = universe
+            .invoke_projection_command(RIVALRY_COMMAND)
+            .expect_err("resolved relationship must reject later steering");
+        assert!(error
+            .to_string()
+            .contains("already resolved into a social arc"));
+        assert_eq!(universe.archive().unwrap(), before);
     }
 
     #[test]
