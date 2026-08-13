@@ -148,11 +148,13 @@ impl SavedWorldSetupView {
         for document in &self.documents {
             let id = document.id.clone();
             let is_selected = selected.is_some_and(|selected| selected == &id);
-            let title = self
+            let pack_title = self
                 .registry
                 .descriptor_for(&document.pack)
                 .map(|descriptor| descriptor.title.clone())
                 .unwrap_or_else(|| document.pack.id.clone());
+            let title = saved_world_title(document, &pack_title);
+            let identity = saved_world_identity(document, &pack_title, &title);
             let mut card = div()
                 .id(SharedString::from(format!(
                     "saved-compare-{}-{id}",
@@ -173,16 +175,13 @@ impl SavedWorldSetupView {
                     div()
                         .flex()
                         .justify_between()
-                        .child(div().text_sm().child(id.to_string()))
+                        .child(div().text_sm().child(title))
                         .child(div().text_xs().text_color(rgb(0x777770)).child(format!(
                             "t={} · {} events",
                             document.world_time, document.event_count
                         ))),
                 )
-                .child(div().text_xs().text_color(rgb(0x777770)).child(format!(
-                    "{title} · {} @ {}",
-                    document.pack.id, document.pack.version
-                )));
+                .child(div().text_xs().text_color(rgb(0x777770)).child(identity));
             card = if is_selected {
                 card.border_color(rgb(0x6684c4)).bg(rgb(0xf2f6ff))
             } else {
@@ -239,8 +238,8 @@ pub(super) fn open_saved_comparison<T: 'static>(
         left_provenance: branch_label(result.left.branch.as_ref()),
         right_provenance: branch_label(result.right.branch.as_ref()),
     };
-    let left_label = result.left.document.to_string();
-    let right_label = result.right.document.to_string();
+    let left_label = comparison_world_label(&result.left.snapshot.title, &result.left.document);
+    let right_label = comparison_world_label(&result.right.snapshot.title, &result.right.document);
     let status_left = left_label.clone();
     let status_right = right_label.clone();
     let bounds = Bounds::centered(None, size(px(1240.0), px(980.0)), cx);
@@ -345,6 +344,41 @@ impl gpui::Render for SavedWorldSetupView {
     }
 }
 
+fn saved_world_title(document: &WorldDocumentSummary, pack_title: &str) -> String {
+    document
+        .display_title
+        .as_deref()
+        .map(str::trim)
+        .filter(|title| !title.is_empty())
+        .unwrap_or(pack_title)
+        .to_owned()
+}
+
+fn saved_world_identity(
+    document: &WorldDocumentSummary,
+    pack_title: &str,
+    display_title: &str,
+) -> String {
+    let durable = format!(
+        "{} @ {} · {}",
+        document.pack.id, document.pack.version, document.id
+    );
+    if display_title == pack_title {
+        durable
+    } else {
+        format!("{pack_title} · {durable}")
+    }
+}
+
+fn comparison_world_label(snapshot_title: &str, document: &WorldDocumentId) -> String {
+    let title = snapshot_title.trim();
+    if title.is_empty() {
+        document.to_string()
+    } else {
+        format!("{title} · {document}")
+    }
+}
+
 fn relation_label(relation: &SavedWorldRelation) -> String {
     match relation {
         SavedWorldRelation::Same => "Same saved World".into(),
@@ -394,14 +428,50 @@ mod tests {
     use super::*;
     use world_persistence::WorldPackRef;
 
-    fn summary(id: &str, pack: WorldPackRef) -> WorldDocumentSummary {
+    fn titled_summary(
+        id: &str,
+        pack: WorldPackRef,
+        display_title: Option<&str>,
+    ) -> WorldDocumentSummary {
         WorldDocumentSummary {
             id: WorldDocumentId::new(id).unwrap(),
             pack,
-            display_title: None,
+            display_title: display_title.map(str::to_owned),
             world_time: 10,
             event_count: 2,
         }
+    }
+
+    fn summary(id: &str, pack: WorldPackRef) -> WorldDocumentSummary {
+        titled_summary(id, pack, None)
+    }
+
+    #[test]
+    fn semantic_labels_prefer_world_title_but_keep_durable_identity_secondary() {
+        let pack = WorldPackRef::new("pocket-universe", "0.10.0");
+        let world = titled_summary("mars-001", pack, Some("  Ares Pocket Colony  "));
+
+        let title = saved_world_title(&world, "Pocket Universe");
+        assert_eq!(title, "Ares Pocket Colony");
+        assert_eq!(
+            saved_world_identity(&world, "Pocket Universe", &title),
+            "Pocket Universe · pocket-universe @ 0.10.0 · mars-001"
+        );
+    }
+
+    #[test]
+    fn semantic_labels_fall_back_without_a_meaningful_world_title() {
+        let pack = WorldPackRef::new("pack-a", "1");
+        let blank = titled_summary("blank", pack.clone(), Some("   "));
+        let legacy = titled_summary("legacy", pack, None);
+
+        assert_eq!(saved_world_title(&blank, "Pack A"), "Pack A");
+        assert_eq!(saved_world_title(&legacy, "Pack A"), "Pack A");
+        assert_eq!(
+            comparison_world_label("  A Living World  ", &legacy.id),
+            "A Living World · legacy"
+        );
+        assert_eq!(comparison_world_label("   ", &legacy.id), "legacy");
     }
 
     #[test]
