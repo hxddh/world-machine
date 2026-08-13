@@ -36,8 +36,10 @@ impl WorldLibrary {
             return Err(LibraryError::DocumentAlreadyExists(id));
         }
 
+        // Summaries intentionally consume the whole document so host-only
+        // metadata such as display titles survives every Library create path.
         match create_document_file(&self.path(&id), document) {
-            Ok(()) => Ok(summary(id, &document.archive)),
+            Ok(()) => Ok(summary(id, document)),
             Err(LibraryError::Io(error)) if error.kind() == io::ErrorKind::AlreadyExists => {
                 Err(LibraryError::DocumentAlreadyExists(id))
             }

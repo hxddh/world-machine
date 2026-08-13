@@ -398,6 +398,7 @@ mod tests {
         WorldDocumentSummary {
             id: WorldDocumentId::new(id).unwrap(),
             pack,
+            display_title: None,
             world_time: 10,
             event_count: 2,
         }
