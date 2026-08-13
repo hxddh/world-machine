@@ -1,7 +1,8 @@
 use crate::{
     seed_id, BOLD_PATH_COMMAND, CAREFUL_PATH_COMMAND, DECISION, GENERATION, LAST_CHANGE,
-    NUDGE_COMMAND, RELATIONSHIP, RELATIONSHIP_DIRECTION, RIVALRY_COMMAND, SEED_1980S_TOWN_COMMAND,
-    SEED_MARS_COLONY_COMMAND, SEED_PENGUIN_CIVILIZATION_COMMAND, SHARED_PROJECT_COMMAND, UNIVERSE,
+    NUDGE_COMMAND, RELATIONSHIP, RELATIONSHIP_DIRECTION, RELATIONSHIP_SOCIAL_ARC, RIVALRY_COMMAND,
+    SEED_1980S_TOWN_COMMAND, SEED_MARS_COLONY_COMMAND, SEED_PENGUIN_CIVILIZATION_COMMAND,
+    SHARED_PROJECT_COMMAND, UNIVERSE,
 };
 use world_core::{Entity, Event, Value, World};
 use world_projection::{
@@ -76,7 +77,12 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
         RELATIONSHIP_DIRECTION,
         "none",
     );
-    if generation >= 2 && relationship_direction == "none" {
+    let relationship_social_arc = text_component(
+        world.state().entity(RELATIONSHIP),
+        RELATIONSHIP_SOCIAL_ARC,
+        "forming",
+    );
+    if generation >= 2 && relationship_direction == "none" && relationship_social_arc == "forming" {
         commands.push(ProjectionCommand {
             id: SHARED_PROJECT_COMMAND.into(),
             title: "Give them a shared project".into(),
@@ -178,6 +184,8 @@ fn return_item(event: &Event) -> BriefingItem {
             "agent_explored_world" => "Someone explored beyond routine".into(),
             "relationship_shifted" => "Their relationship changed".into(),
             "relationship_steered" => "You steered their relationship".into(),
+            "partnership_formed" => "A partnership formed".into(),
+            "relationship_fractured" => "Their relationship fractured".into(),
             _ => event.kind.replace('_', " "),
         },
         detail,

@@ -15,7 +15,7 @@ use world_persistence::{PersistenceError, WorldArchive, WorldPackRef};
 use world_projection::{ProjectionIntent, ProjectionSnapshot};
 
 pub const POCKET_UNIVERSE_PACK_ID: &str = "world-machine.pocket-universe";
-pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.8.0";
+pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.9.0";
 
 pub const SEED_MARS_COLONY_COMMAND: &str = "pocket-universe.seed-mars-colony";
 pub const SEED_1980S_TOWN_COMMAND: &str = "pocket-universe.seed-1980s-town";
@@ -42,6 +42,7 @@ pub(crate) const RELATIONSHIP_DIRECTION: &str = "direction";
 const RELATIONSHIP_TRUST: &str = "trust";
 const RELATIONSHIP_TENSION: &str = "tension";
 const RELATIONSHIP_LAST_DYNAMIC: &str = "last_dynamic";
+const RELATIONSHIP_SOCIAL_ARC: &str = "social_arc";
 const ANCHOR_PULSE: &str = "pulse";
 const UNSEEDED: &str = "unseeded";
 const BACKGROUND_PERIOD: u64 = 10;
@@ -222,8 +223,18 @@ where
                         .caused_by(secondary_outcome),
                 )?
                 .id;
+            let returned = if social_arc_candidate(candidate.state())?.is_some() {
+                candidate
+                    .execute(
+                        &self.actions,
+                        &ActionRequest::new("resolve_social_arc").caused_by(relationship),
+                    )?
+                    .id
+            } else {
+                relationship
+            };
             self.world = candidate;
-            return Ok(relationship);
+            return Ok(returned);
         }
 
         let action = match command_id {
@@ -280,12 +291,20 @@ where
                 SLOT_E,
                 &[primary_outcome],
             )?;
-            candidate.execute(
-                &self.actions,
-                &ActionRequest::new("update_relationship")
-                    .caused_by(primary_outcome)
-                    .caused_by(secondary_outcome),
-            )?;
+            let relationship = candidate
+                .execute(
+                    &self.actions,
+                    &ActionRequest::new("update_relationship")
+                        .caused_by(primary_outcome)
+                        .caused_by(secondary_outcome),
+                )?
+                .id;
+            if social_arc_candidate(candidate.state())?.is_some() {
+                candidate.execute(
+                    &self.actions,
+                    &ActionRequest::new("resolve_social_arc").caused_by(relationship),
+                )?;
+            }
         }
         self.world = candidate;
         Ok(())
@@ -518,6 +537,7 @@ fn build_action_registry() -> Result<ActionRegistry, ActionError> {
     actions.register(CareForWorld)?;
     actions.register(ExploreWorld)?;
     actions.register(UpdateRelationship)?;
+    actions.register(ResolveSocialArc)?;
     actions.register(SteerSharedProject)?;
     actions.register(SteerRivalry)?;
     Ok(actions)
@@ -532,6 +552,7 @@ struct ChooseCarefulPath;
 struct CareForWorld;
 struct ExploreWorld;
 struct UpdateRelationship;
+struct ResolveSocialArc;
 struct SteerSharedProject;
 struct SteerRivalry;
 
@@ -686,7 +707,8 @@ impl Action for GrowUniverse {
         let generation = integer_component(state, UNIVERSE, GENERATION)?;
         let next = generation + 1;
         let decision = decision_id_from_state(state)?;
-        let change = growth_message(&seed, next, &decision);
+        let social_arc = text_component_from_state(state, RELATIONSHIP, RELATIONSHIP_SOCIAL_ARC)?;
+        let change = growth_message(&seed, next, &decision, &social_arc);
         let pulse = anchor_pulse(&seed, next);
         let (metric_key, metric_value) = growth_metric(state, &seed)?;
         let mut draft = EventDraft::new("universe_grew");
@@ -1000,6 +1022,126 @@ impl Action for UpdateRelationship {
     }
 }
 
+fn social_arc_candidate(state: &WorldState) -> Result<Option<&'static str>, ActionError> {
+    if text_component_from_state(state, RELATIONSHIP, RELATIONSHIP_SOCIAL_ARC)? != "forming" {
+        return Ok(None);
+    }
+    let direction = text_component_from_state(state, RELATIONSHIP, RELATIONSHIP_DIRECTION)?;
+    let trust = integer_component(state, RELATIONSHIP, RELATIONSHIP_TRUST)?;
+    let tension = integer_component(state, RELATIONSHIP, RELATIONSHIP_TENSION)?;
+
+    if direction == "shared-project" && trust >= 5 {
+        return Ok(Some("partnership"));
+    }
+    if direction == "rivalry" && tension >= 5 {
+        return Ok(Some("fracture"));
+    }
+    if trust >= 5 && trust >= tension + 2 {
+        return Ok(Some("partnership"));
+    }
+    if tension >= 5 && tension >= trust + 2 {
+        return Ok(Some("fracture"));
+    }
+    Ok(None)
+}
+
+impl Action for ResolveSocialArc {
+    fn name(&self) -> &'static str {
+        "resolve_social_arc"
+    }
+
+    fn evaluate(
+        &self,
+        state: &WorldState,
+        _request: &ActionRequest,
+    ) -> Result<EventDraft, ActionError> {
+        let arc = social_arc_candidate(state)?.ok_or_else(|| {
+            ActionError::Invalid("relationship has not reached a social-arc threshold".into())
+        })?;
+        let seed = seed_id_from_state(state)?;
+        let trust = integer_component(state, RELATIONSHIP, RELATIONSHIP_TRUST)?;
+        let tension = integer_component(state, RELATIONSHIP, RELATIONSHIP_TENSION)?;
+        let (kind, summary, target, key, value) = match (seed.as_str(), arc) {
+            ("mars-colony", "partnership") => (
+                "partnership_formed",
+                "Nia and Tomas stopped dividing the work into separate turns. Kestrel now launches with them as one expedition crew.",
+                SLOT_D,
+                "social_status",
+                "joint expedition crew",
+            ),
+            ("mars-colony", "fracture") => (
+                "relationship_fractured",
+                "Nia and Tomas stopped trusting the same route. Kestrel now runs split survey plans with competing priorities.",
+                SLOT_D,
+                "social_status",
+                "split survey routes",
+            ),
+            ("1980s-town", "partnership") => (
+                "partnership_formed",
+                "Lena and Max turned their late-night improvisation into a real partnership. K-88 now carries a shared neighborhood show.",
+                SLOT_C,
+                "social_format",
+                "Lena + Max neighborhood show",
+            ),
+            ("1980s-town", "fracture") => (
+                "relationship_fractured",
+                "Lena and Max began pulling the same audience in different directions. K-88 now schedules competing late shows.",
+                SLOT_C,
+                "social_format",
+                "competing late shows",
+            ),
+            ("penguin-civilization", "partnership") => (
+                "partnership_formed",
+                "Piko and Miri turned their different duties into one shared watch. The Aurora Council now plans around their joint reports.",
+                SLOT_D,
+                "social_order",
+                "shared watch council",
+            ),
+            ("penguin-civilization", "fracture") => (
+                "relationship_fractured",
+                "Piko and Miri split the colony's priorities into rival camps. The Aurora Council now meets as two moonrise caucuses.",
+                SLOT_D,
+                "social_order",
+                "split moonrise caucuses",
+            ),
+            _ => {
+                return Err(ActionError::Invalid(format!(
+                    "unsupported Pocket Universe social arc: seed={seed}, arc={arc}"
+                )))
+            }
+        };
+        let mut draft = EventDraft::new(kind);
+        draft.targets = vec![RELATIONSHIP, SLOT_B, SLOT_E, target];
+        draft.payload.insert("social_arc".into(), arc.into());
+        draft.payload.insert("trust".into(), trust.into());
+        draft.payload.insert("tension".into(), tension.into());
+        draft.payload.insert("summary".into(), summary.into());
+        draft.changes = vec![
+            StateChange::SetComponent {
+                entity: RELATIONSHIP,
+                key: RELATIONSHIP_SOCIAL_ARC.into(),
+                value: arc.into(),
+            },
+            StateChange::SetComponent {
+                entity: RELATIONSHIP,
+                key: RELATIONSHIP_LAST_DYNAMIC.into(),
+                value: summary.into(),
+            },
+            StateChange::SetComponent {
+                entity: target,
+                key: key.into(),
+                value: value.into(),
+            },
+            StateChange::SetComponent {
+                entity: UNIVERSE,
+                key: LAST_CHANGE.into(),
+                value: summary.into(),
+            },
+        ];
+        Ok(draft)
+    }
+}
+
 impl Action for SteerSharedProject {
     fn name(&self) -> &'static str {
         "steer_shared_project"
@@ -1035,6 +1177,11 @@ fn steer_relationship_draft(
     if integer_component(state, UNIVERSE, GENERATION)? < 2 {
         return Err(ActionError::Invalid(
             "the relationship has not developed enough to steer yet".into(),
+        ));
+    }
+    if text_component_from_state(state, RELATIONSHIP, RELATIONSHIP_SOCIAL_ARC)? != "forming" {
+        return Err(ActionError::Invalid(
+            "this relationship has already resolved into a social arc".into(),
         ));
     }
     if text_component_from_state(state, RELATIONSHIP, RELATIONSHIP_DIRECTION)? != "none" {
@@ -1219,6 +1366,7 @@ fn relationship_entity(name: &str) -> Entity {
         .with_component(RELATIONSHIP_TRUST, 0_i64)
         .with_component(RELATIONSHIP_TENSION, 0_i64)
         .with_component(RELATIONSHIP_DIRECTION, "none")
+        .with_component(RELATIONSHIP_SOCIAL_ARC, "forming")
         .with_component(RELATIONSHIP_LAST_DYNAMIC, "forming")
 }
 
@@ -1364,7 +1512,7 @@ fn integer_component(state: &WorldState, entity: EntityId, key: &str) -> Result<
     }
 }
 
-fn growth_message(seed: &str, generation: i64, decision: &str) -> String {
+fn growth_message(seed: &str, generation: i64, decision: &str, social_arc: &str) -> String {
     let cycle = ((generation - 1).rem_euclid(3)) as usize;
     let messages: [&[&str]; 3] = [
         &[
@@ -1389,25 +1537,57 @@ fn growth_message(seed: &str, generation: i64, decision: &str) -> String {
         "penguin-civilization" => messages[2][cycle],
         _ => "The world changed in a small but persistent way.",
     };
-    if decision == "none" {
-        return base.into();
+    let mut story = base.to_owned();
+    if decision != "none" {
+        let consequence = match decision {
+            "follow-signal" => {
+                "The signal expedition keeps pulling attention beyond the safe ridge."
+            }
+            "fortify-habitat" => {
+                "The stronger habitat makes every later risk feel more deliberate."
+            }
+            "community-arcade" => {
+                "The arcade is becoming a place people organize their evenings around."
+            }
+            "steady-business" => "The arcade survives by staying small, predictable, and open.",
+            "winter-feast" => {
+                "The feast has turned Icebridge into a meeting point for distant colonies."
+            }
+            "conserve-reserves" => {
+                "The sealed reserve gives the council more room to plan for the dark season."
+            }
+            _ => "The earlier intervention is still shaping what happens next.",
+        };
+        story.push(' ');
+        story.push_str(consequence);
     }
-    let consequence = match decision {
-        "follow-signal" => "The signal expedition keeps pulling attention beyond the safe ridge.",
-        "fortify-habitat" => "The stronger habitat makes every later risk feel more deliberate.",
-        "community-arcade" => {
-            "The arcade is becoming a place people organize their evenings around."
+    let social_consequence = match (seed, social_arc) {
+        (_, "forming") => None,
+        ("mars-colony", "partnership") => {
+            Some("Nia and Tomas now plan each rover cycle as one crew.")
         }
-        "steady-business" => "The arcade survives by staying small, predictable, and open.",
-        "winter-feast" => {
-            "The feast has turned Icebridge into a meeting point for distant colonies."
+        ("mars-colony", "fracture") => {
+            Some("Nia and Tomas now divide rover access into competing routes.")
         }
-        "conserve-reserves" => {
-            "The sealed reserve gives the council more room to plan for the dark season."
+        ("1980s-town", "partnership") => {
+            Some("Lena and Max now turn late-night discoveries into one shared broadcast.")
         }
-        _ => "The earlier intervention is still shaping what happens next.",
+        ("1980s-town", "fracture") => {
+            Some("Lena and Max now compete to define the neighborhood's late-night rhythm.")
+        }
+        ("penguin-civilization", "partnership") => {
+            Some("Piko and Miri now bring one shared watch report to the council.")
+        }
+        ("penguin-civilization", "fracture") => {
+            Some("Piko and Miri now bring rival priorities to each moonrise council.")
+        }
+        (_, _) => Some("The relationship between the world's actors is now shaping later events."),
     };
-    format!("{base} {consequence}")
+    if let Some(social_consequence) = social_consequence {
+        story.push(' ');
+        story.push_str(social_consequence);
+    }
+    story
 }
 
 fn anchor_pulse(seed: &str, generation: i64) -> String {
@@ -1999,6 +2179,178 @@ mod tests {
                     "agent_cared_for_world" | "agent_explored_world"
                 )
         }));
+    }
+
+    #[test]
+    fn shared_project_cascades_into_a_partnership_that_changes_the_world() {
+        let mut universe = PocketUniverse::new().unwrap();
+        universe
+            .invoke_projection_command(SEED_MARS_COLONY_COMMAND)
+            .unwrap();
+        universe.advance_periods(2).unwrap();
+        universe
+            .invoke_projection_command(SHARED_PROJECT_COMMAND)
+            .unwrap();
+        universe.advance_periods(1).unwrap();
+
+        let relationship = universe.world().state().entity(RELATIONSHIP).unwrap();
+        assert_eq!(
+            relationship.component(RELATIONSHIP_SOCIAL_ARC),
+            Some(&Value::Text("partnership".into()))
+        );
+        assert_eq!(
+            universe
+                .world()
+                .state()
+                .entity(SLOT_D)
+                .unwrap()
+                .component("social_status"),
+            Some(&Value::Text("joint expedition crew".into()))
+        );
+        let partnership = universe
+            .world()
+            .events()
+            .iter()
+            .find(|event| event.kind == "partnership_formed")
+            .expect("partnership event");
+        assert_eq!(partnership.caused_by.len(), 1);
+        let relationship_shift = partnership.caused_by[0];
+        assert_eq!(
+            universe
+                .world()
+                .events()
+                .iter()
+                .find(|event| event.id == relationship_shift)
+                .map(|event| event.kind.as_str()),
+            Some("relationship_shifted")
+        );
+        let snapshot = universe.projection_snapshot();
+        let why = snapshot.why(partnership.id).unwrap();
+        let growth = universe
+            .world()
+            .events()
+            .iter()
+            .rev()
+            .find(|event| event.kind == "universe_grew")
+            .unwrap()
+            .id;
+        assert!(why.nodes.iter().any(|node| node.event == growth));
+
+        universe.advance_periods(1).unwrap();
+        assert_eq!(
+            universe
+                .world()
+                .state()
+                .entity(SLOT_D)
+                .unwrap()
+                .component("social_status"),
+            Some(&Value::Text("joint expedition crew".into())),
+            "ordinary later agent turns must not erase a resolved social arc"
+        );
+        let later_growth = universe
+            .world()
+            .events()
+            .iter()
+            .rev()
+            .find(|event| event.kind == "universe_grew")
+            .unwrap();
+        assert!(matches!(
+            later_growth.payload.get("change"),
+            Some(Value::Text(change)) if change.contains("one crew")
+        ));
+    }
+
+    #[test]
+    fn rivalry_cascades_into_a_fracture_that_changes_the_world_and_is_forkable() {
+        let mut universe = PocketUniverse::new().unwrap();
+        universe
+            .invoke_projection_command(SEED_MARS_COLONY_COMMAND)
+            .unwrap();
+        universe.advance_periods(2).unwrap();
+        universe.invoke_projection_command(RIVALRY_COMMAND).unwrap();
+        universe.advance_periods(2).unwrap();
+
+        let relationship = universe.world().state().entity(RELATIONSHIP).unwrap();
+        assert_eq!(
+            relationship.component(RELATIONSHIP_SOCIAL_ARC),
+            Some(&Value::Text("fracture".into()))
+        );
+        assert_eq!(
+            universe
+                .world()
+                .state()
+                .entity(SLOT_D)
+                .unwrap()
+                .component("social_status"),
+            Some(&Value::Text("split survey routes".into()))
+        );
+        let fractured = universe
+            .world()
+            .events()
+            .iter()
+            .find(|event| event.kind == "relationship_fractured")
+            .expect("fracture event")
+            .id;
+
+        universe.fork_before_event(fractured).unwrap();
+        assert_eq!(
+            universe
+                .world()
+                .state()
+                .entity(RELATIONSHIP)
+                .unwrap()
+                .component(RELATIONSHIP_SOCIAL_ARC),
+            Some(&Value::Text("forming".into()))
+        );
+        assert_ne!(
+            universe
+                .world()
+                .state()
+                .entity(SLOT_D)
+                .unwrap()
+                .component("social_status"),
+            Some(&Value::Text("split survey routes".into()))
+        );
+    }
+
+    #[test]
+    fn resolved_social_arc_closes_relationship_steering() {
+        let mut universe = PocketUniverse::new().unwrap();
+        universe
+            .invoke_projection_command(SEED_MARS_COLONY_COMMAND)
+            .unwrap();
+        universe.advance_periods(5).unwrap();
+
+        assert_eq!(
+            universe
+                .world()
+                .state()
+                .entity(RELATIONSHIP)
+                .unwrap()
+                .component(RELATIONSHIP_SOCIAL_ARC),
+            Some(&Value::Text("partnership".into()))
+        );
+        assert_eq!(
+            universe
+                .world()
+                .state()
+                .entity(RELATIONSHIP)
+                .unwrap()
+                .component(RELATIONSHIP_DIRECTION),
+            Some(&Value::Text("none".into()))
+        );
+        let snapshot = universe.projection_snapshot();
+        assert!(snapshot.command(SHARED_PROJECT_COMMAND).is_none());
+        assert!(snapshot.command(RIVALRY_COMMAND).is_none());
+
+        let before = universe.archive().unwrap();
+        let error = universe
+            .invoke_projection_command(RIVALRY_COMMAND)
+            .expect_err("resolved relationship must reject later steering");
+        assert!(error
+            .to_string()
+            .contains("already resolved into a social arc"));
+        assert_eq!(universe.archive().unwrap(), before);
     }
 
     #[test]
