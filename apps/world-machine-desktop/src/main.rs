@@ -1,4 +1,6 @@
 #[cfg(target_os = "macos")]
+mod included_packs;
+#[cfg(target_os = "macos")]
 mod observer;
 #[cfg(target_os = "macos")]
 mod strategy_compare;
@@ -257,6 +259,7 @@ struct WorldMachineHome {
     pack_catalog_path: PathBuf,
     documents: Vec<WorldDocumentSummary>,
     lineage: Option<LineageIndex>,
+    included_packs: Vec<included_packs::IncludedPack>,
     pending_pack_install: Option<PackInstallPreview>,
     probing_packs: Vec<WorldPackRef>,
     status: Option<String>,
@@ -298,6 +301,64 @@ impl WorldMachineHome {
         Ok(())
     }
 
+    fn review_pack_path(
+        &mut self,
+        source: PathBuf,
+        expected_pack: Option<WorldPackRef>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.pack_catalog.is_none() {
+            match PackCatalog::open(&self.pack_catalog_path) {
+                Ok(catalog) => self.pack_catalog = Some(catalog),
+                Err(error) => {
+                    self.status = Some(format!(
+                        "Could not open Installed Packs catalog {}: {error}",
+                        self.pack_catalog_path.display()
+                    ));
+                    cx.notify();
+                    return;
+                }
+            }
+        }
+
+        let catalog = self.pack_catalog.as_ref().unwrap();
+        match catalog.inspect_install(&source) {
+            Ok(preview) => {
+                if expected_pack
+                    .as_ref()
+                    .is_some_and(|expected| preview.pack() != expected)
+                {
+                    let expected = expected_pack.unwrap();
+                    self.pending_pack_install = None;
+                    self.status = Some(format!(
+                        "Included Pack identity mismatch: expected {} @ {}, found {} @ {}",
+                        expected.id,
+                        expected.version,
+                        preview.pack().id,
+                        preview.pack().version
+                    ));
+                    cx.notify();
+                    return;
+                }
+                self.status = Some(format!(
+                    "Review {} @ {} before trusting its executable bytes",
+                    preview.pack().id,
+                    preview.pack().version
+                ));
+                self.pending_pack_install = Some(preview);
+            }
+            Err(error) => {
+                self.pending_pack_install = None;
+                self.status = Some(format!("Could not inspect {}: {error}", source.display()));
+            }
+        }
+        cx.notify();
+    }
+
+    fn review_included_pack(&mut self, pack: included_packs::IncludedPack, cx: &mut Context<Self>) {
+        self.review_pack_path(pack.path, Some(pack.pack), cx);
+    }
+
     fn install_pack(&mut self, cx: &mut Context<Self>) {
         let picker = cx.prompt_for_paths(PathPromptOptions {
             files: true,
@@ -306,7 +367,7 @@ impl WorldMachineHome {
             prompt: Some("Install World Pack".into()),
         });
         cx.spawn(async move |this, cx| {
-            let manifest = match picker.await {
+            let source = match picker.await {
                 Ok(Ok(Some(mut paths))) => paths.pop(),
                 Ok(Ok(None)) => return,
                 Ok(Err(error)) => {
@@ -324,41 +385,10 @@ impl WorldMachineHome {
                     return;
                 }
             };
-            let Some(manifest) = manifest else {
+            let Some(source) = source else {
                 return;
             };
-            let _ = this.update(cx, |this, cx| {
-                if this.pack_catalog.is_none() {
-                    match PackCatalog::open(&this.pack_catalog_path) {
-                        Ok(catalog) => this.pack_catalog = Some(catalog),
-                        Err(error) => {
-                            this.status = Some(format!(
-                                "Could not open Installed Packs catalog {}: {error}",
-                                this.pack_catalog_path.display()
-                            ));
-                            cx.notify();
-                            return;
-                        }
-                    }
-                }
-                let catalog = this.pack_catalog.as_ref().unwrap();
-                match catalog.inspect_install(&manifest) {
-                    Ok(preview) => {
-                        this.status = Some(format!(
-                            "Review {} @ {} before trusting its executable bytes",
-                            preview.pack().id,
-                            preview.pack().version
-                        ));
-                        this.pending_pack_install = Some(preview);
-                    }
-                    Err(error) => {
-                        this.pending_pack_install = None;
-                        this.status =
-                            Some(format!("Could not inspect {}: {error}", manifest.display()));
-                    }
-                }
-                cx.notify();
-            });
+            let _ = this.update(cx, |this, cx| this.review_pack_path(source, None, cx));
         })
         .detach();
     }
@@ -999,6 +1029,63 @@ impl WorldMachineHome {
             )
     }
 
+    fn included_pack_card(
+        &self,
+        pack: included_packs::IncludedPack,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let review_pack = pack.clone();
+        let identity = format!("{} @ {}", pack.pack.id, pack.pack.version);
+        div()
+            .id(SharedString::from(format!(
+                "included-pack-{}-{}",
+                pack.pack.id, pack.pack.version
+            )))
+            .w_full()
+            .p_4()
+            .rounded_md()
+            .border_1()
+            .border_color(rgb(0xc8d5c0))
+            .bg(rgb(0xf7fbf5))
+            .flex()
+            .justify_between()
+            .items_center()
+            .gap_3()
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(div().text_lg().child(pack.title))
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(0x666666))
+                            .child(pack.description),
+                    )
+                    .child(div().text_xs().text_color(rgb(0x75806f)).child(format!(
+                        "{identity} · Included external Pack · review required"
+                    ))),
+            )
+            .child(
+                div()
+                    .id(SharedString::from(format!(
+                        "review-included-pack-{}-{}",
+                        pack.pack.id, pack.pack.version
+                    )))
+                    .cursor_pointer()
+                    .p_2()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(rgb(0x91a486))
+                    .text_sm()
+                    .child("Review & Install")
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.review_included_pack(review_pack.clone(), cx)
+                    })),
+            )
+    }
+
     fn pack_install_review_card(
         &self,
         preview: PackInstallPreview,
@@ -1257,6 +1344,37 @@ impl Render for WorldMachineHome {
             }
         }
 
+        let visible_included_packs = self
+            .included_packs
+            .iter()
+            .filter(|included| {
+                !self.pack_catalog.as_ref().is_some_and(|catalog| {
+                    catalog
+                        .entries()
+                        .iter()
+                        .any(|installed| installed.pack == included.pack)
+                })
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut included = div().w_full().flex().flex_col().gap_3();
+        if visible_included_packs.is_empty() {
+            included = included.child(
+                div()
+                    .p_4()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(rgb(0xe1e1dc))
+                    .text_sm()
+                    .text_color(rgb(0x777770))
+                    .child("All Worlds included with this app are already installed."),
+            );
+        } else {
+            for pack in visible_included_packs {
+                included = included.child(self.included_pack_card(pack, cx));
+            }
+        }
+
         let installed_packs = self
             .pack_catalog
             .as_ref()
@@ -1344,9 +1462,15 @@ impl Render for WorldMachineHome {
             body = body.child(self.pack_install_review_card(preview, cx));
         }
 
+        body = body.child(div().text_sm().child("My Worlds")).child(saved);
+
+        if !self.included_packs.is_empty() {
+            body = body
+                .child(div().text_sm().child("Included Worlds"))
+                .child(included);
+        }
+
         body = body
-            .child(div().text_sm().child("My Worlds"))
-            .child(saved)
             .child(div().text_sm().child("Installed Packs"))
             .child(installed)
             .child(div().text_sm().child("New World"))
@@ -1582,6 +1706,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             )),
         ),
     };
+    let (included_packs, included_status) = match included_packs::discover() {
+        Ok(packs) => (packs, None),
+        Err(error) => (
+            Vec::new(),
+            Some(format!("Could not locate included World Packs: {error}")),
+        ),
+    };
     let (documents, lineage, library_status) = match library.list() {
         Ok(documents) => match LineageIndex::from_library(library.as_ref()) {
             Ok(lineage) => (documents, Some(lineage), None),
@@ -1598,7 +1729,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ),
     };
 
-    let status = pack_status.or(library_status);
+    let status = pack_status.or(library_status).or(included_status);
 
     application.run(move |cx: &mut App| {
         let home = cx.new(|cx| {
@@ -1609,6 +1740,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 pack_catalog_path,
                 documents,
                 lineage,
+                included_packs,
                 pending_pack_install: None,
                 probing_packs: Vec::new(),
                 status,

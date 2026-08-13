@@ -21,6 +21,7 @@ The renderer boundary is explicit:
 - `world-gpui` consumes only projection models; it does not own World truth and does not depend on `world-core` or a specific Pack.
 - `world-machine-desktop` hosts durable `.world` documents, branching/lineage, external Pack installation, durable activation probing, and generic World creation.
 - Tiny Society, Pocket Universe, and Micro Company exercise the same public Host/Pack boundaries.
+- The macOS app bundle carries Pocket Universe and Micro Company as **included external Packs**. They are not built-ins and are not executed at startup; Home requires an explicit Review & Install action before the existing content-review, quarantine, durable-probe, and activation path runs.
 - Pi remains an optional out-of-process `world-pi-rpc` AgentRuntime adapter.
 
 ## Run
@@ -36,6 +37,14 @@ On macOS, after the GPUI dependencies are available:
 ```bash
 cargo run -p world-machine-desktop
 ```
+
+Build the distributable app bundle, including the fixed official external `.worldpack` resources:
+
+```bash
+bash apps/world-machine-desktop/macos/build-app.sh
+```
+
+A source-tree `cargo run` does not invent or scan for included Packs. The packaged app discovers only the fixed `Contents/Resources/World Packs` allowlist (or an explicit development override), and installation still requires user review of the exact executable identity and SHA-256.
 
 ## Check an external Pack
 
