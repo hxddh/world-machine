@@ -37,6 +37,18 @@
                 <string>io.github.hxddh.world-machine.world</string>
             </array>
         </dict>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>World Machine Pack</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSHandlerRank</key>
+            <string>Owner</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>io.github.hxddh.world-machine.worldpack</string>
+            </array>
+        </dict>
     </array>
 
     <key>UTExportedTypeDeclarations</key>
@@ -56,6 +68,24 @@
                 <key>public.filename-extension</key>
                 <array>
                     <string>world</string>
+                </array>
+            </dict>
+        </dict>
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>io.github.hxddh.world-machine.worldpack</string>
+            <key>UTTypeDescription</key>
+            <string>World Machine Pack</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.data</string>
+                <string>public.content</string>
+            </array>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+                <key>public.filename-extension</key>
+                <array>
+                    <string>worldpack</string>
                 </array>
             </dict>
         </dict>
