@@ -53,16 +53,16 @@ const LIBRARY_OVERRIDE_ENV: &str = "WORLD_MACHINE_LIBRARY_DIR";
 const PACK_CATALOG_OVERRIDE_ENV: &str = "WORLD_MACHINE_PACK_CATALOG";
 
 #[cfg(target_os = "macos")]
-static LIBRARY_MUTATION_REVISION: AtomicU64 = AtomicU64::new(0);
+static LIBRARY_CHANGE_REVISION: AtomicU64 = AtomicU64::new(0);
 
 #[cfg(target_os = "macos")]
-pub(crate) fn mark_library_mutated() {
-    LIBRARY_MUTATION_REVISION.fetch_add(1, Ordering::Relaxed);
+pub(crate) fn mark_library_changed() {
+    LIBRARY_CHANGE_REVISION.fetch_add(1, Ordering::Relaxed);
 }
 
 #[cfg(target_os = "macos")]
-fn library_mutation_revision() -> u64 {
-    LIBRARY_MUTATION_REVISION.load(Ordering::Relaxed)
+fn library_change_revision() -> u64 {
+    LIBRARY_CHANGE_REVISION.load(Ordering::Relaxed)
 }
 
 #[cfg(target_os = "macos")]
@@ -99,7 +99,7 @@ impl world_gpui::ProjectionController for HostProjectionController {
             .handle(intent, &registry, &library)
             .map_err(|error| error.to_string());
         if result.is_ok() && is_library_world {
-            mark_library_mutated();
+            mark_library_changed();
         }
         result
     }
@@ -188,6 +188,9 @@ impl WorldDocumentView {
 
         match result {
             Ok(snapshot) => {
+                if self.document.borrow().session.document_id().is_some() {
+                    mark_library_changed();
+                }
                 self.rebuild_projection(cx);
                 self.status = Some(DocumentStatus::success(format!(
                     "Reloaded {} · World time {}",
@@ -374,7 +377,7 @@ struct WorldMachineHome {
 impl WorldMachineHome {
     fn start_system_open_listener(&mut self, cx: &mut Context<Self>) {
         cx.spawn(async move |this, cx| {
-            let mut observed_library_revision = library_mutation_revision();
+            let mut observed_library_revision = library_change_revision();
             loop {
                 cx.background_executor()
                     .timer(Duration::from_millis(200))
@@ -384,7 +387,7 @@ impl WorldMachineHome {
                     return;
                 };
                 let paths = system_open::drain_paths();
-                let revision = library_mutation_revision();
+                let revision = library_change_revision();
                 let library_changed = revision != observed_library_revision;
                 if library_changed {
                     observed_library_revision = revision;
@@ -2246,10 +2249,10 @@ mod file_type_tests {
     }
 
     #[test]
-    fn library_mutation_revision_advances_after_mark() {
-        let before = library_mutation_revision();
-        mark_library_mutated();
-        assert!(library_mutation_revision() > before);
+    fn library_change_revision_advances_after_mark() {
+        let before = library_change_revision();
+        mark_library_changed();
+        assert!(library_change_revision() > before);
     }
 
     #[test]

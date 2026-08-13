@@ -1,5 +1,5 @@
 use super::{
-    mark_library_mutated, sanitize_document_base, unique_document_id, DocumentStatus,
+    mark_library_changed, sanitize_document_base, unique_document_id, DocumentStatus,
     SharedDocument, WorldDocumentView,
 };
 use gpui::{
@@ -82,7 +82,7 @@ fn fork_world(
             .fork_to_library(document_id.clone(), None, library.as_ref())
             .map_err(|error| error.to_string())?;
     }
-    mark_library_mutated();
+    mark_library_changed();
 
     // From this point on the fork is durable. Reopening, observer initialization,
     // or window creation failures must not be reported as if persistence failed.
@@ -100,7 +100,7 @@ fn fork_world(
     let observer_warning =
         match super::observer::catch_up(&mut session, registry.as_ref(), library.as_ref()) {
             Ok(Some(_)) => {
-                mark_library_mutated();
+                mark_library_changed();
                 None
             }
             Ok(None) => None,
