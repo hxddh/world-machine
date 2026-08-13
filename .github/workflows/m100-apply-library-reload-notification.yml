@@ -37,16 +37,21 @@ jobs:
 
           path = Path('apps/world-machine-desktop/src/main.rs')
           text = path.read_text()
-          anchor = '''            Ok(snapshot) => {
-                self.rebuild_projection(cx);'''
-          replacement = '''            Ok(snapshot) => {
-                if self.document.borrow().session.document_id().is_some() {
-                    mark_library_changed();
-                }
-                self.rebuild_projection(cx);'''
-          count = text.count(anchor)
-          assert count == 1, f'expected one reload success anchor, found {count}'
-          text = text.replace(anchor, replacement, 1)
+          reload_start = text.index('    fn reload(&mut self, cx: &mut Context<Self>) {')
+          save_as_start = text.index('\n    fn save_as(&mut self, cx: &mut Context<Self>) {', reload_start)
+          reload_block = text[reload_start:save_as_start]
+          lines = reload_block.splitlines(keepends=True)
+          matches = [i for i, line in enumerate(lines) if 'self.rebuild_projection(cx);' in line]
+          assert len(matches) == 1, f'expected one rebuild in reload, found {len(matches)}'
+          i = matches[0]
+          indent = lines[i][: len(lines[i]) - len(lines[i].lstrip())]
+          inserted = (
+              f'{indent}if self.document.borrow().session.document_id().is_some() {{\n'
+              f'{indent}    mark_library_changed();\n'
+              f'{indent}}}\n'
+          )
+          lines.insert(i, inserted)
+          text = text[:reload_start] + ''.join(lines) + text[save_as_start:]
           path.write_text(text)
           PY
           cargo fmt --all
