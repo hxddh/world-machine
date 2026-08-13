@@ -23,6 +23,7 @@ The renderer boundary is explicit:
 - Tiny Society, Pocket Universe, and Micro Company exercise the same public Host/Pack boundaries.
 - The macOS app bundle carries Pocket Universe and Micro Company as **included external Packs**. They are not built-ins and are not executed at startup; Home requires an explicit Review & Install action before the existing content-review, quarantine, durable-probe, and activation path runs.
 - Portable `.worldpack` files are registered as a native macOS file type. Double-clicking a Pack, using Open With, or opening it through the app routes the file into the same static review surface; the open event itself never installs or executes Pack code.
+- After a newly installed Pack passes the durable probe and becomes active, Home offers an explicit `Create <World>` handoff. The probe still does not create a user World automatically; the CTA is ephemeral and only remains valid while that exact Pack version is enabled, active, content-valid, and registered.
 - Pi remains an optional out-of-process `world-pi-rpc` AgentRuntime adapter.
 
 ## Run
