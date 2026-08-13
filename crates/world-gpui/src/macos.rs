@@ -12,6 +12,7 @@ pub struct ProjectionView {
     selected: Option<SelectionId>,
     controller: Option<Box<dyn ProjectionController>>,
     status: Option<String>,
+    status_is_error: bool,
 }
 
 impl ProjectionView {
@@ -22,6 +23,7 @@ impl ProjectionView {
             selected,
             controller: None,
             status: None,
+            status_is_error: false,
         }
     }
 
@@ -38,6 +40,7 @@ impl ProjectionView {
     fn select(&mut self, selection: SelectionId, cx: &mut Context<Self>) {
         self.selected = Some(selection);
         self.status = None;
+        self.status_is_error = false;
         cx.notify();
     }
 
@@ -45,6 +48,14 @@ impl ProjectionView {
         let Some(SelectionId::Event(event)) = self.selected else {
             return;
         };
+        let event_title = self
+            .snapshot
+            .timeline
+            .items
+            .iter()
+            .find(|item| item.id == SelectionId::Event(event))
+            .map(|item| item.title.clone())
+            .unwrap_or_else(|| format!("Event #{event}"));
         let Some(controller) = self.controller.as_mut() else {
             return;
         };
@@ -54,21 +65,18 @@ impl ProjectionView {
                 let previous = self.selected;
                 self.snapshot = snapshot;
                 self.selected = selection_for_snapshot(previous, &self.snapshot);
-                self.status = Some(format!("Forked before Event #{event}"));
+                self.status = Some(format!("Branched before {event_title}"));
+                self.status_is_error = false;
             }
             Err(error) => {
-                self.status = Some(format!("Fork failed: {error}"));
+                self.status = Some(format!("Couldn't branch here: {error}"));
+                self.status_is_error = true;
             }
         }
         cx.notify();
     }
 
     fn invoke_command(&mut self, command_id: String, cx: &mut Context<Self>) {
-        let title = self
-            .snapshot
-            .command(&command_id)
-            .map(|command| command.title.clone())
-            .unwrap_or_else(|| command_id.clone());
         let Some(controller) = self.controller.as_mut() else {
             return;
         };
@@ -78,10 +86,12 @@ impl ProjectionView {
                 let previous = self.selected;
                 self.snapshot = snapshot;
                 self.selected = selection_for_snapshot(previous, &self.snapshot);
-                self.status = Some(format!("{title} completed"));
+                self.status = None;
+                self.status_is_error = false;
             }
             Err(error) => {
-                self.status = Some(format!("Command failed: {error}"));
+                self.status = Some(format!("Couldn't continue: {error}"));
+                self.status_is_error = true;
             }
         }
         cx.notify();
@@ -478,7 +488,11 @@ impl Render for ProjectionView {
             header_right = header_right.child(
                 div()
                     .text_sm()
-                    .text_color(rgb(0x4e6fb3))
+                    .text_color(if self.status_is_error {
+                        rgb(0xa33a3a)
+                    } else {
+                        rgb(0x4e6fb3)
+                    })
                     .child(status.clone()),
             );
         }
