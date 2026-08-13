@@ -86,7 +86,6 @@ impl world_gpui::ProjectionController for HostProjectionController {
 
 #[cfg(target_os = "macos")]
 struct WorldDocumentView {
-    title: String,
     document_label: String,
     document: SharedDocument,
     projection: Entity<world_gpui::ProjectionView>,
@@ -97,7 +96,6 @@ struct WorldDocumentView {
 impl WorldDocumentView {
     fn new(
         session: DurableWorldSession,
-        title: String,
         registry: Arc<world_host::WorldRegistry>,
         library: Arc<WorldLibrary>,
         cx: &mut Context<Self>,
@@ -113,7 +111,6 @@ impl WorldDocumentView {
         };
         let projection = cx.new(|_| world_gpui::ProjectionView::controlled(controller));
         Self {
-            title,
             document_label,
             document,
             projection,
@@ -202,7 +199,7 @@ impl WorldDocumentView {
 #[cfg(target_os = "macos")]
 impl Render for WorldDocumentView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        window.set_window_title(&format!("{} — {}", self.document_label, self.title));
+        window.set_window_title(&document_window_title(&self.document_label));
         let actions = div()
             .flex()
             .gap_2()
@@ -224,13 +221,8 @@ impl Render for WorldDocumentView {
                     .flex()
                     .gap_2()
                     .items_center()
-                    .child(div().text_sm().child(self.title.clone()))
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(rgb(0x777770))
-                            .child(self.document_label.clone()),
-                    ),
+                    .child(div().text_xs().text_color(rgb(0x777770)).child("DOCUMENT"))
+                    .child(div().text_sm().child(self.document_label.clone())),
             )
             .child(actions);
 
@@ -695,16 +687,13 @@ impl WorldMachineHome {
         let document_label = session.display_name();
         let registry = Arc::clone(&self.registry);
         let library = Arc::clone(&self.library);
-        let window_title = title.clone();
         let bounds = Bounds::centered(None, size(px(1100.0), px(900.0)), cx);
         let opened = cx.open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 ..Default::default()
             },
-            move |_, cx| {
-                cx.new(|cx| WorldDocumentView::new(session, window_title, registry, library, cx))
-            },
+            move |_, cx| cx.new(|cx| WorldDocumentView::new(session, registry, library, cx)),
         );
 
         self.status = Some(match opened {
@@ -1773,6 +1762,11 @@ impl Render for WorldMachineHome {
 }
 
 #[cfg(target_os = "macos")]
+fn document_window_title(document_label: &str) -> String {
+    format!("{document_label} — World Machine")
+}
+
+#[cfg(target_os = "macos")]
 fn start_after_install_matches(pending: Option<&WorldPackRef>, pack: &WorldPackRef) -> bool {
     pending == Some(pack)
 }
@@ -1977,6 +1971,14 @@ fn is_world_pack_file(path: &Path) -> bool {
 #[cfg(all(test, target_os = "macos"))]
 mod file_type_tests {
     use super::*;
+
+    #[test]
+    fn document_window_title_uses_stable_durable_identity() {
+        assert_eq!(
+            document_window_title("pocket-universe-42"),
+            "pocket-universe-42 — World Machine"
+        );
+    }
 
     #[test]
     fn start_intent_is_bound_to_exact_pack_identity() {

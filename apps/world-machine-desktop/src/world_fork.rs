@@ -96,14 +96,8 @@ fn fork_world(
             .err()
             .map(|error| format!("observer clock initialization skipped: {error}"));
 
-    let pack = session.pack();
-    let title = registry
-        .descriptor_for(&pack)
-        .map(|descriptor| descriptor.title.clone())
-        .unwrap_or(pack.id);
     let registry_for_window = Arc::clone(&registry);
     let library_for_window = Arc::clone(&library);
-    let window_title = title.clone();
     let bounds = Bounds::centered(None, size(px(1100.0), px(900.0)), cx);
     let opened = cx.open_window(
         WindowOptions {
@@ -112,13 +106,7 @@ fn fork_world(
         },
         move |_, cx| {
             cx.new(|cx| {
-                WorldDocumentView::new(
-                    session,
-                    window_title,
-                    registry_for_window,
-                    library_for_window,
-                    cx,
-                )
+                WorldDocumentView::new(session, registry_for_window, library_for_window, cx)
             })
         },
     );
