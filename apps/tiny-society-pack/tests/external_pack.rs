@@ -2,22 +2,26 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 use std::process::{self, Command};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tiny_society::{TINY_SOCIETY_PACK_ID, TINY_SOCIETY_PACK_VERSION};
 use world_host::WorldRegistry;
 use world_pack_catalog::PackCatalog;
 use world_pack_protocol::{PackManifest, PackRuntimeManifest};
 
+static TEMP_DIR_NONCE: AtomicU64 = AtomicU64::new(1);
+
 fn temp_dir() -> PathBuf {
-    let nonce = SystemTime::now()
+    let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos();
+    let nonce = TEMP_DIR_NONCE.fetch_add(1, Ordering::Relaxed);
     let root = env::temp_dir().join(format!(
-        "world-machine-tiny-society-external-{}-{nonce}",
+        "world-machine-tiny-society-external-{}-{timestamp}-{nonce}",
         process::id()
     ));
-    fs::create_dir_all(&root).unwrap();
+    fs::create_dir(&root).unwrap();
     root
 }
 
