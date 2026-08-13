@@ -948,17 +948,16 @@ fn validate_mind_profile(profile: String) -> Result<String, std::io::Error> {
         Ok(profile)
     } else {
         Err(std::io::Error::other(
-            "mind profile must be a non-empty <=64 character label using a-z, 0-9, '.', '_' or '-'",
+            "mind profile must be one of: deterministic, pi, custom",
         ))
     }
 }
 
 fn is_valid_mind_profile(profile: &str) -> bool {
-    !profile.is_empty()
-        && profile.len() <= 64
-        && profile.bytes().all(|byte| {
-            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'.' | b'_' | b'-')
-        })
+    matches!(
+        profile,
+        DETERMINISTIC_MIND_PROFILE | "pi" | CUSTOM_MIND_PROFILE
+    )
 }
 
 pub(crate) fn seed_id(world: &World) -> &str {
@@ -1346,12 +1345,12 @@ mod tests {
 
         let mut left = PocketUniverse::with_agent_runtime_profile(
             MockAgentRuntime::scripted([AGENT_CARE_ACTION]),
-            "mind-a",
+            DETERMINISTIC_MIND_PROFILE,
         )
         .unwrap();
         let mut right = PocketUniverse::with_agent_runtime_profile(
             MockAgentRuntime::scripted([AGENT_CARE_ACTION]),
-            "mind-b",
+            "pi",
         )
         .unwrap();
         left.invoke_projection_command(SEED_MARS_COLONY_COMMAND)
@@ -1370,7 +1369,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             left_outcome.payload.get(MIND_PROFILE_ARG),
-            Some(&Value::Text("mind-a".into()))
+            Some(&Value::Text(DETERMINISTIC_MIND_PROFILE.into()))
         );
 
         let comparison =
@@ -1386,27 +1385,37 @@ mod tests {
             .iter()
             .find(|row| row.key.label == "Last Mind Profile")
             .unwrap();
-        assert_eq!(profile.left.as_deref(), Some("mind-a"));
-        assert_eq!(profile.right.as_deref(), Some("mind-b"));
+        assert_eq!(profile.left.as_deref(), Some(DETERMINISTIC_MIND_PROFILE));
+        assert_eq!(profile.right.as_deref(), Some("pi"));
     }
 
     #[test]
-    fn registration_profile_rejects_secret_shaped_or_freeform_values_without_panicking() {
-        let error = pocket_universe_registration_with_agent_runtime_profile(
-            || PocketMind,
+    fn registration_profile_rejects_credentials_without_panicking() {
+        for profile in [
+            "ghp_abcdefghijklmnopqrstuvwxyz0123456789",
+            "0123456789abcdef0123456789abcdef",
+        ] {
+            let error =
+                pocket_universe_registration_with_agent_runtime_profile(|| PocketMind, profile)
+                    .err()
+                    .expect("credential-shaped registration profile must be rejected");
+            assert!(error.to_string().contains("mind profile must be one of"));
+        }
+    }
+
+    #[test]
+    fn mind_profile_rejects_arbitrary_slug_and_credential_shaped_values() {
+        for profile in [
+            "mind-a",
+            "ghp_abcdefghijklmnopqrstuvwxyz0123456789",
+            "0123456789abcdef0123456789abcdef",
             "pi api-key=secret",
-        )
-        .err()
-        .expect("freeform registration mind profile must be rejected");
-        assert!(error.to_string().contains("mind profile must be"));
-    }
-
-    #[test]
-    fn mind_profile_rejects_secret_shaped_or_freeform_values() {
-        let error = PocketUniverse::with_agent_runtime_profile(PocketMind, "pi api-key=secret")
-            .err()
-            .expect("freeform mind profile must be rejected");
-        assert!(error.to_string().contains("mind profile must be"));
+        ] {
+            let error = PocketUniverse::with_agent_runtime_profile(PocketMind, profile)
+                .err()
+                .expect("non-closed-set mind profile must be rejected");
+            assert!(error.to_string().contains("mind profile must be one of"));
+        }
     }
 
     #[test]
