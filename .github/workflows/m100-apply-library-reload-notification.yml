@@ -37,25 +37,16 @@ jobs:
 
           path = Path('apps/world-machine-desktop/src/main.rs')
           text = path.read_text()
-          old = '''            Ok(snapshot) => {
-                self.rebuild_projection(cx);
-                self.status = Some(DocumentStatus::success(format!(
-                    "Reloaded {} · World time {}",
-                    self.document_label, snapshot.world_time
-                )));
-            }'''
-          new = '''            Ok(snapshot) => {
+          anchor = '''            Ok(snapshot) => {
+                self.rebuild_projection(cx);'''
+          replacement = '''            Ok(snapshot) => {
                 if self.document.borrow().session.document_id().is_some() {
                     mark_library_changed();
                 }
-                self.rebuild_projection(cx);
-                self.status = Some(DocumentStatus::success(format!(
-                    "Reloaded {} · World time {}",
-                    self.document_label, snapshot.world_time
-                )));
-            }'''
-          assert old in text, 'reload success block changed unexpectedly'
-          text = text.replace(old, new, 1)
+                self.rebuild_projection(cx);'''
+          count = text.count(anchor)
+          assert count == 1, f'expected one reload success anchor, found {count}'
+          text = text.replace(anchor, replacement, 1)
           path.write_text(text)
           PY
           cargo fmt --all
