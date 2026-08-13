@@ -5,6 +5,7 @@ on:
     branches: [m70-micro-company-external-pack]
     paths:
       - '.github/workflows/m70-verify.yml'
+      - 'apps/micro-company-pack/tests/external_pack.rs'
 
 permissions:
   contents: write
