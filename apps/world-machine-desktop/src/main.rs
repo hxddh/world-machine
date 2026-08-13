@@ -782,10 +782,8 @@ impl WorldMachineHome {
         }
     }
 
-    fn sync_documents_after_mutation(&mut self) {
-        if let Err(status) = self.refresh_documents() {
-            self.status = Some(status);
-        }
+    fn sync_documents_after_mutation(&mut self) -> Option<HomeStatus> {
+        self.refresh_documents().err()
     }
 
     fn open_session(
@@ -851,7 +849,7 @@ impl WorldMachineHome {
                     return;
                 }
             };
-        self.sync_documents_after_mutation();
+        let sync_error = self.sync_documents_after_mutation();
         if self
             .ready_pack_to_create
             .as_ref()
@@ -860,6 +858,10 @@ impl WorldMachineHome {
             self.ready_pack_to_create = None;
         }
         self.open_session(session, title, cx);
+        if let Some(status) = sync_error {
+            self.status = Some(status);
+            cx.notify();
+        }
     }
 
     fn open_document(&mut self, document_id: WorldDocumentId, cx: &mut Context<Self>) {
@@ -973,8 +975,12 @@ impl WorldMachineHome {
             .descriptor_for(&pack)
             .map(|descriptor| descriptor.title.clone())
             .unwrap_or(pack.id);
-        self.sync_documents_after_mutation();
+        let sync_error = self.sync_documents_after_mutation();
         self.open_session(session, title, cx);
+        if let Some(status) = sync_error {
+            self.status = Some(status);
+            cx.notify();
+        }
     }
 
     fn import_world(&mut self, cx: &mut Context<Self>) {
