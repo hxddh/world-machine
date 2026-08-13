@@ -1,0 +1,197 @@
+name: M97 typed Compare Futures status
+
+on:
+  push:
+    branches:
+      - m97-typed-strategy-status
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: m97-typed-strategy-status
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Type Compare Futures local feedback
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('apps/world-machine-desktop/src/strategy_compare.rs')
+          text = path.read_text()
+
+          marker = '''const HORIZON_PRESETS: [u64; 3] = [5, 20, 100];'''
+          replacement = '''const HORIZON_PRESETS: [u64; 3] = [5, 20, 100];
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum StrategyStatusTone {
+    Success,
+    Error,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct StrategyStatus {
+    message: String,
+    tone: StrategyStatusTone,
+}
+
+impl StrategyStatus {
+    fn success(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            tone: StrategyStatusTone::Success,
+        }
+    }
+
+    fn error(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            tone: StrategyStatusTone::Error,
+        }
+    }
+}'''
+          assert marker in text
+          text = text.replace(marker, replacement, 1)
+
+          old = '    status: Option<String>,'
+          assert text.count(old) == 2, f'expected two local Strategy status fields, found {text.count(old)}'
+          text = text.replace(old, '    status: Option<StrategyStatus>,')
+
+          old = '''        if let Some(status) = &self.status {
+            body = body.child(
+                div()
+                    .p_3()
+                    .rounded_md()
+                    .bg(rgb(0xeef2ea))
+                    .text_sm()
+                    .child(status.clone()),
+            );
+        }'''
+          new = '''        if let Some(status) = &self.status {
+            let (background, foreground) = match status.tone {
+                StrategyStatusTone::Success => (0xeef2ea, 0x4d6748),
+                StrategyStatusTone::Error => (0xfbf0ee, 0x9b4a42),
+            };
+            body = body.child(
+                div()
+                    .p_3()
+                    .rounded_md()
+                    .bg(rgb(background))
+                    .text_color(rgb(foreground))
+                    .text_sm()
+                    .child(status.message.clone()),
+            );
+        }'''
+          assert old in text, 'Strategy Setup status rendering changed unexpectedly'
+          text = text.replace(old, new, 1)
+
+          old = '''                    this.status = Some(match this.run_comparison(cx) {
+                        Ok((left, right)) => format!("Opened comparison · {left} vs {right}"),
+                        Err(error) => format!("Could not compare: {error}"),
+                    });'''
+          new = '''                    this.status = Some(match this.run_comparison(cx) {
+                        Ok((left, right)) => StrategyStatus::success(format!(
+                            "Opened comparison · {left} vs {right}"
+                        )),
+                        Err(error) => StrategyStatus::error(format!(
+                            "Could not compare: {error}"
+                        )),
+                    });'''
+          assert old in text, 'Run comparison feedback changed unexpectedly'
+          text = text.replace(old, new, 1)
+
+          old = '''        self.status = Some(format!("Saved {side_label} as {saved_id}"));'''
+          new = '''        self.status = Some(StrategyStatus::success(format!(
+            "Saved {side_label} as {saved_id}"
+        )));'''
+          assert old in text, 'Save Future success feedback changed unexpectedly'
+          text = text.replace(old, new, 1)
+
+          old = '''                            this.status = Some(match this.open_saved_future(side, cx) {
+                                Ok(document) => format!("Opened saved {label} · {document}"),
+                                Err(error) => format!("Open failed: {error}"),
+                            });'''
+          new = '''                            this.status = Some(match this.open_saved_future(side, cx) {
+                                Ok(document) => StrategyStatus::success(format!(
+                                    "Opened saved {label} · {document}"
+                                )),
+                                Err(error) => StrategyStatus::error(format!(
+                                    "Open failed: {error}"
+                                )),
+                            });'''
+          assert old in text, 'Open saved Future feedback changed unexpectedly'
+          text = text.replace(old, new, 1)
+
+          old = '''                    if let Err(error) = this.save_future(side) {
+                        this.status = Some(format!("Save failed: {error}"));
+                    }'''
+          new = '''                    if let Err(error) = this.save_future(side) {
+                        this.status = Some(StrategyStatus::error(format!(
+                            "Save failed: {error}"
+                        )));
+                    }'''
+          assert old in text, 'Save Future error feedback changed unexpectedly'
+          text = text.replace(old, new, 1)
+
+          old = '''        if let Some(status) = &self.status {
+            chrome = chrome.child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0x4e6fb3))
+                    .child(status.clone()),
+            );
+        }'''
+          new = '''        if let Some(status) = &self.status {
+            let foreground = match status.tone {
+                StrategyStatusTone::Success => 0x4d6748,
+                StrategyStatusTone::Error => 0x9b4a42,
+            };
+            chrome = chrome.child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(foreground))
+                    .child(status.message.clone()),
+            );
+        }'''
+          assert old in text, 'Strategy Result status rendering changed unexpectedly'
+          text = text.replace(old, new, 1)
+
+          test_marker = '''    #[test]
+    fn saved_strategy_future_preserves_semantic_snapshot_title() {'''
+          tests = '''    #[test]
+    fn strategy_status_tone_is_explicit_not_inferred_from_text() {
+        let success = StrategyStatus::success("failed-looking success text");
+        let error = StrategyStatus::error("opened-looking error text");
+
+        assert_eq!(success.tone, StrategyStatusTone::Success);
+        assert_eq!(error.tone, StrategyStatusTone::Error);
+        assert_eq!(success.message, "failed-looking success text");
+        assert_eq!(error.message, "opened-looking error text");
+    }
+
+    #[test]
+    fn saved_strategy_future_preserves_semantic_snapshot_title() {'''
+          assert test_marker in text, 'Strategy test marker changed unexpectedly'
+          text = text.replace(test_marker, tests, 1)
+
+          path.write_text(text)
+          PY
+          cargo fmt --all
+          cargo test -p world-machine-desktop
+          git diff --check
+      - name: Commit typed Strategy feedback and remove helper
+        if: success()
+        shell: bash
+        run: |
+          rm .github/workflows/m97-apply-typed-strategy-status.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/world-machine-desktop/src/strategy_compare.rs \
+                  .github/workflows/m97-apply-typed-strategy-status.yml
+          git commit -m "M97: give Compare Futures explicit status semantics"
+          git push origin HEAD:m97-typed-strategy-status
