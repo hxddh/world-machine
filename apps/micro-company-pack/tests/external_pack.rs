@@ -152,10 +152,50 @@ fn micro_company_is_a_real_external_pack_with_distinct_deterministic_and_pi_futu
             && event.payload.get("mind_profile")
                 == Some(&ArchivedValue::Text("deterministic".into()))
     }));
-    let deterministic_snapshot = deterministic.snapshot();
     drop(deterministic);
     let reopened = registry.open_archive(&deterministic_archive).unwrap();
-    assert_eq!(reopened.snapshot(), deterministic_snapshot);
+    let reopened_snapshot = reopened.snapshot();
+    assert_eq!(reopened_snapshot.title, "Northstar Micro Company · Traction");
+    assert_eq!(reopened_snapshot.world_time, 20);
+    assert_eq!(
+        reopened_snapshot
+            .briefing
+            .as_ref()
+            .expect("current-state briefing")
+            .title,
+        "Traction found",
+        "return briefing is session-local and must not become persistence truth"
+    );
+    assert_eq!(
+        inspector_row(&reopened_snapshot, "Northstar Micro Company", "Cash"),
+        Some("6")
+    );
+    assert_eq!(
+        inspector_row(&reopened_snapshot, "Northstar Micro Company", "Status"),
+        Some("traction")
+    );
+    assert_eq!(
+        inspector_row(&reopened_snapshot, "Northstar", "Quality"),
+        Some("3")
+    );
+    assert_eq!(
+        inspector_row(&reopened_snapshot, "First Customers", "Customers"),
+        Some("3")
+    );
+    assert_eq!(
+        inspector_row(&reopened_snapshot, "Maya ↔ Jon", "Trust"),
+        Some("2")
+    );
+    assert_eq!(
+        inspector_row(&reopened_snapshot, "Maya ↔ Jon", "Tension"),
+        Some("0")
+    );
+    assert!(reopened_snapshot.command(RUN_CYCLE_COMMAND).is_none());
+    assert!(reopened_snapshot
+        .timeline
+        .items
+        .iter()
+        .any(|item| item.title == "Company Found Traction"));
     assert_eq!(reopened.archive().unwrap().unwrap(), deterministic_archive);
     drop(reopened);
 
