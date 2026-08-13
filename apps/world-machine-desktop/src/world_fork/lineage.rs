@@ -1,4 +1,6 @@
-use super::super::{observer, DocumentStatus, SharedDocument, WorldDocumentView};
+use super::super::{
+    mark_library_mutated, observer, DocumentStatus, SharedDocument, WorldDocumentView,
+};
 use gpui::{
     div, prelude::*, px, rgb, size, AppContext, Bounds, Context, IntoElement, Styled, WindowBounds,
     WindowOptions,
@@ -252,10 +254,13 @@ impl LineageController for AppLineageController {
                 .map_err(|error| error.to_string())?;
         let notice =
             match observer::catch_up(&mut session, self.registry.as_ref(), self.library.as_ref()) {
-                Ok(Some(outcome)) => Some(format!(
-                    "Advanced {} background period(s) · World time {}",
-                    outcome.periods, outcome.world_time
-                )),
+                Ok(Some(outcome)) => {
+                    mark_library_mutated();
+                    Some(format!(
+                        "Advanced {} background period(s) · World time {}",
+                        outcome.periods, outcome.world_time
+                    ))
+                }
                 Ok(None) => None,
                 Err(error) => Some(format!("Catch-up skipped: {error}")),
             };
