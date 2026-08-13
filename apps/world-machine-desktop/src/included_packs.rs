@@ -11,6 +11,8 @@ pub struct IncludedPack {
     pub pack: WorldPackRef,
     pub title: &'static str,
     pub description: &'static str,
+    pub experience: &'static str,
+    pub featured: bool,
     pub path: PathBuf,
 }
 
@@ -20,6 +22,8 @@ struct IncludedPackSpec {
     version: &'static str,
     title: &'static str,
     description: &'static str,
+    experience: &'static str,
+    featured: bool,
     file_name: &'static str,
 }
 
@@ -29,6 +33,8 @@ const INCLUDED_PACKS: &[IncludedPackSpec] = &[
         version: "0.9.0",
         title: "Pocket Universe",
         description: "Seed a tiny persistent world, let its inhabitants act, and watch relationships turn into durable consequences.",
+        experience: "Seed a place · Let it live · Branch what happens next",
+        featured: true,
         file_name: "pocket-universe.worldpack",
     },
     IncludedPackSpec {
@@ -36,6 +42,8 @@ const INCLUDED_PACKS: &[IncludedPackSpec] = &[
         version: "0.1.0",
         title: "Micro Company",
         description: "Run a tiny product company where two actors make bounded decisions and the business can find traction or run out of cash.",
+        experience: "Choose a direction · Watch demand and cash · Adapt",
+        featured: false,
         file_name: "micro-company.worldpack",
     },
 ];
@@ -70,6 +78,8 @@ fn discover_in(root: &Path) -> Vec<IncludedPack> {
                 pack: WorldPackRef::new(spec.id, spec.version),
                 title: spec.title,
                 description: spec.description,
+                experience: spec.experience,
+                featured: spec.featured,
                 path,
             })
         })
@@ -126,6 +136,11 @@ mod tests {
         assert_eq!(packs[0].pack.id, "world-machine.pocket-universe");
         assert_eq!(packs[0].pack.version, "0.9.0");
         assert_eq!(packs[0].title, "Pocket Universe");
+        assert!(packs[0].featured);
+        assert_eq!(
+            packs[0].experience,
+            "Seed a place · Let it live · Branch what happens next"
+        );
         assert_eq!(packs[0].path, root.join("pocket-universe.worldpack"));
 
         fs::remove_dir_all(root).unwrap();
@@ -149,6 +164,9 @@ mod tests {
                 "world-machine.micro-company"
             ]
         );
+        assert_eq!(packs.iter().filter(|pack| pack.featured).count(), 1);
+        assert!(packs[0].featured);
+        assert!(!packs[1].featured);
 
         fs::remove_dir_all(root).unwrap();
     }

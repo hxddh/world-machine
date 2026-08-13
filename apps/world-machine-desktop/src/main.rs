@@ -1079,6 +1079,78 @@ impl WorldMachineHome {
             )
     }
 
+    fn included_pack_is_installed(&self, pack: &WorldPackRef) -> bool {
+        self.pack_catalog.as_ref().is_some_and(|catalog| {
+            catalog
+                .entries()
+                .iter()
+                .any(|installed| &installed.pack == pack)
+        })
+    }
+
+    fn featured_included_pack_card(
+        &self,
+        pack: included_packs::IncludedPack,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let review_pack = pack.clone();
+        let identity = format!("{} @ {}", pack.pack.id, pack.pack.version);
+        div()
+            .id("featured-included-world")
+            .w_full()
+            .p_4()
+            .rounded_md()
+            .border_1()
+            .border_color(rgb(0xa8b9d6))
+            .bg(rgb(0xf1f5fb))
+            .flex()
+            .justify_between()
+            .items_center()
+            .gap_3()
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(0x5e6f91))
+                            .child("START HERE · PERSISTENT SOCIAL WORLD"),
+                    )
+                    .child(div().text_lg().child(pack.title))
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(0x4f5968))
+                            .child(pack.description),
+                    )
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(0x314b72))
+                            .child(pack.experience),
+                    )
+                    .child(div().text_xs().text_color(rgb(0x71809a)).child(format!(
+                        "{identity} · Included external World · reviewed before it runs"
+                    ))),
+            )
+            .child(
+                div()
+                    .id("review-featured-included-world")
+                    .cursor_pointer()
+                    .p_2()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(rgb(0x657da7))
+                    .text_sm()
+                    .child("Review & Start")
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.review_included_pack(review_pack.clone(), cx)
+                    })),
+            )
+    }
+
     fn included_pack_card(
         &self,
         pack: included_packs::IncludedPack,
@@ -1112,6 +1184,12 @@ impl WorldMachineHome {
                             .text_sm()
                             .text_color(rgb(0x666666))
                             .child(pack.description),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(0x66735f))
+                            .child(pack.experience),
                     )
                     .child(div().text_xs().text_color(rgb(0x75806f)).child(format!(
                         "{identity} · Included external Pack · review required"
@@ -1438,15 +1516,31 @@ impl Render for WorldMachineHome {
         window.set_window_title("World Machine");
 
         let documents = self.documents.clone();
+        let has_documents = !documents.is_empty();
         let descriptors = self
             .registry
             .descriptors()
             .into_iter()
             .cloned()
             .collect::<Vec<_>>();
+        let first_run = !has_documents;
+        let featured_included = self
+            .included_packs
+            .iter()
+            .find(|pack| pack.featured && !self.included_pack_is_installed(&pack.pack))
+            .cloned();
+        let featured_review_pending = self
+            .pending_pack_install
+            .as_ref()
+            .zip(featured_included.as_ref())
+            .is_some_and(|(preview, featured)| preview.pack() == &featured.pack);
+        let show_featured = first_run
+            && self.pending_pack_install.is_none()
+            && self.ready_pack_to_create.is_none()
+            && featured_included.is_some();
 
         let mut saved = div().w_full().flex().flex_col().gap_3();
-        if documents.is_empty() {
+        if !has_documents {
             saved = saved.child(
                 div()
                     .p_4()
@@ -1466,32 +1560,17 @@ impl Render for WorldMachineHome {
         let visible_included_packs = self
             .included_packs
             .iter()
+            .filter(|included| !self.included_pack_is_installed(&included.pack))
             .filter(|included| {
-                !self.pack_catalog.as_ref().is_some_and(|catalog| {
-                    catalog
-                        .entries()
-                        .iter()
-                        .any(|installed| installed.pack == included.pack)
+                featured_included.as_ref().is_none_or(|featured| {
+                    featured.pack != included.pack || (!show_featured && !featured_review_pending)
                 })
             })
             .cloned()
             .collect::<Vec<_>>();
         let mut included = div().w_full().flex().flex_col().gap_3();
-        if visible_included_packs.is_empty() {
-            included = included.child(
-                div()
-                    .p_4()
-                    .rounded_md()
-                    .border_1()
-                    .border_color(rgb(0xe1e1dc))
-                    .text_sm()
-                    .text_color(rgb(0x777770))
-                    .child("All Worlds included with this app are already installed."),
-            );
-        } else {
-            for pack in visible_included_packs {
-                included = included.child(self.included_pack_card(pack, cx));
-            }
+        for pack in visible_included_packs.iter().cloned() {
+            included = included.child(self.included_pack_card(pack, cx));
         }
 
         let installed_packs = self
@@ -1500,21 +1579,8 @@ impl Render for WorldMachineHome {
             .map(|catalog| catalog.entries().to_vec())
             .unwrap_or_default();
         let mut installed = div().w_full().flex().flex_col().gap_3();
-        if installed_packs.is_empty() {
-            installed = installed.child(
-                div()
-                    .p_4()
-                    .rounded_md()
-                    .border_1()
-                    .border_color(rgb(0xe1e1dc))
-                    .text_sm()
-                    .text_color(rgb(0x777770))
-                    .child("No external Packs installed. Built-in Worlds remain available below."),
-            );
-        } else {
-            for pack in installed_packs {
-                installed = installed.child(self.installed_pack_card(pack, cx));
-            }
+        for pack in installed_packs.iter().cloned() {
+            installed = installed.child(self.installed_pack_card(pack, cx));
         }
 
         let mut available = div().w_full().flex().flex_col().gap_3();
@@ -1570,12 +1636,28 @@ impl Render for WorldMachineHome {
                     .flex()
                     .justify_between()
                     .items_center()
-                    .child(div().text_lg().child("World Machine"))
-                    .child(div().flex().gap_2().child(install_pack).child(import).child(refresh)),
-            )
-            .child(div().text_sm().text_color(rgb(0x666666)).child(
-                "Worlds are portable documents. Double-click an external .world to edit it in place; Import copies it into My Worlds.",
-            ));
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .child(div().text_lg().child("World Machine"))
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(rgb(0x666666))
+                                    .child("Persistent worlds that remember, evolve, and branch."),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .gap_2()
+                            .child(install_pack)
+                            .child(import)
+                            .child(refresh),
+                    ),
+            );
 
         if let Some(preview) = self.pending_pack_install.clone() {
             body = body.child(self.pack_install_review_card(preview, cx));
@@ -1585,19 +1667,36 @@ impl Render for WorldMachineHome {
             body = body.child(self.ready_pack_card(descriptor, cx));
         }
 
-        body = body.child(div().text_sm().child("My Worlds")).child(saved);
-
-        if !self.included_packs.is_empty() {
+        if show_featured {
+            let featured = featured_included.expect("show_featured requires a featured Pack");
             body = body
-                .child(div().text_sm().child("Included Worlds"))
+                .child(div().text_sm().child("Start here"))
+                .child(self.featured_included_pack_card(featured, cx));
+        }
+
+        if has_documents || self.included_packs.is_empty() {
+            body = body.child(div().text_sm().child("My Worlds")).child(saved);
+        }
+
+        if !visible_included_packs.is_empty() {
+            body = body
+                .child(div().text_sm().child(if first_run {
+                    "More worlds"
+                } else {
+                    "Included Worlds"
+                }))
                 .child(included);
         }
 
         body = body
-            .child(div().text_sm().child("Installed Packs"))
-            .child(installed)
             .child(div().text_sm().child("New World"))
             .child(available);
+
+        if !installed_packs.is_empty() {
+            body = body
+                .child(div().text_sm().child("Manage Packs"))
+                .child(installed);
+        }
 
         if let Some(status) = &self.status {
             body = body.child(
