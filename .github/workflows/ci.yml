@@ -67,6 +67,11 @@ jobs:
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --exclude world-gpui --exclude world-strategy-gpui --exclude world-lineage-gpui --exclude tiny-society-desktop --exclude future-archaeologist-desktop --exclude world-machine-desktop --exclude strategy-comparison-desktop --exclude lineage-explorer-desktop --all-targets -- -D warnings
       - run: cargo test --workspace --exclude world-gpui --exclude world-strategy-gpui --exclude world-lineage-gpui --exclude tiny-society-desktop --exclude future-archaeologist-desktop --exclude world-machine-desktop --exclude strategy-comparison-desktop --exclude lineage-explorer-desktop
+      - name: Verify external Pack conformance command
+        run: |
+          mkdir -p target/pack-check
+          cargo run -p micro-company-pack -- --write-bundle target/pack-check/micro-company.worldpack
+          cargo run -p world-pack-catalog --bin world-pack-check -- target/pack-check/micro-company.worldpack
 
   gpui-macos:
     needs: changes

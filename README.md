@@ -4,42 +4,60 @@
 
 World Machine is an experimental semantic runtime for persistent, inspectable, branchable worlds.
 
-The first product target is **Tiny Society**, but Tiny Society is deliberately not part of the kernel architecture. The kernel is intended to host very different worlds: detective cases, football simulations, scientific playgrounds, personal-data worlds, and future worlds that are not known today.
+The first product target is **Tiny Society**, but Tiny Society is deliberately not part of the kernel architecture. The runtime now also hosts **Pocket Universe** and the unrelated **Micro Company** Pack, so generality is tested by real Worlds rather than guessed framework abstractions.
 
-## Current milestone
+## Current runtime
 
 The repository currently implements:
 
 `Entity / Relation -> Action -> Event -> State -> Scheduler / Behavior / Agent -> Replay -> Projection`
 
-The first renderer boundary is now explicit:
+The renderer boundary is explicit:
 
 `World -> ProjectionSnapshot -> GPUI`
 
 - `world-projection` defines headless Collection / Timeline / Inspector / Semantic Canvas read models.
-- Tiny Society produces its own projection data without introducing Society concepts into the renderer.
-- `world-gpui` consumes only projection models; it does not own World truth and does not depend on `world-core` or Tiny Society.
-- `tiny-society-desktop` is the first macOS GPUI application shell.
-- Pi remains an optional out-of-process `world-pi-rpc` adapter.
+- World Packs produce their own projection data without introducing domain concepts into the renderer.
+- `world-gpui` consumes only projection models; it does not own World truth and does not depend on `world-core` or a specific Pack.
+- `world-machine-desktop` hosts durable `.world` documents, branching/lineage, external Pack installation, durable activation probing, and generic World creation.
+- Tiny Society, Pocket Universe, and Micro Company exercise the same public Host/Pack boundaries.
+- Pi remains an optional out-of-process `world-pi-rpc` AgentRuntime adapter.
 
 ## Run
 
 ```bash
 cargo test --workspace
 cargo run -p world-cli
-cargo run -p tiny-society
 bash ./scripts/check-boundaries.sh
 ```
 
 On macOS, after the GPUI dependencies are available:
 
 ```bash
-cargo run -p tiny-society-desktop
+cargo run -p world-machine-desktop
 ```
+
+## Check an external Pack
+
+Statically inspect a `.worldpack` or developer manifest without running Pack code:
+
+```bash
+cargo run -p world-pack-catalog --bin world-pack-check -- \
+  --inspect-only path/to/example.worldpack
+```
+
+Run the minimum durable external-Pack contract in an isolated temporary catalog:
+
+```bash
+cargo run -p world-pack-catalog --bin world-pack-check -- \
+  path/to/example.worldpack
+```
+
+The default check verifies `Create -> Archive -> fresh-process Open` and removes its temporary managed copy afterward. See [docs/PACK_CHECK.md](docs/PACK_CHECK.md).
 
 ## Architecture rule
 
-`world-core` owns semantic runtime primitives only. Domain concepts such as Person, Town, Bakery, Job, Evidence, or FootballPlayer must live in systems/world packs, never in the kernel.
+`world-core` owns semantic runtime primitives only. Domain concepts such as Person, Town, Bakery, Job, Evidence, FootballPlayer, Product, Customer, or Company must live in systems/world packs, never in the kernel.
 
 UI state is not World state. Renderers consume projections and may hold ephemeral selection/layout state only.
 
