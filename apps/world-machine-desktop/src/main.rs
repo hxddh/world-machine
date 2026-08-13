@@ -792,7 +792,13 @@ impl WorldMachineHome {
         title: String,
         cx: &mut Context<Self>,
     ) {
+        let is_library_world = session.document_id().is_some();
         let catch_up = observer::catch_up(&mut session, &self.registry, &self.library);
+        let sync_error = if is_library_world && matches!(&catch_up, Ok(Some(_))) {
+            self.refresh_documents().err()
+        } else {
+            None
+        };
         let document_label = session.display_name();
         let registry = Arc::clone(&self.registry);
         let library = Arc::clone(&self.library);
@@ -818,6 +824,9 @@ impl WorldMachineHome {
             },
             Err(error) => HomeStatus::error(format!("Could not open {title}: {error}")),
         });
+        if let Some(status) = sync_error {
+            self.status = Some(status);
+        }
         cx.notify();
     }
 
