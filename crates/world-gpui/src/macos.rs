@@ -246,6 +246,7 @@ impl ProjectionView {
             return None;
         }
 
+        let panel_title = command_panel_title(self.snapshot.commands.len());
         let mut commands = div().flex().flex_col().gap_2();
         for command in &self.snapshot.commands {
             commands = commands.child(self.command_item(command, cx));
@@ -256,12 +257,13 @@ impl ProjectionView {
                 .p_3()
                 .rounded_md()
                 .border_1()
-                .border_color(rgb(0xcfd8c8))
-                .bg(rgb(0xf5faf2))
+                .border_color(rgb(0xaec5a7))
+                .bg(rgb(0xf1f8ee))
                 .flex()
                 .flex_col()
                 .gap_2()
-                .child(div().text_lg().child("What now?"))
+                .child(div().text_xs().text_color(rgb(0x60755a)).child("NEXT"))
+                .child(div().text_lg().child(panel_title))
                 .child(commands),
         )
     }
@@ -432,15 +434,20 @@ impl Render for ProjectionView {
         if let Some(briefing) = self.render_briefing(cx) {
             center = center.child(briefing);
         }
+        if let Some(commands) = self.render_commands(cx) {
+            center = center.child(commands);
+        }
         center = center
-            .child(div().text_lg().child("World"))
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(rgb(0x666666))
+                    .child("Explore the world"),
+            )
             .child(self.render_canvas(cx))
             .child(self.render_inspector());
         if let Some(why) = self.render_why(cx) {
             center = center.child(why);
-        }
-        if let Some(commands) = self.render_commands(cx) {
-            center = center.child(commands);
         }
 
         let mut header_right = div().flex().gap_3().child(
@@ -486,6 +493,14 @@ impl Render for ProjectionView {
                     .child(center)
                     .child(self.render_timeline(cx)),
             )
+    }
+}
+
+fn command_panel_title(command_count: usize) -> &'static str {
+    if command_count == 1 {
+        "Continue"
+    } else {
+        "Choose what happens next"
     }
 }
 
@@ -540,4 +555,16 @@ fn inspector_panel(inspector: &InspectorProjection) -> Div {
         .border_color(rgb(0xdadada))
         .bg(rgb(0xffffff))
         .child(body)
+}
+
+#[cfg(test)]
+mod focus_hierarchy_tests {
+    use super::command_panel_title;
+
+    #[test]
+    fn command_panel_distinguishes_continuation_from_choice() {
+        assert_eq!(command_panel_title(1), "Continue");
+        assert_eq!(command_panel_title(2), "Choose what happens next");
+        assert_eq!(command_panel_title(5), "Choose what happens next");
+    }
 }
