@@ -38,6 +38,7 @@ jobs:
               - 'crates/world-library/**'
               - 'apps/tiny-society-pack/**'
               - 'apps/pocket-universe-pack/**'
+              - 'apps/micro-company-pack/**'
               - 'apps/tiny-society-desktop/**'
               - 'apps/future-archaeologist-desktop/**'
               - 'apps/world-machine-desktop/**'
@@ -46,6 +47,7 @@ jobs:
               - 'worlds/tiny-society/**'
               - 'worlds/future-archaeologist/**'
               - 'worlds/pocket-universe/**'
+              - 'worlds/micro-company/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'rust-toolchain.toml'
@@ -79,6 +81,7 @@ jobs:
       - run: cargo test -p world-library
       - run: cargo test -p tiny-society-pack
       - run: cargo test -p pocket-universe-pack
+      - run: cargo test -p micro-company-pack
       - run: cargo check -p world-gpui
       - run: cargo check -p world-strategy-gpui
       - run: cargo check -p world-lineage-gpui
