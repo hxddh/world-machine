@@ -113,13 +113,19 @@ enum CompareSide {
     Right,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum SavedCompareStatus {
+    Success(String),
+    Error(String),
+}
+
 struct SavedWorldSetupView {
     registry: Arc<world_host::WorldRegistry>,
     library: Arc<WorldLibrary>,
     documents: Vec<WorldDocumentSummary>,
     left: WorldDocumentId,
     right: Option<WorldDocumentId>,
-    status: Option<String>,
+    status: Option<SavedCompareStatus>,
 }
 
 impl SavedWorldSetupView {
@@ -316,13 +322,18 @@ impl gpui::Render for SavedWorldSetupView {
             );
         }
         if let Some(status) = &self.status {
+            let (message, background, foreground) = match status {
+                SavedCompareStatus::Success(message) => (message.as_str(), 0xeef2ea, 0x4d6748),
+                SavedCompareStatus::Error(message) => (message.as_str(), 0xfbf0ee, 0x9b4a42),
+            };
             body = body.child(
                 div()
                     .p_3()
                     .rounded_md()
-                    .bg(rgb(0xeef2ea))
+                    .bg(rgb(background))
+                    .text_color(rgb(foreground))
                     .text_sm()
-                    .child(status.clone()),
+                    .child(message.to_owned()),
             );
         }
 
@@ -339,8 +350,12 @@ impl gpui::Render for SavedWorldSetupView {
                 .child("Compare current saved state")
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.status = Some(match this.run_comparison(cx) {
-                        Ok((left, right)) => format!("Opened comparison · {left} ↔ {right}"),
-                        Err(error) => format!("Could not compare: {error}"),
+                        Ok((left, right)) => SavedCompareStatus::Success(format!(
+                            "Opened comparison · {left} ↔ {right}"
+                        )),
+                        Err(error) => {
+                            SavedCompareStatus::Error(format!("Could not compare: {error}"))
+                        }
                     });
                     cx.notify();
                 })),
@@ -448,6 +463,15 @@ mod tests {
 
     fn summary(id: &str, pack: WorldPackRef) -> WorldDocumentSummary {
         titled_summary(id, pack, None)
+    }
+
+    #[test]
+    fn saved_compare_status_semantics_are_explicit() {
+        let success = SavedCompareStatus::Success("failed-looking success text".into());
+        let error = SavedCompareStatus::Error("opened-looking error text".into());
+
+        assert!(matches!(success, SavedCompareStatus::Success(_)));
+        assert!(matches!(error, SavedCompareStatus::Error(_)));
     }
 
     #[test]
