@@ -263,6 +263,7 @@ struct WorldMachineHome {
     lineage: Option<LineageIndex>,
     included_packs: Vec<included_packs::IncludedPack>,
     pending_pack_install: Option<PackInstallPreview>,
+    pending_start_after_install: Option<WorldPackRef>,
     ready_pack_to_create: Option<WorldPackRef>,
     probing_packs: Vec<WorldPackRef>,
     status: Option<String>,
@@ -308,8 +309,10 @@ impl WorldMachineHome {
         &mut self,
         source: PathBuf,
         expected_pack: Option<WorldPackRef>,
+        start_after_install: bool,
         cx: &mut Context<Self>,
     ) {
+        self.pending_start_after_install = None;
         if self.pack_catalog.is_none() {
             match PackCatalog::open(&self.pack_catalog_path) {
                 Ok(catalog) => self.pack_catalog = Some(catalog),
@@ -348,6 +351,8 @@ impl WorldMachineHome {
                     preview.pack().id,
                     preview.pack().version
                 ));
+                self.pending_start_after_install =
+                    start_after_install.then(|| preview.pack().clone());
                 self.pending_pack_install = Some(preview);
             }
             Err(error) => {
@@ -358,8 +363,13 @@ impl WorldMachineHome {
         cx.notify();
     }
 
-    fn review_included_pack(&mut self, pack: included_packs::IncludedPack, cx: &mut Context<Self>) {
-        self.review_pack_path(pack.path, Some(pack.pack), cx);
+    fn review_included_pack(
+        &mut self,
+        pack: included_packs::IncludedPack,
+        start_after_install: bool,
+        cx: &mut Context<Self>,
+    ) {
+        self.review_pack_path(pack.path, Some(pack.pack), start_after_install, cx);
     }
 
     fn install_pack(&mut self, cx: &mut Context<Self>) {
@@ -391,7 +401,9 @@ impl WorldMachineHome {
             let Some(source) = source else {
                 return;
             };
-            let _ = this.update(cx, |this, cx| this.review_pack_path(source, None, cx));
+            let _ = this.update(cx, |this, cx| {
+                this.review_pack_path(source, None, false, cx)
+            });
         })
         .detach();
     }
@@ -400,15 +412,18 @@ impl WorldMachineHome {
         let Some(preview) = self.pending_pack_install.clone() else {
             return;
         };
+        let start_after_install =
+            start_after_install_matches(self.pending_start_after_install.as_ref(), preview.pack());
         let Some(catalog) = self.pack_catalog.as_mut() else {
             return;
         };
         let result = catalog.install_reviewed_pending_probe(&preview);
         self.pending_pack_install = None;
+        self.pending_start_after_install = None;
         self.ready_pack_to_create = None;
         match result {
             Ok(installed) => {
-                self.start_pack_probe(installed.pack, true, cx);
+                self.start_pack_probe(installed.pack, true, start_after_install, cx);
             }
             Err(error) => {
                 self.status = Some(format!(
@@ -427,6 +442,7 @@ impl WorldMachineHome {
         &mut self,
         pack: WorldPackRef,
         activate_on_success: bool,
+        create_on_success: bool,
         cx: &mut Context<Self>,
     ) {
         if self.is_pack_probing(&pack) {
@@ -436,10 +452,14 @@ impl WorldMachineHome {
             return;
         };
         self.probing_packs.push(pack.clone());
-        self.status = Some(format!(
-            "Testing trusted Pack {} @ {} · Create → Archive → fresh-process Open…",
-            pack.id, pack.version
-        ));
+        self.status = Some(if create_on_success {
+            "Testing this World before first launch…".into()
+        } else {
+            format!(
+                "Testing trusted Pack {} @ {} · Create → Archive → fresh-process Open…",
+                pack.id, pack.version
+            )
+        });
         cx.notify();
 
         let probe_pack = pack.clone();
@@ -468,6 +488,11 @@ impl WorldMachineHome {
                         match transition {
                             Ok(()) => match this.rebuild_registry() {
                                 Ok(()) => {
+                                    if activate_on_success && create_on_success {
+                                        this.ready_pack_to_create = None;
+                                        this.create_world(pack.id.clone(), cx);
+                                        return;
+                                    }
                                     if activate_on_success {
                                         this.ready_pack_to_create = Some(pack.clone());
                                     }
@@ -531,6 +556,7 @@ impl WorldMachineHome {
 
     fn cancel_pack_install(&mut self, cx: &mut Context<Self>) {
         self.pending_pack_install = None;
+        self.pending_start_after_install = None;
         self.status = Some("Pack installation cancelled; no external code was installed.".into());
         cx.notify();
     }
@@ -761,7 +787,7 @@ impl WorldMachineHome {
 
     fn open_external_path(&mut self, source: PathBuf, cx: &mut Context<Self>) {
         if is_world_pack_file(&source) {
-            self.review_pack_path(source, None, cx);
+            self.review_pack_path(source, None, false, cx);
             return;
         }
         if let Some(document_id) = library_document_id_for_path(&source, &self.library) {
@@ -1146,7 +1172,7 @@ impl WorldMachineHome {
                     .text_sm()
                     .child("Review & Start")
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        this.review_included_pack(review_pack.clone(), cx)
+                        this.review_included_pack(review_pack.clone(), true, cx)
                     })),
             )
     }
@@ -1209,7 +1235,7 @@ impl WorldMachineHome {
                     .text_sm()
                     .child("Review & Install")
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        this.review_included_pack(review_pack.clone(), cx)
+                        this.review_included_pack(review_pack.clone(), false, cx)
                     })),
             )
     }
@@ -1288,6 +1314,18 @@ impl WorldMachineHome {
         preview: PackInstallPreview,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
+        let start_after_install =
+            start_after_install_matches(self.pending_start_after_install.as_ref(), preview.pack());
+        let review_title = if start_after_install {
+            "Review before starting"
+        } else {
+            "Review Pack Install"
+        };
+        let confirm_title = if start_after_install {
+            "Trust & Start"
+        } else {
+            "Install & Trust"
+        };
         let format = preview.kind().label();
         let size = format_program_size(preview.program_bytes());
         let source = preview.source_path().display().to_string();
@@ -1306,7 +1344,7 @@ impl WorldMachineHome {
             .flex()
             .flex_col()
             .gap_2()
-            .child(div().text_lg().child("Review Pack Install"))
+            .child(div().text_lg().child(review_title))
             .child(div().text_lg().child(preview.title().to_owned()))
             .child(
                 div()
@@ -1329,7 +1367,11 @@ impl WorldMachineHome {
                 div()
                     .text_sm()
                     .text_color(rgb(0x6f5420))
-                    .child("No Pack code has run. Install & Trust approves these exact executable bytes; any change before installation is rejected."),
+                    .child(if start_after_install {
+                        "No Pack code has run. Trust & Start approves these exact executable bytes; after the durable self-test passes, World Machine will create and open your World."
+                    } else {
+                        "No Pack code has run. Install & Trust approves these exact executable bytes; any change before installation is rejected."
+                    }),
             )
             .child(
                 div()
@@ -1343,7 +1385,7 @@ impl WorldMachineHome {
                             .rounded_md()
                             .border_1()
                             .border_color(rgb(0x8c6a23))
-                            .child("Install & Trust")
+                            .child(confirm_title)
                             .on_click(cx.listener(|this, _, _, cx| this.confirm_pack_install(cx))),
                     )
                     .child(
@@ -1440,7 +1482,7 @@ impl WorldMachineHome {
                     .text_sm()
                     .child("Test & Enable")
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        this.start_pack_probe(test_pack.clone(), false, cx)
+                        this.start_pack_probe(test_pack.clone(), false, false, cx)
                     })),
             );
         }
@@ -1713,6 +1755,11 @@ impl Render for WorldMachineHome {
 }
 
 #[cfg(target_os = "macos")]
+fn start_after_install_matches(pending: Option<&WorldPackRef>, pack: &WorldPackRef) -> bool {
+    pending == Some(pack)
+}
+
+#[cfg(target_os = "macos")]
 fn format_program_size(bytes: u64) -> String {
     const KIB: u64 = 1024;
     const MIB: u64 = 1024 * KIB;
@@ -1914,6 +1961,19 @@ mod file_type_tests {
     use super::*;
 
     #[test]
+    fn start_intent_is_bound_to_exact_pack_identity() {
+        let pocket_010 = WorldPackRef::new("pocket-universe", "0.10.0");
+        let same = WorldPackRef::new("pocket-universe", "0.10.0");
+        let newer = WorldPackRef::new("pocket-universe", "0.11.0");
+        let other = WorldPackRef::new("micro-company", "0.10.0");
+
+        assert!(start_after_install_matches(Some(&pocket_010), &same));
+        assert!(!start_after_install_matches(Some(&pocket_010), &newer));
+        assert!(!start_after_install_matches(Some(&pocket_010), &other));
+        assert!(!start_after_install_matches(None, &pocket_010));
+    }
+
+    #[test]
     fn system_open_distinguishes_world_documents_from_portable_packs() {
         assert!(is_world_file(Path::new("/tmp/example.world")));
         assert!(!is_world_pack_file(Path::new("/tmp/example.world")));
@@ -1992,6 +2052,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 lineage,
                 included_packs,
                 pending_pack_install: None,
+                pending_start_after_install: None,
                 ready_pack_to_create: None,
                 probing_packs: Vec::new(),
                 status,
