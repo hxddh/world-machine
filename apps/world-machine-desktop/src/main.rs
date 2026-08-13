@@ -1665,7 +1665,9 @@ impl Render for WorldMachineHome {
             .on_click(cx.listener(|this, _, _, cx| this.import_world(cx)));
 
         let mut body = div()
+            .id("world-machine-home-scroll")
             .size_full()
+            .overflow_y_scroll()
             .bg(rgb(0xf7f7f3))
             .text_color(rgb(0x202020))
             .flex()
