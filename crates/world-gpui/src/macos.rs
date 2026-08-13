@@ -352,21 +352,11 @@ impl ProjectionView {
         canvas
     }
 
-    fn render_inspector(&self) -> Div {
+    fn render_inspector(&self) -> Option<Div> {
         let inspector = self
             .selected
-            .and_then(|selection| self.snapshot.inspector(selection));
-
-        let Some(inspector) = inspector else {
-            return div()
-                .p_4()
-                .rounded_md()
-                .border_1()
-                .border_color(rgb(0xdadada))
-                .child("Select an item or event to inspect it.");
-        };
-
-        inspector_panel(inspector)
+            .and_then(|selection| self.snapshot.inspector(selection))?;
+        Some(inspector_panel(inspector))
     }
 
     fn render_why(&self, cx: &mut Context<Self>) -> Option<Div> {
@@ -451,17 +441,31 @@ impl Render for ProjectionView {
         if let Some(commands) = self.render_commands(cx) {
             center = center.child(commands);
         }
-        center = center
-            .child(
+        if has_exploration(&self.snapshot, self.selected) {
+            center = center.child(
                 div()
                     .text_sm()
                     .text_color(rgb(0x666666))
                     .child("Explore the world"),
-            )
-            .child(self.render_canvas(cx))
-            .child(self.render_inspector());
-        if let Some(why) = self.render_why(cx) {
-            center = center.child(why);
+            );
+            if !self.snapshot.canvas.items.is_empty() {
+                center = center.child(self.render_canvas(cx));
+            }
+            if let Some(inspector) = self.render_inspector() {
+                center = center.child(inspector);
+            }
+            if let Some(why) = self.render_why(cx) {
+                center = center.child(why);
+            }
+        }
+
+        let mut workspace = div().flex_1().w_full().flex();
+        if has_collection_panel(&self.snapshot) {
+            workspace = workspace.child(self.render_collection(cx));
+        }
+        workspace = workspace.child(center);
+        if has_timeline_panel(&self.snapshot) {
+            workspace = workspace.child(self.render_timeline(cx));
         }
 
         let mut header_right = div().flex().gap_3().child(
@@ -498,16 +502,24 @@ impl Render for ProjectionView {
                     .child(div().text_xl().child(self.snapshot.title.clone()))
                     .child(header_right),
             )
-            .child(
-                div()
-                    .flex_1()
-                    .w_full()
-                    .flex()
-                    .child(self.render_collection(cx))
-                    .child(center)
-                    .child(self.render_timeline(cx)),
-            )
+            .child(workspace)
     }
+}
+
+fn has_collection_panel(snapshot: &ProjectionSnapshot) -> bool {
+    !snapshot.collection.items.is_empty()
+}
+
+fn has_timeline_panel(snapshot: &ProjectionSnapshot) -> bool {
+    !snapshot.timeline.items.is_empty()
+}
+
+fn has_exploration(snapshot: &ProjectionSnapshot, selected: Option<SelectionId>) -> bool {
+    !snapshot.canvas.items.is_empty()
+        || selected
+            .and_then(|selection| snapshot.inspector(selection))
+            .is_some()
+        || matches!(selected, Some(SelectionId::Event(event)) if snapshot.why(event).is_some())
 }
 
 fn command_panel_title(command_count: usize) -> &'static str {
@@ -582,7 +594,10 @@ fn inspector_panel(inspector: &InspectorProjection) -> Div {
 
 #[cfg(test)]
 mod focus_hierarchy_tests {
-    use super::{command_panel_title, default_selection, selection_for_snapshot};
+    use super::{
+        command_panel_title, default_selection, has_collection_panel, has_exploration,
+        has_timeline_panel, selection_for_snapshot,
+    };
     use world_projection::{
         CollectionItem, InspectorProjection, ProjectionSnapshot, SelectionId, TimelineItem,
     };
@@ -623,6 +638,22 @@ mod focus_hierarchy_tests {
         snapshot.inspectors.insert(entity, inspector(entity));
         snapshot.inspectors.insert(event, inspector(event));
         snapshot
+    }
+
+    #[test]
+    fn empty_world_keeps_focus_without_empty_exploration_chrome() {
+        let snapshot = ProjectionSnapshot::default();
+        assert!(!has_collection_panel(&snapshot));
+        assert!(!has_timeline_panel(&snapshot));
+        assert!(!has_exploration(&snapshot, None));
+    }
+
+    #[test]
+    fn semantic_content_restores_navigation_and_exploration() {
+        let snapshot = snapshot_with_entity_and_event();
+        assert!(has_collection_panel(&snapshot));
+        assert!(has_timeline_panel(&snapshot));
+        assert!(has_exploration(&snapshot, Some(entity_selection())));
     }
 
     #[test]
