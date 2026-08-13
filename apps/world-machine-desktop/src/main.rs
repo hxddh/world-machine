@@ -1822,44 +1822,44 @@ impl Render for WorldMachineHome {
             .child("Import .world…")
             .on_click(cx.listener(|this, _, _, cx| this.import_world(cx)));
 
+        let header = div()
+            .id("world-machine-home-chrome")
+            .w_full()
+            .p_4()
+            .flex()
+            .justify_between()
+            .items_center()
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(div().text_lg().child("World Machine"))
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(0x666666))
+                            .child("Persistent worlds that remember, evolve, and branch."),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .gap_2()
+                    .child(install_pack)
+                    .child(import)
+                    .child(refresh),
+            );
+
         let mut body = div()
             .id("world-machine-home-scroll")
-            .size_full()
+            .w_full()
+            .flex_1()
             .overflow_y_scroll()
-            .bg(rgb(0xf7f7f3))
-            .text_color(rgb(0x202020))
             .flex()
             .flex_col()
             .gap_3()
-            .p_4()
-            .child(
-                div()
-                    .w_full()
-                    .flex()
-                    .justify_between()
-                    .items_center()
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap_1()
-                            .child(div().text_lg().child("World Machine"))
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .text_color(rgb(0x666666))
-                                    .child("Persistent worlds that remember, evolve, and branch."),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .gap_2()
-                            .child(install_pack)
-                            .child(import)
-                            .child(refresh),
-                    ),
-            );
+            .p_4();
 
         if let Some(preview) = self.pending_pack_install.clone() {
             body = body.child(self.pack_install_review_card(preview, cx));
@@ -1900,23 +1900,34 @@ impl Render for WorldMachineHome {
                 .child(installed);
         }
 
+        let mut shell = div()
+            .size_full()
+            .bg(rgb(0xf7f7f3))
+            .text_color(rgb(0x202020))
+            .flex()
+            .flex_col()
+            .child(header);
+
         if let Some(status) = &self.status {
             let (background, foreground) = match status.tone {
                 HomeStatusTone::Info => (0xf1f5fb, 0x4e6fb3),
                 HomeStatusTone::Success => (0xeef2ea, 0x4d6748),
                 HomeStatusTone::Error => (0xfbf0ee, 0x9b4a42),
             };
-            body = body.child(
-                div()
-                    .p_3()
-                    .rounded_md()
-                    .bg(rgb(background))
-                    .text_color(rgb(foreground))
-                    .text_sm()
-                    .child(status.message.clone()),
+            shell = shell.child(
+                div().id("world-machine-home-status").w_full().px_4().child(
+                    div()
+                        .p_3()
+                        .rounded_md()
+                        .bg(rgb(background))
+                        .text_color(rgb(foreground))
+                        .text_sm()
+                        .child(status.message.clone()),
+                ),
             );
         }
-        body
+
+        shell.child(body)
     }
 }
 
