@@ -1,0 +1,77 @@
+name: M100 propagate Library reload to Home
+
+on:
+  push:
+    branches:
+      - m100-propagate-library-reload
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: m100-propagate-library-reload
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Refine Library change signal and notify after reload
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          paths = [
+              Path('apps/world-machine-desktop/src/main.rs'),
+              Path('apps/world-machine-desktop/src/world_fork.rs'),
+              Path('apps/world-machine-desktop/src/strategy_compare.rs'),
+              Path('apps/world-machine-desktop/src/world_fork/lineage.rs'),
+          ]
+          for path in paths:
+              text = path.read_text()
+              text = text.replace('LIBRARY_MUTATION_REVISION', 'LIBRARY_CHANGE_REVISION')
+              text = text.replace('mark_library_mutated', 'mark_library_changed')
+              text = text.replace('library_mutation_revision', 'library_change_revision')
+              path.write_text(text)
+
+          path = Path('apps/world-machine-desktop/src/main.rs')
+          text = path.read_text()
+          old = '''            Ok(snapshot) => {
+                self.rebuild_projection(cx);
+                self.status = Some(DocumentStatus::success(format!(
+                    "Reloaded {} · World time {}",
+                    self.document_label, snapshot.world_time
+                )));
+            }'''
+          new = '''            Ok(snapshot) => {
+                if self.document.borrow().session.document_id().is_some() {
+                    mark_library_changed();
+                }
+                self.rebuild_projection(cx);
+                self.status = Some(DocumentStatus::success(format!(
+                    "Reloaded {} · World time {}",
+                    self.document_label, snapshot.world_time
+                )));
+            }'''
+          assert old in text, 'reload success block changed unexpectedly'
+          text = text.replace(old, new, 1)
+          path.write_text(text)
+          PY
+          cargo fmt --all
+          cargo test -p world-machine-desktop
+          git diff --check
+      - name: Commit source and remove helper
+        if: success()
+        shell: bash
+        run: |
+          rm .github/workflows/m100-apply-library-reload-notification.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/world-machine-desktop/src/main.rs \
+                  apps/world-machine-desktop/src/world_fork.rs \
+                  apps/world-machine-desktop/src/strategy_compare.rs \
+                  apps/world-machine-desktop/src/world_fork/lineage.rs \
+                  .github/workflows/m100-apply-library-reload-notification.yml
+          git commit -m "M100: propagate Library reload changes to Home"
+          git push origin HEAD:m100-propagate-library-reload
