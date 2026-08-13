@@ -11,7 +11,8 @@ use world_pack_catalog::{PackCatalog, PackInstallPreview};
 
 static SCRATCH_NONCE: AtomicU64 = AtomicU64::new(1);
 
-const USAGE: &str = "Usage: world-pack-check [--inspect-only] <pack.worldpack|pack.world-pack.json>\n\n\
+const USAGE: &str =
+    "Usage: world-pack-check [--inspect-only] <pack.worldpack|pack.world-pack.json>\n\n\
 Checks a World Machine Pack without mutating the source.\n\
 \n\
 By default the Pack is copied into an isolated temporary catalog and executed only for\n\
@@ -20,10 +21,7 @@ Use --inspect-only to validate metadata/content identity without executing Pack 
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum Command {
-    Check {
-        source: PathBuf,
-        inspect_only: bool,
-    },
+    Check { source: PathBuf, inspect_only: bool },
     Help,
 }
 
