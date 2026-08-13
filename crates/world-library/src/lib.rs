@@ -880,8 +880,10 @@ mod tests {
 
     #[test]
     fn snapshot_display_title_ignores_blank_titles() {
-        let mut snapshot = ProjectionSnapshot::default();
-        snapshot.title = "   ".into();
+        let mut snapshot = ProjectionSnapshot {
+            title: "   ".into(),
+            ..ProjectionSnapshot::default()
+        };
         assert_eq!(snapshot_display_title(&snapshot), None);
 
         snapshot.title = "  A Living World  ".into();
