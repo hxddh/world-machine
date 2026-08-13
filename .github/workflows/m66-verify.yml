@@ -7,6 +7,7 @@ on:
       - '.github/workflows/m66-verify.yml'
       - 'scripts/m66_multi_agent.py'
       - 'scripts/m66_test_api_fix.py'
+      - 'scripts/m66_reactive_mind.py'
 
 permissions:
   contents: write
@@ -23,6 +24,7 @@ jobs:
           components: rustfmt, clippy
       - run: python scripts/m66_multi_agent.py
       - run: python scripts/m66_test_api_fix.py
+      - run: python scripts/m66_reactive_mind.py
       - run: cargo fmt --all
       - run: cargo test -p pocket-universe
       - run: cargo test -p pocket-universe-pack
