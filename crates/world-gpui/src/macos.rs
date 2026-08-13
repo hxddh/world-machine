@@ -51,8 +51,9 @@ impl ProjectionView {
 
         match controller.handle(ProjectionIntent::ForkBeforeEvent(event)) {
             Ok(snapshot) => {
+                let previous = self.selected;
                 self.snapshot = snapshot;
-                self.selected = default_selection(&self.snapshot);
+                self.selected = selection_for_snapshot(previous, &self.snapshot);
                 self.status = Some(format!("Forked before Event #{event}"));
             }
             Err(error) => {
@@ -74,8 +75,9 @@ impl ProjectionView {
 
         match controller.handle(ProjectionIntent::InvokeCommand(command_id)) {
             Ok(snapshot) => {
+                let previous = self.selected;
                 self.snapshot = snapshot;
-                self.selected = default_selection(&self.snapshot);
+                self.selected = selection_for_snapshot(previous, &self.snapshot);
                 self.status = Some(format!("{title} completed"));
             }
             Err(error) => {
@@ -518,11 +520,20 @@ fn command_panel_title(command_count: usize) -> &'static str {
 
 fn default_selection(snapshot: &ProjectionSnapshot) -> Option<SelectionId> {
     snapshot
-        .timeline
+        .collection
         .items
         .first()
         .map(|item| item.id)
-        .or_else(|| snapshot.collection.items.first().map(|item| item.id))
+        .or_else(|| snapshot.timeline.items.first().map(|item| item.id))
+}
+
+fn selection_for_snapshot(
+    previous: Option<SelectionId>,
+    snapshot: &ProjectionSnapshot,
+) -> Option<SelectionId> {
+    previous
+        .filter(|selection| snapshot.inspector(*selection).is_some())
+        .or_else(|| default_selection(snapshot))
 }
 
 fn inspector_panel(inspector: &InspectorProjection) -> Div {
@@ -571,12 +582,108 @@ fn inspector_panel(inspector: &InspectorProjection) -> Div {
 
 #[cfg(test)]
 mod focus_hierarchy_tests {
-    use super::command_panel_title;
+    use super::{command_panel_title, default_selection, selection_for_snapshot};
+    use world_projection::{
+        CollectionItem, InspectorProjection, ProjectionSnapshot, SelectionId, TimelineItem,
+    };
+
+    fn entity_selection() -> SelectionId {
+        SelectionId::Entity(Default::default())
+    }
+
+    fn event_selection() -> SelectionId {
+        SelectionId::Event(Default::default())
+    }
+
+    fn inspector(selection: SelectionId) -> InspectorProjection {
+        InspectorProjection {
+            selection,
+            title: "Selection".into(),
+            subtitle: String::new(),
+            sections: Vec::new(),
+        }
+    }
+
+    fn snapshot_with_entity_and_event() -> ProjectionSnapshot {
+        let entity = entity_selection();
+        let event = event_selection();
+        let mut snapshot = ProjectionSnapshot::default();
+        snapshot.collection.items.push(CollectionItem {
+            id: entity,
+            title: "World".into(),
+            subtitle: String::new(),
+        });
+        snapshot.timeline.items.push(TimelineItem {
+            id: event,
+            world_time: 1,
+            title: "Changed".into(),
+            subtitle: String::new(),
+            caused_by: Vec::new(),
+        });
+        snapshot.inspectors.insert(entity, inspector(entity));
+        snapshot.inspectors.insert(event, inspector(event));
+        snapshot
+    }
 
     #[test]
     fn command_panel_distinguishes_continuation_from_choice() {
         assert_eq!(command_panel_title(1), "Continue");
         assert_eq!(command_panel_title(2), "Choose what happens next");
         assert_eq!(command_panel_title(5), "Choose what happens next");
+    }
+
+    #[test]
+    fn default_selection_prefers_semantic_collection_over_latest_event() {
+        let snapshot = snapshot_with_entity_and_event();
+        assert_eq!(default_selection(&snapshot), Some(entity_selection()));
+    }
+
+    #[test]
+    fn valid_entity_selection_persists_across_snapshots() {
+        let snapshot = snapshot_with_entity_and_event();
+        assert_eq!(
+            selection_for_snapshot(Some(entity_selection()), &snapshot),
+            Some(entity_selection())
+        );
+    }
+
+    #[test]
+    fn explicitly_selected_event_persists_while_it_still_exists() {
+        let snapshot = snapshot_with_entity_and_event();
+        assert_eq!(
+            selection_for_snapshot(Some(event_selection()), &snapshot),
+            Some(event_selection())
+        );
+    }
+
+    #[test]
+    fn invalid_previous_selection_falls_back_to_semantic_default() {
+        let entity = entity_selection();
+        let mut snapshot = ProjectionSnapshot::default();
+        snapshot.collection.items.push(CollectionItem {
+            id: entity,
+            title: "World".into(),
+            subtitle: String::new(),
+        });
+        snapshot.inspectors.insert(entity, inspector(entity));
+        assert_eq!(
+            selection_for_snapshot(Some(event_selection()), &snapshot),
+            Some(entity)
+        );
+    }
+
+    #[test]
+    fn timeline_event_is_used_when_collection_is_empty() {
+        let event = event_selection();
+        let mut snapshot = ProjectionSnapshot::default();
+        snapshot.timeline.items.push(TimelineItem {
+            id: event,
+            world_time: 1,
+            title: "Changed".into(),
+            subtitle: String::new(),
+            caused_by: Vec::new(),
+        });
+        snapshot.inspectors.insert(event, inspector(event));
+        assert_eq!(default_selection(&snapshot), Some(event));
     }
 }
