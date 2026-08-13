@@ -178,6 +178,8 @@ fn return_item(event: &Event) -> BriefingItem {
             "agent_explored_world" => "Someone explored beyond routine".into(),
             "relationship_shifted" => "Their relationship changed".into(),
             "relationship_steered" => "You steered their relationship".into(),
+            "partnership_formed" => "A partnership formed".into(),
+            "relationship_fractured" => "Their relationship fractured".into(),
             _ => event.kind.replace('_', " "),
         },
         detail,

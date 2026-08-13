@@ -169,7 +169,7 @@ fn pocket_universe_is_a_real_external_pack_with_durable_seed_and_growth() {
                 SEED_MARS_COLONY_COMMAND.into(),
             ))
             .unwrap();
-        pi_session.advance_background(1).unwrap();
+        pi_session.advance_background(3).unwrap();
         let pi_archive = pi_session.archive().unwrap().unwrap();
         assert!(pi_archive.events.iter().any(|event| {
             event.kind == "agent_decision_recorded"
@@ -184,7 +184,7 @@ fn pocket_universe_is_a_real_external_pack_with_durable_seed_and_growth() {
                 .iter()
                 .filter(|event| event.kind == "agent_explored_world")
                 .count(),
-            2
+            6
         );
         assert!(pi_archive.events.iter().any(|event| {
             event.kind == "agent_explored_world"
@@ -221,7 +221,22 @@ fn pocket_universe_is_a_real_external_pack_with_durable_seed_and_growth() {
             .sections
             .iter()
             .flat_map(|section| &section.rows)
-            .any(|row| row.label == "Tension" && row.value == "2"));
+            .any(|row| row.label == "Tension" && row.value == "6"));
+        assert!(relationship
+            .sections
+            .iter()
+            .flat_map(|section| &section.rows)
+            .any(|row| row.label == "Social Arc" && row.value == "fracture"));
+        let rover = reopened_snapshot
+            .inspectors
+            .values()
+            .find(|inspector| inspector.title == "Kestrel Rover")
+            .expect("Pi rover inspector");
+        assert!(rover
+            .sections
+            .iter()
+            .flat_map(|section| &section.rows)
+            .any(|row| row.label == "Status" && row.value == "split survey routes"));
 
         for actor_title in ["Nia Chen", "Tomas Vale"] {
             let actor = reopened_snapshot
