@@ -15,7 +15,7 @@ use world_persistence::{PersistenceError, WorldArchive, WorldPackRef};
 use world_projection::{ProjectionIntent, ProjectionSnapshot};
 
 pub const POCKET_UNIVERSE_PACK_ID: &str = "world-machine.pocket-universe";
-pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.5.0";
+pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.6.0";
 
 pub const SEED_MARS_COLONY_COMMAND: &str = "pocket-universe.seed-mars-colony";
 pub const SEED_1980S_TOWN_COMMAND: &str = "pocket-universe.seed-1980s-town";
@@ -29,6 +29,7 @@ pub(crate) const SLOT_A: EntityId = EntityId::new(10);
 pub(crate) const SLOT_B: EntityId = EntityId::new(11);
 pub(crate) const SLOT_C: EntityId = EntityId::new(12);
 pub(crate) const SLOT_D: EntityId = EntityId::new(13);
+pub(crate) const SLOT_E: EntityId = EntityId::new(14);
 
 pub(crate) const SEED: &str = "seed";
 pub(crate) const GENERATION: &str = "generation";
@@ -74,7 +75,21 @@ impl AgentRuntime for PocketMind {
         };
         let care_count = count(AGENT_CARE_COUNT)?;
         let explore_count = count(AGENT_EXPLORE_COUNT)?;
-        let desired = if care_count <= explore_count {
+        let primary_outcome = observation.events.iter().rev().find(|event| {
+            event.actor == Some(SLOT_B)
+                && matches!(
+                    event.kind.as_str(),
+                    "agent_cared_for_world" | "agent_explored_world"
+                )
+        });
+        let desired = if observation.actor == SLOT_E {
+            match primary_outcome.map(|event| event.kind.as_str()) {
+                Some("agent_cared_for_world") => AGENT_EXPLORE_ACTION,
+                Some("agent_explored_world") => AGENT_CARE_ACTION,
+                _ if care_count <= explore_count => AGENT_CARE_ACTION,
+                _ => AGENT_EXPLORE_ACTION,
+            }
+        } else if care_count <= explore_count {
             AGENT_CARE_ACTION
         } else {
             AGENT_EXPLORE_ACTION
@@ -159,15 +174,24 @@ where
                     &ActionRequest::new("grow_universe").actor(UNIVERSE),
                 )?
                 .id;
-            let outcome = Self::run_agent_turn_on(
+            let primary_outcome = Self::run_agent_turn_on(
                 &mut self.mind,
                 &mut candidate,
                 &self.actions,
                 &self.mind_profile,
+                SLOT_B,
                 &[growth],
             )?;
+            let secondary_outcome = Self::run_agent_turn_on(
+                &mut self.mind,
+                &mut candidate,
+                &self.actions,
+                &self.mind_profile,
+                SLOT_E,
+                &[primary_outcome],
+            )?;
             self.world = candidate;
-            return Ok(outcome);
+            return Ok(secondary_outcome);
         }
 
         let action = match command_id {
@@ -206,12 +230,21 @@ where
             let growth = executed.last().copied().ok_or_else(|| {
                 std::io::Error::other("scheduled Pocket Universe growth did not run")
             })?;
+            let primary_outcome = Self::run_agent_turn_on(
+                &mut self.mind,
+                &mut candidate,
+                &self.actions,
+                &self.mind_profile,
+                SLOT_B,
+                &[growth],
+            )?;
             Self::run_agent_turn_on(
                 &mut self.mind,
                 &mut candidate,
                 &self.actions,
                 &self.mind_profile,
-                &[growth],
+                SLOT_E,
+                &[primary_outcome],
             )?;
         }
         self.world = candidate;
@@ -223,6 +256,7 @@ where
         world: &mut World,
         registry: &ActionRegistry,
         mind_profile: &str,
+        actor: EntityId,
         caused_by: &[EventId],
     ) -> Result<EventId, Box<dyn Error>> {
         let actions = vec![
@@ -237,10 +271,10 @@ where
         ];
         let execution = AgentExecutor::decide_and_execute(
             mind,
-            &ScopedPerception::new([UNIVERSE, SLOT_A]),
+            &ScopedPerception::new([UNIVERSE, SLOT_A, SLOT_B, SLOT_E]),
             world,
             registry,
-            SLOT_B,
+            actor,
             &actions,
             caused_by,
         )?;
@@ -487,6 +521,12 @@ impl Action for SeedMarsColony {
                 Entity::new(SLOT_D, "rover")
                     .with_component("name", "Kestrel Rover")
                     .with_component("range", "18 km"),
+                Entity::new(SLOT_E, "person")
+                    .with_component("name", "Tomas Vale")
+                    .with_component("role", "rover scout")
+                    .with_component(AGENT_CARE_COUNT, 0_i64)
+                    .with_component(AGENT_EXPLORE_COUNT, 0_i64)
+                    .with_component(LAST_MIND_PROFILE, "none"),
             ],
         )
     }
@@ -524,6 +564,12 @@ impl Action for Seed1980sTown {
                 Entity::new(SLOT_D, "bus")
                     .with_component("name", "Night Bus 6")
                     .with_component("route", "Maple Loop"),
+                Entity::new(SLOT_E, "person")
+                    .with_component("name", "Max Park")
+                    .with_component("role", "radio volunteer")
+                    .with_component(AGENT_CARE_COUNT, 0_i64)
+                    .with_component(AGENT_EXPLORE_COUNT, 0_i64)
+                    .with_component(LAST_MIND_PROFILE, "none"),
             ],
         )
     }
@@ -561,6 +607,12 @@ impl Action for SeedPenguinCivilization {
                 Entity::new(SLOT_D, "council")
                     .with_component("name", "Aurora Council")
                     .with_component("custom", "vote at moonrise"),
+                Entity::new(SLOT_E, "penguin")
+                    .with_component("name", "Miri")
+                    .with_component("role", "fish-vault keeper")
+                    .with_component(AGENT_CARE_COUNT, 0_i64)
+                    .with_component(AGENT_EXPLORE_COUNT, 0_i64)
+                    .with_component(LAST_MIND_PROFILE, "none"),
             ],
         )
     }
@@ -655,9 +707,9 @@ fn mind_action_draft(
     let actor = request
         .actor
         .ok_or_else(|| ActionError::Invalid("Pocket Mind action requires an actor".into()))?;
-    if actor != SLOT_B {
+    if actor != SLOT_B && actor != SLOT_E {
         return Err(ActionError::Invalid(format!(
-            "Pocket Mind action requires seed actor {SLOT_B}, got {actor}"
+            "Pocket Mind action requires a seeded actor ({SLOT_B} or {SLOT_E}), got {actor}"
         )));
     }
     let mind_profile = match request.args.get(MIND_PROFILE_ARG) {
@@ -680,7 +732,7 @@ fn mind_action_draft(
         AGENT_EXPLORE_COUNT
     };
     let next = integer_component(state, actor, count_key)? + 1;
-    let (target, key, value, change) = mind_outcome(&seed, care, next)?;
+    let (target, key, value, change) = mind_outcome(&seed, actor, care, next)?;
     let mut draft = EventDraft::new(if care {
         "agent_cared_for_world"
     } else {
@@ -725,51 +777,86 @@ fn mind_action_draft(
 
 fn mind_outcome(
     seed: &str,
+    actor: EntityId,
     care: bool,
     turn: i64,
 ) -> Result<(EntityId, &'static str, String, String), ActionError> {
-    let outcome = match (seed, care) {
-        ("mars-colony", true) => (
+    let outcome = match (seed, actor, care) {
+        ("mars-colony", SLOT_B, true) => (
             SLOT_C,
             "crop",
             format!("Nia tending cycle {turn}"),
             format!("Nia tuned the hydroponics loop for care cycle {turn}."),
         ),
-        ("mars-colony", false) => (
+        ("mars-colony", SLOT_B, false) => (
             SLOT_D,
             "range",
-            format!("survey route {turn}"),
+            format!("Nia survey route {turn}"),
             format!("Nia sent Kestrel onto survey route {turn} beyond the familiar markers."),
         ),
-        ("1980s-town", true) => (
+        ("mars-colony", SLOT_E, true) => (
+            SLOT_D,
+            "status",
+            format!("Tomas service cycle {turn}"),
+            format!("Tomas serviced Kestrel after Nia's latest move, closing out maintenance cycle {turn}."),
+        ),
+        ("mars-colony", SLOT_E, false) => (
+            SLOT_A,
+            "survey_report",
+            format!("ridge trace {turn}"),
+            format!("Tomas followed Nia's lead and returned with ridge trace {turn} for Ares Habitat."),
+        ),
+        ("1980s-town", SLOT_B, true) => (
             SLOT_A,
             "status",
             format!("Lena's community night {turn}"),
             format!("Lena kept Maple Arcade open for community night {turn}."),
         ),
-        ("1980s-town", false) => (
+        ("1980s-town", SLOT_B, false) => (
             SLOT_D,
             "route",
             format!("Lena's late loop {turn}"),
-            format!(
-                "Lena rode Night Bus 6 through late loop {turn} and came back with a new story."
-            ),
+            format!("Lena rode Night Bus 6 through late loop {turn} and came back with a new story."),
         ),
-        ("penguin-civilization", true) => (
+        ("1980s-town", SLOT_E, true) => (
+            SLOT_C,
+            "format",
+            format!("Max community set {turn}"),
+            format!("Max answered Lena's latest move with community set {turn} on K-88."),
+        ),
+        ("1980s-town", SLOT_E, false) => (
+            SLOT_D,
+            "route",
+            format!("Max signal chase {turn}"),
+            format!("Max followed the thread from Lena's night and mapped signal chase {turn} along Bus 6."),
+        ),
+        ("penguin-civilization", SLOT_B, true) => (
             SLOT_A,
             "status",
             format!("Piko reinforced span {turn}"),
             format!("Piko reinforced Icebridge span {turn} before the next cold tide."),
         ),
-        ("penguin-civilization", false) => (
+        ("penguin-civilization", SLOT_B, false) => (
             SLOT_D,
             "custom",
             format!("Piko's edge report {turn}"),
             format!("Piko returned from edge scout {turn} with a new route under the aurora."),
         ),
+        ("penguin-civilization", SLOT_E, true) => (
+            SLOT_C,
+            "reserve",
+            format!("Miri reserve cycle {turn}"),
+            format!("Miri answered Piko's latest move by balancing Fish Vault reserve cycle {turn}."),
+        ),
+        ("penguin-civilization", SLOT_E, false) => (
+            SLOT_D,
+            "custom",
+            format!("Miri tide map {turn}"),
+            format!("Miri followed Piko's trail and brought the Aurora Council tide map {turn}."),
+        ),
         _ => {
             return Err(ActionError::Invalid(format!(
-                "unsupported Pocket Universe seed: {seed}"
+                "unsupported Pocket Universe mind outcome: seed={seed}, actor={actor}, care={care}"
             )))
         }
     };
@@ -900,7 +987,7 @@ fn seed_draft(
     state: &WorldState,
     seed: &str,
     universe_name: &str,
-    entities: [Entity; 4],
+    entities: [Entity; 5],
 ) -> Result<EventDraft, ActionError> {
     if seed_id_from_state(state)? != UNSEEDED {
         return Err(ActionError::Invalid(
@@ -1209,7 +1296,7 @@ mod tests {
                 .iter()
                 .filter(|event| event.kind == "agent_decision_recorded")
                 .count(),
-            2
+            4
         );
         assert_eq!(
             new_events
@@ -1218,7 +1305,7 @@ mod tests {
                     event.kind == "agent_cared_for_world" || event.kind == "agent_explored_world"
                 })
                 .count(),
-            2
+            4
         );
         let briefing = after.briefing.as_ref().unwrap();
         assert_eq!(briefing.title, "While you were away");
@@ -1254,9 +1341,11 @@ mod tests {
 
     #[test]
     fn scripted_mind_selects_only_offered_actions_and_records_causal_outcome() {
-        let mut universe =
-            PocketUniverse::with_agent_runtime(MockAgentRuntime::scripted([AGENT_EXPLORE_ACTION]))
-                .unwrap();
+        let mut universe = PocketUniverse::with_agent_runtime(MockAgentRuntime::scripted([
+            AGENT_EXPLORE_ACTION,
+            AGENT_CARE_ACTION,
+        ]))
+        .unwrap();
         universe
             .invoke_projection_command(SEED_MARS_COLONY_COMMAND)
             .unwrap();
@@ -1266,13 +1355,13 @@ mod tests {
             .world()
             .events()
             .iter()
-            .find(|event| event.kind == "agent_decision_recorded")
+            .find(|event| event.kind == "agent_decision_recorded" && event.actor == Some(SLOT_B))
             .unwrap();
         let outcome = universe
             .world()
             .events()
             .iter()
-            .find(|event| event.kind == "agent_explored_world")
+            .find(|event| event.kind == "agent_explored_world" && event.actor == Some(SLOT_B))
             .unwrap();
         assert_eq!(decision.actor, Some(SLOT_B));
         assert!(outcome.caused_by.contains(&decision.id));
@@ -1289,6 +1378,56 @@ mod tests {
                 .component(AGENT_EXPLORE_COUNT),
             Some(&Value::Integer(1))
         );
+    }
+
+    #[test]
+    fn one_period_runs_two_causally_chained_agent_turns() {
+        let mut universe = PocketUniverse::with_agent_runtime(MockAgentRuntime::scripted([
+            AGENT_EXPLORE_ACTION,
+            AGENT_CARE_ACTION,
+        ]))
+        .unwrap();
+        universe
+            .invoke_projection_command(SEED_MARS_COLONY_COMMAND)
+            .unwrap();
+        universe.advance_periods(1).unwrap();
+
+        let events = universe.world().events();
+        let growth = events
+            .iter()
+            .find(|event| event.kind == "universe_grew")
+            .unwrap();
+        let primary_decision = events
+            .iter()
+            .find(|event| event.kind == "agent_decision_recorded" && event.actor == Some(SLOT_B))
+            .unwrap();
+        let primary_outcome = events
+            .iter()
+            .find(|event| event.kind == "agent_explored_world" && event.actor == Some(SLOT_B))
+            .unwrap();
+        let secondary_decision = events
+            .iter()
+            .find(|event| event.kind == "agent_decision_recorded" && event.actor == Some(SLOT_E))
+            .unwrap();
+        let secondary_outcome = events
+            .iter()
+            .find(|event| event.kind == "agent_cared_for_world" && event.actor == Some(SLOT_E))
+            .unwrap();
+
+        assert!(primary_decision.caused_by.contains(&growth.id));
+        assert!(primary_outcome.caused_by.contains(&growth.id));
+        assert!(primary_outcome.caused_by.contains(&primary_decision.id));
+        assert!(secondary_decision.caused_by.contains(&primary_outcome.id));
+        assert!(secondary_outcome.caused_by.contains(&primary_outcome.id));
+        assert!(secondary_outcome.caused_by.contains(&secondary_decision.id));
+
+        let why = universe.projection_snapshot().why;
+        let chain = why.get(&secondary_outcome.id).unwrap();
+        assert!(chain
+            .nodes
+            .iter()
+            .any(|node| node.event == primary_outcome.id));
+        assert!(chain.nodes.iter().any(|node| node.event == growth.id));
     }
 
     struct FailingMind;
@@ -1321,7 +1460,7 @@ mod tests {
     }
 
     #[test]
-    fn multi_period_failure_rolls_back_all_candidate_growth_and_agent_events() {
+    fn second_agent_failure_rolls_back_growth_and_primary_agent_turn() {
         let mut universe = PocketUniverse::with_agent_runtime(MockAgentRuntime::scripted([
             AGENT_CARE_ACTION,
             "not-an-offered-action",
@@ -1332,7 +1471,7 @@ mod tests {
             .unwrap();
         let before = universe.archive().unwrap();
 
-        let error = universe.advance_periods(2).unwrap_err();
+        let error = universe.advance_periods(1).unwrap_err();
 
         assert!(error.to_string().contains("unavailable action"));
         assert_eq!(universe.archive().unwrap(), before);
@@ -1344,12 +1483,12 @@ mod tests {
         use world_compare::{compare_snapshots, DifferenceKind};
 
         let mut left = PocketUniverse::with_agent_runtime_profile(
-            MockAgentRuntime::scripted([AGENT_CARE_ACTION]),
+            MockAgentRuntime::scripted([AGENT_CARE_ACTION, AGENT_CARE_ACTION]),
             DETERMINISTIC_MIND_PROFILE,
         )
         .unwrap();
         let mut right = PocketUniverse::with_agent_runtime_profile(
-            MockAgentRuntime::scripted([AGENT_CARE_ACTION]),
+            MockAgentRuntime::scripted([AGENT_CARE_ACTION, AGENT_CARE_ACTION]),
             "pi",
         )
         .unwrap();
@@ -1428,26 +1567,65 @@ mod tests {
         universe.invoke_projection_command(NUDGE_COMMAND).unwrap();
         universe.invoke_projection_command(NUDGE_COMMAND).unwrap();
 
-        let actor = universe.world().state().entity(SLOT_B).unwrap();
-        assert_eq!(actor.component(AGENT_CARE_COUNT), Some(&Value::Integer(1)));
+        for actor_id in [SLOT_B, SLOT_E] {
+            let actor = universe.world().state().entity(actor_id).unwrap();
+            assert_eq!(actor.component(AGENT_CARE_COUNT), Some(&Value::Integer(1)));
+            assert_eq!(
+                actor.component(AGENT_EXPLORE_COUNT),
+                Some(&Value::Integer(1))
+            );
+            let decisions = universe
+                .world()
+                .events()
+                .iter()
+                .filter(|event| {
+                    event.kind == "agent_decision_recorded" && event.actor == Some(actor_id)
+                })
+                .filter_map(|event| match event.payload.get("selected_action") {
+                    Some(Value::Text(action)) => Some(action.as_str()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            let expected = if actor_id == SLOT_B {
+                vec![AGENT_CARE_ACTION, AGENT_EXPLORE_ACTION]
+            } else {
+                vec![AGENT_EXPLORE_ACTION, AGENT_CARE_ACTION]
+            };
+            assert_eq!(decisions, expected);
+        }
+        assert_eq!(universe.world().world_time(), 0);
+    }
+
+    #[test]
+    fn deterministic_secondary_actor_reacts_to_primary_outcome() {
+        let mut universe = PocketUniverse::new().unwrap();
+        universe
+            .invoke_projection_command(SEED_MARS_COLONY_COMMAND)
+            .unwrap();
+
+        universe.advance_periods(1).unwrap();
+
+        let primary = universe.world().state().entity(SLOT_B).unwrap();
+        let secondary = universe.world().state().entity(SLOT_E).unwrap();
         assert_eq!(
-            actor.component(AGENT_EXPLORE_COUNT),
+            primary.component(AGENT_CARE_COUNT),
             Some(&Value::Integer(1))
         );
-        assert_eq!(universe.world().world_time(), 0);
-        let decisions = universe
-            .world()
-            .events()
-            .iter()
-            .filter(|event| event.kind == "agent_decision_recorded")
-            .filter_map(|event| event.payload.get("selected_action"))
-            .collect::<Vec<_>>();
         assert_eq!(
-            decisions,
-            vec![
-                &Value::Text(AGENT_CARE_ACTION.into()),
-                &Value::Text(AGENT_EXPLORE_ACTION.into())
-            ]
+            primary.component(AGENT_EXPLORE_COUNT),
+            Some(&Value::Integer(0))
+        );
+        assert_eq!(
+            secondary.component(AGENT_CARE_COUNT),
+            Some(&Value::Integer(0))
+        );
+        assert_eq!(
+            secondary.component(AGENT_EXPLORE_COUNT),
+            Some(&Value::Integer(1))
+        );
+        assert_eq!(
+            secondary.component("last_intent"),
+            Some(&Value::Text("explore".into()))
         );
     }
 
@@ -1490,9 +1668,17 @@ mod tests {
             briefing
                 .items
                 .iter()
-                .filter(|item| item.detail.contains("Lena"))
+                .filter(|item| item.detail.starts_with("Lena"))
                 .count(),
-            2
+            1
+        );
+        assert_eq!(
+            briefing
+                .items
+                .iter()
+                .filter(|item| item.detail.starts_with("Max"))
+                .count(),
+            1
         );
     }
 
