@@ -94,16 +94,35 @@ included_pack_dir = Path(sys.argv[2])
 with plist_path.open("rb") as file:
     plist = plistlib.load(file)
 
-expected_type = "io.github.hxddh.world-machine.world"
+world_type = "io.github.hxddh.world-machine.world"
+pack_type = "io.github.hxddh.world-machine.worldpack"
 assert plist["CFBundleExecutable"] == "world-machine-desktop"
 assert plist["CFBundleIdentifier"] == "io.github.hxddh.world-machine"
 assert plist["CFBundlePackageType"] == "APPL"
-assert plist["CFBundleDocumentTypes"][0]["LSItemContentTypes"] == [expected_type]
-exported = plist["UTExportedTypeDeclarations"][0]
-assert exported["UTTypeIdentifier"] == expected_type
-assert "public.json" in exported["UTTypeConformsTo"]
-assert "public.content" in exported["UTTypeConformsTo"]
-assert exported["UTTypeTagSpecification"]["public.filename-extension"] == ["world"]
+
+document_types = {
+    item["LSItemContentTypes"][0]: item
+    for item in plist["CFBundleDocumentTypes"]
+}
+assert set(document_types) == {world_type, pack_type}
+assert document_types[world_type]["CFBundleTypeRole"] == "Editor"
+assert document_types[pack_type]["CFBundleTypeRole"] == "Viewer"
+assert document_types[world_type]["LSHandlerRank"] == "Owner"
+assert document_types[pack_type]["LSHandlerRank"] == "Owner"
+
+exported_types = {
+    item["UTTypeIdentifier"]: item
+    for item in plist["UTExportedTypeDeclarations"]
+}
+assert set(exported_types) == {world_type, pack_type}
+world = exported_types[world_type]
+assert "public.json" in world["UTTypeConformsTo"]
+assert "public.content" in world["UTTypeConformsTo"]
+assert world["UTTypeTagSpecification"]["public.filename-extension"] == ["world"]
+pack = exported_types[pack_type]
+assert "public.data" in pack["UTTypeConformsTo"]
+assert "public.content" in pack["UTTypeConformsTo"]
+assert pack["UTTypeTagSpecification"]["public.filename-extension"] == ["worldpack"]
 
 expected_packs = {
     "pocket-universe.worldpack",
