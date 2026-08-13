@@ -374,10 +374,7 @@ pub fn pocket_universe_descriptor() -> WorldDescriptor {
 }
 
 pub fn pocket_universe_registration() -> WorldRegistration {
-    pocket_universe_registration_with_agent_runtime_profile(
-        || PocketMind,
-        DETERMINISTIC_MIND_PROFILE,
-    )
+    registration_with_validated_profile(|| PocketMind, DETERMINISTIC_MIND_PROFILE)
 }
 
 pub fn pocket_universe_registration_with_agent_runtime<R, F>(factory: F) -> WorldRegistration
@@ -385,10 +382,22 @@ where
     R: AgentRuntime + 'static,
     F: Fn() -> R + Send + Sync + 'static,
 {
-    pocket_universe_registration_with_agent_runtime_profile(factory, CUSTOM_MIND_PROFILE)
+    registration_with_validated_profile(factory, CUSTOM_MIND_PROFILE)
 }
 
 pub fn pocket_universe_registration_with_agent_runtime_profile<R, F>(
+    factory: F,
+    mind_profile: impl Into<String>,
+) -> Result<WorldRegistration, std::io::Error>
+where
+    R: AgentRuntime + 'static,
+    F: Fn() -> R + Send + Sync + 'static,
+{
+    let mind_profile = validate_mind_profile(mind_profile.into())?;
+    Ok(registration_with_validated_profile(factory, mind_profile))
+}
+
+fn registration_with_validated_profile<R, F>(
     factory: F,
     mind_profile: impl Into<String>,
 ) -> WorldRegistration
@@ -397,10 +406,7 @@ where
     F: Fn() -> R + Send + Sync + 'static,
 {
     let factory = Arc::new(factory);
-    let mind_profile = Arc::new(
-        validate_mind_profile(mind_profile.into())
-            .expect("Pocket Universe registration mind profile must be a safe non-secret label"),
-    );
+    let mind_profile = Arc::new(mind_profile.into());
     let create_factory = Arc::clone(&factory);
     let open_factory = Arc::clone(&factory);
     let create_profile = Arc::clone(&mind_profile);
@@ -1382,6 +1388,17 @@ mod tests {
             .unwrap();
         assert_eq!(profile.left.as_deref(), Some("mind-a"));
         assert_eq!(profile.right.as_deref(), Some("mind-b"));
+    }
+
+    #[test]
+    fn registration_profile_rejects_secret_shaped_or_freeform_values_without_panicking() {
+        let error = pocket_universe_registration_with_agent_runtime_profile(
+            || PocketMind,
+            "pi api-key=secret",
+        )
+        .err()
+        .expect("freeform registration mind profile must be rejected");
+        assert!(error.to_string().contains("mind profile must be"));
     }
 
     #[test]
