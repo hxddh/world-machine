@@ -927,6 +927,20 @@ impl WorldMachineHome {
         .detach();
     }
 
+    fn document_title_for_id(&self, document_id: &WorldDocumentId) -> Option<String> {
+        self.documents
+            .iter()
+            .find(|document| &document.id == document_id)
+            .map(|document| {
+                let pack_title = self
+                    .registry
+                    .descriptor_for(&document.pack)
+                    .map(|descriptor| descriptor.title.clone())
+                    .unwrap_or_else(|| document.pack.id.clone());
+                world_summary_title(document, &pack_title)
+            })
+    }
+
     fn document_card(
         &self,
         document: WorldDocumentSummary,
@@ -939,10 +953,7 @@ impl WorldMachineHome {
             .descriptor_for(&document.pack)
             .map(|descriptor| descriptor.title.clone())
             .unwrap_or_else(|| document.pack.id.clone());
-        let title = document
-            .display_title
-            .clone()
-            .unwrap_or_else(|| pack_title.clone());
+        let title = world_summary_title(&document, &pack_title);
         let document_label = document.id.to_string();
         let lineage_node = self
             .lineage
@@ -989,16 +1000,22 @@ impl WorldMachineHome {
                     .child(div().text_color(rgb(0x777770)).child("Origin"));
 
                 if let Some(parent_id) = parent.resolved.clone() {
-                    let open_parent = parent_id.clone();
                     let parent_label = parent_id.to_string();
+                    let parent_title = self
+                        .document_title_for_id(&parent_id)
+                        .unwrap_or_else(|| parent_label.clone());
+                    let open_parent = parent_id.clone();
                     origin = origin.child(
                         div()
                             .id(SharedString::from(format!(
                                 "lineage-parent-{document_label}-{parent_label}"
                             )))
                             .cursor_pointer()
-                            .text_color(rgb(0x4e6fb3))
-                            .child(parent_label)
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .child(div().text_color(rgb(0x4e6fb3)).child(parent_title))
+                            .child(div().text_color(rgb(0x8a8a82)).child(parent_label))
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.open_document(open_parent.clone(), cx)
                             })),
@@ -1034,25 +1051,31 @@ impl WorldMachineHome {
                 );
                 for child_id in &node.children {
                     let child_label = child_id.to_string();
+                    let child_title = self
+                        .document_title_for_id(child_id)
+                        .unwrap_or_else(|| child_label.clone());
                     let child_branch = self
                         .lineage
                         .as_ref()
                         .and_then(|lineage| lineage.node(child_id))
                         .and_then(|child| child.branch.as_ref())
                         .map(lineage_branch_label);
-                    let open_child = child_id.clone();
-                    let link_label = child_branch
+                    let identity = child_branch
                         .map(|branch| format!("{child_label} · {branch}"))
                         .unwrap_or_else(|| child_label.clone());
+                    let open_child = child_id.clone();
                     branches = branches.child(
                         div()
                             .id(SharedString::from(format!(
                                 "lineage-child-{document_label}-{child_label}"
                             )))
                             .cursor_pointer()
+                            .flex()
+                            .flex_col()
+                            .gap_1()
                             .text_xs()
-                            .text_color(rgb(0x4e6fb3))
-                            .child(link_label)
+                            .child(div().text_color(rgb(0x4e6fb3)).child(child_title))
+                            .child(div().text_color(rgb(0x8a8a82)).child(identity))
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.open_document(open_child.clone(), cx)
                             })),
@@ -1762,6 +1785,17 @@ impl Render for WorldMachineHome {
 }
 
 #[cfg(target_os = "macos")]
+fn world_summary_title(document: &WorldDocumentSummary, pack_title: &str) -> String {
+    document
+        .display_title
+        .as_deref()
+        .map(str::trim)
+        .filter(|title| !title.is_empty())
+        .unwrap_or(pack_title)
+        .to_owned()
+}
+
+#[cfg(target_os = "macos")]
 fn document_window_title(document_label: &str) -> String {
     format!("{document_label} — World Machine")
 }
@@ -1971,6 +2005,33 @@ fn is_world_pack_file(path: &Path) -> bool {
 #[cfg(all(test, target_os = "macos"))]
 mod file_type_tests {
     use super::*;
+
+    #[test]
+    fn world_summary_title_prefers_semantic_title_and_falls_back_cleanly() {
+        let pack = WorldPackRef::new("pocket-universe", "0.10.0");
+        let mut summary = WorldDocumentSummary {
+            id: WorldDocumentId::new("mars").unwrap(),
+            pack,
+            display_title: Some("  Ares Pocket Colony  ".into()),
+            world_time: 3,
+            event_count: 7,
+        };
+
+        assert_eq!(
+            world_summary_title(&summary, "Pocket Universe"),
+            "Ares Pocket Colony"
+        );
+        summary.display_title = Some("   ".into());
+        assert_eq!(
+            world_summary_title(&summary, "Pocket Universe"),
+            "Pocket Universe"
+        );
+        summary.display_title = None;
+        assert_eq!(
+            world_summary_title(&summary, "Pocket Universe"),
+            "Pocket Universe"
+        );
+    }
 
     #[test]
     fn document_window_title_uses_stable_durable_identity() {
