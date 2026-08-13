@@ -142,6 +142,7 @@ mod tests {
 
     fn lineage_metadata() -> WorldDocumentMetadata {
         WorldDocumentMetadata {
+            display_title: Some("Saved World".into()),
             lineage: Some(WorldLineage {
                 parent: WorldParent {
                     document: Some("source".into()),

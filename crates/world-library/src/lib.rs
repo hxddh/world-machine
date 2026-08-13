@@ -56,6 +56,7 @@ impl fmt::Display for WorldDocumentId {
 pub struct WorldDocumentSummary {
     pub id: WorldDocumentId,
     pub pack: WorldPackRef,
+    pub display_title: Option<String>,
     pub world_time: u64,
     pub event_count: usize,
 }
@@ -193,7 +194,7 @@ impl WorldLibrary {
             let Some(document) = self.load_document(&id)? else {
                 continue;
             };
-            documents.push(summary(id, &document.archive));
+            documents.push(summary(id, &document));
         }
         Ok(documents)
     }
@@ -208,7 +209,7 @@ impl WorldLibrary {
         }
         let document = read_document_file(source)?;
         self.save_document(&id, &document)?;
-        Ok(summary(id, &document.archive))
+        Ok(summary(id, &document))
     }
 
     pub fn export_file(
@@ -333,8 +334,10 @@ impl DurableWorldSession {
             return Err(LibraryError::DocumentAlreadyExists(document_id));
         }
         let session = registry.create(pack_id)?;
+        let snapshot = session.snapshot();
         let archive = required_archive(session.as_ref())?;
-        let document = WorldDocument::new(archive);
+        let mut document = WorldDocument::new(archive);
+        document.metadata.display_title = snapshot_display_title(&snapshot);
         let revision = library.save_document_with_revision(&document_id, &document)?;
         Ok(Self {
             target: WorldDocumentTarget::Library(document_id),
@@ -447,26 +450,37 @@ impl DurableWorldSession {
         let mut candidate = registry.open_archive(&current_archive)?;
         let snapshot = candidate.handle(intent)?;
         let next_archive = required_archive(candidate.as_ref())?;
+        let mut next_metadata = self.metadata.clone();
+        if let Some(title) = snapshot_display_title(&snapshot) {
+            next_metadata.display_title = Some(title);
+        }
         let next_document = WorldDocument {
             archive: next_archive,
-            metadata: self.metadata.clone(),
+            metadata: next_metadata.clone(),
         };
 
         self.target.verify_revision(self.revision, library)?;
         let next_revision = self.target.persist(&next_document, library)?;
 
         self.revision = next_revision;
+        self.metadata = next_metadata;
         self.session = candidate;
         Ok(snapshot)
     }
 }
 
-fn summary(id: WorldDocumentId, archive: &WorldArchive) -> WorldDocumentSummary {
+fn snapshot_display_title(snapshot: &ProjectionSnapshot) -> Option<String> {
+    let title = snapshot.title.trim();
+    (!title.is_empty()).then(|| title.to_owned())
+}
+
+fn summary(id: WorldDocumentId, document: &WorldDocument) -> WorldDocumentSummary {
     WorldDocumentSummary {
         id,
-        pack: archive.pack.clone(),
-        world_time: archive.world_time,
-        event_count: archive.events.len(),
+        pack: document.archive.pack.clone(),
+        display_title: document.metadata.display_title.clone(),
+        world_time: document.archive.world_time,
+        event_count: document.archive.events.len(),
     }
 }
 
@@ -839,6 +853,10 @@ mod tests {
         let mut session =
             DurableWorldSession::create(id.clone(), MOCK_PACK, &registry, &library).unwrap();
         assert_eq!(session.snapshot().title, "Mock 0");
+        assert_eq!(
+            library.list().unwrap()[0].display_title.as_deref(),
+            Some("Mock 0")
+        );
         assert_eq!(session.target(), &WorldDocumentTarget::Library(id.clone()));
         session
             .handle(
@@ -848,12 +866,29 @@ mod tests {
             )
             .unwrap();
         assert_eq!(session.snapshot().title, "Mock 1");
+        assert_eq!(
+            library.list().unwrap()[0].display_title.as_deref(),
+            Some("Mock 1")
+        );
 
         let reopened = DurableWorldSession::open(id, &registry, &library).unwrap();
         assert_eq!(reopened.snapshot().title, "Mock 1");
         assert_eq!(reopened.pack(), WorldPackRef::new(MOCK_PACK, "1"));
 
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn snapshot_display_title_ignores_blank_titles() {
+        let mut snapshot = ProjectionSnapshot::default();
+        snapshot.title = "   ".into();
+        assert_eq!(snapshot_display_title(&snapshot), None);
+
+        snapshot.title = "  A Living World  ".into();
+        assert_eq!(
+            snapshot_display_title(&snapshot).as_deref(),
+            Some("A Living World")
+        );
     }
 
     #[test]

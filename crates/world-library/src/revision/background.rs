@@ -1,4 +1,6 @@
-use crate::{required_archive, DurableWorldSession, LibraryError, WorldLibrary};
+use crate::{
+    required_archive, snapshot_display_title, DurableWorldSession, LibraryError, WorldLibrary,
+};
 use world_document::WorldDocument;
 use world_host::WorldRegistry;
 use world_projection::ProjectionSnapshot;
@@ -48,14 +50,19 @@ impl DurableWorldSession {
             return Ok(None);
         }
 
+        let mut next_metadata = self.metadata.clone();
+        if let Some(title) = snapshot_display_title(&snapshot) {
+            next_metadata.display_title = Some(title);
+        }
         let next_document = WorldDocument {
             archive: next_archive,
-            metadata: self.metadata.clone(),
+            metadata: next_metadata.clone(),
         };
         self.target.verify_revision(self.revision, library)?;
         let next_revision = self.target.persist(&next_document, library)?;
 
         self.revision = next_revision;
+        self.metadata = next_metadata;
         self.session = candidate;
         Ok(Some(snapshot))
     }
@@ -230,6 +237,7 @@ mod tests {
 
         assert_eq!(snapshot.world_time, 8);
         assert_eq!(session.snapshot().world_time, 8);
+        assert_eq!(session.metadata.display_title.as_deref(), Some("Mock 8"));
         assert_eq!(read_archive_file(&path).unwrap().world_time, 8);
 
         let reopened = DurableWorldSession::open_file(path.clone(), &registry).unwrap();

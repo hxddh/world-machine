@@ -8,12 +8,14 @@ pub const DOCUMENT_METADATA_FIELD: &str = "document";
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct WorldDocumentMetadata {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lineage: Option<WorldLineage>,
 }
 
 impl WorldDocumentMetadata {
     pub fn is_empty(&self) -> bool {
-        self.lineage.is_none()
+        self.display_title.is_none() && self.lineage.is_none()
     }
 }
 
@@ -58,6 +60,11 @@ impl WorldDocument {
             archive,
             metadata: WorldDocumentMetadata::default(),
         }
+    }
+
+    pub fn with_display_title(mut self, title: impl Into<String>) -> Self {
+        self.metadata.display_title = Some(title.into());
+        self
     }
 
     pub fn with_lineage(mut self, lineage: WorldLineage) -> Self {
@@ -172,6 +179,22 @@ mod tests {
 
         assert_eq!(document.archive.world_time, 12);
         assert_eq!(document.metadata, WorldDocumentMetadata::default());
+    }
+
+    #[test]
+    fn display_title_round_trips_as_document_only_metadata() {
+        let document = WorldDocument::new(archive(8)).with_display_title("A Small Mars");
+
+        let json = document.to_json_pretty().unwrap();
+        let decoded = WorldDocument::from_json(&json).unwrap();
+        let pure_archive = WorldArchive::from_json(&json).unwrap();
+
+        assert_eq!(
+            decoded.metadata.display_title.as_deref(),
+            Some("A Small Mars")
+        );
+        assert_eq!(pure_archive.world_time, 8);
+        assert!(json.contains("\"display_title\""));
     }
 
     #[test]
