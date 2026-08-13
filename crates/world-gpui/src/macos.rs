@@ -85,15 +85,17 @@ impl ProjectionView {
         cx.notify();
     }
 
-    fn render_collection(&self, cx: &mut Context<Self>) -> Div {
+    fn render_collection(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let mut body = div().flex().flex_col().gap_2();
         for item in &self.snapshot.collection.items {
             body = body.child(self.collection_item(item, cx));
         }
 
         div()
+            .id("projection-collection-scroll")
             .w(px(220.0))
             .h_full()
+            .overflow_y_scroll()
             .flex()
             .flex_col()
             .gap_3()
@@ -134,15 +136,17 @@ impl ProjectionView {
             .on_click(cx.listener(move |this, _, _, cx| this.select(selection, cx)))
     }
 
-    fn render_timeline(&self, cx: &mut Context<Self>) -> Div {
+    fn render_timeline(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let mut body = div().flex().flex_col().gap_2();
         for item in self.snapshot.timeline.items.iter().take(12) {
             body = body.child(self.timeline_item(item, cx));
         }
 
         div()
+            .id("projection-timeline-scroll")
             .w(px(300.0))
             .h_full()
+            .overflow_y_scroll()
             .flex()
             .flex_col()
             .gap_3()
@@ -429,7 +433,15 @@ impl ProjectionView {
 
 impl Render for ProjectionView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let mut center = div().flex_1().h_full().flex().flex_col().gap_3().p_3();
+        let mut center = div()
+            .id("projection-center-scroll")
+            .flex_1()
+            .h_full()
+            .overflow_y_scroll()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .p_3();
 
         if let Some(briefing) = self.render_briefing(cx) {
             center = center.child(briefing);
