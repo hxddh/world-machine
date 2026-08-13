@@ -100,7 +100,8 @@ mod tests {
 
     #[test]
     fn bundled_resource_root_is_derived_only_from_a_macos_app_layout() {
-        let executable = PathBuf::from("/tmp/World Machine.app/Contents/MacOS/world-machine-desktop");
+        let executable =
+            PathBuf::from("/tmp/World Machine.app/Contents/MacOS/world-machine-desktop");
         assert_eq!(
             resource_root_for_executable(&executable),
             Some(PathBuf::from(
