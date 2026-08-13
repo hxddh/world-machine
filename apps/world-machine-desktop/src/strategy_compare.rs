@@ -433,24 +433,15 @@ impl StrategyResultView {
             DurableWorldSession::open(saved_id, self.registry.as_ref(), self.library.as_ref())
                 .map_err(|error| error.to_string())?;
         let document_label = session.display_name();
-        let pack = session.pack();
-        let title = self
-            .registry
-            .descriptor_for(&pack)
-            .map(|descriptor| descriptor.title.clone())
-            .unwrap_or(pack.id);
         let registry = Arc::clone(&self.registry);
         let library = Arc::clone(&self.library);
-        let window_title = title.clone();
         let bounds = Bounds::centered(None, size(px(1100.0), px(900.0)), cx);
         cx.open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 ..Default::default()
             },
-            move |_, cx| {
-                cx.new(|cx| WorldDocumentView::new(session, window_title, registry, library, cx))
-            },
+            move |_, cx| cx.new(|cx| WorldDocumentView::new(session, registry, library, cx)),
         )
         .map_err(|error| error.to_string())?;
 
