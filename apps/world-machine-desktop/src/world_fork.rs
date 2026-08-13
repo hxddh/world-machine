@@ -1,5 +1,6 @@
 use super::{
-    sanitize_document_base, unique_document_id, DocumentStatus, SharedDocument, WorldDocumentView,
+    mark_library_mutated, sanitize_document_base, unique_document_id, DocumentStatus,
+    SharedDocument, WorldDocumentView,
 };
 use gpui::{
     div, prelude::*, px, rgb, size, AppContext, Bounds, Context, IntoElement, Styled, WindowBounds,
@@ -81,6 +82,7 @@ fn fork_world(
             .fork_to_library(document_id.clone(), None, library.as_ref())
             .map_err(|error| error.to_string())?;
     }
+    mark_library_mutated();
 
     // From this point on the fork is durable. Reopening, observer initialization,
     // or window creation failures must not be reported as if persistence failed.
@@ -96,9 +98,14 @@ fn fork_world(
         };
 
     let observer_warning =
-        super::observer::catch_up(&mut session, registry.as_ref(), library.as_ref())
-            .err()
-            .map(|error| format!("observer clock initialization skipped: {error}"));
+        match super::observer::catch_up(&mut session, registry.as_ref(), library.as_ref()) {
+            Ok(Some(_)) => {
+                mark_library_mutated();
+                None
+            }
+            Ok(None) => None,
+            Err(error) => Some(format!("observer clock initialization skipped: {error}")),
+        };
 
     let registry_for_window = Arc::clone(&registry);
     let library_for_window = Arc::clone(&library);

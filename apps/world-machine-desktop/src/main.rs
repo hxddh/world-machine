@@ -25,7 +25,10 @@ use std::process;
 #[cfg(target_os = "macos")]
 use std::rc::Rc;
 #[cfg(target_os = "macos")]
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc,
+};
 #[cfg(target_os = "macos")]
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 #[cfg(target_os = "macos")]
@@ -48,6 +51,19 @@ use world_persistence::WorldPackRef;
 const LIBRARY_OVERRIDE_ENV: &str = "WORLD_MACHINE_LIBRARY_DIR";
 #[cfg(target_os = "macos")]
 const PACK_CATALOG_OVERRIDE_ENV: &str = "WORLD_MACHINE_PACK_CATALOG";
+
+#[cfg(target_os = "macos")]
+static LIBRARY_MUTATION_REVISION: AtomicU64 = AtomicU64::new(0);
+
+#[cfg(target_os = "macos")]
+pub(crate) fn mark_library_mutated() {
+    LIBRARY_MUTATION_REVISION.fetch_add(1, Ordering::Relaxed);
+}
+
+#[cfg(target_os = "macos")]
+fn library_mutation_revision() -> u64 {
+    LIBRARY_MUTATION_REVISION.load(Ordering::Relaxed)
+}
 
 #[cfg(target_os = "macos")]
 struct SharedDocumentState {
@@ -77,10 +93,15 @@ impl world_gpui::ProjectionController for HostProjectionController {
         let mut document = self.document.borrow_mut();
         let registry = Arc::clone(&document.registry);
         let library = Arc::clone(&document.library);
-        document
+        let is_library_world = document.session.document_id().is_some();
+        let result = document
             .session
             .handle(intent, &registry, &library)
-            .map_err(|error| error.to_string())
+            .map_err(|error| error.to_string());
+        if result.is_ok() && is_library_world {
+            mark_library_mutated();
+        }
+        result
     }
 }
 
@@ -352,31 +373,45 @@ struct WorldMachineHome {
 #[cfg(target_os = "macos")]
 impl WorldMachineHome {
     fn start_system_open_listener(&mut self, cx: &mut Context<Self>) {
-        cx.spawn(async move |this, cx| loop {
-            cx.background_executor()
-                .timer(Duration::from_millis(200))
-                .await;
+        cx.spawn(async move |this, cx| {
+            let mut observed_library_revision = library_mutation_revision();
+            loop {
+                cx.background_executor()
+                    .timer(Duration::from_millis(200))
+                    .await;
 
-            let Some(this) = this.upgrade() else {
-                return;
-            };
-            let paths = system_open::drain_paths();
-            if paths.is_empty() {
-                continue;
-            }
-            this.update(cx, |this, cx| {
-                for path in paths {
-                    match path {
-                        Ok(path) => this.open_external_path(path, cx),
-                        Err(error) => {
-                            this.status = Some(HomeStatus::error(format!(
-                                "Could not open World file: {error}"
-                            )));
-                            cx.notify();
+                let Some(this) = this.upgrade() else {
+                    return;
+                };
+                let paths = system_open::drain_paths();
+                let revision = library_mutation_revision();
+                let library_changed = revision != observed_library_revision;
+                if library_changed {
+                    observed_library_revision = revision;
+                }
+                if paths.is_empty() && !library_changed {
+                    continue;
+                }
+
+                this.update(cx, |this, cx| {
+                    for path in paths {
+                        match path {
+                            Ok(path) => this.open_external_path(path, cx),
+                            Err(error) => {
+                                this.status = Some(HomeStatus::error(format!(
+                                    "Could not open World file: {error}"
+                                )));
+                            }
                         }
                     }
-                }
-            });
+                    if library_changed {
+                        if let Err(error) = this.refresh_documents() {
+                            this.status = Some(error);
+                        }
+                    }
+                    cx.notify();
+                });
+            }
         })
         .detach();
     }
@@ -2208,6 +2243,13 @@ mod file_type_tests {
         assert_eq!(success.tone, DocumentStatusTone::Success);
         assert_eq!(error.tone, DocumentStatusTone::Error);
         assert_eq!(info.message, "failed-looking warning after a durable save");
+    }
+
+    #[test]
+    fn library_mutation_revision_advances_after_mark() {
+        let before = library_mutation_revision();
+        mark_library_mutated();
+        assert!(library_mutation_revision() > before);
     }
 
     #[test]

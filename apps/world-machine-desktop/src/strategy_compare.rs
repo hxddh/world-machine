@@ -1,5 +1,6 @@
 use super::{
-    sanitize_document_base, unique_document_id, DocumentStatus, SharedDocument, WorldDocumentView,
+    mark_library_mutated, sanitize_document_base, unique_document_id, DocumentStatus,
+    SharedDocument, WorldDocumentView,
 };
 use gpui::{
     div, prelude::*, px, rgb, size, AppContext, Bounds, Context, Div, Entity, IntoElement, Render,
@@ -457,6 +458,7 @@ impl StrategyResultView {
             .library
             .create_from_document(id, &future)
             .map_err(|error| error.to_string())?;
+        mark_library_mutated();
         let saved_id = summary.id;
 
         match side {
