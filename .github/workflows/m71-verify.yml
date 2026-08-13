@@ -1,0 +1,37 @@
+name: M71 Bundled Starter Packs Verify
+
+on:
+  push:
+    branches: [m71-bundled-starter-packs]
+    paths:
+      - '.github/workflows/m71-verify.yml'
+      - 'scripts/m71_starter_packs.py'
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: m71-bundled-starter-packs
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: m71-starter-packs
+      - run: python3 scripts/m71_starter_packs.py
+      - run: cargo fmt --all
+      - run: cargo test -p world-machine-desktop
+      - run: cargo clippy -p world-machine-desktop --all-targets -- -D warnings
+      - run: WORLD_MACHINE_PROFILE=debug bash apps/world-machine-desktop/macos/build-app.sh
+      - name: Commit verified Starter Packs slice
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add apps/world-machine-desktop
+          git commit -m 'M71: ship explicit Starter Packs inside the app'
+          git push origin HEAD:m71-bundled-starter-packs
