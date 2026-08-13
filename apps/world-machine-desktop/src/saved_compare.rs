@@ -1,4 +1,4 @@
-use crate::{SharedDocument, WorldDocumentView};
+use crate::{DocumentStatus, SharedDocument, WorldDocumentView};
 use gpui::{
     div, prelude::*, px, rgb, size, AppContext, Bounds, Context, IntoElement, SharedString, Styled,
     WindowBounds, WindowOptions,
@@ -30,8 +30,12 @@ pub(super) fn document_action(
         .child("Compare saved Worlds…")
         .on_click(cx.listener(move |this, _, _, cx| {
             this.status = Some(match open_setup(&document, cx) {
-                Ok(count) => format!("Opened saved World comparison · {count} Worlds"),
-                Err(error) => format!("Could not compare saved Worlds: {error}"),
+                Ok(count) => DocumentStatus::success(format!(
+                    "Opened saved World comparison · {count} Worlds"
+                )),
+                Err(error) => {
+                    DocumentStatus::error(format!("Could not compare saved Worlds: {error}"))
+                }
             });
             cx.notify();
         }))

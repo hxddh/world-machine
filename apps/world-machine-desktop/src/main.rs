@@ -85,11 +85,50 @@ impl world_gpui::ProjectionController for HostProjectionController {
 }
 
 #[cfg(target_os = "macos")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum DocumentStatusTone {
+    Info,
+    Success,
+    Error,
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct DocumentStatus {
+    message: String,
+    tone: DocumentStatusTone,
+}
+
+#[cfg(target_os = "macos")]
+impl DocumentStatus {
+    fn info(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            tone: DocumentStatusTone::Info,
+        }
+    }
+
+    fn success(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            tone: DocumentStatusTone::Success,
+        }
+    }
+
+    fn error(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            tone: DocumentStatusTone::Error,
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
 struct WorldDocumentView {
     document_label: String,
     document: SharedDocument,
     projection: Entity<world_gpui::ProjectionView>,
-    status: Option<String>,
+    status: Option<DocumentStatus>,
 }
 
 #[cfg(target_os = "macos")]
@@ -129,13 +168,13 @@ impl WorldDocumentView {
         match result {
             Ok(snapshot) => {
                 self.rebuild_projection(cx);
-                self.status = Some(format!(
+                self.status = Some(DocumentStatus::success(format!(
                     "Reloaded {} · World time {}",
                     self.document_label, snapshot.world_time
-                ));
+                )));
             }
             Err(error) => {
-                self.status = Some(format!("Reload failed: {error}"));
+                self.status = Some(DocumentStatus::error(format!("Reload failed: {error}")));
             }
         }
         cx.notify();
@@ -150,14 +189,18 @@ impl WorldDocumentView {
                 Ok(Ok(None)) => return,
                 Ok(Err(error)) => {
                     let _ = this.update(cx, |this, cx| {
-                        this.status = Some(format!("Could not open Save As dialog: {error}"));
+                        this.status = Some(DocumentStatus::error(format!(
+                            "Could not open Save As dialog: {error}"
+                        )));
                         cx.notify();
                     });
                     return;
                 }
                 Err(error) => {
                     let _ = this.update(cx, |this, cx| {
-                        this.status = Some(format!("Save As dialog was interrupted: {error}"));
+                        this.status = Some(DocumentStatus::error(format!(
+                            "Save As dialog was interrupted: {error}"
+                        )));
                         cx.notify();
                     });
                     return;
@@ -173,13 +216,14 @@ impl WorldDocumentView {
                     Ok(snapshot) => {
                         this.document_label = this.document.borrow().session.display_name();
                         this.rebuild_projection(cx);
-                        this.status = Some(format!(
+                        this.status = Some(DocumentStatus::success(format!(
                             "Saved As {} · World time {}",
                             this.document_label, snapshot.world_time
-                        ));
+                        )));
                     }
                     Err(error) => {
-                        this.status = Some(format!("Save As failed: {error}"));
+                        this.status =
+                            Some(DocumentStatus::error(format!("Save As failed: {error}")));
                     }
                 }
                 cx.notify();
@@ -227,11 +271,16 @@ impl Render for WorldDocumentView {
             .child(actions);
 
         if let Some(status) = &self.status {
+            let foreground = match status.tone {
+                DocumentStatusTone::Info => 0x4e6fb3,
+                DocumentStatusTone::Success => 0x4d6748,
+                DocumentStatusTone::Error => 0x9b4a42,
+            };
             chrome = chrome.child(
                 div()
                     .text_xs()
-                    .text_color(rgb(0x4e6fb3))
-                    .child(status.clone()),
+                    .text_color(rgb(foreground))
+                    .child(status.message.clone()),
             );
         }
 
@@ -2092,6 +2141,18 @@ fn is_world_pack_file(path: &Path) -> bool {
 #[cfg(all(test, target_os = "macos"))]
 mod file_type_tests {
     use super::*;
+
+    #[test]
+    fn document_status_tone_is_explicit_not_inferred_from_message_text() {
+        let info = DocumentStatus::info("failed-looking warning after a durable save");
+        let success = DocumentStatus::success("done");
+        let error = DocumentStatus::error("failed");
+
+        assert_eq!(info.tone, DocumentStatusTone::Info);
+        assert_eq!(success.tone, DocumentStatusTone::Success);
+        assert_eq!(error.tone, DocumentStatusTone::Error);
+        assert_eq!(info.message, "failed-looking warning after a durable save");
+    }
 
     #[test]
     fn home_status_tone_is_explicit_not_inferred_from_message_text() {

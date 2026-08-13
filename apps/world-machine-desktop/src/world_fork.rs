@@ -1,4 +1,6 @@
-use super::{sanitize_document_base, unique_document_id, SharedDocument, WorldDocumentView};
+use super::{
+    sanitize_document_base, unique_document_id, DocumentStatus, SharedDocument, WorldDocumentView,
+};
 use gpui::{
     div, prelude::*, px, rgb, size, AppContext, Bounds, Context, IntoElement, Styled, WindowBounds,
     WindowOptions,
@@ -35,10 +37,12 @@ pub(crate) fn document_action(
         .on_click(cx.listener(move |this, _, _, cx| {
             this.status = Some(match fork_world(&fork_document, cx) {
                 Ok(result) => match result.warning {
-                    Some(warning) => format!("Forked as {} · {warning}", result.id),
-                    None => format!("Forked as {}", result.id),
+                    Some(warning) => {
+                        DocumentStatus::info(format!("Forked as {} · {warning}", result.id))
+                    }
+                    None => DocumentStatus::success(format!("Forked as {}", result.id)),
                 },
-                Err(error) => format!("Fork failed before saving: {error}"),
+                Err(error) => DocumentStatus::error(format!("Fork failed before saving: {error}")),
             });
             cx.notify();
         }));
