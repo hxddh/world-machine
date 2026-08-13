@@ -5,6 +5,7 @@ on:
     branches: [m65-pocket-universe-mind-provenance]
     paths:
       - '.github/workflows/m65-closed-profile-fix.yml'
+      - 'scripts/m65_closed_profile_fix.py'
 
 permissions:
   contents: write
