@@ -16,6 +16,34 @@ use world_strategy_gpui::StrategyComparisonView;
 
 const HORIZON_PRESETS: [u64; 3] = [5, 20, 100];
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum StrategyStatusTone {
+    Success,
+    Error,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct StrategyStatus {
+    message: String,
+    tone: StrategyStatusTone,
+}
+
+impl StrategyStatus {
+    fn success(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            tone: StrategyStatusTone::Success,
+        }
+    }
+
+    fn error(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            tone: StrategyStatusTone::Error,
+        }
+    }
+}
+
 pub(crate) fn document_actions(
     document: &SharedDocument,
     cx: &mut Context<WorldDocumentView>,
@@ -104,7 +132,7 @@ struct StrategySetupView {
     left_index: usize,
     right_index: usize,
     horizon: u64,
-    status: Option<String>,
+    status: Option<StrategyStatus>,
 }
 
 impl StrategySetupView {
@@ -334,13 +362,18 @@ impl Render for StrategySetupView {
             );
         }
         if let Some(status) = &self.status {
+            let (background, foreground) = match status.tone {
+                StrategyStatusTone::Success => (0xeef2ea, 0x4d6748),
+                StrategyStatusTone::Error => (0xfbf0ee, 0x9b4a42),
+            };
             body = body.child(
                 div()
                     .p_3()
                     .rounded_md()
-                    .bg(rgb(0xeef2ea))
+                    .bg(rgb(background))
+                    .text_color(rgb(foreground))
                     .text_sm()
-                    .child(status.clone()),
+                    .child(status.message.clone()),
             );
         }
 
@@ -357,8 +390,10 @@ impl Render for StrategySetupView {
                 .child(format!("Run comparison · {} periods", self.horizon))
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.status = Some(match this.run_comparison(cx) {
-                        Ok((left, right)) => format!("Opened comparison · {left} vs {right}"),
-                        Err(error) => format!("Could not compare: {error}"),
+                        Ok((left, right)) => StrategyStatus::success(format!(
+                            "Opened comparison · {left} vs {right}"
+                        )),
+                        Err(error) => StrategyStatus::error(format!("Could not compare: {error}")),
                     });
                     cx.notify();
                 })),
@@ -387,7 +422,7 @@ struct StrategyResultView {
     right_lineage: WorldLineage,
     left_saved: Option<WorldDocumentId>,
     right_saved: Option<WorldDocumentId>,
-    status: Option<String>,
+    status: Option<StrategyStatus>,
 }
 
 impl StrategyResultView {
@@ -428,7 +463,9 @@ impl StrategyResultView {
             FutureSide::Left => self.left_saved = Some(saved_id.clone()),
             FutureSide::Right => self.right_saved = Some(saved_id.clone()),
         }
-        self.status = Some(format!("Saved {side_label} as {saved_id}"));
+        self.status = Some(StrategyStatus::success(format!(
+            "Saved {side_label} as {saved_id}"
+        )));
         Ok(saved_id)
     }
 
@@ -515,8 +552,12 @@ impl StrategyResultView {
                         .child("Open")
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.status = Some(match this.open_saved_future(side, cx) {
-                                Ok(document) => format!("Opened saved {label} · {document}"),
-                                Err(error) => format!("Open failed: {error}"),
+                                Ok(document) => StrategyStatus::success(format!(
+                                    "Opened saved {label} · {document}"
+                                )),
+                                Err(error) => {
+                                    StrategyStatus::error(format!("Open failed: {error}"))
+                                }
                             });
                             cx.notify();
                         })),
@@ -536,7 +577,7 @@ impl StrategyResultView {
                 .child(format!("Save {label}"))
                 .on_click(cx.listener(move |this, _, _, cx| {
                     if let Err(error) = this.save_future(side) {
-                        this.status = Some(format!("Save failed: {error}"));
+                        this.status = Some(StrategyStatus::error(format!("Save failed: {error}")));
                     }
                     cx.notify();
                 })),
@@ -580,11 +621,15 @@ impl Render for StrategyResultView {
             .child(actions);
 
         if let Some(status) = &self.status {
+            let foreground = match status.tone {
+                StrategyStatusTone::Success => 0x4d6748,
+                StrategyStatusTone::Error => 0x9b4a42,
+            };
             chrome = chrome.child(
                 div()
                     .text_xs()
-                    .text_color(rgb(0x4e6fb3))
-                    .child(status.clone()),
+                    .text_color(rgb(foreground))
+                    .child(status.message.clone()),
             );
         }
 
@@ -647,6 +692,17 @@ fn source_world_base(label: &str) -> &str {
 mod tests {
     use super::*;
     use world_persistence::{WorldPackRef, WORLD_ARCHIVE_FORMAT, WORLD_ARCHIVE_VERSION};
+
+    #[test]
+    fn strategy_status_tone_is_explicit_not_inferred_from_text() {
+        let success = StrategyStatus::success("failed-looking success text");
+        let error = StrategyStatus::error("opened-looking error text");
+
+        assert_eq!(success.tone, StrategyStatusTone::Success);
+        assert_eq!(error.tone, StrategyStatusTone::Error);
+        assert_eq!(success.message, "failed-looking success text");
+        assert_eq!(error.message, "opened-looking error text");
+    }
 
     #[test]
     fn saved_strategy_future_preserves_semantic_snapshot_title() {
