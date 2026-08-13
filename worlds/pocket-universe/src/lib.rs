@@ -134,14 +134,17 @@ where
         command_id: &str,
     ) -> Result<EventId, Box<dyn Error>> {
         if command_id == NUDGE_COMMAND {
-            let growth = self
-                .world
+            let mut candidate = self.world.clone();
+            let growth = candidate
                 .execute(
                     &self.actions,
                     &ActionRequest::new("grow_universe").actor(UNIVERSE),
                 )?
                 .id;
-            return self.run_agent_turn(&[growth]);
+            let outcome =
+                Self::run_agent_turn_on(&mut self.mind, &mut candidate, &self.actions, &[growth])?;
+            self.world = candidate;
+            return Ok(outcome);
         }
 
         let action = match command_id {
@@ -164,29 +167,34 @@ where
     }
 
     pub fn advance_periods(&mut self, periods: u64) -> Result<(), Box<dyn Error>> {
+        let mut candidate = self.world.clone();
         for _ in 0..periods {
-            let target = self
-                .world
+            let target = candidate
                 .world_time()
                 .checked_add(BACKGROUND_PERIOD)
                 .ok_or_else(|| std::io::Error::other("Pocket Universe time overflow"))?;
-            if seed_id(&self.world) == UNSEEDED {
-                self.world.advance_to(&self.actions, target)?;
+            if seed_id(&candidate) == UNSEEDED {
+                candidate.advance_to(&self.actions, target)?;
                 continue;
             }
 
-            self.world
-                .schedule_at(target, ActionRequest::new("grow_universe").actor(UNIVERSE))?;
-            let executed = self.world.advance_to(&self.actions, target)?;
+            candidate.schedule_at(target, ActionRequest::new("grow_universe").actor(UNIVERSE))?;
+            let executed = candidate.advance_to(&self.actions, target)?;
             let growth = executed.last().copied().ok_or_else(|| {
                 std::io::Error::other("scheduled Pocket Universe growth did not run")
             })?;
-            self.run_agent_turn(&[growth])?;
+            Self::run_agent_turn_on(&mut self.mind, &mut candidate, &self.actions, &[growth])?;
         }
+        self.world = candidate;
         Ok(())
     }
 
-    fn run_agent_turn(&mut self, caused_by: &[EventId]) -> Result<EventId, Box<dyn Error>> {
+    fn run_agent_turn_on(
+        mind: &mut R,
+        world: &mut World,
+        registry: &ActionRegistry,
+        caused_by: &[EventId],
+    ) -> Result<EventId, Box<dyn Error>> {
         let actions = vec![
             AvailableAction::new(
                 "Care for the small world and reinforce what already exists.",
@@ -198,10 +206,10 @@ where
             ),
         ];
         let execution = AgentExecutor::decide_and_execute(
-            &mut self.mind,
+            mind,
             &ScopedPerception::new([UNIVERSE, SLOT_A]),
-            &mut self.world,
-            &self.actions,
+            world,
+            registry,
             SLOT_B,
             &actions,
             caused_by,
@@ -1125,6 +1133,54 @@ mod tests {
         );
     }
 
+    struct FailingMind;
+
+    impl AgentRuntime for FailingMind {
+        fn decide(
+            &mut self,
+            _observation: &AgentObservation,
+            _actions: &[AvailableAction],
+        ) -> Result<AgentDecision, AgentRuntimeError> {
+            Err(AgentRuntimeError::new("Pocket Mind is unavailable"))
+        }
+    }
+
+    #[test]
+    fn nudge_runtime_failure_leaves_durable_world_unchanged() {
+        let mut universe = PocketUniverse::with_agent_runtime(FailingMind).unwrap();
+        universe
+            .invoke_projection_command(SEED_MARS_COLONY_COMMAND)
+            .unwrap();
+        let before = universe.archive().unwrap();
+
+        let error = universe
+            .invoke_projection_command(NUDGE_COMMAND)
+            .unwrap_err();
+
+        assert!(error.to_string().contains("Pocket Mind is unavailable"));
+        assert_eq!(universe.archive().unwrap(), before);
+        assert_eq!(universe.world().world_time(), 0);
+    }
+
+    #[test]
+    fn multi_period_failure_rolls_back_all_candidate_growth_and_agent_events() {
+        let mut universe = PocketUniverse::with_agent_runtime(MockAgentRuntime::scripted([
+            AGENT_CARE_ACTION,
+            "not-an-offered-action",
+        ]))
+        .unwrap();
+        universe
+            .invoke_projection_command(SEED_PENGUIN_CIVILIZATION_COMMAND)
+            .unwrap();
+        let before = universe.archive().unwrap();
+
+        let error = universe.advance_periods(2).unwrap_err();
+
+        assert!(error.to_string().contains("unavailable action"));
+        assert_eq!(universe.archive().unwrap(), before);
+        assert_eq!(universe.world().world_time(), 0);
+    }
+
     #[test]
     fn deterministic_mind_uses_durable_actor_memory_even_without_time_advancing() {
         let mut universe = PocketUniverse::new().unwrap();
@@ -1188,14 +1244,19 @@ mod tests {
         let briefing = returned.briefing.as_ref().unwrap();
 
         assert_eq!(briefing.title, "While you were away");
+        assert_eq!(briefing.items.len(), 3);
         assert!(briefing
             .items
             .iter()
-            .all(|item| item.title != "Agent Decision Recorded"));
-        assert!(briefing
-            .items
-            .iter()
-            .any(|item| { item.detail.contains("Lena") }));
+            .all(|item| item.title != "agent decision recorded"));
+        assert_eq!(
+            briefing
+                .items
+                .iter()
+                .filter(|item| item.detail.contains("Lena"))
+                .count(),
+            2
+        );
     }
 
     struct PanicMind;

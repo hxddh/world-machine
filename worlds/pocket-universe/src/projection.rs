@@ -116,7 +116,13 @@ fn briefing(world: &World, seeded: bool, since_event_count: Option<usize>) -> Br
         return BriefingProjection {
             eyebrow: format!("Pocket Universe · {}", seed_label(seed_id(world))),
             title: "While you were away".into(),
-            items: events.iter().rev().take(3).map(return_item).collect(),
+            items: events
+                .iter()
+                .rev()
+                .filter(|event| event.kind != "agent_decision_recorded")
+                .take(3)
+                .map(return_item)
+                .collect(),
         };
     }
 
