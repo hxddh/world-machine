@@ -7,6 +7,7 @@ on:
       - '.github/workflows/m67-verify.yml'
       - 'scripts/m67_relationships.py'
       - 'scripts/m67_why_test_fix.py'
+      - 'scripts/m67_clippy_fix.py'
 
 permissions:
   contents: write
@@ -23,6 +24,7 @@ jobs:
           components: rustfmt, clippy
       - run: python scripts/m67_relationships.py
       - run: python scripts/m67_why_test_fix.py
+      - run: python scripts/m67_clippy_fix.py
       - run: cargo fmt --all
       - run: cargo test -p pocket-universe
       - run: cargo test -p pocket-universe-pack
