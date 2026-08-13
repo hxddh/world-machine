@@ -5,10 +5,7 @@ on:
     branches: [m69-pocket-universe-social-arcs]
     paths:
       - '.github/workflows/m69-verify.yml'
-      - 'scripts/m69_social_arcs.py'
-      - 'scripts/m69_projection_anchor_fix.py'
-      - 'scripts/m69_test_lifetime_fix.py'
-      - 'scripts/m69_persistent_arc_fields.py'
+      - 'scripts/m69_harden_committed_arc_fields.py'
 
 permissions:
   contents: write
@@ -23,19 +20,16 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - run: python scripts/m69_projection_anchor_fix.py
-      - run: python scripts/m69_test_lifetime_fix.py
-      - run: python scripts/m69_persistent_arc_fields.py
-      - run: python scripts/m69_social_arcs.py
+      - run: python scripts/m69_harden_committed_arc_fields.py
       - run: cargo fmt --all
       - run: cargo test -p pocket-universe
       - run: cargo test -p pocket-universe-pack
       - run: cargo clippy -p pocket-universe -p pocket-universe-pack --all-targets -- -D warnings
       - run: bash ./scripts/check-boundaries.sh
-      - name: Commit verified social arc slice
+      - name: Commit persistent social arc hardening
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add Cargo.lock worlds/pocket-universe apps/pocket-universe-pack
-          git commit -m 'M69: let social arcs change the physical world'
+          git commit -m 'M69: preserve physical social arc consequences'
           git push origin HEAD:m69-pocket-universe-social-arcs
