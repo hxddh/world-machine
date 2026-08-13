@@ -1,4 +1,6 @@
-use super::{sanitize_document_base, unique_document_id, SharedDocument, WorldDocumentView};
+use super::{
+    sanitize_document_base, unique_document_id, DocumentStatus, SharedDocument, WorldDocumentView,
+};
 use gpui::{
     div, prelude::*, px, rgb, size, AppContext, Bounds, Context, Div, Entity, IntoElement, Render,
     SharedString, Styled, Window, WindowBounds, WindowOptions,
@@ -33,8 +35,10 @@ pub(crate) fn document_actions(
                 .child("Compare choices…")
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.status = Some(match open_setup(&this.document, cx) {
-                        Ok(count) => format!("Opened Compare Futures · {count} choices"),
-                        Err(error) => format!("Compare failed: {error}"),
+                        Ok(count) => DocumentStatus::success(format!(
+                            "Opened Compare Futures · {count} choices"
+                        )),
+                        Err(error) => DocumentStatus::error(format!("Compare failed: {error}")),
                     });
                     cx.notify();
                 })),

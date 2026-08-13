@@ -1,4 +1,4 @@
-use super::super::{observer, SharedDocument, WorldDocumentView};
+use super::super::{observer, DocumentStatus, SharedDocument, WorldDocumentView};
 use gpui::{
     div, prelude::*, px, rgb, size, AppContext, Bounds, Context, IntoElement, Styled, WindowBounds,
     WindowOptions,
@@ -51,10 +51,12 @@ pub(super) fn document_action(
                 .child("↔ Parent")
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.status = Some(match compare_with_parent(&document, cx) {
-                        Ok((parent, current)) => {
-                            format!("Opened parent comparison · {parent} ↔ {current}")
+                        Ok((parent, current)) => DocumentStatus::success(format!(
+                            "Opened parent comparison · {parent} ↔ {current}"
+                        )),
+                        Err(error) => {
+                            DocumentStatus::error(format!("Could not compare with parent: {error}"))
                         }
-                        Err(error) => format!("Could not compare with parent: {error}"),
                     });
                     cx.notify();
                 })),
@@ -75,8 +77,12 @@ pub(super) fn document_action(
             .child("Lineage…")
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.status = Some(match open_lineage(&document, cx) {
-                    Ok(count) => format!("Opened World Lineage · {count} World(s)"),
-                    Err(error) => format!("Could not open World Lineage: {error}"),
+                    Ok(count) => {
+                        DocumentStatus::success(format!("Opened World Lineage · {count} World(s)"))
+                    }
+                    Err(error) => {
+                        DocumentStatus::error(format!("Could not open World Lineage: {error}"))
+                    }
                 });
                 cx.notify();
             })),
