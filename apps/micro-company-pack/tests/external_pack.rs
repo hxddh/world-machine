@@ -5,6 +5,7 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::process::{self, Command};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use world_host::WorldRegistry;
 use world_pack_catalog::PackCatalog;
@@ -52,16 +53,19 @@ printf '%s\n' '{"type":"response","command":"prompt","success":true}'
     fs::set_permissions(path, permissions).unwrap();
 }
 
+static TEMP_DIR_NONCE: AtomicU64 = AtomicU64::new(1);
+
 fn temp_dir() -> PathBuf {
-    let nonce = SystemTime::now()
+    let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos();
+    let nonce = TEMP_DIR_NONCE.fetch_add(1, Ordering::Relaxed);
     let root = env::temp_dir().join(format!(
-        "world-machine-micro-company-external-{}-{nonce}",
+        "world-machine-micro-company-external-{}-{timestamp}-{nonce}",
         process::id()
     ));
-    fs::create_dir_all(&root).unwrap();
+    fs::create_dir(&root).unwrap();
     root
 }
 
