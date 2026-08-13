@@ -6,6 +6,7 @@ on:
     paths:
       - '.github/workflows/m70-verify.yml'
       - 'apps/micro-company-pack/tests/external_pack.rs'
+      - 'scripts/m70_profile_guard_test.py'
 
 permissions:
   contents: write
@@ -20,6 +21,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      - run: python scripts/m70_profile_guard_test.py
       - run: cargo fmt --all
       - run: cargo test -p micro-company
       - run: cargo test -p micro-company-pack
