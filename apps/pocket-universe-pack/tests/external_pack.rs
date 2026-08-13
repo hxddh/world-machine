@@ -178,10 +178,14 @@ fn pocket_universe_is_a_real_external_pack_with_durable_seed_and_growth() {
                         "pocket_agent.explore".into(),
                     ))
         }));
-        assert!(pi_archive
-            .events
-            .iter()
-            .any(|event| event.kind == "agent_explored_world"));
+        assert_eq!(
+            pi_archive
+                .events
+                .iter()
+                .filter(|event| event.kind == "agent_explored_world")
+                .count(),
+            2
+        );
         assert!(pi_archive.events.iter().any(|event| {
             event.kind == "agent_explored_world"
                 && event.payload.get("mind_profile")
@@ -203,16 +207,18 @@ fn pocket_universe_is_a_real_external_pack_with_durable_seed_and_growth() {
             "fresh Open must restore recorded truth without invoking Pi"
         );
         let reopened_snapshot = reopened_without_pi.snapshot();
-        let actor = reopened_snapshot
-            .inspectors
-            .values()
-            .find(|inspector| inspector.title == "Nia Chen")
-            .expect("Pi actor inspector");
-        assert!(actor
-            .sections
-            .iter()
-            .flat_map(|section| &section.rows)
-            .any(|row| { row.label == "Last Mind Profile" && row.value == "pi" }));
+        for actor_title in ["Nia Chen", "Tomas Vale"] {
+            let actor = reopened_snapshot
+                .inspectors
+                .values()
+                .find(|inspector| inspector.title == actor_title)
+                .unwrap_or_else(|| panic!("missing Pi actor inspector: {actor_title}"));
+            assert!(actor
+                .sections
+                .iter()
+                .flat_map(|section| &section.rows)
+                .any(|row| { row.label == "Last Mind Profile" && row.value == "pi" }));
+        }
 
         let error = reopened_without_pi.advance_background(1).unwrap_err();
         assert!(error

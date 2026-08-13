@@ -182,7 +182,13 @@ fn collection(world: &World) -> CollectionProjection {
 }
 
 fn canvas(world: &World) -> CanvasProjection {
-    const POSITIONS: [(f32, f32); 4] = [(0.18, 0.30), (0.72, 0.26), (0.25, 0.74), (0.70, 0.70)];
+    const POSITIONS: [(f32, f32); 5] = [
+        (0.16, 0.28),
+        (0.72, 0.24),
+        (0.18, 0.76),
+        (0.76, 0.72),
+        (0.48, 0.52),
+    ];
     let items = world
         .state()
         .entities()
