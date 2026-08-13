@@ -1,5 +1,5 @@
 use super::{
-    mark_library_mutated, sanitize_document_base, unique_document_id, DocumentStatus,
+    mark_library_changed, sanitize_document_base, unique_document_id, DocumentStatus,
     SharedDocument, WorldDocumentView,
 };
 use gpui::{
@@ -458,7 +458,7 @@ impl StrategyResultView {
             .library
             .create_from_document(id, &future)
             .map_err(|error| error.to_string())?;
-        mark_library_mutated();
+        mark_library_changed();
         let saved_id = summary.id;
 
         match side {

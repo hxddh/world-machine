@@ -1,5 +1,5 @@
 use super::super::{
-    mark_library_mutated, observer, DocumentStatus, SharedDocument, WorldDocumentView,
+    mark_library_changed, observer, DocumentStatus, SharedDocument, WorldDocumentView,
 };
 use gpui::{
     div, prelude::*, px, rgb, size, AppContext, Bounds, Context, IntoElement, Styled, WindowBounds,
@@ -255,7 +255,7 @@ impl LineageController for AppLineageController {
         let notice =
             match observer::catch_up(&mut session, self.registry.as_ref(), self.library.as_ref()) {
                 Ok(Some(outcome)) => {
-                    mark_library_mutated();
+                    mark_library_changed();
                     Some(format!(
                         "Advanced {} background period(s) · World time {}",
                         outcome.periods, outcome.world_time
