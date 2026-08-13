@@ -1948,7 +1948,26 @@ impl Render for WorldMachineHome {
                         .bg(rgb(background))
                         .text_color(rgb(foreground))
                         .text_sm()
-                        .child(status.message.clone()),
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .gap_3()
+                        .child(div().flex_1().child(status.message.clone()))
+                        .child(
+                            div()
+                                .id("dismiss-world-machine-home-status")
+                                .cursor_pointer()
+                                .p_2()
+                                .rounded_md()
+                                .border_1()
+                                .border_color(rgb(foreground))
+                                .text_xs()
+                                .child("Dismiss")
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.status = None;
+                                    cx.notify();
+                                })),
+                        ),
                 ),
             );
         }
