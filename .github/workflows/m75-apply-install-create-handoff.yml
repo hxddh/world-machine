@@ -19,6 +19,7 @@ jobs:
           ref: m75-install-create-handoff
       - name: Patch World Machine install-to-create handoff
         run: |
+          # The patch script uses exact structural anchors and then rustfmt verifies the result.
           python3 scripts/m75_apply_install_create_handoff.py
           cargo fmt --all
       - name: Commit product handoff and remove one-shot helpers
