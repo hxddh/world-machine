@@ -22,6 +22,7 @@ The renderer boundary is explicit:
 - `world-machine-desktop` hosts durable `.world` documents, branching/lineage, external Pack installation, durable activation probing, and generic World creation.
 - Tiny Society, Pocket Universe, and Micro Company exercise the same public Host/Pack boundaries.
 - The macOS app bundle carries Pocket Universe and Micro Company as **included external Packs**. They are not built-ins and are not executed at startup; Home requires an explicit Review & Install action before the existing content-review, quarantine, durable-probe, and activation path runs.
+- Portable `.worldpack` files are registered as a native macOS file type. Double-clicking a Pack, using Open With, or opening it through the app routes the file into the same static review surface; the open event itself never installs or executes Pack code.
 - Pi remains an optional out-of-process `world-pi-rpc` AgentRuntime adapter.
 
 ## Run
@@ -45,6 +46,8 @@ bash apps/world-machine-desktop/macos/build-app.sh
 ```
 
 A source-tree `cargo run` does not invent or scan for included Packs. The packaged app discovers only the fixed `Contents/Resources/World Packs` allowlist (or an explicit development override), and installation still requires user review of the exact executable identity and SHA-256.
+
+The packaged macOS app owns both `io.github.hxddh.world-machine.world` (`.world`) and `io.github.hxddh.world-machine.worldpack` (`.worldpack`). `.world` opens as a World document; `.worldpack` opens only as a Pack installation review.
 
 ## Check an external Pack
 
