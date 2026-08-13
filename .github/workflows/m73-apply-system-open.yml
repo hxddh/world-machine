@@ -1,0 +1,31 @@
+name: M73 apply World Pack system-open routing
+
+on:
+  push:
+    branches:
+      - m73-worldpack-system-open
+    paths:
+      - '.github/workflows/m73-apply-system-open.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: m73-worldpack-system-open
+      - name: Patch World Machine system-open routing
+        run: |
+          python3 scripts/m73_apply_system_open.py
+          cargo fmt --all
+      - name: Commit system-open routing and remove one-shot helpers
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/m73-apply-system-open.yml scripts/m73_apply_system_open.py
+          git add apps/world-machine-desktop/src/main.rs
+          git commit -m "M73: route portable Packs through system open"
+          git push origin HEAD:m73-worldpack-system-open
