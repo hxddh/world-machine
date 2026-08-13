@@ -1,6 +1,6 @@
 [package]
 name = "pocket-universe-pack"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 license = "Apache-2.0"
 publish = false
@@ -8,8 +8,10 @@ publish = false
 [dependencies]
 pocket-universe = { path = "../../worlds/pocket-universe" }
 world-pack-server = { path = "../../crates/world-pack-server" }
+world-pi-rpc = { path = "../../crates/world-pi-rpc" }
 
 [dev-dependencies]
+world-persistence = { path = "../../crates/world-persistence" }
 world-host = { path = "../../crates/world-host" }
 world-pack-catalog = { path = "../../crates/world-pack-catalog" }
 world-projection = { path = "../../crates/world-projection" }
