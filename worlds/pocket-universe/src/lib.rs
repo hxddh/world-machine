@@ -1066,42 +1066,42 @@ impl Action for ResolveSocialArc {
                 "partnership_formed",
                 "Nia and Tomas stopped dividing the work into separate turns. Kestrel now launches with them as one expedition crew.",
                 SLOT_D,
-                "status",
+                "social_status",
                 "joint expedition crew",
             ),
             ("mars-colony", "fracture") => (
                 "relationship_fractured",
                 "Nia and Tomas stopped trusting the same route. Kestrel now runs split survey plans with competing priorities.",
                 SLOT_D,
-                "status",
+                "social_status",
                 "split survey routes",
             ),
             ("1980s-town", "partnership") => (
                 "partnership_formed",
                 "Lena and Max turned their late-night improvisation into a real partnership. K-88 now carries a shared neighborhood show.",
                 SLOT_C,
-                "format",
+                "social_format",
                 "Lena + Max neighborhood show",
             ),
             ("1980s-town", "fracture") => (
                 "relationship_fractured",
                 "Lena and Max began pulling the same audience in different directions. K-88 now schedules competing late shows.",
                 SLOT_C,
-                "format",
+                "social_format",
                 "competing late shows",
             ),
             ("penguin-civilization", "partnership") => (
                 "partnership_formed",
                 "Piko and Miri turned their different duties into one shared watch. The Aurora Council now plans around their joint reports.",
                 SLOT_D,
-                "custom",
+                "social_order",
                 "shared watch council",
             ),
             ("penguin-civilization", "fracture") => (
                 "relationship_fractured",
                 "Piko and Miri split the colony's priorities into rival camps. The Aurora Council now meets as two moonrise caucuses.",
                 SLOT_D,
-                "custom",
+                "social_order",
                 "split moonrise caucuses",
             ),
             _ => {
@@ -2199,7 +2199,7 @@ mod tests {
                 .state()
                 .entity(SLOT_D)
                 .unwrap()
-                .component("status"),
+                .component("social_status"),
             Some(&Value::Text("joint expedition crew".into()))
         );
         let partnership = universe
@@ -2232,6 +2232,16 @@ mod tests {
         assert!(why.nodes.iter().any(|node| node.event == growth));
 
         universe.advance_periods(1).unwrap();
+        assert_eq!(
+            universe
+                .world()
+                .state()
+                .entity(SLOT_D)
+                .unwrap()
+                .component("social_status"),
+            Some(&Value::Text("joint expedition crew".into())),
+            "ordinary later agent turns must not erase a resolved social arc"
+        );
         let later_growth = universe
             .world()
             .events()
@@ -2266,7 +2276,7 @@ mod tests {
                 .state()
                 .entity(SLOT_D)
                 .unwrap()
-                .component("status"),
+                .component("social_status"),
             Some(&Value::Text("split survey routes".into()))
         );
         let fractured = universe
@@ -2293,7 +2303,7 @@ mod tests {
                 .state()
                 .entity(SLOT_D)
                 .unwrap()
-                .component("status"),
+                .component("social_status"),
             Some(&Value::Text("split survey routes".into()))
         );
     }

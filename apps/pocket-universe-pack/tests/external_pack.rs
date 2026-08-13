@@ -236,7 +236,7 @@ fn pocket_universe_is_a_real_external_pack_with_durable_seed_and_growth() {
             .sections
             .iter()
             .flat_map(|section| &section.rows)
-            .any(|row| row.label == "Status" && row.value == "split survey routes"));
+            .any(|row| row.label == "Social Status" && row.value == "split survey routes"));
 
         for actor_title in ["Nia Chen", "Tomas Vale"] {
             let actor = reopened_snapshot
