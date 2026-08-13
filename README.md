@@ -19,6 +19,7 @@ The renderer boundary is explicit:
 - `world-projection` defines headless Collection / Timeline / Inspector / Semantic Canvas read models.
 - World Packs produce their own projection data without introducing domain concepts into the renderer.
 - `world-gpui` consumes only projection models; it does not own World truth and does not depend on `world-core` or a specific Pack.
+- The generic GPUI renderer treats Briefing + Commands as the current focus: the next available continuation/choice appears before Canvas and Inspector, while `Explore the world` keeps the semantic state inspectable underneath.
 - `world-machine-desktop` hosts durable `.world` documents, branching/lineage, external Pack installation, durable activation probing, and generic World creation.
 - Tiny Society, Pocket Universe, and Micro Company exercise the same public Host/Pack boundaries.
 - The macOS app bundle carries Pocket Universe and Micro Company as **included external Packs**. They are not built-ins and are not executed at startup; Home requires an explicit Review & Install action before the existing content-review, quarantine, durable-probe, and activation path runs.
