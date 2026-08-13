@@ -4,12 +4,56 @@ use pocket_universe::{
 };
 use std::env;
 use std::fs;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::process::{self, Command};
 use std::time::{SystemTime, UNIX_EPOCH};
 use world_host::WorldRegistry;
 use world_pack_catalog::PackCatalog;
 use world_projection::ProjectionIntent;
+
+const MIND_ENV: &str = "WORLD_MACHINE_POCKET_UNIVERSE_MIND";
+const PI_PROGRAM_ENV: &str = "WORLD_MACHINE_PI_PROGRAM";
+
+struct EnvGuard {
+    key: &'static str,
+    previous: Option<std::ffi::OsString>,
+}
+
+impl EnvGuard {
+    fn set(key: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
+        let previous = env::var_os(key);
+        env::set_var(key, value);
+        Self { key, previous }
+    }
+}
+
+impl Drop for EnvGuard {
+    fn drop(&mut self) {
+        if let Some(previous) = self.previous.as_ref() {
+            env::set_var(self.key, previous);
+        } else {
+            env::remove_var(self.key);
+        }
+    }
+}
+
+#[cfg(unix)]
+fn write_fake_pi(path: &PathBuf) {
+    fs::write(
+        path,
+        r#"#!/bin/sh
+IFS= read -r request || exit 2
+printf '%s\n' '{"type":"text_delta","delta":"WORLD_ACTION:pocket_agent.explore"}'
+printf '%s\n' '{"type":"response","command":"prompt","success":true}'
+"#,
+    )
+    .unwrap();
+    let mut permissions = fs::metadata(path).unwrap().permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(path, permissions).unwrap();
+}
 
 fn temp_dir() -> PathBuf {
     let nonce = SystemTime::now()
@@ -104,4 +148,57 @@ fn pocket_universe_is_a_real_external_pack_with_durable_seed_and_growth() {
     let reopened = registry.open_archive(&archive).unwrap();
     assert_eq!(reopened.snapshot(), before);
     assert_eq!(reopened.archive().unwrap().unwrap(), archive);
+
+    #[cfg(unix)]
+    {
+        let fake_pi = root.join("fake-pi.sh");
+        write_fake_pi(&fake_pi);
+        let _mind = EnvGuard::set(MIND_ENV, "pi");
+        let pi_program = EnvGuard::set(PI_PROGRAM_ENV, &fake_pi);
+
+        let mut pi_session = registry.create(POCKET_UNIVERSE_PACK_ID).unwrap();
+        pi_session
+            .handle(ProjectionIntent::InvokeCommand(
+                SEED_MARS_COLONY_COMMAND.into(),
+            ))
+            .unwrap();
+        pi_session.advance_background(1).unwrap();
+        let pi_archive = pi_session.archive().unwrap().unwrap();
+        assert!(pi_archive.events.iter().any(|event| {
+            event.kind == "agent_decision_recorded"
+                && event.payload.get("selected_action")
+                    == Some(&world_persistence::ArchivedValue::Text(
+                        "pocket_agent.explore".into(),
+                    ))
+        }));
+        assert!(pi_archive
+            .events
+            .iter()
+            .any(|event| event.kind == "agent_explored_world"));
+        assert!(!pi_archive
+            .events
+            .iter()
+            .any(|event| event.kind == "agent_cared_for_world"));
+        drop(pi_session);
+
+        drop(pi_program);
+        let missing_pi = root.join("missing-pi");
+        let _missing_program = EnvGuard::set(PI_PROGRAM_ENV, &missing_pi);
+        let mut reopened_without_pi = registry.open_archive(&pi_archive).unwrap();
+        assert_eq!(
+            reopened_without_pi.archive().unwrap().unwrap(),
+            pi_archive,
+            "fresh Open must restore recorded truth without invoking Pi"
+        );
+
+        let error = reopened_without_pi.advance_background(1).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("failed to start external Pi runtime"));
+        assert_eq!(
+            reopened_without_pi.archive().unwrap().unwrap(),
+            pi_archive,
+            "Pi failure must preserve M63 world-atomic rollback"
+        );
+    }
 }

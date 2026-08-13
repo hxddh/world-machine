@@ -1,6 +1,7 @@
 mod projection;
 
 use std::error::Error;
+use std::sync::Arc;
 use world_agent::{
     register_actions as register_agent_actions, AgentDecision, AgentExecutor, AgentObservation,
     AgentRuntime, AgentRuntimeError, AvailableAction, ScopedPerception,
@@ -14,7 +15,7 @@ use world_persistence::{PersistenceError, WorldArchive, WorldPackRef};
 use world_projection::{ProjectionIntent, ProjectionSnapshot};
 
 pub const POCKET_UNIVERSE_PACK_ID: &str = "world-machine.pocket-universe";
-pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.3.0";
+pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.4.0";
 
 pub const SEED_MARS_COLONY_COMMAND: &str = "pocket-universe.seed-mars-colony";
 pub const SEED_1980S_TOWN_COMMAND: &str = "pocket-universe.seed-1980s-town";
@@ -244,28 +245,38 @@ where
     }
 }
 
-struct PocketUniverseSession {
-    world: PocketUniverse,
+struct PocketUniverseSession<R>
+where
+    R: AgentRuntime,
+{
+    world: PocketUniverse<R>,
     return_since_event_count: Option<usize>,
 }
 
-impl PocketUniverseSession {
-    fn fresh() -> Result<Box<dyn WorldSession>, HostError> {
+impl<R> PocketUniverseSession<R>
+where
+    R: AgentRuntime + 'static,
+{
+    fn fresh(mind: R) -> Result<Box<dyn WorldSession>, HostError> {
         Ok(Box::new(Self {
-            world: PocketUniverse::new().map_err(HostError::session)?,
+            world: PocketUniverse::with_agent_runtime(mind).map_err(HostError::session)?,
             return_since_event_count: None,
         }))
     }
 
-    fn open_archive(archive: &WorldArchive) -> Result<Box<dyn WorldSession>, HostError> {
+    fn open_archive(archive: &WorldArchive, mind: R) -> Result<Box<dyn WorldSession>, HostError> {
         Ok(Box::new(Self {
-            world: PocketUniverse::resume_archive(archive).map_err(HostError::session)?,
+            world: PocketUniverse::resume_archive_with_agent_runtime(archive, mind)
+                .map_err(HostError::session)?,
             return_since_event_count: None,
         }))
     }
 }
 
-impl WorldSession for PocketUniverseSession {
+impl<R> WorldSession for PocketUniverseSession<R>
+where
+    R: AgentRuntime + 'static,
+{
     fn pack(&self) -> WorldPackRef {
         pocket_universe_pack_ref()
     }
@@ -306,18 +317,33 @@ impl WorldSession for PocketUniverseSession {
     }
 }
 
+pub fn pocket_universe_descriptor() -> WorldDescriptor {
+    WorldDescriptor {
+        pack: pocket_universe_pack_ref(),
+        title: "Pocket Universe".into(),
+        description:
+            "Create a tiny persistent world, let it grow, then return to see what changed.".into(),
+    }
+}
+
 pub fn pocket_universe_registration() -> WorldRegistration {
-    WorldRegistration::new(
-        WorldDescriptor {
-            pack: pocket_universe_pack_ref(),
-            title: "Pocket Universe".into(),
-            description:
-                "Create a tiny persistent world, let it grow, then return to see what changed."
-                    .into(),
-        },
-        PocketUniverseSession::fresh,
-    )
-    .with_archive_opener(PocketUniverseSession::open_archive)
+    pocket_universe_registration_with_agent_runtime(|| PocketMind)
+}
+
+pub fn pocket_universe_registration_with_agent_runtime<R, F>(factory: F) -> WorldRegistration
+where
+    R: AgentRuntime + 'static,
+    F: Fn() -> R + Send + Sync + 'static,
+{
+    let factory = Arc::new(factory);
+    let create_factory = Arc::clone(&factory);
+    let open_factory = Arc::clone(&factory);
+    WorldRegistration::new(pocket_universe_descriptor(), move || {
+        PocketUniverseSession::fresh(create_factory())
+    })
+    .with_archive_opener(move |archive| {
+        PocketUniverseSession::open_archive(archive, open_factory())
+    })
 }
 
 fn baseline() -> Result<WorldState, WorldStateError> {
@@ -951,6 +977,29 @@ mod tests {
         let mut registry = world_host::WorldRegistry::new();
         registry.register(pocket_universe_registration()).unwrap();
         registry
+    }
+
+    #[test]
+    fn registration_factory_creates_a_fresh_runtime_for_create_and_open() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let created = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&created);
+        let registration = pocket_universe_registration_with_agent_runtime(move || {
+            counter.fetch_add(1, Ordering::SeqCst);
+            PanicMind
+        });
+        let mut registry = world_host::WorldRegistry::new();
+        registry.register(registration).unwrap();
+
+        let session = registry.create(POCKET_UNIVERSE_PACK_ID).unwrap();
+        assert_eq!(created.load(Ordering::SeqCst), 1);
+        let archive = session.archive().unwrap().unwrap();
+        drop(session);
+
+        let reopened = registry.open_archive(&archive).unwrap();
+        assert_eq!(created.load(Ordering::SeqCst), 2);
+        assert_eq!(reopened.archive().unwrap().unwrap(), archive);
     }
 
     #[test]
