@@ -1,0 +1,9 @@
+from pathlib import Path
+
+p = Path('worlds/pocket-universe/src/lib.rs')
+s = p.read_text()
+old = '''            let decisions = universe\n                .world()\n                .events()\n                .iter()\n                .filter(|event| {\n                    event.kind == "agent_decision_recorded" && event.actor == Some(actor_id)\n                })\n                .filter_map(|event| event.payload.get("selected_action"))\n                .collect::<Vec<_>>();\n            let expected = if actor_id == SLOT_B {\n                vec![\n                    &Value::Text(AGENT_CARE_ACTION.into()),\n                    &Value::Text(AGENT_EXPLORE_ACTION.into()),\n                ]\n            } else {\n                vec![\n                    &Value::Text(AGENT_EXPLORE_ACTION.into()),\n                    &Value::Text(AGENT_CARE_ACTION.into()),\n                ]\n            };\n            assert_eq!(decisions, expected);\n'''
+new = '''            let decisions = universe\n                .world()\n                .events()\n                .iter()\n                .filter(|event| {\n                    event.kind == "agent_decision_recorded" && event.actor == Some(actor_id)\n                })\n                .filter_map(|event| match event.payload.get("selected_action") {\n                    Some(Value::Text(action)) => Some(action.as_str()),\n                    _ => None,\n                })\n                .collect::<Vec<_>>();\n            let expected = if actor_id == SLOT_B {\n                vec![AGENT_CARE_ACTION, AGENT_EXPLORE_ACTION]\n            } else {\n                vec![AGENT_EXPLORE_ACTION, AGENT_CARE_ACTION]\n            };\n            assert_eq!(decisions, expected);\n'''
+if old not in s:
+    raise SystemExit('reactive decision expectation block not found')
+p.write_text(s.replace(old, new, 1))
