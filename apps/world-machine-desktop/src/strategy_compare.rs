@@ -236,6 +236,14 @@ impl StrategySetupView {
             )
         };
 
+        let left_display_title = evaluation
+            .left
+            .outcome()
+            .and_then(|outcome| strategy_future_display_title(&outcome.snapshot.title));
+        let right_display_title = evaluation
+            .right
+            .outcome()
+            .and_then(|outcome| strategy_future_display_title(&outcome.snapshot.title));
         let left_archive = evaluation
             .left
             .outcome()
@@ -271,6 +279,8 @@ impl StrategySetupView {
                     right_label: result_right,
                     left_archive,
                     right_archive,
+                    left_display_title,
+                    right_display_title,
                     left_lineage,
                     right_lineage,
                     left_saved: None,
@@ -371,6 +381,8 @@ struct StrategyResultView {
     right_label: String,
     left_archive: Option<WorldArchive>,
     right_archive: Option<WorldArchive>,
+    left_display_title: Option<String>,
+    right_display_title: Option<String>,
     left_lineage: WorldLineage,
     right_lineage: WorldLineage,
     left_saved: Option<WorldDocumentId>,
@@ -380,12 +392,13 @@ struct StrategyResultView {
 
 impl StrategyResultView {
     fn save_future(&mut self, side: FutureSide) -> Result<WorldDocumentId, String> {
-        let (archive, lineage, label, side_label) = match side {
+        let (archive, lineage, display_title, label, side_label) = match side {
             FutureSide::Left => (
                 self.left_archive
                     .clone()
                     .ok_or_else(|| "Future A has no durable archive".to_string())?,
                 self.left_lineage.clone(),
+                self.left_display_title.clone(),
                 self.left_label.clone(),
                 "Future A",
             ),
@@ -394,6 +407,7 @@ impl StrategyResultView {
                     .clone()
                     .ok_or_else(|| "Future B has no durable archive".to_string())?,
                 self.right_lineage.clone(),
+                self.right_display_title.clone(),
                 self.right_label.clone(),
                 "Future B",
             ),
@@ -403,7 +417,7 @@ impl StrategyResultView {
         let base = sanitize_document_base(&format!("{source}-{label}"));
         let id = unique_document_id(base, Some(self.library.as_ref()))
             .map_err(|error| error.to_string())?;
-        let future = WorldDocument::new(archive).with_lineage(lineage);
+        let future = strategy_future_document(archive, lineage, display_title);
         let summary = self
             .library
             .create_from_document(id, &future)
@@ -584,6 +598,23 @@ impl Render for StrategyResultView {
     }
 }
 
+fn strategy_future_display_title(title: &str) -> Option<String> {
+    let title = title.trim();
+    (!title.is_empty()).then(|| title.to_owned())
+}
+
+fn strategy_future_document(
+    archive: WorldArchive,
+    lineage: WorldLineage,
+    display_title: Option<String>,
+) -> WorldDocument {
+    let document = WorldDocument::new(archive).with_lineage(lineage);
+    match display_title {
+        Some(title) => document.with_display_title(title),
+        None => document,
+    }
+}
+
 fn strategy_lineage(
     source_label: &str,
     source_archive: &WorldArchive,
@@ -616,6 +647,42 @@ fn source_world_base(label: &str) -> &str {
 mod tests {
     use super::*;
     use world_persistence::{WorldPackRef, WORLD_ARCHIVE_FORMAT, WORLD_ARCHIVE_VERSION};
+
+    #[test]
+    fn saved_strategy_future_preserves_semantic_snapshot_title() {
+        let archive = WorldArchive {
+            format: WORLD_ARCHIVE_FORMAT.into(),
+            format_version: WORLD_ARCHIVE_VERSION,
+            pack: WorldPackRef::new("world-machine.strategy-title-mock", "1"),
+            world_time: 7,
+            events: Vec::new(),
+            pending: Vec::new(),
+        };
+        let lineage = strategy_lineage(
+            "Source.world",
+            &archive,
+            &StrategyChoice {
+                id: "mock.choose-a".into(),
+                title: "Choose A".into(),
+                detail: "A future".into(),
+            },
+            20,
+        );
+
+        let title = strategy_future_display_title("  Ares Pocket Colony  ");
+        let document = strategy_future_document(archive, lineage, title);
+
+        assert_eq!(
+            document.metadata.display_title.as_deref(),
+            Some("Ares Pocket Colony")
+        );
+        assert!(document.metadata.lineage.is_some());
+    }
+
+    #[test]
+    fn saved_strategy_future_leaves_blank_snapshot_title_unset() {
+        assert_eq!(strategy_future_display_title("   "), None);
+    }
 
     #[test]
     fn strategy_lineage_records_the_parent_branch_point_before_the_future_runs() {
