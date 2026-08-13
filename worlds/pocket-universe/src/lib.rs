@@ -15,7 +15,7 @@ use world_persistence::{PersistenceError, WorldArchive, WorldPackRef};
 use world_projection::{ProjectionIntent, ProjectionSnapshot};
 
 pub const POCKET_UNIVERSE_PACK_ID: &str = "world-machine.pocket-universe";
-pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.9.0";
+pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.10.0";
 
 pub const SEED_MARS_COLONY_COMMAND: &str = "pocket-universe.seed-mars-colony";
 pub const SEED_1980S_TOWN_COMMAND: &str = "pocket-universe.seed-1980s-town";
@@ -2589,7 +2589,11 @@ mod tests {
         let chosen = session
             .handle(ProjectionIntent::InvokeCommand(BOLD_PATH_COMMAND.into()))
             .unwrap();
-        assert_eq!(chosen.briefing.as_ref().unwrap().title, "Generation 3");
+        let briefing = chosen.briefing.as_ref().unwrap();
+        assert_eq!(briefing.title, "Their relationship is taking shape");
+        assert!(briefing.items.iter().any(|item| {
+            item.title == "Your turn · Relationship" && item.detail.contains("leave them alone")
+        }));
         assert!(!chosen
             .commands
             .iter()
