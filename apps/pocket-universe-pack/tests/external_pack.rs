@@ -136,7 +136,11 @@ fn pocket_universe_is_a_real_external_pack_with_durable_seed_and_growth() {
     let chosen = session
         .handle(ProjectionIntent::InvokeCommand(BOLD_PATH_COMMAND.into()))
         .unwrap();
-    assert_eq!(chosen.briefing.as_ref().unwrap().title, "Generation 3");
+    let briefing = chosen.briefing.as_ref().unwrap();
+    assert_eq!(briefing.title, "Their relationship is taking shape");
+    assert!(briefing.items.iter().any(|item| {
+        item.title == "Your turn · Relationship" && item.detail.contains("leave them alone")
+    }));
 
     let archive = session.archive().unwrap().unwrap();
     assert!(archive

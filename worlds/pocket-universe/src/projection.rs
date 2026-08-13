@@ -66,23 +66,22 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
         ];
     }
 
+    let generation = integer_component(world, GENERATION).unwrap_or_default();
+    let (relationship_choice_available, intervention_choice_available) =
+        choice_state(world, generation);
+    let (nudge_title, nudge_detail) = nudge_copy(
+        seed_id(world),
+        generation,
+        relationship_choice_available,
+        intervention_choice_available,
+    );
     let mut commands = vec![ProjectionCommand {
         id: NUDGE_COMMAND.into(),
-        title: "Nudge the world".into(),
-        detail: "Let one small, persistent change happen now.".into(),
+        title: nudge_title.into(),
+        detail: nudge_detail.into(),
     }];
-    let generation = integer_component(world, GENERATION).unwrap_or_default();
-    let relationship_direction = text_component(
-        world.state().entity(RELATIONSHIP),
-        RELATIONSHIP_DIRECTION,
-        "none",
-    );
-    let relationship_social_arc = text_component(
-        world.state().entity(RELATIONSHIP),
-        RELATIONSHIP_SOCIAL_ARC,
-        "forming",
-    );
-    if generation >= 2 && relationship_direction == "none" && relationship_social_arc == "forming" {
+
+    if relationship_choice_available {
         commands.push(ProjectionCommand {
             id: SHARED_PROJECT_COMMAND.into(),
             title: "Give them a shared project".into(),
@@ -94,8 +93,7 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             detail: "Keep both actors independent and let competition add pressure to future interactions.".into(),
         });
     }
-    let decision = text_component(world.state().entity(UNIVERSE), DECISION, "none");
-    if generation >= 3 && decision == "none" {
+    if intervention_choice_available {
         let (bold_title, bold_detail, careful_title, careful_detail) =
             intervention_copy(seed_id(world));
         commands.push(ProjectionCommand {
@@ -110,6 +108,89 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
         });
     }
     commands
+}
+
+fn choice_state(world: &World, generation: i64) -> (bool, bool) {
+    let relationship_direction = text_component(
+        world.state().entity(RELATIONSHIP),
+        RELATIONSHIP_DIRECTION,
+        "none",
+    );
+    let relationship_social_arc = text_component(
+        world.state().entity(RELATIONSHIP),
+        RELATIONSHIP_SOCIAL_ARC,
+        "forming",
+    );
+    let relationship_choice_available =
+        generation >= 2 && relationship_direction == "none" && relationship_social_arc == "forming";
+    let decision = text_component(world.state().entity(UNIVERSE), DECISION, "none");
+    let intervention_choice_available = generation >= 3 && decision == "none";
+    (relationship_choice_available, intervention_choice_available)
+}
+
+fn nudge_copy(
+    seed: &str,
+    generation: i64,
+    relationship_choice_available: bool,
+    intervention_choice_available: bool,
+) -> (&'static str, &'static str) {
+    if relationship_choice_available && intervention_choice_available {
+        return (
+            "Let it unfold without choosing",
+            "Leave both open choices alone for now and let one more persistent change happen.",
+        );
+    }
+    if relationship_choice_available {
+        return (
+            "Let it unfold without steering",
+            "Skip the relationship choice for now and let the two actors keep finding their own direction.",
+        );
+    }
+    if intervention_choice_available {
+        return (
+            "Let it unfold without intervening",
+            "Leave the larger intervention alone for now and let existing dynamics keep working.",
+        );
+    }
+
+    match (seed, generation) {
+        ("mars-colony", 0) => (
+            "Let the first sol unfold",
+            "Watch Nia, Tomas, and Ares Habitat react before you steer anything.",
+        ),
+        ("1980s-town", 0) => (
+            "Let the first night unfold",
+            "Watch Lena, Max, and Maple Street find a rhythm before you steer anything.",
+        ),
+        ("penguin-civilization", 0) => (
+            "Let the first aurora unfold",
+            "Watch Piko, Miri, and Icebridge settle into motion before you steer anything.",
+        ),
+        ("mars-colony", 1) => (
+            "See what the next sol changes",
+            "Give the colony one more sol; its central relationship is starting to take shape.",
+        ),
+        ("1980s-town", 1) => (
+            "See what the next night changes",
+            "Give Maple Street one more night; its central relationship is starting to take shape.",
+        ),
+        ("penguin-civilization", 1) => (
+            "See what the next aurora changes",
+            "Give Icebridge one more aurora; its central relationship is starting to take shape.",
+        ),
+        (_, 0) => (
+            "Let the first cycle unfold",
+            "Watch the World move once before deciding how much to shape it.",
+        ),
+        (_, 1) => (
+            "See what the next cycle changes",
+            "Give the World one more cycle; its central relationship is starting to take shape.",
+        ),
+        _ => (
+            "Let the world move",
+            "Let one small, persistent change happen without making a larger choice.",
+        ),
+    }
 }
 
 fn briefing(world: &World, seeded: bool, since_event_count: Option<usize>) -> BriefingProjection {
@@ -155,14 +236,101 @@ fn briefing(world: &World, seeded: bool, since_event_count: Option<usize>) -> Br
         LAST_CHANGE,
         "The world is quiet.",
     );
+    let (relationship_choice_available, intervention_choice_available) =
+        choice_state(world, generation);
+    let (title, guidance) = live_stage_copy(
+        seed_id(world),
+        generation,
+        relationship_choice_available,
+        intervention_choice_available,
+    );
+    let mut items = vec![BriefingItem {
+        selection: Some(SelectionId::Entity(UNIVERSE)),
+        title: "Current thread".into(),
+        detail: last_change,
+    }];
+    if let Some((guidance_title, guidance_detail)) = guidance {
+        items.push(BriefingItem {
+            selection: None,
+            title: guidance_title.into(),
+            detail: guidance_detail.into(),
+        });
+    }
+
     BriefingProjection {
         eyebrow: format!("Pocket Universe · {}", seed_label(seed_id(world))),
-        title: format!("Generation {generation}"),
-        items: vec![BriefingItem {
-            selection: Some(SelectionId::Entity(UNIVERSE)),
-            title: "Current thread".into(),
-            detail: last_change,
-        }],
+        title,
+        items,
+    }
+}
+
+fn live_stage_copy(
+    seed: &str,
+    generation: i64,
+    relationship_choice_available: bool,
+    intervention_choice_available: bool,
+) -> (String, Option<(&'static str, &'static str)>) {
+    if relationship_choice_available && intervention_choice_available {
+        return (
+            "Two choices are open".into(),
+            Some((
+                "Your turn · Shape the world",
+                "You can steer the central relationship and make a larger intervention—or leave both alone and watch what happens.",
+            )),
+        );
+    }
+    if relationship_choice_available {
+        return (
+            "Their relationship is taking shape".into(),
+            Some((
+                "Your turn · Relationship",
+                "Choose a shared project or rivalry—or leave them alone and let the World continue without steering.",
+            )),
+        );
+    }
+    if intervention_choice_available {
+        let detail = match seed {
+            "mars-colony" => {
+                "A larger choice is ready: follow the rover signal or fortify the habitat. You can also leave the colony alone."
+            }
+            "1980s-town" => {
+                "A larger choice is ready: turn the arcade into a community hub or keep it a steady business. You can also leave the town alone."
+            }
+            "penguin-civilization" => {
+                "A larger choice is ready: open the Fish Vault for a feast or conserve the winter reserves. You can also leave Icebridge alone."
+            }
+            _ => "A larger intervention is available, but the World can keep moving without it.",
+        };
+        return (
+            "A larger choice is here".into(),
+            Some(("Your turn · Future", detail)),
+        );
+    }
+
+    match generation {
+        0 => {
+            let detail = match seed {
+                "mars-colony" => {
+                    "Let the first sol unfold and see what Nia and Tomas do before deciding what this colony should become."
+                }
+                "1980s-town" => {
+                    "Let the first night unfold and see how Lena and Max begin shaping Maple Street."
+                }
+                "penguin-civilization" => {
+                    "Let the first aurora unfold and see how Piko and Miri settle into Icebridge."
+                }
+                _ => "Let the first cycle unfold before deciding how much to shape this World.",
+            };
+            ("The world is alive".into(), Some(("Next · Watch", detail)))
+        }
+        1 => (
+            "Patterns are forming".into(),
+            Some((
+                "Next · Notice",
+                "Let one more cycle pass. After that, you can steer the relationship at the center of this World.",
+            )),
+        ),
+        _ => (format!("Generation {generation}"), None),
     }
 }
 
@@ -306,5 +474,66 @@ fn intervention_copy(seed: &str) -> (&'static str, &'static str, &'static str, &
             "Take the careful path",
             "Protect what already exists and reduce immediate risk.",
         ),
+    }
+}
+
+#[cfg(test)]
+mod first_story_copy_tests {
+    use super::*;
+
+    #[test]
+    fn opening_cycles_are_seed_specific_before_relationship_agency_opens() {
+        assert_eq!(
+            nudge_copy("mars-colony", 0, false, false).0,
+            "Let the first sol unfold"
+        );
+        assert_eq!(
+            nudge_copy("1980s-town", 0, false, false).0,
+            "Let the first night unfold"
+        );
+        assert_eq!(
+            nudge_copy("penguin-civilization", 0, false, false).0,
+            "Let the first aurora unfold"
+        );
+        assert_eq!(
+            live_stage_copy("mars-colony", 0, false, false).0,
+            "The world is alive"
+        );
+        assert_eq!(
+            live_stage_copy("mars-colony", 1, false, false).0,
+            "Patterns are forming"
+        );
+    }
+
+    #[test]
+    fn open_choices_are_explicit_and_always_optional() {
+        assert_eq!(
+            nudge_copy("mars-colony", 2, true, false).0,
+            "Let it unfold without steering"
+        );
+        let relationship_stage = live_stage_copy("mars-colony", 2, true, false);
+        assert_eq!(relationship_stage.0, "Their relationship is taking shape");
+        assert!(relationship_stage.1.unwrap().1.contains("leave them alone"));
+
+        assert_eq!(
+            nudge_copy("mars-colony", 3, true, true).0,
+            "Let it unfold without choosing"
+        );
+        let two_choices = live_stage_copy("mars-colony", 3, true, true);
+        assert_eq!(two_choices.0, "Two choices are open");
+        assert!(two_choices.1.unwrap().1.contains("leave both alone"));
+    }
+
+    #[test]
+    fn intervention_guidance_keeps_each_seed_distinct() {
+        let mars = live_stage_copy("mars-colony", 3, false, true).1.unwrap().1;
+        let town = live_stage_copy("1980s-town", 3, false, true).1.unwrap().1;
+        let penguins = live_stage_copy("penguin-civilization", 3, false, true)
+            .1
+            .unwrap()
+            .1;
+        assert!(mars.contains("rover signal"));
+        assert!(town.contains("arcade"));
+        assert!(penguins.contains("Fish Vault"));
     }
 }
