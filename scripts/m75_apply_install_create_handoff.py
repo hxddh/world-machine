@@ -134,10 +134,59 @@ replace_once(
 )
 
 replace_once(
-    '''        self.refresh_documents();
+    '''    fn create_world(&mut self, pack_id: String, cx: &mut Context<Self>) {
+        let title = self
+            .registry
+            .descriptor(&pack_id)
+            .map(|descriptor| descriptor.title.clone())
+            .unwrap_or_else(|| pack_id.clone());
+        let document_id = match new_document_id(&pack_id, &self.library) {
+            Ok(id) => id,
+            Err(error) => {
+                self.status = Some(format!("Could not create {title}: {error}"));
+                cx.notify();
+                return;
+            }
+        };
+        let session =
+            match DurableWorldSession::create(document_id, &pack_id, &self.registry, &self.library)
+            {
+                Ok(session) => session,
+                Err(error) => {
+                    self.status = Some(format!("Could not create {title}: {error}"));
+                    cx.notify();
+                    return;
+                }
+            };
+        self.refresh_documents();
         self.open_session(session, title, cx);
+    }
 ''',
-    '''        self.refresh_documents();
+    '''    fn create_world(&mut self, pack_id: String, cx: &mut Context<Self>) {
+        let title = self
+            .registry
+            .descriptor(&pack_id)
+            .map(|descriptor| descriptor.title.clone())
+            .unwrap_or_else(|| pack_id.clone());
+        let document_id = match new_document_id(&pack_id, &self.library) {
+            Ok(id) => id,
+            Err(error) => {
+                self.status = Some(format!("Could not create {title}: {error}"));
+                cx.notify();
+                return;
+            }
+        };
+        let session =
+            match DurableWorldSession::create(document_id, &pack_id, &self.registry, &self.library)
+            {
+                Ok(session) => session,
+                Err(error) => {
+                    self.status = Some(format!("Could not create {title}: {error}"));
+                    cx.notify();
+                    return;
+                }
+            };
+        self.refresh_documents();
         if self
             .ready_pack_to_create
             .as_ref()
@@ -146,6 +195,7 @@ replace_once(
             self.ready_pack_to_create = None;
         }
         self.open_session(session, title, cx);
+    }
 ''',
 )
 
