@@ -335,15 +335,29 @@ fn inspector_for_event(event: &Event, world: &World) -> InspectorProjection {
     }
 }
 
+fn semantic_event_summary(event: &Event) -> Option<&str> {
+    ["summary", "change"].into_iter().find_map(|key| {
+        match event.payload.get(key) {
+            Some(Value::Text(value)) if !value.trim().is_empty() => Some(value.as_str()),
+            _ => None,
+        }
+    })
+}
+
 pub(crate) fn event_summary(event: &Event, world: &World) -> String {
-    let actor = event
+    let mut parts = Vec::new();
+    if let Some(actor) = event
         .actor
         .and_then(|id| world.state().entity(id))
-        .map(entity_title);
-    match actor {
-        Some(actor) => format!("{actor} · Event #{}", event.id),
-        None => format!("Event #{}", event.id),
+        .map(entity_title)
+    {
+        parts.push(actor);
     }
+    if let Some(summary) = semantic_event_summary(event) {
+        parts.push(summary.to_string());
+    }
+    parts.push(format!("Event #{}", event.id));
+    parts.join(" · ")
 }
 
 pub(crate) fn humanize(value: &str) -> String {
@@ -399,6 +413,7 @@ mod tests {
 
         assert_eq!(timeline.items.len(), 1);
         assert_eq!(timeline.items[0].title, "Work Started");
+        assert_eq!(timeline.items[0].subtitle, "Workspace · Event #1");
         assert_eq!(
             inspectors
                 .get(&SelectionId::Entity(EntityId::new(1)))
@@ -407,6 +422,37 @@ mod tests {
             "Workspace"
         );
         assert!(inspectors.contains_key(&SelectionId::Event(EventId::new(1))));
+    }
+
+    #[test]
+    fn timeline_surfaces_semantic_event_payload_without_domain_knowledge() {
+        let mut state = WorldState::default();
+        state
+            .seed_entity(Entity::new(EntityId::new(1), "workspace").with_component("name", "Workspace"))
+            .unwrap();
+        let world = World::from_history(
+            state,
+            &[Event {
+                id: EventId::new(1),
+                kind: "direction_chosen".into(),
+                world_time: 0,
+                actor: None,
+                targets: vec![EntityId::new(1)],
+                caused_by: vec![],
+                payload: BTreeMap::from([
+                    ("change".into(), Value::Text("fallback detail".into())),
+                    ("summary".into(), Value::Text("A durable direction was chosen.".into())),
+                ]),
+                changes: vec![],
+            }],
+        )
+        .unwrap();
+
+        let timeline = timeline_from_world(&world);
+        assert_eq!(
+            timeline.items[0].subtitle,
+            "A durable direction was chosen. · Event #1"
+        );
     }
 
     #[test]
