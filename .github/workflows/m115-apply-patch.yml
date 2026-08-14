@@ -19,7 +19,10 @@ jobs:
           ref: agent/m115-durable-library-summary
       - uses: dtolnay/rust-toolchain@stable
       - name: Apply durable summary patch
-        run: python scripts/m115_patch.py
+        shell: bash
+        run: |
+          python scripts/m115_fix_patch.py
+          python scripts/m115_patch.py
       - name: Format and compile generic crates
         shell: bash
         run: |
