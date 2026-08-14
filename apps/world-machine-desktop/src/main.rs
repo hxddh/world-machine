@@ -2221,17 +2221,6 @@ fn suggested_world_file_name(semantic_title: &str, fallback_label: &str) -> Stri
 }
 
 #[cfg(target_os = "macos")]
-fn canonical_world_name(label: &str) -> String {
-    if label.ends_with(WORLD_DOCUMENT_SUFFIX) {
-        label.to_owned()
-    } else if let Some(base) = label.strip_suffix(LEGACY_WORLD_DOCUMENT_SUFFIX) {
-        format!("{base}{WORLD_DOCUMENT_SUFFIX}")
-    } else {
-        format!("{label}{WORLD_DOCUMENT_SUFFIX}")
-    }
-}
-
-#[cfg(target_os = "macos")]
 fn canonical_world_path(mut path: PathBuf) -> PathBuf {
     let Some(file_name) = path
         .file_name()
