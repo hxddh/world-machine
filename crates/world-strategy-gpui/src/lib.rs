@@ -464,6 +464,18 @@ impl StrategyComparisonView {
             .unwrap_or_else(|| difference.id.stable_key());
 
         let mut rows = div().flex().flex_col().gap_1();
+        if !difference.inspector_rows.is_empty() {
+            rows = rows.child(
+                div()
+                    .flex()
+                    .gap_2()
+                    .text_xs()
+                    .text_color(rgb(0x777777))
+                    .child(div().w(px(150.0)).child("Field"))
+                    .child(div().w(px(140.0)).child(self.left_label.clone()))
+                    .child(div().w(px(140.0)).child(self.right_label.clone())),
+            );
+        }
         for row in difference.inspector_rows.iter().take(6) {
             rows = rows.child(
                 div()
