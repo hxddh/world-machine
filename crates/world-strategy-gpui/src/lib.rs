@@ -5,6 +5,10 @@ use world_compare::{
 use world_projection::{ProjectionCommand, ProjectionSnapshot, TimelineItem};
 use world_strategy::{StrategyEvaluation, StrategyRun};
 
+const ENTITY_DIFFERENCE_LIMIT: usize = 10;
+const TIMELINE_DIFFERENCE_LIMIT_PER_KIND: usize = 4;
+const INSPECTOR_ROW_LIMIT: usize = 6;
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct SavedComparisonContext {
     pub relation: Option<String>,
@@ -197,7 +201,11 @@ impl StrategyComparisonView {
             + comparison.commands.changed.len();
 
         let mut entities = div().flex().flex_col().gap_2();
-        for difference in comparison.entities.iter().take(10) {
+        for difference in comparison
+            .entities
+            .iter()
+            .take(ENTITY_DIFFERENCE_LIMIT)
+        {
             entities = entities.child(self.render_entity_difference(difference));
         }
         if comparison.entities.is_empty() {
@@ -207,16 +215,37 @@ impl StrategyComparisonView {
                     .text_color(rgb(0x777777))
                     .child("No entity state differences"),
             );
+        } else if let Some(notice) = hidden_notice(
+            comparison.entities.len(),
+            ENTITY_DIFFERENCE_LIMIT,
+            "entity differences",
+        ) {
+            entities = entities.child(truncation_notice(notice));
         }
 
         let mut timeline = div().flex().flex_col().gap_2();
-        for item in comparison.timeline.left_only.iter().take(4) {
+        for item in comparison
+            .timeline
+            .left_only
+            .iter()
+            .take(TIMELINE_DIFFERENCE_LIMIT_PER_KIND)
+        {
             timeline = timeline.child(self.render_timeline_item("Left only", item));
         }
-        for item in comparison.timeline.right_only.iter().take(4) {
+        for item in comparison
+            .timeline
+            .right_only
+            .iter()
+            .take(TIMELINE_DIFFERENCE_LIMIT_PER_KIND)
+        {
             timeline = timeline.child(self.render_timeline_item("Right only", item));
         }
-        for item in comparison.timeline.changed.iter().take(4) {
+        for item in comparison
+            .timeline
+            .changed
+            .iter()
+            .take(TIMELINE_DIFFERENCE_LIMIT_PER_KIND)
+        {
             timeline = timeline.child(self.render_changed_timeline_item(item));
         }
         if timeline_changes == 0 {
@@ -226,6 +255,20 @@ impl StrategyComparisonView {
                     .text_color(rgb(0x777777))
                     .child("No timeline differences"),
             );
+        } else {
+            let hidden_timeline = hidden_after_group_limits(
+                &[
+                    comparison.timeline.left_only.len(),
+                    comparison.timeline.right_only.len(),
+                    comparison.timeline.changed.len(),
+                ],
+                TIMELINE_DIFFERENCE_LIMIT_PER_KIND,
+            );
+            if hidden_timeline > 0 {
+                timeline = timeline.child(truncation_notice(format!(
+                    "{hidden_timeline} more timeline differences not shown"
+                )));
+            }
         }
 
         let mut commands = div().flex().flex_col().gap_2();
@@ -476,7 +519,7 @@ impl StrategyComparisonView {
                     .child(div().w(px(140.0)).child(self.right_label.clone())),
             );
         }
-        for row in difference.inspector_rows.iter().take(6) {
+        for row in difference.inspector_rows.iter().take(INSPECTOR_ROW_LIMIT) {
             rows = rows.child(
                 div()
                     .flex()
@@ -499,6 +542,13 @@ impl StrategyComparisonView {
                             .child(row.right.clone().unwrap_or_else(|| "—".into())),
                     ),
             );
+        }
+        if let Some(notice) = hidden_notice(
+            difference.inspector_rows.len(),
+            INSPECTOR_ROW_LIMIT,
+            "changed fields",
+        ) {
+            rows = rows.child(truncation_notice(notice));
         }
 
         div()
@@ -626,6 +676,25 @@ fn timeline_detail(subtitle: &str) -> Option<String> {
     (!detail.is_empty()).then(|| detail.to_owned())
 }
 
+fn hidden_notice(total: usize, limit: usize, noun: &str) -> Option<String> {
+    let hidden = total.saturating_sub(limit);
+    (hidden > 0).then(|| format!("{hidden} more {noun} not shown"))
+}
+
+fn hidden_after_group_limits(counts: &[usize], limit: usize) -> usize {
+    counts
+        .iter()
+        .map(|count| count.saturating_sub(limit))
+        .sum()
+}
+
+fn truncation_notice(message: String) -> Div {
+    div()
+        .text_xs()
+        .text_color(rgb(0x777777))
+        .child(message)
+}
+
 fn summary_chip(label: &str, count: usize) -> Div {
     div()
         .p_2()
@@ -658,5 +727,19 @@ mod tests {
     #[test]
     fn blank_timeline_detail_stays_absent() {
         assert_eq!(timeline_detail("   "), None);
+    }
+
+    #[test]
+    fn hidden_notice_only_reports_truncated_items() {
+        assert_eq!(hidden_notice(10, 10, "items"), None);
+        assert_eq!(
+            hidden_notice(13, 10, "items"),
+            Some("3 more items not shown".into())
+        );
+    }
+
+    #[test]
+    fn grouped_limits_count_every_hidden_item() {
+        assert_eq!(hidden_after_group_limits(&[7, 2, 5], 4), 4);
     }
 }
