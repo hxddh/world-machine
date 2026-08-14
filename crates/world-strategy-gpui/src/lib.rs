@@ -230,16 +230,12 @@ impl StrategyComparisonView {
 
         let mut commands = div().flex().flex_col().gap_2();
         for command in &comparison.commands.left_only {
-            commands = commands.child(self.render_command(
-                &format!("Left only · {}", self.left_label),
-                command,
-            ));
+            commands = commands
+                .child(self.render_command(&format!("Left only · {}", self.left_label), command));
         }
         for command in &comparison.commands.right_only {
-            commands = commands.child(self.render_command(
-                &format!("Right only · {}", self.right_label),
-                command,
-            ));
+            commands = commands
+                .child(self.render_command(&format!("Right only · {}", self.right_label), command));
         }
         for command in &comparison.commands.changed {
             commands = commands.child(self.render_changed_command(command));
