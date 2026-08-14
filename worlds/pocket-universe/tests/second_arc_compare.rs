@@ -91,8 +91,14 @@ fn second_arc_is_a_durable_generic_strategy_fork() -> Result<(), Box<dyn Error>>
             && event.left.subtitle != event.right.subtitle
     }));
 
-    let outward_briefing = left.briefing.as_ref().expect("Pocket Universe has a briefing");
-    let rooted_briefing = right.briefing.as_ref().expect("Pocket Universe has a briefing");
+    let outward_briefing = left
+        .briefing
+        .as_ref()
+        .expect("Pocket Universe has a briefing");
+    let rooted_briefing = right
+        .briefing
+        .as_ref()
+        .expect("Pocket Universe has a briefing");
     assert!(outward_briefing
         .items
         .iter()
