@@ -86,7 +86,9 @@ pub(crate) fn growth_consequence(seed: &str, legacy: &str) -> Option<&'static st
         ("penguin-civilization", "divided-houses") => {
             "The divided houses now shape how Icebridge governs winter life."
         }
-        _ => "The World now carries a legacy formed from its earlier choices and repeated behavior.",
+        _ => {
+            "The World now carries a legacy formed from its earlier choices and repeated behavior."
+        }
     })
 }
 
