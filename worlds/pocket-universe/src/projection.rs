@@ -1,9 +1,9 @@
 use crate::{
     seed_id, BOLD_PATH_COMMAND, CAREFUL_PATH_COMMAND, DECISION, GENERATION, LAST_CHANGE,
-    NUDGE_COMMAND, RELATIONSHIP, RELATIONSHIP_DIRECTION, RELATIONSHIP_LAST_DYNAMIC,
-    RELATIONSHIP_SOCIAL_ARC, RELATIONSHIP_TENSION, RELATIONSHIP_TRUST, RIVALRY_COMMAND,
-    SEED_1980S_TOWN_COMMAND, SEED_MARS_COLONY_COMMAND, SEED_PENGUIN_CIVILIZATION_COMMAND,
-    SHARED_PROJECT_COMMAND, UNIVERSE,
+    NUDGE_COMMAND, OUTWARD_POSTURE_COMMAND, POSTURE, RELATIONSHIP, RELATIONSHIP_DIRECTION,
+    RELATIONSHIP_LAST_DYNAMIC, RELATIONSHIP_SOCIAL_ARC, RELATIONSHIP_TENSION, RELATIONSHIP_TRUST,
+    RIVALRY_COMMAND, ROOTED_POSTURE_COMMAND, SEED_1980S_TOWN_COMMAND, SEED_MARS_COLONY_COMMAND,
+    SEED_PENGUIN_CIVILIZATION_COMMAND, SHARED_PROJECT_COMMAND, UNIVERSE,
 };
 use world_core::{Entity, Event, Value, World};
 use world_projection::{
@@ -70,12 +70,20 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
     let generation = integer_component(world, GENERATION).unwrap_or_default();
     let (relationship_choice_available, intervention_choice_available) =
         choice_state(world, generation);
-    let (nudge_title, nudge_detail) = nudge_copy(
-        seed_id(world),
-        generation,
-        relationship_choice_available,
-        intervention_choice_available,
-    );
+    let posture_choice_available = posture_choice_state(world, generation);
+    let (nudge_title, nudge_detail) = if posture_choice_available {
+        (
+            "Let the next chapter wait",
+            "Keep watching before deciding whether this World reaches outward or roots itself more deeply.",
+        )
+    } else {
+        nudge_copy(
+            seed_id(world),
+            generation,
+            relationship_choice_available,
+            intervention_choice_available,
+        )
+    };
     let mut commands = vec![ProjectionCommand {
         id: NUDGE_COMMAND.into(),
         title: nudge_title.into(),
@@ -108,6 +116,20 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             detail: careful_detail.into(),
         });
     }
+    if posture_choice_available {
+        let (outward_title, outward_detail, rooted_title, rooted_detail) =
+            posture_command_copy(seed_id(world));
+        commands.push(ProjectionCommand {
+            id: OUTWARD_POSTURE_COMMAND.into(),
+            title: outward_title.into(),
+            detail: outward_detail.into(),
+        });
+        commands.push(ProjectionCommand {
+            id: ROOTED_POSTURE_COMMAND.into(),
+            title: rooted_title.into(),
+            detail: rooted_detail.into(),
+        });
+    }
     commands
 }
 
@@ -127,6 +149,70 @@ fn choice_state(world: &World, generation: i64) -> (bool, bool) {
     let decision = text_component(world.state().entity(UNIVERSE), DECISION, "none");
     let intervention_choice_available = generation >= 3 && decision == "none";
     (relationship_choice_available, intervention_choice_available)
+}
+
+fn posture_choice_state(world: &World, generation: i64) -> bool {
+    if generation < 6 {
+        return false;
+    }
+    let decision = text_component(world.state().entity(UNIVERSE), DECISION, "none");
+    let posture = text_component(world.state().entity(UNIVERSE), POSTURE, "none");
+    let social_arc = text_component(
+        world.state().entity(RELATIONSHIP),
+        RELATIONSHIP_SOCIAL_ARC,
+        "forming",
+    );
+    decision != "none" && posture == "none" && social_arc != "forming"
+}
+
+fn posture_command_copy(seed: &str) -> (&'static str, &'static str, &'static str, &'static str) {
+    match seed {
+        "mars-colony" => (
+            "Open the ridge routes",
+            "Turn Kestrel's reach into routes the colony keeps extending beyond the familiar ridge.",
+            "Build a deeper home",
+            "Make Ares Habitat the center of the next chapter and deepen what the colony already depends on.",
+        ),
+        "1980s-town" => (
+            "Let Maple Street draw a crowd",
+            "Let the arcade, radio, and night bus pull new people into Maple Street's orbit.",
+            "Keep it neighborhood-sized",
+            "Deepen the local places and rituals already holding the neighborhood together.",
+        ),
+        "penguin-civilization" => (
+            "Invite the outer colonies",
+            "Widen Icebridge's circle and keep carrying routes and reports beyond the familiar bridge.",
+            "Deepen Icebridge's winter life",
+            "Invest the next chapter in the winter systems and local routines that make home resilient.",
+        ),
+        _ => (
+            "Open the World outward",
+            "Carry the next chapter toward new edges and unfamiliar threads.",
+            "Deepen the World at home",
+            "Invest the next chapter in what this World already depends on.",
+        ),
+    }
+}
+
+fn second_arc_stage_copy(seed: &str) -> (String, Option<(&'static str, &'static str)>) {
+    let detail = match seed {
+        "mars-colony" => {
+            "The first expedition and central relationship have left a real shape behind. Decide whether Ares opens its routes outward or turns the next chapter into a deeper home."
+        }
+        "1980s-town" => {
+            "Maple Street now has history and a settled central relationship. Decide whether its next chapter draws a wider crowd or stays deliberately local."
+        }
+        "penguin-civilization" => {
+            "Icebridge now has history and a settled central relationship. Decide whether its next chapter widens the colony network or deepens winter life at home."
+        }
+        _ => {
+            "The first arc has settled. Decide whether the next chapter reaches outward or deepens the home this World already made."
+        }
+    };
+    (
+        "A second chapter is ready".into(),
+        Some(("Your turn · World direction", detail)),
+    )
 }
 
 fn nudge_copy(
@@ -241,12 +327,17 @@ fn briefing(world: &World, seeded: bool, since_event_count: Option<usize>) -> Br
     );
     let (relationship_choice_available, intervention_choice_available) =
         choice_state(world, generation);
-    let (title, guidance) = live_stage_copy(
-        seed_id(world),
-        generation,
-        relationship_choice_available,
-        intervention_choice_available,
-    );
+    let posture_choice_available = posture_choice_state(world, generation);
+    let (title, guidance) = if posture_choice_available {
+        second_arc_stage_copy(seed_id(world))
+    } else {
+        live_stage_copy(
+            seed_id(world),
+            generation,
+            relationship_choice_available,
+            intervention_choice_available,
+        )
+    };
     let mut items = vec![BriefingItem {
         selection: Some(SelectionId::Entity(UNIVERSE)),
         title: "Current thread".into(),
@@ -351,6 +442,9 @@ fn persistent_consequence_items(world: &World) -> Vec<BriefingItem> {
     if let Some(item) = relationship_consequence_item(world) {
         items.push(item);
     }
+    if let Some(item) = posture_consequence_item(world) {
+        items.push(item);
+    }
     items
 }
 
@@ -386,6 +480,55 @@ fn intervention_influence_copy(decision: &str) -> Option<(&'static str, &'static
             "An earlier intervention is still shaping what this World becomes.",
         )),
     }
+}
+
+fn posture_consequence_item(world: &World) -> Option<BriefingItem> {
+    let posture = text_component(world.state().entity(UNIVERSE), POSTURE, "none");
+    let seed = seed_id(world);
+    let (title, detail) = match (seed, posture.as_str()) {
+        (_, "none") => return None,
+        ("mars-colony", "outward") => (
+            "World direction · Outward",
+            "Ares is carrying its next chapter beyond the familiar ridge. Nia keeps looking outward; Tomas still answers through the relationship they built.",
+        ),
+        ("mars-colony", "rooted") => (
+            "World direction · Rooted",
+            "Ares is deepening the home it already made. Nia keeps reinforcing it; Tomas still answers through the relationship they built.",
+        ),
+        ("1980s-town", "outward") => (
+            "World direction · Outward",
+            "Maple Street is widening its orbit. Lena keeps chasing new threads; Max still answers through the relationship they built.",
+        ),
+        ("1980s-town", "rooted") => (
+            "World direction · Rooted",
+            "Maple Street is deepening its local life. Lena keeps investing in familiar places; Max still answers through the relationship they built.",
+        ),
+        ("penguin-civilization", "outward") => (
+            "World direction · Outward",
+            "Icebridge is widening its colony network. Piko keeps looking beyond the bridge; Miri still answers through the relationship they built.",
+        ),
+        ("penguin-civilization", "rooted") => (
+            "World direction · Rooted",
+            "Icebridge is deepening winter life at home. Piko keeps reinforcing local systems; Miri still answers through the relationship they built.",
+        ),
+        (_, "outward") => (
+            "World direction · Outward",
+            "This World is carrying its next chapter toward unfamiliar edges.",
+        ),
+        (_, "rooted") => (
+            "World direction · Rooted",
+            "This World is deepening the home it has already made.",
+        ),
+        (_, _) => (
+            "World direction",
+            "A second-chapter choice is still shaping this World.",
+        ),
+    };
+    Some(BriefingItem {
+        selection: Some(SelectionId::Entity(UNIVERSE)),
+        title: title.into(),
+        detail: detail.into(),
+    })
 }
 
 fn relationship_consequence_item(world: &World) -> Option<BriefingItem> {
