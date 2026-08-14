@@ -1080,7 +1080,7 @@ impl WorldMachineHome {
         let save_dialog = cx.prompt_for_new_path(&PathBuf::default(), Some(&suggested_name));
         cx.spawn(async move |this, cx| {
             let destination = match save_dialog.await {
-                Ok(Ok(Some(path))) => path,
+                Ok(Ok(Some(path))) => canonical_world_path(path),
                 Ok(Ok(None)) => return,
                 Ok(Err(error)) => {
                     let _ = this.update(cx, |this, cx| {
