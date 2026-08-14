@@ -10,12 +10,14 @@ pub struct WorldDocumentMetadata {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub display_title: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_summary: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lineage: Option<WorldLineage>,
 }
 
 impl WorldDocumentMetadata {
     pub fn is_empty(&self) -> bool {
-        self.display_title.is_none() && self.lineage.is_none()
+        self.display_title.is_none() && self.display_summary.is_none() && self.lineage.is_none()
     }
 }
 
@@ -64,6 +66,11 @@ impl WorldDocument {
 
     pub fn with_display_title(mut self, title: impl Into<String>) -> Self {
         self.metadata.display_title = Some(title.into());
+        self
+    }
+
+    pub fn with_display_summary(mut self, summary: impl Into<String>) -> Self {
+        self.metadata.display_summary = Some(summary.into());
         self
     }
 
@@ -195,6 +202,24 @@ mod tests {
         );
         assert_eq!(pure_archive.world_time, 8);
         assert!(json.contains("\"display_title\""));
+    }
+
+    #[test]
+    fn display_summary_round_trips_as_document_only_metadata() {
+        let document = WorldDocument::new(archive(8))
+            .with_display_title("A Small Mars")
+            .with_display_summary("Ridge Network · care-led");
+
+        let json = document.to_json_pretty().unwrap();
+        let decoded = WorldDocument::from_json(&json).unwrap();
+        let pure_archive = WorldArchive::from_json(&json).unwrap();
+
+        assert_eq!(
+            decoded.metadata.display_summary.as_deref(),
+            Some("Ridge Network · care-led")
+        );
+        assert_eq!(pure_archive.world_time, 8);
+        assert!(json.contains("\"display_summary\""));
     }
 
     #[test]

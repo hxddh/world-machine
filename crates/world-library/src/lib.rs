@@ -57,6 +57,7 @@ pub struct WorldDocumentSummary {
     pub id: WorldDocumentId,
     pub pack: WorldPackRef,
     pub display_title: Option<String>,
+    pub display_summary: Option<String>,
     pub world_time: u64,
     pub event_count: usize,
 }
@@ -338,6 +339,7 @@ impl DurableWorldSession {
         let archive = required_archive(session.as_ref())?;
         let mut document = WorldDocument::new(archive);
         document.metadata.display_title = snapshot_display_title(&snapshot);
+        document.metadata.display_summary = snapshot_display_summary(&snapshot);
         let revision = library.save_document_with_revision(&document_id, &document)?;
         Ok(Self {
             target: WorldDocumentTarget::Library(document_id),
@@ -432,8 +434,12 @@ impl DurableWorldSession {
         let replacement = registry.open_archive(&document.archive)?;
         let snapshot = replacement.snapshot();
 
+        let mut metadata = document.metadata;
+        if metadata.display_summary.is_none() {
+            metadata.display_summary = snapshot_display_summary(&snapshot);
+        }
         self.revision = revision;
-        self.metadata = document.metadata;
+        self.metadata = metadata;
         self.session = replacement;
         Ok(snapshot)
     }
@@ -454,6 +460,7 @@ impl DurableWorldSession {
         if let Some(title) = snapshot_display_title(&snapshot) {
             next_metadata.display_title = Some(title);
         }
+        next_metadata.display_summary = snapshot_display_summary(&snapshot);
         let next_document = WorldDocument {
             archive: next_archive,
             metadata: next_metadata.clone(),
@@ -474,11 +481,44 @@ fn snapshot_display_title(snapshot: &ProjectionSnapshot) -> Option<String> {
     (!title.is_empty()).then(|| title.to_owned())
 }
 
+const DISPLAY_SUMMARY_MAX_CHARS: usize = 220;
+
+pub fn snapshot_display_summary(snapshot: &ProjectionSnapshot) -> Option<String> {
+    let item = snapshot.briefing.as_ref()?.items.first()?;
+    let title = normalize_summary_text(&item.title);
+    let detail = normalize_summary_text(&item.detail);
+    let summary = match (title.is_empty(), detail.is_empty()) {
+        (true, true) => return None,
+        (false, true) => title,
+        (true, false) => detail,
+        (false, false) if title == detail => title,
+        (false, false) => format!("{title} · {detail}"),
+    };
+    Some(truncate_summary(summary))
+}
+
+fn normalize_summary_text(value: &str) -> String {
+    value.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn truncate_summary(value: String) -> String {
+    if value.chars().count() <= DISPLAY_SUMMARY_MAX_CHARS {
+        return value;
+    }
+    let mut compact = value
+        .chars()
+        .take(DISPLAY_SUMMARY_MAX_CHARS - 1)
+        .collect::<String>();
+    compact.push('…');
+    compact
+}
+
 fn summary(id: WorldDocumentId, document: &WorldDocument) -> WorldDocumentSummary {
     WorldDocumentSummary {
         id,
         pack: document.archive.pack.clone(),
         display_title: document.metadata.display_title.clone(),
+        display_summary: document.metadata.display_summary.clone(),
         world_time: document.archive.world_time,
         event_count: document.archive.events.len(),
     }
@@ -642,7 +682,9 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
     use world_host::{WorldDescriptor, WorldRegistration};
     use world_persistence::{WORLD_ARCHIVE_FORMAT, WORLD_ARCHIVE_VERSION};
-    use world_projection::{ProjectionCapabilities, ProjectionCommand};
+    use world_projection::{
+        BriefingItem, BriefingProjection, ProjectionCapabilities, ProjectionCommand,
+    };
 
     const MOCK_PACK: &str = "world-machine.mock";
 
@@ -660,6 +702,15 @@ mod tests {
                 title: format!("Mock {}", self.count),
                 world_time: self.count,
                 capabilities: ProjectionCapabilities { fork: false },
+                briefing: Some(BriefingProjection {
+                    eyebrow: "Mock".into(),
+                    title: "Current mock state".into(),
+                    items: vec![BriefingItem {
+                        selection: None,
+                        title: format!("Count {}", self.count),
+                        detail: format!("Current durable count {}", self.count),
+                    }],
+                }),
                 commands: vec![ProjectionCommand {
                     id: "mock.advance".into(),
                     title: "Advance".into(),
@@ -857,6 +908,10 @@ mod tests {
             library.list().unwrap()[0].display_title.as_deref(),
             Some("Mock 0")
         );
+        assert_eq!(
+            library.list().unwrap()[0].display_summary.as_deref(),
+            Some("Count 0 · Current durable count 0")
+        );
         assert_eq!(session.target(), &WorldDocumentTarget::Library(id.clone()));
         session
             .handle(
@@ -870,12 +925,57 @@ mod tests {
             library.list().unwrap()[0].display_title.as_deref(),
             Some("Mock 1")
         );
+        assert_eq!(
+            library.list().unwrap()[0].display_summary.as_deref(),
+            Some("Count 1 · Current durable count 1")
+        );
 
         let reopened = DurableWorldSession::open(id, &registry, &library).unwrap();
         assert_eq!(reopened.snapshot().title, "Mock 1");
         assert_eq!(reopened.pack(), WorldPackRef::new(MOCK_PACK, "1"));
 
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn snapshot_display_summary_uses_the_first_briefing_item_and_compacts_whitespace() {
+        let snapshot = ProjectionSnapshot {
+            briefing: Some(BriefingProjection {
+                eyebrow: "Test".into(),
+                title: "Today".into(),
+                items: vec![BriefingItem {
+                    selection: None,
+                    title: "  Ridge   Network ".into(),
+                    detail: "  Routes   now   persist.  ".into(),
+                }],
+            }),
+            ..ProjectionSnapshot::default()
+        };
+
+        assert_eq!(
+            snapshot_display_summary(&snapshot).as_deref(),
+            Some("Ridge Network · Routes now persist.")
+        );
+    }
+
+    #[test]
+    fn snapshot_display_summary_is_bounded_for_library_cards() {
+        let snapshot = ProjectionSnapshot {
+            briefing: Some(BriefingProjection {
+                eyebrow: "Test".into(),
+                title: "Today".into(),
+                items: vec![BriefingItem {
+                    selection: None,
+                    title: "State".into(),
+                    detail: "x".repeat(400),
+                }],
+            }),
+            ..ProjectionSnapshot::default()
+        };
+        let summary = snapshot_display_summary(&snapshot).unwrap();
+
+        assert_eq!(summary.chars().count(), DISPLAY_SUMMARY_MAX_CHARS);
+        assert!(summary.ends_with('…'));
     }
 
     #[test]

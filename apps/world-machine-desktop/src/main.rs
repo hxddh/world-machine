@@ -2041,6 +2041,16 @@ fn world_summary_title(document: &WorldDocumentSummary, pack_title: &str) -> Str
 }
 
 #[cfg(target_os = "macos")]
+fn world_summary_description(document: &WorldDocumentSummary) -> Option<String> {
+    document
+        .display_summary
+        .as_deref()
+        .map(str::trim)
+        .filter(|summary| !summary.is_empty())
+        .map(str::to_owned)
+}
+
+#[cfg(target_os = "macos")]
 fn document_window_title(document_label: &str) -> String {
     format!("{document_label} — World Machine")
 }
@@ -2307,6 +2317,7 @@ mod file_type_tests {
             id: WorldDocumentId::new("mars").unwrap(),
             pack,
             display_title: Some("  Ares Pocket Colony  ".into()),
+            display_summary: Some("  Current thread · Ridge Network  ".into()),
             world_time: 3,
             event_count: 7,
         };
@@ -2314,6 +2325,10 @@ mod file_type_tests {
         assert_eq!(
             world_summary_title(&summary, "Pocket Universe"),
             "Ares Pocket Colony"
+        );
+        assert_eq!(
+            world_summary_description(&summary).as_deref(),
+            Some("Current thread · Ridge Network")
         );
         summary.display_title = Some("   ".into());
         assert_eq!(
