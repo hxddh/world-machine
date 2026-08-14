@@ -38,7 +38,7 @@ fn second_arc_is_a_durable_generic_strategy_fork() -> Result<(), Box<dyn Error>>
     assert!(second_chapter.command(ROOTED_POSTURE_COMMAND).is_some());
 
     let common_archive = source.archive()?;
-    let common_event_count = common_archive.events.len();
+    let untouched_source = common_archive.clone();
 
     let mut outward = PocketUniverse::resume_archive(&common_archive)?;
     let mut rooted = PocketUniverse::resume_archive(&common_archive)?;
@@ -50,7 +50,7 @@ fn second_arc_is_a_durable_generic_strategy_fork() -> Result<(), Box<dyn Error>>
     // Compare durable histories, not two transient in-memory branches.
     let outward_archive = outward.archive()?;
     let rooted_archive = rooted.archive()?;
-    assert_eq!(common_archive.events.len(), common_event_count);
+    assert_eq!(common_archive, untouched_source);
     let outward = PocketUniverse::resume_archive(&outward_archive)?;
     let rooted = PocketUniverse::resume_archive(&rooted_archive)?;
 
@@ -86,8 +86,8 @@ fn second_arc_is_a_durable_generic_strategy_fork() -> Result<(), Box<dyn Error>>
     assert_ne!(explore_count.0, explore_count.1);
 
     assert!(comparison.timeline.changed.iter().any(|event| {
-        event.left.title == "World posture chosen"
-            && event.right.title == "World posture chosen"
+        event.left.title == "World Posture Chosen"
+            && event.right.title == "World Posture Chosen"
             && event.left.subtitle != event.right.subtitle
     }));
 
