@@ -29,7 +29,11 @@ replace_exact(
     "apps/world-machine-desktop/src/included_packs.rs",
     'version: "0.12.0"',
     'version: "0.13.0"',
-    expected=2,
+)
+replace_exact(
+    "apps/world-machine-desktop/src/included_packs.rs",
+    'assert_eq!(packs[0].pack.version, "0.12.0");',
+    'assert_eq!(packs[0].pack.version, "0.13.0");',
 )
 replace_exact(
     "apps/world-machine-desktop/src/included_packs.rs",
