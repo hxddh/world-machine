@@ -201,11 +201,7 @@ impl StrategyComparisonView {
             + comparison.commands.changed.len();
 
         let mut entities = div().flex().flex_col().gap_2();
-        for difference in comparison
-            .entities
-            .iter()
-            .take(ENTITY_DIFFERENCE_LIMIT)
-        {
+        for difference in comparison.entities.iter().take(ENTITY_DIFFERENCE_LIMIT) {
             entities = entities.child(self.render_entity_difference(difference));
         }
         if comparison.entities.is_empty() {
@@ -682,17 +678,11 @@ fn hidden_notice(total: usize, limit: usize, noun: &str) -> Option<String> {
 }
 
 fn hidden_after_group_limits(counts: &[usize], limit: usize) -> usize {
-    counts
-        .iter()
-        .map(|count| count.saturating_sub(limit))
-        .sum()
+    counts.iter().map(|count| count.saturating_sub(limit)).sum()
 }
 
 fn truncation_notice(message: String) -> Div {
-    div()
-        .text_xs()
-        .text_color(rgb(0x777777))
-        .child(message)
+    div().text_xs().text_color(rgb(0x777777)).child(message)
 }
 
 fn summary_chip(label: &str, count: usize) -> Div {
