@@ -1,6 +1,7 @@
 use crate::{
     seed_id, BOLD_PATH_COMMAND, CAREFUL_PATH_COMMAND, DECISION, GENERATION, LAST_CHANGE,
-    NUDGE_COMMAND, RELATIONSHIP, RELATIONSHIP_DIRECTION, RELATIONSHIP_SOCIAL_ARC, RIVALRY_COMMAND,
+    NUDGE_COMMAND, RELATIONSHIP, RELATIONSHIP_DIRECTION, RELATIONSHIP_LAST_DYNAMIC,
+    RELATIONSHIP_SOCIAL_ARC, RELATIONSHIP_TENSION, RELATIONSHIP_TRUST, RIVALRY_COMMAND,
     SEED_1980S_TOWN_COMMAND, SEED_MARS_COLONY_COMMAND, SEED_PENGUIN_CIVILIZATION_COMMAND,
     SHARED_PROJECT_COMMAND, UNIVERSE,
 };
@@ -217,16 +218,18 @@ fn briefing(world: &World, seeded: bool, since_event_count: Option<usize>) -> Br
 
     if let Some(since) = since_event_count.filter(|since| *since < world.events().len()) {
         let events = &world.events()[since..];
+        let mut items = events
+            .iter()
+            .rev()
+            .filter(|event| event.kind != "agent_decision_recorded")
+            .take(3)
+            .map(return_item)
+            .collect::<Vec<_>>();
+        items.extend(persistent_consequence_items(world));
         return BriefingProjection {
             eyebrow: format!("Pocket Universe · {}", seed_label(seed_id(world))),
             title: "While you were away".into(),
-            items: events
-                .iter()
-                .rev()
-                .filter(|event| event.kind != "agent_decision_recorded")
-                .take(3)
-                .map(return_item)
-                .collect(),
+            items,
         };
     }
 
@@ -256,6 +259,7 @@ fn briefing(world: &World, seeded: bool, since_event_count: Option<usize>) -> Br
             detail: guidance_detail.into(),
         });
     }
+    items.extend(persistent_consequence_items(world));
 
     BriefingProjection {
         eyebrow: format!("Pocket Universe · {}", seed_label(seed_id(world))),
@@ -331,6 +335,102 @@ fn live_stage_copy(
             )),
         ),
         _ => (format!("Generation {generation}"), None),
+    }
+}
+
+fn persistent_consequence_items(world: &World) -> Vec<BriefingItem> {
+    let mut items = Vec::new();
+    let decision = text_component(world.state().entity(UNIVERSE), DECISION, "none");
+    if let Some((title, detail)) = intervention_influence_copy(&decision) {
+        items.push(BriefingItem {
+            selection: Some(SelectionId::Entity(UNIVERSE)),
+            title: title.into(),
+            detail: detail.into(),
+        });
+    }
+    if let Some(item) = relationship_consequence_item(world) {
+        items.push(item);
+    }
+    items
+}
+
+fn intervention_influence_copy(decision: &str) -> Option<(&'static str, &'static str)> {
+    match decision {
+        "follow-signal" => Some((
+            "Your influence · Signal expedition",
+            "Kestrel's signal expedition is still pulling the colony beyond the safe ridge.",
+        )),
+        "fortify-habitat" => Some((
+            "Your influence · Fortified habitat",
+            "Ares Habitat's stronger shell is making every later risk feel more deliberate.",
+        )),
+        "community-arcade" => Some((
+            "Your influence · Community arcade",
+            "Maple Arcade is becoming a place the neighborhood organizes its evenings around.",
+        )),
+        "steady-business" => Some((
+            "Your influence · Steady business",
+            "Maple Arcade is surviving by staying small, predictable, and open.",
+        )),
+        "winter-feast" => Some((
+            "Your influence · Winter feast",
+            "The feast is still turning Icebridge into a meeting point for distant colonies.",
+        )),
+        "conserve-reserves" => Some((
+            "Your influence · Conserved reserves",
+            "The sealed Fish Vault is still giving the council more room to plan for the dark season.",
+        )),
+        "none" => None,
+        _ => Some((
+            "Your influence",
+            "An earlier intervention is still shaping what this World becomes.",
+        )),
+    }
+}
+
+fn relationship_consequence_item(world: &World) -> Option<BriefingItem> {
+    let relationship = world.state().entity(RELATIONSHIP);
+    let direction = text_component(relationship, RELATIONSHIP_DIRECTION, "none");
+    let social_arc = text_component(relationship, RELATIONSHIP_SOCIAL_ARC, "forming");
+    let trust = integer_entity_component(relationship, RELATIONSHIP_TRUST).unwrap_or_default();
+    let tension = integer_entity_component(relationship, RELATIONSHIP_TENSION).unwrap_or_default();
+    let last_dynamic = text_component(relationship, RELATIONSHIP_LAST_DYNAMIC, "");
+
+    let (title, meaning) = match social_arc.as_str() {
+        "partnership" => (
+            "Partnership formed",
+            "This relationship has resolved into a durable partnership.",
+        ),
+        "fracture" => (
+            "Relationship fractured",
+            "This relationship has resolved into a durable fracture.",
+        ),
+        "forming" if direction == "shared-project" => (
+            "Relationship · Shared project",
+            "Your shared-project choice is still shaping how they act together.",
+        ),
+        "forming" if direction == "rivalry" => (
+            "Relationship · Rivalry",
+            "Your rivalry choice is still adding pressure to how they respond to each other.",
+        ),
+        _ => return None,
+    };
+    let detail = if last_dynamic.trim().is_empty() {
+        format!("{meaning} Trust {trust} · tension {tension}.")
+    } else {
+        format!("{meaning} Trust {trust} · tension {tension}. {last_dynamic}")
+    };
+    Some(BriefingItem {
+        selection: Some(SelectionId::Entity(RELATIONSHIP)),
+        title: title.into(),
+        detail,
+    })
+}
+
+fn integer_entity_component(entity: Option<&Entity>, key: &str) -> Option<i64> {
+    match entity.and_then(|entity| entity.component(key)) {
+        Some(Value::Integer(value)) => Some(*value),
+        _ => None,
     }
 }
 
