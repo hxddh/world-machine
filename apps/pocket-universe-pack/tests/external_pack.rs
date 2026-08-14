@@ -1,6 +1,7 @@
 use pocket_universe::{
-    BOLD_PATH_COMMAND, POCKET_UNIVERSE_PACK_ID, POCKET_UNIVERSE_PACK_VERSION,
-    SEED_MARS_COLONY_COMMAND,
+    BOLD_PATH_COMMAND, OUTWARD_POSTURE_COMMAND, POCKET_UNIVERSE_PACK_ID,
+    POCKET_UNIVERSE_PACK_VERSION, ROOTED_POSTURE_COMMAND, SEED_MARS_COLONY_COMMAND,
+    SHARED_PROJECT_COMMAND,
 };
 use std::env;
 use std::fs;
@@ -144,6 +145,40 @@ fn pocket_universe_is_a_real_external_pack_with_durable_seed_and_growth() {
     assert!(briefing.items.iter().any(|item| {
         item.title == "Your influence · Signal expedition" && item.detail.contains("safe ridge")
     }));
+
+    session
+        .handle(ProjectionIntent::InvokeCommand(
+            SHARED_PROJECT_COMMAND.into(),
+        ))
+        .unwrap();
+    let second_arc = session.advance_background(3).unwrap();
+    assert_eq!(
+        second_arc.briefing.as_ref().unwrap().title,
+        "While you were away"
+    );
+    assert!(second_arc
+        .commands
+        .iter()
+        .any(|command| command.id == OUTWARD_POSTURE_COMMAND));
+    assert!(second_arc
+        .commands
+        .iter()
+        .any(|command| command.id == ROOTED_POSTURE_COMMAND));
+    let directed = session
+        .handle(ProjectionIntent::InvokeCommand(
+            OUTWARD_POSTURE_COMMAND.into(),
+        ))
+        .unwrap();
+    assert!(directed
+        .briefing
+        .as_ref()
+        .unwrap()
+        .items
+        .iter()
+        .any(|item| {
+            item.title == "World direction · Outward"
+                && item.detail.contains("Nia keeps looking outward")
+        }));
 
     let archive = session.archive().unwrap().unwrap();
     assert!(archive
