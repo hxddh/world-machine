@@ -1,6 +1,8 @@
 use gpui::{div, prelude::*, px, rgb, Context, Div, Render, Styled, Window};
-use world_compare::{ChangedTimelineItem, DifferenceKind, EntityDifference, SnapshotComparison};
-use world_projection::{ProjectionSnapshot, TimelineItem};
+use world_compare::{
+    ChangedCommand, ChangedTimelineItem, DifferenceKind, EntityDifference, SnapshotComparison,
+};
+use world_projection::{ProjectionCommand, ProjectionSnapshot, TimelineItem};
 use world_strategy::{StrategyEvaluation, StrategyRun};
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -226,6 +228,31 @@ impl StrategyComparisonView {
             );
         }
 
+        let mut commands = div().flex().flex_col().gap_2();
+        for command in &comparison.commands.left_only {
+            commands = commands.child(self.render_command(
+                &format!("Left only · {}", self.left_label),
+                command,
+            ));
+        }
+        for command in &comparison.commands.right_only {
+            commands = commands.child(self.render_command(
+                &format!("Right only · {}", self.right_label),
+                command,
+            ));
+        }
+        for command in &comparison.commands.changed {
+            commands = commands.child(self.render_changed_command(command));
+        }
+        if command_changes == 0 {
+            commands = commands.child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0x777777))
+                    .child("No available-action differences"),
+            );
+        }
+
         div()
             .w(px(520.0))
             .p_4()
@@ -264,6 +291,8 @@ impl StrategyComparisonView {
             .child(entities)
             .child(div().text_sm().child("Timeline"))
             .child(timeline)
+            .child(div().text_sm().child("Available actions"))
+            .child(commands)
     }
 
     fn render_timeline_item(&self, relation: &str, item: &TimelineItem) -> Div {
@@ -344,6 +373,89 @@ impl StrategyComparisonView {
                         self.right_label, item.right.world_time
                     )))
                     .child(div().text_xs().child(right_detail)),
+            )
+    }
+
+    fn render_command(&self, relation: &str, command: &ProjectionCommand) -> Div {
+        div()
+            .p_3()
+            .rounded_md()
+            .bg(rgb(0xffffff))
+            .border_1()
+            .border_color(rgb(0xe2e4e8))
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(
+                div()
+                    .flex()
+                    .justify_between()
+                    .gap_2()
+                    .child(div().text_sm().child(command.title.clone()))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(0x777777))
+                            .child(relation.to_string()),
+                    ),
+            )
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0x555555))
+                    .child(command.detail.clone()),
+            )
+    }
+
+    fn render_changed_command(&self, command: &ChangedCommand) -> Div {
+        let title = if command.left.title == command.right.title {
+            command.left.title.clone()
+        } else {
+            format!("{} → {}", command.left.title, command.right.title)
+        };
+
+        div()
+            .p_3()
+            .rounded_md()
+            .bg(rgb(0xffffff))
+            .border_1()
+            .border_color(rgb(0xe2e4e8))
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(
+                div()
+                    .flex()
+                    .justify_between()
+                    .gap_2()
+                    .child(div().text_sm().child(title))
+                    .child(div().text_xs().text_color(rgb(0x777777)).child("Changed")),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(0x4e6fb3))
+                            .child(format!("Left · {}", self.left_label)),
+                    )
+                    .child(div().text_xs().child(command.left.detail.clone())),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(0x4e6fb3))
+                            .child(format!("Right · {}", self.right_label)),
+                    )
+                    .child(div().text_xs().child(command.right.detail.clone())),
             )
     }
 
