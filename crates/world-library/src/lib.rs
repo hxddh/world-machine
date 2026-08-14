@@ -168,7 +168,7 @@ impl WorldLibrary {
     ) -> Result<Option<SystemTime>, LibraryError> {
         for path in [self.path(id), self.legacy_path(id)] {
             match fs::metadata(path) {
-                Ok(metadata) => return Ok(Some(metadata.modified()?)),
+                Ok(metadata) => return Ok(metadata.modified().ok()),
                 Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
                 Err(error) => return Err(LibraryError::Io(error)),
             }
