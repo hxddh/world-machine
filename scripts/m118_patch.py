@@ -90,7 +90,7 @@ fn lineage_child_preview(children: &[WorldDocumentId]) -> (&[WorldDocumentId], u
 text = replace_once(
     text,
     '''    #[test]
-    fn semantic_world_titles_prefer_document_metadata() {''',
+    fn world_summary_title_prefers_semantic_title_and_falls_back_cleanly() {''',
     '''    #[test]
     fn lineage_child_preview_is_bounded_without_losing_total_count() {
         let children = (0..6)
@@ -105,7 +105,7 @@ text = replace_once(
     }
 
     #[test]
-    fn semantic_world_titles_prefer_document_metadata() {''',
+    fn world_summary_title_prefers_semantic_title_and_falls_back_cleanly() {''',
     "lineage preview regression",
 )
 path.write_text(text)
