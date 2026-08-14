@@ -4,7 +4,7 @@ use pocket_universe::{
 };
 use std::error::Error;
 use world_compare::{compare_snapshots, DifferenceKind, EntityDifference};
-use world_core::Value;
+use world_persistence::ArchivedValue;
 
 fn row<'a>(difference: &'a EntityDifference, label: &str) -> Option<(&'a str, &'a str)> {
     let row = difference
@@ -50,10 +50,10 @@ fn legacy_forms_after_lived_posture_and_survives_reopen() -> Result<(), Box<dyn 
         .expect("legacy should form after three lived periods under the posture");
     assert_eq!(
         legacy.payload.get("legacy"),
-        Some(&Value::Text("ridge-network".into()))
+        Some(&ArchivedValue::Text("ridge-network".into()))
     );
     let summary = match legacy.payload.get("summary") {
-        Some(Value::Text(summary)) => summary,
+        Some(ArchivedValue::Text(summary)) => summary,
         other => panic!("expected semantic legacy summary, got {other:?}"),
     };
     assert!(summary.contains("signal expedition"));
@@ -94,7 +94,7 @@ fn legacy_forms_after_lived_posture_and_survives_reopen() -> Result<(), Box<dyn 
         .find(|event| event.kind == "universe_grew")
         .expect("the reopened World should keep growing");
     let change = match growth.payload.get("change") {
-        Some(Value::Text(change)) => change,
+        Some(ArchivedValue::Text(change)) => change,
         other => panic!("expected growth change text, got {other:?}"),
     };
     assert!(change.contains("ridge network"));
