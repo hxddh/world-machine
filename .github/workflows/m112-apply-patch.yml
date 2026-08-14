@@ -5,7 +5,7 @@ on:
     branches:
       - agent/m112-pocket-universe-emergent-legacy
     paths:
-      - scripts/m112_patch.py
+      - scripts/m112-trigger
 
 permissions:
   contents: write
