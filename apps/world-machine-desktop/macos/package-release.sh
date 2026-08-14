@@ -89,7 +89,7 @@ manifest = {
 Path(manifest_path).write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
 PY
 
-python3 "$ROOT_DIR/scripts/publish_github_prerelease.py" --dry-run "$OUTPUT_DIR"
+python3 "$ROOT_DIR/scripts/validate_release_package.py" "$OUTPUT_DIR"
 
 echo "$ZIP_PATH"
 echo "$CHECKSUM_PATH"
