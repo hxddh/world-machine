@@ -336,12 +336,12 @@ fn inspector_for_event(event: &Event, world: &World) -> InspectorProjection {
 }
 
 fn semantic_event_summary(event: &Event) -> Option<&str> {
-    ["summary", "change"].into_iter().find_map(|key| {
-        match event.payload.get(key) {
+    ["summary", "change"]
+        .into_iter()
+        .find_map(|key| match event.payload.get(key) {
             Some(Value::Text(value)) if !value.trim().is_empty() => Some(value.as_str()),
             _ => None,
-        }
-    })
+        })
 }
 
 pub(crate) fn event_summary(event: &Event, world: &World) -> String {
@@ -428,7 +428,9 @@ mod tests {
     fn timeline_surfaces_semantic_event_payload_without_domain_knowledge() {
         let mut state = WorldState::default();
         state
-            .seed_entity(Entity::new(EntityId::new(1), "workspace").with_component("name", "Workspace"))
+            .seed_entity(
+                Entity::new(EntityId::new(1), "workspace").with_component("name", "Workspace"),
+            )
             .unwrap();
         let world = World::from_history(
             state,
@@ -441,7 +443,10 @@ mod tests {
                 caused_by: vec![],
                 payload: BTreeMap::from([
                     ("change".into(), Value::Text("fallback detail".into())),
-                    ("summary".into(), Value::Text("A durable direction was chosen.".into())),
+                    (
+                        "summary".into(),
+                        Value::Text("A durable direction was chosen.".into()),
+                    ),
                 ]),
                 changes: vec![],
             }],
