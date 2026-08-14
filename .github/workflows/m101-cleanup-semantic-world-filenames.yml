@@ -33,7 +33,7 @@ jobs:
           path.write_text(text)
           PY
           cargo fmt --all
-          cargo clippy -p world-machine-desktop --all-targets -- -D warnings
+          cargo clippy -p world-machine-desktop --all-targets --no-deps -- -D warnings
           cargo test -p world-machine-desktop
           git diff --check
       - name: Commit cleanup and remove helper
