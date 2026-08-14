@@ -53,6 +53,8 @@ use world_persistence::WorldPackRef;
 const LIBRARY_OVERRIDE_ENV: &str = "WORLD_MACHINE_LIBRARY_DIR";
 #[cfg(target_os = "macos")]
 const PACK_CATALOG_OVERRIDE_ENV: &str = "WORLD_MACHINE_PACK_CATALOG";
+#[cfg(target_os = "macos")]
+const LINEAGE_CHILD_PREVIEW_LIMIT: usize = 4;
 
 #[cfg(target_os = "macos")]
 static LIBRARY_CHANGE_REVISION: AtomicU64 = AtomicU64::new(0);
@@ -1251,7 +1253,8 @@ impl WorldMachineHome {
                         .text_color(rgb(0x777770))
                         .child(format!("Branches · {}", node.children.len())),
                 );
-                for child_id in &node.children {
+                let (visible_children, hidden_children) = lineage_child_preview(&node.children);
+                for child_id in visible_children {
                     let child_label = child_id.to_string();
                     let child_title = self
                         .document_title_for_id(child_id)
@@ -1282,6 +1285,11 @@ impl WorldMachineHome {
                                 this.open_document(open_child.clone(), cx)
                             })),
                     );
+                }
+                if hidden_children > 0 {
+                    branches = branches.child(div().text_xs().text_color(rgb(0x777770)).child(
+                        format!("+{hidden_children} more branches · listed as their own Worlds"),
+                    ));
                 }
                 details = details.child(branches);
             }
@@ -2055,6 +2063,12 @@ fn world_summary_description(document: &WorldDocumentSummary) -> Option<String> 
 }
 
 #[cfg(target_os = "macos")]
+fn lineage_child_preview(children: &[WorldDocumentId]) -> (&[WorldDocumentId], usize) {
+    let visible = children.len().min(LINEAGE_CHILD_PREVIEW_LIMIT);
+    (&children[..visible], children.len() - visible)
+}
+
+#[cfg(target_os = "macos")]
 fn document_window_title(document_label: &str) -> String {
     format!("{document_label} — World Machine")
 }
@@ -2312,6 +2326,19 @@ mod file_type_tests {
         assert_eq!(success.tone, HomeStatusTone::Success);
         assert_eq!(error.tone, HomeStatusTone::Error);
         assert_eq!(info.message, "Could not-looking informational text");
+    }
+
+    #[test]
+    fn lineage_child_preview_is_bounded_without_losing_total_count() {
+        let children = (0..6)
+            .map(|index| WorldDocumentId::new(format!("child-{index}")).unwrap())
+            .collect::<Vec<_>>();
+        let (visible, hidden) = lineage_child_preview(&children);
+
+        assert_eq!(visible.len(), LINEAGE_CHILD_PREVIEW_LIMIT);
+        assert_eq!(visible[0].as_str(), "child-0");
+        assert_eq!(visible[3].as_str(), "child-3");
+        assert_eq!(hidden, 2);
     }
 
     #[test]
