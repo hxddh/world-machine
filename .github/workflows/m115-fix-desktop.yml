@@ -1,0 +1,45 @@
+name: M115 fix desktop summary fixture
+
+on:
+  push:
+    branches:
+      - agent/m115-durable-library-summary
+    paths:
+      - scripts/m115-fix-trigger
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/m115-durable-library-summary
+      - name: Patch saved comparison fixture
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("apps/world-machine-desktop/src/saved_compare.rs")
+          text = path.read_text()
+          old = '''            display_title: display_title.map(str::to_owned),
+            world_time: 10,'''
+          new = '''            display_title: display_title.map(str::to_owned),
+            display_summary: Some("Current durable branch state".into()),
+            world_time: 10,'''
+          if text.count(old) != 1:
+              raise SystemExit(f"expected one saved compare fixture, found {text.count(old)}")
+          path.write_text(text.replace(old, new, 1))
+          PY
+          cargo fmt --all
+      - name: Commit fixture fix
+        shell: bash
+        run: |
+          git config user.name "world-machine-m115"
+          git config user.email "actions@users.noreply.github.com"
+          git add apps/world-machine-desktop/src/saved_compare.rs
+          git diff --cached --quiet && { echo "fixture patch produced no changes" >&2; exit 1; }
+          git commit -m "M115: cover saved comparison document summaries"
+          git push origin HEAD:agent/m115-durable-library-summary
