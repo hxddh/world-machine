@@ -1,9 +1,10 @@
 use crate::{
-    seed_id, BOLD_PATH_COMMAND, CAREFUL_PATH_COMMAND, DECISION, GENERATION, LAST_CHANGE,
-    NUDGE_COMMAND, OUTWARD_POSTURE_COMMAND, POSTURE, RELATIONSHIP, RELATIONSHIP_DIRECTION,
-    RELATIONSHIP_LAST_DYNAMIC, RELATIONSHIP_SOCIAL_ARC, RELATIONSHIP_TENSION, RELATIONSHIP_TRUST,
-    RIVALRY_COMMAND, ROOTED_POSTURE_COMMAND, SEED_1980S_TOWN_COMMAND, SEED_MARS_COLONY_COMMAND,
-    SEED_PENGUIN_CIVILIZATION_COMMAND, SHARED_PROJECT_COMMAND, UNIVERSE,
+    seed_id, BOLD_PATH_COMMAND, CAREFUL_PATH_COMMAND, DECISION, GENERATION, LAST_CHANGE, LEGACY,
+    LEGACY_SUMMARY, NUDGE_COMMAND, OUTWARD_POSTURE_COMMAND, POSTURE, RELATIONSHIP,
+    RELATIONSHIP_DIRECTION, RELATIONSHIP_LAST_DYNAMIC, RELATIONSHIP_SOCIAL_ARC,
+    RELATIONSHIP_TENSION, RELATIONSHIP_TRUST, RIVALRY_COMMAND, ROOTED_POSTURE_COMMAND,
+    SEED_1980S_TOWN_COMMAND, SEED_MARS_COLONY_COMMAND, SEED_PENGUIN_CIVILIZATION_COMMAND,
+    SHARED_PROJECT_COMMAND, UNIVERSE,
 };
 use world_core::{Entity, Event, Value, World};
 use world_projection::{
@@ -445,6 +446,9 @@ fn persistent_consequence_items(world: &World) -> Vec<BriefingItem> {
     if let Some(item) = posture_consequence_item(world) {
         items.push(item);
     }
+    if let Some(item) = legacy_consequence_item(world) {
+        items.push(item);
+    }
     items
 }
 
@@ -531,6 +535,38 @@ fn posture_consequence_item(world: &World) -> Option<BriefingItem> {
     })
 }
 
+fn legacy_consequence_item(world: &World) -> Option<BriefingItem> {
+    let legacy = text_component(world.state().entity(UNIVERSE), LEGACY, "forming");
+    if legacy == "forming" {
+        return None;
+    }
+    let summary = text_component(
+        world.state().entity(UNIVERSE),
+        LEGACY_SUMMARY,
+        "This World now carries a durable legacy from its earlier choices.",
+    );
+    Some(BriefingItem {
+        selection: Some(SelectionId::Entity(UNIVERSE)),
+        title: format!("World legacy · {}", legacy_label(&legacy)),
+        detail: summary,
+    })
+}
+
+fn legacy_label(legacy: &str) -> String {
+    legacy
+        .split('-')
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            let mut chars = part.chars();
+            match chars.next() {
+                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 fn relationship_consequence_item(world: &World) -> Option<BriefingItem> {
     let relationship = world.state().entity(RELATIONSHIP);
     let direction = text_component(relationship, RELATIONSHIP_DIRECTION, "none");
@@ -597,6 +633,7 @@ fn return_item(event: &Event) -> BriefingItem {
             "relationship_steered" => "You steered their relationship".into(),
             "partnership_formed" => "A partnership formed".into(),
             "relationship_fractured" => "Their relationship fractured".into(),
+            "world_legacy_formed" => "A world legacy formed".into(),
             _ => event.kind.replace('_', " "),
         },
         detail,
