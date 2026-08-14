@@ -1,0 +1,36 @@
+name: M114 apply legacy continuation patch
+
+on:
+  push:
+    branches:
+      - agent/m114-legacy-aware-continuation
+    paths:
+      - scripts/m114-trigger
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/m114-legacy-aware-continuation
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Apply source and version patch
+        run: python scripts/m114_patch.py
+      - name: Refresh lockfile and format
+        shell: bash
+        run: |
+          cargo check -p pocket-universe-pack
+          cargo fmt --all
+      - name: Commit product changes
+        shell: bash
+        run: |
+          git config user.name "world-machine-m114"
+          git config user.email "actions@users.noreply.github.com"
+          git add Cargo.lock worlds/pocket-universe/src/projection.rs worlds/pocket-universe/src/lib.rs worlds/pocket-universe/Cargo.toml apps/pocket-universe-pack/Cargo.toml apps/world-machine-desktop/src/included_packs.rs
+          git diff --cached --quiet && { echo "patch produced no product changes" >&2; exit 1; }
+          git commit -m "M114: make legacy continuation action durable-aware"
+          git push origin HEAD:agent/m114-legacy-aware-continuation
