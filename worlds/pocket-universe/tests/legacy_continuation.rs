@@ -17,7 +17,8 @@ fn second_chapter_source() -> Result<PocketUniverse, Box<dyn Error>> {
 }
 
 #[test]
-fn durable_legacy_changes_how_the_same_continuation_action_is_presented() -> Result<(), Box<dyn Error>> {
+fn durable_legacy_changes_how_the_same_continuation_action_is_presented(
+) -> Result<(), Box<dyn Error>> {
     let source = second_chapter_source()?;
     let common_archive = source.archive()?;
 
