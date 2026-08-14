@@ -1,0 +1,77 @@
+name: Pre-alpha Package
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*-pre.*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prerelease-package-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  macos-prealpha:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-macos
+
+      - name: Validate release tag
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          VERSION="$(cargo metadata --no-deps --format-version 1 | python3 -c '
+          import json, sys
+          metadata = json.load(sys.stdin)
+          for package in metadata["packages"]:
+              if package["name"] == "world-machine-desktop":
+                  print(package["version"])
+                  break
+          else:
+              raise SystemExit("world-machine-desktop package not found")
+          ')"
+          python3 - "$GITHUB_REF_NAME" "$VERSION" <<'PY'
+          import re
+          import sys
+
+          tag, version = sys.argv[1:]
+          if not re.fullmatch(rf"v{re.escape(version)}-pre\.([1-9][0-9]*)", tag):
+              raise SystemExit(
+                  f"release tag {tag!r} must match app version {version!r} as "
+                  f"v{version}-pre.N with N >= 1"
+              )
+          PY
+
+      - name: Test release-critical macOS paths
+        run: |
+          cargo test -p world-library
+          cargo test -p pocket-universe-pack
+          cargo test -p micro-company-pack
+          cargo test -p world-machine-desktop
+
+      - name: Build and validate World Machine.app
+        run: bash apps/world-machine-desktop/macos/build-app.sh
+
+      - name: Package pre-alpha build
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+              export WORLD_MACHINE_RELEASE_TAG="$GITHUB_REF_NAME"
+          fi
+          bash apps/world-machine-desktop/macos/package-release.sh
+
+      - name: Validate publishable tag package
+        if: startsWith(github.ref, 'refs/tags/')
+        run: python3 scripts/validate_release_package.py --publishing target/release-package
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: world-machine-prealpha-package
+          path: target/release-package/*
+          if-no-files-found: error
+          retention-days: 14

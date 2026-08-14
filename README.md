@@ -52,6 +52,14 @@ Build the distributable app bundle, including the fixed official external `.worl
 bash apps/world-machine-desktop/macos/build-app.sh
 ```
 
+Create a validated pre-alpha package (`.app.zip`, SHA-256, and release manifest):
+
+```bash
+bash apps/world-machine-desktop/macos/package-release.sh
+```
+
+The current pre-alpha package is **ad-hoc signed and not notarized**. It is an experimental distribution artifact, not a production-signed macOS release. The package manifest records the exact commit, architecture, included external Packs, checksum, signing mode, and notarization status. See [docs/PRE_ALPHA_RELEASES.md](docs/PRE_ALPHA_RELEASES.md).
+
 A source-tree `cargo run` does not invent or scan for included Packs. The packaged app discovers only the fixed `Contents/Resources/World Packs` allowlist (or an explicit development override), and installation still requires user review of the exact executable identity and SHA-256.
 
 The packaged macOS app owns both `io.github.hxddh.world-machine.world` (`.world`) and `io.github.hxddh.world-machine.worldpack` (`.worldpack`). `.world` opens as a World document; `.worldpack` opens only as a Pack installation review.
