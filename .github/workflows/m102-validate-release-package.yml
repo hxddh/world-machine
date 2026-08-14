@@ -1,0 +1,49 @@
+name: M102 validate pre-alpha package
+
+on:
+  push:
+    branches:
+      - m102-pre-alpha-release
+    paths:
+      - '.github/workflows/m102-validate-release-package.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: m102-release-package
+      - name: Build and package pre-alpha app
+        run: |
+          bash apps/world-machine-desktop/macos/build-app.sh
+          bash apps/world-machine-desktop/macos/package-release.sh
+          python3 scripts/validate_release_package.py target/release-package
+          if python3 scripts/validate_release_package.py --publishing target/release-package; then
+              echo "pre.0 must remain non-publishable" >&2
+              exit 1
+          fi
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          package = Path('target/release-package')
+          manifest = json.loads((package / 'release-manifest.json').read_text())
+          assert manifest['tag'].endswith('-pre.0')
+          assert manifest['signing'] == 'ad-hoc'
+          assert manifest['notarized'] is False
+          assert manifest['architectures']
+          assert sorted(manifest['included_packs']) == [
+              'micro-company.worldpack',
+              'pocket-universe.worldpack',
+          ]
+          artifact = package / manifest['artifact']
+          assert artifact.is_file() and artifact.stat().st_size > 0
+          assert (package / f"{artifact.name}.sha256").is_file()
+          PY
+          git diff --check
