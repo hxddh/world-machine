@@ -205,7 +205,8 @@ impl WorldDocumentView {
     }
 
     fn save_as(&mut self, cx: &mut Context<Self>) {
-        let suggested_name = canonical_world_name(&self.document_label);
+        let semantic_title = self.document.borrow().session.snapshot().title;
+        let suggested_name = suggested_world_file_name(&semantic_title, &self.document_label);
         let save_dialog = cx.prompt_for_new_path(&PathBuf::default(), Some(&suggested_name));
         cx.spawn(async move |this, cx| {
             let destination = match save_dialog.await {
@@ -1069,11 +1070,17 @@ impl WorldMachineHome {
     }
 
     fn export_document(&mut self, document_id: WorldDocumentId, cx: &mut Context<Self>) {
-        let suggested_name = format!("{}{WORLD_DOCUMENT_SUFFIX}", document_id.as_str());
+        let semantic_title = self
+            .documents
+            .iter()
+            .find(|document| document.id == document_id)
+            .and_then(|document| document.display_title.as_deref())
+            .unwrap_or_default();
+        let suggested_name = suggested_world_file_name(semantic_title, document_id.as_str());
         let save_dialog = cx.prompt_for_new_path(&PathBuf::default(), Some(&suggested_name));
         cx.spawn(async move |this, cx| {
             let destination = match save_dialog.await {
-                Ok(Ok(Some(path))) => path,
+                Ok(Ok(Some(path))) => canonical_world_path(path),
                 Ok(Ok(None)) => return,
                 Ok(Err(error)) => {
                     let _ = this.update(cx, |this, cx| {
@@ -2185,14 +2192,32 @@ fn sanitize_document_base(value: &str) -> String {
 }
 
 #[cfg(target_os = "macos")]
-fn canonical_world_name(label: &str) -> String {
-    if label.ends_with(WORLD_DOCUMENT_SUFFIX) {
-        label.to_owned()
-    } else if let Some(base) = label.strip_suffix(LEGACY_WORLD_DOCUMENT_SUFFIX) {
-        format!("{base}{WORLD_DOCUMENT_SUFFIX}")
+fn suggested_world_file_name(semantic_title: &str, fallback_label: &str) -> String {
+    let semantic_title = semantic_title.trim();
+    let source = if semantic_title.is_empty() {
+        fallback_label
     } else {
-        format!("{label}{WORLD_DOCUMENT_SUFFIX}")
-    }
+        semantic_title
+    };
+    let source = source
+        .strip_suffix(LEGACY_WORLD_DOCUMENT_SUFFIX)
+        .or_else(|| source.strip_suffix(WORLD_DOCUMENT_SUFFIX))
+        .unwrap_or(source);
+    let stem = source
+        .chars()
+        .map(|ch| {
+            if ch.is_control() || matches!(ch, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|')
+            {
+                '-'
+            } else {
+                ch
+            }
+        })
+        .take(80)
+        .collect::<String>();
+    let stem = stem.trim_matches(|ch: char| ch.is_whitespace() || matches!(ch, '.' | '-'));
+    let stem = if stem.is_empty() { "World" } else { stem };
+    format!("{stem}{WORLD_DOCUMENT_SUFFIX}")
 }
 
 #[cfg(target_os = "macos")]
@@ -2291,6 +2316,30 @@ mod file_type_tests {
         assert_eq!(
             world_summary_title(&summary, "Pocket Universe"),
             "Pocket Universe"
+        );
+    }
+
+    #[test]
+    fn suggested_world_file_name_prefers_semantic_unicode_title() {
+        assert_eq!(
+            suggested_world_file_name("  Maple Street · 1987  ", "pocket-universe-42"),
+            "Maple Street · 1987.world"
+        );
+        assert_eq!(
+            suggested_world_file_name("Ares / Ice: Colony?", "pocket-universe-42"),
+            "Ares - Ice- Colony.world"
+        );
+    }
+
+    #[test]
+    fn suggested_world_file_name_falls_back_to_durable_identity() {
+        assert_eq!(
+            suggested_world_file_name("   ", "pocket-universe-42"),
+            "pocket-universe-42.world"
+        );
+        assert_eq!(
+            suggested_world_file_name("", "legacy.world.json"),
+            "legacy.world"
         );
     }
 
