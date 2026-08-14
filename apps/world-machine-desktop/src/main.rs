@@ -1,4 +1,6 @@
 #[cfg(target_os = "macos")]
+mod build_info;
+#[cfg(target_os = "macos")]
 mod included_packs;
 #[cfg(target_os = "macos")]
 mod observer;
@@ -1911,6 +1913,12 @@ impl Render for WorldMachineHome {
                             .text_sm()
                             .text_color(rgb(0x666666))
                             .child("Persistent worlds that remember, evolve, and branch."),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(0x8a8a82))
+                            .child(build_info::display_label()),
                     ),
             )
             .child(

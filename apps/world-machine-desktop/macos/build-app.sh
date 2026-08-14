@@ -17,6 +17,15 @@ PLIST_TEMPLATE="$SCRIPT_DIR/Info.plist.in"
 BINARY_NAME="world-machine-desktop"
 INCLUDED_PACK_DIR="$APP_DIR/Contents/Resources/World Packs"
 
+if [[ -n "${WORLD_MACHINE_BUILD_COMMIT:-}" ]]; then
+    BUILD_COMMIT="$WORLD_MACHINE_BUILD_COMMIT"
+elif [[ -n "${GITHUB_SHA:-}" ]]; then
+    BUILD_COMMIT="${GITHUB_SHA:0:12}"
+else
+    BUILD_COMMIT="$(git rev-parse --short=12 HEAD 2>/dev/null || printf 'unknown')"
+fi
+export WORLD_MACHINE_BUILD_COMMIT="$BUILD_COMMIT"
+
 case "$PROFILE" in
     release)
         cargo build \
