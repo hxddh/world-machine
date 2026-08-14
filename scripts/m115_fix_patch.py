@@ -7,7 +7,7 @@ pattern = re.compile(
     r'''replace_once\(\n    "apps/world-machine-desktop/src/main\.rs",\n.*?\n    "library summary helper",\n\)\n''',
     re.DOTALL,
 )
-replacement = r'''replace_once(
+replacement = r"""replace_once(
     "apps/world-machine-desktop/src/main.rs",
     '''#[cfg(target_os = "macos")]
 fn world_summary_title(document: &WorldDocumentSummary, pack_title: &str) -> String {
@@ -43,7 +43,7 @@ fn world_summary_description(document: &WorldDocumentSummary) -> Option<String> 
 ''',
     "library summary helper",
 )
-'''
+"""
 updated, count = pattern.subn(replacement, text, count=1)
 if count != 1:
     raise SystemExit(f"expected one library summary helper patch call, found {count}")
