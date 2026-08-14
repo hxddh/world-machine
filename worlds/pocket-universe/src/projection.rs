@@ -545,8 +545,15 @@ fn legacy_consequence_item(world: &World) -> Option<BriefingItem> {
         LEGACY_SUMMARY,
         "This World now carries a durable legacy from its earlier choices.",
     );
+    let selection = world
+        .events()
+        .iter()
+        .rev()
+        .find(|event| event.kind == "world_legacy_formed")
+        .map(|event| SelectionId::Event(event.id))
+        .unwrap_or(SelectionId::Entity(UNIVERSE));
     Some(BriefingItem {
-        selection: Some(SelectionId::Entity(UNIVERSE)),
+        selection: Some(selection),
         title: format!("World legacy · {}", legacy_label(&legacy)),
         detail: summary,
     })
