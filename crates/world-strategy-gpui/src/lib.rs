@@ -1,7 +1,5 @@
 use gpui::{div, prelude::*, px, rgb, Context, Div, Render, Styled, Window};
-use world_compare::{
-    ChangedTimelineItem, DifferenceKind, EntityDifference, SnapshotComparison,
-};
+use world_compare::{ChangedTimelineItem, DifferenceKind, EntityDifference, SnapshotComparison};
 use world_projection::{ProjectionSnapshot, TimelineItem};
 use world_strategy::{StrategyEvaluation, StrategyRun};
 
@@ -292,12 +290,7 @@ impl StrategyComparisonView {
                     ),
             );
         if let Some(detail) = timeline_detail(&item.subtitle) {
-            card = card.child(
-                div()
-                    .text_xs()
-                    .text_color(rgb(0x555555))
-                    .child(detail),
-            );
+            card = card.child(div().text_xs().text_color(rgb(0x555555)).child(detail));
         }
         card
     }
@@ -308,7 +301,8 @@ impl StrategyComparisonView {
         } else {
             format!("{} → {}", item.left.title, item.right.title)
         };
-        let left_detail = timeline_detail(&item.left.subtitle).unwrap_or_else(|| "No detail".into());
+        let left_detail =
+            timeline_detail(&item.left.subtitle).unwrap_or_else(|| "No detail".into());
         let right_detail =
             timeline_detail(&item.right.subtitle).unwrap_or_else(|| "No detail".into());
 
@@ -327,27 +321,17 @@ impl StrategyComparisonView {
                     .justify_between()
                     .gap_2()
                     .child(div().text_sm().child(title))
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(rgb(0x777777))
-                            .child("Changed"),
-                    ),
+                    .child(div().text_xs().text_color(rgb(0x777777)).child("Changed")),
             )
             .child(
                 div()
                     .flex()
                     .flex_col()
                     .gap_1()
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(rgb(0x4e6fb3))
-                            .child(format!(
-                                "Left · {} · t={}",
-                                self.left_label, item.left.world_time
-                            )),
-                    )
+                    .child(div().text_xs().text_color(rgb(0x4e6fb3)).child(format!(
+                        "Left · {} · t={}",
+                        self.left_label, item.left.world_time
+                    )))
                     .child(div().text_xs().child(left_detail)),
             )
             .child(
@@ -355,15 +339,10 @@ impl StrategyComparisonView {
                     .flex()
                     .flex_col()
                     .gap_1()
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(rgb(0x4e6fb3))
-                            .child(format!(
-                                "Right · {} · t={}",
-                                self.right_label, item.right.world_time
-                            )),
-                    )
+                    .child(div().text_xs().text_color(rgb(0x4e6fb3)).child(format!(
+                        "Right · {} · t={}",
+                        self.right_label, item.right.world_time
+                    )))
                     .child(div().text_xs().child(right_detail)),
             )
     }
