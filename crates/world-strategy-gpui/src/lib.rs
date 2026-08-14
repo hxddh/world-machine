@@ -291,7 +291,7 @@ impl StrategyComparisonView {
                             .child(format!("{relation} · t={}", item.world_time)),
                     ),
             );
-        if let Some(detail) = timeline_detail(item) {
+        if let Some(detail) = timeline_detail(&item.subtitle) {
             card = card.child(
                 div()
                     .text_xs()
@@ -308,8 +308,9 @@ impl StrategyComparisonView {
         } else {
             format!("{} → {}", item.left.title, item.right.title)
         };
-        let left_detail = timeline_detail(&item.left).unwrap_or_else(|| "No detail".into());
-        let right_detail = timeline_detail(&item.right).unwrap_or_else(|| "No detail".into());
+        let left_detail = timeline_detail(&item.left.subtitle).unwrap_or_else(|| "No detail".into());
+        let right_detail =
+            timeline_detail(&item.right.subtitle).unwrap_or_else(|| "No detail".into());
 
         div()
             .p_3()
@@ -342,7 +343,10 @@ impl StrategyComparisonView {
                         div()
                             .text_xs()
                             .text_color(rgb(0x4e6fb3))
-                            .child(format!("Left · {} · t={}", self.left_label, item.left.world_time)),
+                            .child(format!(
+                                "Left · {} · t={}",
+                                self.left_label, item.left.world_time
+                            )),
                     )
                     .child(div().text_xs().child(left_detail)),
             )
@@ -518,8 +522,8 @@ impl Render for StrategyComparisonView {
     }
 }
 
-fn timeline_detail(item: &TimelineItem) -> Option<String> {
-    let detail = item.subtitle.trim();
+fn timeline_detail(subtitle: &str) -> Option<String> {
+    let detail = subtitle.trim();
     (!detail.is_empty()).then(|| detail.to_owned())
 }
 
@@ -543,29 +547,17 @@ fn difference_kind_label(kind: DifferenceKind) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use world_core::EventId;
-    use world_projection::SelectionId;
-
-    fn timeline_item(subtitle: &str) -> TimelineItem {
-        TimelineItem {
-            id: SelectionId::Event(EventId::new(7)),
-            world_time: 20,
-            title: "World Posture Chosen".into(),
-            subtitle: subtitle.into(),
-            caused_by: Vec::new(),
-        }
-    }
 
     #[test]
     fn semantic_timeline_detail_is_kept_for_comparison_ui() {
         assert_eq!(
-            timeline_detail(&timeline_item("Outward became the durable posture. · Event #7")),
+            timeline_detail("Outward became the durable posture. · Event #7"),
             Some("Outward became the durable posture. · Event #7".into())
         );
     }
 
     #[test]
     fn blank_timeline_detail_stays_absent() {
-        assert_eq!(timeline_detail(&timeline_item("   ")), None);
+        assert_eq!(timeline_detail("   "), None);
     }
 }
