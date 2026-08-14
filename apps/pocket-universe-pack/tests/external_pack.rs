@@ -141,6 +141,9 @@ fn pocket_universe_is_a_real_external_pack_with_durable_seed_and_growth() {
     assert!(briefing.items.iter().any(|item| {
         item.title == "Your turn · Relationship" && item.detail.contains("leave them alone")
     }));
+    assert!(briefing.items.iter().any(|item| {
+        item.title == "Your influence · Signal expedition" && item.detail.contains("safe ridge")
+    }));
 
     let archive = session.archive().unwrap().unwrap();
     assert!(archive

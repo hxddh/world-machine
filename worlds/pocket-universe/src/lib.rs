@@ -15,7 +15,7 @@ use world_persistence::{PersistenceError, WorldArchive, WorldPackRef};
 use world_projection::{ProjectionIntent, ProjectionSnapshot};
 
 pub const POCKET_UNIVERSE_PACK_ID: &str = "world-machine.pocket-universe";
-pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.10.0";
+pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.11.0";
 
 pub const SEED_MARS_COLONY_COMMAND: &str = "pocket-universe.seed-mars-colony";
 pub const SEED_1980S_TOWN_COMMAND: &str = "pocket-universe.seed-1980s-town";
@@ -2566,6 +2566,91 @@ mod tests {
             .iter()
             .any(|command| command.id == SHARED_PROJECT_COMMAND));
         assert!(commands.iter().any(|command| command.id == RIVALRY_COMMAND));
+    }
+
+    #[test]
+    fn intervention_remains_visible_after_the_world_keeps_moving() {
+        let mut universe = PocketUniverse::new().unwrap();
+        universe
+            .invoke_projection_command(SEED_1980S_TOWN_COMMAND)
+            .unwrap();
+        universe.advance_periods(3).unwrap();
+        universe
+            .invoke_projection_command(BOLD_PATH_COMMAND)
+            .unwrap();
+
+        let chosen = universe.projection_snapshot();
+        assert!(chosen.briefing.as_ref().unwrap().items.iter().any(|item| {
+            item.title == "Your influence · Community arcade"
+                && item.detail.contains("organizes its evenings")
+        }));
+
+        universe.advance_periods(1).unwrap();
+        let later = universe.projection_snapshot();
+        assert!(later.briefing.as_ref().unwrap().items.iter().any(|item| {
+            item.title == "Your influence · Community arcade"
+                && item.detail.contains("organizes its evenings")
+        }));
+    }
+
+    #[test]
+    fn relationship_direction_stays_visible_and_upgrades_to_a_resolved_arc() {
+        let mut universe = PocketUniverse::new().unwrap();
+        universe
+            .invoke_projection_command(SEED_MARS_COLONY_COMMAND)
+            .unwrap();
+        universe.advance_periods(2).unwrap();
+        universe
+            .invoke_projection_command(SHARED_PROJECT_COMMAND)
+            .unwrap();
+
+        let steered = universe.projection_snapshot();
+        assert!(steered.briefing.as_ref().unwrap().items.iter().any(|item| {
+            item.title == "Relationship · Shared project"
+                && item.detail.contains("Trust 4 · tension 0")
+        }));
+
+        universe.invoke_projection_command(NUDGE_COMMAND).unwrap();
+        let resolved = universe.projection_snapshot();
+        assert!(resolved
+            .briefing
+            .as_ref()
+            .unwrap()
+            .items
+            .iter()
+            .any(|item| {
+                item.title == "Partnership formed" && item.detail.contains("durable partnership")
+            }));
+        assert!(!resolved
+            .briefing
+            .as_ref()
+            .unwrap()
+            .items
+            .iter()
+            .any(|item| { item.title == "Relationship · Shared project" }));
+    }
+
+    #[test]
+    fn return_briefing_keeps_the_players_persistent_influence_in_context() {
+        let registry = registry();
+        let mut session = registry.create(POCKET_UNIVERSE_PACK_ID).unwrap();
+        session
+            .handle(ProjectionIntent::InvokeCommand(
+                SEED_PENGUIN_CIVILIZATION_COMMAND.into(),
+            ))
+            .unwrap();
+        session.advance_background(3).unwrap();
+        session
+            .handle(ProjectionIntent::InvokeCommand(CAREFUL_PATH_COMMAND.into()))
+            .unwrap();
+
+        let returned = session.advance_background(1).unwrap();
+        let briefing = returned.briefing.as_ref().unwrap();
+        assert_eq!(briefing.title, "While you were away");
+        assert!(briefing.items.iter().any(|item| {
+            item.title == "Your influence · Conserved reserves"
+                && item.detail.contains("dark season")
+        }));
     }
 
     #[test]
