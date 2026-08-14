@@ -203,7 +203,7 @@ impl ProjectionView {
 
     fn render_briefing(&self, cx: &mut Context<Self>) -> Option<Div> {
         let briefing = self.snapshot.briefing.as_ref()?;
-        let mut items = div().flex().gap_2();
+        let mut items = div().flex().flex_wrap().gap_2();
         for item in &briefing.items {
             items = items.child(self.briefing_item(item, cx));
         }
@@ -236,6 +236,8 @@ impl ProjectionView {
             .unwrap_or_else(|| format!("briefing-static-{}", item.title));
         let mut card = div()
             .id(SharedString::from(id))
+            .min_w(px(220.0))
+            .flex_1()
             .p_2()
             .rounded_md()
             .bg(rgb(0xffffff))
