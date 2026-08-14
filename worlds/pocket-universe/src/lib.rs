@@ -1,3 +1,4 @@
+mod legacy;
 mod projection;
 
 use std::error::Error;
@@ -15,7 +16,7 @@ use world_persistence::{PersistenceError, WorldArchive, WorldPackRef};
 use world_projection::{ProjectionIntent, ProjectionSnapshot};
 
 pub const POCKET_UNIVERSE_PACK_ID: &str = "world-machine.pocket-universe";
-pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.12.0";
+pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.13.0";
 
 pub const SEED_MARS_COLONY_COMMAND: &str = "pocket-universe.seed-mars-colony";
 pub const SEED_1980S_TOWN_COMMAND: &str = "pocket-universe.seed-1980s-town";
@@ -41,6 +42,9 @@ pub(crate) const GENERATION: &str = "generation";
 pub(crate) const LAST_CHANGE: &str = "last_change";
 pub(crate) const DECISION: &str = "decision";
 pub(crate) const POSTURE: &str = "posture";
+pub(crate) const POSTURE_GENERATION: &str = "posture_generation";
+pub(crate) const LEGACY: &str = "legacy";
+pub(crate) const LEGACY_SUMMARY: &str = "legacy_summary";
 pub(crate) const RELATIONSHIP_DIRECTION: &str = "direction";
 const RELATIONSHIP_TRUST: &str = "trust";
 const RELATIONSHIP_TENSION: &str = "tension";
@@ -249,16 +253,8 @@ where
                         .caused_by(secondary_outcome),
                 )?
                 .id;
-            let returned = if social_arc_candidate(candidate.state())?.is_some() {
-                candidate
-                    .execute(
-                        &self.actions,
-                        &ActionRequest::new("resolve_social_arc").caused_by(relationship),
-                    )?
-                    .id
-            } else {
-                relationship
-            };
+            let returned =
+                legacy::resolve_period_consequences(&mut candidate, &self.actions, relationship)?;
             self.world = candidate;
             return Ok(returned);
         }
@@ -327,12 +323,7 @@ where
                         .caused_by(secondary_outcome),
                 )?
                 .id;
-            if social_arc_candidate(candidate.state())?.is_some() {
-                candidate.execute(
-                    &self.actions,
-                    &ActionRequest::new("resolve_social_arc").caused_by(relationship),
-                )?;
-            }
+            legacy::resolve_period_consequences(&mut candidate, &self.actions, relationship)?;
         }
         self.world = candidate;
         Ok(())
@@ -549,6 +540,9 @@ fn baseline() -> Result<WorldState, WorldStateError> {
             .with_component(GENERATION, 0_i64)
             .with_component(DECISION, "none")
             .with_component(POSTURE, "none")
+            .with_component(POSTURE_GENERATION, 0_i64)
+            .with_component(LEGACY, "forming")
+            .with_component(LEGACY_SUMMARY, "")
             .with_component(LAST_CHANGE, "Nothing exists here yet."),
     )?;
     Ok(state)
@@ -569,6 +563,7 @@ fn build_action_registry() -> Result<ActionRegistry, ActionError> {
     actions.register(ExploreWorld)?;
     actions.register(UpdateRelationship)?;
     actions.register(ResolveSocialArc)?;
+    legacy::register_actions(&mut actions)?;
     actions.register(SteerSharedProject)?;
     actions.register(SteerRivalry)?;
     Ok(actions)
@@ -742,7 +737,8 @@ impl Action for GrowUniverse {
         let decision = decision_id_from_state(state)?;
         let posture = posture_id_from_state(state)?;
         let social_arc = text_component_from_state(state, RELATIONSHIP, RELATIONSHIP_SOCIAL_ARC)?;
-        let change = growth_message(&seed, next, &decision, &social_arc, &posture);
+        let legacy = legacy::legacy_id_from_state(state)?;
+        let change = growth_message(&seed, next, &decision, &social_arc, &posture, &legacy);
         let pulse = anchor_pulse(&seed, next);
         let (metric_key, metric_value) = growth_metric(state, &seed)?;
         let mut draft = EventDraft::new("universe_grew");
@@ -1427,7 +1423,8 @@ fn posture_draft(state: &WorldState, posture: &str) -> Result<EventDraft, Action
             "choose a Pocket Universe seed before choosing its next direction".into(),
         ));
     }
-    if integer_component(state, UNIVERSE, GENERATION)? < 6 {
+    let generation = integer_component(state, UNIVERSE, GENERATION)?;
+    if generation < 6 {
         return Err(ActionError::Invalid(
             "this Pocket Universe has not reached its second chapter yet".into(),
         ));
@@ -1485,6 +1482,11 @@ fn posture_draft(state: &WorldState, posture: &str) -> Result<EventDraft, Action
             entity: UNIVERSE,
             key: POSTURE.into(),
             value: posture.into(),
+        },
+        StateChange::SetComponent {
+            entity: UNIVERSE,
+            key: POSTURE_GENERATION.into(),
+            value: generation.into(),
         },
         StateChange::SetComponent {
             entity: UNIVERSE,
@@ -1546,6 +1548,21 @@ fn seed_draft(
             entity: UNIVERSE,
             key: POSTURE.into(),
             value: "none".into(),
+        },
+        StateChange::SetComponent {
+            entity: UNIVERSE,
+            key: POSTURE_GENERATION.into(),
+            value: 0_i64.into(),
+        },
+        StateChange::SetComponent {
+            entity: UNIVERSE,
+            key: LEGACY.into(),
+            value: "forming".into(),
+        },
+        StateChange::SetComponent {
+            entity: UNIVERSE,
+            key: LEGACY_SUMMARY.into(),
+            value: "".into(),
         },
         StateChange::SetComponent {
             entity: UNIVERSE,
@@ -1672,6 +1689,7 @@ fn growth_message(
     decision: &str,
     social_arc: &str,
     posture: &str,
+    legacy: &str,
 ) -> String {
     let cycle = ((generation - 1).rem_euclid(3)) as usize;
     let messages: [&[&str]; 3] = [
@@ -1774,6 +1792,10 @@ fn growth_message(
     if let Some(posture_consequence) = posture_consequence {
         story.push(' ');
         story.push_str(posture_consequence);
+    }
+    if let Some(legacy_consequence) = legacy::growth_consequence(seed, legacy) {
+        story.push(' ');
+        story.push_str(legacy_consequence);
     }
     story
 }
