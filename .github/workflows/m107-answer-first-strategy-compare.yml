@@ -1,0 +1,40 @@
+name: M107 answer-first Strategy Compare
+
+on:
+  push:
+    branches:
+      - m107-answer-first-strategy-compare
+    paths:
+      - '.github/workflows/m107-answer-first-strategy-compare.yml'
+      - '.github/m107_patch.py'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: m107-answer-first-strategy-compare
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: m107-answer-first-strategy-compare
+      - name: Add projection-authored future stories
+        run: |
+          python3 .github/m107_patch.py
+          cargo fmt --all
+          cargo test -p world-strategy-gpui
+          cargo check -p world-machine-desktop
+          git diff --check
+      - name: Commit source and remove helpers
+        if: success()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/m107-answer-first-strategy-compare.yml .github/m107_patch.py
+          git add crates/world-strategy-gpui/src/lib.rs
+          git commit -m "M107: make Strategy Compare answer-first"
+          git push origin HEAD:m107-answer-first-strategy-compare
