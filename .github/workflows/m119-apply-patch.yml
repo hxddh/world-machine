@@ -1,0 +1,33 @@
+name: M119 wire My Worlds Pack filter
+
+on:
+  push:
+    branches:
+      - agent/m119-pack-filter
+    paths:
+      - scripts/m119-trigger
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/m119-pack-filter
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Wire Pack filter into My Worlds
+        run: python scripts/m119_patch.py
+      - name: Format workspace
+        run: cargo fmt --all
+      - name: Commit product change
+        shell: bash
+        run: |
+          git config user.name "world-machine-m119"
+          git config user.email "actions@users.noreply.github.com"
+          git add apps/world-machine-desktop/src/main.rs
+          git diff --cached --quiet && { echo "patch produced no product changes" >&2; exit 1; }
+          git commit -m "M119: filter My Worlds by Pack"
+          git push origin HEAD:agent/m119-pack-filter
