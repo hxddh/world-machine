@@ -80,8 +80,8 @@ fn second_arc_is_a_durable_generic_strategy_fork() -> Result<(), Box<dyn Error>>
                 && entity.left.as_ref().map(|view| view.title.as_str()) == Some("Nia Chen")
         })
         .expect("posture should produce a visible behavioral difference for Nia");
-    let care_count = row(nia, "Care count").expect("Nia's care count should differ");
-    let explore_count = row(nia, "Explore count").expect("Nia's explore count should differ");
+    let care_count = row(nia, "Care Count").expect("Nia's care count should differ");
+    let explore_count = row(nia, "Explore Count").expect("Nia's explore count should differ");
     assert_ne!(care_count.0, care_count.1);
     assert_ne!(explore_count.0, explore_count.1);
 
