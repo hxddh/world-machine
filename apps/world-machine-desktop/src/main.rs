@@ -1163,7 +1163,11 @@ impl WorldMachineHome {
             .flex()
             .flex_col()
             .gap_1()
-            .child(div().text_lg().child(title.clone()))
+            .child(div().text_lg().child(title.clone()));
+        if let Some(summary) = world_summary_description(&document) {
+            details = details.child(div().text_sm().text_color(rgb(0x4f5968)).child(summary));
+        }
+        details = details
             .child(
                 div()
                     .text_sm()
