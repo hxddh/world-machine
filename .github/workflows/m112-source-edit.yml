@@ -1,0 +1,527 @@
+name: M112 source edit
+
+on:
+  push:
+    branches:
+      - agent/m112-pocket-universe-emergent-legacy
+
+permissions:
+  contents: write
+
+jobs:
+  patch-source:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/m112-pocket-universe-emergent-legacy
+      - name: Apply M112 source edits
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(text: str, old: str, new: str, label: str) -> str:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected exactly one match, found {count}")
+              return text.replace(old, new, 1)
+
+          lib_path = Path("worlds/pocket-universe/src/lib.rs")
+          lib = lib_path.read_text()
+
+          lib = replace_once(
+              lib,
+              'pub(crate) const POSTURE: &str = "posture";\npub(crate) const RELATIONSHIP_DIRECTION: &str = "direction";',
+              'pub(crate) const POSTURE: &str = "posture";\npub(crate) const POSTURE_GENERATION: &str = "posture_generation";\npub(crate) const LEGACY: &str = "legacy";\npub(crate) const LEGACY_SUMMARY: &str = "legacy_summary";\npub(crate) const RELATIONSHIP_DIRECTION: &str = "direction";',
+              "state constants",
+          )
+
+          lib = replace_once(
+              lib,
+              '            let returned = if social_arc_candidate(candidate.state())?.is_some() {\n                candidate\n                    .execute(\n                        &self.actions,\n                        &ActionRequest::new("resolve_social_arc").caused_by(relationship),\n                    )?\n                    .id\n            } else {\n                relationship\n            };',
+              '            let returned =\n                resolve_period_consequences(&mut candidate, &self.actions, relationship)?;',
+              "nudge consequence resolver",
+          )
+
+          lib = replace_once(
+              lib,
+              '            if social_arc_candidate(candidate.state())?.is_some() {\n                candidate.execute(\n                    &self.actions,\n                    &ActionRequest::new("resolve_social_arc").caused_by(relationship),\n                )?;\n            }',
+              '            resolve_period_consequences(&mut candidate, &self.actions, relationship)?;',
+              "background consequence resolver",
+          )
+
+          lib = replace_once(
+              lib,
+              'struct PocketUniverseSession<R>\nwhere',
+              '''fn resolve_period_consequences(
+    world: &mut World,
+    actions: &ActionRegistry,
+    relationship: EventId,
+) -> Result<EventId, Box<dyn Error>> {
+    let mut tail = relationship;
+    if social_arc_candidate(world.state())?.is_some() {
+        tail = world
+            .execute(
+                actions,
+                &ActionRequest::new("resolve_social_arc").caused_by(tail),
+            )?
+            .id;
+    }
+    if legacy_candidate(world.state())?.is_some() {
+        let mut request = ActionRequest::new("resolve_legacy").caused_by(tail);
+        for cause in legacy_historical_causes(world) {
+            if cause != tail {
+                request = request.caused_by(cause);
+            }
+        }
+        tail = world.execute(actions, &request)?.id;
+    }
+    Ok(tail)
+}
+
+fn legacy_historical_causes(world: &World) -> Vec<EventId> {
+    let mut causes = Vec::new();
+    for kind in [
+        "world_posture_chosen",
+        "partnership_formed",
+        "relationship_fractured",
+        "universe_intervened",
+    ] {
+        if let Some(event) = world.events().iter().rev().find(|event| event.kind == kind) {
+            if !causes.contains(&event.id) {
+                causes.push(event.id);
+            }
+        }
+    }
+    causes
+}
+
+struct PocketUniverseSession<R>
+where''',
+              "period consequence helpers",
+          )
+
+          lib = replace_once(
+              lib,
+              '            .with_component(DECISION, "none")\n            .with_component(POSTURE, "none")\n            .with_component(LAST_CHANGE, "Nothing exists here yet."),',
+              '            .with_component(DECISION, "none")\n            .with_component(POSTURE, "none")\n            .with_component(POSTURE_GENERATION, 0_i64)\n            .with_component(LEGACY, "forming")\n            .with_component(LEGACY_SUMMARY, "")\n            .with_component(LAST_CHANGE, "Nothing exists here yet."),',
+              "baseline legacy state",
+          )
+
+          lib = replace_once(
+              lib,
+              '    actions.register(ResolveSocialArc)?;\n    actions.register(SteerSharedProject)?;',
+              '    actions.register(ResolveSocialArc)?;\n    actions.register(ResolveLegacy)?;\n    actions.register(SteerSharedProject)?;',
+              "register legacy action",
+          )
+
+          lib = replace_once(
+              lib,
+              'struct ResolveSocialArc;\nstruct SteerSharedProject;',
+              'struct ResolveSocialArc;\nstruct ResolveLegacy;\nstruct SteerSharedProject;',
+              "legacy action type",
+          )
+
+          lib = replace_once(
+              lib,
+              '        let social_arc = text_component_from_state(state, RELATIONSHIP, RELATIONSHIP_SOCIAL_ARC)?;\n        let change = growth_message(&seed, next, &decision, &social_arc, &posture);',
+              '        let social_arc = text_component_from_state(state, RELATIONSHIP, RELATIONSHIP_SOCIAL_ARC)?;\n        let legacy = legacy_id_from_state(state)?;\n        let change = growth_message(&seed, next, &decision, &social_arc, &posture, &legacy);',
+              "growth reads legacy",
+          )
+
+          legacy_impl = r'''
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct LegacyCandidate {
+    id: &'static str,
+    summary: String,
+    target: EntityId,
+    status_key: &'static str,
+    status_value: &'static str,
+    posture: String,
+    social_arc: String,
+    decision: String,
+    behavior: &'static str,
+}
+
+fn legacy_candidate(state: &WorldState) -> Result<Option<LegacyCandidate>, ActionError> {
+    if legacy_id_from_state(state)? != "forming" {
+        return Ok(None);
+    }
+    let posture = posture_id_from_state(state)?;
+    if posture == "none" {
+        return Ok(None);
+    }
+    let social_arc = text_component_from_state(state, RELATIONSHIP, RELATIONSHIP_SOCIAL_ARC)?;
+    if social_arc == "forming" {
+        return Ok(None);
+    }
+    let decision = decision_id_from_state(state)?;
+    if decision == "none" {
+        return Ok(None);
+    }
+    let generation = integer_component(state, UNIVERSE, GENERATION)?;
+    let posture_generation = integer_component(state, UNIVERSE, POSTURE_GENERATION)?;
+    if posture_generation <= 0 || generation < posture_generation + 3 {
+        return Ok(None);
+    }
+
+    let seed = seed_id_from_state(state)?;
+    let care = integer_component(state, SLOT_B, AGENT_CARE_COUNT)?
+        + integer_component(state, SLOT_E, AGENT_CARE_COUNT)?;
+    let explore = integer_component(state, SLOT_B, AGENT_EXPLORE_COUNT)?
+        + integer_component(state, SLOT_E, AGENT_EXPLORE_COUNT)?;
+    let behavior = if care > explore {
+        "care-led"
+    } else if explore > care {
+        "explore-led"
+    } else {
+        "balanced"
+    };
+    let (id, target, status_key, status_value, base) = match (
+        seed.as_str(),
+        posture.as_str(),
+        social_arc.as_str(),
+    ) {
+        ("mars-colony", "outward", "partnership") => (
+            "ridge-network",
+            SLOT_D,
+            "legacy_status",
+            "shared ridge network",
+            "Ares stopped treating every expedition as an exception; its shared rover routes have become a ridge network.",
+        ),
+        ("mars-colony", "outward", "fracture") => (
+            "competing-frontiers",
+            SLOT_D,
+            "legacy_status",
+            "competing frontier routes",
+            "Ares kept reaching beyond the ridge, but the split between its explorers hardened into competing frontiers.",
+        ),
+        ("mars-colony", "rooted", "partnership") => (
+            "habitat-commons",
+            SLOT_A,
+            "legacy_status",
+            "habitat commons",
+            "Ares turned repeated shared upkeep into a habitat commons that now organizes life at home.",
+        ),
+        ("mars-colony", "rooted", "fracture") => (
+            "sealed-districts",
+            SLOT_A,
+            "legacy_status",
+            "sealed habitat districts",
+            "Ares kept deepening its home, but the unresolved split hardened that safety into sealed habitat districts.",
+        ),
+        ("1980s-town", "outward", "partnership") => (
+            "night-network",
+            SLOT_C,
+            "legacy_status",
+            "shared night network",
+            "Maple Street's late-night experiments have become a shared network linking radio, arcade, bus, and newcomers.",
+        ),
+        ("1980s-town", "outward", "fracture") => (
+            "rival-scenes",
+            SLOT_C,
+            "legacy_status",
+            "rival late-night scenes",
+            "Maple Street kept drawing a wider crowd, but its central fracture hardened into rival late-night scenes.",
+        ),
+        ("1980s-town", "rooted", "partnership") => (
+            "neighborhood-commons",
+            SLOT_A,
+            "legacy_status",
+            "neighborhood commons",
+            "Maple Street turned repeated local rituals into a neighborhood commons held together by shared stewardship.",
+        ),
+        ("1980s-town", "rooted", "fracture") => (
+            "split-blocks",
+            SLOT_A,
+            "legacy_status",
+            "split neighborhood blocks",
+            "Maple Street stayed deliberately local, but its central fracture settled into split blocks with different loyalties.",
+        ),
+        ("penguin-civilization", "outward", "partnership") => (
+            "aurora-league",
+            SLOT_D,
+            "legacy_status",
+            "aurora league",
+            "Icebridge's widening routes and shared watch have become an aurora league between colonies.",
+        ),
+        ("penguin-civilization", "outward", "fracture") => (
+            "rival-routes",
+            SLOT_D,
+            "legacy_status",
+            "rival colony routes",
+            "Icebridge kept widening its reach, but the colony split hardened into rival routes under the aurora.",
+        ),
+        ("penguin-civilization", "rooted", "partnership") => (
+            "winter-commons",
+            SLOT_A,
+            "legacy_status",
+            "winter commons",
+            "Icebridge turned shared winter work into a commons that now coordinates local life through the dark season.",
+        ),
+        ("penguin-civilization", "rooted", "fracture") => (
+            "divided-houses",
+            SLOT_D,
+            "legacy_status",
+            "divided winter houses",
+            "Icebridge deepened its winter systems, but the colony's fracture settled into divided houses at moonrise.",
+        ),
+        _ => {
+            return Err(ActionError::Invalid(format!(
+                "unsupported Pocket Universe legacy: seed={seed}, posture={posture}, social_arc={social_arc}"
+            )))
+        }
+    };
+    let decision_memory = match decision.as_str() {
+        "follow-signal" => "The original signal expedition remains part of how the colony explains why it changed.",
+        "fortify-habitat" => "The original decision to fortify the habitat remains part of how the colony explains what safety means.",
+        "community-arcade" => "The decision to make the arcade communal remains part of Maple Street's memory.",
+        "steady-business" => "The decision to protect a small steady business remains part of Maple Street's memory.",
+        "winter-feast" => "The winter feast remains part of Icebridge's memory of when distant colonies first felt close.",
+        "conserve-reserves" => "The decision to conserve the Fish Vault remains part of Icebridge's memory of surviving the dark season.",
+        _ => "The first intervention remains part of how this World explains what it became.",
+    };
+    let summary = format!(
+        "{base} {decision_memory} Across its two central actors, the durable pattern is now {behavior} ({care} care / {explore} explore)."
+    );
+    Ok(Some(LegacyCandidate {
+        id,
+        summary,
+        target,
+        status_key,
+        status_value,
+        posture,
+        social_arc,
+        decision,
+        behavior,
+    }))
+}
+
+impl Action for ResolveLegacy {
+    fn name(&self) -> &'static str {
+        "resolve_legacy"
+    }
+
+    fn evaluate(
+        &self,
+        state: &WorldState,
+        _request: &ActionRequest,
+    ) -> Result<EventDraft, ActionError> {
+        let candidate = legacy_candidate(state)?.ok_or_else(|| {
+            ActionError::Invalid("this World has not lived long enough for a legacy to form".into())
+        })?;
+        let mut draft = EventDraft::new("world_legacy_formed");
+        draft.targets = vec![UNIVERSE, RELATIONSHIP, SLOT_B, SLOT_E, candidate.target];
+        draft
+            .payload
+            .insert("legacy".into(), candidate.id.into());
+        draft
+            .payload
+            .insert("posture".into(), candidate.posture.into());
+        draft
+            .payload
+            .insert("social_arc".into(), candidate.social_arc.into());
+        draft
+            .payload
+            .insert("decision".into(), candidate.decision.into());
+        draft
+            .payload
+            .insert("behavior".into(), candidate.behavior.into());
+        draft
+            .payload
+            .insert("summary".into(), candidate.summary.clone().into());
+        draft.changes = vec![
+            StateChange::SetComponent {
+                entity: UNIVERSE,
+                key: LEGACY.into(),
+                value: candidate.id.into(),
+            },
+            StateChange::SetComponent {
+                entity: UNIVERSE,
+                key: LEGACY_SUMMARY.into(),
+                value: candidate.summary.clone().into(),
+            },
+            StateChange::SetComponent {
+                entity: candidate.target,
+                key: candidate.status_key.into(),
+                value: candidate.status_value.into(),
+            },
+            StateChange::SetComponent {
+                entity: UNIVERSE,
+                key: LAST_CHANGE.into(),
+                value: candidate.summary.into(),
+            },
+        ];
+        Ok(draft)
+    }
+}
+'''
+          lib = replace_once(
+              lib,
+              '\nimpl Action for SteerSharedProject {',
+              legacy_impl + '\nimpl Action for SteerSharedProject {',
+              "legacy resolver implementation",
+          )
+
+          lib = replace_once(
+              lib,
+              '    let summary = match (seed.as_str(), posture) {',
+              '    let posture_generation = integer_component(state, UNIVERSE, GENERATION)?;\n    let summary = match (seed.as_str(), posture) {',
+              "capture posture generation",
+          )
+
+          lib = replace_once(
+              lib,
+              '        StateChange::SetComponent {\n            entity: UNIVERSE,\n            key: POSTURE.into(),\n            value: posture.into(),\n        },\n        StateChange::SetComponent {\n            entity: UNIVERSE,\n            key: LAST_CHANGE.into(),',
+              '        StateChange::SetComponent {\n            entity: UNIVERSE,\n            key: POSTURE.into(),\n            value: posture.into(),\n        },\n        StateChange::SetComponent {\n            entity: UNIVERSE,\n            key: POSTURE_GENERATION.into(),\n            value: posture_generation.into(),\n        },\n        StateChange::SetComponent {\n            entity: UNIVERSE,\n            key: LAST_CHANGE.into(),',
+              "persist posture generation",
+          )
+
+          lib = replace_once(
+              lib,
+              '        StateChange::SetComponent {\n            entity: UNIVERSE,\n            key: POSTURE.into(),\n            value: "none".into(),\n        },\n        StateChange::SetComponent {\n            entity: UNIVERSE,\n            key: LAST_CHANGE.into(),',
+              '        StateChange::SetComponent {\n            entity: UNIVERSE,\n            key: POSTURE.into(),\n            value: "none".into(),\n        },\n        StateChange::SetComponent {\n            entity: UNIVERSE,\n            key: POSTURE_GENERATION.into(),\n            value: 0_i64.into(),\n        },\n        StateChange::SetComponent {\n            entity: UNIVERSE,\n            key: LEGACY.into(),\n            value: "forming".into(),\n        },\n        StateChange::SetComponent {\n            entity: UNIVERSE,\n            key: LEGACY_SUMMARY.into(),\n            value: "".into(),\n        },\n        StateChange::SetComponent {\n            entity: UNIVERSE,\n            key: LAST_CHANGE.into(),',
+              "seed resets legacy state",
+          )
+
+          lib = replace_once(
+              lib,
+              'fn growth_metric(state: &WorldState, seed: &str) -> Result<(&\'static str, i64), ActionError> {',
+              '''fn legacy_id_from_state(state: &WorldState) -> Result<String, ActionError> {
+    match state
+        .entity(UNIVERSE)
+        .and_then(|entity| entity.component(LEGACY))
+    {
+        Some(Value::Text(legacy)) => Ok(legacy.clone()),
+        _ => Err(ActionError::Invalid(
+            "Pocket Universe legacy state is missing".into(),
+        )),
+    }
+}
+
+fn growth_metric(state: &WorldState, seed: &str) -> Result<(&'static str, i64), ActionError> {''',
+              "legacy state reader",
+          )
+
+          lib = replace_once(
+              lib,
+              '    posture: &str,\n) -> String {',
+              '    posture: &str,\n    legacy: &str,\n) -> String {',
+              "growth message legacy arg",
+          )
+
+          lib = replace_once(
+              lib,
+              '    if let Some(posture_consequence) = posture_consequence {\n        story.push(\' \');\n        story.push_str(posture_consequence);\n    }\n    story',
+              '''    if let Some(posture_consequence) = posture_consequence {
+        story.push(' ');
+        story.push_str(posture_consequence);
+    }
+    if legacy != "forming" {
+        let legacy_consequence = match (seed, legacy) {
+            ("mars-colony", "ridge-network") => "The ridge network now behaves like an institution rather than a temporary expedition.",
+            ("mars-colony", "competing-frontiers") => "The competing frontier routes now shape who gets to define the colony's next edge.",
+            ("mars-colony", "habitat-commons") => "The habitat commons now shapes ordinary life inside Ares.",
+            ("mars-colony", "sealed-districts") => "The sealed districts now shape how safety and trust are distributed inside Ares.",
+            ("1980s-town", "night-network") => "The night network now links Maple Street's institutions beyond any one event.",
+            ("1980s-town", "rival-scenes") => "The rival scenes now shape where Maple Street's late-night life gathers.",
+            ("1980s-town", "neighborhood-commons") => "The neighborhood commons now carries routines that outlast any one organizer.",
+            ("1980s-town", "split-blocks") => "The split blocks now shape which local rituals belong to whom.",
+            ("penguin-civilization", "aurora-league") => "The aurora league now coordinates routes that outlast any one watch.",
+            ("penguin-civilization", "rival-routes") => "The rival routes now shape which colonies cooperate under the aurora.",
+            ("penguin-civilization", "winter-commons") => "The winter commons now carries local systems through each dark season.",
+            ("penguin-civilization", "divided-houses") => "The divided houses now shape how Icebridge governs winter life.",
+            (_, _) => "The World now carries a legacy formed from its earlier choices and repeated behavior.",
+        };
+        story.push(' ');
+        story.push_str(legacy_consequence);
+    }
+    story''',
+              "legacy shapes later growth",
+          )
+
+          lib_path.write_text(lib)
+
+          projection_path = Path("worlds/pocket-universe/src/projection.rs")
+          projection = projection_path.read_text()
+          projection = replace_once(
+              projection,
+              '    seed_id, BOLD_PATH_COMMAND, CAREFUL_PATH_COMMAND, DECISION, GENERATION, LAST_CHANGE,\n    NUDGE_COMMAND, OUTWARD_POSTURE_COMMAND, POSTURE, RELATIONSHIP, RELATIONSHIP_DIRECTION,',
+              '    seed_id, BOLD_PATH_COMMAND, CAREFUL_PATH_COMMAND, DECISION, GENERATION, LAST_CHANGE, LEGACY,\n    LEGACY_SUMMARY, NUDGE_COMMAND, OUTWARD_POSTURE_COMMAND, POSTURE, RELATIONSHIP,\n    RELATIONSHIP_DIRECTION,',
+              "projection imports legacy",
+          )
+          projection = replace_once(
+              projection,
+              '    if let Some(item) = posture_consequence_item(world) {\n        items.push(item);\n    }\n    items',
+              '''    if let Some(item) = posture_consequence_item(world) {
+        items.push(item);
+    }
+    if let Some(item) = legacy_consequence_item(world) {
+        items.push(item);
+    }
+    items''',
+              "persistent legacy item",
+          )
+          projection = replace_once(
+              projection,
+              '\nfn relationship_consequence_item(world: &World) -> Option<BriefingItem> {',
+              '''
+fn legacy_consequence_item(world: &World) -> Option<BriefingItem> {
+    let legacy = text_component(world.state().entity(UNIVERSE), LEGACY, "forming");
+    if legacy == "forming" {
+        return None;
+    }
+    let summary = text_component(
+        world.state().entity(UNIVERSE),
+        LEGACY_SUMMARY,
+        "This World now carries a durable legacy from its earlier choices.",
+    );
+    Some(BriefingItem {
+        selection: Some(SelectionId::Entity(UNIVERSE)),
+        title: format!("World legacy · {}", legacy_label(&legacy)),
+        detail: summary,
+    })
+}
+
+fn legacy_label(legacy: &str) -> String {
+    legacy
+        .split('-')
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            let mut chars = part.chars();
+            match chars.next() {
+                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn relationship_consequence_item(world: &World) -> Option<BriefingItem> {''',
+              "legacy briefing helper",
+          )
+          projection = replace_once(
+              projection,
+              '            "relationship_fractured" => "Their relationship fractured".into(),\n            _ => event.kind.replace(\'_\', " "),',
+              '            "relationship_fractured" => "Their relationship fractured".into(),\n            "world_legacy_formed" => "A world legacy formed".into(),\n            _ => event.kind.replace(\'_\', " "),',
+              "legacy return item",
+          )
+          projection_path.write_text(projection)
+          PY
+          cargo fmt --all
+      - name: Commit M112 source edits
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "No source changes produced" >&2
+            exit 1
+          fi
+          git config user.name "world-machine-m112"
+          git config user.email "actions@users.noreply.github.com"
+          git add worlds/pocket-universe/src/lib.rs worlds/pocket-universe/src/projection.rs
+          git commit -m "M112: add emergent Pocket Universe legacy"
+          git push origin HEAD:agent/m112-pocket-universe-emergent-legacy
