@@ -1,6 +1,8 @@
 use gpui::{div, prelude::*, px, rgb, Context, Div, Render, Styled, Window};
-use world_compare::{DifferenceKind, EntityDifference, SnapshotComparison};
-use world_projection::ProjectionSnapshot;
+use world_compare::{
+    ChangedTimelineItem, DifferenceKind, EntityDifference, SnapshotComparison,
+};
+use world_projection::{ProjectionSnapshot, TimelineItem};
 use world_strategy::{StrategyEvaluation, StrategyRun};
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -207,24 +209,15 @@ impl StrategyComparisonView {
             );
         }
 
-        let mut timeline = div().flex().flex_col().gap_1();
+        let mut timeline = div().flex().flex_col().gap_2();
         for item in comparison.timeline.left_only.iter().take(4) {
-            timeline = timeline.child(div().text_xs().child(format!(
-                "Left only · t={} · {}",
-                item.world_time, item.title
-            )));
+            timeline = timeline.child(self.render_timeline_item("Left only", item));
         }
         for item in comparison.timeline.right_only.iter().take(4) {
-            timeline = timeline.child(div().text_xs().child(format!(
-                "Right only · t={} · {}",
-                item.world_time, item.title
-            )));
+            timeline = timeline.child(self.render_timeline_item("Right only", item));
         }
         for item in comparison.timeline.changed.iter().take(4) {
-            timeline = timeline.child(div().text_xs().child(format!(
-                "Changed · {} → {}",
-                item.left.title, item.right.title
-            )));
+            timeline = timeline.child(self.render_changed_timeline_item(item));
         }
         if timeline_changes == 0 {
             timeline = timeline.child(
@@ -273,6 +266,102 @@ impl StrategyComparisonView {
             .child(entities)
             .child(div().text_sm().child("Timeline"))
             .child(timeline)
+    }
+
+    fn render_timeline_item(&self, relation: &str, item: &TimelineItem) -> Div {
+        let mut card = div()
+            .p_3()
+            .rounded_md()
+            .bg(rgb(0xffffff))
+            .border_1()
+            .border_color(rgb(0xe2e4e8))
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(
+                div()
+                    .flex()
+                    .justify_between()
+                    .gap_2()
+                    .child(div().text_sm().child(item.title.clone()))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(0x777777))
+                            .child(format!("{relation} · t={}", item.world_time)),
+                    ),
+            );
+        if let Some(detail) = timeline_detail(item) {
+            card = card.child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0x555555))
+                    .child(detail),
+            );
+        }
+        card
+    }
+
+    fn render_changed_timeline_item(&self, item: &ChangedTimelineItem) -> Div {
+        let title = if item.left.title == item.right.title {
+            item.left.title.clone()
+        } else {
+            format!("{} → {}", item.left.title, item.right.title)
+        };
+        let left_detail = timeline_detail(&item.left).unwrap_or_else(|| "No detail".into());
+        let right_detail = timeline_detail(&item.right).unwrap_or_else(|| "No detail".into());
+
+        div()
+            .p_3()
+            .rounded_md()
+            .bg(rgb(0xffffff))
+            .border_1()
+            .border_color(rgb(0xe2e4e8))
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(
+                div()
+                    .flex()
+                    .justify_between()
+                    .gap_2()
+                    .child(div().text_sm().child(title))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(0x777777))
+                            .child("Changed"),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(0x4e6fb3))
+                            .child(format!("Left · {} · t={}", self.left_label, item.left.world_time)),
+                    )
+                    .child(div().text_xs().child(left_detail)),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(0x4e6fb3))
+                            .child(format!(
+                                "Right · {} · t={}",
+                                self.right_label, item.right.world_time
+                            )),
+                    )
+                    .child(div().text_xs().child(right_detail)),
+            )
     }
 
     fn render_entity_difference(&self, difference: &EntityDifference) -> Div {
@@ -429,6 +518,11 @@ impl Render for StrategyComparisonView {
     }
 }
 
+fn timeline_detail(item: &TimelineItem) -> Option<String> {
+    let detail = item.subtitle.trim();
+    (!detail.is_empty()).then(|| detail.to_owned())
+}
+
 fn summary_chip(label: &str, count: usize) -> Div {
     div()
         .p_2()
@@ -443,5 +537,35 @@ fn difference_kind_label(kind: DifferenceKind) -> &'static str {
         DifferenceKind::LeftOnly => "Left only",
         DifferenceKind::RightOnly => "Right only",
         DifferenceKind::Changed => "Changed",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use world_core::EventId;
+    use world_projection::SelectionId;
+
+    fn timeline_item(subtitle: &str) -> TimelineItem {
+        TimelineItem {
+            id: SelectionId::Event(EventId::new(7)),
+            world_time: 20,
+            title: "World Posture Chosen".into(),
+            subtitle: subtitle.into(),
+            caused_by: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn semantic_timeline_detail_is_kept_for_comparison_ui() {
+        assert_eq!(
+            timeline_detail(&timeline_item("Outward became the durable posture. · Event #7")),
+            Some("Outward became the durable posture. · Event #7".into())
+        );
+    }
+
+    #[test]
+    fn blank_timeline_detail_stays_absent() {
+        assert_eq!(timeline_detail(&timeline_item("   ")), None);
     }
 }
