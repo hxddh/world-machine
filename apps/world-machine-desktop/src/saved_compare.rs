@@ -456,6 +456,7 @@ mod tests {
             id: WorldDocumentId::new(id).unwrap(),
             pack,
             display_title: display_title.map(str::to_owned),
+            display_summary: Some("Current durable branch state".into()),
             world_time: 10,
             event_count: 2,
         }

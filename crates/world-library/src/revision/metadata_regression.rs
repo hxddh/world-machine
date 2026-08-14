@@ -10,7 +10,8 @@ use world_document::{
 use world_host::{HostError, WorldDescriptor, WorldRegistration, WorldRegistry, WorldSession};
 use world_persistence::{WorldArchive, WorldPackRef, WORLD_ARCHIVE_FORMAT, WORLD_ARCHIVE_VERSION};
 use world_projection::{
-    ProjectionCapabilities, ProjectionCommand, ProjectionIntent, ProjectionSnapshot,
+    BriefingItem, BriefingProjection, ProjectionCapabilities, ProjectionCommand, ProjectionIntent,
+    ProjectionSnapshot,
 };
 
 const MOCK_PACK: &str = "world-machine.metadata-regression";
@@ -29,6 +30,15 @@ impl WorldSession for MockSession {
             title: format!("Metadata Mock {}", self.count),
             world_time: self.count,
             capabilities: ProjectionCapabilities { fork: false },
+            briefing: Some(BriefingProjection {
+                eyebrow: "Metadata".into(),
+                title: "Current state".into(),
+                items: vec![BriefingItem {
+                    selection: None,
+                    title: format!("State {}", self.count),
+                    detail: format!("Durable summary {}", self.count),
+                }],
+            }),
             commands: vec![ProjectionCommand {
                 id: "mock.advance".into(),
                 title: "Advance".into(),
@@ -108,6 +118,7 @@ fn lineage(label: &str) -> WorldLineage {
 fn document(world_time: u64, label: &str) -> WorldDocument {
     WorldDocument::new(archive(world_time))
         .with_display_title(format!("Metadata Mock {world_time}"))
+        .with_display_summary(format!("Original summary {world_time}"))
         .with_lineage(lineage(label))
 }
 
@@ -146,12 +157,20 @@ fn interactive_edits_preserve_document_metadata() {
         session.metadata().display_title.as_deref(),
         Some("Metadata Mock 6")
     );
+    assert_eq!(
+        session.metadata().display_summary.as_deref(),
+        Some("State 6 · Durable summary 6")
+    );
     let stored = library.load_document(&id).unwrap().unwrap();
     assert_eq!(stored.archive.world_time, 6);
     assert_eq!(stored.metadata.lineage, source.metadata.lineage);
     assert_eq!(
         stored.metadata.display_title.as_deref(),
         Some("Metadata Mock 6")
+    );
+    assert_eq!(
+        stored.metadata.display_summary.as_deref(),
+        Some("State 6 · Durable summary 6")
     );
     let _ = fs::remove_dir_all(root);
 }
@@ -174,11 +193,19 @@ fn background_progression_preserves_document_metadata() {
         session.metadata().display_title.as_deref(),
         Some("Metadata Mock 8")
     );
+    assert_eq!(
+        session.metadata().display_summary.as_deref(),
+        Some("State 8 · Durable summary 8")
+    );
     let stored = library.load_document(&id).unwrap().unwrap();
     assert_eq!(stored.metadata.lineage, source.metadata.lineage);
     assert_eq!(
         stored.metadata.display_title.as_deref(),
         Some("Metadata Mock 8")
+    );
+    assert_eq!(
+        stored.metadata.display_summary.as_deref(),
+        Some("State 8 · Durable summary 8")
     );
     let _ = fs::remove_dir_all(root);
 }
@@ -232,6 +259,7 @@ fn metadata_only_external_changes_participate_in_revision_conflicts() {
     let mut second = first.clone();
     second.metadata = WorldDocumentMetadata {
         display_title: first.metadata.display_title.clone(),
+        display_summary: first.metadata.display_summary.clone(),
         lineage: Some(lineage("second")),
     };
     library.create_from_document(id.clone(), &first).unwrap();

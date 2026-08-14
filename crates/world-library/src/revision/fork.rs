@@ -1,6 +1,6 @@
 use crate::{
-    required_archive, snapshot_display_title, DurableWorldSession, LibraryError, WorldDocumentId,
-    WorldDocumentSummary, WorldLibrary,
+    required_archive, snapshot_display_summary, snapshot_display_title, DurableWorldSession,
+    LibraryError, WorldDocumentId, WorldDocumentSummary, WorldLibrary,
 };
 use world_document::{WorldBranchCause, WorldDocument, WorldLineage, WorldParent};
 
@@ -30,9 +30,12 @@ impl DurableWorldSession {
             },
             branch: WorldBranchCause::Fork { label },
         };
+        let snapshot = self.session.snapshot();
         let mut fork = WorldDocument::new(archive).with_lineage(lineage);
-        fork.metadata.display_title = snapshot_display_title(&self.session.snapshot())
-            .or_else(|| self.metadata.display_title.clone());
+        fork.metadata.display_title =
+            snapshot_display_title(&snapshot).or_else(|| self.metadata.display_title.clone());
+        fork.metadata.display_summary =
+            snapshot_display_summary(&snapshot).or_else(|| self.metadata.display_summary.clone());
 
         // Re-check after materializing the live archive so a concurrent source
         // edit cannot be ignored between the first revision check and creation.
@@ -277,6 +280,7 @@ mod tests {
         let child_id = WorldDocumentId::new("child").unwrap();
         let metadata = WorldDocumentMetadata {
             display_title: Some("Fork Source".into()),
+            display_summary: Some("Fork source summary".into()),
             lineage: Some(inherited_lineage()),
         };
         let source = WorldDocument {

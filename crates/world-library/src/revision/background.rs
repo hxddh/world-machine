@@ -1,5 +1,6 @@
 use crate::{
-    required_archive, snapshot_display_title, DurableWorldSession, LibraryError, WorldLibrary,
+    required_archive, snapshot_display_summary, snapshot_display_title, DurableWorldSession,
+    LibraryError, WorldLibrary,
 };
 use world_document::WorldDocument;
 use world_host::WorldRegistry;
@@ -54,6 +55,7 @@ impl DurableWorldSession {
         if let Some(title) = snapshot_display_title(&snapshot) {
             next_metadata.display_title = Some(title);
         }
+        next_metadata.display_summary = snapshot_display_summary(&snapshot);
         let next_document = WorldDocument {
             archive: next_archive,
             metadata: next_metadata.clone(),
