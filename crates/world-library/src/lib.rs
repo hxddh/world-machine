@@ -6,6 +6,7 @@ use std::fmt;
 use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 use world_document::{DocumentError, WorldDocument, WorldDocumentMetadata};
 use world_host::{HostError, WorldRegistry, WorldSession};
 use world_persistence::{PersistenceError, WorldArchive, WorldPackRef};
@@ -161,6 +162,24 @@ impl WorldLibrary {
         Ok(None)
     }
 
+    fn document_modified_time(
+        &self,
+        id: &WorldDocumentId,
+    ) -> Result<Option<SystemTime>, LibraryError> {
+        for path in [self.path(id), self.legacy_path(id)] {
+            match fs::metadata(path) {
+                Ok(metadata) => return Ok(Some(metadata.modified()?)),
+                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(LibraryError::Io(error)),
+            }
+        }
+        Ok(None)
+    }
+
+    /// List Library Worlds with the most recently persisted document first.
+    /// File modification time is Library browsing metadata only; it is never
+    /// written into World state or used by replay. Ties are ordered by stable
+    /// document id so the result remains deterministic for equal timestamps.
     pub fn list(&self) -> Result<Vec<WorldDocumentSummary>, LibraryError> {
         let entries = match fs::read_dir(&self.root) {
             Ok(entries) => entries,
@@ -195,9 +214,18 @@ impl WorldLibrary {
             let Some(document) = self.load_document(&id)? else {
                 continue;
             };
-            documents.push(summary(id, &document));
+            let modified = self.document_modified_time(&id)?.unwrap_or(UNIX_EPOCH);
+            documents.push((modified, summary(id, &document)));
         }
-        Ok(documents)
+        documents.sort_by(|(left_modified, left), (right_modified, right)| {
+            right_modified
+                .cmp(left_modified)
+                .then_with(|| left.id.cmp(&right.id))
+        });
+        Ok(documents
+            .into_iter()
+            .map(|(_modified, document)| document)
+            .collect())
     }
 
     pub fn import_file(
@@ -847,6 +875,90 @@ mod tests {
         );
         assert_eq!(documents[1].world_time, 9);
         assert_eq!(documents[1].event_count, 0);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn library_lists_most_recently_persisted_world_first() {
+        let root = temp_root("recent-first");
+        let library = WorldLibrary::new(root.clone());
+        let older = WorldDocumentId::new("older").unwrap();
+        let recent = WorldDocumentId::new("recent").unwrap();
+
+        library.save(&older, &mock_archive(1)).unwrap();
+        library.save(&recent, &mock_archive(2)).unwrap();
+        let older_file = File::options()
+            .write(true)
+            .open(library.path(&older))
+            .unwrap();
+        older_file
+            .set_times(
+                fs::FileTimes::new().set_modified(UNIX_EPOCH + std::time::Duration::from_secs(10)),
+            )
+            .unwrap();
+        let recent_file = File::options()
+            .write(true)
+            .open(library.path(&recent))
+            .unwrap();
+        recent_file
+            .set_times(
+                fs::FileTimes::new().set_modified(UNIX_EPOCH + std::time::Duration::from_secs(20)),
+            )
+            .unwrap();
+
+        assert_eq!(
+            library
+                .list()
+                .unwrap()
+                .iter()
+                .map(|document| document.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["recent", "older"]
+        );
+
+        library.save(&older, &mock_archive(3)).unwrap();
+        assert_eq!(
+            library
+                .list()
+                .unwrap()
+                .iter()
+                .map(|document| document.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["older", "recent"]
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn equal_library_modification_times_fall_back_to_document_id() {
+        let root = temp_root("recent-tie");
+        let library = WorldLibrary::new(root.clone());
+        let beta = WorldDocumentId::new("beta").unwrap();
+        let alpha = WorldDocumentId::new("alpha").unwrap();
+
+        library.save(&beta, &mock_archive(2)).unwrap();
+        library.save(&alpha, &mock_archive(1)).unwrap();
+        let tied = UNIX_EPOCH + std::time::Duration::from_secs(30);
+        for id in [&alpha, &beta] {
+            File::options()
+                .write(true)
+                .open(library.path(id))
+                .unwrap()
+                .set_times(fs::FileTimes::new().set_modified(tied))
+                .unwrap();
+        }
+
+        assert_eq!(
+            library
+                .list()
+                .unwrap()
+                .iter()
+                .map(|document| document.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["alpha", "beta"]
+        );
 
         let _ = fs::remove_dir_all(root);
     }
