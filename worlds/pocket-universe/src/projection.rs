@@ -91,19 +91,27 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
     let mut commands = vec![ProjectionCommand {
         id: NUDGE_COMMAND.into(),
         title: nudge_title.into(),
-        detail: nudge_detail.into(),
+        detail: command_detail_with_signal(world, NUDGE_COMMAND, nudge_detail),
     }];
 
     if relationship_choice_available {
         commands.push(ProjectionCommand {
             id: SHARED_PROJECT_COMMAND.into(),
             title: "Give them a shared project".into(),
-            detail: "Create a goal that neither actor can complete alone; future interactions will lean toward trust.".into(),
+            detail: command_detail_with_signal(
+                world,
+                SHARED_PROJECT_COMMAND,
+                "Create a goal that neither actor can complete alone; future interactions will lean toward trust.",
+            ),
         });
         commands.push(ProjectionCommand {
             id: RIVALRY_COMMAND.into(),
             title: "Let rivalry sharpen them".into(),
-            detail: "Keep both actors independent and let competition add pressure to future interactions.".into(),
+            detail: command_detail_with_signal(
+                world,
+                RIVALRY_COMMAND,
+                "Keep both actors independent and let competition add pressure to future interactions.",
+            ),
         });
     }
     if intervention_choice_available {
@@ -112,12 +120,12 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
         commands.push(ProjectionCommand {
             id: BOLD_PATH_COMMAND.into(),
             title: bold_title.into(),
-            detail: bold_detail.into(),
+            detail: command_detail_with_signal(world, BOLD_PATH_COMMAND, bold_detail),
         });
         commands.push(ProjectionCommand {
             id: CAREFUL_PATH_COMMAND.into(),
             title: careful_title.into(),
-            detail: careful_detail.into(),
+            detail: command_detail_with_signal(world, CAREFUL_PATH_COMMAND, careful_detail),
         });
     }
     if posture_choice_available {
@@ -126,15 +134,84 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
         commands.push(ProjectionCommand {
             id: OUTWARD_POSTURE_COMMAND.into(),
             title: outward_title.into(),
-            detail: outward_detail.into(),
+            detail: command_detail_with_signal(world, OUTWARD_POSTURE_COMMAND, outward_detail),
         });
         commands.push(ProjectionCommand {
             id: ROOTED_POSTURE_COMMAND.into(),
             title: rooted_title.into(),
-            detail: rooted_detail.into(),
+            detail: command_detail_with_signal(world, ROOTED_POSTURE_COMMAND, rooted_detail),
         });
     }
     commands
+}
+
+fn command_detail_with_signal(world: &World, command_id: &str, detail: &str) -> String {
+    match command_choice_signal(world, command_id) {
+        Some(signal) => format!("{detail} Choice signal: {signal}."),
+        None => detail.into(),
+    }
+}
+
+fn command_choice_signal(world: &World, command_id: &str) -> Option<String> {
+    match command_id {
+        NUDGE_COMMAND => Some(
+            "one full cycle resolves under current rules: world growth, both actor turns, relationship update, then period consequences"
+                .into(),
+        ),
+        SHARED_PROJECT_COMMAND | RIVALRY_COMMAND => {
+            let relationship = world.state().entity(RELATIONSHIP);
+            let trust = integer_entity_component(relationship, RELATIONSHIP_TRUST).unwrap_or_default();
+            let tension = integer_entity_component(relationship, RELATIONSHIP_TENSION).unwrap_or_default();
+            if command_id == SHARED_PROJECT_COMMAND {
+                let next_trust = (trust + 2).clamp(0, 10);
+                let next_tension = (tension - 1).clamp(0, 10);
+                Some(format!(
+                    "trust {trust} → {next_trust} · tension {tension} → {next_tension}; each later relationship shift also gains +1 trust and -1 tension"
+                ))
+            } else {
+                let next_tension = (tension + 2).clamp(0, 10);
+                Some(format!(
+                    "trust {trust} → {trust} · tension {tension} → {next_tension}; each later relationship shift also gains +1 tension"
+                ))
+            }
+        }
+        BOLD_PATH_COMMAND => Some(intervention_choice_signal(seed_id(world), true).into()),
+        CAREFUL_PATH_COMMAND => Some(intervention_choice_signal(seed_id(world), false).into()),
+        OUTWARD_POSTURE_COMMAND => Some(
+            "sets durable World direction to Outward; later growth and legacy formation read the outward posture"
+                .into(),
+        ),
+        ROOTED_POSTURE_COMMAND => Some(
+            "sets durable World direction to Rooted; later growth and legacy formation read the rooted posture"
+                .into(),
+        ),
+        _ => None,
+    }
+}
+
+fn intervention_choice_signal(seed: &str, bold: bool) -> &'static str {
+    match (seed, bold) {
+        ("mars-colony", true) => {
+            "locks the first intervention to Signal expedition; Kestrel's durable status becomes signal expedition"
+        }
+        ("mars-colony", false) => {
+            "locks the first intervention to Fortified habitat; Ares Habitat's durable status becomes storm sealed"
+        }
+        ("1980s-town", true) => {
+            "locks the first intervention to Community arcade; Maple Arcade's durable status becomes community nights"
+        }
+        ("1980s-town", false) => {
+            "locks the first intervention to Steady business; Maple Arcade's durable status becomes steady business"
+        }
+        ("penguin-civilization", true) => {
+            "locks the first intervention to Winter feast; Fish Vault's durable reserve becomes festival opened"
+        }
+        ("penguin-civilization", false) => {
+            "locks the first intervention to Conserved reserves; Fish Vault's durable reserve becomes winter conserved"
+        }
+        (_, true) => "locks a durable bold intervention that later growth can read",
+        (_, false) => "locks a durable careful intervention that later growth can read",
+    }
 }
 
 fn choice_state(world: &World, generation: i64) -> (bool, bool) {
@@ -724,11 +801,19 @@ fn return_compass_item(world: &World) -> BriefingItem {
         (false, Some(nudge)) => {
             let choices = shaping
                 .iter()
-                .map(|command| format!("‘{}’", command.title))
+                .map(|command| {
+                    let signal =
+                        command_choice_signal(world, command.id.as_str()).unwrap_or_else(|| {
+                            "changes durable World state through this action".into()
+                        });
+                    format!("‘{}’ — {signal}", command.title)
+                })
                 .collect::<Vec<_>>()
                 .join(" · ");
+            let nudge_signal = command_choice_signal(world, nudge.id.as_str())
+                .unwrap_or_else(|| "continues from the current durable state".into());
             format!(
-                "Available now: {choices}. Or choose ‘{}’ and let current dynamics keep moving without a larger choice.",
+                "Choice signals: {choices}. ‘{}’ — {nudge_signal}.",
                 nudge.title
             )
         }
