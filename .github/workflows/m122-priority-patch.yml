@@ -1,0 +1,38 @@
+name: M122 Priority Patch
+
+on:
+  push:
+    branches:
+      - agent/m122-return-digest
+    paths:
+      - scripts/m122-priority-trigger
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/m122-return-digest
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Apply milestone priority patch
+        run: python3 scripts/m122_priority_patch.py
+      - name: Format
+        run: cargo fmt --all
+      - name: Test Pocket Universe
+        run: cargo test -p pocket-universe
+      - name: Test Pocket Universe pack
+        run: cargo test -p pocket-universe-pack
+      - name: Check diff
+        run: git diff --check
+      - name: Commit product changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add worlds/pocket-universe/src/projection.rs worlds/pocket-universe/tests/return_digest.rs
+          git commit -m "M122: prioritize return milestones"
+          git push origin HEAD:agent/m122-return-digest
