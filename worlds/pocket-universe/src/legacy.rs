@@ -1,9 +1,11 @@
 use super::*;
 
 const LEGACY_STATUS: &str = "legacy_status";
+const LEGACY_PATTERN: &str = "legacy_pattern";
 
 pub(crate) fn register_actions(actions: &mut ActionRegistry) -> Result<(), ActionError> {
     actions.register(ResolveLegacy)?;
+    actions.register(ReinforceLegacy)?;
     Ok(())
 }
 
@@ -12,6 +14,7 @@ pub(crate) fn resolve_period_consequences(
     actions: &ActionRegistry,
     relationship: EventId,
 ) -> Result<EventId, Box<dyn Error>> {
+    let legacy_existed = legacy_id_from_state(world.state())? != "forming";
     let mut tail = relationship;
     if social_arc_candidate(world.state())?.is_some() {
         tail = world
@@ -27,6 +30,24 @@ pub(crate) fn resolve_period_consequences(
             if cause != tail {
                 request = request.caused_by(cause);
             }
+        }
+        tail = world.execute(actions, &request)?.id;
+    }
+    if legacy_existed {
+        let formed = world
+            .events()
+            .iter()
+            .rev()
+            .find(|event| event.kind == "world_legacy_formed")
+            .map(|event| event.id)
+            .ok_or_else(|| {
+                ActionError::Invalid(
+                    "Pocket Universe has a durable legacy without its formation event".into(),
+                )
+            })?;
+        let mut request = ActionRequest::new("reinforce_legacy").caused_by(tail);
+        if formed != tail {
+            request = request.caused_by(formed);
         }
         tail = world.execute(actions, &request)?.id;
     }
@@ -90,6 +111,100 @@ pub(crate) fn growth_consequence(seed: &str, legacy: &str) -> Option<&'static st
             "The World now carries a legacy formed from its earlier choices and repeated behavior."
         }
     })
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ReinforcementCandidate {
+    legacy: String,
+    behavior: String,
+    target: EntityId,
+    cycle: i64,
+    pattern: String,
+    summary: String,
+}
+
+fn reinforcement_candidate(
+    state: &WorldState,
+) -> Result<Option<ReinforcementCandidate>, ActionError> {
+    let legacy = legacy_id_from_state(state)?;
+    if legacy == "forming" {
+        return Ok(None);
+    }
+    let behavior = text_component_from_state(state, UNIVERSE, LEGACY_BEHAVIOR)?;
+    if !matches!(behavior.as_str(), "care-led" | "explore-led" | "balanced") {
+        return Err(ActionError::Invalid(format!(
+            "unknown Pocket Universe legacy behavior: {behavior}"
+        )));
+    }
+    let seed = seed_id_from_state(state)?;
+    let posture = posture_id_from_state(state)?;
+    let social_arc = text_component_from_state(state, RELATIONSHIP, RELATIONSHIP_SOCIAL_ARC)?;
+    let (expected_legacy, target, _, _) = archetype(&seed, &posture, &social_arc).ok_or_else(|| {
+        ActionError::Invalid(format!(
+            "unsupported Pocket Universe reinforcement: seed={seed}, posture={posture}, social_arc={social_arc}"
+        ))
+    })?;
+    if expected_legacy != legacy {
+        return Err(ActionError::Invalid(format!(
+            "Pocket Universe legacy state disagrees with its durable causes: expected={expected_legacy}, actual={legacy}"
+        )));
+    }
+    let cycle = integer_component(state, UNIVERSE, LEGACY_CYCLES)?
+        .checked_add(1)
+        .ok_or_else(|| ActionError::Invalid("Pocket Universe legacy cycle overflow".into()))?;
+    let (pattern, summary) = reinforcement_semantics(&legacy, &behavior, cycle)?;
+    Ok(Some(ReinforcementCandidate {
+        legacy,
+        behavior,
+        target,
+        cycle,
+        pattern,
+        summary,
+    }))
+}
+
+fn reinforcement_semantics(
+    legacy: &str,
+    behavior: &str,
+    cycle: i64,
+) -> Result<(String, String), ActionError> {
+    let label = match legacy {
+        "ridge-network" => "ridge network",
+        "competing-frontiers" => "competing frontiers",
+        "habitat-commons" => "habitat commons",
+        "sealed-districts" => "sealed districts",
+        "night-network" => "night network",
+        "rival-scenes" => "rival scenes",
+        "neighborhood-commons" => "neighborhood commons",
+        "split-blocks" => "split blocks",
+        "aurora-league" => "aurora league",
+        "rival-routes" => "rival routes",
+        "winter-commons" => "winter commons",
+        "divided-houses" => "divided houses",
+        other => {
+            return Err(ActionError::Invalid(format!(
+                "unknown Pocket Universe legacy: {other}"
+            )))
+        }
+    };
+    let (pattern_kind, behavior_phrase) = match behavior {
+        "care-led" => ("stewardship", "repeated care, upkeep, and stewardship"),
+        "explore-led" => (
+            "expansion",
+            "repeated exploration, route expansion, and experimentation",
+        ),
+        "balanced" => ("adaptive", "coordinated upkeep and expansion"),
+        other => {
+            return Err(ActionError::Invalid(format!(
+                "unknown Pocket Universe legacy behavior: {other}"
+            )))
+        }
+    };
+    let pattern = format!("{pattern_kind} cycle {cycle}");
+    let summary = format!(
+        "The {label} reinforced itself through {behavior_phrase}. Legacy cycle {cycle} is now a durable {pattern_kind} pattern."
+    );
+    Ok((pattern, summary))
 }
 
 fn historical_causes(world: &World) -> Vec<EventId> {
@@ -286,6 +401,57 @@ fn decision_memory(decision: &str) -> &'static str {
 
 struct ResolveLegacy;
 
+struct ReinforceLegacy;
+
+impl Action for ReinforceLegacy {
+    fn name(&self) -> &'static str {
+        "reinforce_legacy"
+    }
+
+    fn evaluate(
+        &self,
+        state: &WorldState,
+        _request: &ActionRequest,
+    ) -> Result<EventDraft, ActionError> {
+        let candidate = reinforcement_candidate(state)?.ok_or_else(|| {
+            ActionError::Invalid("this World does not have a durable legacy to reinforce".into())
+        })?;
+        let mut draft = EventDraft::new("legacy_reinforced");
+        draft.targets = vec![UNIVERSE, candidate.target];
+        draft
+            .payload
+            .insert("legacy".into(), candidate.legacy.clone().into());
+        draft
+            .payload
+            .insert("behavior".into(), candidate.behavior.clone().into());
+        draft.payload.insert("cycle".into(), candidate.cycle.into());
+        draft
+            .payload
+            .insert("pattern".into(), candidate.pattern.clone().into());
+        draft
+            .payload
+            .insert("summary".into(), candidate.summary.clone().into());
+        draft.changes = vec![
+            StateChange::SetComponent {
+                entity: UNIVERSE,
+                key: LEGACY_CYCLES.into(),
+                value: candidate.cycle.into(),
+            },
+            StateChange::SetComponent {
+                entity: candidate.target,
+                key: LEGACY_PATTERN.into(),
+                value: candidate.pattern.into(),
+            },
+            StateChange::SetComponent {
+                entity: UNIVERSE,
+                key: LAST_CHANGE.into(),
+                value: candidate.summary.into(),
+            },
+        ];
+        Ok(draft)
+    }
+}
+
 impl Action for ResolveLegacy {
     fn name(&self) -> &'static str {
         "resolve_legacy"
@@ -329,6 +495,16 @@ impl Action for ResolveLegacy {
                 value: candidate.summary.clone().into(),
             },
             StateChange::SetComponent {
+                entity: UNIVERSE,
+                key: LEGACY_BEHAVIOR.into(),
+                value: candidate.behavior.into(),
+            },
+            StateChange::SetComponent {
+                entity: UNIVERSE,
+                key: LEGACY_CYCLES.into(),
+                value: 0_i64.into(),
+            },
+            StateChange::SetComponent {
                 entity: candidate.target,
                 key: LEGACY_STATUS.into(),
                 value: candidate.status_value.into(),
@@ -340,5 +516,27 @@ impl Action for ResolveLegacy {
             },
         ];
         Ok(draft)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn repeated_behavior_produces_distinct_durable_reinforcement_patterns() {
+        let care = reinforcement_semantics("ridge-network", "care-led", 1).unwrap();
+        let explore = reinforcement_semantics("ridge-network", "explore-led", 1).unwrap();
+        let balanced = reinforcement_semantics("ridge-network", "balanced", 1).unwrap();
+
+        assert_eq!(care.0, "stewardship cycle 1");
+        assert_eq!(explore.0, "expansion cycle 1");
+        assert_eq!(balanced.0, "adaptive cycle 1");
+        assert_ne!(care, explore);
+        assert_ne!(care, balanced);
+        assert_ne!(explore, balanced);
+        assert!(care.1.contains("repeated care"));
+        assert!(explore.1.contains("repeated exploration"));
+        assert!(balanced.1.contains("coordinated upkeep and expansion"));
     }
 }

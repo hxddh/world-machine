@@ -16,7 +16,7 @@ use world_persistence::{PersistenceError, WorldArchive, WorldPackRef};
 use world_projection::{ProjectionIntent, ProjectionSnapshot};
 
 pub const POCKET_UNIVERSE_PACK_ID: &str = "world-machine.pocket-universe";
-pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.13.2";
+pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.14.0";
 
 pub const SEED_MARS_COLONY_COMMAND: &str = "pocket-universe.seed-mars-colony";
 pub const SEED_1980S_TOWN_COMMAND: &str = "pocket-universe.seed-1980s-town";
@@ -45,6 +45,8 @@ pub(crate) const POSTURE: &str = "posture";
 pub(crate) const POSTURE_GENERATION: &str = "posture_generation";
 pub(crate) const LEGACY: &str = "legacy";
 pub(crate) const LEGACY_SUMMARY: &str = "legacy_summary";
+pub(crate) const LEGACY_BEHAVIOR: &str = "legacy_behavior";
+pub(crate) const LEGACY_CYCLES: &str = "legacy_cycles";
 pub(crate) const RELATIONSHIP_DIRECTION: &str = "direction";
 const RELATIONSHIP_TRUST: &str = "trust";
 const RELATIONSHIP_TENSION: &str = "tension";
@@ -543,6 +545,8 @@ fn baseline() -> Result<WorldState, WorldStateError> {
             .with_component(POSTURE_GENERATION, 0_i64)
             .with_component(LEGACY, "forming")
             .with_component(LEGACY_SUMMARY, "")
+            .with_component(LEGACY_BEHAVIOR, "forming")
+            .with_component(LEGACY_CYCLES, 0_i64)
             .with_component(LAST_CHANGE, "Nothing exists here yet."),
     )?;
     Ok(state)
@@ -1563,6 +1567,16 @@ fn seed_draft(
             entity: UNIVERSE,
             key: LEGACY_SUMMARY.into(),
             value: "".into(),
+        },
+        StateChange::SetComponent {
+            entity: UNIVERSE,
+            key: LEGACY_BEHAVIOR.into(),
+            value: "forming".into(),
+        },
+        StateChange::SetComponent {
+            entity: UNIVERSE,
+            key: LEGACY_CYCLES.into(),
+            value: 0_i64.into(),
         },
         StateChange::SetComponent {
             entity: UNIVERSE,

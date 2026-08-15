@@ -58,7 +58,7 @@ fn legacy_briefing_selects_its_event_and_exposes_why() -> Result<(), Box<dyn Err
     assert!(titles.contains(&"Universe Intervened"));
     assert!(titles.contains(&"Relationship Shifted"));
 
-    let reopened = PocketUniverse::resume_archive(&archive)?;
+    let mut reopened = PocketUniverse::resume_archive(&archive)?;
     let reopened_snapshot = reopened.projection_snapshot();
     let reopened_legacy = reopened_snapshot
         .briefing
@@ -73,6 +73,37 @@ fn legacy_briefing_selects_its_event_and_exposes_why() -> Result<(), Box<dyn Err
         reopened_snapshot.why(legacy_event_id),
         Some(why),
         "archive/reopen should preserve the same causal explanation"
+    );
+
+    reopened.advance_periods(1)?;
+    let reinforced_archive = reopened.archive()?;
+    let reinforced = reinforced_archive
+        .events
+        .iter()
+        .rev()
+        .find(|event| event.kind == "legacy_reinforced")
+        .expect("the following period should reinforce the legacy");
+    let reinforced_event_id = EventId::new(reinforced.id);
+    let reinforced_snapshot = reopened.projection_snapshot();
+    let reinforced_why = reinforced_snapshot
+        .why(reinforced_event_id)
+        .expect("legacy reinforcement should have a generic Why projection");
+    assert_eq!(reinforced_why.nodes[0].title, "Legacy Reinforced");
+    let reinforced_titles = reinforced_why
+        .nodes
+        .iter()
+        .map(|node| node.title.as_str())
+        .collect::<Vec<_>>();
+    assert!(reinforced_titles.contains(&"World Legacy Formed"));
+    assert!(reinforced_titles.contains(&"Relationship Shifted"));
+
+    let reopened_again = PocketUniverse::resume_archive(&reinforced_archive)?;
+    assert_eq!(
+        reopened_again
+            .projection_snapshot()
+            .why(reinforced_event_id),
+        Some(reinforced_why),
+        "archive/reopen should preserve the reinforcement explanation"
     );
 
     Ok(())
