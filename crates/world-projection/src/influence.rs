@@ -54,6 +54,17 @@ pub(crate) fn semantic_path_from_snapshot<'a>(
     inspectors: &BTreeMap<SelectionId, InspectorProjection>,
     root: EventId,
 ) -> Vec<&'a TimelineItem> {
+    semantic_path_details_from_snapshot(timeline, inspectors, root)
+        .into_iter()
+        .map(|(_, item, _)| item)
+        .collect()
+}
+
+pub(crate) fn semantic_path_details_from_snapshot<'a>(
+    timeline: &'a TimelineProjection,
+    inspectors: &BTreeMap<SelectionId, InspectorProjection>,
+    root: EventId,
+) -> Vec<(usize, &'a TimelineItem, String)> {
     let by_id = timeline
         .items
         .iter()
@@ -62,6 +73,35 @@ pub(crate) fn semantic_path_from_snapshot<'a>(
             SelectionId::Entity(_) => None,
         })
         .collect::<BTreeMap<_, _>>();
+    let full_path = selected_path_event_ids(timeline, inspectors, root, &by_id);
+    if full_path.is_empty() {
+        return Vec::new();
+    }
+
+    let mut causal_steps = 0_usize;
+    let mut details = Vec::new();
+    for event in full_path {
+        causal_steps += 1;
+        let Some(item) = by_id.get(&event).copied() else {
+            return Vec::new();
+        };
+        if !inspector_has_world_effect(inspectors.get(&item.id)) {
+            continue;
+        }
+        let effect = semantic_effect_from_snapshot(timeline, inspectors, event)
+            .unwrap_or_else(|| item.subtitle.clone());
+        details.push((causal_steps, item, effect));
+        causal_steps = 0;
+    }
+    details
+}
+
+fn selected_path_event_ids(
+    timeline: &TimelineProjection,
+    inspectors: &BTreeMap<SelectionId, InspectorProjection>,
+    root: EventId,
+    by_id: &BTreeMap<EventId, &TimelineItem>,
+) -> Vec<EventId> {
     if !by_id.contains_key(&root) {
         return Vec::new();
     }
@@ -107,7 +147,7 @@ pub(crate) fn semantic_path_from_snapshot<'a>(
 
     let mut memo = BTreeMap::<EventId, Option<BestPathState>>::new();
     let mut visiting = BTreeSet::new();
-    if best_semantic_path_state(terminal, root, &by_id, inspectors, &mut memo, &mut visiting)
+    if best_semantic_path_state(terminal, root, by_id, inspectors, &mut memo, &mut visiting)
         .is_none()
     {
         return Vec::new();
@@ -116,9 +156,7 @@ pub(crate) fn semantic_path_from_snapshot<'a>(
     let mut path = Vec::new();
     let mut current = terminal;
     while current != root {
-        if inspector_has_world_effect(inspectors.get(&SelectionId::Event(current))) {
-            path.push(current);
-        }
+        path.push(current);
         let Some(state) = memo.get(&current).and_then(|state| *state) else {
             return Vec::new();
         };
@@ -128,10 +166,123 @@ pub(crate) fn semantic_path_from_snapshot<'a>(
         current = predecessor;
     }
     path.reverse();
+    path
+}
 
-    path.into_iter()
-        .filter_map(|event| by_id.get(&event).copied())
-        .collect()
+fn semantic_effect_from_snapshot(
+    timeline: &TimelineProjection,
+    inspectors: &BTreeMap<SelectionId, InspectorProjection>,
+    event: EventId,
+) -> Option<String> {
+    let inspector = inspectors.get(&SelectionId::Event(event))?;
+    let payload = inspector
+        .sections
+        .iter()
+        .find(|section| section.title == "Payload");
+    let summary = payload.and_then(|section| {
+        section.rows.iter().find_map(|row| {
+            matches!(row.label.as_str(), "Summary" | "Change")
+                .then(|| row.value.trim())
+                .filter(|value| !value.is_empty())
+        })
+    });
+    let payload_labels = payload
+        .map(|section| {
+            section
+                .rows
+                .iter()
+                .filter(|row| !matches!(row.label.as_str(), "Summary" | "Change"))
+                .map(|row| row.label.as_str())
+                .collect::<BTreeSet<_>>()
+        })
+        .unwrap_or_default();
+    let changes = inspector
+        .sections
+        .iter()
+        .find(|section| section.title == "Changes")
+        .map(|section| section.rows.as_slice())
+        .unwrap_or_default();
+
+    let matched = changes
+        .iter()
+        .filter(|row| payload_labels.contains(change_field_label(&row.label)))
+        .collect::<Vec<_>>();
+    let evidence_rows = if !matched.is_empty() {
+        matched
+    } else if summary.is_none() {
+        changes.iter().collect()
+    } else {
+        Vec::new()
+    };
+    let evidence = evidence_rows
+        .iter()
+        .take(2)
+        .map(|row| recorded_transition(timeline, inspectors, event, row))
+        .collect::<Vec<_>>();
+    let hidden = evidence_rows.len().saturating_sub(evidence.len());
+
+    match (summary, evidence.is_empty()) {
+        (Some(summary), true) => Some(summary.to_string()),
+        (Some(summary), false) => {
+            let mut text = format!("{summary} · Recorded state · {}", evidence.join(" · "));
+            if hidden > 0 {
+                text.push_str(&format!(" · +{hidden} more recorded changes"));
+            }
+            Some(text)
+        }
+        (None, false) => {
+            let mut text = format!("Recorded state · {}", evidence.join(" · "));
+            if hidden > 0 {
+                text.push_str(&format!(" · +{hidden} more recorded changes"));
+            }
+            Some(text)
+        }
+        (None, true) => None,
+    }
+}
+
+fn change_field_label(label: &str) -> &str {
+    label.rsplit_once(" · ").map_or(label, |(_, field)| field)
+}
+
+fn recorded_transition(
+    timeline: &TimelineProjection,
+    inspectors: &BTreeMap<SelectionId, InspectorProjection>,
+    event: EventId,
+    row: &crate::InspectorRow,
+) -> String {
+    if !row.label.contains(" · ") {
+        return format!("{} · {}", row.label, row.value);
+    }
+    match previous_recorded_value(timeline, inspectors, event, &row.label) {
+        Some(previous) if previous != row.value => {
+            format!("{} {previous} → {}", row.label, row.value)
+        }
+        Some(_) => format!("{} = {}", row.label, row.value),
+        None => format!("{} → {}", row.label, row.value),
+    }
+}
+
+fn previous_recorded_value(
+    timeline: &TimelineProjection,
+    inspectors: &BTreeMap<SelectionId, InspectorProjection>,
+    event: EventId,
+    label: &str,
+) -> Option<String> {
+    let current = timeline
+        .items
+        .iter()
+        .position(|item| item.id == SelectionId::Event(event))?;
+    timeline.items.iter().skip(current + 1).find_map(|item| {
+        inspectors.get(&item.id).and_then(|inspector| {
+            inspector
+                .sections
+                .iter()
+                .find(|section| section.title == "Changes")
+                .and_then(|section| section.rows.iter().find(|row| row.label == label))
+                .map(|row| row.value.clone())
+        })
+    })
 }
 
 fn children_from_timeline(timeline: &TimelineProjection) -> BTreeMap<EventId, Vec<&TimelineItem>> {
@@ -375,6 +526,87 @@ mod tests {
                 SelectionId::Event(EventId::new(5)),
             ]
         );
+    }
+
+    #[test]
+    fn semantic_path_details_explain_recorded_effects_and_fold_supporting_spans() {
+        let timeline = TimelineProjection {
+            items: vec![
+                item(5, "Final Effect", &[1, 4]),
+                item(4, "Milestone", &[3]),
+                item(3, "Supporting Record", &[2]),
+                item(2, "First World Effect", &[1]),
+                item(1, "Choice", &[]),
+            ],
+        };
+        let change = |id, value: &str| {
+            inspector(
+                id,
+                vec![InspectorSection {
+                    title: "Changes".into(),
+                    rows: vec![InspectorRow {
+                        label: "Entity #1 · Status".into(),
+                        value: value.into(),
+                    }],
+                }],
+            )
+        };
+        let inspectors = BTreeMap::from([
+            (SelectionId::Event(EventId::new(1)), change(1, "before")),
+            (SelectionId::Event(EventId::new(2)), change(2, "first")),
+            (SelectionId::Event(EventId::new(4)), change(4, "milestone")),
+            (SelectionId::Event(EventId::new(5)), change(5, "final")),
+        ]);
+
+        let details = semantic_path_details_from_snapshot(&timeline, &inspectors, EventId::new(1));
+        assert_eq!(details.len(), 3);
+        assert_eq!(details[0].0, 1);
+        assert_eq!(
+            details[1].0, 2,
+            "one supporting record should be folded between visible stages"
+        );
+        assert_eq!(details[2].0, 1);
+        assert_eq!(details[0].1.id, SelectionId::Event(EventId::new(2)));
+        assert_eq!(details[1].1.id, SelectionId::Event(EventId::new(4)));
+        assert_eq!(details[2].1.id, SelectionId::Event(EventId::new(5)));
+        assert!(details[0].2.contains("before → first"));
+        assert!(details[1].2.contains("first → milestone"));
+        assert!(details[2].2.contains("milestone → final"));
+    }
+
+    #[test]
+    fn structural_change_labels_never_infer_a_previous_value_from_an_unrelated_event() {
+        let timeline = TimelineProjection {
+            items: vec![item(2, "Created", &[1]), item(1, "Earlier", &[])],
+        };
+        let create = |id, value: &str| {
+            inspector(
+                id,
+                vec![InspectorSection {
+                    title: "Changes".into(),
+                    rows: vec![InspectorRow {
+                        label: "Create entity".into(),
+                        value: value.into(),
+                    }],
+                }],
+            )
+        };
+        let inspectors = BTreeMap::from([
+            (
+                SelectionId::Event(EventId::new(1)),
+                create(1, "First entity"),
+            ),
+            (
+                SelectionId::Event(EventId::new(2)),
+                create(2, "Second entity"),
+            ),
+        ]);
+
+        let effect = semantic_effect_from_snapshot(&timeline, &inspectors, EventId::new(2))
+            .expect("structural change should remain explainable");
+        assert_eq!(effect, "Recorded state · Create entity · Second entity");
+        assert!(!effect.contains("First entity"));
+        assert!(!effect.contains("→"));
     }
 
     #[test]

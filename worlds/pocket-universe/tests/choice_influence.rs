@@ -37,6 +37,17 @@ fn semantic_path_signature(
         .collect()
 }
 
+fn semantic_path_detail_signature(
+    snapshot: &world_projection::ProjectionSnapshot,
+    event: world_core::EventId,
+) -> Vec<(usize, world_projection::SelectionId, String, String)> {
+    snapshot
+        .semantic_path_details(event)
+        .into_iter()
+        .map(|(steps, item, effect)| (steps, item.id, item.title.clone(), effect))
+        .collect()
+}
+
 #[test]
 fn old_choices_expose_semantic_world_effects_without_erasing_supporting_history(
 ) -> Result<(), Box<dyn Error>> {
@@ -76,6 +87,32 @@ fn old_choices_expose_semantic_world_effects_without_erasing_supporting_history(
         .expect("the latest relationship thread should reach the resolved social arc");
     assert!(shifted < partnership);
 
+    let relationship_details = semantic_path_detail_signature(&relationship_snapshot, relationship);
+    assert_eq!(relationship_details.len(), relationship_path.len());
+    assert!(relationship_details
+        .iter()
+        .all(|(_, _, title, _)| title != "Agent Decision Recorded"));
+    assert!(
+        relationship_details
+            .iter()
+            .any(|(steps, _, _, _)| *steps > 1),
+        "the readable thread should report when supporting causal records were folded"
+    );
+    let shifted_effect = relationship_details
+        .iter()
+        .find(|(_, _, title, _)| title == "Relationship Shifted")
+        .map(|(_, _, _, effect)| effect)
+        .expect("relationship shift should carry recorded semantic evidence");
+    assert!(shifted_effect.contains("Trust is"));
+    assert!(shifted_effect.contains("Recorded state"));
+    assert!(shifted_effect.contains("Trust"));
+    let partnership_effect = relationship_details
+        .iter()
+        .find(|(_, _, title, _)| title == "Partnership Formed")
+        .map(|(_, _, _, effect)| effect)
+        .expect("resolved social arc should carry its recorded summary");
+    assert!(partnership_effect.contains("one expedition crew"));
+
     let intervention = universe.invoke_projection_command(BOLD_PATH_COMMAND)?;
     universe.advance_periods(2)?;
     let intervention_snapshot = universe.projection_snapshot();
@@ -98,6 +135,11 @@ fn old_choices_expose_semantic_world_effects_without_erasing_supporting_history(
         semantic_path_signature(&reopened_snapshot, relationship),
         semantic_path_signature(&intervention_snapshot, relationship),
         "archive/reopen must reconstruct the same compressed causal thread from persisted Events"
+    );
+    assert_eq!(
+        semantic_path_detail_signature(&reopened_snapshot, relationship),
+        semantic_path_detail_signature(&intervention_snapshot, relationship),
+        "archive/reopen must reconstruct the same recorded causal explanation"
     );
     assert_eq!(
         influence_signature(&reopened_snapshot, intervention),
