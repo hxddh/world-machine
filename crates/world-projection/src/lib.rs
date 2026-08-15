@@ -74,6 +74,10 @@ impl ProjectionSnapshot {
         influence::semantic_path_from_snapshot(&self.timeline, &self.inspectors, event)
     }
 
+    pub fn semantic_path_details(&self, event: EventId) -> Vec<(usize, &TimelineItem, String)> {
+        influence::semantic_path_details_from_snapshot(&self.timeline, &self.inspectors, event)
+    }
+
     pub fn command(&self, id: &str) -> Option<&ProjectionCommand> {
         self.commands.iter().find(|command| command.id == id)
     }

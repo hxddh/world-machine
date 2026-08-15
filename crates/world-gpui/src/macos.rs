@@ -380,7 +380,7 @@ impl ProjectionView {
             return None;
         }
         let semantic_influence = self.snapshot.semantic_influence(event);
-        let semantic_path = self.snapshot.semantic_path(event);
+        let semantic_path = self.snapshot.semantic_path_details(event);
 
         let recorded = raw_influence.len();
         let visible = semantic_influence.len();
@@ -399,7 +399,7 @@ impl ProjectionView {
         for (depth, item) in &semantic_influence {
             if semantic_path
                 .iter()
-                .any(|path_item| path_item.id == item.id)
+                .any(|(_, path_item, _)| path_item.id == item.id)
             {
                 continue;
             }
@@ -447,12 +447,26 @@ impl ProjectionView {
             let path_len = semantic_path.len();
             let mut path_nodes = div().flex().flex_col().gap_1();
             if path_len <= 6 {
-                for (index, item) in semantic_path.iter().enumerate() {
-                    path_nodes = path_nodes.child(self.semantic_path_node(index + 1, item, cx));
+                for (index, (causal_steps, item, effect)) in semantic_path.iter().enumerate() {
+                    path_nodes = path_nodes.child(self.semantic_path_node(
+                        index + 1,
+                        *causal_steps,
+                        item,
+                        effect,
+                        cx,
+                    ));
                 }
             } else {
-                for (index, item) in semantic_path.iter().take(2).enumerate() {
-                    path_nodes = path_nodes.child(self.semantic_path_node(index + 1, item, cx));
+                for (index, (causal_steps, item, effect)) in
+                    semantic_path.iter().take(2).enumerate()
+                {
+                    path_nodes = path_nodes.child(self.semantic_path_node(
+                        index + 1,
+                        *causal_steps,
+                        item,
+                        effect,
+                        cx,
+                    ));
                 }
                 path_nodes = path_nodes.child(
                     div()
@@ -465,8 +479,16 @@ impl ProjectionView {
                             path_len - 5
                         )),
                 );
-                for (index, item) in semantic_path.iter().enumerate().skip(path_len - 3) {
-                    path_nodes = path_nodes.child(self.semantic_path_node(index + 1, item, cx));
+                for (index, (causal_steps, item, effect)) in
+                    semantic_path.iter().enumerate().skip(path_len - 3)
+                {
+                    path_nodes = path_nodes.child(self.semantic_path_node(
+                        index + 1,
+                        *causal_steps,
+                        item,
+                        effect,
+                        cx,
+                    ));
                 }
             }
             panel = panel
@@ -554,10 +576,29 @@ impl ProjectionView {
     fn semantic_path_node(
         &self,
         stage: usize,
+        causal_steps: usize,
         item: &TimelineItem,
+        effect: &str,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let selection = item.id;
+        let source = if stage == 1 {
+            "selected Event"
+        } else {
+            "previous visible stage"
+        };
+        let causal_context = if causal_steps == 1 {
+            format!("Stage {stage} · direct recorded causal step from {source}")
+        } else {
+            format!(
+                "Stage {stage} · {causal_steps} recorded causal steps from {source} · {} supporting records folded",
+                causal_steps - 1
+            )
+        };
+        let event_ref = match selection {
+            SelectionId::Event(event) => format!("World time {} · Event #{event}", item.world_time),
+            SelectionId::Entity(_) => unreachable!("semantic path items must be Events"),
+        };
         div()
             .id(SharedString::from(format!(
                 "semantic-path-{}",
@@ -571,15 +612,16 @@ impl ProjectionView {
                 div()
                     .text_xs()
                     .text_color(rgb(0x657565))
-                    .child(format!("Stage {stage}")),
+                    .child(causal_context),
             )
             .child(div().text_sm().child(item.title.clone()))
             .child(
                 div()
                     .text_xs()
-                    .text_color(rgb(0x777777))
-                    .child(item.subtitle.clone()),
+                    .text_color(rgb(0x4f5f4f))
+                    .child(effect.to_string()),
             )
+            .child(div().text_xs().text_color(rgb(0x777777)).child(event_ref))
             .on_click(cx.listener(move |this, _, _, cx| this.select(selection, cx)))
     }
 
