@@ -3,7 +3,7 @@ use pocket_universe::{
     SEED_MARS_COLONY_COMMAND, SHARED_PROJECT_COMMAND,
 };
 use std::error::Error;
-use world_compare::{compare_snapshots, DifferenceKind, EntityDifference};
+use world_compare::{compare_divergence, compare_snapshots, DifferenceKind, EntityDifference};
 
 fn row<'a>(difference: &'a EntityDifference, label: &str) -> Option<(&'a str, &'a str)> {
     let row = difference
@@ -90,6 +90,53 @@ fn second_arc_is_a_durable_generic_strategy_fork() -> Result<(), Box<dyn Error>>
             && event.right.title == "World Posture Chosen"
             && event.left.subtitle != event.right.subtitle
     }));
+
+    let divergence =
+        compare_divergence(&left, &right).expect("the two durable second-arc futures must diverge");
+    let shared_frontier = divergence
+        .shared_frontier
+        .as_ref()
+        .expect("both futures share the full history before the posture choice");
+    assert_ne!(shared_frontier.title, "World Posture Chosen");
+    let left_first = divergence
+        .left
+        .first_difference
+        .as_ref()
+        .expect("outward future has a first difference");
+    let right_first = divergence
+        .right
+        .first_difference
+        .as_ref()
+        .expect("rooted future has a first difference");
+    assert_eq!(left_first.title, "World Posture Chosen");
+    assert_eq!(right_first.title, "World Posture Chosen");
+    assert_ne!(left_first.subtitle, right_first.subtitle);
+    assert!(!divergence.left.impact.is_empty());
+    assert!(!divergence.right.impact.is_empty());
+    assert!(divergence
+        .left
+        .impact
+        .iter()
+        .all(|stage| stage.event.title != "Agent Decision Recorded"));
+    assert!(divergence
+        .right
+        .impact
+        .iter()
+        .all(|stage| stage.event.title != "Agent Decision Recorded"));
+    assert_ne!(
+        divergence
+            .left
+            .impact
+            .iter()
+            .map(|stage| stage.effect.as_str())
+            .collect::<Vec<_>>(),
+        divergence
+            .right
+            .impact
+            .iter()
+            .map(|stage| stage.effect.as_str())
+            .collect::<Vec<_>>()
+    );
 
     let outward_briefing = left
         .briefing
