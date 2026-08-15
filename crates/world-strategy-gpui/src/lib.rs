@@ -1,6 +1,4 @@
-use gpui::{
-    div, prelude::*, px, rgb, Context, Div, Render, SharedString, Styled, Window,
-};
+use gpui::{div, prelude::*, px, rgb, Context, Div, Render, SharedString, Styled, Window};
 use world_compare::{
     compare_divergence, ChangedCommand, ChangedTimelineItem, DifferenceKind, DivergenceImpactStage,
     DivergenceSide, EntityDifference, SnapshotComparison, SnapshotDivergence,
@@ -133,12 +131,7 @@ impl StrategyComparisonView {
         }
     }
 
-    fn select(
-        &mut self,
-        side: ComparisonSide,
-        selection: SelectionId,
-        cx: &mut Context<Self>,
-    ) {
+    fn select(&mut self, side: ComparisonSide, selection: SelectionId, cx: &mut Context<Self>) {
         let selectable = self
             .snapshot(side)
             .and_then(|snapshot| snapshot.inspector(selection))
@@ -277,11 +270,7 @@ impl StrategyComparisonView {
         }
     }
 
-    fn render_divergence(
-        &self,
-        divergence: &SnapshotDivergence,
-        cx: &mut Context<Self>,
-    ) -> Div {
+    fn render_divergence(&self, divergence: &SnapshotDivergence, cx: &mut Context<Self>) -> Div {
         let shared = match &divergence.shared_frontier {
             Some(frontier) => div()
                 .p_3()
@@ -458,12 +447,8 @@ impl StrategyComparisonView {
         }
 
         for (index, stage) in side.impact.iter().take(DIVERGENCE_IMPACT_LIMIT).enumerate() {
-            column = column.child(self.render_divergence_stage(
-                comparison_side,
-                stage,
-                index == 0,
-                cx,
-            ));
+            column =
+                column.child(self.render_divergence_stage(comparison_side, stage, index == 0, cx));
         }
         if let Some(notice) = hidden_notice(
             side.impact.len(),
@@ -550,9 +535,9 @@ impl StrategyComparisonView {
                     .text_color(rgb(0x777777))
                     .child(format!("World time {}", stage.event.world_time)),
             )
-            .on_click(cx.listener(move |this, _, _, cx| {
-                this.select(comparison_side, selection, cx)
-            }))
+            .on_click(
+                cx.listener(move |this, _, _, cx| this.select(comparison_side, selection, cx)),
+            )
     }
 
     fn render_selected_evidence(&self, cx: &mut Context<Self>) -> Option<Div> {
@@ -651,11 +636,9 @@ impl StrategyComparisonView {
                         .child(div().flex_1().child(row.value.clone())),
                 );
             }
-            if let Some(notice) = hidden_notice(
-                section.rows.len(),
-                INSPECTOR_ROW_LIMIT,
-                "inspector rows",
-            ) {
+            if let Some(notice) =
+                hidden_notice(section.rows.len(), INSPECTOR_ROW_LIMIT, "inspector rows")
+            {
                 rows = rows.child(truncation_notice(notice));
             }
             sections = sections.child(
@@ -1286,13 +1269,8 @@ mod tests {
             ..ProjectionSnapshot::default()
         };
         let comparison = compare_snapshots(&left, &right);
-        let view = StrategyComparisonView::saved(
-            left,
-            right,
-            comparison,
-            "Left future",
-            "Right future",
-        );
+        let view =
+            StrategyComparisonView::saved(left, right, comparison, "Left future", "Right future");
 
         assert_eq!(
             view.snapshot(ComparisonSide::Left)
