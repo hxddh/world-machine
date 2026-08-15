@@ -1,15 +1,15 @@
 use crate::{
     seed_id, BOLD_PATH_COMMAND, CAREFUL_PATH_COMMAND, DECISION, GENERATION, LAST_CHANGE, LEGACY,
-    LEGACY_CYCLES, LEGACY_SUMMARY, NUDGE_COMMAND, OUTWARD_POSTURE_COMMAND, POSTURE, RELATIONSHIP,
-    RELATIONSHIP_DIRECTION, RELATIONSHIP_LAST_DYNAMIC, RELATIONSHIP_SOCIAL_ARC,
-    RELATIONSHIP_TENSION, RELATIONSHIP_TRUST, RIVALRY_COMMAND, ROOTED_POSTURE_COMMAND,
-    SEED_1980S_TOWN_COMMAND, SEED_MARS_COLONY_COMMAND, SEED_PENGUIN_CIVILIZATION_COMMAND,
-    SHARED_PROJECT_COMMAND, UNIVERSE,
+    LEGACY_CYCLES, LEGACY_SUMMARY, NUDGE_COMMAND, OUTWARD_POSTURE_COMMAND, POSTURE,
+    POSTURE_GENERATION, RELATIONSHIP, RELATIONSHIP_DIRECTION, RELATIONSHIP_LAST_DYNAMIC,
+    RELATIONSHIP_SOCIAL_ARC, RELATIONSHIP_TENSION, RELATIONSHIP_TRUST, RIVALRY_COMMAND,
+    ROOTED_POSTURE_COMMAND, SEED_1980S_TOWN_COMMAND, SEED_MARS_COLONY_COMMAND,
+    SEED_PENGUIN_CIVILIZATION_COMMAND, SHARED_PROJECT_COMMAND, UNIVERSE,
 };
-use world_core::{Entity, Event, Value, World};
+use world_core::{Entity, EntityId, Event, StateChange, Value, World};
 use world_projection::{
-    entity_title, inspectors_from_world, timeline_from_world, why_map_from_world, BriefingItem,
-    BriefingProjection, CanvasItem, CanvasItemKind, CanvasProjection, CollectionItem,
+    entity_title, inspectors_from_world, timeline_from_world, value_text, why_map_from_world,
+    BriefingItem, BriefingProjection, CanvasItem, CanvasItemKind, CanvasProjection, CollectionItem,
     CollectionProjection, ProjectionCapabilities, ProjectionCommand, ProjectionSnapshot,
     SelectionId,
 };
@@ -564,6 +564,9 @@ fn live_stage_copy(
 
 fn persistent_consequence_items(world: &World) -> Vec<BriefingItem> {
     let mut items = Vec::new();
+    if let Some(item) = choice_evidence_item(world) {
+        items.push(item);
+    }
     let decision = text_component(world.state().entity(UNIVERSE), DECISION, "none");
     if let Some((title, detail)) = intervention_influence_copy(&decision) {
         items.push(BriefingItem {
@@ -582,6 +585,190 @@ fn persistent_consequence_items(world: &World) -> Vec<BriefingItem> {
         items.push(item);
     }
     items
+}
+
+fn choice_evidence_item(world: &World) -> Option<BriefingItem> {
+    let event_index = world.events().iter().rposition(|event| {
+        matches!(
+            event.kind.as_str(),
+            "relationship_steered" | "universe_intervened" | "world_posture_chosen"
+        )
+    })?;
+    let event = &world.events()[event_index];
+    match event.kind.as_str() {
+        "relationship_steered" => relationship_choice_evidence(world, event, event_index),
+        "universe_intervened" => intervention_choice_evidence(world, event),
+        "world_posture_chosen" => posture_choice_evidence(event),
+        _ => None,
+    }
+}
+
+fn relationship_choice_evidence(
+    world: &World,
+    event: &Event,
+    event_index: usize,
+) -> Option<BriefingItem> {
+    let direction = payload_text(event, "direction")?;
+    let before_trust = integer_value(component_value_before_event(
+        world.events(),
+        event_index,
+        RELATIONSHIP,
+        RELATIONSHIP_TRUST,
+    )?)?;
+    let before_tension = integer_value(component_value_before_event(
+        world.events(),
+        event_index,
+        RELATIONSHIP,
+        RELATIONSHIP_TENSION,
+    )?)?;
+    let after_trust = event_integer_component(event, RELATIONSHIP, RELATIONSHIP_TRUST)?;
+    let after_tension = event_integer_component(event, RELATIONSHIP, RELATIONSHIP_TENSION)?;
+    let durable_direction = event_text_component(event, RELATIONSHIP, RELATIONSHIP_DIRECTION)?;
+    let (label, follow_on) = match direction {
+        "shared-project" => (
+            "Shared project",
+            "Later relationship shifts read this durable direction and add +1 trust and -1 tension.",
+        ),
+        "rivalry" => (
+            "Rivalry",
+            "Later relationship shifts read this durable direction and add +1 tension.",
+        ),
+        _ => (
+            "Relationship",
+            "Later relationship shifts continue reading this durable direction.",
+        ),
+    };
+    Some(BriefingItem {
+        selection: Some(SelectionId::Event(event.id)),
+        title: format!("Choice evidence · {label}"),
+        detail: format!(
+            "Verified by this Event: trust {before_trust} → {after_trust} · tension {before_tension} → {after_tension}. Durable direction = {}. {follow_on}",
+            durable_direction.replace('-', " ")
+        ),
+    })
+}
+
+fn intervention_choice_evidence(world: &World, event: &Event) -> Option<BriefingItem> {
+    let decision = event_text_component(event, UNIVERSE, DECISION)?;
+    let label = intervention_influence_copy(&decision)
+        .map(|(title, _)| {
+            title
+                .strip_prefix("Your influence · ")
+                .unwrap_or(title)
+                .to_string()
+        })
+        .unwrap_or_else(|| legacy_label(&decision));
+    let effect = event.changes.iter().find_map(|change| match change {
+        StateChange::SetComponent { entity, key, value } if *entity != UNIVERSE => {
+            let target = world
+                .state()
+                .entity(*entity)
+                .map(entity_title)
+                .unwrap_or_else(|| format!("Entity #{entity}"));
+            Some(format!(
+                "{target} · {} = {}",
+                key.replace('_', " "),
+                value_text(value, world)
+            ))
+        }
+        _ => None,
+    })?;
+    Some(BriefingItem {
+        selection: Some(SelectionId::Event(event.id)),
+        title: format!("Choice evidence · {label}"),
+        detail: format!(
+            "Verified by this Event: first intervention = {label}; {effect}. Later growth reads this durable intervention."
+        ),
+    })
+}
+
+fn posture_choice_evidence(event: &Event) -> Option<BriefingItem> {
+    let posture = event_text_component(event, UNIVERSE, POSTURE)?;
+    let generation = event_integer_component(event, UNIVERSE, POSTURE_GENERATION)?;
+    let label = match posture.as_str() {
+        "outward" => "Outward",
+        "rooted" => "Rooted",
+        _ => "World direction",
+    };
+    Some(BriefingItem {
+        selection: Some(SelectionId::Event(event.id)),
+        title: format!("Choice evidence · {label}"),
+        detail: format!(
+            "Verified by this Event: World direction = {label} at generation {generation}. Later growth and legacy formation read this durable posture."
+        ),
+    })
+}
+
+fn payload_text<'a>(event: &'a Event, key: &str) -> Option<&'a str> {
+    match event.payload.get(key) {
+        Some(Value::Text(value)) => Some(value.as_str()),
+        _ => None,
+    }
+}
+
+fn event_component_value(event: &Event, entity: EntityId, key: &str) -> Option<Value> {
+    event.changes.iter().rev().find_map(|change| match change {
+        StateChange::SetComponent {
+            entity: changed_entity,
+            key: changed_key,
+            value,
+        } if *changed_entity == entity && changed_key == key => Some(value.clone()),
+        StateChange::RemoveComponent {
+            entity: changed_entity,
+            key: changed_key,
+        } if *changed_entity == entity && changed_key == key => Some(Value::Null),
+        _ => None,
+    })
+}
+
+fn event_integer_component(event: &Event, entity: EntityId, key: &str) -> Option<i64> {
+    integer_value(event_component_value(event, entity, key)?)
+}
+
+fn event_text_component(event: &Event, entity: EntityId, key: &str) -> Option<String> {
+    match event_component_value(event, entity, key)? {
+        Value::Text(value) => Some(value),
+        _ => None,
+    }
+}
+
+fn integer_value(value: Value) -> Option<i64> {
+    match value {
+        Value::Integer(value) => Some(value),
+        _ => None,
+    }
+}
+
+fn component_value_before_event(
+    events: &[Event],
+    event_index: usize,
+    entity_id: EntityId,
+    key: &str,
+) -> Option<Value> {
+    let mut current = None;
+    for event in &events[..event_index] {
+        for change in &event.changes {
+            match change {
+                StateChange::CreateEntity(entity) if entity.id == entity_id => {
+                    current = entity.component(key).cloned();
+                }
+                StateChange::RemoveEntity(entity) if *entity == entity_id => current = None,
+                StateChange::SetComponent {
+                    entity,
+                    key: changed_key,
+                    value,
+                } if *entity == entity_id && changed_key == key => {
+                    current = Some(value.clone());
+                }
+                StateChange::RemoveComponent {
+                    entity,
+                    key: changed_key,
+                } if *entity == entity_id && changed_key == key => current = None,
+                _ => {}
+            }
+        }
+    }
+    current
 }
 
 fn intervention_influence_copy(decision: &str) -> Option<(&'static str, &'static str)> {
