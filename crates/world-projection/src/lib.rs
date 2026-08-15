@@ -2,7 +2,7 @@ mod causal;
 mod influence;
 
 use std::collections::BTreeMap;
-use world_core::{Entity, EntityId, Event, EventId, Value, World};
+use world_core::{Entity, EntityId, Event, EventId, StateChange, Value, World};
 
 pub use causal::{why_from_world, why_map_from_world, WhyNode, WhyProjection};
 
@@ -64,6 +64,10 @@ impl ProjectionSnapshot {
 
     pub fn influence(&self, event: EventId) -> Vec<(usize, &TimelineItem)> {
         influence::influence_from_timeline(&self.timeline, event)
+    }
+
+    pub fn semantic_influence(&self, event: EventId) -> Vec<(usize, &TimelineItem)> {
+        influence::semantic_influence_from_snapshot(&self.timeline, &self.inspectors, event)
     }
 
     pub fn command(&self, id: &str) -> Option<&ProjectionCommand> {
@@ -320,6 +324,7 @@ fn inspector_for_event(event: &Event, world: &World) -> InspectorProjection {
             value: value_text(value, world),
         })
         .collect::<Vec<_>>();
+    let changes = event.changes.iter().map(change_row).collect::<Vec<_>>();
 
     let mut sections = vec![InspectorSection {
         title: "Context".into(),
@@ -331,12 +336,84 @@ fn inspector_for_event(event: &Event, world: &World) -> InspectorProjection {
             rows: payload,
         });
     }
+    if !changes.is_empty() {
+        sections.push(InspectorSection {
+            title: "Changes".into(),
+            rows: changes,
+        });
+    }
 
     InspectorProjection {
         selection: SelectionId::Event(event.id),
         title: humanize(&event.kind),
         subtitle: format!("World time {} · Event #{}", event.world_time, event.id),
         sections,
+    }
+}
+
+fn change_row(change: &StateChange) -> InspectorRow {
+    match change {
+        StateChange::CreateEntity(entity) => InspectorRow {
+            label: "Create entity".into(),
+            value: entity_title(entity),
+        },
+        StateChange::RemoveEntity(entity) => InspectorRow {
+            label: "Remove entity".into(),
+            value: format!("Entity #{entity}"),
+        },
+        StateChange::SetComponent { entity, key, value } => InspectorRow {
+            label: format!("Entity #{entity} · {}", humanize(key)),
+            value: recorded_value_text(value),
+        },
+        StateChange::RemoveComponent { entity, key } => InspectorRow {
+            label: format!("Entity #{entity} · {}", humanize(key)),
+            value: "Removed".into(),
+        },
+        StateChange::CreateRelation(relation) => InspectorRow {
+            label: "Create relation".into(),
+            value: format!(
+                "{} · Entity #{} → Entity #{}",
+                humanize(&relation.kind),
+                relation.from,
+                relation.to
+            ),
+        },
+        StateChange::RemoveRelation(relation) => InspectorRow {
+            label: "Remove relation".into(),
+            value: format!("Relation #{relation}"),
+        },
+        StateChange::SetRelationProperty {
+            relation,
+            key,
+            value,
+        } => InspectorRow {
+            label: format!("Relation #{relation} · {}", humanize(key)),
+            value: recorded_value_text(value),
+        },
+        StateChange::RemoveRelationProperty { relation, key } => InspectorRow {
+            label: format!("Relation #{relation} · {}", humanize(key)),
+            value: "Removed".into(),
+        },
+    }
+}
+
+fn recorded_value_text(value: &Value) -> String {
+    match value {
+        Value::Null => "—".into(),
+        Value::Bool(value) => value.to_string(),
+        Value::Integer(value) => value.to_string(),
+        Value::Text(value) => value.clone(),
+        Value::Entity(entity) => format!("Entity #{entity}"),
+        Value::List(values) => values
+            .iter()
+            .map(recorded_value_text)
+            .collect::<Vec<_>>()
+            .join(", "),
+        Value::Map(values) => values
+            .iter()
+            .map(|(key, value)| format!("{key}: {}", recorded_value_text(value)))
+            .collect::<Vec<_>>()
+            .join(", "),
     }
 }
 
@@ -383,7 +460,7 @@ pub(crate) fn humanize(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use world_core::{Entity, Event, EventId, WorldState};
+    use world_core::{Entity, Event, EventId, StateChange, WorldState};
 
     fn sample_world() -> World {
         let mut state = WorldState::default();
@@ -463,6 +540,48 @@ mod tests {
             timeline.items[0].subtitle,
             "A durable direction was chosen. · Event #1"
         );
+    }
+
+    #[test]
+    fn event_inspector_surfaces_recorded_state_changes() {
+        let mut state = WorldState::default();
+        state
+            .seed_entity(
+                Entity::new(EntityId::new(1), "workspace")
+                    .with_component("name", "Workspace")
+                    .with_component("status", "active"),
+            )
+            .unwrap();
+        let world = World::from_history(
+            state,
+            &[Event {
+                id: EventId::new(1),
+                kind: "work_finished".into(),
+                world_time: 1,
+                actor: None,
+                targets: vec![EntityId::new(1)],
+                caused_by: vec![],
+                payload: BTreeMap::new(),
+                changes: vec![StateChange::SetComponent {
+                    entity: EntityId::new(1),
+                    key: "status".into(),
+                    value: Value::Text("done".into()),
+                }],
+            }],
+        )
+        .unwrap();
+
+        let inspectors = inspectors_from_world(&world);
+        let changes = inspectors
+            .get(&SelectionId::Event(EventId::new(1)))
+            .unwrap()
+            .sections
+            .iter()
+            .find(|section| section.title == "Changes")
+            .expect("recorded StateChanges should be inspectable");
+        assert_eq!(changes.rows.len(), 1);
+        assert_eq!(changes.rows[0].label, "Entity #1 · Status");
+        assert_eq!(changes.rows[0].value, "done");
     }
 
     #[test]

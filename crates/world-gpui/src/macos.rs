@@ -375,18 +375,44 @@ impl ProjectionView {
         let SelectionId::Event(event) = self.selected? else {
             return None;
         };
-        let influence = self.snapshot.influence(event);
-        if influence.is_empty() {
+        let raw_influence = self.snapshot.influence(event);
+        if raw_influence.is_empty() {
             return None;
         }
+        let semantic_influence = self.snapshot.semantic_influence(event);
 
-        let total = influence.len();
-        let direct = influence.iter().filter(|(depth, _)| *depth == 1).count();
-        let max_depth = influence.iter().map(|(depth, _)| *depth).max().unwrap_or(1);
+        let recorded = raw_influence.len();
+        let visible = semantic_influence.len();
+        let folded = recorded.saturating_sub(visible);
+        let direct = semantic_influence
+            .iter()
+            .filter(|(depth, _)| *depth == 1)
+            .count();
+        let max_depth = semantic_influence
+            .iter()
+            .map(|(depth, _)| *depth)
+            .max()
+            .unwrap_or_default();
         let mut nodes = div().flex().flex_col().gap_1();
-        for (depth, item) in influence.iter().take(10) {
+        for (depth, item) in semantic_influence.iter().take(10) {
             nodes = nodes.child(self.influence_node(*depth, item, cx));
         }
+
+        let summary = if visible == 0 {
+            format!(
+                "No world-visible effects yet · {recorded} recorded downstream {} · {folded} supporting {} folded",
+                if recorded == 1 { "event" } else { "events" },
+                if folded == 1 { "record" } else { "records" },
+            )
+        } else {
+            format!(
+                "{visible} world-visible {} from {recorded} recorded downstream {} · {direct} direct · {folded} supporting {} folded · up to {max_depth} causal {}",
+                if visible == 1 { "effect" } else { "effects" },
+                if recorded == 1 { "event" } else { "events" },
+                if folded == 1 { "record" } else { "records" },
+                if max_depth == 1 { "step" } else { "steps" },
+            )
+        };
 
         let mut panel = div()
             .p_3()
@@ -397,23 +423,30 @@ impl ProjectionView {
             .flex()
             .flex_col()
             .gap_2()
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0x657565))
+                    .child("SEMANTIC IMPACT"),
+            )
             .child(div().text_lg().child("What this affected"))
-            .child(div().text_xs().text_color(rgb(0x657565)).child(format!(
-                "{} later {} · {} direct · up to {} causal {}",
-                total,
-                if total == 1 { "event" } else { "events" },
-                direct,
-                max_depth,
-                if max_depth == 1 { "step" } else { "steps" },
-            )))
+            .child(div().text_xs().text_color(rgb(0x657565)).child(summary))
             .child(nodes);
 
-        if total > 10 {
+        if visible > 10 {
             panel = panel.child(
                 div()
                     .text_xs()
                     .text_color(rgb(0x657565))
-                    .child(format!("+{} more affected events", total - 10)),
+                    .child(format!("+{} more world-visible effects", visible - 10)),
+            );
+        }
+        if folded > 0 {
+            panel = panel.child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0x657565))
+                    .child("Supporting records remain available in Timeline and Why."),
             );
         }
         Some(panel)
@@ -466,9 +499,9 @@ impl ProjectionView {
     ) -> impl IntoElement {
         let selection = item.id;
         let prefix = if depth == 1 {
-            "Direct effect".to_string()
+            "Direct world effect".to_string()
         } else {
-            format!("Later · {depth} steps")
+            format!("Later world effect · {depth} causal steps")
         };
         div()
             .id(SharedString::from(format!(

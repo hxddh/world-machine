@@ -15,8 +15,20 @@ fn influence_signature(
         .collect()
 }
 
+fn semantic_influence_signature(
+    snapshot: &world_projection::ProjectionSnapshot,
+    event: world_core::EventId,
+) -> Vec<(usize, world_projection::SelectionId, String)> {
+    snapshot
+        .semantic_influence(event)
+        .into_iter()
+        .map(|(depth, item)| (depth, item.id, item.title.clone()))
+        .collect()
+}
+
 #[test]
-fn old_choices_expose_the_later_events_they_actually_influenced() -> Result<(), Box<dyn Error>> {
+fn old_choices_expose_semantic_world_effects_without_erasing_supporting_history(
+) -> Result<(), Box<dyn Error>> {
     let mut universe = PocketUniverse::new()?;
     universe.invoke_projection_command(SEED_MARS_COLONY_COMMAND)?;
     universe.advance_periods(2)?;
@@ -24,35 +36,42 @@ fn old_choices_expose_the_later_events_they_actually_influenced() -> Result<(), 
 
     universe.invoke_projection_command(NUDGE_COMMAND)?;
     let relationship_snapshot = universe.projection_snapshot();
-    let relationship_influence = influence_signature(&relationship_snapshot, relationship);
-    assert!(relationship_influence
-        .iter()
-        .any(|(_, _, title)| title == "Relationship Shifted"));
-    assert!(relationship_influence
+    let raw_relationship = influence_signature(&relationship_snapshot, relationship);
+    let semantic_relationship = semantic_influence_signature(&relationship_snapshot, relationship);
+
+    assert!(raw_relationship
         .iter()
         .any(|(_, _, title)| title == "Agent Decision Recorded"));
-    assert!(
-        relationship_influence
-            .iter()
-            .filter(|(depth, _, _)| *depth == 1)
-            .count()
-            >= 2
-    );
+    assert!(semantic_relationship
+        .iter()
+        .all(|(_, _, title)| title != "Agent Decision Recorded"));
+    assert!(semantic_relationship
+        .iter()
+        .any(|(_, _, title)| title == "Relationship Shifted"));
+    assert!(semantic_relationship.len() < raw_relationship.len());
 
     let intervention = universe.invoke_projection_command(BOLD_PATH_COMMAND)?;
     universe.advance_periods(2)?;
     let intervention_snapshot = universe.projection_snapshot();
-    let intervention_influence = influence_signature(&intervention_snapshot, intervention);
-    assert!(intervention_influence
+    let raw_intervention = influence_signature(&intervention_snapshot, intervention);
+    let semantic_intervention = semantic_influence_signature(&intervention_snapshot, intervention);
+    assert!(semantic_intervention
         .iter()
         .any(|(_, _, title)| title == "Universe Grew"));
+    assert!(semantic_intervention.len() <= raw_intervention.len());
 
     let archive = universe.archive()?;
     let reopened = PocketUniverse::resume_archive(&archive)?;
+    let reopened_snapshot = reopened.projection_snapshot();
     assert_eq!(
-        influence_signature(&reopened.projection_snapshot(), intervention),
-        intervention_influence,
-        "archive/reopen must reconstruct the same forward influence from persisted causal Events"
+        semantic_influence_signature(&reopened_snapshot, intervention),
+        semantic_intervention,
+        "archive/reopen must reconstruct the same semantic influence from persisted Events"
+    );
+    assert_eq!(
+        influence_signature(&reopened_snapshot, intervention),
+        raw_intervention,
+        "semantic folding must not mutate or discard the raw causal history"
     );
 
     Ok(())
