@@ -380,6 +380,7 @@ impl ProjectionView {
             return None;
         }
         let semantic_influence = self.snapshot.semantic_influence(event);
+        let semantic_path = self.snapshot.semantic_path(event);
 
         let recorded = raw_influence.len();
         let visible = semantic_influence.len();
@@ -393,9 +394,19 @@ impl ProjectionView {
             .map(|(depth, _)| *depth)
             .max()
             .unwrap_or_default();
-        let mut nodes = div().flex().flex_col().gap_1();
-        for (depth, item) in semantic_influence.iter().take(10) {
-            nodes = nodes.child(self.influence_node(*depth, item, cx));
+        let mut other_nodes = div().flex().flex_col().gap_1();
+        let mut other_count = 0_usize;
+        for (depth, item) in &semantic_influence {
+            if semantic_path
+                .iter()
+                .any(|path_item| path_item.id == item.id)
+            {
+                continue;
+            }
+            other_count += 1;
+            if other_count <= 6 {
+                other_nodes = other_nodes.child(self.influence_node(*depth, item, cx));
+            }
         }
 
         let summary = if visible == 0 {
@@ -430,16 +441,65 @@ impl ProjectionView {
                     .child("SEMANTIC IMPACT"),
             )
             .child(div().text_lg().child("What this affected"))
-            .child(div().text_xs().text_color(rgb(0x657565)).child(summary))
-            .child(nodes);
+            .child(div().text_xs().text_color(rgb(0x657565)).child(summary));
 
-        if visible > 10 {
-            panel = panel.child(
-                div()
-                    .text_xs()
-                    .text_color(rgb(0x657565))
-                    .child(format!("+{} more world-visible effects", visible - 10)),
-            );
+        if !semantic_path.is_empty() {
+            let path_len = semantic_path.len();
+            let mut path_nodes = div().flex().flex_col().gap_1();
+            if path_len <= 6 {
+                for (index, item) in semantic_path.iter().enumerate() {
+                    path_nodes = path_nodes.child(self.semantic_path_node(index + 1, item, cx));
+                }
+            } else {
+                for (index, item) in semantic_path.iter().take(2).enumerate() {
+                    path_nodes = path_nodes.child(self.semantic_path_node(index + 1, item, cx));
+                }
+                path_nodes = path_nodes.child(
+                    div()
+                        .px_2()
+                        .py_1()
+                        .text_xs()
+                        .text_color(rgb(0x657565))
+                        .child(format!(
+                            "+{} intermediate world-visible stages",
+                            path_len - 5
+                        )),
+                );
+                for (index, item) in semantic_path.iter().enumerate().skip(path_len - 3) {
+                    path_nodes = path_nodes.child(self.semantic_path_node(index + 1, item, cx));
+                }
+            }
+            panel = panel
+                .child(div().text_xs().text_color(rgb(0x657565)).child("HOW IT UNFOLDED"))
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(rgb(0x657565))
+                        .child(format!(
+                            "Representative causal thread from the selected Event to the latest downstream effect · {path_len} world-visible {}",
+                            if path_len == 1 { "stage" } else { "stages" }
+                        )),
+                )
+                .child(path_nodes);
+        }
+
+        if other_count > 0 {
+            panel = panel
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(rgb(0x657565))
+                        .child("OTHER WORLD-VISIBLE EFFECTS"),
+                )
+                .child(other_nodes);
+            if other_count > 6 {
+                panel = panel.child(
+                    div()
+                        .text_xs()
+                        .text_color(rgb(0x657565))
+                        .child(format!("+{} more world-visible effects", other_count - 6)),
+                );
+            }
         }
         if folded > 0 {
             panel = panel.child(
@@ -489,6 +549,38 @@ impl ProjectionView {
             );
         }
         Some(panel)
+    }
+
+    fn semantic_path_node(
+        &self,
+        stage: usize,
+        item: &TimelineItem,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let selection = item.id;
+        div()
+            .id(SharedString::from(format!(
+                "semantic-path-{}",
+                selection.stable_key()
+            )))
+            .p_2()
+            .rounded_md()
+            .bg(rgb(0xffffff))
+            .cursor_pointer()
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0x657565))
+                    .child(format!("Stage {stage}")),
+            )
+            .child(div().text_sm().child(item.title.clone()))
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0x777777))
+                    .child(item.subtitle.clone()),
+            )
+            .on_click(cx.listener(move |this, _, _, cx| this.select(selection, cx)))
     }
 
     fn influence_node(
