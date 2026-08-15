@@ -3,27 +3,20 @@ use pocket_universe::{
     SHARED_PROJECT_COMMAND,
 };
 use std::error::Error;
-use world_projection::SelectionId;
 
-fn influence_values(
+fn influence_signature(
     snapshot: &world_projection::ProjectionSnapshot,
     event: world_core::EventId,
-) -> Vec<String> {
+) -> Vec<(usize, world_projection::SelectionId, String)> {
     snapshot
-        .inspector(SelectionId::Event(event))
-        .expect("choice Event should have a generic inspector")
-        .sections
-        .iter()
-        .find(|section| section.title == "Influence")
-        .expect("choice Event should expose downstream influence")
-        .rows
-        .iter()
-        .map(|row| row.value.clone())
+        .influence(event)
+        .into_iter()
+        .map(|(depth, item)| (depth, item.id, item.title.clone()))
         .collect()
 }
 
 #[test]
-fn old_choices_show_the_later_events_they_actually_influenced() -> Result<(), Box<dyn Error>> {
+fn old_choices_expose_the_later_events_they_actually_influenced() -> Result<(), Box<dyn Error>> {
     let mut universe = PocketUniverse::new()?;
     universe.invoke_projection_command(SEED_MARS_COLONY_COMMAND)?;
     universe.advance_periods(2)?;
@@ -31,29 +24,32 @@ fn old_choices_show_the_later_events_they_actually_influenced() -> Result<(), Bo
 
     universe.invoke_projection_command(NUDGE_COMMAND)?;
     let relationship_snapshot = universe.projection_snapshot();
-    let relationship_values = influence_values(&relationship_snapshot, relationship);
-    assert!(relationship_values
+    let relationship_influence = influence_signature(&relationship_snapshot, relationship);
+    assert!(relationship_influence
         .iter()
-        .any(|value| value.contains("Relationship Shifted")));
-    assert!(relationship_values
+        .any(|(_, _, title)| title == "Relationship Shifted"));
+    assert!(relationship_influence
         .iter()
-        .any(|value| value.contains("Agent Decision Recorded")));
+        .any(|(_, _, title)| title == "Agent Decision Recorded"));
+    assert!(relationship_influence
+        .iter()
+        .filter(|(depth, _, _)| *depth == 1)
+        .count()
+        >= 2);
 
     let intervention = universe.invoke_projection_command(BOLD_PATH_COMMAND)?;
     universe.advance_periods(2)?;
     let intervention_snapshot = universe.projection_snapshot();
-    let intervention_values = influence_values(&intervention_snapshot, intervention);
-    assert!(intervention_values
+    let intervention_influence = influence_signature(&intervention_snapshot, intervention);
+    assert!(intervention_influence
         .iter()
-        .any(|value| value.contains("Universe Grew")));
+        .any(|(_, _, title)| title == "Universe Grew"));
 
     let archive = universe.archive()?;
     let reopened = PocketUniverse::resume_archive(&archive)?;
     assert_eq!(
-        reopened
-            .projection_snapshot()
-            .inspector(SelectionId::Event(intervention)),
-        intervention_snapshot.inspector(SelectionId::Event(intervention)),
+        influence_signature(&reopened.projection_snapshot(), intervention),
+        intervention_influence,
         "archive/reopen must reconstruct the same forward influence from persisted causal Events"
     );
 
