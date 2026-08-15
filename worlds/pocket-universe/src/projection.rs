@@ -365,14 +365,8 @@ fn briefing(world: &World, seeded: bool, since_event_count: Option<usize>) -> Br
 
     if let Some(since) = since_event_count.filter(|since| *since < world.events().len()) {
         let events = &world.events()[since..];
-        let mut items = events
-            .iter()
-            .rev()
-            .filter(|event| event.kind != "agent_decision_recorded")
-            .take(3)
-            .map(return_item)
-            .collect::<Vec<_>>();
-        items.extend(persistent_consequence_items(world));
+        let mut items = return_digest_items(events);
+        extend_with_persistent_consequences(world, &mut items);
         return BriefingProjection {
             eyebrow: format!("Pocket Universe · {}", seed_label(seed_id(world))),
             title: "While you were away".into(),
@@ -697,7 +691,49 @@ fn integer_entity_component(entity: Option<&Entity>, key: &str) -> Option<i64> {
     }
 }
 
-fn return_item(event: &Event) -> BriefingItem {
+fn return_digest_items(events: &[Event]) -> Vec<BriefingItem> {
+    let mut groups = Vec::<(&Event, usize)>::new();
+    for event in events
+        .iter()
+        .rev()
+        .filter(|event| event.kind != "agent_decision_recorded")
+    {
+        if let Some((_, count)) = groups
+            .iter_mut()
+            .find(|(latest, _)| latest.kind == event.kind)
+        {
+            *count += 1;
+        } else {
+            groups.push((event, 1));
+        }
+    }
+
+    groups
+        .into_iter()
+        .take(3)
+        .map(|(event, occurrences)| return_item(event, occurrences))
+        .collect()
+}
+
+fn extend_with_persistent_consequences(world: &World, items: &mut Vec<BriefingItem>) {
+    let represented_events = items
+        .iter()
+        .filter_map(|item| match item.selection.as_ref() {
+            Some(SelectionId::Event(event)) => Some(*event),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    items.extend(
+        persistent_consequence_items(world)
+            .into_iter()
+            .filter(|item| match item.selection.as_ref() {
+                Some(SelectionId::Event(event)) => !represented_events.contains(event),
+                _ => true,
+            }),
+    );
+}
+
+fn return_item(event: &Event, occurrences: usize) -> BriefingItem {
     let detail = ["change", "summary"]
         .into_iter()
         .find_map(|key| match event.payload.get(key) {
@@ -705,22 +741,43 @@ fn return_item(event: &Event) -> BriefingItem {
             _ => None,
         })
         .unwrap_or_else(|| event.kind.replace('_', " "));
+    let base_title: String = match event.kind.as_str() {
+        "universe_grew" => "The world moved".into(),
+        "universe_intervened" => "Your choice took hold".into(),
+        "universe_seeded" => "A world began".into(),
+        "agent_cared_for_world" => "Someone cared for the world".into(),
+        "agent_explored_world" => "Someone explored beyond routine".into(),
+        "relationship_shifted" => "Their relationship changed".into(),
+        "relationship_steered" => "You steered their relationship".into(),
+        "partnership_formed" => "A partnership formed".into(),
+        "relationship_fractured" => "Their relationship fractured".into(),
+        "world_legacy_formed" => "A world legacy formed".into(),
+        "legacy_reinforced" => "A legacy reinforced itself".into(),
+        _ => event.kind.replace('_', " "),
+    };
+    let title = if occurrences <= 1 {
+        base_title
+    } else {
+        match event.kind.as_str() {
+            "universe_grew" => format!("The world moved · {occurrences} cycles"),
+            "legacy_reinforced" => {
+                format!("A legacy reinforced itself · {occurrences} cycles")
+            }
+            "relationship_shifted" => {
+                format!("Their relationship changed · {occurrences} times")
+            }
+            "agent_cared_for_world" => {
+                format!("Someone cared for the world · {occurrences} times")
+            }
+            "agent_explored_world" => {
+                format!("Someone explored beyond routine · {occurrences} times")
+            }
+            _ => format!("{base_title} · {occurrences} updates"),
+        }
+    };
     BriefingItem {
         selection: Some(SelectionId::Event(event.id)),
-        title: match event.kind.as_str() {
-            "universe_grew" => "The world moved".into(),
-            "universe_intervened" => "Your choice took hold".into(),
-            "universe_seeded" => "A world began".into(),
-            "agent_cared_for_world" => "Someone cared for the world".into(),
-            "agent_explored_world" => "Someone explored beyond routine".into(),
-            "relationship_shifted" => "Their relationship changed".into(),
-            "relationship_steered" => "You steered their relationship".into(),
-            "partnership_formed" => "A partnership formed".into(),
-            "relationship_fractured" => "Their relationship fractured".into(),
-            "world_legacy_formed" => "A world legacy formed".into(),
-            "legacy_reinforced" => "A legacy reinforced itself".into(),
-            _ => event.kind.replace('_', " "),
-        },
+        title,
         detail,
     }
 }
