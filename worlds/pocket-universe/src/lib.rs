@@ -16,7 +16,7 @@ use world_persistence::{PersistenceError, WorldArchive, WorldPackRef};
 use world_projection::{ProjectionIntent, ProjectionSnapshot};
 
 pub const POCKET_UNIVERSE_PACK_ID: &str = "world-machine.pocket-universe";
-pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.14.6";
+pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.15.0";
 
 pub const SEED_MARS_COLONY_COMMAND: &str = "pocket-universe.seed-mars-colony";
 pub const SEED_1980S_TOWN_COMMAND: &str = "pocket-universe.seed-1980s-town";
@@ -225,36 +225,33 @@ where
     ) -> Result<EventId, Box<dyn Error>> {
         if command_id == NUDGE_COMMAND {
             let mut candidate = self.world.clone();
-            let growth = candidate
-                .execute(
-                    &self.actions,
-                    &ActionRequest::new("grow_universe").actor(UNIVERSE),
-                )?
-                .id;
+            let growth_request = growth_request(&candidate);
+            let growth = candidate.execute(&self.actions, &growth_request)?.id;
+            let primary_causes = agent_turn_causes(&candidate, SLOT_B, growth);
             let primary_outcome = Self::run_agent_turn_on(
                 &mut self.mind,
                 &mut candidate,
                 &self.actions,
                 &self.mind_profile,
                 SLOT_B,
-                &[growth],
+                &primary_causes,
             )?;
+            let secondary_causes = agent_turn_causes(&candidate, SLOT_E, primary_outcome);
             let secondary_outcome = Self::run_agent_turn_on(
                 &mut self.mind,
                 &mut candidate,
                 &self.actions,
                 &self.mind_profile,
                 SLOT_E,
-                &[primary_outcome],
+                &secondary_causes,
             )?;
-            let relationship = candidate
-                .execute(
-                    &self.actions,
-                    &ActionRequest::new("update_relationship")
-                        .caused_by(primary_outcome)
-                        .caused_by(secondary_outcome),
-                )?
-                .id;
+            let relationship_request = with_causes(
+                ActionRequest::new("update_relationship")
+                    .caused_by(primary_outcome)
+                    .caused_by(secondary_outcome),
+                relationship_context_causes(&candidate),
+            );
+            let relationship = candidate.execute(&self.actions, &relationship_request)?.id;
             let returned =
                 legacy::resolve_period_consequences(&mut candidate, &self.actions, relationship)?;
             self.world = candidate;
@@ -296,35 +293,37 @@ where
                 continue;
             }
 
-            candidate.schedule_at(target, ActionRequest::new("grow_universe").actor(UNIVERSE))?;
+            let growth_request = growth_request(&candidate);
+            candidate.schedule_at(target, growth_request)?;
             let executed = candidate.advance_to(&self.actions, target)?;
             let growth = executed.last().copied().ok_or_else(|| {
                 std::io::Error::other("scheduled Pocket Universe growth did not run")
             })?;
+            let primary_causes = agent_turn_causes(&candidate, SLOT_B, growth);
             let primary_outcome = Self::run_agent_turn_on(
                 &mut self.mind,
                 &mut candidate,
                 &self.actions,
                 &self.mind_profile,
                 SLOT_B,
-                &[growth],
+                &primary_causes,
             )?;
+            let secondary_causes = agent_turn_causes(&candidate, SLOT_E, primary_outcome);
             let secondary_outcome = Self::run_agent_turn_on(
                 &mut self.mind,
                 &mut candidate,
                 &self.actions,
                 &self.mind_profile,
                 SLOT_E,
-                &[primary_outcome],
+                &secondary_causes,
             )?;
-            let relationship = candidate
-                .execute(
-                    &self.actions,
-                    &ActionRequest::new("update_relationship")
-                        .caused_by(primary_outcome)
-                        .caused_by(secondary_outcome),
-                )?
-                .id;
+            let relationship_request = with_causes(
+                ActionRequest::new("update_relationship")
+                    .caused_by(primary_outcome)
+                    .caused_by(secondary_outcome),
+                relationship_context_causes(&candidate),
+            );
+            let relationship = candidate.execute(&self.actions, &relationship_request)?.id;
             legacy::resolve_period_consequences(&mut candidate, &self.actions, relationship)?;
         }
         self.world = candidate;
@@ -1588,6 +1587,84 @@ fn seed_draft(
         .changes
         .extend(entities.into_iter().map(StateChange::CreateEntity));
     Ok(draft)
+}
+
+fn with_causes(
+    mut request: ActionRequest,
+    causes: impl IntoIterator<Item = EventId>,
+) -> ActionRequest {
+    for cause in causes {
+        if !request.caused_by.contains(&cause) {
+            request.caused_by.push(cause);
+        }
+    }
+    request
+}
+
+fn latest_event_id(world: &World, kind: &str) -> Option<EventId> {
+    world
+        .events()
+        .iter()
+        .rev()
+        .find(|event| event.kind == kind)
+        .map(|event| event.id)
+}
+
+fn latest_event_id_from(world: &World, kinds: &[&str]) -> Option<EventId> {
+    world
+        .events()
+        .iter()
+        .rev()
+        .find(|event| kinds.contains(&event.kind.as_str()))
+        .map(|event| event.id)
+}
+
+fn growth_context_causes(world: &World) -> Vec<EventId> {
+    let mut causes = Vec::new();
+    for cause in [
+        latest_event_id(world, "universe_intervened"),
+        latest_event_id_from(world, &["partnership_formed", "relationship_fractured"]),
+        latest_event_id(world, "world_posture_chosen"),
+        latest_event_id(world, "world_legacy_formed"),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if !causes.contains(&cause) {
+            causes.push(cause);
+        }
+    }
+    causes
+}
+
+fn growth_request(world: &World) -> ActionRequest {
+    with_causes(
+        ActionRequest::new("grow_universe").actor(UNIVERSE),
+        growth_context_causes(world),
+    )
+}
+
+fn agent_turn_causes(world: &World, actor: EntityId, immediate: EventId) -> Vec<EventId> {
+    let mut causes = vec![immediate];
+    if let Some(posture) = latest_event_id(world, "world_posture_chosen") {
+        if !causes.contains(&posture) {
+            causes.push(posture);
+        }
+    }
+    if actor == SLOT_E {
+        if let Some(direction) = latest_event_id(world, "relationship_steered") {
+            if !causes.contains(&direction) {
+                causes.push(direction);
+            }
+        }
+    }
+    causes
+}
+
+fn relationship_context_causes(world: &World) -> Vec<EventId> {
+    latest_event_id(world, "relationship_steered")
+        .into_iter()
+        .collect()
 }
 
 fn validate_mind_profile(profile: String) -> Result<String, std::io::Error> {
