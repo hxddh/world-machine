@@ -4,6 +4,7 @@ use pocket_universe::{
 };
 use std::error::Error;
 use world_compare::{compare_snapshots, DifferenceKind, EntityDifference};
+use world_core::{EntityId, Value};
 use world_persistence::ArchivedValue;
 
 fn row<'a>(difference: &'a EntityDifference, label: &str) -> Option<(&'a str, &'a str)> {
@@ -59,6 +60,27 @@ fn legacy_forms_after_lived_posture_and_survives_reopen() -> Result<(), Box<dyn 
     assert!(summary.contains("signal expedition"));
     assert!(summary.contains("care /"));
     assert!(summary.contains("explore"));
+    assert_eq!(
+        legacy.payload.get("behavior"),
+        Some(&ArchivedValue::Text("balanced".into()))
+    );
+    let universe_state = universe
+        .world()
+        .state()
+        .entity(EntityId::new(1))
+        .expect("Pocket Universe state should contain its World entity");
+    assert_eq!(
+        universe_state.component("legacy_behavior"),
+        Some(&Value::Text("balanced".into()))
+    );
+    assert_eq!(
+        universe_state.component("legacy_cycles"),
+        Some(&Value::Integer(0))
+    );
+    assert!(!archive
+        .events
+        .iter()
+        .any(|event| event.kind == "legacy_reinforced"));
 
     let cause_kinds = legacy
         .caused_by
@@ -87,6 +109,47 @@ fn legacy_forms_after_lived_posture_and_survives_reopen() -> Result<(), Box<dyn 
 
     reopened.invoke_projection_command(NUDGE_COMMAND)?;
     let after = reopened.archive()?;
+    let reinforced = after
+        .events
+        .iter()
+        .rev()
+        .find(|event| event.kind == "legacy_reinforced")
+        .expect("the first period after formation should reinforce the durable legacy");
+    assert_eq!(
+        reinforced.payload.get("cycle"),
+        Some(&ArchivedValue::Integer(1))
+    );
+    assert_eq!(
+        reinforced.payload.get("pattern"),
+        Some(&ArchivedValue::Text("adaptive cycle 1".into()))
+    );
+    let reinforcement_causes = reinforced
+        .caused_by
+        .iter()
+        .filter_map(|id| after.events.iter().find(|event| event.id == *id))
+        .map(|event| event.kind.as_str())
+        .collect::<Vec<_>>();
+    assert!(reinforcement_causes.contains(&"relationship_shifted"));
+    assert!(reinforcement_causes.contains(&"world_legacy_formed"));
+    let universe_state = reopened
+        .world()
+        .state()
+        .entity(EntityId::new(1))
+        .expect("reopened World should keep its durable state");
+    assert_eq!(
+        universe_state.component("legacy_cycles"),
+        Some(&Value::Integer(1))
+    );
+    let ridge = reopened
+        .world()
+        .state()
+        .entity(EntityId::new(13))
+        .expect("ridge-network legacy target should exist");
+    assert_eq!(
+        ridge.component("legacy_pattern"),
+        Some(&Value::Text("adaptive cycle 1".into()))
+    );
+
     let growth = after
         .events
         .iter()
