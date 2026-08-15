@@ -27,6 +27,14 @@ fn return_compass_names_every_current_relationship_action() -> Result<(), Box<dy
         3,
         "nudge plus the two relationship choices"
     );
+    assert!(compass.detail.starts_with("Why now: "));
+    assert!(
+        compass.detail.contains("trust ") && compass.detail.contains("tension "),
+        "relationship context should expose the current durable relationship pressure"
+    );
+    assert!(compass
+        .detail
+        .contains("Its durable direction is still open."));
     for command in &snapshot.commands {
         assert!(
             compass.detail.contains(&command.title),
@@ -60,10 +68,61 @@ fn return_compass_surfaces_all_simultaneously_open_shaping_choices() -> Result<(
         5,
         "one nudge plus two relationship and two intervention choices should be open"
     );
+    assert!(compass.detail.starts_with("Why now: "));
+    assert!(
+        compass
+            .detail
+            .contains("Generation 3 has reached a larger intervention point."),
+        "the compass should explain why the larger intervention is open now"
+    );
+    assert!(compass.detail.contains("Current thread:"));
     for command in &snapshot.commands {
         assert!(
             compass.detail.contains(&command.title),
             "every actually available action should appear in the return compass: {}",
+            command.title
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
+fn return_compass_explains_why_world_direction_is_open() -> Result<(), Box<dyn Error>> {
+    let mut universe = PocketUniverse::new()?;
+    universe.invoke_projection_command(SEED_MARS_COLONY_COMMAND)?;
+    universe.advance_periods(2)?;
+    universe.invoke_projection_command(SHARED_PROJECT_COMMAND)?;
+    universe.advance_periods(1)?;
+    universe.invoke_projection_command(BOLD_PATH_COMMAND)?;
+    let since = universe.world().events().len();
+    universe.advance_periods(3)?;
+
+    let snapshot = universe.projection_snapshot_since(Some(since));
+    let compass = snapshot
+        .briefing
+        .as_ref()
+        .expect("returning Pocket Universe should expose a Briefing")
+        .items
+        .iter()
+        .find(|item| item.title == "Your turn · World direction")
+        .expect("the return compass should explain why the second-arc posture choice is open");
+
+    assert!(compass.detail.starts_with("Why now: "));
+    assert!(
+        compass
+            .detail
+            .contains("The first arc has settled as partnership"),
+        "posture context should reuse the durable social arc"
+    );
+    assert!(
+        compass.detail.contains("Signal expedition"),
+        "posture context should reuse the durable intervention"
+    );
+    for command in &snapshot.commands {
+        assert!(
+            compass.detail.contains(&command.title),
+            "the contextual compass must still name every actually available command: {}",
             command.title
         );
     }
@@ -101,10 +160,22 @@ fn return_compass_explains_how_to_continue_a_living_legacy() -> Result<(), Box<d
         "a mature legacy has one continuation command"
     );
     let continuation = &snapshot.commands[0];
+    assert!(compass.detail.starts_with("Why now: "));
+    assert!(compass.detail.contains("World legacy · Ridge Network"));
+    assert!(compass.detail.contains("1 later cycle"));
+    assert!(compass.detail.contains("adaptive cycle 1"));
     assert!(compass.detail.contains(&continuation.title));
     assert!(
         compass.detail.contains(&continuation.detail),
         "when continuation is the only action, the compass should reuse its semantic explanation"
+    );
+
+    let archive = universe.archive()?;
+    let reopened = PocketUniverse::resume_archive(&archive)?;
+    assert_eq!(
+        reopened.projection_snapshot_since(Some(since)),
+        snapshot,
+        "return context should be derived entirely from durable state and event history"
     );
 
     Ok(())
