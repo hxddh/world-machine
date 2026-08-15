@@ -708,11 +708,24 @@ fn return_digest_items(events: &[Event]) -> Vec<BriefingItem> {
         }
     }
 
+    groups.sort_by_key(|(event, _)| return_digest_priority(event.kind.as_str()));
     groups
         .into_iter()
         .take(3)
         .map(|(event, occurrences)| return_item(event, occurrences))
         .collect()
+}
+
+fn return_digest_priority(kind: &str) -> u8 {
+    match kind {
+        "universe_seeded"
+        | "universe_intervened"
+        | "relationship_steered"
+        | "partnership_formed"
+        | "relationship_fractured"
+        | "world_legacy_formed" => 0,
+        _ => 1,
+    }
 }
 
 fn extend_with_persistent_consequences(world: &World, items: &mut Vec<BriefingItem>) {

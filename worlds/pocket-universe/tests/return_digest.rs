@@ -109,3 +109,56 @@ fn return_digest_does_not_repeat_the_same_living_legacy_event() -> Result<(), Bo
 
     Ok(())
 }
+
+#[test]
+fn return_digest_promotes_a_milestone_above_later_routine_churn() -> Result<(), Box<dyn Error>> {
+    let mut universe = PocketUniverse::new()?;
+    universe.invoke_projection_command(SEED_MARS_COLONY_COMMAND)?;
+    universe.advance_periods(2)?;
+    universe.invoke_projection_command(SHARED_PROJECT_COMMAND)?;
+    universe.advance_periods(1)?;
+    universe.invoke_projection_command(BOLD_PATH_COMMAND)?;
+    universe.advance_periods(3)?;
+    universe.invoke_projection_command(OUTWARD_POSTURE_COMMAND)?;
+    universe.advance_periods(2)?;
+
+    let since = universe.world().events().len();
+    universe.advance_periods(2)?;
+    let legacy_formed = universe
+        .world()
+        .events()
+        .iter()
+        .skip(since)
+        .find(|event| event.kind == "world_legacy_formed")
+        .expect("the first unseen period should form the legacy");
+    assert!(
+        universe
+            .world()
+            .events()
+            .iter()
+            .skip(since)
+            .any(|event| event.kind == "legacy_reinforced"),
+        "a later unseen period should add routine legacy feedback after the milestone"
+    );
+
+    let returned = universe.projection_snapshot_since(Some(since));
+    let event_items = returned
+        .briefing
+        .as_ref()
+        .expect("returning World should keep its Briefing")
+        .items
+        .iter()
+        .filter_map(|item| match item.selection {
+            Some(SelectionId::Event(event)) => Some(event),
+            _ => None,
+        })
+        .take(3)
+        .collect::<Vec<_>>();
+    assert_eq!(event_items.len(), 3, "the return digest remains bounded");
+    assert!(
+        event_items.contains(&legacy_formed.id),
+        "a durable milestone should stay in the bounded digest even when later routine event kinds exist"
+    );
+
+    Ok(())
+}
