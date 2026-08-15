@@ -27,6 +27,26 @@ impl SnapshotComparison {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct SnapshotDivergence {
+    pub shared_frontier: Option<TimelineItem>,
+    pub left: DivergenceSide,
+    pub right: DivergenceSide,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct DivergenceSide {
+    pub first_difference: Option<TimelineItem>,
+    pub impact: Vec<DivergenceImpactStage>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct DivergenceImpactStage {
+    pub causal_steps: usize,
+    pub event: TimelineItem,
+    pub effect: String,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DifferenceKind {
     LeftOnly,
@@ -120,6 +140,63 @@ pub fn compare_snapshots(
         entities: compare_entities(left, right),
         timeline: compare_timeline(left, right),
         commands: compare_commands(left, right),
+    }
+}
+
+pub fn compare_divergence(
+    left: &ProjectionSnapshot,
+    right: &ProjectionSnapshot,
+) -> Option<SnapshotDivergence> {
+    let left_chronological = left.timeline.items.iter().rev().collect::<Vec<_>>();
+    let right_chronological = right.timeline.items.iter().rev().collect::<Vec<_>>();
+    let shared_len = left_chronological
+        .iter()
+        .zip(&right_chronological)
+        .take_while(|(left, right)| *left == *right)
+        .count();
+
+    if shared_len == left_chronological.len() && shared_len == right_chronological.len() {
+        return None;
+    }
+
+    Some(SnapshotDivergence {
+        shared_frontier: shared_len
+            .checked_sub(1)
+            .and_then(|index| left_chronological.get(index))
+            .map(|item| (*item).clone()),
+        left: divergence_side(left, &left_chronological, shared_len),
+        right: divergence_side(right, &right_chronological, shared_len),
+    })
+}
+
+fn divergence_side(
+    snapshot: &ProjectionSnapshot,
+    chronological: &[&TimelineItem],
+    shared_len: usize,
+) -> DivergenceSide {
+    let first_difference = chronological.get(shared_len).map(|item| (*item).clone());
+    let impact = first_difference
+        .as_ref()
+        .and_then(|item| match item.id {
+            SelectionId::Event(event) => Some(event),
+            SelectionId::Entity(_) => None,
+        })
+        .map(|event| {
+            snapshot
+                .semantic_path_details(event)
+                .into_iter()
+                .map(|(causal_steps, event, effect)| DivergenceImpactStage {
+                    causal_steps,
+                    event: event.clone(),
+                    effect,
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    DivergenceSide {
+        first_difference,
+        impact,
     }
 }
 
@@ -487,5 +564,144 @@ mod tests {
         assert_eq!(comparison.entities.len(), 2);
         assert_eq!(comparison.entities[0].kind, DifferenceKind::LeftOnly);
         assert_eq!(comparison.entities[1].kind, DifferenceKind::RightOnly);
+    }
+
+    #[test]
+    fn divergence_uses_the_longest_common_prefix_not_a_later_reconverged_event() {
+        let common = event(1, "Common", 1);
+        let left_first = event(2, "Left choice", 2);
+        let right_first = event(2, "Right choice", 2);
+        let reconverged = event(3, "Same later event", 3);
+        let left = snapshot(
+            3,
+            [],
+            vec![reconverged.clone(), left_first.clone(), common.clone()],
+            vec![],
+        );
+        let right = snapshot(
+            3,
+            [],
+            vec![reconverged, right_first.clone(), common.clone()],
+            vec![],
+        );
+
+        let divergence = compare_divergence(&left, &right).expect("histories diverged");
+        assert_eq!(divergence.shared_frontier, Some(common));
+        assert_eq!(divergence.left.first_difference, Some(left_first));
+        assert_eq!(divergence.right.first_difference, Some(right_first));
+    }
+
+    #[test]
+    fn divergence_reuses_recorded_semantic_impact_from_each_first_difference() {
+        let common = TimelineItem {
+            id: SelectionId::Event(EventId::new(1)),
+            world_time: 1,
+            title: "Common".into(),
+            subtitle: "Event #1".into(),
+            caused_by: vec![],
+        };
+        let left_first = TimelineItem {
+            id: SelectionId::Event(EventId::new(2)),
+            world_time: 2,
+            title: "Left choice".into(),
+            subtitle: "Left choice · Event #2".into(),
+            caused_by: vec![EventId::new(1)],
+        };
+        let left_support = TimelineItem {
+            id: SelectionId::Event(EventId::new(3)),
+            world_time: 3,
+            title: "Supporting record".into(),
+            subtitle: "Event #3".into(),
+            caused_by: vec![EventId::new(2)],
+        };
+        let left_effect = TimelineItem {
+            id: SelectionId::Event(EventId::new(4)),
+            world_time: 4,
+            title: "Left effect".into(),
+            subtitle: "Left effect · Event #4".into(),
+            caused_by: vec![EventId::new(3)],
+        };
+        let right_first = TimelineItem {
+            id: SelectionId::Event(EventId::new(2)),
+            world_time: 2,
+            title: "Right choice".into(),
+            subtitle: "Right choice · Event #2".into(),
+            caused_by: vec![EventId::new(1)],
+        };
+        let right_effect = TimelineItem {
+            id: SelectionId::Event(EventId::new(3)),
+            world_time: 3,
+            title: "Right effect".into(),
+            subtitle: "Right effect · Event #3".into(),
+            caused_by: vec![EventId::new(2)],
+        };
+
+        let effect_inspector = |id: u64, value: &str| {
+            let selection = SelectionId::Event(EventId::new(id));
+            (
+                selection,
+                InspectorProjection {
+                    selection,
+                    title: format!("Event {id}"),
+                    subtitle: String::new(),
+                    sections: vec![world_projection::InspectorSection {
+                        title: "Changes".into(),
+                        rows: vec![world_projection::InspectorRow {
+                            label: "Entity #1 · State".into(),
+                            value: value.into(),
+                        }],
+                    }],
+                },
+            )
+        };
+
+        let left = snapshot(
+            4,
+            [effect_inspector(4, "left")],
+            vec![
+                left_effect.clone(),
+                left_support,
+                left_first.clone(),
+                common.clone(),
+            ],
+            vec![],
+        );
+        let right = snapshot(
+            3,
+            [effect_inspector(3, "right")],
+            vec![right_effect.clone(), right_first.clone(), common],
+            vec![],
+        );
+
+        let divergence = compare_divergence(&left, &right).expect("histories diverged");
+        assert_eq!(divergence.left.first_difference, Some(left_first));
+        assert_eq!(divergence.right.first_difference, Some(right_first));
+        assert_eq!(divergence.left.impact.len(), 1);
+        assert_eq!(divergence.left.impact[0].causal_steps, 2);
+        assert_eq!(divergence.left.impact[0].event, left_effect);
+        assert!(divergence.left.impact[0].effect.contains("left"));
+        assert_eq!(divergence.right.impact.len(), 1);
+        assert_eq!(divergence.right.impact[0].causal_steps, 1);
+        assert_eq!(divergence.right.impact[0].event, right_effect);
+        assert!(divergence.right.impact[0].effect.contains("right"));
+    }
+
+    #[test]
+    fn ancestor_comparison_keeps_the_shared_frontier_and_one_sided_continuation() {
+        let first = event(1, "First", 1);
+        let frontier = event(2, "Frontier", 2);
+        let continuation = event(3, "Continuation", 3);
+        let left = snapshot(2, [], vec![frontier.clone(), first.clone()], vec![]);
+        let right = snapshot(
+            3,
+            [],
+            vec![continuation.clone(), frontier.clone(), first],
+            vec![],
+        );
+
+        let divergence = compare_divergence(&left, &right).expect("right side continued");
+        assert_eq!(divergence.shared_frontier, Some(frontier));
+        assert_eq!(divergence.left.first_difference, None);
+        assert_eq!(divergence.right.first_difference, Some(continuation));
     }
 }

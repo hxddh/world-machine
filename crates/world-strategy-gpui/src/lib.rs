@@ -1,6 +1,7 @@
 use gpui::{div, prelude::*, px, rgb, Context, Div, Render, Styled, Window};
 use world_compare::{
-    ChangedCommand, ChangedTimelineItem, DifferenceKind, EntityDifference, SnapshotComparison,
+    compare_divergence, ChangedCommand, ChangedTimelineItem, DifferenceKind, DivergenceImpactStage,
+    DivergenceSide, EntityDifference, SnapshotComparison, SnapshotDivergence,
 };
 use world_projection::{ProjectionCommand, ProjectionSnapshot, TimelineItem};
 use world_strategy::{StrategyEvaluation, StrategyRun};
@@ -8,6 +9,7 @@ use world_strategy::{StrategyEvaluation, StrategyRun};
 const ENTITY_DIFFERENCE_LIMIT: usize = 10;
 const TIMELINE_DIFFERENCE_LIMIT_PER_KIND: usize = 4;
 const INSPECTOR_ROW_LIMIT: usize = 6;
+const DIVERGENCE_IMPACT_LIMIT: usize = 4;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct SavedComparisonContext {
@@ -190,6 +192,212 @@ impl StrategyComparisonView {
             );
         }
         card
+    }
+
+    fn divergence(&self) -> Option<SnapshotDivergence> {
+        match &self.source {
+            ComparisonSource::Strategies(evaluation) => {
+                match (&evaluation.left, &evaluation.right) {
+                    (StrategyRun::Success(left), StrategyRun::Success(right)) => {
+                        compare_divergence(&left.snapshot, &right.snapshot)
+                    }
+                    _ => None,
+                }
+            }
+            ComparisonSource::Saved { left, right, .. } => compare_divergence(left, right),
+        }
+    }
+
+    fn render_divergence(&self, divergence: &SnapshotDivergence) -> Div {
+        let shared = match &divergence.shared_frontier {
+            Some(frontier) => div()
+                .p_3()
+                .rounded_md()
+                .bg(rgb(0xffffff))
+                .border_1()
+                .border_color(rgb(0xd9dfd5))
+                .flex()
+                .flex_col()
+                .gap_1()
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(rgb(0x657565))
+                        .child("SHARED HISTORY ENDS HERE"),
+                )
+                .child(div().text_sm().child(frontier.title.clone()))
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(rgb(0x666666))
+                        .child(frontier.subtitle.clone()),
+                )
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(rgb(0x777777))
+                        .child(format!("World time {}", frontier.world_time)),
+                ),
+            None => div()
+                .p_3()
+                .rounded_md()
+                .bg(rgb(0xffffff))
+                .border_1()
+                .border_color(rgb(0xd9dfd5))
+                .text_sm()
+                .child("No identical recorded Timeline prefix"),
+        };
+
+        div()
+            .w(px(700.0))
+            .p_4()
+            .rounded_md()
+            .border_1()
+            .border_color(rgb(0xcfd8c8))
+            .bg(rgb(0xf7faf5))
+            .flex()
+            .flex_col()
+            .gap_3()
+            .child(div().text_lg().child("Where these futures split"))
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0x66705f))
+                    .child("Longest identical Timeline prefix, followed by each side's first recorded difference and its representative world-visible causal impact."),
+            )
+            .child(shared)
+            .child(
+                div()
+                    .flex()
+                    .gap_3()
+                    .child(self.render_divergence_side(&self.left_label, &divergence.left))
+                    .child(self.render_divergence_side(&self.right_label, &divergence.right)),
+            )
+    }
+
+    fn render_divergence_side(&self, label: &str, side: &DivergenceSide) -> Div {
+        let mut column = div()
+            .w(px(325.0))
+            .p_3()
+            .rounded_md()
+            .bg(rgb(0xffffff))
+            .border_1()
+            .border_color(rgb(0xe2e4e8))
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0x4e6fb3))
+                    .child(label.to_string()),
+            );
+
+        if let Some(first) = &side.first_difference {
+            column = column
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(rgb(0x777777))
+                        .child("FIRST RECORDED DIFFERENCE"),
+                )
+                .child(div().text_sm().child(first.title.clone()))
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(rgb(0x555555))
+                        .child(first.subtitle.clone()),
+                )
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(rgb(0x777777))
+                        .child(format!("World time {}", first.world_time)),
+                );
+        } else {
+            column = column.child(
+                div()
+                    .text_sm()
+                    .text_color(rgb(0x777777))
+                    .child("This side stops at the shared frontier."),
+            );
+            return column;
+        }
+
+        column = column.child(
+            div()
+                .text_xs()
+                .text_color(rgb(0x657565))
+                .child("HOW THIS FUTURE UNFOLDED"),
+        );
+        if side.impact.is_empty() {
+            return column.child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0x777777))
+                    .child("No later world-visible effects recorded from this difference yet."),
+            );
+        }
+
+        for stage in side.impact.iter().take(DIVERGENCE_IMPACT_LIMIT) {
+            column = column.child(self.render_divergence_stage(stage));
+        }
+        if let Some(notice) = hidden_notice(
+            side.impact.len(),
+            DIVERGENCE_IMPACT_LIMIT,
+            "later impact stages",
+        ) {
+            column = column.child(truncation_notice(notice));
+        }
+        column
+    }
+
+    fn render_divergence_stage(&self, stage: &DivergenceImpactStage) -> Div {
+        let supporting = stage.causal_steps.saturating_sub(1);
+        let causal_context = if supporting == 0 {
+            format!(
+                "{} recorded causal {} from previous visible stage",
+                stage.causal_steps,
+                if stage.causal_steps == 1 {
+                    "step"
+                } else {
+                    "steps"
+                }
+            )
+        } else {
+            format!(
+                "{} recorded causal steps · {} supporting {} folded",
+                stage.causal_steps,
+                supporting,
+                if supporting == 1 { "record" } else { "records" }
+            )
+        };
+        div()
+            .p_2()
+            .rounded_md()
+            .bg(rgb(0xf8f9fc))
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0x657565))
+                    .child(causal_context),
+            )
+            .child(div().text_sm().child(stage.event.title.clone()))
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0x555555))
+                    .child(stage.effect.clone()),
+            )
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0x777777))
+                    .child(format!("World time {}", stage.event.world_time)),
+            )
     }
 
     fn render_comparison(&self, comparison: &SnapshotComparison) -> Div {
@@ -643,6 +851,10 @@ impl Render for StrategyComparisonView {
                     )),
             ),
         };
+
+        if let Some(divergence) = self.divergence() {
+            body = body.child(self.render_divergence(&divergence));
+        }
 
         let comparison = match &self.source {
             ComparisonSource::Strategies(evaluation) => evaluation.comparison.as_ref(),
