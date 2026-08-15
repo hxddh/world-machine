@@ -198,9 +198,10 @@ fn recorded_event_evidence(
         .iter()
         .filter(|section| matches!(section.title.as_str(), "Payload" | "Changes"))
         .flat_map(|section| {
-            section.rows.iter().map(move |row| {
-                (section.title.clone(), row.label.clone(), row.value.clone())
-            })
+            section
+                .rows
+                .iter()
+                .map(move |row| (section.title.clone(), row.label.clone(), row.value.clone()))
         })
         .collect()
 }
