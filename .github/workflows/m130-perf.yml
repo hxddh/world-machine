@@ -1,0 +1,49 @@
+name: M130 Perf
+
+on:
+  push:
+    branches:
+      - agent/m130-semantic-causal-thread
+    paths:
+      - scripts/m130-perf-trigger
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/m130-semantic-causal-thread
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Apply M130 perf patch
+        run: python3 scripts/m130_perf_patch.py
+      - name: Format
+        run: cargo fmt --all
+      - name: Test world projection
+        run: cargo test -p world-projection
+      - name: Test Pocket Universe
+        run: cargo test -p pocket-universe
+      - name: Test world GPUI
+        run: cargo test -p world-gpui
+      - name: Test Pocket Universe pack
+        run: cargo test -p pocket-universe-pack
+      - name: Check diff
+        run: git diff --check
+      - name: Commit product changes
+        run: |
+          git config user.name hxddh
+          git config user.email hxddh@users.noreply.github.com
+          git add \
+            crates/world-projection/src/influence.rs \
+            crates/world-projection/src/lib.rs \
+            crates/world-gpui/src/macos.rs \
+            worlds/pocket-universe/tests/choice_influence.rs
+          git diff --cached --check
+          git commit -m "M130: keep causal thread derivation linear"
+          git push origin HEAD:agent/m130-semantic-causal-thread
