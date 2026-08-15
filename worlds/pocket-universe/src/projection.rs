@@ -366,6 +366,7 @@ fn briefing(world: &World, seeded: bool, since_event_count: Option<usize>) -> Br
     if let Some(since) = since_event_count.filter(|since| *since < world.events().len()) {
         let events = &world.events()[since..];
         let mut items = return_digest_items(events);
+        items.push(return_compass_item(world));
         extend_with_persistent_consequences(world, &mut items);
         return BriefingProjection {
             eyebrow: format!("Pocket Universe · {}", seed_label(seed_id(world))),
@@ -688,6 +689,56 @@ fn integer_entity_component(entity: Option<&Entity>, key: &str) -> Option<i64> {
     match entity.and_then(|entity| entity.component(key)) {
         Some(Value::Integer(value)) => Some(*value),
         _ => None,
+    }
+}
+
+fn return_compass_item(world: &World) -> BriefingItem {
+    let generation = integer_component(world, GENERATION).unwrap_or_default();
+    let (relationship_choice_available, intervention_choice_available) =
+        choice_state(world, generation);
+    let posture_choice_available = posture_choice_state(world, generation);
+    let legacy = text_component(world.state().entity(UNIVERSE), LEGACY, "forming");
+    let available = commands(world, true);
+    let nudge = available.iter().find(|command| command.id == NUDGE_COMMAND);
+    let shaping = available
+        .iter()
+        .filter(|command| command.id != NUDGE_COMMAND)
+        .collect::<Vec<_>>();
+
+    let title = if posture_choice_available {
+        "Your turn · World direction"
+    } else if relationship_choice_available && intervention_choice_available {
+        "Your turn · Shape the world"
+    } else if relationship_choice_available {
+        "Your turn · Relationship"
+    } else if intervention_choice_available {
+        "Your turn · Future"
+    } else if legacy != "forming" {
+        "Next · Living legacy"
+    } else {
+        "Next · Continue"
+    };
+
+    let detail = match (shaping.is_empty(), nudge) {
+        (true, Some(nudge)) => format!("Continue with ‘{}’. {}", nudge.title, nudge.detail),
+        (false, Some(nudge)) => {
+            let choices = shaping
+                .iter()
+                .map(|command| format!("‘{}’", command.title))
+                .collect::<Vec<_>>()
+                .join(" · ");
+            format!(
+                "Available now: {choices}. Or choose ‘{}’ and let current dynamics keep moving without a larger choice.",
+                nudge.title
+            )
+        }
+        (_, None) => "This World can continue from its current durable state.".into(),
+    };
+
+    BriefingItem {
+        selection: None,
+        title: title.into(),
+        detail,
     }
 }
 

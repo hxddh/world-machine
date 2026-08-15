@@ -16,7 +16,7 @@ use world_persistence::{PersistenceError, WorldArchive, WorldPackRef};
 use world_projection::{ProjectionIntent, ProjectionSnapshot};
 
 pub const POCKET_UNIVERSE_PACK_ID: &str = "world-machine.pocket-universe";
-pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.14.2";
+pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.14.3";
 
 pub const SEED_MARS_COLONY_COMMAND: &str = "pocket-universe.seed-mars-colony";
 pub const SEED_1980S_TOWN_COMMAND: &str = "pocket-universe.seed-1980s-town";
@@ -1968,7 +1968,19 @@ mod tests {
         );
         let briefing = after.briefing.as_ref().unwrap();
         assert_eq!(briefing.title, "While you were away");
-        assert_eq!(briefing.items.len(), 3);
+        assert_eq!(
+            briefing
+                .items
+                .iter()
+                .filter(|item| item.selection.is_some())
+                .count(),
+            3,
+            "the return digest should keep three selected history items"
+        );
+        assert!(briefing
+            .items
+            .iter()
+            .any(|item| { item.title == "Your turn · Relationship" && item.selection.is_none() }));
         assert!(briefing
             .items
             .iter()
@@ -2607,7 +2619,19 @@ mod tests {
         let briefing = returned.briefing.as_ref().unwrap();
 
         assert_eq!(briefing.title, "While you were away");
-        assert_eq!(briefing.items.len(), 3);
+        assert_eq!(
+            briefing
+                .items
+                .iter()
+                .filter(|item| item.selection.is_some())
+                .count(),
+            3,
+            "the return digest should stay bounded independently of the Compass"
+        );
+        assert!(briefing
+            .items
+            .iter()
+            .any(|item| { item.title == "Your turn · Relationship" && item.selection.is_none() }));
         assert!(briefing
             .items
             .iter()
