@@ -37,8 +37,7 @@ fn old_choices_expose_semantic_world_effects_without_erasing_supporting_history(
     universe.invoke_projection_command(NUDGE_COMMAND)?;
     let relationship_snapshot = universe.projection_snapshot();
     let raw_relationship = influence_signature(&relationship_snapshot, relationship);
-    let semantic_relationship =
-        semantic_influence_signature(&relationship_snapshot, relationship);
+    let semantic_relationship = semantic_influence_signature(&relationship_snapshot, relationship);
 
     assert!(raw_relationship
         .iter()

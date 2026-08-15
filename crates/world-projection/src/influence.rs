@@ -223,10 +223,7 @@ mod tests {
             .any(|(_, item)| item.id == SelectionId::Event(EventId::new(2))));
 
         let semantic = semantic_influence_from_snapshot(&timeline, &inspectors, EventId::new(1));
-        let ids = semantic
-            .iter()
-            .map(|(_, item)| item.id)
-            .collect::<Vec<_>>();
+        let ids = semantic.iter().map(|(_, item)| item.id).collect::<Vec<_>>();
         assert_eq!(
             ids,
             vec![
