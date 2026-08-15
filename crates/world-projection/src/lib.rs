@@ -324,11 +324,7 @@ fn inspector_for_event(event: &Event, world: &World) -> InspectorProjection {
             value: value_text(value, world),
         })
         .collect::<Vec<_>>();
-    let changes = event
-        .changes
-        .iter()
-        .map(|change| change_row(change, world))
-        .collect::<Vec<_>>();
+    let changes = event.changes.iter().map(change_row).collect::<Vec<_>>();
 
     let mut sections = vec![InspectorSection {
         title: "Context".into(),
@@ -355,7 +351,7 @@ fn inspector_for_event(event: &Event, world: &World) -> InspectorProjection {
     }
 }
 
-fn change_row(change: &StateChange, world: &World) -> InspectorRow {
+fn change_row(change: &StateChange) -> InspectorRow {
     match change {
         StateChange::CreateEntity(entity) => InspectorRow {
             label: "Create entity".into(),
@@ -363,23 +359,23 @@ fn change_row(change: &StateChange, world: &World) -> InspectorRow {
         },
         StateChange::RemoveEntity(entity) => InspectorRow {
             label: "Remove entity".into(),
-            value: entity_reference(*entity, world),
+            value: format!("Entity #{entity}"),
         },
         StateChange::SetComponent { entity, key, value } => InspectorRow {
-            label: format!("{} · {}", entity_reference(*entity, world), humanize(key)),
-            value: value_text(value, world),
+            label: format!("Entity #{entity} · {}", humanize(key)),
+            value: recorded_value_text(value),
         },
         StateChange::RemoveComponent { entity, key } => InspectorRow {
-            label: format!("{} · {}", entity_reference(*entity, world), humanize(key)),
+            label: format!("Entity #{entity} · {}", humanize(key)),
             value: "Removed".into(),
         },
         StateChange::CreateRelation(relation) => InspectorRow {
             label: "Create relation".into(),
             value: format!(
-                "{} · {} → {}",
+                "{} · Entity #{} → Entity #{}",
                 humanize(&relation.kind),
-                entity_reference(relation.from, world),
-                entity_reference(relation.to, world)
+                relation.from,
+                relation.to
             ),
         },
         StateChange::RemoveRelation(relation) => InspectorRow {
@@ -392,7 +388,7 @@ fn change_row(change: &StateChange, world: &World) -> InspectorRow {
             value,
         } => InspectorRow {
             label: format!("Relation #{relation} · {}", humanize(key)),
-            value: value_text(value, world),
+            value: recorded_value_text(value),
         },
         StateChange::RemoveRelationProperty { relation, key } => InspectorRow {
             label: format!("Relation #{relation} · {}", humanize(key)),
@@ -401,12 +397,24 @@ fn change_row(change: &StateChange, world: &World) -> InspectorRow {
     }
 }
 
-fn entity_reference(entity: EntityId, world: &World) -> String {
-    world
-        .state()
-        .entity(entity)
-        .map(entity_title)
-        .unwrap_or_else(|| format!("Entity #{entity}"))
+fn recorded_value_text(value: &Value) -> String {
+    match value {
+        Value::Null => "—".into(),
+        Value::Bool(value) => value.to_string(),
+        Value::Integer(value) => value.to_string(),
+        Value::Text(value) => value.clone(),
+        Value::Entity(entity) => format!("Entity #{entity}"),
+        Value::List(values) => values
+            .iter()
+            .map(recorded_value_text)
+            .collect::<Vec<_>>()
+            .join(", "),
+        Value::Map(values) => values
+            .iter()
+            .map(|(key, value)| format!("{key}: {}", recorded_value_text(value)))
+            .collect::<Vec<_>>()
+            .join(", "),
+    }
 }
 
 fn semantic_event_summary(event: &Event) -> Option<&str> {
@@ -572,7 +580,7 @@ mod tests {
             .find(|section| section.title == "Changes")
             .expect("recorded StateChanges should be inspectable");
         assert_eq!(changes.rows.len(), 1);
-        assert_eq!(changes.rows[0].label, "Workspace · Status");
+        assert_eq!(changes.rows[0].label, "Entity #1 · Status");
         assert_eq!(changes.rows[0].value, "done");
     }
 
