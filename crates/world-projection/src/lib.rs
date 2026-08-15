@@ -329,7 +329,7 @@ fn inspector_for_event(event: &Event, world: &World) -> InspectorProjection {
         .iter()
         .map(|(key, value)| InspectorRow {
             label: humanize(key),
-            value: value_text(value, world),
+            value: recorded_value_text(value),
         })
         .collect::<Vec<_>>();
     let changes = event.changes.iter().map(change_row).collect::<Vec<_>>();
@@ -590,6 +590,54 @@ mod tests {
         assert_eq!(changes.rows.len(), 1);
         assert_eq!(changes.rows[0].label, "Entity #1 · Status");
         assert_eq!(changes.rows[0].value, "done");
+    }
+
+    #[test]
+    fn event_payload_entity_references_are_recorded_not_current_state_derived() {
+        let mut state = WorldState::default();
+        state
+            .seed_entity(
+                Entity::new(EntityId::new(1), "workspace").with_component("name", "Workspace"),
+            )
+            .unwrap();
+        let world = World::from_history(
+            state,
+            &[Event {
+                id: EventId::new(1),
+                kind: "workspace_renamed".into(),
+                world_time: 1,
+                actor: None,
+                targets: vec![],
+                caused_by: vec![],
+                payload: BTreeMap::from([("subject".into(), Value::Entity(EntityId::new(1)))]),
+                changes: vec![StateChange::SetComponent {
+                    entity: EntityId::new(1),
+                    key: "name".into(),
+                    value: Value::Text("Renamed Workspace".into()),
+                }],
+            }],
+        )
+        .unwrap();
+
+        let inspectors = inspectors_from_world(&world);
+        let payload = inspectors
+            .get(&SelectionId::Event(EventId::new(1)))
+            .unwrap()
+            .sections
+            .iter()
+            .find(|section| section.title == "Payload")
+            .expect("recorded payload should be inspectable");
+
+        assert_eq!(payload.rows.len(), 1);
+        assert_eq!(payload.rows[0].label, "Subject");
+        assert_eq!(payload.rows[0].value, "Entity #1");
+        assert_eq!(
+            inspectors
+                .get(&SelectionId::Entity(EntityId::new(1)))
+                .unwrap()
+                .title,
+            "Renamed Workspace"
+        );
     }
 
     #[test]
