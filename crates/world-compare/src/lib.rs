@@ -152,7 +152,9 @@ pub fn compare_divergence(
     let shared_len = left_chronological
         .iter()
         .zip(&right_chronological)
-        .take_while(|(left, right)| *left == *right)
+        .take_while(|(left_item, right_item)| {
+            same_recorded_timeline_event(left, right, left_item, right_item)
+        })
         .count();
 
     if shared_len == left_chronological.len() && shared_len == right_chronological.len() {
@@ -167,6 +169,42 @@ pub fn compare_divergence(
         left: divergence_side(left, &left_chronological, shared_len),
         right: divergence_side(right, &right_chronological, shared_len),
     })
+}
+
+fn same_recorded_timeline_event(
+    left_snapshot: &ProjectionSnapshot,
+    right_snapshot: &ProjectionSnapshot,
+    left: &TimelineItem,
+    right: &TimelineItem,
+) -> bool {
+    left.id == right.id
+        && left.world_time == right.world_time
+        && left.title == right.title
+        && left.caused_by == right.caused_by
+        && recorded_event_evidence(left_snapshot, left.id)
+            == recorded_event_evidence(right_snapshot, right.id)
+}
+
+fn recorded_event_evidence(
+    snapshot: &ProjectionSnapshot,
+    selection: SelectionId,
+) -> Vec<(String, String, String)> {
+    let Some(inspector) = snapshot.inspectors.get(&selection) else {
+        return Vec::new();
+    };
+
+    inspector
+        .sections
+        .iter()
+        .flat_map(|section| {
+            section.rows.iter().filter_map(move |row| {
+                let recorded = section.title == "Changes"
+                    || (section.title == "Payload"
+                        && matches!(row.label.as_str(), "Summary" | "Change"));
+                recorded.then(|| (section.title.clone(), row.label.clone(), row.value.clone()))
+            })
+        })
+        .collect()
 }
 
 fn divergence_side(
@@ -564,6 +602,66 @@ mod tests {
         assert_eq!(comparison.entities.len(), 2);
         assert_eq!(comparison.entities[0].kind, DifferenceKind::LeftOnly);
         assert_eq!(comparison.entities[1].kind, DifferenceKind::RightOnly);
+    }
+
+    #[test]
+    fn divergence_ignores_current_state_derived_timeline_display_drift_in_shared_history() {
+        let left_common = TimelineItem {
+            id: SelectionId::Event(EventId::new(1)),
+            world_time: 1,
+            title: "Common".into(),
+            subtitle: "Alice · Event #1".into(),
+            caused_by: vec![],
+        };
+        let right_common = TimelineItem {
+            subtitle: "Renamed Alice · Event #1".into(),
+            ..left_common.clone()
+        };
+        let left_first = event(2, "Left choice", 2);
+        let right_first = event(2, "Right choice", 2);
+        let left = snapshot(2, [], vec![left_first.clone(), left_common.clone()], vec![]);
+        let right = snapshot(2, [], vec![right_first.clone(), right_common], vec![]);
+
+        let divergence = compare_divergence(&left, &right).expect("histories diverged");
+        assert_eq!(divergence.shared_frontier, Some(left_common));
+        assert_eq!(divergence.left.first_difference, Some(left_first));
+        assert_eq!(divergence.right.first_difference, Some(right_first));
+    }
+
+    #[test]
+    fn divergence_detects_same_id_semantic_difference_from_recorded_event_evidence() {
+        let item = TimelineItem {
+            id: SelectionId::Event(EventId::new(1)),
+            world_time: 1,
+            title: "Choice Made".into(),
+            subtitle: "Event #1".into(),
+            caused_by: vec![],
+        };
+        let inspector = |summary: &str| {
+            let selection = SelectionId::Event(EventId::new(1));
+            (
+                selection,
+                InspectorProjection {
+                    selection,
+                    title: "Choice Made".into(),
+                    subtitle: String::new(),
+                    sections: vec![InspectorSection {
+                        title: "Payload".into(),
+                        rows: vec![InspectorRow {
+                            label: "Summary".into(),
+                            value: summary.into(),
+                        }],
+                    }],
+                },
+            )
+        };
+        let left = snapshot(1, [inspector("Outward")], vec![item.clone()], vec![]);
+        let right = snapshot(1, [inspector("Rooted")], vec![item.clone()], vec![]);
+
+        let divergence = compare_divergence(&left, &right).expect("recorded semantics differ");
+        assert_eq!(divergence.shared_frontier, None);
+        assert_eq!(divergence.left.first_difference, Some(item.clone()));
+        assert_eq!(divergence.right.first_difference, Some(item));
     }
 
     #[test]

@@ -339,8 +339,8 @@ impl StrategyComparisonView {
             );
         }
 
-        for stage in side.impact.iter().take(DIVERGENCE_IMPACT_LIMIT) {
-            column = column.child(self.render_divergence_stage(stage));
+        for (index, stage) in side.impact.iter().take(DIVERGENCE_IMPACT_LIMIT).enumerate() {
+            column = column.child(self.render_divergence_stage(stage, index == 0));
         }
         if let Some(notice) = hidden_notice(
             side.impact.len(),
@@ -352,11 +352,16 @@ impl StrategyComparisonView {
         column
     }
 
-    fn render_divergence_stage(&self, stage: &DivergenceImpactStage) -> Div {
+    fn render_divergence_stage(&self, stage: &DivergenceImpactStage, first: bool) -> Div {
         let supporting = stage.causal_steps.saturating_sub(1);
+        let origin = if first {
+            "first recorded difference"
+        } else {
+            "previous visible stage"
+        };
         let causal_context = if supporting == 0 {
             format!(
-                "{} recorded causal {} from previous visible stage",
+                "{} recorded causal {} from {origin}",
                 stage.causal_steps,
                 if stage.causal_steps == 1 {
                     "step"
@@ -366,7 +371,7 @@ impl StrategyComparisonView {
             )
         } else {
             format!(
-                "{} recorded causal steps · {} supporting {} folded",
+                "{} recorded causal steps from {origin} · {} supporting {} folded",
                 stage.causal_steps,
                 supporting,
                 if supporting == 1 { "record" } else { "records" }
