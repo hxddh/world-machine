@@ -1,4 +1,5 @@
 mod causal;
+mod influence;
 
 use std::collections::BTreeMap;
 use world_core::{Entity, EntityId, Event, EventId, Value, World};
@@ -59,6 +60,10 @@ impl ProjectionSnapshot {
 
     pub fn why(&self, event: EventId) -> Option<&WhyProjection> {
         self.why.get(&event)
+    }
+
+    pub fn influence(&self, event: EventId) -> Vec<(usize, &TimelineItem)> {
+        influence::influence_from_timeline(&self.timeline, event)
     }
 
     pub fn command(&self, id: &str) -> Option<&ProjectionCommand> {
