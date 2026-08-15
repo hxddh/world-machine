@@ -26,6 +26,17 @@ fn semantic_influence_signature(
         .collect()
 }
 
+fn semantic_path_signature(
+    snapshot: &world_projection::ProjectionSnapshot,
+    event: world_core::EventId,
+) -> Vec<(world_projection::SelectionId, String)> {
+    snapshot
+        .semantic_path(event)
+        .into_iter()
+        .map(|item| (item.id, item.title.clone()))
+        .collect()
+}
+
 #[test]
 fn old_choices_expose_semantic_world_effects_without_erasing_supporting_history(
 ) -> Result<(), Box<dyn Error>> {
@@ -50,6 +61,21 @@ fn old_choices_expose_semantic_world_effects_without_erasing_supporting_history(
         .any(|(_, _, title)| title == "Relationship Shifted"));
     assert!(semantic_relationship.len() < raw_relationship.len());
 
+    let relationship_path = semantic_path_signature(&relationship_snapshot, relationship);
+    assert!(relationship_path.len() >= 3);
+    assert!(relationship_path
+        .iter()
+        .all(|(_, title)| title != "Agent Decision Recorded"));
+    let shifted = relationship_path
+        .iter()
+        .position(|(_, title)| title == "Relationship Shifted")
+        .expect("the compressed thread should include the materialized relationship shift");
+    let partnership = relationship_path
+        .iter()
+        .position(|(_, title)| title == "Partnership Formed")
+        .expect("the latest relationship thread should reach the resolved social arc");
+    assert!(shifted < partnership);
+
     let intervention = universe.invoke_projection_command(BOLD_PATH_COMMAND)?;
     universe.advance_periods(2)?;
     let intervention_snapshot = universe.projection_snapshot();
@@ -67,6 +93,11 @@ fn old_choices_expose_semantic_world_effects_without_erasing_supporting_history(
         semantic_influence_signature(&reopened_snapshot, intervention),
         semantic_intervention,
         "archive/reopen must reconstruct the same semantic influence from persisted Events"
+    );
+    assert_eq!(
+        semantic_path_signature(&reopened_snapshot, relationship),
+        semantic_path_signature(&intervention_snapshot, relationship),
+        "archive/reopen must reconstruct the same compressed causal thread from persisted Events"
     );
     assert_eq!(
         influence_signature(&reopened_snapshot, intervention),

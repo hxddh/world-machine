@@ -7,12 +7,7 @@ pub(crate) fn influence_from_timeline(
     timeline: &TimelineProjection,
     root: EventId,
 ) -> Vec<(usize, &TimelineItem)> {
-    let mut children = BTreeMap::<EventId, Vec<&TimelineItem>>::new();
-    for item in &timeline.items {
-        for cause in &item.caused_by {
-            children.entry(*cause).or_default().push(item);
-        }
-    }
+    let children = children_from_timeline(timeline);
 
     let mut visited = BTreeSet::from([root]);
     let mut queue = VecDeque::from([(root, 0_usize)]);
@@ -52,6 +47,146 @@ pub(crate) fn semantic_influence_from_snapshot<'a>(
         .into_iter()
         .filter(|(_, item)| inspector_has_world_effect(inspectors.get(&item.id)))
         .collect()
+}
+
+pub(crate) fn semantic_path_from_snapshot<'a>(
+    timeline: &'a TimelineProjection,
+    inspectors: &BTreeMap<SelectionId, InspectorProjection>,
+    root: EventId,
+) -> Vec<&'a TimelineItem> {
+    let by_id = timeline
+        .items
+        .iter()
+        .filter_map(|item| match item.id {
+            SelectionId::Event(event) => Some((event, item)),
+            SelectionId::Entity(_) => None,
+        })
+        .collect::<BTreeMap<_, _>>();
+    if !by_id.contains_key(&root) {
+        return Vec::new();
+    }
+
+    let semantic = semantic_influence_from_snapshot(timeline, inspectors, root);
+    if semantic.is_empty() {
+        return Vec::new();
+    }
+    let semantic_ids = semantic
+        .iter()
+        .map(|(_, item)| event_id(item))
+        .collect::<BTreeSet<_>>();
+    let children = children_from_timeline(timeline);
+    let terminal = semantic_ids
+        .iter()
+        .copied()
+        .filter(|event| !has_semantic_descendant(*event, &children, &semantic_ids))
+        .max_by(|left, right| {
+            let left_item = by_id
+                .get(left)
+                .expect("semantic influence event must exist in Timeline");
+            let right_item = by_id
+                .get(right)
+                .expect("semantic influence event must exist in Timeline");
+            left_item
+                .world_time
+                .cmp(&right_item.world_time)
+                .then_with(|| left.cmp(right))
+        });
+    let Some(terminal) = terminal else {
+        return Vec::new();
+    };
+
+    let mut memo = BTreeMap::<EventId, Option<Vec<EventId>>>::new();
+    let mut visiting = BTreeSet::new();
+    let Some(path) =
+        best_semantic_path_to(terminal, root, &by_id, inspectors, &mut memo, &mut visiting)
+    else {
+        return Vec::new();
+    };
+
+    path.into_iter()
+        .filter_map(|event| by_id.get(&event).copied())
+        .collect()
+}
+
+fn children_from_timeline(timeline: &TimelineProjection) -> BTreeMap<EventId, Vec<&TimelineItem>> {
+    let mut children = BTreeMap::<EventId, Vec<&TimelineItem>>::new();
+    for item in &timeline.items {
+        for cause in &item.caused_by {
+            children.entry(*cause).or_default().push(item);
+        }
+    }
+    children
+}
+
+fn has_semantic_descendant(
+    root: EventId,
+    children: &BTreeMap<EventId, Vec<&TimelineItem>>,
+    semantic: &BTreeSet<EventId>,
+) -> bool {
+    let mut visited = BTreeSet::from([root]);
+    let mut queue = VecDeque::from([root]);
+    while let Some(parent) = queue.pop_front() {
+        let Some(next) = children.get(&parent) else {
+            continue;
+        };
+        for item in next {
+            let child = event_id(item);
+            if !visited.insert(child) {
+                continue;
+            }
+            if semantic.contains(&child) {
+                return true;
+            }
+            queue.push_back(child);
+        }
+    }
+    false
+}
+
+fn best_semantic_path_to(
+    current: EventId,
+    root: EventId,
+    by_id: &BTreeMap<EventId, &TimelineItem>,
+    inspectors: &BTreeMap<SelectionId, InspectorProjection>,
+    memo: &mut BTreeMap<EventId, Option<Vec<EventId>>>,
+    visiting: &mut BTreeSet<EventId>,
+) -> Option<Vec<EventId>> {
+    if current == root {
+        return Some(Vec::new());
+    }
+    if let Some(cached) = memo.get(&current) {
+        return cached.clone();
+    }
+    if !visiting.insert(current) {
+        return None;
+    }
+
+    let result = by_id.get(&current).and_then(|item| {
+        let semantic = inspector_has_world_effect(inspectors.get(&item.id));
+        let mut best = None::<Vec<EventId>>;
+        for cause in &item.caused_by {
+            let Some(mut candidate) =
+                best_semantic_path_to(*cause, root, by_id, inspectors, memo, visiting)
+            else {
+                continue;
+            };
+            if semantic {
+                candidate.push(current);
+            }
+            let should_replace = best.as_ref().map_or(true, |existing| {
+                candidate.len() > existing.len()
+                    || (candidate.len() == existing.len() && candidate > *existing)
+            });
+            if should_replace {
+                best = Some(candidate);
+            }
+        }
+        best
+    });
+
+    visiting.remove(&current);
+    memo.insert(current, result.clone());
+    result
 }
 
 fn inspector_has_world_effect(inspector: Option<&InspectorProjection>) -> bool {
@@ -163,6 +298,46 @@ mod tests {
             items: vec![item(1, "Choice", &[])],
         };
         assert!(influence_from_timeline(&timeline, EventId::new(1)).is_empty());
+    }
+
+    #[test]
+    fn semantic_path_prefers_real_intermediate_world_stages_over_a_direct_shortcut() {
+        let timeline = TimelineProjection {
+            items: vec![
+                item(5, "Final Effect", &[1, 4]),
+                item(4, "Milestone", &[3]),
+                item(3, "Supporting Record", &[2]),
+                item(2, "First World Effect", &[1]),
+                item(1, "Choice", &[]),
+            ],
+        };
+        let changes = |id| {
+            inspector(
+                id,
+                vec![InspectorSection {
+                    title: "Changes".into(),
+                    rows: vec![InspectorRow {
+                        label: "Entity #1 · Status".into(),
+                        value: format!("stage {id}"),
+                    }],
+                }],
+            )
+        };
+        let inspectors = BTreeMap::from([
+            (SelectionId::Event(EventId::new(2)), changes(2)),
+            (SelectionId::Event(EventId::new(4)), changes(4)),
+            (SelectionId::Event(EventId::new(5)), changes(5)),
+        ]);
+
+        let path = semantic_path_from_snapshot(&timeline, &inspectors, EventId::new(1));
+        assert_eq!(
+            path.iter().map(|item| item.id).collect::<Vec<_>>(),
+            vec![
+                SelectionId::Event(EventId::new(2)),
+                SelectionId::Event(EventId::new(4)),
+                SelectionId::Event(EventId::new(5)),
+            ]
+        );
     }
 
     #[test]
