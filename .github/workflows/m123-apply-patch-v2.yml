@@ -1,0 +1,46 @@
+name: M123 Apply Patch V2
+
+on:
+  push:
+    branches:
+      - agent/m123-return-compass
+    paths:
+      - scripts/m123-trigger-v2
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/m123-return-compass
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Apply M123 product patch
+        run: |
+          python3 scripts/m123_patch.py
+          python3 scripts/m123_fix_tests.py
+      - name: Format
+        run: cargo fmt --all
+      - name: Test Pocket Universe
+        run: cargo test -p pocket-universe
+      - name: Test Pocket Universe pack
+        run: cargo test -p pocket-universe-pack
+      - name: Check diff
+        run: git diff --check
+      - name: Commit product changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.lock \
+            apps/pocket-universe-pack/Cargo.toml \
+            apps/world-machine-desktop/src/included_packs.rs \
+            worlds/pocket-universe/Cargo.toml \
+            worlds/pocket-universe/src/lib.rs \
+            worlds/pocket-universe/src/projection.rs \
+            worlds/pocket-universe/tests/return_compass.rs
+          git commit -m "M123: add a return compass"
+          git push origin HEAD:agent/m123-return-compass
