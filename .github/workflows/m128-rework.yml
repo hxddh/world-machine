@@ -1,0 +1,45 @@
+name: M128 Rework
+
+on:
+  push:
+    branches:
+      - agent/m128-forward-choice-influence
+    paths:
+      - scripts/m128-rework-trigger
+
+permissions:
+  contents: write
+
+jobs:
+  rework:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/m128-forward-choice-influence
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Apply lazy influence rework
+        run: python3 scripts/m128_rework.py
+      - name: Format
+        run: cargo fmt --all
+      - name: Test world projection
+        run: cargo test -p world-projection
+      - name: Test Pocket Universe
+        run: cargo test -p pocket-universe
+      - name: Test world GPUI
+        run: cargo test -p world-gpui
+      - name: Test Pocket Universe pack
+        run: cargo test -p pocket-universe-pack
+      - name: Check diff
+        run: git diff --check
+      - name: Commit product changes
+        run: |
+          git config user.name "hxddh"
+          git config user.email "hxddh@users.noreply.github.com"
+          git add crates/world-projection/src/influence.rs \
+            crates/world-projection/src/lib.rs \
+            crates/world-gpui/src/macos.rs \
+            worlds/pocket-universe/tests/choice_influence.rs
+          git commit -m "M128: expose forward causal influence on demand"
+          git push origin HEAD:agent/m128-forward-choice-influence
