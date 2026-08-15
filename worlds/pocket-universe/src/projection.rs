@@ -1,6 +1,6 @@
 use crate::{
     seed_id, BOLD_PATH_COMMAND, CAREFUL_PATH_COMMAND, DECISION, GENERATION, LAST_CHANGE, LEGACY,
-    LEGACY_SUMMARY, NUDGE_COMMAND, OUTWARD_POSTURE_COMMAND, POSTURE, RELATIONSHIP,
+    LEGACY_CYCLES, LEGACY_SUMMARY, NUDGE_COMMAND, OUTWARD_POSTURE_COMMAND, POSTURE, RELATIONSHIP,
     RELATIONSHIP_DIRECTION, RELATIONSHIP_LAST_DYNAMIC, RELATIONSHIP_SOCIAL_ARC,
     RELATIONSHIP_TENSION, RELATIONSHIP_TRUST, RIVALRY_COMMAND, ROOTED_POSTURE_COMMAND,
     SEED_1980S_TOWN_COMMAND, SEED_MARS_COLONY_COMMAND, SEED_PENGUIN_CIVILIZATION_COMMAND,
@@ -719,7 +719,7 @@ fn return_compass_item(world: &World) -> BriefingItem {
         "Next · Continue"
     };
 
-    let detail = match (shaping.is_empty(), nudge) {
+    let action_detail = match (shaping.is_empty(), nudge) {
         (true, Some(nudge)) => format!("Continue with ‘{}’. {}", nudge.title, nudge.detail),
         (false, Some(nudge)) => {
             let choices = shaping
@@ -734,11 +734,141 @@ fn return_compass_item(world: &World) -> BriefingItem {
         }
         (_, None) => "This World can continue from its current durable state.".into(),
     };
+    let why_now = return_compass_context(
+        world,
+        generation,
+        relationship_choice_available,
+        intervention_choice_available,
+        posture_choice_available,
+        &legacy,
+    );
+    let detail = format!("Why now: {why_now} {action_detail}");
 
     BriefingItem {
         selection: None,
         title: title.into(),
         detail,
+    }
+}
+
+fn return_compass_context(
+    world: &World,
+    generation: i64,
+    relationship_choice_available: bool,
+    intervention_choice_available: bool,
+    posture_choice_available: bool,
+    legacy: &str,
+) -> String {
+    if posture_choice_available {
+        return posture_return_context(world);
+    }
+    if relationship_choice_available && intervention_choice_available {
+        return format!(
+            "{} {}",
+            relationship_return_context(world),
+            intervention_return_context(world, generation)
+        );
+    }
+    if relationship_choice_available {
+        return relationship_return_context(world);
+    }
+    if intervention_choice_available {
+        return intervention_return_context(world, generation);
+    }
+    if legacy != "forming" {
+        return legacy_return_context(world, legacy);
+    }
+
+    let last_change = text_component(
+        world.state().entity(UNIVERSE),
+        LAST_CHANGE,
+        "The world is quiet.",
+    );
+    format!("Generation {generation} is still carrying its current thread: {last_change}")
+}
+
+fn relationship_return_context(world: &World) -> String {
+    let relationship = world.state().entity(RELATIONSHIP);
+    let trust = integer_entity_component(relationship, RELATIONSHIP_TRUST).unwrap_or_default();
+    let tension = integer_entity_component(relationship, RELATIONSHIP_TENSION).unwrap_or_default();
+    let last_dynamic = text_component(relationship, RELATIONSHIP_LAST_DYNAMIC, "");
+    let dynamic = if last_dynamic.trim().is_empty() {
+        String::new()
+    } else {
+        format!(" {last_dynamic}")
+    };
+    format!(
+        "The central relationship is still forming at trust {trust} · tension {tension}.{dynamic} Its durable direction is still open."
+    )
+}
+
+fn intervention_return_context(world: &World, generation: i64) -> String {
+    let last_change = text_component(
+        world.state().entity(UNIVERSE),
+        LAST_CHANGE,
+        "The world is quiet.",
+    );
+    format!(
+        "Generation {generation} has reached a larger intervention point. Current thread: {last_change}"
+    )
+}
+
+fn posture_return_context(world: &World) -> String {
+    let social_arc = text_component(
+        world.state().entity(RELATIONSHIP),
+        RELATIONSHIP_SOCIAL_ARC,
+        "forming",
+    );
+    let social_arc = match social_arc.as_str() {
+        "partnership" => "partnership".into(),
+        "fracture" => "fracture".into(),
+        other => other.replace('-', " "),
+    };
+    let decision = text_component(world.state().entity(UNIVERSE), DECISION, "none");
+    let influence = intervention_influence_copy(&decision)
+        .map(|(title, _)| {
+            title
+                .strip_prefix("Your influence · ")
+                .unwrap_or(title)
+                .to_string()
+        })
+        .unwrap_or_else(|| decision.replace('-', " "));
+    format!(
+        "The first arc has settled as {social_arc}, and {influence} is already durable. The next choice now decides whether this World reaches outward or deepens home."
+    )
+}
+
+fn legacy_return_context(world: &World, legacy: &str) -> String {
+    let cycles = integer_component(world, LEGACY_CYCLES).unwrap_or_default();
+    let legacy = legacy_label(legacy);
+    if cycles <= 0 {
+        let summary = text_component(
+            world.state().entity(UNIVERSE),
+            LEGACY_SUMMARY,
+            "This World now carries a durable legacy from its earlier choices.",
+        );
+        return format!(
+            "World legacy · {legacy} has formed but has not yet reinforced through a later cycle. {summary}"
+        );
+    }
+
+    let pattern = world
+        .events()
+        .iter()
+        .rev()
+        .find(|event| event.kind == "legacy_reinforced")
+        .and_then(|event| match event.payload.get("pattern") {
+            Some(Value::Text(pattern)) => Some(pattern.as_str()),
+            _ => None,
+        });
+    let cycle_word = if cycles == 1 { "cycle" } else { "cycles" };
+    match pattern {
+        Some(pattern) => format!(
+            "World legacy · {legacy} has reinforced through {cycles} later {cycle_word}; its current pattern is {pattern}. Another continuation feeds that established pattern back into the World."
+        ),
+        None => format!(
+            "World legacy · {legacy} has reinforced through {cycles} later {cycle_word}. Another continuation feeds that established pattern back into the World."
+        ),
     }
 }
 
