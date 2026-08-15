@@ -1,4 +1,5 @@
 mod causal;
+mod influence;
 
 use std::collections::BTreeMap;
 use world_core::{Entity, EntityId, Event, EventId, Value, World};
@@ -324,6 +325,14 @@ fn inspector_for_event(event: &Event, world: &World) -> InspectorProjection {
         sections.push(InspectorSection {
             title: "Payload".into(),
             rows: payload,
+        });
+    }
+
+    let influence = influence::influence_rows(world, event.id);
+    if !influence.is_empty() {
+        sections.push(InspectorSection {
+            title: "Influence".into(),
+            rows: influence,
         });
     }
 

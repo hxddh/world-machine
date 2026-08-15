@@ -175,7 +175,10 @@ mod tests {
         assert_eq!(rows[0].value, "8 later Events · 8 direct · 1 causal step");
         assert_eq!(rows.len(), 8);
         assert_eq!(rows.last().unwrap().label, "More effects");
-        assert_eq!(rows.last().unwrap().value, "2 additional effect types not shown");
+        assert_eq!(
+            rows.last().unwrap().value,
+            "2 additional effect types not shown"
+        );
     }
 
     #[test]
