@@ -466,7 +466,7 @@ impl StrategyComparisonView {
         stage: &DivergenceImpactStage,
         first: bool,
         cx: &mut Context<Self>,
-    ) -> Div {
+    ) -> impl IntoElement {
         let supporting = stage.causal_steps.saturating_sub(1);
         let origin = if first {
             "first recorded difference"
@@ -663,7 +663,7 @@ impl StrategyComparisonView {
         side: ComparisonSide,
         node: &WhyNode,
         cx: &mut Context<Self>,
-    ) -> Div {
+    ) -> impl IntoElement {
         let selection = SelectionId::Event(node.event);
         let selected = self.is_selected(side, selection);
         div()
