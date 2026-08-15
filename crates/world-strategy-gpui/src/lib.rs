@@ -824,12 +824,9 @@ impl StrategyComparisonView {
             .flex_col()
             .gap_4()
             .child(div().text_lg().child("What changed"))
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(rgb(0x66705f))
-                    .child("Select an entity or timeline side to inspect evidence from that specific future."),
-            )
+            .child(div().text_xs().text_color(rgb(0x66705f)).child(
+                "Select an entity or timeline side to inspect evidence from that specific future.",
+            ))
             .child(
                 div()
                     .flex()
@@ -990,20 +987,15 @@ impl StrategyComparisonView {
             .flex()
             .flex_col()
             .gap_1()
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(rgb(0x4e6fb3))
-                    .child(format!(
-                        "{} · {} · t={}",
-                        match side {
-                            ComparisonSide::Left => "Left",
-                            ComparisonSide::Right => "Right",
-                        },
-                        self.side_label(side),
-                        item.world_time
-                    )),
-            )
+            .child(div().text_xs().text_color(rgb(0x4e6fb3)).child(format!(
+                "{} · {} · t={}",
+                match side {
+                    ComparisonSide::Left => "Left",
+                    ComparisonSide::Right => "Right",
+                },
+                self.side_label(side),
+                item.world_time
+            )))
             .child(div().text_xs().child(detail))
             .on_click(cx.listener(move |this, _, _, cx| this.select(side, selection, cx)))
     }
