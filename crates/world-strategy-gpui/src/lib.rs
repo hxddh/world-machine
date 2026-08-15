@@ -1,21 +1,47 @@
-use gpui::{div, prelude::*, px, rgb, Context, Div, Render, Styled, Window};
+use gpui::{
+    div, prelude::*, px, rgb, Context, Div, Render, SharedString, Styled, Window,
+};
 use world_compare::{
     compare_divergence, ChangedCommand, ChangedTimelineItem, DifferenceKind, DivergenceImpactStage,
     DivergenceSide, EntityDifference, SnapshotComparison, SnapshotDivergence,
 };
-use world_projection::{ProjectionCommand, ProjectionSnapshot, TimelineItem};
+use world_projection::{
+    InspectorProjection, ProjectionCommand, ProjectionSnapshot, SelectionId, TimelineItem, WhyNode,
+};
 use world_strategy::{StrategyEvaluation, StrategyRun};
 
 const ENTITY_DIFFERENCE_LIMIT: usize = 10;
 const TIMELINE_DIFFERENCE_LIMIT_PER_KIND: usize = 4;
 const INSPECTOR_ROW_LIMIT: usize = 6;
 const DIVERGENCE_IMPACT_LIMIT: usize = 4;
+const EVIDENCE_CAUSE_LIMIT: usize = 6;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct SavedComparisonContext {
     pub relation: Option<String>,
     pub left_provenance: Option<String>,
     pub right_provenance: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ComparisonSide {
+    Left,
+    Right,
+}
+
+impl ComparisonSide {
+    fn key(self) -> &'static str {
+        match self {
+            Self::Left => "left",
+            Self::Right => "right",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct ComparisonSelection {
+    side: ComparisonSide,
+    selection: SelectionId,
 }
 
 enum ComparisonSource {
@@ -32,6 +58,7 @@ pub struct StrategyComparisonView {
     source: ComparisonSource,
     left_label: String,
     right_label: String,
+    selected: Option<ComparisonSelection>,
 }
 
 impl StrategyComparisonView {
@@ -44,6 +71,7 @@ impl StrategyComparisonView {
             source: ComparisonSource::Strategies(evaluation),
             left_label: left_label.into(),
             right_label: right_label.into(),
+            selected: None,
         }
     }
 
@@ -81,7 +109,48 @@ impl StrategyComparisonView {
             },
             left_label: left_label.into(),
             right_label: right_label.into(),
+            selected: None,
         }
+    }
+
+    fn snapshot(&self, side: ComparisonSide) -> Option<&ProjectionSnapshot> {
+        match (&self.source, side) {
+            (ComparisonSource::Strategies(evaluation), ComparisonSide::Left) => {
+                evaluation.left.outcome().map(|outcome| &outcome.snapshot)
+            }
+            (ComparisonSource::Strategies(evaluation), ComparisonSide::Right) => {
+                evaluation.right.outcome().map(|outcome| &outcome.snapshot)
+            }
+            (ComparisonSource::Saved { left, .. }, ComparisonSide::Left) => Some(left),
+            (ComparisonSource::Saved { right, .. }, ComparisonSide::Right) => Some(right),
+        }
+    }
+
+    fn side_label(&self, side: ComparisonSide) -> &str {
+        match side {
+            ComparisonSide::Left => &self.left_label,
+            ComparisonSide::Right => &self.right_label,
+        }
+    }
+
+    fn select(
+        &mut self,
+        side: ComparisonSide,
+        selection: SelectionId,
+        cx: &mut Context<Self>,
+    ) {
+        let selectable = self
+            .snapshot(side)
+            .and_then(|snapshot| snapshot.inspector(selection))
+            .is_some();
+        if selectable {
+            self.selected = Some(ComparisonSelection { side, selection });
+            cx.notify();
+        }
+    }
+
+    fn is_selected(&self, side: ComparisonSide, selection: SelectionId) -> bool {
+        self.selected == Some(ComparisonSelection { side, selection })
     }
 
     fn render_strategy_run(&self, label: &str, run: &StrategyRun) -> Div {
@@ -208,7 +277,11 @@ impl StrategyComparisonView {
         }
     }
 
-    fn render_divergence(&self, divergence: &SnapshotDivergence) -> Div {
+    fn render_divergence(
+        &self,
+        divergence: &SnapshotDivergence,
+        cx: &mut Context<Self>,
+    ) -> Div {
         let shared = match &divergence.shared_frontier {
             Some(frontier) => div()
                 .p_3()
@@ -263,19 +336,35 @@ impl StrategyComparisonView {
                 div()
                     .text_xs()
                     .text_color(rgb(0x66705f))
-                    .child("Longest identical Timeline prefix, followed by each side's first recorded difference and its representative world-visible causal impact."),
+                    .child("Longest identical Timeline prefix, followed by each side's first recorded difference and its representative world-visible causal impact. Select any side-specific event to inspect its recorded evidence."),
             )
             .child(shared)
             .child(
                 div()
                     .flex()
                     .gap_3()
-                    .child(self.render_divergence_side(&self.left_label, &divergence.left))
-                    .child(self.render_divergence_side(&self.right_label, &divergence.right)),
+                    .child(self.render_divergence_side(
+                        &self.left_label,
+                        ComparisonSide::Left,
+                        &divergence.left,
+                        cx,
+                    ))
+                    .child(self.render_divergence_side(
+                        &self.right_label,
+                        ComparisonSide::Right,
+                        &divergence.right,
+                        cx,
+                    )),
             )
     }
 
-    fn render_divergence_side(&self, label: &str, side: &DivergenceSide) -> Div {
+    fn render_divergence_side(
+        &self,
+        label: &str,
+        comparison_side: ComparisonSide,
+        side: &DivergenceSide,
+        cx: &mut Context<Self>,
+    ) -> Div {
         let mut column = div()
             .w(px(325.0))
             .p_3()
@@ -294,26 +383,55 @@ impl StrategyComparisonView {
             );
 
         if let Some(first) = &side.first_difference {
-            column = column
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(rgb(0x777777))
-                        .child("FIRST RECORDED DIFFERENCE"),
-                )
-                .child(div().text_sm().child(first.title.clone()))
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(rgb(0x555555))
-                        .child(first.subtitle.clone()),
-                )
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(rgb(0x777777))
-                        .child(format!("World time {}", first.world_time)),
-                );
+            let selection = first.id;
+            let selected = self.is_selected(comparison_side, selection);
+            column = column.child(
+                div()
+                    .id(SharedString::from(format!(
+                        "divergence-first-{}-{}",
+                        comparison_side.key(),
+                        selection.stable_key()
+                    )))
+                    .p_2()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(if selected {
+                        rgb(0x4e6fb3)
+                    } else {
+                        rgb(0xe2e4e8)
+                    })
+                    .bg(if selected {
+                        rgb(0xeef3ff)
+                    } else {
+                        rgb(0xf8f9fc)
+                    })
+                    .cursor_pointer()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(0x777777))
+                            .child("FIRST RECORDED DIFFERENCE"),
+                    )
+                    .child(div().text_sm().child(first.title.clone()))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(0x555555))
+                            .child(first.subtitle.clone()),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(0x777777))
+                            .child(format!("World time {}", first.world_time)),
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.select(comparison_side, selection, cx)
+                    })),
+            );
         } else {
             column = column.child(
                 div()
@@ -340,7 +458,12 @@ impl StrategyComparisonView {
         }
 
         for (index, stage) in side.impact.iter().take(DIVERGENCE_IMPACT_LIMIT).enumerate() {
-            column = column.child(self.render_divergence_stage(stage, index == 0));
+            column = column.child(self.render_divergence_stage(
+                comparison_side,
+                stage,
+                index == 0,
+                cx,
+            ));
         }
         if let Some(notice) = hidden_notice(
             side.impact.len(),
@@ -352,7 +475,13 @@ impl StrategyComparisonView {
         column
     }
 
-    fn render_divergence_stage(&self, stage: &DivergenceImpactStage, first: bool) -> Div {
+    fn render_divergence_stage(
+        &self,
+        comparison_side: ComparisonSide,
+        stage: &DivergenceImpactStage,
+        first: bool,
+        cx: &mut Context<Self>,
+    ) -> Div {
         let supporting = stage.causal_steps.saturating_sub(1);
         let origin = if first {
             "first recorded difference"
@@ -377,10 +506,28 @@ impl StrategyComparisonView {
                 if supporting == 1 { "record" } else { "records" }
             )
         };
+        let selection = stage.event.id;
+        let selected = self.is_selected(comparison_side, selection);
         div()
+            .id(SharedString::from(format!(
+                "divergence-impact-{}-{}",
+                comparison_side.key(),
+                selection.stable_key()
+            )))
             .p_2()
             .rounded_md()
-            .bg(rgb(0xf8f9fc))
+            .border_1()
+            .border_color(if selected {
+                rgb(0x4e6fb3)
+            } else {
+                rgb(0xe2e4e8)
+            })
+            .bg(if selected {
+                rgb(0xeef3ff)
+            } else {
+                rgb(0xf8f9fc)
+            })
+            .cursor_pointer()
             .flex()
             .flex_col()
             .gap_1()
@@ -403,6 +550,178 @@ impl StrategyComparisonView {
                     .text_color(rgb(0x777777))
                     .child(format!("World time {}", stage.event.world_time)),
             )
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.select(comparison_side, selection, cx)
+            }))
+    }
+
+    fn render_selected_evidence(&self, cx: &mut Context<Self>) -> Option<Div> {
+        let selected = self.selected?;
+        let snapshot = self.snapshot(selected.side)?;
+        let inspector = snapshot.inspector(selected.selection)?;
+        let label = self.side_label(selected.side).to_string();
+
+        let mut panel = div()
+            .w(px(700.0))
+            .p_4()
+            .rounded_md()
+            .border_1()
+            .border_color(rgb(0xb9c8e8))
+            .bg(rgb(0xf7f9ff))
+            .flex()
+            .flex_col()
+            .gap_3()
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0x4e6fb3))
+                    .child(format!("RECORDED EVIDENCE · {label}")),
+            )
+            .child(div().text_lg().child(inspector.title.clone()))
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0x666666))
+                    .child(inspector.subtitle.clone()),
+            )
+            .child(self.render_evidence_inspector(inspector));
+
+        if let SelectionId::Event(event) = selected.selection {
+            let mut causes = div().flex().flex_col().gap_2();
+            if let Some(why) = snapshot.why(event) {
+                let cause_nodes = why.nodes.iter().skip(1).collect::<Vec<_>>();
+                if cause_nodes.is_empty() {
+                    causes = causes.child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(0x777777))
+                            .child("No earlier recorded causes."),
+                    );
+                } else {
+                    for node in cause_nodes.iter().take(EVIDENCE_CAUSE_LIMIT) {
+                        causes = causes.child(self.render_evidence_cause(selected.side, node, cx));
+                    }
+                    if let Some(notice) = hidden_notice(
+                        cause_nodes.len(),
+                        EVIDENCE_CAUSE_LIMIT,
+                        "recorded cause events",
+                    ) {
+                        causes = causes.child(truncation_notice(notice));
+                    }
+                }
+            } else {
+                causes = causes.child(
+                    div()
+                        .text_xs()
+                        .text_color(rgb(0x777777))
+                        .child("No causal projection recorded for this event."),
+                );
+            }
+
+            panel = panel
+                .child(div().text_sm().child("Why this happened"))
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(rgb(0x66705f))
+                        .child("Persisted caused_by history from the selected future. Select a cause to continue tracing on the same side."),
+                )
+                .child(causes);
+        }
+
+        Some(panel)
+    }
+
+    fn render_evidence_inspector(&self, inspector: &InspectorProjection) -> Div {
+        let mut sections = div().flex().flex_col().gap_3();
+        for section in &inspector.sections {
+            let mut rows = div().flex().flex_col().gap_1();
+            for row in section.rows.iter().take(INSPECTOR_ROW_LIMIT) {
+                rows = rows.child(
+                    div()
+                        .flex()
+                        .gap_2()
+                        .text_xs()
+                        .child(
+                            div()
+                                .w(px(180.0))
+                                .text_color(rgb(0x666666))
+                                .child(row.label.clone()),
+                        )
+                        .child(div().flex_1().child(row.value.clone())),
+                );
+            }
+            if let Some(notice) = hidden_notice(
+                section.rows.len(),
+                INSPECTOR_ROW_LIMIT,
+                "inspector rows",
+            ) {
+                rows = rows.child(truncation_notice(notice));
+            }
+            sections = sections.child(
+                div()
+                    .p_3()
+                    .rounded_md()
+                    .bg(rgb(0xffffff))
+                    .border_1()
+                    .border_color(rgb(0xe2e4e8))
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .child(div().text_sm().child(section.title.clone()))
+                    .child(rows),
+            );
+        }
+        sections
+    }
+
+    fn render_evidence_cause(
+        &self,
+        side: ComparisonSide,
+        node: &WhyNode,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let selection = SelectionId::Event(node.event);
+        let selected = self.is_selected(side, selection);
+        div()
+            .id(SharedString::from(format!(
+                "evidence-cause-{}-{}",
+                side.key(),
+                selection.stable_key()
+            )))
+            .p_2()
+            .rounded_md()
+            .border_1()
+            .border_color(if selected {
+                rgb(0x4e6fb3)
+            } else {
+                rgb(0xe2e4e8)
+            })
+            .bg(rgb(0xffffff))
+            .cursor_pointer()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0x657565))
+                    .child(format!("{} causal steps earlier", node.depth)),
+            )
+            .child(div().text_sm().child(node.title.clone()))
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0x555555))
+                    .child(node.subtitle.clone()),
+            )
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0x777777))
+                    .child(format!("World time {}", node.world_time)),
+            )
+            .on_click(cx.listener(move |this, _, _, cx| this.select(side, selection, cx)))
     }
 
     fn render_comparison(&self, comparison: &SnapshotComparison) -> Div {
@@ -799,7 +1118,7 @@ impl StrategyComparisonView {
 }
 
 impl Render for StrategyComparisonView {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let (title, subtitle) = self.heading();
         let mut body = div()
             .id("strategy-comparison-scroll")
@@ -858,7 +1177,10 @@ impl Render for StrategyComparisonView {
         };
 
         if let Some(divergence) = self.divergence() {
-            body = body.child(self.render_divergence(&divergence));
+            body = body.child(self.render_divergence(&divergence, cx));
+        }
+        if let Some(evidence) = self.render_selected_evidence(cx) {
+            body = body.child(evidence);
         }
 
         let comparison = match &self.source {
@@ -922,6 +1244,7 @@ fn difference_kind_label(kind: DifferenceKind) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use world_compare::compare_snapshots;
 
     #[test]
     fn semantic_timeline_detail_is_kept_for_comparison_ui() {
@@ -948,5 +1271,39 @@ mod tests {
     #[test]
     fn grouped_limits_count_every_hidden_item() {
         assert_eq!(hidden_after_group_limits(&[7, 2, 5], 4), 4);
+    }
+
+    #[test]
+    fn saved_comparison_keeps_side_scoped_snapshots_separate() {
+        let left = ProjectionSnapshot {
+            title: "Left evidence".into(),
+            world_time: 10,
+            ..ProjectionSnapshot::default()
+        };
+        let right = ProjectionSnapshot {
+            title: "Right evidence".into(),
+            world_time: 20,
+            ..ProjectionSnapshot::default()
+        };
+        let comparison = compare_snapshots(&left, &right);
+        let view = StrategyComparisonView::saved(
+            left,
+            right,
+            comparison,
+            "Left future",
+            "Right future",
+        );
+
+        assert_eq!(
+            view.snapshot(ComparisonSide::Left)
+                .map(|snapshot| snapshot.title.as_str()),
+            Some("Left evidence")
+        );
+        assert_eq!(
+            view.snapshot(ComparisonSide::Right)
+                .map(|snapshot| snapshot.title.as_str()),
+            Some("Right evidence")
+        );
+        assert_eq!(view.selected, None);
     }
 }
