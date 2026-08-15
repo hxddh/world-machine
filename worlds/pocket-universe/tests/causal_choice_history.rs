@@ -109,7 +109,8 @@ fn background_growth_uses_the_same_durable_causal_inputs_as_manual_continuation(
 }
 
 #[test]
-fn agent_decisions_trace_only_the_durable_choices_their_policy_reads() -> Result<(), Box<dyn Error>> {
+fn agent_decisions_trace_only_the_durable_choices_their_policy_reads() -> Result<(), Box<dyn Error>>
+{
     let mut universe = PocketUniverse::new()?;
     universe.invoke_projection_command(SEED_MARS_COLONY_COMMAND)?;
     universe.advance_periods(2)?;
