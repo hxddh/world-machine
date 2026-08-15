@@ -1,0 +1,45 @@
+name: M132 Harden
+
+on:
+  push:
+    branches:
+      - agent/m132-compare-divergence-impact
+    paths:
+      - scripts/m132-harden-trigger
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/m132-compare-divergence-impact
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Apply hardening
+        run: python3 scripts/m132_harden.py
+      - name: Format
+        run: cargo fmt --all
+      - name: Test world compare
+        run: cargo test -p world-compare
+      - name: Test Pocket Universe
+        run: cargo test -p pocket-universe
+      - name: Test strategy GPUI
+        run: cargo test -p world-strategy-gpui
+      - name: Test strategy comparison desktop
+        run: cargo test -p strategy-comparison-desktop
+      - name: Check diff
+        run: git diff --check
+      - name: Commit formal hardening
+        run: |
+          git config user.name hxddh
+          git config user.email hxddh@users.noreply.github.com
+          git add crates/world-compare/src/lib.rs crates/world-strategy-gpui/src/lib.rs
+          git diff --cached --check
+          git commit -m "M132: harden recorded divergence"
+          git push origin HEAD:agent/m132-compare-divergence-impact
