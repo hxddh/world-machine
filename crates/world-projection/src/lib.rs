@@ -62,6 +62,10 @@ impl ProjectionSnapshot {
         self.why.get(&event)
     }
 
+    pub fn influence(&self, event: EventId) -> Vec<(usize, &TimelineItem)> {
+        influence::influence_from_timeline(&self.timeline, event)
+    }
+
     pub fn command(&self, id: &str) -> Option<&ProjectionCommand> {
         self.commands.iter().find(|command| command.id == id)
     }
@@ -325,14 +329,6 @@ fn inspector_for_event(event: &Event, world: &World) -> InspectorProjection {
         sections.push(InspectorSection {
             title: "Payload".into(),
             rows: payload,
-        });
-    }
-
-    let influence = influence::influence_rows(world, event.id);
-    if !influence.is_empty() {
-        sections.push(InspectorSection {
-            title: "Influence".into(),
-            rows: influence,
         });
     }
 

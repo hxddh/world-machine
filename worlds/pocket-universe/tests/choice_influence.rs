@@ -31,11 +31,13 @@ fn old_choices_expose_the_later_events_they_actually_influenced() -> Result<(), 
     assert!(relationship_influence
         .iter()
         .any(|(_, _, title)| title == "Agent Decision Recorded"));
-    assert!(relationship_influence
-        .iter()
-        .filter(|(depth, _, _)| *depth == 1)
-        .count()
-        >= 2);
+    assert!(
+        relationship_influence
+            .iter()
+            .filter(|(depth, _, _)| *depth == 1)
+            .count()
+            >= 2
+    );
 
     let intervention = universe.invoke_projection_command(BOLD_PATH_COMMAND)?;
     universe.advance_periods(2)?;

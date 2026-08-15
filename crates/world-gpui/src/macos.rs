@@ -371,6 +371,54 @@ impl ProjectionView {
         Some(inspector_panel(inspector))
     }
 
+    fn render_influence(&self, cx: &mut Context<Self>) -> Option<Div> {
+        let SelectionId::Event(event) = self.selected? else {
+            return None;
+        };
+        let influence = self.snapshot.influence(event);
+        if influence.is_empty() {
+            return None;
+        }
+
+        let total = influence.len();
+        let direct = influence.iter().filter(|(depth, _)| *depth == 1).count();
+        let max_depth = influence.iter().map(|(depth, _)| *depth).max().unwrap_or(1);
+        let mut nodes = div().flex().flex_col().gap_1();
+        for (depth, item) in influence.iter().take(10) {
+            nodes = nodes.child(self.influence_node(*depth, item, cx));
+        }
+
+        let mut panel = div()
+            .p_3()
+            .rounded_md()
+            .border_1()
+            .border_color(rgb(0xd7e2d7))
+            .bg(rgb(0xf7fbf7))
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(div().text_lg().child("What this affected"))
+            .child(div().text_xs().text_color(rgb(0x657565)).child(format!(
+                "{} later {} · {} direct · up to {} causal {}",
+                total,
+                if total == 1 { "event" } else { "events" },
+                direct,
+                max_depth,
+                if max_depth == 1 { "step" } else { "steps" },
+            )))
+            .child(nodes);
+
+        if total > 10 {
+            panel = panel.child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0x657565))
+                    .child(format!("+{} more affected events", total - 10)),
+            );
+        }
+        Some(panel)
+    }
+
     fn render_why(&self, cx: &mut Context<Self>) -> Option<Div> {
         let SelectionId::Event(event) = self.selected? else {
             return None;
@@ -408,6 +456,38 @@ impl ProjectionView {
             );
         }
         Some(panel)
+    }
+
+    fn influence_node(
+        &self,
+        depth: usize,
+        item: &TimelineItem,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let selection = item.id;
+        let prefix = if depth == 1 {
+            "Direct effect".to_string()
+        } else {
+            format!("Later · {depth} steps")
+        };
+        div()
+            .id(SharedString::from(format!(
+                "influence-{}",
+                selection.stable_key()
+            )))
+            .p_2()
+            .rounded_md()
+            .bg(rgb(0xffffff))
+            .cursor_pointer()
+            .child(div().text_xs().text_color(rgb(0x657565)).child(prefix))
+            .child(div().text_sm().child(item.title.clone()))
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0x777777))
+                    .child(item.subtitle.clone()),
+            )
+            .on_click(cx.listener(move |this, _, _, cx| this.select(selection, cx)))
     }
 
     fn why_node(&self, node: &WhyNode, cx: &mut Context<Self>) -> impl IntoElement {
@@ -468,6 +548,9 @@ impl Render for ProjectionView {
             }
             if let Some(why) = self.render_why(cx) {
                 center = center.child(why);
+            }
+            if let Some(influence) = self.render_influence(cx) {
+                center = center.child(influence);
             }
         }
 
