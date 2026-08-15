@@ -600,17 +600,34 @@ fn legacy_consequence_item(world: &World) -> Option<BriefingItem> {
     if legacy == "forming" {
         return None;
     }
-    let summary = text_component(
-        world.state().entity(UNIVERSE),
-        LEGACY_SUMMARY,
-        "This World now carries a durable legacy from its earlier choices.",
-    );
-    let selection = world
+
+    let latest_reinforcement = world
         .events()
         .iter()
         .rev()
-        .find(|event| event.kind == "world_legacy_formed")
+        .find(|event| event.kind == "legacy_reinforced");
+    let summary = latest_reinforcement
+        .and_then(|event| match event.payload.get("summary") {
+            Some(Value::Text(summary)) => Some(summary.clone()),
+            _ => None,
+        })
+        .unwrap_or_else(|| {
+            text_component(
+                world.state().entity(UNIVERSE),
+                LEGACY_SUMMARY,
+                "This World now carries a durable legacy from its earlier choices.",
+            )
+        });
+    let selection = latest_reinforcement
         .map(|event| SelectionId::Event(event.id))
+        .or_else(|| {
+            world
+                .events()
+                .iter()
+                .rev()
+                .find(|event| event.kind == "world_legacy_formed")
+                .map(|event| SelectionId::Event(event.id))
+        })
         .unwrap_or(SelectionId::Entity(UNIVERSE));
     Some(BriefingItem {
         selection: Some(selection),
@@ -701,6 +718,7 @@ fn return_item(event: &Event) -> BriefingItem {
             "partnership_formed" => "A partnership formed".into(),
             "relationship_fractured" => "Their relationship fractured".into(),
             "world_legacy_formed" => "A world legacy formed".into(),
+            "legacy_reinforced" => "A legacy reinforced itself".into(),
             _ => event.kind.replace('_', " "),
         },
         detail,

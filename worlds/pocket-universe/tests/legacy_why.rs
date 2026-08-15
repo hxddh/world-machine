@@ -85,6 +85,24 @@ fn legacy_briefing_selects_its_event_and_exposes_why() -> Result<(), Box<dyn Err
         .expect("the following period should reinforce the legacy");
     let reinforced_event_id = EventId::new(reinforced.id);
     let reinforced_snapshot = reopened.projection_snapshot();
+    let reinforced_legacy_item = reinforced_snapshot
+        .briefing
+        .as_ref()
+        .expect("reinforced Pocket Universe should keep its Briefing")
+        .items
+        .iter()
+        .find(|item| item.title == "World legacy · Ridge Network")
+        .expect("the living legacy should remain visible in Briefing");
+    assert_eq!(
+        reinforced_legacy_item.selection,
+        Some(SelectionId::Event(reinforced_event_id)),
+        "after reinforcement, the persistent legacy should open its latest living event"
+    );
+    assert!(
+        reinforced_legacy_item.detail.contains("Legacy cycle 1"),
+        "the persistent legacy should describe its latest durable feedback cycle"
+    );
+
     let reinforced_why = reinforced_snapshot
         .why(reinforced_event_id)
         .expect("legacy reinforcement should have a generic Why projection");
@@ -98,10 +116,18 @@ fn legacy_briefing_selects_its_event_and_exposes_why() -> Result<(), Box<dyn Err
     assert!(reinforced_titles.contains(&"Relationship Shifted"));
 
     let reopened_again = PocketUniverse::resume_archive(&reinforced_archive)?;
+    let reopened_again_snapshot = reopened_again.projection_snapshot();
+    let reopened_again_legacy = reopened_again_snapshot
+        .briefing
+        .as_ref()
+        .expect("reopened reinforced World should keep its Briefing")
+        .items
+        .iter()
+        .find(|item| item.title == "World legacy · Ridge Network")
+        .expect("reopened reinforced World should keep its living legacy entrypoint");
+    assert_eq!(reopened_again_legacy, reinforced_legacy_item);
     assert_eq!(
-        reopened_again
-            .projection_snapshot()
-            .why(reinforced_event_id),
+        reopened_again_snapshot.why(reinforced_event_id),
         Some(reinforced_why),
         "archive/reopen should preserve the reinforcement explanation"
     );
