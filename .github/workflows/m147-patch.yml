@@ -1,0 +1,55 @@
+name: M147 patch
+
+on:
+  push:
+    branches:
+      - agent/m147-relation-endpoint-effects
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/m147-relation-endpoint-effects
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Apply relation endpoint effect patch
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('crates/world-projection/src/lib.rs')
+          text = path.read_text()
+          old = "\n".join([
+              "        StateChange::CreateRelation(_)",
+              "        | StateChange::RemoveRelation(_)",
+              "        | StateChange::SetRelationProperty { .. }",
+              "        | StateChange::RemoveRelationProperty { .. } => false,",
+          ])
+          new = "\n".join([
+              "        StateChange::CreateRelation(relation) => {",
+              "            relation.from == entity_id || relation.to == entity_id",
+              "        }",
+              "        StateChange::RemoveRelation(_)",
+              "        | StateChange::SetRelationProperty { .. }",
+              "        | StateChange::RemoveRelationProperty { .. } => false,",
+          ])
+          assert text.count(old) == 1, f'expected one projection match, found {text.count(old)}'
+          path.write_text(text.replace(old, new))
+          PY
+          cargo fmt --all
+          git diff --check
+      - name: Commit patch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add crates/world-projection/src/lib.rs
+          git commit -m "M147: record relation endpoint effects"
+          git push origin HEAD:agent/m147-relation-endpoint-effects
