@@ -3,8 +3,6 @@ use world_projection::{
     InspectorProjection, ProjectionCommand, ProjectionSnapshot, SelectionId, TimelineItem,
 };
 
-const ENTITY_EVIDENCE_SECTION: &str = "Recorded entity changes";
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SnapshotSide {
     pub title: String,
@@ -16,6 +14,7 @@ pub struct SnapshotComparison {
     pub left: SnapshotSide,
     pub right: SnapshotSide,
     pub entities: Vec<EntityDifference>,
+    pub relations: Vec<RelationDifference>,
     pub timeline: TimelineDifference,
     pub commands: CommandDifference,
 }
@@ -24,6 +23,7 @@ impl SnapshotComparison {
     pub fn is_identical(&self) -> bool {
         self.left == self.right
             && self.entities.is_empty()
+            && self.relations.is_empty()
             && self.timeline.is_empty()
             && self.commands.is_empty()
     }
@@ -67,6 +67,21 @@ pub struct EntityDifference {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct EntityView {
+    pub title: String,
+    pub subtitle: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct RelationDifference {
+    pub id: SelectionId,
+    pub kind: DifferenceKind,
+    pub left: Option<RelationView>,
+    pub right: Option<RelationView>,
+    pub inspector_rows: Vec<InspectorRowDifference>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct RelationView {
     pub title: String,
     pub subtitle: String,
 }
@@ -140,6 +155,7 @@ pub fn compare_snapshots(
             world_time: right.world_time,
         },
         entities: compare_entities(left, right),
+        relations: compare_relations(left, right),
         timeline: compare_timeline(left, right),
         commands: compare_commands(left, right),
     }
@@ -282,6 +298,73 @@ fn compare_entities(
         .collect()
 }
 
+fn compare_relations(
+    left: &ProjectionSnapshot,
+    right: &ProjectionSnapshot,
+) -> Vec<RelationDifference> {
+    let left_relations = relation_inspectors(left);
+    let right_relations = relation_inspectors(right);
+    let ids = left_relations
+        .keys()
+        .chain(right_relations.keys())
+        .copied()
+        .collect::<BTreeSet<_>>();
+
+    ids.into_iter()
+        .filter_map(
+            |id| match (left_relations.get(&id), right_relations.get(&id)) {
+                (Some(left), Some(right)) if same_relation_state(left, right) => None,
+                (Some(left), Some(right)) => Some(RelationDifference {
+                    id,
+                    kind: DifferenceKind::Changed,
+                    left: Some(relation_view(left)),
+                    right: Some(relation_view(right)),
+                    inspector_rows: compare_inspector_rows(left, right),
+                }),
+                (Some(left), None) => Some(RelationDifference {
+                    id,
+                    kind: DifferenceKind::LeftOnly,
+                    left: Some(relation_view(left)),
+                    right: None,
+                    inspector_rows: Vec::new(),
+                }),
+                (None, Some(right)) => Some(RelationDifference {
+                    id,
+                    kind: DifferenceKind::RightOnly,
+                    left: None,
+                    right: Some(relation_view(right)),
+                    inspector_rows: Vec::new(),
+                }),
+                (None, None) => None,
+            },
+        )
+        .collect()
+}
+
+fn relation_inspectors(
+    snapshot: &ProjectionSnapshot,
+) -> BTreeMap<SelectionId, &InspectorProjection> {
+    snapshot
+        .inspectors
+        .iter()
+        .filter_map(|(id, inspector)| match id {
+            SelectionId::Relation(_) => Some((*id, inspector)),
+            SelectionId::Entity(_) | SelectionId::Event(_) => None,
+        })
+        .collect()
+}
+
+fn relation_view(inspector: &InspectorProjection) -> RelationView {
+    RelationView {
+        title: inspector.title.clone(),
+        subtitle: inspector.subtitle.clone(),
+    }
+}
+
+fn same_relation_state(left: &InspectorProjection, right: &InspectorProjection) -> bool {
+    same_inspector_state(left, right)
+}
+
 fn entity_inspectors(snapshot: &ProjectionSnapshot) -> BTreeMap<SelectionId, &InspectorProjection> {
     snapshot
         .inspectors
@@ -301,6 +384,10 @@ fn entity_view(inspector: &InspectorProjection) -> EntityView {
 }
 
 fn same_entity_state(left: &InspectorProjection, right: &InspectorProjection) -> bool {
+    same_inspector_state(left, right)
+}
+
+fn same_inspector_state(left: &InspectorProjection, right: &InspectorProjection) -> bool {
     left.title == right.title
         && left.subtitle == right.subtitle
         && indexed_rows(left) == indexed_rows(right)
@@ -348,10 +435,7 @@ fn indexed_rows(inspector: &InspectorProjection) -> BTreeMap<InspectorRowKey, &S
     let mut rows = BTreeMap::new();
     let mut duplicates = BTreeMap::<(String, String), usize>::new();
 
-    for section in &inspector.sections {
-        if section.title == ENTITY_EVIDENCE_SECTION {
-            continue;
-        }
+    for section in inspector.display_sections() {
         for row in &section.rows {
             let duplicate_key = (section.title.clone(), row.label.clone());
             let ordinal = duplicates.entry(duplicate_key.clone()).or_default();
@@ -441,8 +525,11 @@ fn compare_commands(left: &ProjectionSnapshot, right: &ProjectionSnapshot) -> Co
 #[cfg(test)]
 mod tests {
     use super::*;
-    use world_core::{EntityId, EventId};
-    use world_projection::{InspectorRow, InspectorSection, TimelineProjection};
+    use world_core::{EntityId, EventId, RelationId};
+    use world_projection::{
+        InspectorRow, InspectorSection, TimelineProjection, ENTITY_HISTORY_SECTION,
+        RELATION_HISTORY_SECTION,
+    };
 
     fn entity_inspector(id: u64, cash: &str, job: &str) -> (SelectionId, InspectorProjection) {
         let id = SelectionId::Entity(EntityId::new(id));
@@ -465,6 +552,39 @@ mod tests {
                         },
                     ],
                 }],
+            },
+        )
+    }
+
+    fn relation_inspector(
+        id: u64,
+        kind: &str,
+        status: &str,
+        strength: &str,
+    ) -> (SelectionId, InspectorProjection) {
+        let selection = SelectionId::Relation(RelationId::new(id));
+        (
+            selection,
+            InspectorProjection {
+                selection,
+                title: kind.into(),
+                subtitle: format!("Relation #{id} · {status}"),
+                sections: vec![
+                    InspectorSection {
+                        title: "Relation".into(),
+                        rows: vec![InspectorRow {
+                            label: "Status".into(),
+                            value: status.into(),
+                        }],
+                    },
+                    InspectorSection {
+                        title: "Properties".into(),
+                        rows: vec![InspectorRow {
+                            label: "Strength".into(),
+                            value: strength.into(),
+                        }],
+                    },
+                ],
             },
         )
     }
@@ -547,7 +667,7 @@ mod tests {
         let (id, left) = entity_inspector(7, "40", "baker");
         let mut right = left.clone();
         right.sections.push(InspectorSection {
-            title: ENTITY_EVIDENCE_SECTION.into(),
+            title: ENTITY_HISTORY_SECTION.into(),
             rows: vec![InspectorRow {
                 label: "World time 12".into(),
                 value: "Job Changed · Event #9".into(),
@@ -560,6 +680,81 @@ mod tests {
         );
 
         assert!(comparison.entities.is_empty());
+    }
+
+    #[test]
+    fn relation_rows_are_compared_inside_stable_relation_identity() {
+        let left = snapshot(
+            20,
+            [relation_inspector(5, "Works With", "Active", "1")],
+            vec![],
+            vec![],
+        );
+        let right = snapshot(
+            20,
+            [relation_inspector(5, "Works With", "Removed", "2")],
+            vec![],
+            vec![],
+        );
+
+        let comparison = compare_snapshots(&left, &right);
+
+        assert_eq!(comparison.relations.len(), 1);
+        let relation = &comparison.relations[0];
+        assert_eq!(relation.id, SelectionId::Relation(RelationId::new(5)));
+        assert_eq!(relation.kind, DifferenceKind::Changed);
+        assert!(relation.inspector_rows.iter().any(|row| {
+            row.key.label == "Status"
+                && row.left.as_deref() == Some("Active")
+                && row.right.as_deref() == Some("Removed")
+        }));
+        assert!(relation.inspector_rows.iter().any(|row| {
+            row.key.label == "Strength"
+                && row.left.as_deref() == Some("1")
+                && row.right.as_deref() == Some("2")
+        }));
+    }
+
+    #[test]
+    fn relation_history_evidence_does_not_change_current_state_comparison() {
+        let (id, left) = relation_inspector(5, "Works With", "Removed", "2");
+        let mut right = left.clone();
+        right.sections.push(InspectorSection {
+            title: RELATION_HISTORY_SECTION.into(),
+            rows: vec![InspectorRow {
+                label: "World time 12 · Removed".into(),
+                value: "event-9".into(),
+            }],
+        });
+
+        let comparison = compare_snapshots(
+            &snapshot(20, [(id, left)], vec![], vec![]),
+            &snapshot(20, [(id, right)], vec![], vec![]),
+        );
+
+        assert!(comparison.relations.is_empty());
+    }
+
+    #[test]
+    fn added_and_removed_relations_are_reported() {
+        let left = snapshot(
+            0,
+            [relation_inspector(5, "Works With", "Active", "1")],
+            vec![],
+            vec![],
+        );
+        let right = snapshot(
+            0,
+            [relation_inspector(6, "Supports", "Removed", "3")],
+            vec![],
+            vec![],
+        );
+
+        let comparison = compare_snapshots(&left, &right);
+
+        assert_eq!(comparison.relations.len(), 2);
+        assert_eq!(comparison.relations[0].kind, DifferenceKind::LeftOnly);
+        assert_eq!(comparison.relations[1].kind, DifferenceKind::RightOnly);
     }
 
     #[test]
