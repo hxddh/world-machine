@@ -263,6 +263,7 @@ fn inspector_for_entity(entity: &Entity, world: &World) -> InspectorProjection {
             }
         })
         .collect::<Vec<_>>();
+    let recorded_changes = recorded_entity_change_rows(entity.id, world);
 
     let mut sections = vec![InspectorSection {
         title: "State".into(),
@@ -274,12 +275,49 @@ fn inspector_for_entity(entity: &Entity, world: &World) -> InspectorProjection {
             rows: relations,
         });
     }
+    if !recorded_changes.is_empty() {
+        sections.push(InspectorSection {
+            title: "Recorded entity changes".into(),
+            rows: recorded_changes,
+        });
+    }
 
     InspectorProjection {
         selection: SelectionId::Entity(entity.id),
         title: entity_title(entity),
         subtitle: humanize(&entity.kind),
         sections,
+    }
+}
+
+fn recorded_entity_change_rows(entity: EntityId, world: &World) -> Vec<InspectorRow> {
+    world
+        .events()
+        .iter()
+        .rev()
+        .filter(|event| {
+            event
+                .changes
+                .iter()
+                .any(|change| change_directly_affects_entity(change, entity))
+        })
+        .map(|event| InspectorRow {
+            label: format!("World time {}", event.world_time),
+            value: format!("{} · Event #{}", humanize(&event.kind), event.id),
+        })
+        .collect()
+}
+
+fn change_directly_affects_entity(change: &StateChange, entity_id: EntityId) -> bool {
+    match change {
+        StateChange::CreateEntity(entity) => entity.id == entity_id,
+        StateChange::RemoveEntity(entity) => *entity == entity_id,
+        StateChange::SetComponent { entity, .. }
+        | StateChange::RemoveComponent { entity, .. } => *entity == entity_id,
+        StateChange::CreateRelation(_)
+        | StateChange::RemoveRelation(_)
+        | StateChange::SetRelationProperty { .. }
+        | StateChange::RemoveRelationProperty { .. } => false,
     }
 }
 
@@ -590,6 +628,90 @@ mod tests {
         assert_eq!(changes.rows.len(), 1);
         assert_eq!(changes.rows[0].label, "Entity #1 · Status");
         assert_eq!(changes.rows[0].value, "done");
+    }
+
+    #[test]
+    fn entity_inspector_surfaces_only_direct_recorded_entity_changes() {
+        let mut state = WorldState::default();
+        state
+            .seed_entity(
+                Entity::new(EntityId::new(1), "workspace")
+                    .with_component("name", "Workspace")
+                    .with_component("status", "active"),
+            )
+            .unwrap();
+        state
+            .seed_entity(
+                Entity::new(EntityId::new(2), "worker")
+                    .with_component("name", "Worker")
+                    .with_component("status", "idle"),
+            )
+            .unwrap();
+        let world = World::from_history(
+            state,
+            &[
+                Event {
+                    id: EventId::new(1),
+                    kind: "work_finished".into(),
+                    world_time: 1,
+                    actor: None,
+                    targets: vec![EntityId::new(1)],
+                    caused_by: vec![],
+                    payload: BTreeMap::new(),
+                    changes: vec![StateChange::SetComponent {
+                        entity: EntityId::new(1),
+                        key: "status".into(),
+                        value: Value::Text("done".into()),
+                    }],
+                },
+                Event {
+                    id: EventId::new(2),
+                    kind: "worker_changed".into(),
+                    world_time: 2,
+                    actor: None,
+                    targets: vec![EntityId::new(2)],
+                    caused_by: vec![],
+                    payload: BTreeMap::new(),
+                    changes: vec![StateChange::SetComponent {
+                        entity: EntityId::new(2),
+                        key: "status".into(),
+                        value: Value::Text("busy".into()),
+                    }],
+                },
+                Event {
+                    id: EventId::new(3),
+                    kind: "workspace_renamed".into(),
+                    world_time: 3,
+                    actor: None,
+                    targets: vec![EntityId::new(1)],
+                    caused_by: vec![EventId::new(1)],
+                    payload: BTreeMap::new(),
+                    changes: vec![StateChange::SetComponent {
+                        entity: EntityId::new(1),
+                        key: "name".into(),
+                        value: Value::Text("Renamed Workspace".into()),
+                    }],
+                },
+            ],
+        )
+        .unwrap();
+
+        let inspectors = inspectors_from_world(&world);
+        let inspector = inspectors
+            .get(&SelectionId::Entity(EntityId::new(1)))
+            .expect("entity should be inspectable");
+        let recorded = inspector
+            .sections
+            .iter()
+            .find(|section| section.title == "Recorded entity changes")
+            .expect("direct recorded entity changes should be inspectable");
+
+        assert_eq!(inspector.title, "Renamed Workspace");
+        assert_eq!(recorded.rows.len(), 2);
+        assert_eq!(recorded.rows[0].label, "World time 3");
+        assert_eq!(recorded.rows[0].value, "Workspace Renamed · Event #3");
+        assert_eq!(recorded.rows[1].label, "World time 1");
+        assert_eq!(recorded.rows[1].value, "Work Finished · Event #1");
     }
 
     #[test]
