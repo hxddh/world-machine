@@ -5,6 +5,7 @@ use world_compare::{
 };
 use world_projection::{
     InspectorProjection, ProjectionCommand, ProjectionSnapshot, SelectionId, TimelineItem, WhyNode,
+    ENTITY_HISTORY_SECTION,
 };
 use world_strategy::{StrategyEvaluation, StrategyRun};
 
@@ -13,6 +14,7 @@ const TIMELINE_DIFFERENCE_LIMIT_PER_KIND: usize = 4;
 const INSPECTOR_ROW_LIMIT: usize = 6;
 const DIVERGENCE_IMPACT_LIMIT: usize = 4;
 const EVIDENCE_CAUSE_LIMIT: usize = 6;
+const ENTITY_HISTORY_LIMIT: usize = 6;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct SavedComparisonContext {
@@ -571,6 +573,36 @@ impl StrategyComparisonView {
             )
             .child(self.render_evidence_inspector(inspector));
 
+        if let SelectionId::Entity(entity) = selected.selection {
+            let history = snapshot.entity_history(entity);
+            if !history.is_empty() {
+                let mut history_list = div().flex().flex_col().gap_2();
+                for item in history.iter().take(ENTITY_HISTORY_LIMIT) {
+                    history_list = history_list.child(self.render_entity_history_event(
+                        selected.side,
+                        item,
+                        cx,
+                    ));
+                }
+                if let Some(notice) = hidden_notice(
+                    history.len(),
+                    ENTITY_HISTORY_LIMIT,
+                    "recorded entity changes",
+                ) {
+                    history_list = history_list.child(truncation_notice(notice));
+                }
+                panel = panel
+                    .child(div().text_sm().child("Recorded changes to this entity"))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(0x66705f))
+                            .child("Recorded events whose StateChanges directly changed this entity. Select one to inspect the event and continue tracing its causes on the same future."),
+                    )
+                    .child(history_list);
+            }
+        }
+
         if let SelectionId::Event(event) = selected.selection {
             let mut causes = div().flex().flex_col().gap_2();
             if let Some(why) = snapshot.why(event) {
@@ -617,9 +649,54 @@ impl StrategyComparisonView {
         Some(panel)
     }
 
+    fn render_entity_history_event(
+        &self,
+        side: ComparisonSide,
+        item: &TimelineItem,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let selection = item.id;
+        let selected = self.is_selected(side, selection);
+        div()
+            .id(SharedString::from(format!(
+                "entity-history-{}-{}",
+                side.key(),
+                selection.stable_key()
+            )))
+            .p_2()
+            .rounded_md()
+            .border_1()
+            .border_color(if selected {
+                rgb(0x4e6fb3)
+            } else {
+                rgb(0xe2e4e8)
+            })
+            .bg(rgb(0xffffff))
+            .cursor_pointer()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(div().text_sm().child(item.title.clone()))
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0x555555))
+                    .child(item.subtitle.clone()),
+            )
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0x777777))
+                    .child(format!("World time {}", item.world_time)),
+            )
+            .on_click(cx.listener(move |this, _, _, cx| this.select(side, selection, cx)))
+    }
     fn render_evidence_inspector(&self, inspector: &InspectorProjection) -> Div {
         let mut sections = div().flex().flex_col().gap_3();
         for section in &inspector.sections {
+            if section.title == ENTITY_HISTORY_SECTION {
+                continue;
+            }
             let mut rows = div().flex().flex_col().gap_1();
             for row in section.rows.iter().take(INSPECTOR_ROW_LIMIT) {
                 rows = rows.child(
