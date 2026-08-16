@@ -6825,6 +6825,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "world-query"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "world-compare",
+ "world-core",
+ "world-projection",
+]
+
+[[package]]
 name = "world-strategy"
 version = "0.1.0"
 dependencies = [
