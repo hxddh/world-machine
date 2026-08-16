@@ -2,11 +2,14 @@ mod causal;
 mod influence;
 
 use std::collections::{BTreeMap, BTreeSet};
-use world_core::{Entity, EntityId, Event, EventId, RelationId, StateChange, Value, World};
+use world_core::{
+    Entity, EntityId, Event, EventId, Relation, RelationId, StateChange, Value, World,
+};
 
 pub use causal::{why_from_world, why_map_from_world, WhyNode, WhyProjection};
 
 pub const ENTITY_HISTORY_SECTION: &str = "Recorded entity changes";
+pub const RELATION_HISTORY_SECTION: &str = "Recorded relation changes";
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum SelectionId {
@@ -28,6 +31,12 @@ impl SelectionId {
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct EntityEventEvidence {
     pub entity: EntityId,
+    pub event: EventId,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct RelationEventEvidence {
+    pub relation: RelationId,
     pub event: EventId,
 }
 
@@ -114,6 +123,51 @@ impl ProjectionSnapshot {
             .map(|evidence| evidence.entity)
             .collect()
     }
+
+    pub fn relation_event_evidence(&self) -> Vec<RelationEventEvidence> {
+        let visible_events = visible_event_ids_by_key(&self.timeline);
+        let mut evidence = BTreeSet::new();
+        for (selection, inspector) in &self.inspectors {
+            let SelectionId::Relation(relation) = *selection else {
+                continue;
+            };
+            evidence.extend(relation_event_evidence_from_inspector(
+                relation,
+                inspector,
+                &visible_events,
+            ));
+        }
+        evidence.into_iter().collect()
+    }
+
+    pub fn relation_history(&self, relation: RelationId) -> Vec<&TimelineItem> {
+        let Some(inspector) = self.inspector(SelectionId::Relation(relation)) else {
+            return Vec::new();
+        };
+        let visible_events = visible_event_ids_by_key(&self.timeline);
+        let event_ids =
+            relation_event_evidence_from_inspector(relation, inspector, &visible_events)
+                .into_iter()
+                .map(|evidence| evidence.event)
+                .collect::<BTreeSet<_>>();
+
+        self.timeline
+            .items
+            .iter()
+            .filter(
+                |item| matches!(item.id, SelectionId::Event(event) if event_ids.contains(&event)),
+            )
+            .collect()
+    }
+
+    pub fn directly_changed_relations(&self, event: EventId) -> Vec<RelationId> {
+        self.relation_event_evidence()
+            .into_iter()
+            .filter(|evidence| evidence.event == event)
+            .map(|evidence| evidence.relation)
+            .collect()
+    }
+
     pub fn influence(&self, event: EventId) -> Vec<(usize, &TimelineItem)> {
         influence::influence_from_timeline(&self.timeline, event)
     }
@@ -153,10 +207,32 @@ fn entity_event_evidence_from_inspector(
     inspector: &InspectorProjection,
     visible_events: &BTreeMap<String, EventId>,
 ) -> BTreeSet<EntityEventEvidence> {
+    history_event_ids_from_inspector(inspector, ENTITY_HISTORY_SECTION, visible_events)
+        .into_iter()
+        .map(|event| EntityEventEvidence { entity, event })
+        .collect()
+}
+
+fn relation_event_evidence_from_inspector(
+    relation: RelationId,
+    inspector: &InspectorProjection,
+    visible_events: &BTreeMap<String, EventId>,
+) -> BTreeSet<RelationEventEvidence> {
+    history_event_ids_from_inspector(inspector, RELATION_HISTORY_SECTION, visible_events)
+        .into_iter()
+        .map(|event| RelationEventEvidence { relation, event })
+        .collect()
+}
+
+fn history_event_ids_from_inspector(
+    inspector: &InspectorProjection,
+    section_title: &str,
+    visible_events: &BTreeMap<String, EventId>,
+) -> BTreeSet<EventId> {
     let Some(section) = inspector
         .sections
         .iter()
-        .find(|section| section.title == ENTITY_HISTORY_SECTION)
+        .find(|section| section.title == section_title)
     else {
         return BTreeSet::new();
     };
@@ -165,7 +241,6 @@ fn entity_event_evidence_from_inspector(
         .rows
         .iter()
         .filter_map(|row| visible_events.get(row.value.as_str()).copied())
-        .map(|event| EntityEventEvidence { entity, event })
         .collect()
 }
 
@@ -242,9 +317,12 @@ pub struct InspectorProjection {
 
 impl InspectorProjection {
     pub fn display_sections(&self) -> impl Iterator<Item = &InspectorSection> {
-        self.sections
-            .iter()
-            .filter(|section| section.title != ENTITY_HISTORY_SECTION)
+        self.sections.iter().filter(|section| {
+            !matches!(
+                section.title.as_str(),
+                ENTITY_HISTORY_SECTION | RELATION_HISTORY_SECTION
+            )
+        })
     }
 }
 
@@ -279,11 +357,18 @@ pub fn timeline_from_world(world: &World) -> TimelineProjection {
 
 pub fn inspectors_from_world(world: &World) -> BTreeMap<SelectionId, InspectorProjection> {
     let recorded_change_events = recorded_entity_change_events(world);
+    let recorded_relations = recorded_relation_incarnations(world);
     let mut inspectors = BTreeMap::new();
     for entity in world.state().entities() {
         inspectors.insert(
             SelectionId::Entity(entity.id),
             inspector_for_entity(entity, world, &recorded_change_events),
+        );
+    }
+    for recorded in recorded_relations.values() {
+        inspectors.insert(
+            SelectionId::Relation(recorded.relation.id),
+            inspector_for_relation(recorded, world),
         );
     }
     for event in world.events() {
@@ -473,6 +558,196 @@ fn recorded_entity_change_events(world: &World) -> BTreeMap<EntityId, Vec<EventI
 
     events_by_entity
 }
+#[derive(Clone, Debug)]
+struct RecordedRelationIncarnation {
+    relation: Relation,
+    active: bool,
+    event_ids: Vec<EventId>,
+}
+
+fn recorded_relation_incarnations(
+    world: &World,
+) -> BTreeMap<RelationId, RecordedRelationIncarnation> {
+    let mut relations = world
+        .baseline_state()
+        .relations()
+        .map(|relation| {
+            (
+                relation.id,
+                RecordedRelationIncarnation {
+                    relation: relation.clone(),
+                    active: true,
+                    event_ids: Vec::new(),
+                },
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+
+    for event in world.events() {
+        let mut affected = BTreeSet::new();
+        for change in &event.changes {
+            match change {
+                StateChange::CreateRelation(relation) => {
+                    relations.insert(
+                        relation.id,
+                        RecordedRelationIncarnation {
+                            relation: relation.clone(),
+                            active: true,
+                            event_ids: Vec::new(),
+                        },
+                    );
+                    affected.insert(relation.id);
+                }
+                StateChange::RemoveRelation(relation) => {
+                    if let Some(recorded) = relations.get_mut(relation) {
+                        if recorded.active {
+                            recorded.active = false;
+                            affected.insert(*relation);
+                        }
+                    }
+                }
+                StateChange::SetRelationProperty {
+                    relation,
+                    key,
+                    value,
+                } => {
+                    if let Some(recorded) = relations.get_mut(relation) {
+                        if recorded.active {
+                            recorded
+                                .relation
+                                .properties
+                                .insert(key.clone(), value.clone());
+                            affected.insert(*relation);
+                        }
+                    }
+                }
+                StateChange::RemoveRelationProperty { relation, key } => {
+                    if let Some(recorded) = relations.get_mut(relation) {
+                        if recorded.active {
+                            recorded.relation.properties.remove(key);
+                            affected.insert(*relation);
+                        }
+                    }
+                }
+                StateChange::RemoveEntity(entity) => {
+                    let removed = relations
+                        .iter()
+                        .filter_map(|(relation, recorded)| {
+                            (recorded.active
+                                && (recorded.relation.from == *entity
+                                    || recorded.relation.to == *entity))
+                                .then_some(*relation)
+                        })
+                        .collect::<Vec<_>>();
+                    for relation in removed {
+                        if let Some(recorded) = relations.get_mut(&relation) {
+                            recorded.active = false;
+                            affected.insert(relation);
+                        }
+                    }
+                }
+                StateChange::CreateEntity(_)
+                | StateChange::SetComponent { .. }
+                | StateChange::RemoveComponent { .. } => {}
+            }
+        }
+
+        for relation in affected {
+            if let Some(recorded) = relations.get_mut(&relation) {
+                recorded.event_ids.push(event.id);
+            }
+        }
+    }
+
+    relations
+}
+
+fn inspector_for_relation(
+    recorded: &RecordedRelationIncarnation,
+    world: &World,
+) -> InspectorProjection {
+    let relation = &recorded.relation;
+    let relation_rows = vec![
+        InspectorRow {
+            label: "From".into(),
+            value: relation_endpoint_text(relation.from, world),
+        },
+        InspectorRow {
+            label: "To".into(),
+            value: relation_endpoint_text(relation.to, world),
+        },
+        InspectorRow {
+            label: "Status".into(),
+            value: if recorded.active { "Active" } else { "Removed" }.into(),
+        },
+    ];
+    let properties = relation
+        .properties
+        .iter()
+        .map(|(key, value)| InspectorRow {
+            label: humanize(key),
+            value: recorded_value_text(value),
+        })
+        .collect::<Vec<_>>();
+    let recorded_changes = recorded_relation_change_rows(recorded, world);
+
+    let mut sections = vec![InspectorSection {
+        title: "Relation".into(),
+        rows: relation_rows,
+    }];
+    if !properties.is_empty() {
+        sections.push(InspectorSection {
+            title: "Properties".into(),
+            rows: properties,
+        });
+    }
+    if !recorded_changes.is_empty() {
+        sections.push(InspectorSection {
+            title: RELATION_HISTORY_SECTION.into(),
+            rows: recorded_changes,
+        });
+    }
+
+    InspectorProjection {
+        selection: SelectionId::Relation(relation.id),
+        title: humanize(&relation.kind),
+        subtitle: format!(
+            "Relation #{} · {}",
+            relation.id,
+            if recorded.active { "Active" } else { "Removed" }
+        ),
+        sections,
+    }
+}
+
+fn relation_endpoint_text(entity: EntityId, world: &World) -> String {
+    world
+        .state()
+        .entity(entity)
+        .map(|entity| format!("{} · Entity #{}", entity_title(entity), entity.id))
+        .unwrap_or_else(|| format!("Entity #{entity}"))
+}
+
+fn recorded_relation_change_rows(
+    recorded: &RecordedRelationIncarnation,
+    world: &World,
+) -> Vec<InspectorRow> {
+    recorded
+        .event_ids
+        .iter()
+        .rev()
+        .filter_map(|event_id| world.event(*event_id))
+        .map(|event| InspectorRow {
+            label: format!(
+                "World time {} · {}",
+                event.world_time,
+                humanize(&event.kind)
+            ),
+            value: SelectionId::Event(event.id).stable_key(),
+        })
+        .collect()
+}
+
 fn inspector_for_event(event: &Event, world: &World) -> InspectorProjection {
     let mut context = Vec::new();
     if let Some(actor) = event.actor {
