@@ -1,0 +1,33 @@
+name: M177 patch
+on:
+  push:
+    branches:
+      - agent/m177-local-evidence-compare
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/m177-local-evidence-compare
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Apply local evidence comparison
+        run: |
+          python3 .github/scripts/m177_local_evidence_compare.py
+          cargo fmt --all
+          git diff --check
+      - name: Commit patch
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add crates/world-compare/src/lib.rs
+          if git diff --cached --quiet; then
+            echo "No patch produced" >&2
+            exit 1
+          fi
+          git commit -m "M177: compare local evidence neighborhoods"
+          git push origin HEAD:agent/m177-local-evidence-compare
