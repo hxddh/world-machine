@@ -105,6 +105,20 @@ pub struct StateEvidencePathStep {
     pub to: SelectionId,
 }
 
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct StateEvidenceNeighborhoodNode {
+    pub selection: SelectionId,
+    pub depth: usize,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StateEvidenceNeighborhood {
+    pub root: SelectionId,
+    pub max_depth: usize,
+    pub nodes: Vec<StateEvidenceNeighborhoodNode>,
+    pub edges: Vec<StateEvidenceEdge>,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ProjectionIntent {
     ForkBeforeEvent(EventId),
@@ -364,6 +378,67 @@ impl ProjectionSnapshot {
         }
 
         None
+    }
+
+    pub fn state_evidence_neighborhood(
+        &self,
+        root: SelectionId,
+        max_depth: usize,
+    ) -> Option<StateEvidenceNeighborhood> {
+        if !self.state_evidence_selection_is_visible(root) {
+            return None;
+        }
+
+        let edges = self.state_evidence_edges();
+        let mut depths = BTreeMap::from([(root, 0usize)]);
+        let mut queue = VecDeque::from([root]);
+
+        while let Some(current) = queue.pop_front() {
+            let current_depth = depths[&current];
+            if current_depth >= max_depth {
+                continue;
+            }
+
+            let mut adjacent = edges
+                .iter()
+                .filter_map(|edge| edge.other(current))
+                .collect::<Vec<_>>();
+            adjacent.sort();
+            adjacent.dedup();
+
+            for next in adjacent {
+                if depths.contains_key(&next) {
+                    continue;
+                }
+                depths.insert(next, current_depth + 1);
+                queue.push_back(next);
+            }
+        }
+
+        let mut nodes = depths
+            .iter()
+            .map(|(selection, depth)| StateEvidenceNeighborhoodNode {
+                selection: *selection,
+                depth: *depth,
+            })
+            .collect::<Vec<_>>();
+        nodes.sort_by_key(|node| (node.depth, node.selection));
+
+        let visible = depths.keys().copied().collect::<BTreeSet<_>>();
+        let edges = edges
+            .into_iter()
+            .filter(|edge| {
+                let (left, right) = edge.selections();
+                visible.contains(&left) && visible.contains(&right)
+            })
+            .collect();
+
+        Some(StateEvidenceNeighborhood {
+            root,
+            max_depth,
+            nodes,
+            edges,
+        })
     }
 
     fn state_evidence_selection_is_visible(&self, selection: SelectionId) -> bool {

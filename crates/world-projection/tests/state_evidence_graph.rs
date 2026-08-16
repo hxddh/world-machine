@@ -3,8 +3,9 @@ use world_core::{EntityId, EventId, RelationId};
 use world_projection::{
     EntityEventEvidence, EntityRelationEvidence, InspectorProjection, InspectorRow,
     InspectorSection, ProjectionSnapshot, RelationEndpointRole, RelationEventEvidence, SelectionId,
-    StateEvidenceEdge, StateEvidencePathStep, TimelineItem, TimelineProjection,
-    ENTITY_HISTORY_SECTION, RELATION_ENDPOINTS_SECTION, RELATION_HISTORY_SECTION,
+    StateEvidenceEdge, StateEvidenceNeighborhood, StateEvidenceNeighborhoodNode,
+    StateEvidencePathStep, TimelineItem, TimelineProjection, ENTITY_HISTORY_SECTION,
+    RELATION_ENDPOINTS_SECTION, RELATION_HISTORY_SECTION,
 };
 
 fn evidence_snapshot() -> ProjectionSnapshot {
@@ -352,4 +353,170 @@ fn edges_for_selection_preserve_parallel_role_evidence_while_neighbors_deduplica
         snapshot.state_evidence_neighbors(entity_selection),
         vec![relation_selection]
     );
+}
+
+#[test]
+fn bounded_neighborhood_reports_minimum_depths_and_induced_typed_edges() {
+    let snapshot = path_snapshot();
+    let one = SelectionId::Entity(EntityId::new(1));
+    let two = SelectionId::Entity(EntityId::new(2));
+    let three = SelectionId::Entity(EntityId::new(3));
+    let relation = SelectionId::Relation(RelationId::new(5));
+    let event = SelectionId::Event(EventId::new(9));
+
+    assert_eq!(
+        snapshot.state_evidence_neighborhood(relation, 1),
+        Some(StateEvidenceNeighborhood {
+            root: relation,
+            max_depth: 1,
+            nodes: vec![
+                StateEvidenceNeighborhoodNode {
+                    selection: relation,
+                    depth: 0,
+                },
+                StateEvidenceNeighborhoodNode {
+                    selection: one,
+                    depth: 1,
+                },
+                StateEvidenceNeighborhoodNode {
+                    selection: three,
+                    depth: 1,
+                },
+                StateEvidenceNeighborhoodNode {
+                    selection: event,
+                    depth: 1,
+                },
+            ],
+            edges: vec![
+                StateEvidenceEdge::RelationEvent(RelationEventEvidence {
+                    relation: RelationId::new(5),
+                    event: EventId::new(9),
+                }),
+                StateEvidenceEdge::EntityRelation(EntityRelationEvidence {
+                    entity: EntityId::new(1),
+                    relation: RelationId::new(5),
+                    role: RelationEndpointRole::From,
+                }),
+                StateEvidenceEdge::EntityRelation(EntityRelationEvidence {
+                    entity: EntityId::new(3),
+                    relation: RelationId::new(5),
+                    role: RelationEndpointRole::To,
+                }),
+            ],
+        })
+    );
+
+    let depth_two = snapshot
+        .state_evidence_neighborhood(relation, 2)
+        .expect("visible root should produce a neighborhood");
+    assert_eq!(
+        depth_two
+            .nodes
+            .iter()
+            .find(|node| node.selection == two)
+            .map(|node| node.depth),
+        Some(2)
+    );
+    assert!(depth_two
+        .edges
+        .contains(&StateEvidenceEdge::EntityEvent(EntityEventEvidence {
+            entity: EntityId::new(2),
+            event: EventId::new(9),
+        })));
+}
+
+#[test]
+fn neighborhood_depth_zero_and_hidden_root_are_explicit() {
+    let snapshot = path_snapshot();
+    let relation = SelectionId::Relation(RelationId::new(5));
+    let hidden = SelectionId::Entity(EntityId::new(99));
+
+    assert_eq!(
+        snapshot.state_evidence_neighborhood(relation, 0),
+        Some(StateEvidenceNeighborhood {
+            root: relation,
+            max_depth: 0,
+            nodes: vec![StateEvidenceNeighborhoodNode {
+                selection: relation,
+                depth: 0,
+            }],
+            edges: Vec::new(),
+        })
+    );
+    assert_eq!(snapshot.state_evidence_neighborhood(hidden, 2), None);
+}
+
+#[test]
+fn neighborhood_handles_cycles_and_preserves_parallel_self_relation_roles() {
+    let entity = EntityId::new(1);
+    let relation = RelationId::new(5);
+    let entity_selection = SelectionId::Entity(entity);
+    let relation_selection = SelectionId::Relation(relation);
+    let snapshot = ProjectionSnapshot {
+        inspectors: BTreeMap::from([
+            (
+                entity_selection,
+                InspectorProjection {
+                    selection: entity_selection,
+                    title: "One".into(),
+                    subtitle: "Person".into(),
+                    sections: Vec::new(),
+                },
+            ),
+            (
+                relation_selection,
+                InspectorProjection {
+                    selection: relation_selection,
+                    title: "Reflects".into(),
+                    subtitle: "Relation #5 · Active".into(),
+                    sections: vec![InspectorSection {
+                        title: RELATION_ENDPOINTS_SECTION.into(),
+                        rows: vec![
+                            InspectorRow {
+                                label: "From".into(),
+                                value: entity_selection.stable_key(),
+                            },
+                            InspectorRow {
+                                label: "To".into(),
+                                value: entity_selection.stable_key(),
+                            },
+                        ],
+                    }],
+                },
+            ),
+        ]),
+        ..ProjectionSnapshot::default()
+    };
+
+    let neighborhood = snapshot
+        .state_evidence_neighborhood(entity_selection, 8)
+        .expect("visible self relation should be explorable");
+    assert_eq!(
+        neighborhood.nodes,
+        vec![
+            StateEvidenceNeighborhoodNode {
+                selection: entity_selection,
+                depth: 0,
+            },
+            StateEvidenceNeighborhoodNode {
+                selection: relation_selection,
+                depth: 1,
+            },
+        ]
+    );
+    assert_eq!(neighborhood.edges.len(), 2);
+    assert!(neighborhood
+        .edges
+        .contains(&StateEvidenceEdge::EntityRelation(EntityRelationEvidence {
+            entity,
+            relation,
+            role: RelationEndpointRole::From,
+        })));
+    assert!(neighborhood
+        .edges
+        .contains(&StateEvidenceEdge::EntityRelation(EntityRelationEvidence {
+            entity,
+            relation,
+            role: RelationEndpointRole::To,
+        })));
 }
