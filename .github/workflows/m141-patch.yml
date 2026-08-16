@@ -31,130 +31,96 @@ jobs:
           assert old in s
           s = s.replace(old, new, 1)
 
-          old = """    fn render_inspector(&self) -> Option<Div> {
-        let inspector = self
-            .selected
-            .and_then(|selection| self.snapshot.inspector(selection))?;
-        Some(inspector_panel(inspector))
-    }
-"""
-          new = """    fn render_inspector(&self, cx: &mut Context<Self>) -> Option<Div> {
-        let selection = self.selected?;
-        let inspector = self.snapshot.inspector(selection)?;
-        let mut panel = inspector_panel(inspector);
-
-        if let SelectionId::Entity(entity) = selection {
-            let history = self.snapshot.entity_history(entity);
-            if !history.is_empty() {
-                let mut items = div().flex().flex_col().gap_2();
-                for item in history.iter().take(ENTITY_HISTORY_LIMIT) {
-                    items = items.child(self.entity_history_item(item, cx));
-                }
-                panel = panel
-                    .child(div().text_sm().child("Recorded changes to this entity"))
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(rgb(0x66705f))
-                            .child("Recorded events whose StateChanges directly changed this entity. Select one to inspect the event, trace its causes and effects, or fork before it."),
-                    )
-                    .child(items);
-                let hidden = history.len().saturating_sub(ENTITY_HISTORY_LIMIT);
-                if hidden > 0 {
-                    panel = panel.child(
-                        div()
-                            .text_xs()
-                            .text_color(rgb(0x777777))
-                            .child(format!("{hidden} more recorded entity changes not shown")),
-                    );
-                }
-            }
-        }
-
-        Some(panel)
-    }
-
-    fn entity_history_item(
-        &self,
-        item: &TimelineItem,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
-        let selection = item.id;
-        div()
-            .id(SharedString::from(format!(
-                "entity-history-{}",
-                selection.stable_key()
-            )))
-            .p_2()
-            .rounded_md()
-            .border_1()
-            .border_color(rgb(0xe2e4e8))
-            .bg(rgb(0xf8f9fc))
-            .cursor_pointer()
-            .flex()
-            .flex_col()
-            .gap_1()
-            .child(div().text_sm().child(item.title.clone()))
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(rgb(0x555555))
-                    .child(item.subtitle.clone()),
-            )
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(rgb(0x777777))
-                    .child(format!("World time {}", item.world_time)),
-            )
-            .on_click(cx.listener(move |this, _, _, cx| this.select(selection, cx)))
-    }
-"""
+          old = "    fn render_inspector(&self) -> Option<Div> {\n        let inspector = self\n            .selected\n            .and_then(|selection| self.snapshot.inspector(selection))?;\n        Some(inspector_panel(inspector))\n    }\n"
+          new = "\n".join([
+              "    fn render_inspector(&self, cx: &mut Context<Self>) -> Option<Div> {",
+              "        let selection = self.selected?;",
+              "        let inspector = self.snapshot.inspector(selection)?;",
+              "        let mut panel = inspector_panel(inspector);",
+              "",
+              "        if let SelectionId::Entity(entity) = selection {",
+              "            let history = self.snapshot.entity_history(entity);",
+              "            if !history.is_empty() {",
+              "                let mut items = div().flex().flex_col().gap_2();",
+              "                for item in history.iter().take(ENTITY_HISTORY_LIMIT) {",
+              "                    items = items.child(self.entity_history_item(item, cx));",
+              "                }",
+              "                panel = panel",
+              "                    .child(div().text_sm().child(\"Recorded changes to this entity\"))",
+              "                    .child(",
+              "                        div()",
+              "                            .text_xs()",
+              "                            .text_color(rgb(0x66705f))",
+              "                            .child(\"Recorded events whose StateChanges directly changed this entity. Select one to inspect the event, trace its causes and effects, or fork before it.\"),",
+              "                    )",
+              "                    .child(items);",
+              "                let hidden = history.len().saturating_sub(ENTITY_HISTORY_LIMIT);",
+              "                if hidden > 0 {",
+              "                    panel = panel.child(",
+              "                        div()",
+              "                            .text_xs()",
+              "                            .text_color(rgb(0x777777))",
+              "                            .child(format!(\"{hidden} more recorded entity changes not shown\")),",
+              "                    );",
+              "                }",
+              "            }",
+              "        }",
+              "",
+              "        Some(panel)",
+              "    }",
+              "",
+              "    fn entity_history_item(",
+              "        &self,",
+              "        item: &TimelineItem,",
+              "        cx: &mut Context<Self>,",
+              "    ) -> impl IntoElement {",
+              "        let selection = item.id;",
+              "        div()",
+              "            .id(SharedString::from(format!(",
+              "                \"entity-history-{}\",",
+              "                selection.stable_key()",
+              "            )))",
+              "            .p_2()",
+              "            .rounded_md()",
+              "            .border_1()",
+              "            .border_color(rgb(0xe2e4e8))",
+              "            .bg(rgb(0xf8f9fc))",
+              "            .cursor_pointer()",
+              "            .flex()",
+              "            .flex_col()",
+              "            .gap_1()",
+              "            .child(div().text_sm().child(item.title.clone()))",
+              "            .child(",
+              "                div()",
+              "                    .text_xs()",
+              "                    .text_color(rgb(0x555555))",
+              "                    .child(item.subtitle.clone()),",
+              "            )",
+              "            .child(",
+              "                div()",
+              "                    .text_xs()",
+              "                    .text_color(rgb(0x777777))",
+              "                    .child(format!(\"World time {}\", item.world_time)),",
+              "            )",
+              "            .on_click(cx.listener(move |this, _, _, cx| this.select(selection, cx)))",
+              "    }",
+              "",
+          ])
           assert old in s
           s = s.replace(old, new, 1)
 
-          old = """            if let Some(inspector) = self.render_inspector() {
-                center = center.child(inspector);
-            }
-"""
-          new = """            if let Some(inspector) = self.render_inspector(cx) {
-                center = center.child(inspector);
-            }
-"""
+          old = "            if let Some(inspector) = self.render_inspector() {\n                center = center.child(inspector);\n            }"
+          new = "            if let Some(inspector) = self.render_inspector(cx) {\n                center = center.child(inspector);\n            }"
           assert old in s
           s = s.replace(old, new, 1)
 
-          old = """    for section in &inspector.sections {
-        let mut rows = div().flex().flex_col().gap_1();
-"""
-          new = """    for section in &inspector.sections {
-        if section.title == ENTITY_HISTORY_SECTION {
-            continue;
-        }
-        let mut rows = div().flex().flex_col().gap_1();
-"""
+          old = "    for section in &inspector.sections {\n        let mut rows = div().flex().flex_col().gap_1();"
+          new = "    for section in &inspector.sections {\n        if section.title == ENTITY_HISTORY_SECTION {\n            continue;\n        }\n        let mut rows = div().flex().flex_col().gap_1();"
           assert old in s
           s = s.replace(old, new, 1)
 
-          old = """    div()
-        .p_3()
-        .rounded_md()
-        .border_1()
-        .border_color(rgb(0xdadada))
-        .bg(rgb(0xffffff))
-        .child(body)
-"""
-          new = """    div()
-        .p_3()
-        .rounded_md()
-        .border_1()
-        .border_color(rgb(0xdadada))
-        .bg(rgb(0xffffff))
-        .flex()
-        .flex_col()
-        .gap_3()
-        .child(body)
-"""
+          old = "    div()\n        .p_3()\n        .rounded_md()\n        .border_1()\n        .border_color(rgb(0xdadada))\n        .bg(rgb(0xffffff))\n        .child(body)"
+          new = "    div()\n        .p_3()\n        .rounded_md()\n        .border_1()\n        .border_color(rgb(0xdadada))\n        .bg(rgb(0xffffff))\n        .flex()\n        .flex_col()\n        .gap_3()\n        .child(body)"
           assert old in s
           s = s.replace(old, new, 1)
 
