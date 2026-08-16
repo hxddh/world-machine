@@ -5,7 +5,6 @@ use world_compare::{
 };
 use world_projection::{
     InspectorProjection, ProjectionCommand, ProjectionSnapshot, SelectionId, TimelineItem, WhyNode,
-    ENTITY_HISTORY_SECTION,
 };
 use world_strategy::{StrategyEvaluation, StrategyRun};
 
@@ -757,10 +756,7 @@ impl StrategyComparisonView {
     }
     fn render_evidence_inspector(&self, inspector: &InspectorProjection) -> Div {
         let mut sections = div().flex().flex_col().gap_3();
-        for section in &inspector.sections {
-            if section.title == ENTITY_HISTORY_SECTION {
-                continue;
-            }
+        for section in inspector.display_sections() {
             let mut rows = div().flex().flex_col().gap_1();
             for row in section.rows.iter().take(INSPECTOR_ROW_LIMIT) {
                 rows = rows.child(

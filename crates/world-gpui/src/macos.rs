@@ -5,7 +5,6 @@ use gpui::{
 use world_projection::{
     BriefingItem, CanvasItemKind, CollectionItem, InspectorProjection, ProjectionCommand,
     ProjectionIntent, ProjectionSnapshot, SelectionId, TimelineItem, WhyNode,
-    ENTITY_HISTORY_SECTION,
 };
 
 const ENTITY_HISTORY_LIMIT: usize = 6;
@@ -952,10 +951,7 @@ fn inspector_panel(inspector: &InspectorProjection) -> Div {
                 .child(inspector.subtitle.clone()),
         );
 
-    for section in &inspector.sections {
-        if section.title == ENTITY_HISTORY_SECTION {
-            continue;
-        }
+    for section in inspector.display_sections() {
         let mut rows = div().flex().flex_col().gap_1();
         for row in &section.rows {
             rows = rows.child(
