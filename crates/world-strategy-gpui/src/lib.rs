@@ -1375,6 +1375,7 @@ fn difference_kind_label(kind: DifferenceKind) -> &'static str {
 mod tests {
     use super::*;
     use world_compare::compare_snapshots;
+    use world_core::{EntityId, EventId};
 
     #[test]
     fn semantic_timeline_detail_is_kept_for_comparison_ui() {
@@ -1430,5 +1431,35 @@ mod tests {
             Some("Right evidence")
         );
         assert_eq!(view.selected, None);
+    }
+
+    #[test]
+    fn comparison_selection_keeps_equal_event_ids_side_scoped() {
+        let event = SelectionId::Event(EventId::new(12));
+        let left = ComparisonSelection {
+            side: ComparisonSide::Left,
+            selection: event,
+        };
+        let right = ComparisonSelection {
+            side: ComparisonSide::Right,
+            selection: event,
+        };
+
+        assert_ne!(left, right);
+    }
+
+    #[test]
+    fn comparison_selection_keeps_equal_entity_ids_side_scoped() {
+        let entity = SelectionId::Entity(EntityId::new(7));
+        let left = ComparisonSelection {
+            side: ComparisonSide::Left,
+            selection: entity,
+        };
+        let right = ComparisonSelection {
+            side: ComparisonSide::Right,
+            selection: entity,
+        };
+
+        assert_ne!(left, right);
     }
 }
