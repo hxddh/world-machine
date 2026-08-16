@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
-use world_core::{EntityId, EventId};
+use world_core::{EntityId, EventId, RelationId};
 use world_persistence::{WorldArchive, WorldPackRef};
 use world_projection::{
     BriefingItem, BriefingProjection, CanvasItem, CanvasItemKind, CanvasProjection, CollectionItem,
@@ -172,16 +172,18 @@ impl PackResponseEnvelope {
         request_id: u64,
         response: PackResponse,
     ) -> Result<Self, ProtocolError> {
-        validate_protocol_version(protocol_version)?;
-        Ok(Self {
+        let envelope = Self {
             protocol_version,
             request_id,
             response,
-        })
+        };
+        envelope.validate()?;
+        Ok(envelope)
     }
 
     pub fn validate(&self) -> Result<(), ProtocolError> {
-        validate_protocol_version(self.protocol_version)
+        validate_protocol_version(self.protocol_version)?;
+        validate_response_for_protocol(self.protocol_version, &self.response)
     }
 }
 
@@ -238,6 +240,31 @@ fn validate_protocol_version(version: u32) -> Result<(), ProtocolError> {
     }
 }
 
+fn validate_response_for_protocol(
+    protocol_version: u32,
+    response: &PackResponse,
+) -> Result<(), ProtocolError> {
+    match response {
+        PackResponse::Snapshot { snapshot } => snapshot.validate_for_protocol(protocol_version),
+        _ => Ok(()),
+    }
+}
+
+fn validate_selection_for_protocol(
+    protocol_version: u32,
+    selection: SelectionIdWire,
+) -> Result<(), ProtocolError> {
+    if protocol_version == PACK_PROTOCOL_VERSION_V1
+        && matches!(selection, SelectionIdWire::Relation { .. })
+    {
+        return Err(ProtocolError::SelectionNotSupportedInProtocol {
+            protocol_version,
+            selection: selection.stable_key(),
+        });
+    }
+    Ok(())
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ProjectionIntentWire {
@@ -269,6 +296,7 @@ impl From<ProjectionIntentWire> for ProjectionIntent {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum SelectionIdWire {
     Entity { id: u64 },
+    Relation { id: u64 },
     Event { id: u64 },
 }
 
@@ -276,6 +304,7 @@ impl SelectionIdWire {
     fn stable_key(self) -> String {
         match self {
             Self::Entity { id } => format!("entity-{id}"),
+            Self::Relation { id } => format!("relation-{id}"),
             Self::Event { id } => format!("event-{id}"),
         }
     }
@@ -285,6 +314,7 @@ impl From<SelectionId> for SelectionIdWire {
     fn from(selection: SelectionId) -> Self {
         match selection {
             SelectionId::Entity(id) => Self::Entity { id: id.0 },
+            SelectionId::Relation(id) => Self::Relation { id: id.0 },
             SelectionId::Event(id) => Self::Event { id: id.0 },
         }
     }
@@ -294,6 +324,7 @@ impl From<SelectionIdWire> for SelectionId {
     fn from(selection: SelectionIdWire) -> Self {
         match selection {
             SelectionIdWire::Entity { id } => Self::Entity(EntityId::new(id)),
+            SelectionIdWire::Relation { id } => Self::Relation(RelationId::new(id)),
             SelectionIdWire::Event { id } => Self::Event(EventId::new(id)),
         }
     }
@@ -311,6 +342,31 @@ pub struct ProjectionSnapshotWire {
     pub canvas: CanvasProjectionWire,
     pub inspectors: Vec<InspectorProjectionWire>,
     pub why: Vec<WhyProjectionWire>,
+}
+
+impl ProjectionSnapshotWire {
+    fn validate_for_protocol(&self, protocol_version: u32) -> Result<(), ProtocolError> {
+        if let Some(briefing) = &self.briefing {
+            for item in &briefing.items {
+                if let Some(selection) = item.selection {
+                    validate_selection_for_protocol(protocol_version, selection)?;
+                }
+            }
+        }
+        for item in &self.collection.items {
+            validate_selection_for_protocol(protocol_version, item.id)?;
+        }
+        for item in &self.timeline.items {
+            validate_selection_for_protocol(protocol_version, item.id)?;
+        }
+        for item in &self.canvas.items {
+            validate_selection_for_protocol(protocol_version, item.id)?;
+        }
+        for inspector in &self.inspectors {
+            validate_selection_for_protocol(protocol_version, inspector.selection)?;
+        }
+        Ok(())
+    }
 }
 
 impl From<&ProjectionSnapshot> for ProjectionSnapshotWire {
@@ -822,6 +878,10 @@ pub enum ProtocolError {
     InvalidProcessCommand,
     DuplicateInspector(String),
     DuplicateWhy(u64),
+    SelectionNotSupportedInProtocol {
+        protocol_version: u32,
+        selection: String,
+    },
     DepthOverflow(u64),
 }
 
@@ -849,6 +909,13 @@ impl fmt::Display for ProtocolError {
                     "Pack snapshot contains duplicate why projection for event {event}"
                 )
             }
+            Self::SelectionNotSupportedInProtocol {
+                protocol_version,
+                selection,
+            } => write!(
+                f,
+                "selection {selection} is not supported by Pack protocol v{protocol_version}"
+            ),
             Self::DepthOverflow(depth) => {
                 write!(f, "Pack why-node depth does not fit this platform: {depth}")
             }
