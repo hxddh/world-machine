@@ -54,6 +54,43 @@ pub struct EntityRelationEvidence {
     pub role: RelationEndpointRole,
 }
 
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum StateEvidenceEdge {
+    EntityEvent(EntityEventEvidence),
+    RelationEvent(RelationEventEvidence),
+    EntityRelation(EntityRelationEvidence),
+}
+
+impl StateEvidenceEdge {
+    pub fn selections(self) -> (SelectionId, SelectionId) {
+        match self {
+            Self::EntityEvent(evidence) => (
+                SelectionId::Entity(evidence.entity),
+                SelectionId::Event(evidence.event),
+            ),
+            Self::RelationEvent(evidence) => (
+                SelectionId::Relation(evidence.relation),
+                SelectionId::Event(evidence.event),
+            ),
+            Self::EntityRelation(evidence) => (
+                SelectionId::Entity(evidence.entity),
+                SelectionId::Relation(evidence.relation),
+            ),
+        }
+    }
+
+    pub fn other(self, selection: SelectionId) -> Option<SelectionId> {
+        let (left, right) = self.selections();
+        if selection == left {
+            Some(right)
+        } else if selection == right {
+            Some(left)
+        } else {
+            None
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ProjectionIntent {
     ForkBeforeEvent(EventId),
@@ -213,6 +250,34 @@ impl ProjectionSnapshot {
             .into_iter()
             .filter(|evidence| evidence.relation == relation)
             .map(|evidence| evidence.entity)
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect()
+    }
+
+    pub fn state_evidence_edges(&self) -> Vec<StateEvidenceEdge> {
+        self.entity_event_evidence()
+            .into_iter()
+            .map(StateEvidenceEdge::EntityEvent)
+            .chain(
+                self.relation_event_evidence()
+                    .into_iter()
+                    .map(StateEvidenceEdge::RelationEvent),
+            )
+            .chain(
+                self.entity_relation_evidence()
+                    .into_iter()
+                    .map(StateEvidenceEdge::EntityRelation),
+            )
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect()
+    }
+
+    pub fn state_evidence_neighbors(&self, selection: SelectionId) -> Vec<SelectionId> {
+        self.state_evidence_edges()
+            .into_iter()
+            .filter_map(|edge| edge.other(selection))
             .collect::<BTreeSet<_>>()
             .into_iter()
             .collect()
