@@ -23,6 +23,12 @@ impl SelectionId {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct EntityEventEvidence {
+    pub entity: EntityId,
+    pub event: EventId,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ProjectionIntent {
     ForkBeforeEvent(EventId),
@@ -64,59 +70,46 @@ impl ProjectionSnapshot {
         self.why.get(&event)
     }
 
+    pub fn entity_event_evidence(&self) -> Vec<EntityEventEvidence> {
+        let visible_events = visible_event_ids_by_key(&self.timeline);
+        let mut evidence = BTreeSet::new();
+        for (selection, inspector) in &self.inspectors {
+            let SelectionId::Entity(entity) = *selection else {
+                continue;
+            };
+            evidence.extend(entity_event_evidence_from_inspector(
+                entity,
+                inspector,
+                &visible_events,
+            ));
+        }
+        evidence.into_iter().collect()
+    }
+
     pub fn entity_history(&self, entity: EntityId) -> Vec<&TimelineItem> {
         let Some(inspector) = self.inspector(SelectionId::Entity(entity)) else {
             return Vec::new();
         };
-        let Some(section) = inspector
-            .sections
-            .iter()
-            .find(|section| section.title == ENTITY_HISTORY_SECTION)
-        else {
-            return Vec::new();
-        };
-        let keys = section
-            .rows
-            .iter()
-            .map(|row| row.value.as_str())
+        let visible_events = visible_event_ids_by_key(&self.timeline);
+        let event_ids = entity_event_evidence_from_inspector(entity, inspector, &visible_events)
+            .into_iter()
+            .map(|evidence| evidence.event)
             .collect::<BTreeSet<_>>();
 
         self.timeline
             .items
             .iter()
-            .filter(|item| keys.contains(item.id.stable_key().as_str()))
+            .filter(
+                |item| matches!(item.id, SelectionId::Event(event) if event_ids.contains(&event)),
+            )
             .collect()
     }
 
     pub fn directly_changed_entities(&self, event: EventId) -> Vec<EntityId> {
-        let event_selection = SelectionId::Event(event);
-        if !self
-            .timeline
-            .items
-            .iter()
-            .any(|item| item.id == event_selection)
-        {
-            return Vec::new();
-        }
-        let event_key = event_selection.stable_key();
-        self.inspectors
-            .iter()
-            .filter_map(|(selection, inspector)| {
-                let SelectionId::Entity(entity) = selection else {
-                    return None;
-                };
-                inspector
-                    .sections
-                    .iter()
-                    .find(|section| section.title == ENTITY_HISTORY_SECTION)
-                    .filter(|section| {
-                        section
-                            .rows
-                            .iter()
-                            .any(|row| row.value.as_str() == event_key.as_str())
-                    })
-                    .map(|_| *entity)
-            })
+        self.entity_event_evidence()
+            .into_iter()
+            .filter(|evidence| evidence.event == event)
+            .map(|evidence| evidence.entity)
             .collect()
     }
     pub fn influence(&self, event: EventId) -> Vec<(usize, &TimelineItem)> {
@@ -138,6 +131,40 @@ impl ProjectionSnapshot {
     pub fn command(&self, id: &str) -> Option<&ProjectionCommand> {
         self.commands.iter().find(|command| command.id == id)
     }
+}
+
+fn visible_event_ids_by_key(timeline: &TimelineProjection) -> BTreeMap<String, EventId> {
+    timeline
+        .items
+        .iter()
+        .filter_map(|item| {
+            let SelectionId::Event(event) = item.id else {
+                return None;
+            };
+            Some((item.id.stable_key(), event))
+        })
+        .collect()
+}
+
+fn entity_event_evidence_from_inspector(
+    entity: EntityId,
+    inspector: &InspectorProjection,
+    visible_events: &BTreeMap<String, EventId>,
+) -> BTreeSet<EntityEventEvidence> {
+    let Some(section) = inspector
+        .sections
+        .iter()
+        .find(|section| section.title == ENTITY_HISTORY_SECTION)
+    else {
+        return BTreeSet::new();
+    };
+
+    section
+        .rows
+        .iter()
+        .filter_map(|row| visible_events.get(row.value.as_str()).copied())
+        .map(|event| EntityEventEvidence { entity, event })
+        .collect()
 }
 
 #[derive(Clone, Debug, PartialEq)]
