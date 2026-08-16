@@ -218,7 +218,7 @@ fn divergence_side(
         .as_ref()
         .and_then(|item| match item.id {
             SelectionId::Event(event) => Some(event),
-            SelectionId::Entity(_) => None,
+            SelectionId::Entity(_) | SelectionId::Relation(_) => None,
         })
         .map(|event| {
             snapshot
@@ -288,7 +288,7 @@ fn entity_inspectors(snapshot: &ProjectionSnapshot) -> BTreeMap<SelectionId, &In
         .iter()
         .filter_map(|(id, inspector)| match id {
             SelectionId::Entity(_) => Some((*id, inspector)),
-            SelectionId::Event(_) => None,
+            SelectionId::Relation(_) | SelectionId::Event(_) => None,
         })
         .collect()
 }
