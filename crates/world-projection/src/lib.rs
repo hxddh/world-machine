@@ -28,6 +28,25 @@ impl SelectionId {
             Self::Event(id) => format!("event-{id}"),
         }
     }
+
+    pub fn from_stable_key(key: &str) -> Option<Self> {
+        if let Some(id) = canonical_stable_id(key, "entity-") {
+            return Some(Self::Entity(EntityId::new(id)));
+        }
+        if let Some(id) = canonical_stable_id(key, "relation-") {
+            return Some(Self::Relation(RelationId::new(id)));
+        }
+        canonical_stable_id(key, "event-").map(|id| Self::Event(EventId::new(id)))
+    }
+}
+
+fn canonical_stable_id(key: &str, prefix: &str) -> Option<u64> {
+    let raw = key.strip_prefix(prefix)?;
+    if raw.is_empty() || !raw.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    let id = raw.parse::<u64>().ok()?;
+    (id.to_string() == raw).then_some(id)
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -573,10 +592,10 @@ fn relation_identity_from_inspector(inspector: &InspectorProjection) -> Option<R
 }
 
 fn entity_id_from_stable_key(key: &str) -> Option<EntityId> {
-    key.strip_prefix("entity-")?
-        .parse::<u64>()
-        .ok()
-        .map(EntityId::new)
+    match SelectionId::from_stable_key(key) {
+        Some(SelectionId::Entity(entity)) => Some(entity),
+        Some(SelectionId::Relation(_) | SelectionId::Event(_)) | None => None,
+    }
 }
 
 fn history_event_ids_from_inspector(
