@@ -1152,7 +1152,7 @@ impl StrategyComparisonView {
         selection: SelectionId,
         depth: usize,
         cx: &mut Context<Self>,
-    ) -> Div {
+    ) -> impl IntoElement {
         let title = self.selection_title(side, selection);
         let selected = self.is_selected(side, selection);
         div()
