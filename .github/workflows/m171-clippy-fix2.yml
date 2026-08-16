@@ -1,0 +1,30 @@
+name: M171 clippy fix2
+on:
+  push:
+    branches:
+      - agent/m171-clippy-fix2
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/m171-clippy-fix2
+      - name: Refactor endpoint helper arguments
+        run: |
+          python3 .github/scripts/m171_clippy_fix2.py
+          cargo fmt --all
+          git diff --check
+      - name: Commit patch
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add crates/world-compare/src/lib.rs
+          if git diff --cached --quiet; then
+            echo "No patch produced" >&2
+            exit 1
+          fi
+          git commit -m "M171: group Relation endpoint fixture arguments"
+          git push origin HEAD:agent/m171-clippy-fix2
