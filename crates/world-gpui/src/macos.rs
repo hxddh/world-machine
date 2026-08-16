@@ -415,7 +415,7 @@ impl ProjectionView {
                         div()
                             .text_xs()
                             .text_color(rgb(0x66705f))
-                            .child("Entities whose recorded history names this visible event as a direct StateChange. Select one to inspect its current state and recorded history."),
+                            .child("Entities with a direct recorded StateChange from this visible event. Select one to inspect its current state and recorded history."),
                     )
                     .child(items);
                 let hidden = changed_entities
@@ -444,7 +444,7 @@ impl ProjectionView {
             .snapshot
             .inspector(selection)
             .map(|inspector| (inspector.title.clone(), inspector.subtitle.clone()))
-            .unwrap_or_else(|| (selection.stable_key(), "Entity".into()));
+            .unwrap_or_else(|| ("Entity".into(), "Recorded entity".into()));
         div()
             .id(SharedString::from(format!(
                 "event-entity-effect-{}",
