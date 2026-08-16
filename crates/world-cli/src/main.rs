@@ -6,6 +6,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use world_integrity::{check_archive, ArchiveIntegrityError};
 use world_persistence::{ArchivedEvent, WorldArchive};
+use world_projection::{ProjectionSnapshot, RelationEndpointRole, SelectionId, StateEvidenceEdge};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum Command {
@@ -14,6 +15,7 @@ enum Command {
     Validate(PathBuf),
     Events(PathBuf),
     Why(PathBuf, u64),
+    Evidence(PathBuf, SelectionId, usize),
     ListPacks,
     Help,
 }
@@ -37,6 +39,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         Command::Validate(path) => println!("{}", validate_report(&path)?),
         Command::Events(path) => println!("{}", events_report(&path)?),
         Command::Why(path, event_id) => println!("{}", why_report(&path, event_id)?),
+        Command::Evidence(path, selection, depth) => {
+            println!("{}", evidence_report(&path, selection, depth)?)
+        }
         Command::ListPacks => println!("{}", pack_report()?),
         Command::Help => println!("{}", usage()),
     }
@@ -60,6 +65,18 @@ where
                 .map_err(|_| CliError(format!("invalid event id: {event_id}")))?;
             Ok(Command::Why(PathBuf::from(path), event_id))
         }
+        [command, path, selection] if command == "evidence" => Ok(Command::Evidence(
+            PathBuf::from(path),
+            parse_selection_key(selection)?,
+            2,
+        )),
+        [command, path, selection, depth] if command == "evidence" => Ok(Command::Evidence(
+            PathBuf::from(path),
+            parse_selection_key(selection)?,
+            depth
+                .parse::<usize>()
+                .map_err(|_| CliError(format!("invalid evidence depth: {depth}")))?,
+        )),
         [command] if command == "list-packs" => Ok(Command::ListPacks),
         [command] if matches!(command.as_str(), "help" | "--help" | "-h") => Ok(Command::Help),
         [] => Ok(Command::Help),
@@ -75,6 +92,7 @@ Usage:\n\
   world-cli validate <file.world>\n\
   world-cli events <file.world>\n\
   world-cli why <file.world> <event-id>\n\
+  world-cli evidence <file.world> <selection-key> [depth]\n\n\
   world-cli list-packs\n\n\
 inspect     Parse and summarize a World archive without requiring its Pack.\n\
 check       Verify Pack-independent archive structure and causal integrity.\n\
@@ -82,6 +100,11 @@ validate    Parse the archive and open it through the currently installed Pack r
 events      Print the archived event timeline, including actors, targets, and causal links.\n\
 why         Trace an event recursively through its archived caused_by graph.\n\
 list-packs  List World Packs this build can create and restore."
+}
+
+fn parse_selection_key(key: &str) -> Result<SelectionId, CliError> {
+    SelectionId::from_stable_key(key)
+        .ok_or_else(|| CliError(format!("invalid selection key: {key}")))
 }
 
 fn load_archive(path: &Path) -> Result<WorldArchive, Box<dyn Error>> {
@@ -262,6 +285,76 @@ fn render_cause(
     visiting.remove(&event_id);
 }
 
+fn evidence_report(
+    path: &Path,
+    selection: SelectionId,
+    max_depth: usize,
+) -> Result<String, Box<dyn Error>> {
+    let archive = load_archive(path)?;
+    let registry = world_builtins::registry()?;
+    let session = registry.open_archive(&archive)?;
+    let snapshot = session.snapshot();
+    evidence_report_from_snapshot(path, &snapshot, selection, max_depth)
+        .map_err(|error| Box::new(error) as Box<dyn Error>)
+}
+
+fn evidence_report_from_snapshot(
+    path: &Path,
+    snapshot: &ProjectionSnapshot,
+    selection: SelectionId,
+    max_depth: usize,
+) -> Result<String, CliError> {
+    let neighborhood = snapshot
+        .state_evidence_neighborhood(selection, max_depth)
+        .ok_or_else(|| {
+            CliError(format!(
+                "selection is not visible: {}",
+                selection.stable_key()
+            ))
+        })?;
+    let mut lines = vec![
+        format!("file: {}", path.display()),
+        format!("evidence: {}", selection.stable_key()),
+        format!("depth: {max_depth}"),
+        format!("nodes: {}", neighborhood.nodes.len()),
+    ];
+    for node in neighborhood.nodes {
+        lines.push(format!(
+            "node {} {}",
+            node.depth,
+            node.selection.stable_key()
+        ));
+    }
+    lines.push(format!("edges: {}", neighborhood.edges.len()));
+    for edge in neighborhood.edges {
+        lines.push(format_evidence_edge(edge));
+    }
+    Ok(lines.join("\n"))
+}
+
+fn format_evidence_edge(edge: StateEvidenceEdge) -> String {
+    match edge {
+        StateEvidenceEdge::EntityEvent(evidence) => format!(
+            "edge entity-event entity-{} event-{}",
+            evidence.entity, evidence.event
+        ),
+        StateEvidenceEdge::RelationEvent(evidence) => format!(
+            "edge relation-event relation-{} event-{}",
+            evidence.relation, evidence.event
+        ),
+        StateEvidenceEdge::EntityRelation(evidence) => {
+            let role = match evidence.role {
+                RelationEndpointRole::From => "from",
+                RelationEndpointRole::To => "to",
+            };
+            format!(
+                "edge entity-relation {role} entity-{} relation-{}",
+                evidence.entity, evidence.relation
+            )
+        }
+    }
+}
+
 fn pack_report() -> Result<String, Box<dyn Error>> {
     let registry = world_builtins::registry()?;
     let descriptors = registry.descriptors();
@@ -303,10 +396,28 @@ mod tests {
             parse_command(["why", "sample.world", "7"]).unwrap(),
             Command::Why(PathBuf::from("sample.world"), 7)
         );
+        assert_eq!(
+            parse_command(["evidence", "sample.world", "relation-5"]).unwrap(),
+            Command::Evidence(
+                PathBuf::from("sample.world"),
+                SelectionId::from_stable_key("relation-5").unwrap(),
+                2,
+            )
+        );
+        assert_eq!(
+            parse_command(["evidence", "sample.world", "event-9", "0"]).unwrap(),
+            Command::Evidence(
+                PathBuf::from("sample.world"),
+                SelectionId::from_stable_key("event-9").unwrap(),
+                0,
+            )
+        );
         assert_eq!(parse_command(["list-packs"]).unwrap(), Command::ListPacks);
         assert_eq!(parse_command(Vec::<String>::new()).unwrap(), Command::Help);
         assert!(parse_command(["inspect"]).is_err());
         assert!(parse_command(["why", "sample.world", "not-a-number"]).is_err());
+        assert!(parse_command(["evidence", "sample.world", "entity-07"]).is_err());
+        assert!(parse_command(["evidence", "sample.world", "entity-7", "deep"]).is_err());
     }
 
     #[test]
@@ -404,6 +515,54 @@ mod tests {
         assert!(report.contains("validation: ok"));
         assert!(report.contains(&format!("pack: {pack_id}@")));
         let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn evidence_report_exposes_a_machine_stable_depth_zero_neighborhood() {
+        let registry = world_builtins::registry().unwrap();
+        let mut found = None;
+        for descriptor in registry.descriptors() {
+            let session = registry.create(&descriptor.pack.id).unwrap();
+            let snapshot = session.snapshot();
+            let root = snapshot
+                .timeline
+                .items
+                .first()
+                .map(|item| item.id)
+                .or_else(|| {
+                    snapshot.inspectors.keys().copied().find(|selection| {
+                        snapshot
+                            .state_evidence_neighborhood(*selection, 0)
+                            .is_some()
+                    })
+                });
+            if let Some(root) = root {
+                found = Some((snapshot, root));
+                break;
+            }
+        }
+        let (snapshot, root) = found.expect("a built-in Pack should expose a visible selection");
+        let report =
+            evidence_report_from_snapshot(Path::new("builtin.world"), &snapshot, root, 0).unwrap();
+
+        assert!(report.contains(&format!("evidence: {}", root.stable_key())));
+        assert!(report.contains("depth: 0"));
+        assert!(report.contains("nodes: 1"));
+        assert!(report.contains(&format!("node 0 {}", root.stable_key())));
+        assert!(report.contains("edges: 0"));
+    }
+
+    #[test]
+    fn evidence_report_rejects_a_well_formed_but_invisible_selection() {
+        let registry = world_builtins::registry().unwrap();
+        let pack_id = registry.descriptors()[0].pack.id.clone();
+        let session = registry.create(&pack_id).unwrap();
+        let snapshot = session.snapshot();
+        let hidden = SelectionId::from_stable_key("entity-18446744073709551615").unwrap();
+
+        let error = evidence_report_from_snapshot(Path::new("builtin.world"), &snapshot, hidden, 2)
+            .unwrap_err();
+        assert!(error.to_string().contains("selection is not visible"));
     }
 
     #[test]
