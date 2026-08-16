@@ -1,0 +1,15 @@
+[package]
+name = "world-query"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+world-compare = { path = "../world-compare" }
+world-projection = { path = "../world-projection" }
+
+[dev-dependencies]
+serde_json = "1"
+world-core = { path = "../world-core" }
