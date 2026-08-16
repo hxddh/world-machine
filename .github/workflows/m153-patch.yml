@@ -1,0 +1,219 @@
+name: M153 patch
+
+on:
+  push:
+    branches:
+      - agent/m153-typed-evidence-edges
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/m153-typed-evidence-edges
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Apply typed evidence edge patch
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('crates/world-projection/src/lib.rs')
+          text = path.read_text()
+
+          old_type_marker = "\n".join([
+              "}",
+              "",
+              "#[derive(Clone, Debug, Eq, PartialEq)]",
+              "pub enum ProjectionIntent {",
+          ])
+          new_type_marker = "\n".join([
+              "}",
+              "",
+              "#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]",
+              "pub struct EntityEventEvidence {",
+              "    pub entity: EntityId,",
+              "    pub event: EventId,",
+              "}",
+              "",
+              "#[derive(Clone, Debug, Eq, PartialEq)]",
+              "pub enum ProjectionIntent {",
+          ])
+          assert text.count(old_type_marker) == 1, f'type marker count: {text.count(old_type_marker)}'
+          text = text.replace(old_type_marker, new_type_marker)
+
+          old_methods = "\n".join([
+              "    pub fn entity_history(&self, entity: EntityId) -> Vec<&TimelineItem> {",
+              "        let Some(inspector) = self.inspector(SelectionId::Entity(entity)) else {",
+              "            return Vec::new();",
+              "        };",
+              "        let Some(section) = inspector",
+              "            .sections",
+              "            .iter()",
+              "            .find(|section| section.title == ENTITY_HISTORY_SECTION)",
+              "        else {",
+              "            return Vec::new();",
+              "        };",
+              "        let keys = section",
+              "            .rows",
+              "            .iter()",
+              "            .map(|row| row.value.as_str())",
+              "            .collect::<BTreeSet<_>>();",
+              "",
+              "        self.timeline",
+              "            .items",
+              "            .iter()",
+              "            .filter(|item| keys.contains(item.id.stable_key().as_str()))",
+              "            .collect()",
+              "    }",
+              "",
+              "    pub fn directly_changed_entities(&self, event: EventId) -> Vec<EntityId> {",
+              "        let event_selection = SelectionId::Event(event);",
+              "        if !self",
+              "            .timeline",
+              "            .items",
+              "            .iter()",
+              "            .any(|item| item.id == event_selection)",
+              "        {",
+              "            return Vec::new();",
+              "        }",
+              "        let event_key = event_selection.stable_key();",
+              "        self.inspectors",
+              "            .iter()",
+              "            .filter_map(|(selection, inspector)| {",
+              "                let SelectionId::Entity(entity) = selection else {",
+              "                    return None;",
+              "                };",
+              "                inspector",
+              "                    .sections",
+              "                    .iter()",
+              "                    .find(|section| section.title == ENTITY_HISTORY_SECTION)",
+              "                    .filter(|section| {",
+              "                        section",
+              "                            .rows",
+              "                            .iter()",
+              "                            .any(|row| row.value.as_str() == event_key.as_str())",
+              "                    })",
+              "                    .map(|_| *entity)",
+              "            })",
+              "            .collect()",
+              "    }",
+          ])
+          new_methods = "\n".join([
+              "    pub fn entity_event_evidence(&self) -> Vec<EntityEventEvidence> {",
+              "        let visible_events = visible_event_ids_by_key(&self.timeline);",
+              "        let mut evidence = BTreeSet::new();",
+              "        for (selection, inspector) in &self.inspectors {",
+              "            let SelectionId::Entity(entity) = *selection else {",
+              "                continue;",
+              "            };",
+              "            evidence.extend(entity_event_evidence_from_inspector(",
+              "                entity,",
+              "                inspector,",
+              "                &visible_events,",
+              "            ));",
+              "        }",
+              "        evidence.into_iter().collect()",
+              "    }",
+              "",
+              "    pub fn entity_history(&self, entity: EntityId) -> Vec<&TimelineItem> {",
+              "        let Some(inspector) = self.inspector(SelectionId::Entity(entity)) else {",
+              "            return Vec::new();",
+              "        };",
+              "        let visible_events = visible_event_ids_by_key(&self.timeline);",
+              "        let event_ids = entity_event_evidence_from_inspector(",
+              "            entity,",
+              "            inspector,",
+              "            &visible_events,",
+              "        )",
+              "        .into_iter()",
+              "        .map(|evidence| evidence.event)",
+              "        .collect::<BTreeSet<_>>();",
+              "",
+              "        self.timeline",
+              "            .items",
+              "            .iter()",
+              "            .filter(|item| {",
+              "                matches!(item.id, SelectionId::Event(event) if event_ids.contains(&event))",
+              "            })",
+              "            .collect()",
+              "    }",
+              "",
+              "    pub fn directly_changed_entities(&self, event: EventId) -> Vec<EntityId> {",
+              "        self.entity_event_evidence()",
+              "            .into_iter()",
+              "            .filter(|evidence| evidence.event == event)",
+              "            .map(|evidence| evidence.entity)",
+              "            .collect()",
+              "    }",
+          ])
+          assert text.count(old_methods) == 1, f'method block count: {text.count(old_methods)}'
+          text = text.replace(old_methods, new_methods)
+
+          helper_marker = "\n".join([
+              "}",
+              "",
+              "#[derive(Clone, Debug, PartialEq)]",
+              "pub struct BriefingProjection {",
+          ])
+          helper_replacement = "\n".join([
+              "}",
+              "",
+              "fn visible_event_ids_by_key(timeline: &TimelineProjection) -> BTreeMap<String, EventId> {",
+              "    timeline",
+              "        .items",
+              "        .iter()",
+              "        .filter_map(|item| {",
+              "            let SelectionId::Event(event) = item.id else {",
+              "                return None;",
+              "            };",
+              "            Some((item.id.stable_key(), event))",
+              "        })",
+              "        .collect()",
+              "}",
+              "",
+              "fn entity_event_evidence_from_inspector(",
+              "    entity: EntityId,",
+              "    inspector: &InspectorProjection,",
+              "    visible_events: &BTreeMap<String, EventId>,",
+              ") -> BTreeSet<EntityEventEvidence> {",
+              "    let Some(section) = inspector",
+              "        .sections",
+              "        .iter()",
+              "        .find(|section| section.title == ENTITY_HISTORY_SECTION)",
+              "    else {",
+              "        return BTreeSet::new();",
+              "    };",
+              "",
+              "    section",
+              "        .rows",
+              "        .iter()",
+              "        .filter_map(|row| visible_events.get(row.value.as_str()).copied())",
+              "        .map(|event| EntityEventEvidence { entity, event })",
+              "        .collect()",
+              "}",
+              "",
+              "#[derive(Clone, Debug, PartialEq)]",
+              "pub struct BriefingProjection {",
+          ])
+          assert text.count(helper_marker) == 1, f'helper marker count: {text.count(helper_marker)}'
+          text = text.replace(helper_marker, helper_replacement)
+
+          path.write_text(text)
+          PY
+          cargo fmt --all
+          git diff --check
+      - name: Commit patch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add crates/world-projection/src/lib.rs
+          git commit -m "M153: expose typed entity event evidence"
+          git push origin HEAD:agent/m153-typed-evidence-edges
