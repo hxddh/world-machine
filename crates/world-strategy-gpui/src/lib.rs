@@ -707,7 +707,7 @@ impl StrategyComparisonView {
             .on_click(cx.listener(move |this, _, _, cx| this.select(side, selection, cx)))
     }
 
-    fn render_comparison(&self, comparison: &SnapshotComparison) -> Div {
+    fn render_comparison(&self, comparison: &SnapshotComparison, cx: &mut Context<Self>) -> Div {
         let timeline_changes = comparison.timeline.left_only.len()
             + comparison.timeline.right_only.len()
             + comparison.timeline.changed.len();
@@ -717,7 +717,7 @@ impl StrategyComparisonView {
 
         let mut entities = div().flex().flex_col().gap_2();
         for difference in comparison.entities.iter().take(ENTITY_DIFFERENCE_LIMIT) {
-            entities = entities.child(self.render_entity_difference(difference));
+            entities = entities.child(self.render_entity_difference(difference, cx));
         }
         if comparison.entities.is_empty() {
             entities = entities.child(
@@ -741,7 +741,12 @@ impl StrategyComparisonView {
             .iter()
             .take(TIMELINE_DIFFERENCE_LIMIT_PER_KIND)
         {
-            timeline = timeline.child(self.render_timeline_item("Left only", item));
+            timeline = timeline.child(self.render_timeline_item(
+                ComparisonSide::Left,
+                "Left only",
+                item,
+                cx,
+            ));
         }
         for item in comparison
             .timeline
@@ -749,7 +754,12 @@ impl StrategyComparisonView {
             .iter()
             .take(TIMELINE_DIFFERENCE_LIMIT_PER_KIND)
         {
-            timeline = timeline.child(self.render_timeline_item("Right only", item));
+            timeline = timeline.child(self.render_timeline_item(
+                ComparisonSide::Right,
+                "Right only",
+                item,
+                cx,
+            ));
         }
         for item in comparison
             .timeline
@@ -757,7 +767,7 @@ impl StrategyComparisonView {
             .iter()
             .take(TIMELINE_DIFFERENCE_LIMIT_PER_KIND)
         {
-            timeline = timeline.child(self.render_changed_timeline_item(item));
+            timeline = timeline.child(self.render_changed_timeline_item(item, cx));
         }
         if timeline_changes == 0 {
             timeline = timeline.child(
@@ -814,6 +824,9 @@ impl StrategyComparisonView {
             .flex_col()
             .gap_4()
             .child(div().text_lg().child("What changed"))
+            .child(div().text_xs().text_color(rgb(0x66705f)).child(
+                "Select an entity or timeline side to inspect evidence from that specific future.",
+            ))
             .child(
                 div()
                     .flex()
@@ -845,13 +858,35 @@ impl StrategyComparisonView {
             .child(commands)
     }
 
-    fn render_timeline_item(&self, relation: &str, item: &TimelineItem) -> Div {
+    fn render_timeline_item(
+        &self,
+        side: ComparisonSide,
+        relation: &str,
+        item: &TimelineItem,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let selection = item.id;
+        let selected = self.is_selected(side, selection);
         let mut card = div()
+            .id(SharedString::from(format!(
+                "timeline-difference-{}-{}",
+                side.key(),
+                selection.stable_key()
+            )))
             .p_3()
             .rounded_md()
-            .bg(rgb(0xffffff))
+            .bg(if selected {
+                rgb(0xeef3ff)
+            } else {
+                rgb(0xffffff)
+            })
             .border_1()
-            .border_color(rgb(0xe2e4e8))
+            .border_color(if selected {
+                rgb(0x4e6fb3)
+            } else {
+                rgb(0xe2e4e8)
+            })
+            .cursor_pointer()
             .flex()
             .flex_col()
             .gap_1()
@@ -871,10 +906,14 @@ impl StrategyComparisonView {
         if let Some(detail) = timeline_detail(&item.subtitle) {
             card = card.child(div().text_xs().text_color(rgb(0x555555)).child(detail));
         }
-        card
+        card.on_click(cx.listener(move |this, _, _, cx| this.select(side, selection, cx)))
     }
 
-    fn render_changed_timeline_item(&self, item: &ChangedTimelineItem) -> Div {
+    fn render_changed_timeline_item(
+        &self,
+        item: &ChangedTimelineItem,
+        cx: &mut Context<Self>,
+    ) -> Div {
         let title = if item.left.title == item.right.title {
             item.left.title.clone()
         } else {
@@ -902,28 +941,63 @@ impl StrategyComparisonView {
                     .child(div().text_sm().child(title))
                     .child(div().text_xs().text_color(rgb(0x777777)).child("Changed")),
             )
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_1()
-                    .child(div().text_xs().text_color(rgb(0x4e6fb3)).child(format!(
-                        "Left · {} · t={}",
-                        self.left_label, item.left.world_time
-                    )))
-                    .child(div().text_xs().child(left_detail)),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_1()
-                    .child(div().text_xs().text_color(rgb(0x4e6fb3)).child(format!(
-                        "Right · {} · t={}",
-                        self.right_label, item.right.world_time
-                    )))
-                    .child(div().text_xs().child(right_detail)),
-            )
+            .child(self.render_changed_timeline_side(
+                ComparisonSide::Left,
+                &item.left,
+                left_detail,
+                cx,
+            ))
+            .child(self.render_changed_timeline_side(
+                ComparisonSide::Right,
+                &item.right,
+                right_detail,
+                cx,
+            ))
+    }
+
+    fn render_changed_timeline_side(
+        &self,
+        side: ComparisonSide,
+        item: &TimelineItem,
+        detail: String,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let selection = item.id;
+        let selected = self.is_selected(side, selection);
+        div()
+            .id(SharedString::from(format!(
+                "changed-timeline-{}-{}",
+                side.key(),
+                selection.stable_key()
+            )))
+            .p_2()
+            .rounded_md()
+            .border_1()
+            .border_color(if selected {
+                rgb(0x4e6fb3)
+            } else {
+                rgb(0xe2e4e8)
+            })
+            .bg(if selected {
+                rgb(0xeef3ff)
+            } else {
+                rgb(0xf8f9fc)
+            })
+            .cursor_pointer()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(div().text_xs().text_color(rgb(0x4e6fb3)).child(format!(
+                "{} · {} · t={}",
+                match side {
+                    ComparisonSide::Left => "Left",
+                    ComparisonSide::Right => "Right",
+                },
+                self.side_label(side),
+                item.world_time
+            )))
+            .child(div().text_xs().child(detail))
+            .on_click(cx.listener(move |this, _, _, cx| this.select(side, selection, cx)))
     }
 
     fn render_command(&self, relation: &str, command: &ProjectionCommand) -> Div {
@@ -1009,13 +1083,39 @@ impl StrategyComparisonView {
             )
     }
 
-    fn render_entity_difference(&self, difference: &EntityDifference) -> Div {
+    fn render_entity_difference(
+        &self,
+        difference: &EntityDifference,
+        cx: &mut Context<Self>,
+    ) -> Div {
         let title = difference
             .left
             .as_ref()
             .map(|entity| entity.title.clone())
             .or_else(|| difference.right.as_ref().map(|entity| entity.title.clone()))
             .unwrap_or_else(|| difference.id.stable_key());
+
+        let mut inspection = div().flex().gap_2();
+        if matches!(
+            difference.kind,
+            DifferenceKind::LeftOnly | DifferenceKind::Changed
+        ) {
+            inspection = inspection.child(self.render_entity_inspection_chip(
+                ComparisonSide::Left,
+                difference.id,
+                cx,
+            ));
+        }
+        if matches!(
+            difference.kind,
+            DifferenceKind::RightOnly | DifferenceKind::Changed
+        ) {
+            inspection = inspection.child(self.render_entity_inspection_chip(
+                ComparisonSide::Right,
+                difference.id,
+                cx,
+            ));
+        }
 
         let mut rows = div().flex().flex_col().gap_1();
         if !difference.inspector_rows.is_empty() {
@@ -1074,16 +1174,63 @@ impl StrategyComparisonView {
             .child(
                 div()
                     .flex()
+                    .justify_between()
                     .gap_2()
-                    .child(div().text_sm().child(title))
                     .child(
                         div()
-                            .text_xs()
-                            .text_color(rgb(0x777777))
-                            .child(difference_kind_label(difference.kind)),
-                    ),
+                            .flex()
+                            .gap_2()
+                            .child(div().text_sm().child(title))
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(rgb(0x777777))
+                                    .child(difference_kind_label(difference.kind)),
+                            ),
+                    )
+                    .child(inspection),
             )
             .child(rows)
+    }
+
+    fn render_entity_inspection_chip(
+        &self,
+        side: ComparisonSide,
+        selection: SelectionId,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let selected = self.is_selected(side, selection);
+        div()
+            .id(SharedString::from(format!(
+                "entity-difference-{}-{}",
+                side.key(),
+                selection.stable_key()
+            )))
+            .px_2()
+            .py_1()
+            .rounded_md()
+            .border_1()
+            .border_color(if selected {
+                rgb(0x4e6fb3)
+            } else {
+                rgb(0xcfd6e5)
+            })
+            .bg(if selected {
+                rgb(0xeef3ff)
+            } else {
+                rgb(0xf8f9fc)
+            })
+            .cursor_pointer()
+            .text_xs()
+            .text_color(rgb(0x4e6fb3))
+            .child(format!(
+                "Inspect {}",
+                match side {
+                    ComparisonSide::Left => "Left",
+                    ComparisonSide::Right => "Right",
+                }
+            ))
+            .on_click(cx.listener(move |this, _, _, cx| this.select(side, selection, cx)))
     }
 
     fn heading(&self) -> (&'static str, &'static str) {
@@ -1171,7 +1318,7 @@ impl Render for StrategyComparisonView {
             ComparisonSource::Saved { comparison, .. } => Some(comparison),
         };
         body = if let Some(comparison) = comparison {
-            body.child(self.render_comparison(comparison))
+            body.child(self.render_comparison(comparison, cx))
         } else {
             body.child(
                 div()
