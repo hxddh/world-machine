@@ -1,0 +1,35 @@
+name: M179 patch
+on:
+  push:
+    branches:
+      - agent/m179-selection-key-parser
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/m179-selection-key-parser
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Apply canonical selection key parser
+        run: |
+          python3 .github/scripts/m179_selection_key_parser.py
+          cargo fmt --all
+          cargo test -p world-projection --test selection_stable_key
+          cargo clippy -p world-projection --all-targets -- -D warnings
+          git diff --check
+      - name: Commit patch
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add crates/world-projection/src/lib.rs crates/world-projection/tests/selection_stable_key.rs
+          if git diff --cached --quiet; then
+            echo "No patch produced" >&2
+            exit 1
+          fi
+          git commit -m "M179: parse canonical stable selection keys"
+          git push origin HEAD:agent/m179-selection-key-parser
