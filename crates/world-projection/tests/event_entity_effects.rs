@@ -31,6 +31,19 @@ fn entity_inspector(entity_id: u64, event_keys: &[String]) -> (SelectionId, Insp
     )
 }
 
+fn recorded_event(id: u64, kind: &str, change: StateChange) -> Event {
+    Event {
+        id: EventId::new(id),
+        kind: kind.into(),
+        world_time: id,
+        actor: None,
+        targets: Vec::new(),
+        caused_by: Vec::new(),
+        payload: BTreeMap::new(),
+        changes: vec![change],
+    }
+}
+
 #[test]
 fn directly_changed_entities_inverts_only_visible_recorded_entity_history() {
     let target_event = EventId::new(7);
@@ -67,72 +80,77 @@ fn directly_changed_entities_inverts_only_visible_recorded_entity_history() {
 }
 
 #[test]
-fn relation_creation_records_only_endpoints_known_from_the_immutable_event() {
+fn relation_lifetime_effects_follow_baseline_and_relation_id_reuse() {
     let left = EntityId::new(1);
-    let right = EntityId::new(2);
+    let middle = EntityId::new(2);
+    let right = EntityId::new(3);
     let relation_id = RelationId::new(5);
 
     let mut baseline = WorldState::default();
+    for entity in [left, middle, right] {
+        baseline
+            .seed_entity(Entity::new(entity, "person"))
+            .expect("entity should seed");
+    }
     baseline
-        .seed_entity(Entity::new(left, "person"))
-        .expect("left entity should seed");
-    baseline
-        .seed_entity(Entity::new(right, "person"))
-        .expect("right entity should seed");
+        .seed_relation(Relation::new(relation_id, "knows", left, middle))
+        .expect("baseline relation should seed");
 
     let events = vec![
-        Event {
-            id: EventId::new(1),
-            kind: "create_relation".into(),
-            world_time: 1,
-            actor: None,
-            targets: Vec::new(),
-            caused_by: Vec::new(),
-            payload: BTreeMap::new(),
-            changes: vec![StateChange::CreateRelation(Relation::new(
-                relation_id,
-                "knows",
-                left,
-                right,
-            ))],
-        },
-        Event {
-            id: EventId::new(2),
-            kind: "set_relation_property".into(),
-            world_time: 2,
-            actor: None,
-            targets: Vec::new(),
-            caused_by: Vec::new(),
-            payload: BTreeMap::new(),
-            changes: vec![StateChange::SetRelationProperty {
+        recorded_event(
+            1,
+            "set_relation_property",
+            StateChange::SetRelationProperty {
                 relation: relation_id,
                 key: "strength".into(),
                 value: Value::Integer(1),
-            }],
-        },
-        Event {
-            id: EventId::new(3),
-            kind: "remove_relation_property".into(),
-            world_time: 3,
-            actor: None,
-            targets: Vec::new(),
-            caused_by: Vec::new(),
-            payload: BTreeMap::new(),
-            changes: vec![StateChange::RemoveRelationProperty {
+            },
+        ),
+        recorded_event(
+            2,
+            "remove_relation_property",
+            StateChange::RemoveRelationProperty {
                 relation: relation_id,
                 key: "strength".into(),
-            }],
-        },
-        Event {
-            id: EventId::new(4),
-            kind: "remove_relation".into(),
-            world_time: 4,
-            actor: None,
-            targets: Vec::new(),
-            caused_by: Vec::new(),
-            payload: BTreeMap::new(),
-            changes: vec![StateChange::RemoveRelation(relation_id)],
-        },
+            },
+        ),
+        recorded_event(
+            3,
+            "remove_relation",
+            StateChange::RemoveRelation(relation_id),
+        ),
+        recorded_event(
+            4,
+            "create_relation",
+            StateChange::CreateRelation(Relation::new(
+                relation_id,
+                "knows",
+                middle,
+                right,
+            )),
+        ),
+        recorded_event(
+            5,
+            "set_relation_property",
+            StateChange::SetRelationProperty {
+                relation: relation_id,
+                key: "strength".into(),
+                value: Value::Integer(2),
+            },
+        ),
+        recorded_event(
+            6,
+            "remove_relation_property",
+            StateChange::RemoveRelationProperty {
+                relation: relation_id,
+                key: "strength".into(),
+            },
+        ),
+        recorded_event(
+            7,
+            "remove_relation",
+            StateChange::RemoveRelation(relation_id),
+        ),
     ];
 
     let world = World::from_history(baseline, &events).expect("relation history should replay");
@@ -142,21 +160,50 @@ fn relation_creation_records_only_endpoints_known_from_the_immutable_event() {
         ..ProjectionSnapshot::default()
     };
 
-    for entity in [left, right] {
-        assert_eq!(
-            snapshot
-                .entity_history(entity)
-                .iter()
-                .map(|item| item.id)
-                .collect::<Vec<_>>(),
-            vec![SelectionId::Event(EventId::new(1))]
-        );
-    }
     assert_eq!(
-        snapshot.directly_changed_entities(EventId::new(1)),
-        vec![left, right]
+        snapshot
+            .entity_history(left)
+            .iter()
+            .map(|item| item.id)
+            .collect::<Vec<_>>(),
+        vec![
+            SelectionId::Event(EventId::new(3)),
+            SelectionId::Event(EventId::new(2)),
+            SelectionId::Event(EventId::new(1)),
+        ]
     );
-    for event in [EventId::new(2), EventId::new(3), EventId::new(4)] {
-        assert!(snapshot.directly_changed_entities(event).is_empty());
+    assert_eq!(
+        snapshot
+            .entity_history(middle)
+            .iter()
+            .map(|item| item.id)
+            .collect::<Vec<_>>(),
+        (1..=7)
+            .rev()
+            .map(|id| SelectionId::Event(EventId::new(id)))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        snapshot
+            .entity_history(right)
+            .iter()
+            .map(|item| item.id)
+            .collect::<Vec<_>>(),
+        (4..=7)
+            .rev()
+            .map(|id| SelectionId::Event(EventId::new(id)))
+            .collect::<Vec<_>>()
+    );
+
+    for (event, entities) in [
+        (EventId::new(1), vec![left, middle]),
+        (EventId::new(2), vec![left, middle]),
+        (EventId::new(3), vec![left, middle]),
+        (EventId::new(4), vec![middle, right]),
+        (EventId::new(5), vec![middle, right]),
+        (EventId::new(6), vec![middle, right]),
+        (EventId::new(7), vec![middle, right]),
+    ] {
+        assert_eq!(snapshot.directly_changed_entities(event), entities);
     }
 }
