@@ -1,466 +1,167 @@
-use crate::model::{
-    CONDITION, JONAS_HARBOR_JOB, JONAS_LEO_TRUST, OPERATING_STATUS, SUPPORT_STATUS,
-};
 use crate::{
-    BAKERY, EMMA, EVAN, HARBOR, JONAS, JONAS_BOAT, LEO, MARA, MIA, NOAH, PUB, SCHOOL, SOFIA,
-    WEDDING_ORDER,
+    commands::{command_catalog, OPEN_POP_UP, WAIT_10_MINUTES},
+    pack::TinySocietyPack,
+    resident_ids, FIXTURE_CAFE, START_TIME,
 };
-use society_basic::{CASH, JOB};
-use world_core::{EntityId, Event, RelationId, Value, World};
+use world_core::{Entity, EntityId, Value, World};
 use world_projection::{
-    entity_title, inspectors_from_world, timeline_from_world, why_map_from_world, BriefingItem,
-    BriefingProjection, CanvasItem, CanvasItemKind, CanvasProjection, CollectionItem,
-    CollectionProjection, ProjectionCapabilities, ProjectionCommand, ProjectionSnapshot,
-    SelectionId,
+    direct_effects_from_world, inspectors_from_world, timeline_from_world, why_map_from_world,
+    BriefingItem, BriefingProjection, CanvasItem, CanvasItemKind, CanvasProjection, CollectionItem,
+    CollectionProjection, ProjectionCapabilities, ProjectionCommand, ProjectionSnapshot, SelectionId,
 };
 
-const RESIDENTS: [EntityId; 8] = [JONAS, MARA, LEO, EMMA, MIA, NOAH, EVAN, SOFIA];
-
-pub(crate) fn snapshot(world: &World) -> ProjectionSnapshot {
-    snapshot_since(world, None)
-}
-
-pub(crate) fn snapshot_since(
-    world: &World,
-    since_event_count: Option<usize>,
-) -> ProjectionSnapshot {
+pub fn snapshot(world: &World) -> ProjectionSnapshot {
+    let catalog = command_catalog();
+    let residents = resident_ids(world);
     ProjectionSnapshot {
         title: "Tiny Society".into(),
         world_time: world.world_time(),
         capabilities: ProjectionCapabilities { fork: true },
-        briefing: Some(society_briefing(world, since_event_count)),
-        commands: available_commands(world),
+        briefing: briefing(world),
+        commands: catalog
+            .iter()
+            .map(|command| ProjectionCommand {
+                id: command.id.clone(),
+                title: command.title.clone(),
+                detail: command.detail.clone(),
+            })
+            .collect(),
         collection: CollectionProjection {
             title: "Residents".into(),
-            items: RESIDENTS
+            items: residents
                 .iter()
-                .filter_map(|id| resident_item(world, *id))
+                .filter_map(|id| resident_collection_item(world, *id))
                 .collect(),
         },
         timeline: timeline_from_world(world),
+        direct_effects: direct_effects_from_world(world),
         canvas: CanvasProjection {
-            items: canvas_items(world),
+            items: residents
+                .iter()
+                .enumerate()
+                .filter_map(|(index, id)| resident_canvas_item(world, *id, index))
+                .collect(),
         },
         inspectors: inspectors_from_world(world),
         why: why_map_from_world(world),
     }
 }
 
-fn available_commands(world: &World) -> Vec<ProjectionCommand> {
-    let mut commands = Vec::new();
-    let has_order_loss = world
-        .events()
-        .iter()
-        .any(|event| event.kind == "order_lost");
-    let has_dismissal = world
-        .events()
-        .iter()
-        .any(|event| event.kind == "worker_dismissed");
-    let has_retention = world
-        .events()
-        .iter()
-        .any(|event| event.kind == "worker_retained");
-    let jonas_is_temp = component_text(world, JONAS, JOB).as_deref() == Some("bakery_temp");
-
-    if has_order_loss && !has_dismissal && !has_retention && jonas_is_temp {
-        commands.push(ProjectionCommand {
-            id: crate::RETAIN_WORKER_COMMAND.into(),
-            title: "Give Jonas another chance".into(),
-            detail:
-                "Keep Jonas at the bakery and let this branch continue into a different future."
-                    .into(),
-        });
-    }
-
-    let bakery_closed =
-        component_text(world, BAKERY, OPERATING_STATUS).as_deref() == Some("closed");
-    let mara_can_reopen = component_integer(world, MARA, CASH)
-        .is_some_and(|cash| cash >= crate::BAKERY_REOPEN_INVESTMENT);
-    if bakery_closed && mara_can_reopen {
-        commands.push(ProjectionCommand {
-            id: crate::REOPEN_BAKERY_COMMAND.into(),
-            title: "Reopen with Mara's savings".into(),
-            detail: format!(
-                "Invest {} of Mara's cash to reopen Harbor Bakery. Mara returns to work; former workers are not automatically rehired.",
-                crate::BAKERY_REOPEN_INVESTMENT
-            ),
-        });
-    }
-
-    let mara_can_reopen_lean = component_integer(world, MARA, CASH)
-        .is_some_and(|cash| cash >= crate::recovery::LEAN_REOPEN_INVESTMENT);
-    if bakery_closed && mara_can_reopen_lean {
-        commands.push(ProjectionCommand {
-            id: crate::LEAN_REOPEN_BAKERY_COMMAND.into(),
-            title: "Reopen as an owner-run counter".into(),
-            detail: format!(
-                "Invest {} of Mara's cash and reopen Harbor Bakery without a fixed daily Bakery wage. Lower overhead can survive weak demand, but Mara gives up predictable pay.",
-                crate::recovery::LEAN_REOPEN_INVESTMENT
-            ),
-        });
-    }
-
-    let sea_finch_damaged =
-        component_text(world, JONAS_BOAT, CONDITION).as_deref() == Some("damaged");
-    let jonas_unemployed = component_text(world, JONAS, JOB).as_deref() == Some("unemployed");
-    let support_received =
-        component_text(world, JONAS, SUPPORT_STATUS).as_deref() == Some("received");
-    let trust_ready = relation_integer(world, JONAS_LEO_TRUST, "trust")
-        .is_some_and(|trust| trust >= crate::social::SEA_FINCH_REPAIR_TRUST);
-    let leo_can_afford = component_integer(world, LEO, CASH)
-        .is_some_and(|cash| cash >= crate::social::SEA_FINCH_REPAIR_COST);
-    let harbor_job_missing = world.state().relation(JONAS_HARBOR_JOB).is_none();
-    if sea_finch_damaged
-        && jonas_unemployed
-        && support_received
-        && trust_ready
-        && leo_can_afford
-        && harbor_job_missing
-    {
-        commands.push(ProjectionCommand {
-            id: crate::REPAIR_BOAT_COMMAND.into(),
-            title: "Repair Sea Finch with Leo's backing".into(),
-            detail: format!(
-                "Leo pays Evan {} to repair Sea Finch. Jonas returns to Harbor fishing once the boat is sound.",
-                crate::social::SEA_FINCH_REPAIR_COST
-            ),
-        });
-    }
-
-    commands
-}
-
-fn society_briefing(world: &World, since_event_count: Option<usize>) -> BriefingProjection {
-    let start = since_event_count.unwrap_or(0).min(world.events().len());
-    let relevant_events = if since_event_count.is_some() {
-        &world.events()[start..]
+fn briefing(world: &World) -> Option<BriefingProjection> {
+    let cafe = world.state().entity(FIXTURE_CAFE)?;
+    let open = cafe.component("open").and_then(Value::as_bool).unwrap_or(false);
+    let earliest = START_TIME + 8 * 60;
+    let title = if world.world_time() < earliest {
+        "The café is preparing to open."
+    } else if open {
+        "The café is open and the neighborhood is moving."
     } else {
-        world.events()
+        "The café has not opened yet."
     };
 
-    let mut items = relevant_events
-        .iter()
-        .rev()
-        .filter_map(|event| {
-            let title = match event.kind.as_str() {
-                "support_repaid" => "Jonas repaid Leo after returning to sea",
-                "fish_sold" => "Jonas's catch reached the mainland",
-                "boat_repaired" => "Sea Finch returned to the water",
-                "bakery_reopened_lean" => "Mara reopened Harbor Bakery as an owner-run counter",
-                "bakery_reopened" => "Mara reopened Harbor Bakery",
-                "bakery_closed" => "Harbor Bakery closed its doors",
-                "bread_budget_cut" if event.actor == Some(LEO) => {
-                    "Leo started protecting his savings"
-                }
-                "bread_budget_cut" if event.actor == Some(EMMA) => {
-                    "Emma started protecting her savings"
-                }
-                "income_disrupted" if event.actor == Some(LEO) => "Leo's Pub income was disrupted",
-                "income_disrupted" if event.actor == Some(EMMA) => {
-                    "Emma's School income was disrupted"
-                }
-                "payroll_reserve_exhausted" if event.targets.contains(&PUB) => {
-                    "Anchor Pub exhausted its payroll reserve"
-                }
-                "payroll_reserve_exhausted" if event.targets.contains(&SCHOOL) => {
-                    "Island School exhausted its payroll reserve"
-                }
-                "payroll_reserve_exhausted" => "A workplace exhausted its payroll reserve",
-                "payroll_shortfall" => "The bakery could not cover payroll",
-                "support_received" => "Leo helped Jonas stay afloat",
-                "support_requested" => "Jonas asked Leo for help",
-                "work_shift_completed"
-                    if event.actor == Some(JONAS) && event.targets.contains(&BAKERY) =>
-                {
-                    "Jonas completed another bakery shift"
-                }
-                "worker_retained" => "Mara gave Jonas another chance",
-                "worker_dismissed" => "Mara dismissed Jonas",
-                "order_lost" => "The bakery lost the wedding order",
-                "temporary_work_assigned" => "Jonas took temporary work at the bakery",
-                "loan_requested" => "Jonas asked Leo for a loan",
-                "storm_started" => "A storm reached the harbor",
-                _ => return None,
-            };
-            Some(BriefingItem {
-                selection: Some(SelectionId::Event(event.id)),
-                title: title.into(),
-                detail: format!("World time {} · Event #{}", event.world_time, event.id),
-            })
-        })
-        .take(4)
-        .collect::<Vec<_>>();
-
-    if since_event_count.is_some() {
-        if let Some(sales) = bakery_sales_summary(world, relevant_events) {
-            items.push(sales);
-            items.truncate(4);
-        }
-        if let Some(activity) = living_activity_summary(world, relevant_events) {
-            items.push(activity);
-            items.truncate(4);
-        }
-    }
-
-    if since_event_count.is_some() && items.is_empty() {
-        let (title, detail) = if relevant_events.is_empty() {
-            (
-                "No new events",
-                "Nothing changed in the world since your last visit.".to_string(),
-            )
-        } else {
-            (
-                "The world moved forward",
-                format!(
-                    "{} new event(s) occurred, but none are highlighted in Society Today.",
-                    relevant_events.len()
-                ),
-            )
-        };
+    let mut items = Vec::new();
+    if let Some(selected) = selected_resident(world) {
         items.push(BriefingItem {
-            selection: None,
-            title: title.into(),
-            detail,
+            selection: Some(SelectionId::Entity(selected)),
+            title: entity_name(world, selected),
+            detail: "Currently selected resident".into(),
         });
     }
-
-    BriefingProjection {
-        eyebrow: "Society Today".into(),
-        title: if since_event_count.is_some() {
-            "While you were away".into()
+    items.push(BriefingItem {
+        selection: Some(SelectionId::Entity(FIXTURE_CAFE)),
+        title: "Neighborhood Café".into(),
+        detail: if open {
+            "Open for the day".into()
         } else {
-            "Life happened while you were away".into()
+            "Closed".into()
         },
+    });
+    items.push(BriefingItem {
+        selection: None,
+        title: "Available actions".into(),
+        detail: if world.world_time() < earliest {
+            format!("{} or {}", WAIT_10_MINUTES, OPEN_POP_UP)
+        } else {
+            "Continue the world through the available commands.".into()
+        },
+    });
+
+    Some(BriefingProjection {
+        eyebrow: "Neighborhood Briefing".into(),
+        title: title.into(),
         items,
-    }
-}
-
-fn bakery_sales_summary(world: &World, events: &[Event]) -> Option<BriefingItem> {
-    let purchases = events
-        .iter()
-        .filter(|event| event.kind == "bread_purchased")
-        .collect::<Vec<_>>();
-    let latest = purchases.last()?;
-
-    let mut customers = Vec::<String>::new();
-    let mut total_revenue = 0_i64;
-    for event in &purchases {
-        if let Some(actor) = event.actor {
-            if let Some(entity) = world.state().entity(actor) {
-                let name = entity_title(entity);
-                if !customers.contains(&name) {
-                    customers.push(name);
-                }
-            }
-        }
-        if let Some(Value::Integer(amount)) = event.payload.get("amount") {
-            total_revenue += amount;
-        }
-    }
-
-    let people = if customers.is_empty() {
-        "Residents".into()
-    } else {
-        customers.join(", ")
-    };
-    let purchase_label = if purchases.len() == 1 {
-        "purchase"
-    } else {
-        "purchases"
-    };
-
-    Some(BriefingItem {
-        selection: Some(SelectionId::Event(latest.id)),
-        title: "Harbor Bakery had customers".into(),
-        detail: format!(
-            "{people} bought bread · {} {purchase_label} · {total_revenue} revenue · latest at World time {}",
-            purchases.len(),
-            latest.world_time
-        ),
     })
 }
 
-fn living_activity_summary(world: &World, events: &[Event]) -> Option<BriefingItem> {
-    let shifts = events
-        .iter()
-        .filter(|event| event.kind == "work_shift_completed")
-        .collect::<Vec<_>>();
-    let latest = shifts.last()?;
-
-    let mut residents = Vec::<String>::new();
-    let mut total_wages = 0_i64;
-    for event in &shifts {
-        if let Some(actor) = event.actor {
-            if let Some(entity) = world.state().entity(actor) {
-                let name = entity_title(entity);
-                if !residents.contains(&name) {
-                    residents.push(name);
-                }
-            }
-        }
-        if let Some(Value::Integer(wage)) = event.payload.get("wage") {
-            total_wages += wage;
-        }
-    }
-
-    let people = if residents.is_empty() {
-        "Residents".into()
-    } else {
-        residents.join(", ")
-    };
-    let shift_label = if shifts.len() == 1 { "shift" } else { "shifts" };
-
-    Some(BriefingItem {
-        selection: Some(SelectionId::Event(latest.id)),
-        title: "The world moved forward".into(),
-        detail: format!(
-            "{people} worked · {} {shift_label} · {total_wages} total wages · latest at World time {}",
-            shifts.len(),
-            latest.world_time
-        ),
-    })
-}
-
-fn resident_item(world: &World, id: EntityId) -> Option<CollectionItem> {
-    let entity = world.state().entity(id)?;
-    let job = component_text(world, id, JOB).unwrap_or_else(|| "unknown job".into());
-    let cash = component_text(world, id, CASH).unwrap_or_else(|| "?".into());
+fn resident_collection_item(world: &World, id: EntityId) -> Option<CollectionItem> {
+    let resident = world.state().entity(id)?;
     Some(CollectionItem {
         id: SelectionId::Entity(id),
-        title: entity_title(entity),
-        subtitle: format!("{job} · cash {cash}"),
+        title: entity_name(world, id),
+        subtitle: resident
+            .component("job")
+            .and_then(Value::as_text)
+            .unwrap_or(&resident.kind)
+            .to_string(),
     })
 }
 
-fn canvas_items(world: &World) -> Vec<CanvasItem> {
-    let mut items = Vec::new();
-
-    for (id, x, y) in [
-        (HARBOR, 0.08, 0.48),
-        (BAKERY, 0.62, 0.18),
-        (SCHOOL, 0.62, 0.66),
-        (PUB, 0.28, 0.16),
-    ] {
-        if let Some(entity) = world.state().entity(id) {
-            let detail = if id == BAKERY {
-                component_text(world, BAKERY, OPERATING_STATUS)
-                    .map(|status| format!("Place · {status}"))
-                    .unwrap_or_else(|| "Place".into())
-            } else if id == HARBOR {
-                component_integer(world, HARBOR, CASH)
-                    .map(|cash| format!("Place · cash {cash}"))
-                    .unwrap_or_else(|| "Place".into())
-            } else {
-                "Place".into()
-            };
-            items.push(CanvasItem {
-                id: SelectionId::Entity(id),
-                kind: CanvasItemKind::Place,
-                label: entity_title(entity),
-                detail,
-                x,
-                y,
-            });
-        }
-    }
-
-    for (id, x, y) in [
-        (JONAS, 0.12, 0.62),
-        (MARA, 0.68, 0.32),
-        (LEO, 0.34, 0.28),
-        (EMMA, 0.70, 0.74),
-        (MIA, 0.82, 0.67),
-        (NOAH, 0.20, 0.52),
-        (EVAN, 0.04, 0.72),
-        (SOFIA, 0.42, 0.12),
-    ] {
-        if let Some(entity) = world.state().entity(id) {
-            items.push(CanvasItem {
-                id: SelectionId::Entity(id),
-                kind: CanvasItemKind::Actor,
-                label: entity_title(entity),
-                detail: component_text(world, id, JOB).unwrap_or_else(|| "Resident".into()),
-                x,
-                y,
-            });
-        }
-    }
-
-    for (id, x, y) in [(JONAS_BOAT, 0.02, 0.42), (WEDDING_ORDER, 0.84, 0.22)] {
-        if let Some(entity) = world.state().entity(id) {
-            let detail = if id == JONAS_BOAT {
-                component_text(world, JONAS_BOAT, CONDITION)
-                    .map(|condition| format!("asset · {condition}"))
-                    .unwrap_or_else(|| entity.kind.clone())
-            } else {
-                entity.kind.clone()
-            };
-            items.push(CanvasItem {
-                id: SelectionId::Entity(id),
-                kind: CanvasItemKind::Object,
-                label: entity_title(entity),
-                detail,
-                x,
-                y,
-            });
-        }
-    }
-
-    items
+fn resident_canvas_item(world: &World, id: EntityId, index: usize) -> Option<CanvasItem> {
+    let resident = world.state().entity(id)?;
+    let place = resident.component("place").and_then(Value::as_entity);
+    let (x, y) = match place {
+        Some(place) if place == FIXTURE_CAFE => (0.56, 0.48),
+        Some(_) => (0.28 + index as f32 * 0.06, 0.3 + index as f32 * 0.08),
+        None => (0.42 + index as f32 * 0.04, 0.66),
+    };
+    Some(CanvasItem {
+        id: SelectionId::Entity(id),
+        kind: CanvasItemKind::Actor,
+        label: entity_name(world, id),
+        detail: resident
+            .component("job")
+            .and_then(Value::as_text)
+            .unwrap_or("resident")
+            .into(),
+        x,
+        y,
+    })
 }
 
-fn component_text(world: &World, id: EntityId, key: &str) -> Option<String> {
-    match world.state().entity(id)?.component(key)? {
-        Value::Text(value) => Some(value.clone()),
-        Value::Integer(value) => Some(value.to_string()),
-        Value::Bool(value) => Some(value.to_string()),
-        Value::Entity(value) => world.state().entity(*value).map(entity_title),
-        Value::Null | Value::List(_) | Value::Map(_) => None,
-    }
+fn selected_resident(world: &World) -> Option<EntityId> {
+    world
+        .state()
+        .entities()
+        .find(|entity| {
+            entity.kind == "resident"
+                && entity
+                    .component("selected")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+        })
+        .map(|entity| entity.id)
 }
 
-fn component_integer(world: &World, id: EntityId, key: &str) -> Option<i64> {
-    match world.state().entity(id)?.component(key)? {
-        Value::Integer(value) => Some(*value),
-        _ => None,
-    }
+fn entity_name(world: &World, id: EntityId) -> String {
+    world
+        .state()
+        .entity(id)
+        .map(entity_name_from_entity)
+        .unwrap_or_else(|| format!("Entity #{id}"))
 }
 
-fn relation_integer(world: &World, id: RelationId, key: &str) -> Option<i64> {
-    match world.state().relation(id)?.properties.get(key)? {
-        Value::Integer(value) => Some(*value),
-        _ => None,
-    }
+fn entity_name_from_entity(entity: &Entity) -> String {
+    entity
+        .component("name")
+        .and_then(Value::as_text)
+        .map(str::to_owned)
+        .unwrap_or_else(|| format!("{} #{}", entity.kind, entity.id))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::TinySociety;
+pub fn project(world: &World) -> ProjectionSnapshot {
+    snapshot(world)
+}
 
-    #[test]
-    fn household_savings_cut_is_highlighted_in_return_briefing() {
-        let mut society = TinySociety::new().unwrap();
-        society.run_story().unwrap();
-        let mut branch = society.branch();
-        branch.advance_days(70).unwrap();
-
-        let cut_position = branch
-            .world()
-            .events()
-            .iter()
-            .position(|event| event.kind == "bread_budget_cut" && event.actor == Some(LEO))
-            .expect("Leo eventually cuts his bread budget");
-        let snapshot = snapshot_since(branch.world(), Some(cut_position));
-        let briefing = snapshot.briefing.expect("Tiny Society has a briefing");
-
-        assert!(briefing
-            .items
-            .iter()
-            .any(|item| item.title == "Leo started protecting his savings"));
-        assert!(briefing
-            .items
-            .iter()
-            .any(|item| item.title == "Emma's School income was disrupted"));
-    }
+pub fn project_pack(world: &World) -> ProjectionSnapshot {
+    TinySocietyPack.project(world)
 }
