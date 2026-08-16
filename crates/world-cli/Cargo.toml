@@ -6,7 +6,7 @@ license = "Apache-2.0"
 
 [dependencies]
 world-builtins = { path = "../world-builtins" }
-world-compare = { path = "../world-compare" }
+world-query = { path = "../world-query" }
 world-integrity = { path = "../world-integrity" }
 world-persistence = { path = "../world-persistence" }
 world-projection = { path = "../world-projection" }

@@ -6618,10 +6618,10 @@ name = "world-cli"
 version = "0.1.0"
 dependencies = [
  "world-builtins",
- "world-compare",
  "world-integrity",
  "world-persistence",
  "world-projection",
+ "world-query",
 ]
 
 [[package]]
