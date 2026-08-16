@@ -3,8 +3,9 @@ use world_core::{
     Entity, EntityId, Event, EventId, Relation, RelationId, StateChange, Value, World, WorldState,
 };
 use world_projection::{
-    inspectors_from_world, timeline_from_world, InspectorProjection, InspectorRow, InspectorSection,
-    ProjectionSnapshot, SelectionId, TimelineItem, TimelineProjection, ENTITY_HISTORY_SECTION,
+    inspectors_from_world, timeline_from_world, InspectorProjection, InspectorRow,
+    InspectorSection, ProjectionSnapshot, SelectionId, TimelineItem, TimelineProjection,
+    ENTITY_HISTORY_SECTION,
 };
 
 fn entity_inspector(entity_id: u64, event_keys: &[String]) -> (SelectionId, InspectorProjection) {
