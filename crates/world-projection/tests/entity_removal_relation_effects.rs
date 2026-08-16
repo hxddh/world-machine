@@ -1,6 +1,10 @@
 use std::collections::BTreeMap;
-use world_core::{Entity, EntityId, Event, EventId, Relation, RelationId, StateChange, World, WorldState};
-use world_projection::{inspectors_from_world, timeline_from_world, ProjectionSnapshot, SelectionId};
+use world_core::{
+    Entity, EntityId, Event, EventId, Relation, RelationId, StateChange, World, WorldState,
+};
+use world_projection::{
+    inspectors_from_world, timeline_from_world, ProjectionSnapshot, SelectionId,
+};
 
 fn recorded_event(id: u64, kind: &str, change: StateChange) -> Event {
     Event {
