@@ -328,7 +328,11 @@ fn recorded_entity_change_rows(entity: EntityId, world: &World) -> Vec<Inspector
                 .any(|change| change_directly_affects_entity(change, entity))
         })
         .map(|event| InspectorRow {
-            label: format!("World time {} · {}", event.world_time, humanize(&event.kind)),
+            label: format!(
+                "World time {} · {}",
+                event.world_time,
+                humanize(&event.kind)
+            ),
             value: SelectionId::Event(event.id).stable_key(),
         })
         .collect()
