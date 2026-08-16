@@ -1,0 +1,33 @@
+name: M173 patch
+on:
+  push:
+    branches:
+      - agent/m173-evidence-path
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/m173-evidence-path
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Apply evidence path query layer
+        run: |
+          python3 .github/scripts/m173_evidence_path.py
+          cargo fmt --all
+          git diff --check
+      - name: Commit patch
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add crates/world-projection/src/lib.rs crates/world-projection/tests/state_evidence_graph.rs
+          if git diff --cached --quiet; then
+            echo "No patch produced" >&2
+            exit 1
+          fi
+          git commit -m "M173: add shortest evidence path queries"
+          git push origin HEAD:agent/m173-evidence-path
