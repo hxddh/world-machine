@@ -238,6 +238,14 @@ pub struct InspectorProjection {
     pub sections: Vec<InspectorSection>,
 }
 
+impl InspectorProjection {
+    pub fn display_sections(&self) -> impl Iterator<Item = &InspectorSection> {
+        self.sections
+            .iter()
+            .filter(|section| section.title != ENTITY_HISTORY_SECTION)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct InspectorSection {
     pub title: String,
