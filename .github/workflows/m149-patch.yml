@@ -1,0 +1,60 @@
+name: M149 patch
+
+on:
+  push:
+    branches:
+      - agent/m149-remove-entity-relation-effects
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/m149-remove-entity-relation-effects
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Apply entity removal relation effects
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('crates/world-projection/src/lib.rs')
+          text = path.read_text()
+          old = "\n".join([
+              "                StateChange::RemoveEntity(entity) => {",
+              "                    affected.insert(*entity);",
+              "                    relation_endpoints.retain(|_, (from, to)| *from != *entity && *to != *entity);",
+              "                }",
+          ])
+          new = "\n".join([
+              "                StateChange::RemoveEntity(entity) => {",
+              "                    affected.insert(*entity);",
+              "                    for (from, to) in relation_endpoints.values().copied() {",
+              "                        if from == *entity {",
+              "                            affected.insert(to);",
+              "                        }",
+              "                        if to == *entity {",
+              "                            affected.insert(from);",
+              "                        }",
+              "                    }",
+              "                    relation_endpoints.retain(|_, (from, to)| *from != *entity && *to != *entity);",
+              "                }",
+          ])
+          assert text.count(old) == 1, f'expected one RemoveEntity projection match, found {text.count(old)}'
+          path.write_text(text.replace(old, new))
+          PY
+          cargo fmt --all
+          git diff --check
+      - name: Commit patch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add crates/world-projection/src/lib.rs
+          git commit -m "M149: record entity removal relation effects"
+          git push origin HEAD:agent/m149-remove-entity-relation-effects
