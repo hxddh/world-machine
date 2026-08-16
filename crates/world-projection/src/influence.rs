@@ -70,7 +70,7 @@ pub(crate) fn semantic_path_details_from_snapshot<'a>(
         .iter()
         .filter_map(|item| match item.id {
             SelectionId::Event(event) => Some((event, item)),
-            SelectionId::Entity(_) => None,
+            SelectionId::Entity(_) | SelectionId::Relation(_) => None,
         })
         .collect::<BTreeMap<_, _>>();
     let full_path = selected_path_event_ids(timeline, inspectors, root, &by_id);
@@ -393,7 +393,9 @@ fn inspector_has_world_effect(inspector: Option<&InspectorProjection>) -> bool {
 fn event_id(item: &TimelineItem) -> EventId {
     match item.id {
         SelectionId::Event(event) => event,
-        SelectionId::Entity(_) => unreachable!("Timeline items must select Events"),
+        SelectionId::Entity(_) | SelectionId::Relation(_) => {
+            unreachable!("Timeline items must select Events")
+        }
     }
 }
 

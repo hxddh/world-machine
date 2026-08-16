@@ -11,6 +11,7 @@ pub const ENTITY_HISTORY_SECTION: &str = "Recorded entity changes";
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum SelectionId {
     Entity(EntityId),
+    Relation(RelationId),
     Event(EventId),
 }
 
@@ -18,6 +19,7 @@ impl SelectionId {
     pub fn stable_key(self) -> String {
         match self {
             Self::Entity(id) => format!("entity-{id}"),
+            Self::Relation(id) => format!("relation-{id}"),
             Self::Event(id) => format!("event-{id}"),
         }
     }

@@ -17,9 +17,10 @@ fn protocol_v1_selection_json_shape_stays_entity_or_event() {
 }
 
 #[test]
-fn protocol_v1_rejects_unknown_relation_selection() {
-    let decoded = serde_json::from_str::<SelectionIdWire>(r#"{"type":"relation","id":5}"#);
-    assert!(decoded.is_err());
+fn relation_selection_is_a_parseable_superset_with_version_semantics_enforced_by_envelopes() {
+    let decoded = serde_json::from_str::<SelectionIdWire>(r#"{"type":"relation","id":5}"#)
+        .expect("the shared parser must understand the v2 Relation selection shape");
+    assert_eq!(decoded, SelectionIdWire::Relation { id: 5 });
 }
 
 #[test]

@@ -25,7 +25,7 @@ fn initial_projection_exposes_evidence_without_leaking_hidden_truth() {
         .iter()
         .filter_map(|item| match item.id {
             SelectionId::Event(id) => Some(id),
-            SelectionId::Entity(_) => None,
+            SelectionId::Entity(_) | SelectionId::Relation(_) => None,
         })
         .collect::<Vec<_>>();
     assert!(visible_timeline.contains(&PROTOTYPE_COPIED));
