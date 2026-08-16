@@ -1,0 +1,32 @@
+name: M163 patch
+
+on:
+  push:
+    branches:
+      - agent/m163-relation-comparison
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/m163-relation-comparison
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Apply Relation comparison semantics
+        run: |
+          python3 .github/scripts/m163_patch.py
+          cargo fmt --all
+          git diff --check
+      - name: Commit patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add crates/world-compare/src/lib.rs
+          git commit -m "M163: compare Relation current state"
+          git push origin HEAD:agent/m163-relation-comparison
