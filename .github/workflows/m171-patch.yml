@@ -1,0 +1,32 @@
+name: M171 patch
+
+on:
+  push:
+    branches:
+      - agent/m171-stable-relation-identity
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/m171-stable-relation-identity
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Apply stable Relation identity semantics
+        run: |
+          python3 .github/scripts/m171_patch.py
+          cargo fmt --all
+          git diff --check
+      - name: Commit patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add crates/world-projection/src/lib.rs crates/world-projection/tests/relation_identity.rs crates/world-compare/src/lib.rs
+          git commit -m "M171: stabilize Relation identity comparison"
+          git push origin HEAD:agent/m171-stable-relation-identity
