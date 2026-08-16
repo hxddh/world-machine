@@ -59,6 +59,7 @@ impl ProcessPackPin {
 pub struct ProcessPack {
     pub manifest_path: PathBuf,
     pub descriptor: PackDescriptor,
+    pub protocol_version: u32,
     pub command: PathBuf,
     pub args: Vec<String>,
     pin: Option<ProcessPackPin>,
@@ -85,11 +86,13 @@ impl ProcessPack {
                 manifest_path.display()
             ))
         })?;
+        let protocol_version = manifest.protocol_version;
         let PackRuntimeManifest::Process { command, args } = manifest.runtime;
         let command = resolve_command(&manifest_path, &command)?;
         Ok(Self {
             manifest_path,
             descriptor: manifest.descriptor,
+            protocol_version,
             command,
             args,
             pin: None,
@@ -584,6 +587,7 @@ struct ProcessClient {
     child: Child,
     stdin: Option<BufWriter<ChildStdin>>,
     responses: Receiver<io::Result<String>>,
+    protocol_version: u32,
     next_request_id: u64,
     request_timeout: Duration,
     launch_cleanup: Option<PathBuf>,
@@ -627,6 +631,7 @@ impl ProcessClient {
             child,
             stdin: Some(BufWriter::new(stdin)),
             responses: spawn_response_reader(stdout, DEFAULT_MAX_RESPONSE_BYTES),
+            protocol_version: pack.protocol_version,
             next_request_id: 1,
             request_timeout: DEFAULT_REQUEST_TIMEOUT,
             launch_cleanup,
@@ -639,7 +644,10 @@ impl ProcessClient {
             .next_request_id
             .checked_add(1)
             .ok_or_else(|| HostError::session("external Pack request id overflow"))?;
-        let envelope = PackRequestEnvelope::new(request_id, request);
+        let envelope = PackRequestEnvelope::for_version(self.protocol_version, request_id, request)
+            .map_err(|error| {
+                HostError::session(format!("invalid Pack protocol version: {error}"))
+            })?;
         let encoded = encode_request(&envelope).map_err(|error| {
             HostError::session(format!("could not encode Pack request: {error}"))
         })?;
@@ -701,6 +709,14 @@ impl ProcessClient {
                 )));
             }
         };
+        if response.protocol_version != self.protocol_version {
+            let actual = response.protocol_version;
+            let expected = self.protocol_version;
+            self.terminate();
+            return Err(HostError::session(format!(
+                "external Pack response protocol version mismatch: expected {expected}, got {actual}"
+            )));
+        }
         if response.request_id != request_id {
             let actual = response.request_id;
             self.terminate();
@@ -718,7 +734,14 @@ impl ProcessClient {
 
     fn send_shutdown(&mut self) {
         let request_id = self.next_request_id;
-        let envelope = PackRequestEnvelope::new(request_id, PackRequest::Shutdown);
+        let Ok(envelope) = PackRequestEnvelope::for_version(
+            self.protocol_version,
+            request_id,
+            PackRequest::Shutdown,
+        ) else {
+            self.stdin.take();
+            return;
+        };
         if let (Ok(encoded), Some(stdin)) = (encode_request(&envelope), self.stdin.as_mut()) {
             let _ = stdin.write_all(encoded.as_bytes());
             let _ = stdin.write_all(b"\n");

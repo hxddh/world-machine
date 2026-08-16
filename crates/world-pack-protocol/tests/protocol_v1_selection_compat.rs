@@ -1,9 +1,9 @@
 use serde_json::Value;
-use world_pack_protocol::{ProjectionSnapshotWire, SelectionIdWire, PACK_PROTOCOL_VERSION};
+use world_pack_protocol::{ProjectionSnapshotWire, SelectionIdWire, PACK_PROTOCOL_VERSION_V1};
 
 #[test]
 fn protocol_v1_selection_json_shape_stays_entity_or_event() {
-    assert_eq!(PACK_PROTOCOL_VERSION, 1);
+    assert_eq!(PACK_PROTOCOL_VERSION_V1, 1);
     assert_eq!(
         serde_json::to_string(&SelectionIdWire::Entity { id: 7 })
             .expect("entity selection should encode"),
