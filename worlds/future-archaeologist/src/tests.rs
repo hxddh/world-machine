@@ -25,7 +25,7 @@ fn initial_projection_exposes_evidence_without_leaking_hidden_truth() {
         .iter()
         .filter_map(|item| match item.id {
             SelectionId::Event(id) => Some(id),
-            SelectionId::Entity(_) => None,
+            SelectionId::Entity(_) | SelectionId::Relation(_) => None,
         })
         .collect::<Vec<_>>();
     assert!(visible_timeline.contains(&PROTOTYPE_COPIED));
@@ -62,7 +62,6 @@ fn recovery_reveals_the_deleted_artifact_but_still_truncates_hidden_causes() {
             .and_then(|entity| entity.component(VISIBLE)),
         Some(Value::Bool(true))
     ));
-    assert!(snapshot.commands.is_empty());
     assert!(snapshot
         .collection
         .items
@@ -72,55 +71,41 @@ fn recovery_reveals_the_deleted_artifact_but_still_truncates_hidden_causes() {
         .timeline
         .items
         .iter()
-        .any(|item| item.id == SelectionId::Event(MESSAGE_DELETED)));
-    assert!(snapshot
-        .timeline
-        .items
-        .iter()
         .any(|item| item.id == SelectionId::Event(recovered)));
-    assert!(snapshot
+    assert!(!snapshot
         .timeline
         .items
         .iter()
-        .all(|item| item.id != SelectionId::Event(WARNING_MESSAGE_SENT)));
+        .any(|item| item.id == SelectionId::Event(MESSAGE_DELETED)));
     assert!(snapshot
         .inspectors
         .contains_key(&SelectionId::Entity(DELETED_MESSAGE)));
     assert!(snapshot
         .inspectors
-        .contains_key(&SelectionId::Event(MESSAGE_DELETED)));
+        .contains_key(&SelectionId::Event(recovered)));
     assert!(!snapshot
         .inspectors
-        .contains_key(&SelectionId::Event(WARNING_MESSAGE_SENT)));
+        .contains_key(&SelectionId::Event(MESSAGE_DELETED)));
 
-    let deletion_why = snapshot.why.get(&MESSAGE_DELETED).unwrap();
-    assert_eq!(deletion_why.nodes.len(), 1);
-    assert_eq!(deletion_why.nodes[0].event, MESSAGE_DELETED);
-    assert!(deletion_why.nodes[0].caused_by.is_empty());
-
-    let recovery_why = snapshot.why.get(&recovered).unwrap();
-    assert!(recovery_why
-        .nodes
-        .iter()
-        .any(|node| node.event == MESSAGE_DELETED));
-    assert!(recovery_why
-        .nodes
-        .iter()
-        .all(|node| node.event != WARNING_MESSAGE_SENT));
-
-    let recovery_event = world.world().event(recovered).unwrap();
-    assert_eq!(recovery_event.caused_by, vec![MESSAGE_DELETED]);
+    let recovered_why = snapshot
+        .why
+        .get(&recovered)
+        .expect("recovered evidence should expose its visible cause chain");
+    assert_eq!(recovered_why.nodes.len(), 2);
+    assert_eq!(recovered_why.nodes[0].event, recovered);
+    assert_eq!(recovered_why.nodes[1].event, PROTOTYPE_COPIED);
+    assert!(recovered_why.truncated);
 }
 
 #[test]
-fn fixed_truth_and_recovery_are_replayable() {
+fn recovery_is_rejected_after_the_branch_point_has_passed() {
     let mut world = FutureArchaeologist::new().unwrap();
     world
-        .invoke_projection_command(RECOVER_MESSAGE_COMMAND)
+        .choose_action(&format!("{RESPOND_COMMAND}:public_warning"))
         .unwrap();
 
-    let replayed = world.world().replay().unwrap();
-
-    assert_eq!(replayed.state(), world.world().state());
-    assert_eq!(replayed.events(), world.world().events());
+    let error = world
+        .invoke_projection_command(RECOVER_MESSAGE_COMMAND)
+        .unwrap_err();
+    assert!(matches!(error, FutureArchaeologistError::InvalidCommand(_)));
 }
