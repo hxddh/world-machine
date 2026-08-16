@@ -13,7 +13,9 @@ use world_projection::{
 
 pub const PACK_MANIFEST_FORMAT: &str = "world-machine-pack";
 pub const PACK_MANIFEST_VERSION: u32 = 1;
-pub const PACK_PROTOCOL_VERSION: u32 = 1;
+pub const PACK_PROTOCOL_VERSION_V1: u32 = 1;
+pub const PACK_PROTOCOL_VERSION_V2: u32 = 2;
+pub const PACK_PROTOCOL_VERSION: u32 = PACK_PROTOCOL_VERSION_V2;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PackManifest {
@@ -135,6 +137,19 @@ impl PackRequestEnvelope {
         }
     }
 
+    pub fn for_version(
+        protocol_version: u32,
+        request_id: u64,
+        request: PackRequest,
+    ) -> Result<Self, ProtocolError> {
+        validate_protocol_version(protocol_version)?;
+        Ok(Self {
+            protocol_version,
+            request_id,
+            request,
+        })
+    }
+
     pub fn validate(&self) -> Result<(), ProtocolError> {
         validate_protocol_version(self.protocol_version)
     }
@@ -154,6 +169,19 @@ impl PackResponseEnvelope {
             request_id,
             response,
         }
+    }
+
+    pub fn for_version(
+        protocol_version: u32,
+        request_id: u64,
+        response: PackResponse,
+    ) -> Result<Self, ProtocolError> {
+        validate_protocol_version(protocol_version)?;
+        Ok(Self {
+            protocol_version,
+            request_id,
+            response,
+        })
     }
 
     pub fn validate(&self) -> Result<(), ProtocolError> {
@@ -207,7 +235,7 @@ pub fn decode_response(json: &str) -> Result<PackResponseEnvelope, ProtocolDecod
 }
 
 fn validate_protocol_version(version: u32) -> Result<(), ProtocolError> {
-    if version == PACK_PROTOCOL_VERSION {
+    if matches!(version, PACK_PROTOCOL_VERSION_V1 | PACK_PROTOCOL_VERSION_V2) {
         Ok(())
     } else {
         Err(ProtocolError::UnsupportedProtocolVersion(version))
