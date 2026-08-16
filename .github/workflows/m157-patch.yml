@@ -1,0 +1,273 @@
+name: M157 patch
+
+on:
+  push:
+    branches:
+      - agent/m157-protocol-v2-negotiation
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/m157-protocol-v2-negotiation
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Add protocol v2 negotiation
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          protocol_path = Path('crates/world-pack-protocol/src/lib.rs')
+          text = protocol_path.read_text()
+          old = 'pub const PACK_PROTOCOL_VERSION: u32 = 1;\n'
+          new = 'pub const PACK_PROTOCOL_VERSION_V1: u32 = 1;\npub const PACK_PROTOCOL_VERSION_V2: u32 = 2;\npub const PACK_PROTOCOL_VERSION: u32 = PACK_PROTOCOL_VERSION_V2;\n'
+          assert text.count(old) == 1
+          text = text.replace(old, new)
+
+          old = '''    pub fn validate(&self) -> Result<(), ProtocolError> {
+        validate_protocol_version(self.protocol_version)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PackResponseEnvelope {
+'''
+          new = '''    pub fn for_version(
+        protocol_version: u32,
+        request_id: u64,
+        request: PackRequest,
+    ) -> Result<Self, ProtocolError> {
+        validate_protocol_version(protocol_version)?;
+        Ok(Self {
+            protocol_version,
+            request_id,
+            request,
+        })
+    }
+
+    pub fn validate(&self) -> Result<(), ProtocolError> {
+        validate_protocol_version(self.protocol_version)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PackResponseEnvelope {
+'''
+          assert text.count(old) == 1
+          text = text.replace(old, new)
+
+          old = '''    pub fn validate(&self) -> Result<(), ProtocolError> {
+        validate_protocol_version(self.protocol_version)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum PackRequest {
+'''
+          new = '''    pub fn for_version(
+        protocol_version: u32,
+        request_id: u64,
+        response: PackResponse,
+    ) -> Result<Self, ProtocolError> {
+        validate_protocol_version(protocol_version)?;
+        Ok(Self {
+            protocol_version,
+            request_id,
+            response,
+        })
+    }
+
+    pub fn validate(&self) -> Result<(), ProtocolError> {
+        validate_protocol_version(self.protocol_version)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum PackRequest {
+'''
+          assert text.count(old) == 1
+          text = text.replace(old, new)
+
+          old = '''fn validate_protocol_version(version: u32) -> Result<(), ProtocolError> {
+    if version == PACK_PROTOCOL_VERSION {
+        Ok(())
+    } else {
+        Err(ProtocolError::UnsupportedProtocolVersion(version))
+    }
+}
+'''
+          new = '''fn validate_protocol_version(version: u32) -> Result<(), ProtocolError> {
+    if matches!(version, PACK_PROTOCOL_VERSION_V1 | PACK_PROTOCOL_VERSION_V2) {
+        Ok(())
+    } else {
+        Err(ProtocolError::UnsupportedProtocolVersion(version))
+    }
+}
+'''
+          assert text.count(old) == 1
+          protocol_path.write_text(text.replace(old, new))
+
+          process_path = Path('crates/world-pack-process/src/lib.rs')
+          text = process_path.read_text()
+          old = '''pub struct ProcessPack {
+    pub manifest_path: PathBuf,
+    pub descriptor: PackDescriptor,
+    pub command: PathBuf,
+    pub args: Vec<String>,
+    pin: Option<ProcessPackPin>,
+}
+'''
+          new = '''pub struct ProcessPack {
+    pub manifest_path: PathBuf,
+    pub descriptor: PackDescriptor,
+    pub protocol_version: u32,
+    pub command: PathBuf,
+    pub args: Vec<String>,
+    pin: Option<ProcessPackPin>,
+}
+'''
+          assert text.count(old) == 1
+          text = text.replace(old, new)
+
+          old = '''        let PackRuntimeManifest::Process { command, args } = manifest.runtime;
+        let command = resolve_command(&manifest_path, &command)?;
+        Ok(Self {
+            manifest_path,
+            descriptor: manifest.descriptor,
+            command,
+            args,
+            pin: None,
+        })
+'''
+          new = '''        let protocol_version = manifest.protocol_version;
+        let PackRuntimeManifest::Process { command, args } = manifest.runtime;
+        let command = resolve_command(&manifest_path, &command)?;
+        Ok(Self {
+            manifest_path,
+            descriptor: manifest.descriptor,
+            protocol_version,
+            command,
+            args,
+            pin: None,
+        })
+'''
+          assert text.count(old) == 1
+          text = text.replace(old, new)
+
+          old = '''struct ProcessClient {
+    child: Child,
+    stdin: Option<BufWriter<ChildStdin>>,
+    responses: Receiver<io::Result<String>>,
+    next_request_id: u64,
+    request_timeout: Duration,
+    launch_cleanup: Option<PathBuf>,
+}
+'''
+          new = '''struct ProcessClient {
+    child: Child,
+    stdin: Option<BufWriter<ChildStdin>>,
+    responses: Receiver<io::Result<String>>,
+    protocol_version: u32,
+    next_request_id: u64,
+    request_timeout: Duration,
+    launch_cleanup: Option<PathBuf>,
+}
+'''
+          assert text.count(old) == 1
+          text = text.replace(old, new)
+
+          old = '''        Ok(Self {
+            child,
+            stdin: Some(BufWriter::new(stdin)),
+            responses: spawn_response_reader(stdout, DEFAULT_MAX_RESPONSE_BYTES),
+            next_request_id: 1,
+            request_timeout: DEFAULT_REQUEST_TIMEOUT,
+            launch_cleanup,
+        })
+'''
+          new = '''        Ok(Self {
+            child,
+            stdin: Some(BufWriter::new(stdin)),
+            responses: spawn_response_reader(stdout, DEFAULT_MAX_RESPONSE_BYTES),
+            protocol_version: pack.protocol_version,
+            next_request_id: 1,
+            request_timeout: DEFAULT_REQUEST_TIMEOUT,
+            launch_cleanup,
+        })
+'''
+          assert text.count(old) == 1
+          text = text.replace(old, new)
+
+          old = '        let envelope = PackRequestEnvelope::new(request_id, request);\n'
+          new = '''        let envelope = PackRequestEnvelope::for_version(
+            self.protocol_version,
+            request_id,
+            request,
+        )
+        .map_err(|error| HostError::session(format!("invalid Pack protocol version: {error}")))?;
+'''
+          assert text.count(old) == 1
+          text = text.replace(old, new, 1)
+
+          old = '''        if response.request_id != request_id {
+            let actual = response.request_id;
+            self.terminate();
+            return Err(HostError::session(format!(
+                "external Pack response id mismatch: expected {request_id}, got {actual}"
+            )));
+        }
+'''
+          new = '''        if response.protocol_version != self.protocol_version {
+            let actual = response.protocol_version;
+            let expected = self.protocol_version;
+            self.terminate();
+            return Err(HostError::session(format!(
+                "external Pack response protocol version mismatch: expected {expected}, got {actual}"
+            )));
+        }
+        if response.request_id != request_id {
+            let actual = response.request_id;
+            self.terminate();
+            return Err(HostError::session(format!(
+                "external Pack response id mismatch: expected {request_id}, got {actual}"
+            )));
+        }
+'''
+          assert text.count(old) == 1
+          text = text.replace(old, new)
+
+          old = '''        let envelope = PackRequestEnvelope::new(request_id, PackRequest::Shutdown);
+        if let (Ok(encoded), Some(stdin)) = (encode_request(&envelope), self.stdin.as_mut()) {
+'''
+          new = '''        let Ok(envelope) = PackRequestEnvelope::for_version(
+            self.protocol_version,
+            request_id,
+            PackRequest::Shutdown,
+        ) else {
+            self.stdin.take();
+            return;
+        };
+        if let (Ok(encoded), Some(stdin)) = (encode_request(&envelope), self.stdin.as_mut()) {
+'''
+          assert text.count(old) == 1
+          process_path.write_text(text.replace(old, new))
+          PY
+          cargo fmt --all
+          git diff --check
+      - name: Commit patch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add crates/world-pack-protocol/src/lib.rs crates/world-pack-process/src/lib.rs
+          git commit -m "M157: negotiate Pack protocol versions"
+          git push origin HEAD:agent/m157-protocol-v2-negotiation
