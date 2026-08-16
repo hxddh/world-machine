@@ -1,0 +1,38 @@
+name: M184 patch
+on:
+  push:
+    branches:
+      - agent/m184-cli-world-query
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/m184-cli-world-query
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: semantic
+      - name: Route CLI through world-query
+        run: |
+          python3 .github/scripts/m184_cli_world_query.py
+          cargo fmt --all
+          cargo test -p world-query -p world-cli
+          cargo clippy -p world-query -p world-cli --all-targets -- -D warnings
+          git diff --check
+      - name: Commit patch
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add Cargo.lock crates/world-cli/Cargo.toml crates/world-cli/src/main.rs
+          if git diff --cached --quiet; then
+            echo "No patch produced" >&2
+            exit 1
+          fi
+          git commit -m "M184: route CLI evidence queries through world-query"
+          git push origin HEAD:agent/m184-cli-world-query
