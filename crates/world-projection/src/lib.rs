@@ -11,6 +11,7 @@ pub use causal::{why_from_world, why_map_from_world, WhyNode, WhyProjection};
 pub const ENTITY_HISTORY_SECTION: &str = "Recorded entity changes";
 pub const RELATION_HISTORY_SECTION: &str = "Recorded relation changes";
 pub const RELATION_ENDPOINTS_SECTION: &str = "Active relation endpoints";
+pub const RELATION_IDENTITY_SECTION: &str = "Relation identity endpoints";
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum SelectionId {
@@ -45,6 +46,12 @@ pub struct RelationEventEvidence {
 pub enum RelationEndpointRole {
     From,
     To,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct RelationIdentity {
+    pub from: EntityId,
+    pub to: EntityId,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -255,6 +262,11 @@ impl ProjectionSnapshot {
             .collect()
     }
 
+    pub fn relation_identity(&self, relation: RelationId) -> Option<RelationIdentity> {
+        self.inspector(SelectionId::Relation(relation))
+            .and_then(relation_identity_from_inspector)
+    }
+
     pub fn state_evidence_edges(&self) -> Vec<StateEvidenceEdge> {
         self.entity_event_evidence()
             .into_iter()
@@ -387,6 +399,31 @@ fn entity_relation_evidence_from_inspector(
         .collect()
 }
 
+fn relation_identity_from_inspector(inspector: &InspectorProjection) -> Option<RelationIdentity> {
+    let section = inspector
+        .sections
+        .iter()
+        .find(|section| section.title == RELATION_IDENTITY_SECTION)?;
+    let endpoint = |label: &str| {
+        section
+            .rows
+            .iter()
+            .find(|row| row.label == label)
+            .and_then(|row| entity_id_from_stable_key(&row.value))
+    };
+    Some(RelationIdentity {
+        from: endpoint("From")?,
+        to: endpoint("To")?,
+    })
+}
+
+fn entity_id_from_stable_key(key: &str) -> Option<EntityId> {
+    key.strip_prefix("entity-")?
+        .parse::<u64>()
+        .ok()
+        .map(EntityId::new)
+}
+
 fn history_event_ids_from_inspector(
     inspector: &InspectorProjection,
     section_title: &str,
@@ -483,7 +520,10 @@ impl InspectorProjection {
         self.sections.iter().filter(|section| {
             !matches!(
                 section.title.as_str(),
-                ENTITY_HISTORY_SECTION | RELATION_HISTORY_SECTION | RELATION_ENDPOINTS_SECTION
+                ENTITY_HISTORY_SECTION
+                    | RELATION_HISTORY_SECTION
+                    | RELATION_ENDPOINTS_SECTION
+                    | RELATION_IDENTITY_SECTION
             )
         })
     }
@@ -864,6 +904,19 @@ fn inspector_for_relation(
             rows: properties,
         });
     }
+    sections.push(InspectorSection {
+        title: RELATION_IDENTITY_SECTION.into(),
+        rows: vec![
+            InspectorRow {
+                label: "From".into(),
+                value: SelectionId::Entity(relation.from).stable_key(),
+            },
+            InspectorRow {
+                label: "To".into(),
+                value: SelectionId::Entity(relation.to).stable_key(),
+            },
+        ],
+    });
     if recorded.active {
         sections.push(InspectorSection {
             title: RELATION_ENDPOINTS_SECTION.into(),
