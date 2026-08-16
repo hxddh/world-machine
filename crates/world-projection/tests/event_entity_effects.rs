@@ -122,12 +122,7 @@ fn relation_lifetime_effects_follow_baseline_and_relation_id_reuse() {
         recorded_event(
             4,
             "create_relation",
-            StateChange::CreateRelation(Relation::new(
-                relation_id,
-                "knows",
-                middle,
-                right,
-            )),
+            StateChange::CreateRelation(Relation::new(relation_id, "knows", middle, right)),
         ),
         recorded_event(
             5,
