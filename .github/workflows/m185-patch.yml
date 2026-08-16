@@ -1,0 +1,38 @@
+name: M185 patch
+on:
+  push:
+    branches:
+      - agent/m185-query-contract
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/m185-query-contract
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: semantic
+      - name: Apply serializable query contract
+        run: |
+          python3 .github/scripts/m185_query_contract.py
+          cargo fmt --all
+          cargo test -p world-query
+          cargo clippy -p world-query --all-targets -- -D warnings
+          git diff --check
+      - name: Commit patch
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add crates/world-query/src/lib.rs
+          if git diff --cached --quiet; then
+            echo "No patch produced" >&2
+            exit 1
+          fi
+          git commit -m "M185: add serializable evidence query contract"
+          git push origin HEAD:agent/m185-query-contract
