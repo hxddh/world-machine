@@ -1,0 +1,33 @@
+name: M175 patch
+on:
+  push:
+    branches:
+      - agent/m175-evidence-neighborhood
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/m175-evidence-neighborhood
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Apply bounded evidence neighborhood query
+        run: |
+          python3 .github/scripts/m175_evidence_neighborhood.py
+          cargo fmt --all
+          git diff --check
+      - name: Commit patch
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add crates/world-projection/src/lib.rs crates/world-projection/tests/state_evidence_graph.rs
+          if git diff --cached --quiet; then
+            echo "No patch produced" >&2
+            exit 1
+          fi
+          git commit -m "M175: add bounded evidence neighborhoods"
+          git push origin HEAD:agent/m175-evidence-neighborhood
