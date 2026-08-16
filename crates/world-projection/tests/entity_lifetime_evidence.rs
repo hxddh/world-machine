@@ -90,7 +90,9 @@ fn recreating_entity_id_starts_a_new_evidence_lifetime() {
         vec![SelectionId::Event(EventId::new(2))]
     );
 
-    assert!(snapshot.directly_changed_entities(EventId::new(1)).is_empty());
+    assert!(snapshot
+        .directly_changed_entities(EventId::new(1))
+        .is_empty());
     assert_eq!(
         snapshot.directly_changed_entities(EventId::new(2)),
         vec![survivor]
