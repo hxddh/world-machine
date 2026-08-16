@@ -42,9 +42,16 @@ pub struct RelationEventEvidence {
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum RelationEndpointRole {
+    From,
+    To,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct EntityRelationEvidence {
     pub entity: EntityId,
     pub relation: RelationId,
+    pub role: RelationEndpointRole,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -196,6 +203,8 @@ impl ProjectionSnapshot {
             .into_iter()
             .filter(|evidence| evidence.entity == entity)
             .map(|evidence| evidence.relation)
+            .collect::<BTreeSet<_>>()
+            .into_iter()
             .collect()
     }
 
@@ -204,6 +213,8 @@ impl ProjectionSnapshot {
             .into_iter()
             .filter(|evidence| evidence.relation == relation)
             .map(|evidence| evidence.entity)
+            .collect::<BTreeSet<_>>()
+            .into_iter()
             .collect()
     }
 
@@ -293,8 +304,21 @@ fn entity_relation_evidence_from_inspector(
     section
         .rows
         .iter()
-        .filter_map(|row| visible_entities.get(row.value.as_str()).copied())
-        .map(|entity| EntityRelationEvidence { entity, relation })
+        .filter_map(|row| {
+            let role = match row.label.as_str() {
+                "From" | "from" => RelationEndpointRole::From,
+                "To" | "to" => RelationEndpointRole::To,
+                _ => return None,
+            };
+            visible_entities
+                .get(row.value.as_str())
+                .copied()
+                .map(|entity| EntityRelationEvidence {
+                    entity,
+                    relation,
+                    role,
+                })
+        })
         .collect()
 }
 

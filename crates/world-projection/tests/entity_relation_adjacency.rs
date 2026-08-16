@@ -4,7 +4,8 @@ use world_core::{
 };
 use world_projection::{
     inspectors_from_world, timeline_from_world, EntityRelationEvidence, InspectorProjection,
-    InspectorRow, InspectorSection, ProjectionSnapshot, SelectionId, RELATION_ENDPOINTS_SECTION,
+    InspectorRow, InspectorSection, ProjectionSnapshot, RelationEndpointRole, SelectionId,
+    RELATION_ENDPOINTS_SECTION,
 };
 
 fn snapshot(world: &World) -> ProjectionSnapshot {
@@ -57,15 +58,49 @@ fn active_relation_exposes_typed_entity_adjacency() {
             EntityRelationEvidence {
                 entity: one,
                 relation,
+                role: RelationEndpointRole::From,
             },
             EntityRelationEvidence {
                 entity: two,
                 relation,
+                role: RelationEndpointRole::To,
             },
         ]
     );
     assert_eq!(snapshot.relations_for_entity(one), vec![relation]);
     assert_eq!(snapshot.entities_for_relation(relation), vec![one, two]);
+}
+
+#[test]
+fn self_relation_preserves_both_endpoint_roles_without_duplicating_convenience_results() {
+    let entity = EntityId::new(1);
+    let relation = RelationId::new(5);
+    let mut baseline = WorldState::default();
+    baseline
+        .seed_entity(Entity::new(entity, "person"))
+        .expect("entity should seed");
+    baseline
+        .seed_relation(Relation::new(relation, "reflects", entity, entity))
+        .expect("self relation should seed");
+    let snapshot = snapshot(&World::new(baseline));
+
+    assert_eq!(
+        snapshot.entity_relation_evidence(),
+        vec![
+            EntityRelationEvidence {
+                entity,
+                relation,
+                role: RelationEndpointRole::From,
+            },
+            EntityRelationEvidence {
+                entity,
+                relation,
+                role: RelationEndpointRole::To,
+            },
+        ]
+    );
+    assert_eq!(snapshot.relations_for_entity(entity), vec![relation]);
+    assert_eq!(snapshot.entities_for_relation(relation), vec![entity]);
 }
 
 #[test]
@@ -166,6 +201,7 @@ fn adjacency_does_not_expose_hidden_entity_ids_from_partial_snapshots() {
         vec![EntityRelationEvidence {
             entity: visible,
             relation,
+            role: RelationEndpointRole::From,
         }]
     );
     assert_eq!(snapshot.entities_for_relation(relation), vec![visible]);
