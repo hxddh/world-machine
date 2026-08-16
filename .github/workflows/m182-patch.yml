@@ -1,0 +1,38 @@
+name: M182 patch
+on:
+  push:
+    branches:
+      - agent/m182-cli-evidence-compare
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/m182-cli-evidence-compare
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: semantic
+      - name: Apply local evidence comparison command
+        run: |
+          python3 .github/scripts/m182_cli_evidence_compare.py
+          cargo fmt --all
+          cargo test -p world-cli
+          cargo clippy -p world-cli --all-targets -- -D warnings
+          git diff --check
+      - name: Commit patch
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add Cargo.lock crates/world-cli/Cargo.toml crates/world-cli/src/main.rs
+          if git diff --cached --quiet; then
+            echo "No patch produced" >&2
+            exit 1
+          fi
+          git commit -m "M182: compare evidence neighborhoods from CLI"
+          git push origin HEAD:agent/m182-cli-evidence-compare
