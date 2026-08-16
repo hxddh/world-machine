@@ -15,6 +15,7 @@ const INSPECTOR_ROW_LIMIT: usize = 6;
 const DIVERGENCE_IMPACT_LIMIT: usize = 4;
 const EVIDENCE_CAUSE_LIMIT: usize = 6;
 const ENTITY_HISTORY_LIMIT: usize = 6;
+const EVENT_ENTITY_EFFECT_LIMIT: usize = 6;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct SavedComparisonContext {
@@ -604,6 +605,34 @@ impl StrategyComparisonView {
         }
 
         if let SelectionId::Event(event) = selected.selection {
+            let changed_entities = snapshot.directly_changed_entities(event);
+            if !changed_entities.is_empty() {
+                let mut entities = div().flex().flex_col().gap_2();
+                for entity in changed_entities.iter().take(EVENT_ENTITY_EFFECT_LIMIT) {
+                    entities = entities.child(self.render_event_entity_effect(
+                        selected.side,
+                        SelectionId::Entity(*entity),
+                        cx,
+                    ));
+                }
+                if let Some(notice) = hidden_notice(
+                    changed_entities.len(),
+                    EVENT_ENTITY_EFFECT_LIMIT,
+                    "directly changed entities",
+                ) {
+                    entities = entities.child(truncation_notice(notice));
+                }
+                panel = panel
+                    .child(div().text_sm().child("Entities changed by this event"))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(0x66705f))
+                            .child("Entities with a direct recorded StateChange from this visible event. Select one to inspect its state and recorded history on this same future."),
+                    )
+                    .child(entities);
+            }
+
             let mut causes = div().flex().flex_col().gap_2();
             if let Some(why) = snapshot.why(event) {
                 let cause_nodes = why.nodes.iter().skip(1).collect::<Vec<_>>();
@@ -649,6 +678,41 @@ impl StrategyComparisonView {
         Some(panel)
     }
 
+    fn render_event_entity_effect(
+        &self,
+        side: ComparisonSide,
+        selection: SelectionId,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let (title, subtitle) = self
+            .snapshot(side)
+            .and_then(|snapshot| snapshot.inspector(selection))
+            .map(|inspector| (inspector.title.clone(), inspector.subtitle.clone()))
+            .unwrap_or_else(|| ("Entity".into(), "Recorded entity".into()));
+        let selected = self.is_selected(side, selection);
+        div()
+            .id(SharedString::from(format!(
+                "event-entity-effect-{}-{}",
+                side.key(),
+                selection.stable_key()
+            )))
+            .p_2()
+            .rounded_md()
+            .border_1()
+            .border_color(if selected {
+                rgb(0x4e6fb3)
+            } else {
+                rgb(0xe2e4e8)
+            })
+            .bg(rgb(0xffffff))
+            .cursor_pointer()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(div().text_sm().child(title))
+            .child(div().text_xs().text_color(rgb(0x666666)).child(subtitle))
+            .on_click(cx.listener(move |this, _, _, cx| this.select(side, selection, cx)))
+    }
     fn render_entity_history_event(
         &self,
         side: ComparisonSide,
