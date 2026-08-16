@@ -7,7 +7,7 @@ use world_projection::{
 };
 
 #[test]
-fn entity_history_survives_pack_json_wire_round_trip() {
+fn entity_evidence_edges_survive_pack_json_wire_round_trip() {
     let entity_id = EntityId::new(7);
     let event_id = EventId::new(9);
     let entity = SelectionId::Entity(entity_id);
@@ -53,4 +53,8 @@ fn entity_history_survives_pack_json_wire_round_trip() {
     let history = restored.entity_history(entity_id);
     assert_eq!(history.len(), 1);
     assert_eq!(history[0], &event_item);
+    assert_eq!(
+        restored.directly_changed_entities(event_id),
+        vec![entity_id]
+    );
 }
