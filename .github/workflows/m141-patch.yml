@@ -1,0 +1,170 @@
+name: M141 Patch
+
+on:
+  push:
+    branches:
+      - agent/m141-main-world-entity-history
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ !contains(github.event.head_commit.message, '[m141-patch]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/m141-main-world-entity-history
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Apply M141 patch
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('crates/world-gpui/src/macos.rs')
+          s = p.read_text()
+
+          old = "use world_projection::{\n    BriefingItem, CanvasItemKind, CollectionItem, InspectorProjection, ProjectionCommand,\n    ProjectionIntent, ProjectionSnapshot, SelectionId, TimelineItem, WhyNode,\n};"
+          new = "use world_projection::{\n    BriefingItem, CanvasItemKind, CollectionItem, InspectorProjection, ProjectionCommand,\n    ProjectionIntent, ProjectionSnapshot, SelectionId, TimelineItem, WhyNode, ENTITY_HISTORY_SECTION,\n};\n\nconst ENTITY_HISTORY_LIMIT: usize = 6;"
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          old = """    fn render_inspector(&self) -> Option<Div> {
+        let inspector = self
+            .selected
+            .and_then(|selection| self.snapshot.inspector(selection))?;
+        Some(inspector_panel(inspector))
+    }
+"""
+          new = """    fn render_inspector(&self, cx: &mut Context<Self>) -> Option<Div> {
+        let selection = self.selected?;
+        let inspector = self.snapshot.inspector(selection)?;
+        let mut panel = inspector_panel(inspector);
+
+        if let SelectionId::Entity(entity) = selection {
+            let history = self.snapshot.entity_history(entity);
+            if !history.is_empty() {
+                let mut items = div().flex().flex_col().gap_2();
+                for item in history.iter().take(ENTITY_HISTORY_LIMIT) {
+                    items = items.child(self.entity_history_item(item, cx));
+                }
+                panel = panel
+                    .child(div().text_sm().child("Recorded changes to this entity"))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(0x66705f))
+                            .child("Recorded events whose StateChanges directly changed this entity. Select one to inspect the event, trace its causes and effects, or fork before it."),
+                    )
+                    .child(items);
+                let hidden = history.len().saturating_sub(ENTITY_HISTORY_LIMIT);
+                if hidden > 0 {
+                    panel = panel.child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(0x777777))
+                            .child(format!("{hidden} more recorded entity changes not shown")),
+                    );
+                }
+            }
+        }
+
+        Some(panel)
+    }
+
+    fn entity_history_item(
+        &self,
+        item: &TimelineItem,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let selection = item.id;
+        div()
+            .id(SharedString::from(format!(
+                "entity-history-{}",
+                selection.stable_key()
+            )))
+            .p_2()
+            .rounded_md()
+            .border_1()
+            .border_color(rgb(0xe2e4e8))
+            .bg(rgb(0xf8f9fc))
+            .cursor_pointer()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(div().text_sm().child(item.title.clone()))
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0x555555))
+                    .child(item.subtitle.clone()),
+            )
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0x777777))
+                    .child(format!("World time {}", item.world_time)),
+            )
+            .on_click(cx.listener(move |this, _, _, cx| this.select(selection, cx)))
+    }
+"""
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          old = """            if let Some(inspector) = self.render_inspector() {
+                center = center.child(inspector);
+            }
+"""
+          new = """            if let Some(inspector) = self.render_inspector(cx) {
+                center = center.child(inspector);
+            }
+"""
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          old = """    for section in &inspector.sections {
+        let mut rows = div().flex().flex_col().gap_1();
+"""
+          new = """    for section in &inspector.sections {
+        if section.title == ENTITY_HISTORY_SECTION {
+            continue;
+        }
+        let mut rows = div().flex().flex_col().gap_1();
+"""
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          old = """    div()
+        .p_3()
+        .rounded_md()
+        .border_1()
+        .border_color(rgb(0xdadada))
+        .bg(rgb(0xffffff))
+        .child(body)
+"""
+          new = """    div()
+        .p_3()
+        .rounded_md()
+        .border_1()
+        .border_color(rgb(0xdadada))
+        .bg(rgb(0xffffff))
+        .flex()
+        .flex_col()
+        .gap_3()
+        .child(body)
+"""
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          p.write_text(s)
+          PY
+          cargo fmt --all
+      - name: Commit M141
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add crates/world-gpui/src/macos.rs
+          git commit -m "M141: navigate entity history in main world [m141-patch]"
+          git push origin HEAD:agent/m141-main-world-entity-history
