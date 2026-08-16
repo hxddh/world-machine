@@ -88,6 +88,28 @@ impl ProjectionSnapshot {
             .collect()
     }
 
+    pub fn directly_changed_entities(&self, event: EventId) -> Vec<EntityId> {
+        let event_key = SelectionId::Event(event).stable_key();
+        self.inspectors
+            .iter()
+            .filter_map(|(selection, inspector)| {
+                let SelectionId::Entity(entity) = selection else {
+                    return None;
+                };
+                inspector
+                    .sections
+                    .iter()
+                    .find(|section| section.title == ENTITY_HISTORY_SECTION)
+                    .filter(|section| {
+                        section
+                            .rows
+                            .iter()
+                            .any(|row| row.value.as_str() == event_key.as_str())
+                    })
+                    .map(|_| *entity)
+            })
+            .collect()
+    }
     pub fn influence(&self, event: EventId) -> Vec<(usize, &TimelineItem)> {
         influence::influence_from_timeline(&self.timeline, event)
     }
