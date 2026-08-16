@@ -8,3 +8,4 @@ license = "Apache-2.0"
 world-builtins = { path = "../world-builtins" }
 world-integrity = { path = "../world-integrity" }
 world-persistence = { path = "../world-persistence" }
+world-projection = { path = "../world-projection" }

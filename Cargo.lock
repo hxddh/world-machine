@@ -6620,6 +6620,7 @@ dependencies = [
  "world-builtins",
  "world-integrity",
  "world-persistence",
+ "world-projection",
 ]
 
 [[package]]
