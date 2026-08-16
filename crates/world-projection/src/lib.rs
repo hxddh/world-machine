@@ -10,6 +10,7 @@ pub use causal::{why_from_world, why_map_from_world, WhyNode, WhyProjection};
 
 pub const ENTITY_HISTORY_SECTION: &str = "Recorded entity changes";
 pub const RELATION_HISTORY_SECTION: &str = "Recorded relation changes";
+pub const RELATION_ENDPOINTS_SECTION: &str = "Active relation endpoints";
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum SelectionId {
@@ -38,6 +39,12 @@ pub struct EntityEventEvidence {
 pub struct RelationEventEvidence {
     pub relation: RelationId,
     pub event: EventId,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct EntityRelationEvidence {
+    pub entity: EntityId,
+    pub relation: RelationId,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -168,6 +175,38 @@ impl ProjectionSnapshot {
             .collect()
     }
 
+    pub fn entity_relation_evidence(&self) -> Vec<EntityRelationEvidence> {
+        let visible_entities = visible_entity_ids_by_key(&self.inspectors);
+        let mut evidence = BTreeSet::new();
+        for (selection, inspector) in &self.inspectors {
+            let SelectionId::Relation(relation) = *selection else {
+                continue;
+            };
+            evidence.extend(entity_relation_evidence_from_inspector(
+                relation,
+                inspector,
+                &visible_entities,
+            ));
+        }
+        evidence.into_iter().collect()
+    }
+
+    pub fn relations_for_entity(&self, entity: EntityId) -> Vec<RelationId> {
+        self.entity_relation_evidence()
+            .into_iter()
+            .filter(|evidence| evidence.entity == entity)
+            .map(|evidence| evidence.relation)
+            .collect()
+    }
+
+    pub fn entities_for_relation(&self, relation: RelationId) -> Vec<EntityId> {
+        self.entity_relation_evidence()
+            .into_iter()
+            .filter(|evidence| evidence.relation == relation)
+            .map(|evidence| evidence.entity)
+            .collect()
+    }
+
     pub fn influence(&self, event: EventId) -> Vec<(usize, &TimelineItem)> {
         influence::influence_from_timeline(&self.timeline, event)
     }
@@ -187,6 +226,20 @@ impl ProjectionSnapshot {
     pub fn command(&self, id: &str) -> Option<&ProjectionCommand> {
         self.commands.iter().find(|command| command.id == id)
     }
+}
+
+fn visible_entity_ids_by_key(
+    inspectors: &BTreeMap<SelectionId, InspectorProjection>,
+) -> BTreeMap<String, EntityId> {
+    inspectors
+        .keys()
+        .filter_map(|selection| {
+            let SelectionId::Entity(entity) = *selection else {
+                return None;
+            };
+            Some((selection.stable_key(), entity))
+        })
+        .collect()
 }
 
 fn visible_event_ids_by_key(timeline: &TimelineProjection) -> BTreeMap<String, EventId> {
@@ -221,6 +274,27 @@ fn relation_event_evidence_from_inspector(
     history_event_ids_from_inspector(inspector, RELATION_HISTORY_SECTION, visible_events)
         .into_iter()
         .map(|event| RelationEventEvidence { relation, event })
+        .collect()
+}
+
+fn entity_relation_evidence_from_inspector(
+    relation: RelationId,
+    inspector: &InspectorProjection,
+    visible_entities: &BTreeMap<String, EntityId>,
+) -> BTreeSet<EntityRelationEvidence> {
+    let Some(section) = inspector
+        .sections
+        .iter()
+        .find(|section| section.title == RELATION_ENDPOINTS_SECTION)
+    else {
+        return BTreeSet::new();
+    };
+
+    section
+        .rows
+        .iter()
+        .filter_map(|row| visible_entities.get(row.value.as_str()).copied())
+        .map(|entity| EntityRelationEvidence { entity, relation })
         .collect()
 }
 
@@ -320,7 +394,7 @@ impl InspectorProjection {
         self.sections.iter().filter(|section| {
             !matches!(
                 section.title.as_str(),
-                ENTITY_HISTORY_SECTION | RELATION_HISTORY_SECTION
+                ENTITY_HISTORY_SECTION | RELATION_HISTORY_SECTION | RELATION_ENDPOINTS_SECTION
             )
         })
     }
@@ -699,6 +773,21 @@ fn inspector_for_relation(
         sections.push(InspectorSection {
             title: "Properties".into(),
             rows: properties,
+        });
+    }
+    if recorded.active {
+        sections.push(InspectorSection {
+            title: RELATION_ENDPOINTS_SECTION.into(),
+            rows: vec![
+                InspectorRow {
+                    label: "From".into(),
+                    value: SelectionId::Entity(relation.from).stable_key(),
+                },
+                InspectorRow {
+                    label: "To".into(),
+                    value: SelectionId::Entity(relation.to).stable_key(),
+                },
+            ],
         });
     }
     if !recorded_changes.is_empty() {
