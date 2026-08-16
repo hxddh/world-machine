@@ -1,0 +1,34 @@
+name: M178 GPUI fix
+on:
+  push:
+    branches:
+      - agent/m178-gpui-fix
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/m178-gpui-fix
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Fix Stateful Div return type
+        run: |
+          python3 .github/scripts/m178_gpui_fix.py
+          cargo fmt --all
+          cargo check -p world-strategy-gpui
+          git diff --check
+      - name: Commit patch
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add crates/world-strategy-gpui/src/lib.rs
+          if git diff --cached --quiet; then
+            echo "No patch produced" >&2
+            exit 1
+          fi
+          git commit -m "M178: allow stateful local evidence node cards"
+          git push origin HEAD:agent/m178-gpui-fix
