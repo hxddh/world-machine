@@ -48,6 +48,7 @@ pub struct ProjectionSnapshot {
     pub commands: Vec<ProjectionCommand>,
     pub collection: CollectionProjection,
     pub timeline: TimelineProjection,
+    pub direct_effects: BTreeMap<SelectionId, Vec<EntityId>>,
     pub canvas: CanvasProjection,
     pub inspectors: BTreeMap<SelectionId, InspectorProjection>,
     pub why: BTreeMap<EventId, WhyProjection>,
@@ -60,6 +61,13 @@ impl ProjectionSnapshot {
 
     pub fn why(&self, event: EventId) -> Option<&WhyProjection> {
         self.why.get(&event)
+    }
+
+    pub fn affected_entities(&self, selection: SelectionId) -> &[EntityId] {
+        self.direct_effects
+            .get(&selection)
+            .map(Vec::as_slice)
+            .unwrap_or_default()
     }
 
     pub fn influence(&self, event: EventId) -> Vec<(usize, &TimelineItem)> {
@@ -122,7 +130,6 @@ pub struct TimelineItem {
     pub title: String,
     pub subtitle: String,
     pub caused_by: Vec<EventId>,
-    pub affected_entities: Vec<EntityId>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -179,13 +186,23 @@ pub fn timeline_from_world(world: &World) -> TimelineProjection {
                 title: humanize(&event.kind),
                 subtitle: event_summary(event, world),
                 caused_by: event.caused_by.clone(),
-                affected_entities: affected_entities_from_event(event),
             })
             .collect(),
     }
 }
 
-pub fn affected_entities_from_event(event: &Event) -> Vec<EntityId> {
+pub fn direct_effects_from_world(world: &World) -> BTreeMap<SelectionId, Vec<EntityId>> {
+    world
+        .events()
+        .iter()
+        .filter_map(|event| {
+            let affected = affected_entities_from_event(event);
+            (!affected.is_empty()).then_some((SelectionId::Event(event.id), affected))
+        })
+        .collect()
+}
+
+fn affected_entities_from_event(event: &Event) -> Vec<EntityId> {
     let mut affected = Vec::new();
     for change in &event.changes {
         let Some(entity) = directly_affected_entity(change) else {
@@ -533,7 +550,7 @@ mod tests {
         assert_eq!(timeline.items.len(), 1);
         assert_eq!(timeline.items[0].title, "Work Started");
         assert_eq!(timeline.items[0].subtitle, "Workspace · Event #1");
-        assert!(timeline.items[0].affected_entities.is_empty());
+        assert!(direct_effects_from_world(&world).is_empty());
         assert_eq!(
             inspectors
                 .get(&SelectionId::Entity(EntityId::new(1)))
@@ -578,7 +595,7 @@ mod tests {
             timeline.items[0].subtitle,
             "A durable direction was chosen. · Event #1"
         );
-        assert!(timeline.items[0].affected_entities.is_empty());
+        assert!(direct_effects_from_world(&world).is_empty());
     }
 
     #[test]
@@ -610,8 +627,11 @@ mod tests {
         )
         .unwrap();
 
-        let timeline = timeline_from_world(&world);
-        assert_eq!(timeline.items[0].affected_entities, vec![EntityId::new(1)]);
+        let direct_effects = direct_effects_from_world(&world);
+        assert_eq!(
+            direct_effects.get(&SelectionId::Event(EventId::new(1))),
+            Some(&vec![EntityId::new(1)])
+        );
         let inspectors = inspectors_from_world(&world);
         let changes = inspectors
             .get(&SelectionId::Event(EventId::new(1)))
@@ -626,7 +646,7 @@ mod tests {
     }
 
     #[test]
-    fn timeline_records_only_directly_affected_entities() {
+    fn direct_effects_record_only_directly_affected_entities() {
         let mut state = WorldState::default();
         state
             .seed_entity(
@@ -691,14 +711,19 @@ mod tests {
         )
         .unwrap();
 
-        let timeline = timeline_from_world(&world);
-        assert_eq!(timeline.items.len(), 3);
-        assert_eq!(timeline.items[0].id, SelectionId::Event(EventId::new(3)));
-        assert_eq!(timeline.items[0].affected_entities, vec![EntityId::new(1)]);
-        assert_eq!(timeline.items[1].id, SelectionId::Event(EventId::new(2)));
-        assert_eq!(timeline.items[1].affected_entities, vec![EntityId::new(2)]);
-        assert_eq!(timeline.items[2].id, SelectionId::Event(EventId::new(1)));
-        assert_eq!(timeline.items[2].affected_entities, vec![EntityId::new(1)]);
+        let direct_effects = direct_effects_from_world(&world);
+        assert_eq!(
+            direct_effects.get(&SelectionId::Event(EventId::new(1))),
+            Some(&vec![EntityId::new(1)])
+        );
+        assert_eq!(
+            direct_effects.get(&SelectionId::Event(EventId::new(2))),
+            Some(&vec![EntityId::new(2)])
+        );
+        assert_eq!(
+            direct_effects.get(&SelectionId::Event(EventId::new(3))),
+            Some(&vec![EntityId::new(1)])
+        );
 
         let mut inspectors = inspectors_from_world(&world);
         let inspector = inspectors
