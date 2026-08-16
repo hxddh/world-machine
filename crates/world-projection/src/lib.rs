@@ -393,6 +393,14 @@ fn recorded_entity_change_events(world: &World) -> BTreeMap<EntityId, Vec<EventI
                 }
                 StateChange::RemoveEntity(entity) => {
                     affected.insert(*entity);
+                    for (from, to) in relation_endpoints.values().copied() {
+                        if from == *entity {
+                            affected.insert(to);
+                        }
+                        if to == *entity {
+                            affected.insert(from);
+                        }
+                    }
                     relation_endpoints.retain(|_, (from, to)| *from != *entity && *to != *entity);
                 }
                 StateChange::SetComponent { entity, .. }
