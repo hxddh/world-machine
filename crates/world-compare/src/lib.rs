@@ -313,7 +313,11 @@ fn compare_relations(
     ids.into_iter()
         .filter_map(
             |id| match (left_relations.get(&id), right_relations.get(&id)) {
-                (Some(left), Some(right)) if same_relation_state(left, right) => None,
+                (Some(left_inspector), Some(right_inspector))
+                    if same_relation_state(id, left, right, left_inspector, right_inspector) =>
+                {
+                    None
+                }
                 (Some(left), Some(right)) => Some(RelationDifference {
                     id,
                     kind: DifferenceKind::Changed,
@@ -361,8 +365,36 @@ fn relation_view(inspector: &InspectorProjection) -> RelationView {
     }
 }
 
-fn same_relation_state(left: &InspectorProjection, right: &InspectorProjection) -> bool {
-    same_inspector_state(left, right)
+fn same_relation_state(
+    id: SelectionId,
+    left_snapshot: &ProjectionSnapshot,
+    right_snapshot: &ProjectionSnapshot,
+    left: &InspectorProjection,
+    right: &InspectorProjection,
+) -> bool {
+    let SelectionId::Relation(relation) = id else {
+        return false;
+    };
+    match (
+        left_snapshot.relation_identity(relation),
+        right_snapshot.relation_identity(relation),
+    ) {
+        (Some(left_identity), Some(right_identity)) => {
+            left.title == right.title
+                && left.subtitle == right.subtitle
+                && indexed_relation_state_rows(left) == indexed_relation_state_rows(right)
+                && left_identity == right_identity
+        }
+        _ => same_inspector_state(left, right),
+    }
+}
+
+fn indexed_relation_state_rows(
+    inspector: &InspectorProjection,
+) -> BTreeMap<InspectorRowKey, &String> {
+    indexed_rows_filter(inspector, |section, row| {
+        !(section == "Relation" && matches!(row, "From" | "To"))
+    })
 }
 
 fn entity_inspectors(snapshot: &ProjectionSnapshot) -> BTreeMap<SelectionId, &InspectorProjection> {
@@ -432,11 +464,21 @@ fn compare_inspector_rows(
 }
 
 fn indexed_rows(inspector: &InspectorProjection) -> BTreeMap<InspectorRowKey, &String> {
+    indexed_rows_filter(inspector, |_, _| true)
+}
+
+fn indexed_rows_filter<'a>(
+    inspector: &'a InspectorProjection,
+    mut include: impl FnMut(&str, &str) -> bool,
+) -> BTreeMap<InspectorRowKey, &'a String> {
     let mut rows = BTreeMap::new();
     let mut duplicates = BTreeMap::<(String, String), usize>::new();
 
     for section in inspector.display_sections() {
         for row in &section.rows {
+            if !include(&section.title, &row.label) {
+                continue;
+            }
             let duplicate_key = (section.title.clone(), row.label.clone());
             let ordinal = duplicates.entry(duplicate_key.clone()).or_default();
             let key = InspectorRowKey {
@@ -528,7 +570,7 @@ mod tests {
     use world_core::{EntityId, EventId, RelationId};
     use world_projection::{
         InspectorRow, InspectorSection, TimelineProjection, ENTITY_HISTORY_SECTION,
-        RELATION_HISTORY_SECTION,
+        RELATION_HISTORY_SECTION, RELATION_IDENTITY_SECTION,
     };
 
     fn entity_inspector(id: u64, cash: &str, job: &str) -> (SelectionId, InspectorProjection) {
@@ -562,6 +604,28 @@ mod tests {
         status: &str,
         strength: &str,
     ) -> (SelectionId, InspectorProjection) {
+        relation_inspector_with_endpoints(
+            id,
+            kind,
+            status,
+            strength,
+            1,
+            "Alice · Entity #1",
+            2,
+            "Bob · Entity #2",
+        )
+    }
+
+    fn relation_inspector_with_endpoints(
+        id: u64,
+        kind: &str,
+        status: &str,
+        strength: &str,
+        from_id: u64,
+        from_text: &str,
+        to_id: u64,
+        to_text: &str,
+    ) -> (SelectionId, InspectorProjection) {
         let selection = SelectionId::Relation(RelationId::new(id));
         (
             selection,
@@ -572,10 +636,20 @@ mod tests {
                 sections: vec![
                     InspectorSection {
                         title: "Relation".into(),
-                        rows: vec![InspectorRow {
-                            label: "Status".into(),
-                            value: status.into(),
-                        }],
+                        rows: vec![
+                            InspectorRow {
+                                label: "From".into(),
+                                value: from_text.into(),
+                            },
+                            InspectorRow {
+                                label: "To".into(),
+                                value: to_text.into(),
+                            },
+                            InspectorRow {
+                                label: "Status".into(),
+                                value: status.into(),
+                            },
+                        ],
                     },
                     InspectorSection {
                         title: "Properties".into(),
@@ -583,6 +657,19 @@ mod tests {
                             label: "Strength".into(),
                             value: strength.into(),
                         }],
+                    },
+                    InspectorSection {
+                        title: RELATION_IDENTITY_SECTION.into(),
+                        rows: vec![
+                            InspectorRow {
+                                label: "From".into(),
+                                value: SelectionId::Entity(EntityId::new(from_id)).stable_key(),
+                            },
+                            InspectorRow {
+                                label: "To".into(),
+                                value: SelectionId::Entity(EntityId::new(to_id)).stable_key(),
+                            },
+                        ],
                     },
                 ],
             },
@@ -713,6 +800,162 @@ mod tests {
                 && row.left.as_deref() == Some("1")
                 && row.right.as_deref() == Some("2")
         }));
+    }
+
+    #[test]
+    fn relation_endpoint_name_drift_does_not_change_stable_relation_state() {
+        let left = snapshot(
+            20,
+            [relation_inspector_with_endpoints(
+                5,
+                "Works With",
+                "Active",
+                "2",
+                1,
+                "Alice · Entity #1",
+                2,
+                "Bob · Entity #2",
+            )],
+            vec![],
+            vec![],
+        );
+        let right = snapshot(
+            20,
+            [relation_inspector_with_endpoints(
+                5,
+                "Works With",
+                "Active",
+                "2",
+                1,
+                "Alicia · Entity #1",
+                2,
+                "Robert · Entity #2",
+            )],
+            vec![],
+            vec![],
+        );
+
+        assert!(compare_snapshots(&left, &right).relations.is_empty());
+    }
+
+    #[test]
+    fn legacy_relation_without_stable_identity_falls_back_to_visible_endpoint_rows() {
+        let (id, mut left) = relation_inspector_with_endpoints(
+            5,
+            "Works With",
+            "Active",
+            "2",
+            1,
+            "Alice · Entity #1",
+            2,
+            "Bob · Entity #2",
+        );
+        let (_, mut right) = relation_inspector_with_endpoints(
+            5,
+            "Works With",
+            "Active",
+            "2",
+            1,
+            "Alice · Entity #1",
+            3,
+            "Carol · Entity #3",
+        );
+        left.sections
+            .retain(|section| section.title != RELATION_IDENTITY_SECTION);
+        right
+            .sections
+            .retain(|section| section.title != RELATION_IDENTITY_SECTION);
+
+        let comparison = compare_snapshots(
+            &snapshot(20, [(id, left)], vec![], vec![]),
+            &snapshot(20, [(id, right)], vec![], vec![]),
+        );
+
+        assert_eq!(comparison.relations.len(), 1);
+        assert_eq!(comparison.relations[0].kind, DifferenceKind::Changed);
+        assert!(comparison.relations[0]
+            .inspector_rows
+            .iter()
+            .any(|row| row.key.label == "To"));
+    }
+
+    #[test]
+    fn relation_endpoint_identity_change_is_a_relation_state_change() {
+        let left = snapshot(
+            20,
+            [relation_inspector_with_endpoints(
+                5,
+                "Works With",
+                "Active",
+                "2",
+                1,
+                "Alice · Entity #1",
+                2,
+                "Bob · Entity #2",
+            )],
+            vec![],
+            vec![],
+        );
+        let right = snapshot(
+            20,
+            [relation_inspector_with_endpoints(
+                5,
+                "Works With",
+                "Active",
+                "2",
+                1,
+                "Alice · Entity #1",
+                3,
+                "Carol · Entity #3",
+            )],
+            vec![],
+            vec![],
+        );
+
+        let comparison = compare_snapshots(&left, &right);
+        assert_eq!(comparison.relations.len(), 1);
+        assert_eq!(comparison.relations[0].kind, DifferenceKind::Changed);
+        assert!(comparison.relations[0].inspector_rows.iter().any(|row| {
+            row.key.label == "To"
+                && row.left.as_deref() == Some("Bob · Entity #2")
+                && row.right.as_deref() == Some("Carol · Entity #3")
+        }));
+    }
+
+    #[test]
+    fn removed_relation_endpoint_name_drift_does_not_change_tombstone_identity() {
+        let left = snapshot(
+            20,
+            [relation_inspector_with_endpoints(
+                5,
+                "Works With",
+                "Removed",
+                "2",
+                1,
+                "Alice · Entity #1",
+                2,
+                "Bob · Entity #2",
+            )],
+            vec![],
+            vec![],
+        );
+        let right = snapshot(
+            20,
+            [relation_inspector_with_endpoints(
+                5,
+                "Works With",
+                "Removed",
+                "2",
+                1,
+                "Renamed Alice · Entity #1",
+                2,
+                "Renamed Bob · Entity #2",
+            )],
+            vec![],
+            vec![],
+        );
+
+        assert!(compare_snapshots(&left, &right).relations.is_empty());
     }
 
     #[test]
