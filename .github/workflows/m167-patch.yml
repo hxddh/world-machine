@@ -1,0 +1,32 @@
+name: M167 patch
+
+on:
+  push:
+    branches:
+      - agent/m167-comparison-adjacency
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/m167-comparison-adjacency
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Apply Comparison adjacency navigation
+        run: |
+          python3 .github/scripts/m167_patch.py
+          cargo fmt --all
+          git diff --check
+      - name: Commit patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add crates/world-strategy-gpui/src/lib.rs
+          git commit -m "M167: navigate Entity Relation adjacency in comparisons"
+          git push origin HEAD:agent/m167-comparison-adjacency
