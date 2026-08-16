@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 use world_core::{EntityId, EventId};
 use world_pack_protocol::ProjectionSnapshotWire;
 use world_projection::{
-    InspectorProjection, InspectorRow, InspectorSection, ProjectionSnapshot, SelectionId,
-    TimelineItem, TimelineProjection, ENTITY_HISTORY_SECTION,
+    EntityEventEvidence, InspectorProjection, InspectorRow, InspectorSection, ProjectionSnapshot,
+    SelectionId, TimelineItem, TimelineProjection, ENTITY_HISTORY_SECTION,
 };
 
 #[test]
@@ -50,6 +50,13 @@ fn entity_evidence_edges_survive_pack_json_wire_round_trip() {
         serde_json::from_str(&json).expect("Pack snapshot should decode");
     let restored = ProjectionSnapshot::try_from(decoded).expect("wire snapshot should restore");
 
+    assert_eq!(
+        restored.entity_event_evidence(),
+        vec![EntityEventEvidence {
+            entity: entity_id,
+            event: event_id,
+        }]
+    );
     let history = restored.entity_history(entity_id);
     assert_eq!(history.len(), 1);
     assert_eq!(history[0], &event_item);
