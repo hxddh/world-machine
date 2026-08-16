@@ -2,9 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::fmt;
 use world_compare::{compare_evidence_neighborhoods, DifferenceKind};
-use world_projection::{
-    ProjectionSnapshot, RelationEndpointRole, SelectionId, StateEvidenceEdge,
-};
+use world_projection::{ProjectionSnapshot, RelationEndpointRole, SelectionId, StateEvidenceEdge};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct EvidenceNeighborhoodResult {
@@ -23,8 +21,14 @@ pub struct EvidenceNode {
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum EvidenceEdge {
-    EntityEvent { entity: String, event: String },
-    RelationEvent { relation: String, event: String },
+    EntityEvent {
+        entity: String,
+        event: String,
+    },
+    RelationEvent {
+        relation: String,
+        event: String,
+    },
     EntityRelation {
         entity: String,
         relation: String,
@@ -189,7 +193,10 @@ pub fn query_neighborhood_comparison(
     })
 }
 
-fn require_visible(snapshot: &ProjectionSnapshot, selection: SelectionId) -> Result<(), QueryError> {
+fn require_visible(
+    snapshot: &ProjectionSnapshot,
+    selection: SelectionId,
+) -> Result<(), QueryError> {
     snapshot
         .state_evidence_neighborhood(selection, 0)
         .map(|_| ())
@@ -313,9 +320,10 @@ mod tests {
         let two = SelectionId::Entity(EntityId::new(2));
         let neighborhood = query_neighborhood(&snapshot, relation, 2).unwrap();
         assert_eq!(neighborhood.root, "relation-5");
-        assert!(neighborhood.nodes.iter().any(|node| {
-            node.selection == "entity-2" && node.depth == 2
-        }));
+        assert!(neighborhood
+            .nodes
+            .iter()
+            .any(|node| { node.selection == "entity-2" && node.depth == 2 }));
         assert!(neighborhood.edges.contains(&EvidenceEdge::EntityRelation {
             entity: "entity-1".into(),
             relation: "relation-5".into(),
@@ -324,10 +332,13 @@ mod tests {
 
         let path = query_shortest_path(&snapshot, relation, two).unwrap();
         assert_eq!(path.steps.len(), 2);
-        assert_eq!(path.steps[0].edge, EvidenceEdge::RelationEvent {
-            relation: "relation-5".into(),
-            event: "event-9".into(),
-        });
+        assert_eq!(
+            path.steps[0].edge,
+            EvidenceEdge::RelationEvent {
+                relation: "relation-5".into(),
+                event: "event-9".into(),
+            }
+        );
 
         let json = serde_json::to_string(&path).unwrap();
         let restored: EvidencePathResult = serde_json::from_str(&json).unwrap();
@@ -349,16 +360,20 @@ mod tests {
         assert!(!result.identical);
         assert!(result.nodes.is_empty());
         assert_eq!(result.left_only_edges.len(), 2);
-        assert!(result.left_only_edges.contains(&EvidenceEdge::EntityRelation {
-            entity: "entity-1".into(),
-            relation: "relation-5".into(),
-            role: RelationRole::From,
-        }));
-        assert!(result.right_only_edges.contains(&EvidenceEdge::EntityRelation {
-            entity: "entity-1".into(),
-            relation: "relation-5".into(),
-            role: RelationRole::To,
-        }));
+        assert!(result
+            .left_only_edges
+            .contains(&EvidenceEdge::EntityRelation {
+                entity: "entity-1".into(),
+                relation: "relation-5".into(),
+                role: RelationRole::From,
+            }));
+        assert!(result
+            .right_only_edges
+            .contains(&EvidenceEdge::EntityRelation {
+                entity: "entity-1".into(),
+                relation: "relation-5".into(),
+                role: RelationRole::To,
+            }));
     }
 
     #[test]
