@@ -1,0 +1,33 @@
+name: M159 patch
+
+on:
+  push:
+    branches:
+      - agent/m159-relation-inspector
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/m159-relation-inspector
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Add current Relation inspectors
+        run: python3 .github/m159_patch.py
+      - name: Format patch
+        run: |
+          cargo fmt --all
+          git diff --check
+      - name: Commit patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add crates/world-projection/src/lib.rs
+          git commit -m "M159: project current Relations into inspectors"
+          git push origin HEAD:agent/m159-relation-inspector
