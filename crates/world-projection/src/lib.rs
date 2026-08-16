@@ -1,7 +1,7 @@
 mod causal;
 mod influence;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use world_core::{
     Entity, EntityId, Event, EventId, Relation, RelationId, StateChange, Value, World,
 };
@@ -96,6 +96,13 @@ impl StateEvidenceEdge {
             None
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct StateEvidencePathStep {
+    pub from: SelectionId,
+    pub edge: StateEvidenceEdge,
+    pub to: SelectionId,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -286,13 +293,86 @@ impl ProjectionSnapshot {
             .collect()
     }
 
-    pub fn state_evidence_neighbors(&self, selection: SelectionId) -> Vec<SelectionId> {
+    pub fn state_evidence_edges_for(&self, selection: SelectionId) -> Vec<StateEvidenceEdge> {
         self.state_evidence_edges()
+            .into_iter()
+            .filter(|edge| edge.other(selection).is_some())
+            .collect()
+    }
+
+    pub fn state_evidence_neighbors(&self, selection: SelectionId) -> Vec<SelectionId> {
+        self.state_evidence_edges_for(selection)
             .into_iter()
             .filter_map(|edge| edge.other(selection))
             .collect::<BTreeSet<_>>()
             .into_iter()
             .collect()
+    }
+
+    pub fn state_evidence_shortest_path(
+        &self,
+        start: SelectionId,
+        goal: SelectionId,
+    ) -> Option<Vec<StateEvidencePathStep>> {
+        if !self.state_evidence_selection_is_visible(start)
+            || !self.state_evidence_selection_is_visible(goal)
+        {
+            return None;
+        }
+        if start == goal {
+            return Some(Vec::new());
+        }
+
+        let edges = self.state_evidence_edges();
+        let mut queue = VecDeque::from([start]);
+        let mut visited = BTreeSet::from([start]);
+        let mut previous = BTreeMap::<SelectionId, (SelectionId, StateEvidenceEdge)>::new();
+
+        while let Some(current) = queue.pop_front() {
+            let mut adjacent = edges
+                .iter()
+                .filter_map(|edge| edge.other(current).map(|next| (next, *edge)))
+                .collect::<Vec<_>>();
+            adjacent.sort();
+            adjacent.dedup();
+
+            for (next, edge) in adjacent {
+                if !visited.insert(next) {
+                    continue;
+                }
+                previous.insert(next, (current, edge));
+                if next == goal {
+                    let mut cursor = goal;
+                    let mut path = Vec::new();
+                    while cursor != start {
+                        let (from, edge) = previous
+                            .get(&cursor)
+                            .copied()
+                            .expect("visited evidence node must have a predecessor");
+                        path.push(StateEvidencePathStep {
+                            from,
+                            edge,
+                            to: cursor,
+                        });
+                        cursor = from;
+                    }
+                    path.reverse();
+                    return Some(path);
+                }
+                queue.push_back(next);
+            }
+        }
+
+        None
+    }
+
+    fn state_evidence_selection_is_visible(&self, selection: SelectionId) -> bool {
+        match selection {
+            SelectionId::Entity(_) | SelectionId::Relation(_) => {
+                self.inspectors.contains_key(&selection)
+            }
+            SelectionId::Event(_) => self.timeline.items.iter().any(|item| item.id == selection),
+        }
     }
 
     pub fn influence(&self, event: EventId) -> Vec<(usize, &TimelineItem)> {
