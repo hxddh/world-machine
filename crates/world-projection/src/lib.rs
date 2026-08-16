@@ -89,7 +89,16 @@ impl ProjectionSnapshot {
     }
 
     pub fn directly_changed_entities(&self, event: EventId) -> Vec<EntityId> {
-        let event_key = SelectionId::Event(event).stable_key();
+        let event_selection = SelectionId::Event(event);
+        if !self
+            .timeline
+            .items
+            .iter()
+            .any(|item| item.id == event_selection)
+        {
+            return Vec::new();
+        }
+        let event_key = event_selection.stable_key();
         self.inspectors
             .iter()
             .filter_map(|(selection, inspector)| {
