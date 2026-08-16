@@ -8,7 +8,9 @@ use world_projection::{
 };
 
 const ENTITY_HISTORY_LIMIT: usize = 6;
+const RELATION_HISTORY_LIMIT: usize = 6;
 const EVENT_ENTITY_EFFECT_LIMIT: usize = 6;
+const EVENT_RELATION_EFFECT_LIMIT: usize = 6;
 
 pub struct ProjectionView {
     snapshot: ProjectionSnapshot,
@@ -400,6 +402,34 @@ impl ProjectionView {
             }
         }
 
+        if let SelectionId::Relation(relation) = selection {
+            let history = self.snapshot.relation_history(relation);
+            if !history.is_empty() {
+                let mut items = div().flex().flex_col().gap_2();
+                for item in history.iter().take(RELATION_HISTORY_LIMIT) {
+                    items = items.child(self.relation_history_item(item, cx));
+                }
+                panel = panel
+                    .child(div().text_sm().child("Recorded changes to this relation"))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(0x66705f))
+                            .child("Recorded events that created, changed, or removed this relation incarnation. Select one to inspect the event, trace its causes and effects, or fork before it."),
+                    )
+                    .child(items);
+                let hidden = history.len().saturating_sub(RELATION_HISTORY_LIMIT);
+                if hidden > 0 {
+                    panel = panel.child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(0x777777))
+                            .child(format!("{hidden} more recorded relation changes not shown")),
+                    );
+                }
+            }
+        }
+
         if let SelectionId::Event(event) = selection {
             let changed_entities = self.snapshot.directly_changed_entities(event);
             if !changed_entities.is_empty() {
@@ -427,6 +457,33 @@ impl ProjectionView {
                             .text_color(rgb(0x777777))
                             .child(format!("{hidden} more directly changed entities not shown")),
                     );
+                }
+            }
+
+            let changed_relations = self.snapshot.directly_changed_relations(event);
+            if !changed_relations.is_empty() {
+                let mut items = div().flex().flex_col().gap_2();
+                for relation in changed_relations.iter().take(EVENT_RELATION_EFFECT_LIMIT) {
+                    items = items.child(
+                        self.event_relation_effect_item(SelectionId::Relation(*relation), cx),
+                    );
+                }
+                panel = panel
+                    .child(div().text_sm().child("Relations changed by this event"))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(0x66705f))
+                            .child("Relation incarnations whose recorded lifetime or properties directly changed in this visible event. Removed relations remain inspectable as recorded tombstones."),
+                    )
+                    .child(items);
+                let hidden = changed_relations
+                    .len()
+                    .saturating_sub(EVENT_RELATION_EFFECT_LIMIT);
+                if hidden > 0 {
+                    panel = panel.child(div().text_xs().text_color(rgb(0x777777)).child(format!(
+                        "{hidden} more directly changed relations not shown"
+                    )));
                 }
             }
         }
@@ -463,11 +520,76 @@ impl ProjectionView {
             .on_click(cx.listener(move |this, _, _, cx| this.select(selection, cx)))
     }
 
+    fn event_relation_effect_item(
+        &self,
+        selection: SelectionId,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let (title, subtitle) = self
+            .snapshot
+            .inspector(selection)
+            .map(|inspector| (inspector.title.clone(), inspector.subtitle.clone()))
+            .unwrap_or_else(|| ("Relation".into(), "Recorded relation".into()));
+        div()
+            .id(SharedString::from(format!(
+                "event-relation-effect-{}",
+                selection.stable_key()
+            )))
+            .p_2()
+            .rounded_md()
+            .border_1()
+            .border_color(rgb(0xe2e4e8))
+            .bg(rgb(0xf8f9fc))
+            .cursor_pointer()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(div().text_sm().child(title))
+            .child(div().text_xs().text_color(rgb(0x666666)).child(subtitle))
+            .on_click(cx.listener(move |this, _, _, cx| this.select(selection, cx)))
+    }
+
     fn entity_history_item(&self, item: &TimelineItem, cx: &mut Context<Self>) -> impl IntoElement {
         let selection = item.id;
         div()
             .id(SharedString::from(format!(
                 "entity-history-{}",
+                selection.stable_key()
+            )))
+            .p_2()
+            .rounded_md()
+            .border_1()
+            .border_color(rgb(0xe2e4e8))
+            .bg(rgb(0xf8f9fc))
+            .cursor_pointer()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(div().text_sm().child(item.title.clone()))
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0x555555))
+                    .child(item.subtitle.clone()),
+            )
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0x777777))
+                    .child(format!("World time {}", item.world_time)),
+            )
+            .on_click(cx.listener(move |this, _, _, cx| this.select(selection, cx)))
+    }
+
+    fn relation_history_item(
+        &self,
+        item: &TimelineItem,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let selection = item.id;
+        div()
+            .id(SharedString::from(format!(
+                "relation-history-{}",
                 selection.stable_key()
             )))
             .p_2()
