@@ -389,6 +389,7 @@ fn recorded_entity_change_events(world: &World) -> BTreeMap<EntityId, Vec<EventI
         for change in &event.changes {
             match change {
                 StateChange::CreateEntity(entity) => {
+                    events_by_entity.remove(&entity.id);
                     affected.insert(entity.id);
                 }
                 StateChange::RemoveEntity(entity) => {
