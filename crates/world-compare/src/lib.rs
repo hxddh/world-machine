@@ -3,6 +3,8 @@ use world_projection::{
     InspectorProjection, ProjectionCommand, ProjectionSnapshot, SelectionId, TimelineItem,
 };
 
+const ENTITY_EVIDENCE_SECTION: &str = "Recorded entity changes";
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SnapshotSide {
     pub title: String,
@@ -252,7 +254,7 @@ fn compare_entities(
     ids.into_iter()
         .filter_map(
             |id| match (left_entities.get(&id), right_entities.get(&id)) {
-                (Some(left), Some(right)) if *left == *right => None,
+                (Some(left), Some(right)) if same_entity_state(left, right) => None,
                 (Some(left), Some(right)) => Some(EntityDifference {
                     id,
                     kind: DifferenceKind::Changed,
@@ -298,6 +300,12 @@ fn entity_view(inspector: &InspectorProjection) -> EntityView {
     }
 }
 
+fn same_entity_state(left: &InspectorProjection, right: &InspectorProjection) -> bool {
+    left.title == right.title
+        && left.subtitle == right.subtitle
+        && indexed_rows(left) == indexed_rows(right)
+}
+
 fn compare_inspector_rows(
     left: &InspectorProjection,
     right: &InspectorProjection,
@@ -341,6 +349,9 @@ fn indexed_rows(inspector: &InspectorProjection) -> BTreeMap<InspectorRowKey, &S
     let mut duplicates = BTreeMap::<(String, String), usize>::new();
 
     for section in &inspector.sections {
+        if section.title == ENTITY_EVIDENCE_SECTION {
+            continue;
+        }
         for row in &section.rows {
             let duplicate_key = (section.title.clone(), row.label.clone());
             let ordinal = duplicates.entry(duplicate_key.clone()).or_default();
@@ -529,6 +540,26 @@ mod tests {
                 && row.left.as_deref() == Some("baker")
                 && row.right.as_deref() == Some("owner_operator")
         }));
+    }
+
+    #[test]
+    fn entity_history_evidence_does_not_change_current_state_comparison() {
+        let (id, left) = entity_inspector(7, "40", "baker");
+        let mut right = left.clone();
+        right.sections.push(InspectorSection {
+            title: ENTITY_EVIDENCE_SECTION.into(),
+            rows: vec![InspectorRow {
+                label: "World time 12".into(),
+                value: "Job Changed · Event #9".into(),
+            }],
+        });
+
+        let comparison = compare_snapshots(
+            &snapshot(20, [(id, left)], vec![], vec![]),
+            &snapshot(20, [(id, right)], vec![], vec![]),
+        );
+
+        assert!(comparison.entities.is_empty());
     }
 
     #[test]
