@@ -1,0 +1,116 @@
+name: M144 Patch
+
+on:
+  push:
+    branches:
+      - agent/m144-event-entity-navigation
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ !contains(github.event.head_commit.message, '[m144-patch]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/m144-event-entity-navigation
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Apply M144 patch
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('crates/world-gpui/src/macos.rs')
+          s = p.read_text()
+
+          old = "const ENTITY_HISTORY_LIMIT: usize = 6;"
+          new = "const ENTITY_HISTORY_LIMIT: usize = 6;\nconst EVENT_ENTITY_EFFECT_LIMIT: usize = 6;"
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          old = "\n        Some(panel)\n    }\n\n    fn entity_history_item("
+          block = "\n".join([
+              "",
+              "        if let SelectionId::Event(event) = selection {",
+              "            let changed_entities = self.snapshot.directly_changed_entities(event);",
+              "            if !changed_entities.is_empty() {",
+              "                let mut items = div().flex().flex_col().gap_2();",
+              "                for entity in changed_entities.iter().take(EVENT_ENTITY_EFFECT_LIMIT) {",
+              "                    items = items.child(self.event_entity_effect_item(",
+              "                        SelectionId::Entity(*entity),",
+              "                        cx,",
+              "                    ));",
+              "                }",
+              "                panel = panel",
+              "                    .child(div().text_sm().child(\"Entities changed by this event\"))",
+              "                    .child(",
+              "                        div()",
+              "                            .text_xs()",
+              "                            .text_color(rgb(0x66705f))",
+              "                            .child(\"Entities whose recorded history names this visible event as a direct StateChange. Select one to inspect its current state and recorded history.\"),",
+              "                    )",
+              "                    .child(items);",
+              "                let hidden = changed_entities",
+              "                    .len()",
+              "                    .saturating_sub(EVENT_ENTITY_EFFECT_LIMIT);",
+              "                if hidden > 0 {",
+              "                    panel = panel.child(",
+              "                        div()",
+              "                            .text_xs()",
+              "                            .text_color(rgb(0x777777))",
+              "                            .child(format!(\"{hidden} more directly changed entities not shown\")),",
+              "                    );",
+              "                }",
+              "            }",
+              "        }",
+              "",
+              "        Some(panel)",
+              "    }",
+              "",
+              "    fn event_entity_effect_item(",
+              "        &self,",
+              "        selection: SelectionId,",
+              "        cx: &mut Context<Self>,",
+              "    ) -> impl IntoElement {",
+              "        let (title, subtitle) = self",
+              "            .snapshot",
+              "            .inspector(selection)",
+              "            .map(|inspector| (inspector.title.clone(), inspector.subtitle.clone()))",
+              "            .unwrap_or_else(|| (selection.stable_key(), \"Entity\".into()));",
+              "        div()",
+              "            .id(SharedString::from(format!(",
+              "                \"event-entity-effect-{}\",",
+              "                selection.stable_key()",
+              "            )))",
+              "            .p_2()",
+              "            .rounded_md()",
+              "            .border_1()",
+              "            .border_color(rgb(0xe2e4e8))",
+              "            .bg(rgb(0xf8f9fc))",
+              "            .cursor_pointer()",
+              "            .flex()",
+              "            .flex_col()",
+              "            .gap_1()",
+              "            .child(div().text_sm().child(title))",
+              "            .child(div().text_xs().text_color(rgb(0x666666)).child(subtitle))",
+              "            .on_click(cx.listener(move |this, _, _, cx| this.select(selection, cx)))",
+              "    }",
+              "",
+              "    fn entity_history_item(",
+          ])
+          assert old in s
+          s = s.replace(old, block, 1)
+
+          p.write_text(s)
+          PY
+          cargo fmt --all
+      - name: Commit M144
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add crates/world-gpui/src/macos.rs
+          git commit -m "M144: navigate direct event entity effects [m144-patch]"
+          git push origin HEAD:agent/m144-event-entity-navigation
