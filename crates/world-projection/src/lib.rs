@@ -122,6 +122,7 @@ pub struct TimelineItem {
     pub title: String,
     pub subtitle: String,
     pub caused_by: Vec<EventId>,
+    pub affected_entities: Vec<EntityId>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -178,9 +179,23 @@ pub fn timeline_from_world(world: &World) -> TimelineProjection {
                 title: humanize(&event.kind),
                 subtitle: event_summary(event, world),
                 caused_by: event.caused_by.clone(),
+                affected_entities: affected_entities_from_event(event),
             })
             .collect(),
     }
+}
+
+pub fn affected_entities_from_event(event: &Event) -> Vec<EntityId> {
+    let mut affected = Vec::new();
+    for change in &event.changes {
+        let Some(entity) = directly_affected_entity(change) else {
+            continue;
+        };
+        if !affected.contains(&entity) {
+            affected.push(entity);
+        }
+    }
+    affected
 }
 
 pub fn inspectors_from_world(world: &World) -> BTreeMap<SelectionId, InspectorProjection> {
@@ -263,7 +278,6 @@ fn inspector_for_entity(entity: &Entity, world: &World) -> InspectorProjection {
             }
         })
         .collect::<Vec<_>>();
-    let recorded_changes = recorded_entity_change_rows(entity.id, world);
 
     let mut sections = vec![InspectorSection {
         title: "State".into(),
@@ -275,12 +289,6 @@ fn inspector_for_entity(entity: &Entity, world: &World) -> InspectorProjection {
             rows: relations,
         });
     }
-    if !recorded_changes.is_empty() {
-        sections.push(InspectorSection {
-            title: "Recorded entity changes".into(),
-            rows: recorded_changes,
-        });
-    }
 
     InspectorProjection {
         selection: SelectionId::Entity(entity.id),
@@ -290,35 +298,17 @@ fn inspector_for_entity(entity: &Entity, world: &World) -> InspectorProjection {
     }
 }
 
-fn recorded_entity_change_rows(entity: EntityId, world: &World) -> Vec<InspectorRow> {
-    world
-        .events()
-        .iter()
-        .rev()
-        .filter(|event| {
-            event
-                .changes
-                .iter()
-                .any(|change| change_directly_affects_entity(change, entity))
-        })
-        .map(|event| InspectorRow {
-            label: format!("World time {}", event.world_time),
-            value: format!("{} · Event #{}", humanize(&event.kind), event.id),
-        })
-        .collect()
-}
-
-fn change_directly_affects_entity(change: &StateChange, entity_id: EntityId) -> bool {
+fn directly_affected_entity(change: &StateChange) -> Option<EntityId> {
     match change {
-        StateChange::CreateEntity(entity) => entity.id == entity_id,
-        StateChange::RemoveEntity(entity) => *entity == entity_id,
+        StateChange::CreateEntity(entity) => Some(entity.id),
+        StateChange::RemoveEntity(entity) => Some(*entity),
         StateChange::SetComponent { entity, .. } | StateChange::RemoveComponent { entity, .. } => {
-            *entity == entity_id
+            Some(*entity)
         }
         StateChange::CreateRelation(_)
         | StateChange::RemoveRelation(_)
         | StateChange::SetRelationProperty { .. }
-        | StateChange::RemoveRelationProperty { .. } => false,
+        | StateChange::RemoveRelationProperty { .. } => None,
     }
 }
 
@@ -543,6 +533,7 @@ mod tests {
         assert_eq!(timeline.items.len(), 1);
         assert_eq!(timeline.items[0].title, "Work Started");
         assert_eq!(timeline.items[0].subtitle, "Workspace · Event #1");
+        assert!(timeline.items[0].affected_entities.is_empty());
         assert_eq!(
             inspectors
                 .get(&SelectionId::Entity(EntityId::new(1)))
@@ -587,6 +578,7 @@ mod tests {
             timeline.items[0].subtitle,
             "A durable direction was chosen. · Event #1"
         );
+        assert!(timeline.items[0].affected_entities.is_empty());
     }
 
     #[test]
@@ -618,6 +610,8 @@ mod tests {
         )
         .unwrap();
 
+        let timeline = timeline_from_world(&world);
+        assert_eq!(timeline.items[0].affected_entities, vec![EntityId::new(1)]);
         let inspectors = inspectors_from_world(&world);
         let changes = inspectors
             .get(&SelectionId::Event(EventId::new(1)))
@@ -632,7 +626,7 @@ mod tests {
     }
 
     #[test]
-    fn entity_inspector_surfaces_only_direct_recorded_entity_changes() {
+    fn timeline_records_only_directly_affected_entities() {
         let mut state = WorldState::default();
         state
             .seed_entity(
@@ -697,22 +691,24 @@ mod tests {
         )
         .unwrap();
 
-        let inspectors = inspectors_from_world(&world);
+        let timeline = timeline_from_world(&world);
+        assert_eq!(timeline.items.len(), 3);
+        assert_eq!(timeline.items[0].id, SelectionId::Event(EventId::new(3)));
+        assert_eq!(timeline.items[0].affected_entities, vec![EntityId::new(1)]);
+        assert_eq!(timeline.items[1].id, SelectionId::Event(EventId::new(2)));
+        assert_eq!(timeline.items[1].affected_entities, vec![EntityId::new(2)]);
+        assert_eq!(timeline.items[2].id, SelectionId::Event(EventId::new(1)));
+        assert_eq!(timeline.items[2].affected_entities, vec![EntityId::new(1)]);
+
+        let mut inspectors = inspectors_from_world(&world);
         let inspector = inspectors
-            .get(&SelectionId::Entity(EntityId::new(1)))
-            .expect("entity should be inspectable");
-        let recorded = inspector
+            .remove(&SelectionId::Entity(EntityId::new(1)))
+            .expect("entity should remain inspectable");
+        assert_eq!(inspector.title, "Renamed Workspace");
+        assert!(inspector
             .sections
             .iter()
-            .find(|section| section.title == "Recorded entity changes")
-            .expect("direct recorded entity changes should be inspectable");
-
-        assert_eq!(inspector.title, "Renamed Workspace");
-        assert_eq!(recorded.rows.len(), 2);
-        assert_eq!(recorded.rows[0].label, "World time 3");
-        assert_eq!(recorded.rows[0].value, "Workspace Renamed · Event #3");
-        assert_eq!(recorded.rows[1].label, "World time 1");
-        assert_eq!(recorded.rows[1].value, "Work Finished · Event #1");
+            .all(|section| section.title != "Recorded entity changes"));
     }
 
     #[test]
