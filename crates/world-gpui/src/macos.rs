@@ -721,7 +721,9 @@ impl ProjectionView {
         };
         let event_ref = match selection {
             SelectionId::Event(event) => format!("World time {} · Event #{event}", item.world_time),
-            SelectionId::Entity(_) => unreachable!("semantic path items must be Events"),
+            SelectionId::Entity(_) | SelectionId::Relation(_) => {
+                unreachable!("semantic path items must be Events")
+            }
         };
         div()
             .id(SharedString::from(format!(
