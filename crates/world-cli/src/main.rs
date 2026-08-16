@@ -4,6 +4,9 @@ use std::error::Error;
 use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
+use world_compare::{
+    compare_evidence_neighborhoods, DifferenceKind, EvidenceNeighborhoodComparison,
+};
 use world_integrity::{check_archive, ArchiveIntegrityError};
 use world_persistence::{ArchivedEvent, WorldArchive};
 use world_projection::{ProjectionSnapshot, RelationEndpointRole, SelectionId, StateEvidenceEdge};
@@ -17,6 +20,7 @@ enum Command {
     Why(PathBuf, u64),
     Evidence(PathBuf, SelectionId, usize),
     EvidencePath(PathBuf, SelectionId, SelectionId),
+    EvidenceCompare(PathBuf, PathBuf, SelectionId, usize),
     ListPacks,
     Help,
 }
@@ -45,6 +49,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
         Command::EvidencePath(path, from, to) => {
             println!("{}", evidence_path_report(&path, from, to)?)
+        }
+        Command::EvidenceCompare(left, right, selection, depth) => {
+            println!(
+                "{}",
+                evidence_compare_report(&left, &right, selection, depth)?
+            )
         }
         Command::ListPacks => println!("{}", pack_report()?),
         Command::Help => println!("{}", usage()),
@@ -86,6 +96,24 @@ where
             parse_selection_key(from)?,
             parse_selection_key(to)?,
         )),
+        [command, left, right, selection] if command == "evidence-compare" => {
+            Ok(Command::EvidenceCompare(
+                PathBuf::from(left),
+                PathBuf::from(right),
+                parse_selection_key(selection)?,
+                2,
+            ))
+        }
+        [command, left, right, selection, depth] if command == "evidence-compare" => {
+            Ok(Command::EvidenceCompare(
+                PathBuf::from(left),
+                PathBuf::from(right),
+                parse_selection_key(selection)?,
+                depth
+                    .parse::<usize>()
+                    .map_err(|_| CliError(format!("invalid evidence depth: {depth}")))?,
+            ))
+        }
         [command] if command == "list-packs" => Ok(Command::ListPacks),
         [command] if matches!(command.as_str(), "help" | "--help" | "-h") => Ok(Command::Help),
         [] => Ok(Command::Help),
@@ -103,6 +131,7 @@ Usage:\n\
   world-cli why <file.world> <event-id>\n\
   world-cli evidence <file.world> <selection-key> [depth]\n\n\
   world-cli evidence-path <file.world> <from-key> <to-key>\n\n\
+  world-cli evidence-compare <left.world> <right.world> <selection-key> [depth]\n\n\
   world-cli list-packs\n\n\
 inspect     Parse and summarize a World archive without requiring its Pack.\n\
 check       Verify Pack-independent archive structure and causal integrity.\n\
@@ -111,6 +140,7 @@ events      Print the archived event timeline, including actors, targets, and ca
 why         Trace an event recursively through its archived caused_by graph.\n\
 evidence    Print a typed evidence neighborhood around entity-N, relation-N, or event-N.\n\
 evidence-path  Print the typed shortest evidence path between two selections.\n\
+evidence-compare  Compare a typed evidence neighborhood between two World archives.\n\
 list-packs  List World Packs this build can create and restore."
 }
 
@@ -438,6 +468,98 @@ fn evidence_edge_kind(edge: StateEvidenceEdge) -> &'static str {
     }
 }
 
+fn evidence_compare_report(
+    left_path: &Path,
+    right_path: &Path,
+    selection: SelectionId,
+    max_depth: usize,
+) -> Result<String, Box<dyn Error>> {
+    let left_archive = load_archive(left_path)?;
+    let right_archive = load_archive(right_path)?;
+    let registry = world_builtins::registry()?;
+    let left_session = registry.open_archive(&left_archive)?;
+    let right_session = registry.open_archive(&right_archive)?;
+    let left = left_session.snapshot();
+    let right = right_session.snapshot();
+    evidence_compare_report_from_snapshots(
+        left_path, right_path, &left, &right, selection, max_depth,
+    )
+    .map_err(|error| Box::new(error) as Box<dyn Error>)
+}
+
+fn evidence_compare_report_from_snapshots(
+    left_path: &Path,
+    right_path: &Path,
+    left: &ProjectionSnapshot,
+    right: &ProjectionSnapshot,
+    selection: SelectionId,
+    max_depth: usize,
+) -> Result<String, CliError> {
+    let comparison =
+        compare_evidence_neighborhoods(left, right, selection, max_depth).ok_or_else(|| {
+            CliError(format!(
+                "selection is not visible in either world: {}",
+                selection.stable_key()
+            ))
+        })?;
+    Ok(format_evidence_comparison(
+        left_path,
+        right_path,
+        &comparison,
+    ))
+}
+
+fn format_evidence_comparison(
+    left_path: &Path,
+    right_path: &Path,
+    comparison: &EvidenceNeighborhoodComparison,
+) -> String {
+    let mut lines = vec![
+        format!("left: {}", left_path.display()),
+        format!("right: {}", right_path.display()),
+        format!("evidence-compare: {}", comparison.root.stable_key()),
+        format!("depth: {}", comparison.max_depth),
+        format!("identical: {}", comparison.is_identical()),
+        format!("node-changes: {}", comparison.nodes.len()),
+    ];
+    for node in &comparison.nodes {
+        lines.push(format!(
+            "node {} {} {} {}",
+            difference_kind_key(node.kind),
+            node.selection.stable_key(),
+            optional_depth(node.left_depth),
+            optional_depth(node.right_depth)
+        ));
+    }
+    lines.push(format!(
+        "left-only-edges: {}",
+        comparison.edges.left_only.len()
+    ));
+    for edge in &comparison.edges.left_only {
+        lines.push(format!("left-{}", format_evidence_edge(*edge)));
+    }
+    lines.push(format!(
+        "right-only-edges: {}",
+        comparison.edges.right_only.len()
+    ));
+    for edge in &comparison.edges.right_only {
+        lines.push(format!("right-{}", format_evidence_edge(*edge)));
+    }
+    lines.join("\n")
+}
+
+fn difference_kind_key(kind: DifferenceKind) -> &'static str {
+    match kind {
+        DifferenceKind::LeftOnly => "left-only",
+        DifferenceKind::RightOnly => "right-only",
+        DifferenceKind::Changed => "changed",
+    }
+}
+
+fn optional_depth(depth: Option<usize>) -> String {
+    depth.map_or_else(|| "-".into(), |depth| depth.to_string())
+}
+
 fn pack_report() -> Result<String, Box<dyn Error>> {
     let registry = world_builtins::registry()?;
     let descriptors = registry.descriptors();
@@ -503,6 +625,37 @@ mod tests {
                 SelectionId::from_stable_key("event-9").unwrap(),
             )
         );
+        assert_eq!(
+            parse_command([
+                "evidence-compare",
+                "left.world",
+                "right.world",
+                "relation-5"
+            ])
+            .unwrap(),
+            Command::EvidenceCompare(
+                PathBuf::from("left.world"),
+                PathBuf::from("right.world"),
+                SelectionId::from_stable_key("relation-5").unwrap(),
+                2,
+            )
+        );
+        assert_eq!(
+            parse_command([
+                "evidence-compare",
+                "left.world",
+                "right.world",
+                "event-9",
+                "3"
+            ])
+            .unwrap(),
+            Command::EvidenceCompare(
+                PathBuf::from("left.world"),
+                PathBuf::from("right.world"),
+                SelectionId::from_stable_key("event-9").unwrap(),
+                3,
+            )
+        );
         assert_eq!(parse_command(["list-packs"]).unwrap(), Command::ListPacks);
         assert_eq!(parse_command(Vec::<String>::new()).unwrap(), Command::Help);
         assert!(parse_command(["inspect"]).is_err());
@@ -511,6 +664,17 @@ mod tests {
         assert!(parse_command(["evidence", "sample.world", "entity-7", "deep"]).is_err());
         assert!(parse_command(["evidence-path", "sample.world", "entity-07", "event-9"]).is_err());
         assert!(parse_command(["evidence-path", "sample.world", "entity-7", "event-09"]).is_err());
+        assert!(
+            parse_command(["evidence-compare", "left.world", "right.world", "entity-07"]).is_err()
+        );
+        assert!(parse_command([
+            "evidence-compare",
+            "left.world",
+            "right.world",
+            "entity-7",
+            "deep"
+        ])
+        .is_err());
     }
 
     #[test]
@@ -737,6 +901,62 @@ mod tests {
             evidence_path_report_from_snapshot(Path::new("builtin.world"), &snapshot, hidden, root)
                 .unwrap_err();
         assert!(error.to_string().contains("selection is not visible"));
+    }
+
+    #[test]
+    fn evidence_compare_report_is_stable_for_identical_snapshot() {
+        let registry = world_builtins::registry().unwrap();
+        let mut found = None;
+        for descriptor in registry.descriptors() {
+            let session = registry.create(&descriptor.pack.id).unwrap();
+            let snapshot = session.snapshot();
+            let root = snapshot
+                .timeline
+                .items
+                .first()
+                .map(|item| item.id)
+                .or_else(|| snapshot.inspectors.keys().copied().next());
+            if let Some(root) = root {
+                found = Some((snapshot, root));
+                break;
+            }
+        }
+        let (snapshot, root) = found.expect("a built-in Pack should expose a visible selection");
+        let report = evidence_compare_report_from_snapshots(
+            Path::new("left.world"),
+            Path::new("right.world"),
+            &snapshot,
+            &snapshot,
+            root,
+            2,
+        )
+        .unwrap();
+
+        assert!(report.contains(&format!("evidence-compare: {}", root.stable_key())));
+        assert!(report.contains("identical: true"));
+        assert!(report.contains("node-changes: 0"));
+        assert!(report.contains("left-only-edges: 0"));
+        assert!(report.contains("right-only-edges: 0"));
+    }
+
+    #[test]
+    fn evidence_compare_report_rejects_root_hidden_on_both_sides() {
+        let registry = world_builtins::registry().unwrap();
+        let pack_id = registry.descriptors()[0].pack.id.clone();
+        let session = registry.create(&pack_id).unwrap();
+        let snapshot = session.snapshot();
+        let hidden = SelectionId::from_stable_key("entity-18446744073709551615").unwrap();
+
+        let error = evidence_compare_report_from_snapshots(
+            Path::new("left.world"),
+            Path::new("right.world"),
+            &snapshot,
+            &snapshot,
+            hidden,
+            2,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("not visible in either world"));
     }
 
     #[test]
