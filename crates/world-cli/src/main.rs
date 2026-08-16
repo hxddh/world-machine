@@ -4,12 +4,13 @@ use std::error::Error;
 use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
-use world_compare::{
-    compare_evidence_neighborhoods, DifferenceKind, EvidenceNeighborhoodComparison,
-};
 use world_integrity::{check_archive, ArchiveIntegrityError};
 use world_persistence::{ArchivedEvent, WorldArchive};
-use world_projection::{ProjectionSnapshot, RelationEndpointRole, SelectionId, StateEvidenceEdge};
+use world_projection::{ProjectionSnapshot, SelectionId};
+use world_query::{
+    query_neighborhood, query_neighborhood_comparison, query_shortest_path, Difference,
+    EvidenceComparisonResult, EvidenceEdge,
+};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum Command {
@@ -346,54 +347,43 @@ fn evidence_report_from_snapshot(
     selection: SelectionId,
     max_depth: usize,
 ) -> Result<String, CliError> {
-    let neighborhood = snapshot
-        .state_evidence_neighborhood(selection, max_depth)
-        .ok_or_else(|| {
-            CliError(format!(
-                "selection is not visible: {}",
-                selection.stable_key()
-            ))
-        })?;
+    let neighborhood = query_neighborhood(snapshot, selection, max_depth)
+        .map_err(|error| CliError(error.to_string()))?;
     let mut lines = vec![
         format!("file: {}", path.display()),
-        format!("evidence: {}", selection.stable_key()),
-        format!("depth: {max_depth}"),
+        format!("evidence: {}", neighborhood.root),
+        format!("depth: {}", neighborhood.max_depth),
         format!("nodes: {}", neighborhood.nodes.len()),
     ];
     for node in neighborhood.nodes {
-        lines.push(format!(
-            "node {} {}",
-            node.depth,
-            node.selection.stable_key()
-        ));
+        lines.push(format!("node {} {}", node.depth, node.selection));
     }
     lines.push(format!("edges: {}", neighborhood.edges.len()));
-    for edge in neighborhood.edges {
+    for edge in &neighborhood.edges {
         lines.push(format_evidence_edge(edge));
     }
     Ok(lines.join("\n"))
 }
 
-fn format_evidence_edge(edge: StateEvidenceEdge) -> String {
+fn format_evidence_edge(edge: &EvidenceEdge) -> String {
     match edge {
-        StateEvidenceEdge::EntityEvent(evidence) => format!(
-            "edge entity-event entity-{} event-{}",
-            evidence.entity, evidence.event
-        ),
-        StateEvidenceEdge::RelationEvent(evidence) => format!(
-            "edge relation-event relation-{} event-{}",
-            evidence.relation, evidence.event
-        ),
-        StateEvidenceEdge::EntityRelation(evidence) => {
-            let role = match evidence.role {
-                RelationEndpointRole::From => "from",
-                RelationEndpointRole::To => "to",
-            };
-            format!(
-                "edge entity-relation {role} entity-{} relation-{}",
-                evidence.entity, evidence.relation
-            )
+        EvidenceEdge::EntityEvent { entity, event } => {
+            format!("edge entity-event {entity} {event}")
         }
+        EvidenceEdge::RelationEvent { relation, event } => {
+            format!("edge relation-event {relation} {event}")
+        }
+        EvidenceEdge::EntityRelation {
+            entity,
+            relation,
+            role,
+        } => format!(
+            "edge entity-relation {} {entity} {relation}",
+            match role {
+                world_query::RelationRole::From => "from",
+                world_query::RelationRole::To => "to",
+            }
+        ),
     }
 }
 
@@ -416,54 +406,31 @@ fn evidence_path_report_from_snapshot(
     from: SelectionId,
     to: SelectionId,
 ) -> Result<String, CliError> {
-    if snapshot.state_evidence_neighborhood(from, 0).is_none() {
-        return Err(CliError(format!(
-            "selection is not visible: {}",
-            from.stable_key()
-        )));
-    }
-    if snapshot.state_evidence_neighborhood(to, 0).is_none() {
-        return Err(CliError(format!(
-            "selection is not visible: {}",
-            to.stable_key()
-        )));
-    }
-    let path_steps = snapshot
-        .state_evidence_shortest_path(from, to)
-        .ok_or_else(|| {
-            CliError(format!(
-                "no evidence path: {} -> {}",
-                from.stable_key(),
-                to.stable_key()
-            ))
-        })?;
+    let result =
+        query_shortest_path(snapshot, from, to).map_err(|error| CliError(error.to_string()))?;
     let mut lines = vec![
         format!("file: {}", path.display()),
-        format!(
-            "evidence-path: {} -> {}",
-            from.stable_key(),
-            to.stable_key()
-        ),
-        format!("steps: {}", path_steps.len()),
+        format!("evidence-path: {} -> {}", result.from, result.to),
+        format!("steps: {}", result.steps.len()),
     ];
-    for (index, step) in path_steps.into_iter().enumerate() {
+    for (index, step) in result.steps.into_iter().enumerate() {
         lines.push(format!(
             "step {index} {} {} {}",
-            step.from.stable_key(),
-            evidence_edge_kind(step.edge),
-            step.to.stable_key()
+            step.from,
+            evidence_edge_kind(&step.edge),
+            step.to
         ));
     }
     Ok(lines.join("\n"))
 }
 
-fn evidence_edge_kind(edge: StateEvidenceEdge) -> &'static str {
+fn evidence_edge_kind(edge: &EvidenceEdge) -> &'static str {
     match edge {
-        StateEvidenceEdge::EntityEvent(_) => "entity-event",
-        StateEvidenceEdge::RelationEvent(_) => "relation-event",
-        StateEvidenceEdge::EntityRelation(evidence) => match evidence.role {
-            RelationEndpointRole::From => "entity-relation:from",
-            RelationEndpointRole::To => "entity-relation:to",
+        EvidenceEdge::EntityEvent { .. } => "entity-event",
+        EvidenceEdge::RelationEvent { .. } => "relation-event",
+        EvidenceEdge::EntityRelation { role, .. } => match role {
+            world_query::RelationRole::From => "entity-relation:from",
+            world_query::RelationRole::To => "entity-relation:to",
         },
     }
 }
@@ -495,13 +462,8 @@ fn evidence_compare_report_from_snapshots(
     selection: SelectionId,
     max_depth: usize,
 ) -> Result<String, CliError> {
-    let comparison =
-        compare_evidence_neighborhoods(left, right, selection, max_depth).ok_or_else(|| {
-            CliError(format!(
-                "selection is not visible in either world: {}",
-                selection.stable_key()
-            ))
-        })?;
+    let comparison = query_neighborhood_comparison(left, right, selection, max_depth)
+        .map_err(|error| CliError(error.to_string()))?;
     Ok(format_evidence_comparison(
         left_path,
         right_path,
@@ -512,47 +474,47 @@ fn evidence_compare_report_from_snapshots(
 fn format_evidence_comparison(
     left_path: &Path,
     right_path: &Path,
-    comparison: &EvidenceNeighborhoodComparison,
+    comparison: &EvidenceComparisonResult,
 ) -> String {
     let mut lines = vec![
         format!("left: {}", left_path.display()),
         format!("right: {}", right_path.display()),
-        format!("evidence-compare: {}", comparison.root.stable_key()),
+        format!("evidence-compare: {}", comparison.root),
         format!("depth: {}", comparison.max_depth),
-        format!("identical: {}", comparison.is_identical()),
+        format!("identical: {}", comparison.identical),
         format!("node-changes: {}", comparison.nodes.len()),
     ];
     for node in &comparison.nodes {
         lines.push(format!(
             "node {} {} {} {}",
             difference_kind_key(node.kind),
-            node.selection.stable_key(),
+            node.selection,
             optional_depth(node.left_depth),
             optional_depth(node.right_depth)
         ));
     }
     lines.push(format!(
         "left-only-edges: {}",
-        comparison.edges.left_only.len()
+        comparison.left_only_edges.len()
     ));
-    for edge in &comparison.edges.left_only {
-        lines.push(format!("left-{}", format_evidence_edge(*edge)));
+    for edge in &comparison.left_only_edges {
+        lines.push(format!("left-{}", format_evidence_edge(edge)));
     }
     lines.push(format!(
         "right-only-edges: {}",
-        comparison.edges.right_only.len()
+        comparison.right_only_edges.len()
     ));
-    for edge in &comparison.edges.right_only {
-        lines.push(format!("right-{}", format_evidence_edge(*edge)));
+    for edge in &comparison.right_only_edges {
+        lines.push(format!("right-{}", format_evidence_edge(edge)));
     }
     lines.join("\n")
 }
 
-fn difference_kind_key(kind: DifferenceKind) -> &'static str {
+fn difference_kind_key(kind: Difference) -> &'static str {
     match kind {
-        DifferenceKind::LeftOnly => "left-only",
-        DifferenceKind::RightOnly => "right-only",
-        DifferenceKind::Changed => "changed",
+        Difference::LeftOnly => "left-only",
+        Difference::RightOnly => "right-only",
+        Difference::Changed => "changed",
     }
 }
 
@@ -571,6 +533,18 @@ fn pack_report() -> Result<String, Box<dyn Error>> {
         ));
     }
     Ok(lines.join("\n"))
+}
+
+#[cfg(test)]
+fn runtime_evidence_edge_kind(edge: world_projection::StateEvidenceEdge) -> &'static str {
+    match edge {
+        world_projection::StateEvidenceEdge::EntityEvent(_) => "entity-event",
+        world_projection::StateEvidenceEdge::RelationEvent(_) => "relation-event",
+        world_projection::StateEvidenceEdge::EntityRelation(evidence) => match evidence.role {
+            world_projection::RelationEndpointRole::From => "entity-relation:from",
+            world_projection::RelationEndpointRole::To => "entity-relation:to",
+        },
+    }
 }
 
 #[cfg(test)]
@@ -877,7 +851,7 @@ mod tests {
         assert!(report.contains(&format!(
             "step 0 {} {} {}",
             from.stable_key(),
-            evidence_edge_kind(edge),
+            runtime_evidence_edge_kind(edge),
             to.stable_key()
         )));
     }
