@@ -1,0 +1,32 @@
+name: M166 patch
+
+on:
+  push:
+    branches:
+      - agent/m166-adjacency-navigation
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/m166-adjacency-navigation
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Apply Entity Relation adjacency navigation
+        run: |
+          python3 .github/scripts/m166_patch.py
+          cargo fmt --all
+          git diff --check
+      - name: Commit patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add crates/world-gpui/src/macos.rs
+          git commit -m "M166: navigate active Entity Relation adjacency"
+          git push origin HEAD:agent/m166-adjacency-navigation
