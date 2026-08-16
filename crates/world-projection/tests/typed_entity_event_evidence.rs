@@ -61,10 +61,7 @@ fn typed_evidence_is_visible_deduplicated_and_shared_by_navigation_queries() {
             ],
         },
         inspectors: BTreeMap::from([
-            inspector(
-                entity_2,
-                &[event_7_key.clone(), event_8_key.clone()],
-            ),
+            inspector(entity_2, &[event_7_key.clone(), event_8_key.clone()]),
             inspector(
                 entity_3,
                 &[
