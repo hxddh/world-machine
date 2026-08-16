@@ -55,11 +55,7 @@ impl PackManifest {
                 self.format_version,
             ));
         }
-        if self.protocol_version != PACK_PROTOCOL_VERSION {
-            return Err(ProtocolError::UnsupportedProtocolVersion(
-                self.protocol_version,
-            ));
-        }
+        validate_protocol_version(self.protocol_version)?;
         self.descriptor.validate()?;
         match &self.runtime {
             PackRuntimeManifest::Process { command, .. } if command.trim().is_empty() => {
