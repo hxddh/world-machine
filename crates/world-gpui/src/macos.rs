@@ -9,6 +9,7 @@ use world_projection::{
 };
 
 const ENTITY_HISTORY_LIMIT: usize = 6;
+const EVENT_ENTITY_EFFECT_LIMIT: usize = 6;
 
 pub struct ProjectionView {
     snapshot: ProjectionSnapshot,
@@ -400,7 +401,67 @@ impl ProjectionView {
             }
         }
 
+        if let SelectionId::Event(event) = selection {
+            let changed_entities = self.snapshot.directly_changed_entities(event);
+            if !changed_entities.is_empty() {
+                let mut items = div().flex().flex_col().gap_2();
+                for entity in changed_entities.iter().take(EVENT_ENTITY_EFFECT_LIMIT) {
+                    items = items
+                        .child(self.event_entity_effect_item(SelectionId::Entity(*entity), cx));
+                }
+                panel = panel
+                    .child(div().text_sm().child("Entities changed by this event"))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(0x66705f))
+                            .child("Entities with a direct recorded StateChange from this visible event. Select one to inspect its current state and recorded history."),
+                    )
+                    .child(items);
+                let hidden = changed_entities
+                    .len()
+                    .saturating_sub(EVENT_ENTITY_EFFECT_LIMIT);
+                if hidden > 0 {
+                    panel = panel.child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(0x777777))
+                            .child(format!("{hidden} more directly changed entities not shown")),
+                    );
+                }
+            }
+        }
+
         Some(panel)
+    }
+
+    fn event_entity_effect_item(
+        &self,
+        selection: SelectionId,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let (title, subtitle) = self
+            .snapshot
+            .inspector(selection)
+            .map(|inspector| (inspector.title.clone(), inspector.subtitle.clone()))
+            .unwrap_or_else(|| ("Entity".into(), "Recorded entity".into()));
+        div()
+            .id(SharedString::from(format!(
+                "event-entity-effect-{}",
+                selection.stable_key()
+            )))
+            .p_2()
+            .rounded_md()
+            .border_1()
+            .border_color(rgb(0xe2e4e8))
+            .bg(rgb(0xf8f9fc))
+            .cursor_pointer()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(div().text_sm().child(title))
+            .child(div().text_xs().text_color(rgb(0x666666)).child(subtitle))
+            .on_click(cx.listener(move |this, _, _, cx| this.select(selection, cx)))
     }
 
     fn entity_history_item(&self, item: &TimelineItem, cx: &mut Context<Self>) -> impl IntoElement {
