@@ -1,0 +1,33 @@
+name: M178 patch
+on:
+  push:
+    branches:
+      - agent/m178-local-evidence-ui
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/m178-local-evidence-ui
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Apply local evidence divergence UI
+        run: |
+          python3 .github/scripts/m178_local_evidence_ui.py
+          cargo fmt --all
+          git diff --check
+      - name: Commit patch
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add crates/world-strategy-gpui/src/lib.rs
+          if git diff --cached --quiet; then
+            echo "No patch produced" >&2
+            exit 1
+          fi
+          git commit -m "M178: surface local evidence divergence"
+          git push origin HEAD:agent/m178-local-evidence-ui
