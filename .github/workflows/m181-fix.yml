@@ -1,0 +1,57 @@
+name: M181 fix
+on:
+  push:
+    branches:
+      - agent/m181-cli-evidence-path
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/m181-cli-evidence-path
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: semantic
+      - name: Apply shortest evidence path command
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('.github/scripts/m181_cli_evidence_path.py')
+          t = p.read_text()
+          start = t.index('usage_line =')
+          end = t.index('help_line =', start)
+          p.write_text(t[:start] + t[end:])
+          PY
+          python3 .github/scripts/m181_cli_evidence_path.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('crates/world-cli/src/main.rs')
+          lines = p.read_text().splitlines(keepends=True)
+          matches = [i for i, line in enumerate(lines) if '  world-cli evidence <file.world> <selection-key> [depth]' in line]
+          if len(matches) != 1:
+              raise SystemExit(f'expected one evidence usage line, found {len(matches)}')
+          i = matches[0] + 1
+          lines.insert(i, lines[i - 1].replace('evidence <file.world> <selection-key> [depth]', 'evidence-path <file.world> <from-key> <to-key>'))
+          p.write_text(''.join(lines))
+          PY
+          cargo fmt --all
+          cargo test -p world-cli
+          cargo clippy -p world-cli --all-targets -- -D warnings
+          git diff --check
+      - name: Commit patch
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add crates/world-cli/src/main.rs
+          if git diff --cached --quiet; then
+            echo "No patch produced" >&2
+            exit 1
+          fi
+          git commit -m "M181: query shortest evidence paths from CLI"
+          git push origin HEAD:agent/m181-cli-evidence-path
