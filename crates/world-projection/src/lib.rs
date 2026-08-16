@@ -2,7 +2,9 @@ mod causal;
 mod influence;
 
 use std::collections::{BTreeMap, BTreeSet};
-use world_core::{Entity, EntityId, Event, EventId, RelationId, StateChange, Value, World};
+use world_core::{
+    Entity, EntityId, Event, EventId, Relation, RelationId, StateChange, Value, World,
+};
 
 pub use causal::{why_from_world, why_map_from_world, WhyNode, WhyProjection};
 
@@ -286,6 +288,12 @@ pub fn inspectors_from_world(world: &World) -> BTreeMap<SelectionId, InspectorPr
             inspector_for_entity(entity, world, &recorded_change_events),
         );
     }
+    for relation in world.state().relations() {
+        inspectors.insert(
+            SelectionId::Relation(relation.id),
+            inspector_for_relation(relation, world),
+        );
+    }
     for event in world.events() {
         inspectors.insert(
             SelectionId::Event(event.id),
@@ -473,6 +481,52 @@ fn recorded_entity_change_events(world: &World) -> BTreeMap<EntityId, Vec<EventI
 
     events_by_entity
 }
+fn inspector_for_relation(relation: &Relation, world: &World) -> InspectorProjection {
+    let endpoint_title = |entity| {
+        world
+            .state()
+            .entity(entity)
+            .map(entity_title)
+            .unwrap_or_else(|| format!("Entity #{entity}"))
+    };
+    let context = vec![
+        InspectorRow {
+            label: "From".into(),
+            value: endpoint_title(relation.from),
+        },
+        InspectorRow {
+            label: "To".into(),
+            value: endpoint_title(relation.to),
+        },
+    ];
+    let properties = relation
+        .properties
+        .iter()
+        .map(|(key, value)| InspectorRow {
+            label: humanize(key),
+            value: value_text(value, world),
+        })
+        .collect::<Vec<_>>();
+
+    let mut sections = vec![InspectorSection {
+        title: "Context".into(),
+        rows: context,
+    }];
+    if !properties.is_empty() {
+        sections.push(InspectorSection {
+            title: "Properties".into(),
+            rows: properties,
+        });
+    }
+
+    InspectorProjection {
+        selection: SelectionId::Relation(relation.id),
+        title: humanize(&relation.kind),
+        subtitle: format!("Relation #{}", relation.id),
+        sections,
+    }
+}
+
 fn inspector_for_event(event: &Event, world: &World) -> InspectorProjection {
     let mut context = Vec::new();
     if let Some(actor) = event.actor {
