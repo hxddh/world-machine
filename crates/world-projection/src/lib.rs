@@ -1,10 +1,12 @@
 mod causal;
 mod influence;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use world_core::{Entity, EntityId, Event, EventId, StateChange, Value, World};
 
 pub use causal::{why_from_world, why_map_from_world, WhyNode, WhyProjection};
+
+pub const ENTITY_HISTORY_SECTION: &str = "Recorded entity changes";
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum SelectionId {
@@ -60,6 +62,30 @@ impl ProjectionSnapshot {
 
     pub fn why(&self, event: EventId) -> Option<&WhyProjection> {
         self.why.get(&event)
+    }
+
+    pub fn entity_history(&self, entity: EntityId) -> Vec<&TimelineItem> {
+        let Some(inspector) = self.inspector(SelectionId::Entity(entity)) else {
+            return Vec::new();
+        };
+        let Some(section) = inspector
+            .sections
+            .iter()
+            .find(|section| section.title == ENTITY_HISTORY_SECTION)
+        else {
+            return Vec::new();
+        };
+        let keys = section
+            .rows
+            .iter()
+            .map(|row| row.value.as_str())
+            .collect::<BTreeSet<_>>();
+
+        self.timeline
+            .items
+            .iter()
+            .filter(|item| keys.contains(item.id.stable_key().as_str()))
+            .collect()
     }
 
     pub fn influence(&self, event: EventId) -> Vec<(usize, &TimelineItem)> {
@@ -277,7 +303,7 @@ fn inspector_for_entity(entity: &Entity, world: &World) -> InspectorProjection {
     }
     if !recorded_changes.is_empty() {
         sections.push(InspectorSection {
-            title: "Recorded entity changes".into(),
+            title: ENTITY_HISTORY_SECTION.into(),
             rows: recorded_changes,
         });
     }
@@ -302,8 +328,12 @@ fn recorded_entity_change_rows(entity: EntityId, world: &World) -> Vec<Inspector
                 .any(|change| change_directly_affects_entity(change, entity))
         })
         .map(|event| InspectorRow {
-            label: format!("World time {}", event.world_time),
-            value: format!("{} · Event #{}", humanize(&event.kind), event.id),
+            label: format!(
+                "World time {} · {}",
+                event.world_time,
+                humanize(&event.kind)
+            ),
+            value: SelectionId::Event(event.id).stable_key(),
         })
         .collect()
 }
@@ -632,7 +662,7 @@ mod tests {
     }
 
     #[test]
-    fn entity_inspector_surfaces_only_direct_recorded_entity_changes() {
+    fn entity_history_uses_stable_event_keys_and_typed_timeline_lookup() {
         let mut state = WorldState::default();
         state
             .seed_entity(
@@ -698,21 +728,26 @@ mod tests {
         .unwrap();
 
         let inspectors = inspectors_from_world(&world);
-        let inspector = inspectors
+        let recorded = inspectors
             .get(&SelectionId::Entity(EntityId::new(1)))
-            .expect("entity should be inspectable");
-        let recorded = inspector
+            .unwrap()
             .sections
             .iter()
-            .find(|section| section.title == "Recorded entity changes")
-            .expect("direct recorded entity changes should be inspectable");
+            .find(|section| section.title == ENTITY_HISTORY_SECTION)
+            .expect("history section should exist");
+        assert_eq!(recorded.rows[0].label, "World time 3 · Workspace Renamed");
+        assert_eq!(recorded.rows[0].value, "event-3");
+        assert_eq!(recorded.rows[1].value, "event-1");
 
-        assert_eq!(inspector.title, "Renamed Workspace");
-        assert_eq!(recorded.rows.len(), 2);
-        assert_eq!(recorded.rows[0].label, "World time 3");
-        assert_eq!(recorded.rows[0].value, "Workspace Renamed · Event #3");
-        assert_eq!(recorded.rows[1].label, "World time 1");
-        assert_eq!(recorded.rows[1].value, "Work Finished · Event #1");
+        let snapshot = ProjectionSnapshot {
+            timeline: timeline_from_world(&world),
+            inspectors,
+            ..ProjectionSnapshot::default()
+        };
+        let history = snapshot.entity_history(EntityId::new(1));
+        assert_eq!(history.len(), 2);
+        assert_eq!(history[0].id, SelectionId::Event(EventId::new(3)));
+        assert_eq!(history[1].id, SelectionId::Event(EventId::new(1)));
     }
 
     #[test]
