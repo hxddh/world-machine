@@ -376,8 +376,10 @@ fn change_directly_affects_entity(change: &StateChange, entity_id: EntityId) -> 
         StateChange::SetComponent { entity, .. } | StateChange::RemoveComponent { entity, .. } => {
             *entity == entity_id
         }
-        StateChange::CreateRelation(_)
-        | StateChange::RemoveRelation(_)
+        StateChange::CreateRelation(relation) => {
+            relation.from == entity_id || relation.to == entity_id
+        }
+        StateChange::RemoveRelation(_)
         | StateChange::SetRelationProperty { .. }
         | StateChange::RemoveRelationProperty { .. } => false,
     }
