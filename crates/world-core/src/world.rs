@@ -95,6 +95,10 @@ impl World {
         &self.state
     }
 
+    pub fn baseline_state(&self) -> &WorldState {
+        &self.baseline
+    }
+
     pub fn world_time(&self) -> u64 {
         self.state.world_time()
     }

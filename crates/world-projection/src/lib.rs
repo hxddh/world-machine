@@ -2,7 +2,7 @@ mod causal;
 mod influence;
 
 use std::collections::{BTreeMap, BTreeSet};
-use world_core::{Entity, EntityId, Event, EventId, StateChange, Value, World};
+use world_core::{Entity, EntityId, Event, EventId, RelationId, StateChange, Value, World};
 
 pub use causal::{why_from_world, why_map_from_world, WhyNode, WhyProjection};
 
@@ -241,11 +241,12 @@ pub fn timeline_from_world(world: &World) -> TimelineProjection {
 }
 
 pub fn inspectors_from_world(world: &World) -> BTreeMap<SelectionId, InspectorProjection> {
+    let recorded_change_events = recorded_entity_change_events(world);
     let mut inspectors = BTreeMap::new();
     for entity in world.state().entities() {
         inspectors.insert(
             SelectionId::Entity(entity.id),
-            inspector_for_entity(entity, world),
+            inspector_for_entity(entity, world, &recorded_change_events),
         );
     }
     for event in world.events() {
@@ -288,7 +289,11 @@ pub fn value_text(value: &Value, world: &World) -> String {
     }
 }
 
-fn inspector_for_entity(entity: &Entity, world: &World) -> InspectorProjection {
+fn inspector_for_entity(
+    entity: &Entity,
+    world: &World,
+    recorded_change_events: &BTreeMap<EntityId, Vec<EventId>>,
+) -> InspectorProjection {
     let components = entity
         .components
         .iter()
@@ -320,7 +325,7 @@ fn inspector_for_entity(entity: &Entity, world: &World) -> InspectorProjection {
             }
         })
         .collect::<Vec<_>>();
-    let recorded_changes = recorded_entity_change_rows(entity.id, world);
+    let recorded_changes = recorded_entity_change_rows(entity.id, world, recorded_change_events);
 
     let mut sections = vec![InspectorSection {
         title: "State".into(),
@@ -347,17 +352,19 @@ fn inspector_for_entity(entity: &Entity, world: &World) -> InspectorProjection {
     }
 }
 
-fn recorded_entity_change_rows(entity: EntityId, world: &World) -> Vec<InspectorRow> {
-    world
-        .events()
+fn recorded_entity_change_rows(
+    entity: EntityId,
+    world: &World,
+    recorded_change_events: &BTreeMap<EntityId, Vec<EventId>>,
+) -> Vec<InspectorRow> {
+    let Some(event_ids) = recorded_change_events.get(&entity) else {
+        return Vec::new();
+    };
+
+    event_ids
         .iter()
         .rev()
-        .filter(|event| {
-            event
-                .changes
-                .iter()
-                .any(|change| change_directly_affects_entity(change, entity))
-        })
+        .filter_map(|event_id| world.event(*event_id))
         .map(|event| InspectorRow {
             label: format!(
                 "World time {} · {}",
@@ -369,22 +376,57 @@ fn recorded_entity_change_rows(entity: EntityId, world: &World) -> Vec<Inspector
         .collect()
 }
 
-fn change_directly_affects_entity(change: &StateChange, entity_id: EntityId) -> bool {
-    match change {
-        StateChange::CreateEntity(entity) => entity.id == entity_id,
-        StateChange::RemoveEntity(entity) => *entity == entity_id,
-        StateChange::SetComponent { entity, .. } | StateChange::RemoveComponent { entity, .. } => {
-            *entity == entity_id
-        }
-        StateChange::CreateRelation(relation) => {
-            relation.from == entity_id || relation.to == entity_id
-        }
-        StateChange::RemoveRelation(_)
-        | StateChange::SetRelationProperty { .. }
-        | StateChange::RemoveRelationProperty { .. } => false,
-    }
-}
+fn recorded_entity_change_events(world: &World) -> BTreeMap<EntityId, Vec<EventId>> {
+    let mut relation_endpoints = world
+        .baseline_state()
+        .relations()
+        .map(|relation| (relation.id, (relation.from, relation.to)))
+        .collect::<BTreeMap<RelationId, (EntityId, EntityId)>>();
+    let mut events_by_entity = BTreeMap::<EntityId, Vec<EventId>>::new();
 
+    for event in world.events() {
+        let mut affected = BTreeSet::new();
+        for change in &event.changes {
+            match change {
+                StateChange::CreateEntity(entity) => {
+                    affected.insert(entity.id);
+                }
+                StateChange::RemoveEntity(entity) => {
+                    affected.insert(*entity);
+                    relation_endpoints.retain(|_, (from, to)| *from != *entity && *to != *entity);
+                }
+                StateChange::SetComponent { entity, .. }
+                | StateChange::RemoveComponent { entity, .. } => {
+                    affected.insert(*entity);
+                }
+                StateChange::CreateRelation(relation) => {
+                    affected.insert(relation.from);
+                    affected.insert(relation.to);
+                    relation_endpoints.insert(relation.id, (relation.from, relation.to));
+                }
+                StateChange::RemoveRelation(relation) => {
+                    if let Some((from, to)) = relation_endpoints.remove(relation) {
+                        affected.insert(from);
+                        affected.insert(to);
+                    }
+                }
+                StateChange::SetRelationProperty { relation, .. }
+                | StateChange::RemoveRelationProperty { relation, .. } => {
+                    if let Some((from, to)) = relation_endpoints.get(relation).copied() {
+                        affected.insert(from);
+                        affected.insert(to);
+                    }
+                }
+            }
+        }
+
+        for entity in affected {
+            events_by_entity.entry(entity).or_default().push(event.id);
+        }
+    }
+
+    events_by_entity
+}
 fn inspector_for_event(event: &Event, world: &World) -> InspectorProjection {
     let mut context = Vec::new();
     if let Some(actor) = event.actor {
