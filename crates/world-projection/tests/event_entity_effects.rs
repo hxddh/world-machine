@@ -48,7 +48,7 @@ fn directly_changed_entities_inverts_only_visible_recorded_entity_history() {
             }],
         },
         inspectors: BTreeMap::from([
-            entity_inspector(3, &[target_key.clone()]),
+            entity_inspector(3, std::slice::from_ref(&target_key)),
             entity_inspector(1, &[other_key]),
             entity_inspector(2, &[target_key]),
             entity_inspector(4, &[hidden_key]),
