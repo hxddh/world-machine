@@ -5,7 +5,10 @@ use gpui::{
 use world_projection::{
     BriefingItem, CanvasItemKind, CollectionItem, InspectorProjection, ProjectionCommand,
     ProjectionIntent, ProjectionSnapshot, SelectionId, TimelineItem, WhyNode,
+    ENTITY_HISTORY_SECTION,
 };
+
+const ENTITY_HISTORY_LIMIT: usize = 6;
 
 pub struct ProjectionView {
     snapshot: ProjectionSnapshot,
@@ -364,11 +367,72 @@ impl ProjectionView {
         canvas
     }
 
-    fn render_inspector(&self) -> Option<Div> {
-        let inspector = self
-            .selected
-            .and_then(|selection| self.snapshot.inspector(selection))?;
-        Some(inspector_panel(inspector))
+    fn render_inspector(&self, cx: &mut Context<Self>) -> Option<Div> {
+        let selection = self.selected?;
+        let inspector = self.snapshot.inspector(selection)?;
+        let mut panel = inspector_panel(inspector);
+
+        if let SelectionId::Entity(entity) = selection {
+            let history = self.snapshot.entity_history(entity);
+            if !history.is_empty() {
+                let mut items = div().flex().flex_col().gap_2();
+                for item in history.iter().take(ENTITY_HISTORY_LIMIT) {
+                    items = items.child(self.entity_history_item(item, cx));
+                }
+                panel = panel
+                    .child(div().text_sm().child("Recorded changes to this entity"))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(0x66705f))
+                            .child("Recorded events whose StateChanges directly changed this entity. Select one to inspect the event, trace its causes and effects, or fork before it."),
+                    )
+                    .child(items);
+                let hidden = history.len().saturating_sub(ENTITY_HISTORY_LIMIT);
+                if hidden > 0 {
+                    panel = panel.child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(0x777777))
+                            .child(format!("{hidden} more recorded entity changes not shown")),
+                    );
+                }
+            }
+        }
+
+        Some(panel)
+    }
+
+    fn entity_history_item(&self, item: &TimelineItem, cx: &mut Context<Self>) -> impl IntoElement {
+        let selection = item.id;
+        div()
+            .id(SharedString::from(format!(
+                "entity-history-{}",
+                selection.stable_key()
+            )))
+            .p_2()
+            .rounded_md()
+            .border_1()
+            .border_color(rgb(0xe2e4e8))
+            .bg(rgb(0xf8f9fc))
+            .cursor_pointer()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(div().text_sm().child(item.title.clone()))
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0x555555))
+                    .child(item.subtitle.clone()),
+            )
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0x777777))
+                    .child(format!("World time {}", item.world_time)),
+            )
+            .on_click(cx.listener(move |this, _, _, cx| this.select(selection, cx)))
     }
 
     fn render_influence(&self, cx: &mut Context<Self>) -> Option<Div> {
@@ -710,7 +774,7 @@ impl Render for ProjectionView {
             if !self.snapshot.canvas.items.is_empty() {
                 center = center.child(self.render_canvas(cx));
             }
-            if let Some(inspector) = self.render_inspector() {
+            if let Some(inspector) = self.render_inspector(cx) {
                 center = center.child(inspector);
             }
             if let Some(why) = self.render_why(cx) {
@@ -828,6 +892,9 @@ fn inspector_panel(inspector: &InspectorProjection) -> Div {
         );
 
     for section in &inspector.sections {
+        if section.title == ENTITY_HISTORY_SECTION {
+            continue;
+        }
         let mut rows = div().flex().flex_col().gap_1();
         for row in &section.rows {
             rows = rows.child(
@@ -855,6 +922,9 @@ fn inspector_panel(inspector: &InspectorProjection) -> Div {
         .border_1()
         .border_color(rgb(0xdadada))
         .bg(rgb(0xffffff))
+        .flex()
+        .flex_col()
+        .gap_3()
         .child(body)
 }
 
