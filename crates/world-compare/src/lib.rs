@@ -467,10 +467,10 @@ fn indexed_rows(inspector: &InspectorProjection) -> BTreeMap<InspectorRowKey, &S
     indexed_rows_filter(inspector, |_, _| true)
 }
 
-fn indexed_rows_filter<'a>(
-    inspector: &'a InspectorProjection,
+fn indexed_rows_filter(
+    inspector: &InspectorProjection,
     mut include: impl FnMut(&str, &str) -> bool,
-) -> BTreeMap<InspectorRowKey, &'a String> {
+) -> BTreeMap<InspectorRowKey, &String> {
     let mut rows = BTreeMap::new();
     let mut duplicates = BTreeMap::<(String, String), usize>::new();
 
