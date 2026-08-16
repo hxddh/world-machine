@@ -6,7 +6,7 @@ use world_pack_protocol::{
 };
 use world_projection::{
     EntityRelationEvidence, InspectorProjection, InspectorRow, InspectorSection,
-    ProjectionSnapshot, SelectionId, RELATION_ENDPOINTS_SECTION,
+    ProjectionSnapshot, RelationEndpointRole, SelectionId, RELATION_ENDPOINTS_SECTION,
 };
 
 fn adjacency_snapshot() -> (ProjectionSnapshot, EntityId, EntityId, RelationId) {
@@ -99,10 +99,12 @@ fn protocol_v2_preserves_typed_entity_relation_adjacency_across_json_wire_round_
             EntityRelationEvidence {
                 entity: left,
                 relation,
+                role: RelationEndpointRole::From,
             },
             EntityRelationEvidence {
                 entity: right,
                 relation,
+                role: RelationEndpointRole::To,
             },
         ]
     );
