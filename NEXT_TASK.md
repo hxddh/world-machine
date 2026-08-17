@@ -18,6 +18,7 @@ Add a test-only segmented search scheduler that carries both an accumulated abso
 - Parallel frontier branches that diverge at the same minimum absolute depth preserve the complete witness set and each witness keeps an original-root trace.
 - A zero-depth bootstrap does not duplicate the root when trace prefixes are composed.
 - Typed shortest-path selection remains stable across replay boundaries, including a diamond where multiple equal-length routes reach the same frontier.
+- When multiple traversal prefixes converge on the same `(absolute offset, serialized replay request)`, they are one search state rather than separate explanation branches. Deterministic typed frontier ordering makes the first retained prefix the canonical explanation, matching the monolithic shortest-path tie-break and preventing duplicate witnesses after convergence.
 
 ## Scope
 
