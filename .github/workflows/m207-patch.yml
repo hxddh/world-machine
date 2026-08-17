@@ -18,7 +18,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Apply M207 patch
-        run: python .github/m207_patch.py
+        run: |
+          python .github/m207_patch.py
+          python .github/m207_clippy_fix.py
       - name: Format
         run: cargo fmt --all
       - name: Check boundaries
