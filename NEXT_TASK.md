@@ -1,79 +1,61 @@
-# Next Coding Task — M199 Cross-Query Causal Consistency
+# Next Coding Task — M200 Persistent Machine Query Session
 
-Harden the causal machine-query thin waist by proving that `why`, `influence`, `causal-path`, and `causal-neighborhood` are different views of one visible persisted causal graph rather than four independently drifting semantics.
+Turn the stable machine evidence-query contract into an efficient long-lived CLI transport by loading one World snapshot once and processing a stream of newline-delimited query requests over stdin.
 
 ## Current baseline
 
-The causal machine-query surface is complete through M198:
+The machine investigation surface is semantically stable through M199:
 
-- M192: upstream `why`;
-- M193: downstream `influence`;
-- M194: deterministic shortest `causal-path` and shared private `VisibleCausalGraph`;
-- M195: bounded bidirectional `causal-neighborhood`;
-- M196: frontier/truncation metadata;
-- M197: explicit induced `edges` for bounded neighborhoods;
-- M198: explicit induced `edges` for `why` and `influence`;
-- all causal visibility comes only from timeline-visible Events plus persisted `TimelineItem.caused_by`;
-- protocol remains `world-machine-evidence-query` v1.
+- M185–M198 established typed query DTOs, stable errors, protocol-v1 envelopes, visible selection/detail, state-evidence queries, and a complete causal investigation family;
+- M199 proves cross-query causal consistency without requiring product-code changes;
+- `world-cli evidence-query <file.world> <request-json|->` already exposes the generic query contract, but each invocation parses/restores the World and then exits.
 
-## Product problem
+For an external agent adapter or interactive investigator, process-per-query restore cost is unnecessary and creates avoidable latency.
 
-Each causal query now has solid local tests, but consumers depend on stronger global guarantees. A path query must not disagree with influence reachability; a bounded neighborhood must not assign different depths than unbounded traversals; frontier metadata must describe exactly what the depth bound omitted; and the same visible graph must remain stable if timeline presentation order changes.
+## Product goal
 
-M199 adds those cross-query invariants before any additional transport or AgentRuntime integration.
+Add:
 
-## M199 — semantic invariant suite
+```text
+world-cli evidence-query-session <file.world>
+```
 
-Add one integration test module built around deterministic visible causal fixtures containing:
+The command restores the World once, takes one immutable `ProjectionSnapshot`, then reads `EvidenceQueryRequest` documents as NDJSON from stdin until EOF.
 
-- a chain;
-- a diamond with equal-length paths;
-- a visible external co-cause;
-- a hidden referenced Event ID;
-- a directed causal cycle;
-- disconnected causal components.
+For every non-empty input line it emits exactly one existing protocol-v1 status envelope followed by `\n`, then flushes stdout before reading/processing further work.
 
-Do not add a new dependency such as property-testing infrastructure yet. Table-driven deterministic fixtures are sufficient for this milestone and avoid widening the dependency path.
+## Transport contract
 
-## Required invariants
+1. Input is **one complete JSON request per line**. Multi-line pretty-printed JSON is intentionally not part of the session framing.
+2. Empty or whitespace-only lines are ignored and produce no response.
+3. Responses are strictly ordered and positional: the Nth non-empty valid request produces the Nth envelope.
+4. Success and semantic `QueryError` responses use the exact existing one-shot envelope:
+   - `{protocol, version:1, status:"ok", response:...}`
+   - `{protocol, version:1, status:"error", error:...}`
+5. A semantic query error does **not** terminate the session; later records continue.
+6. Malformed request JSON remains a transport failure, matching one-shot semantics. It writes no synthetic QueryError envelope, terminates the process nonzero, and reports the existing `invalid evidence query JSON` error on stderr.
+7. Any already completed response line must have been flushed before a later malformed record terminates the process.
+8. EOF after valid records exits zero.
+9. No request IDs are added in M200; ordered NDJSON is sufficient for this sequential transport and avoids changing the v1 envelope.
 
-1. **Reachability duality**
-   - For every pair of visible Events A/B, `B` appears in `influence(A)` iff `A` appears in `why(B)`.
-   - Self reachability remains true because traversal results include the root at depth 0.
+## Architecture boundary
 
-2. **Path/reachability equivalence**
-   - `causal-path(A,B)` succeeds iff B is in `influence(A)`.
-   - Every adjacent path pair must be an actual persisted edge in `influence(A).edges`.
-   - Path depths are exactly `0..N` and endpoints are A/B.
+- Implement session framing only in `world-cli`.
+- Reuse `evidence_query_json_from_snapshot` so one-shot and session envelopes cannot drift.
+- Load archive, registry session, and snapshot exactly once before the input loop.
+- Keep the snapshot immutable/read-only for the lifetime of the session.
+- Do not move streaming, stdin/stdout, or process concerns into `world-query`, `world-projection`, or `world-core`.
+- Do not expose a full ProjectionSnapshot to in-world AgentRuntime.
 
-3. **Bounded-prefix equivalence**
-   - `causal-neighborhood(root, up, down).upstream` is exactly the `why(root)` nodes with `0 < depth <= up`, in the same order and with the same minimum depths.
-   - `downstream` is the corresponding prefix of `influence(root)`.
-   - The neighborhood root equals the root node exposed by both unbounded traversals.
+## Tests
 
-4. **Induced-edge consistency**
-   - Neighborhood `edges` must be exactly the persisted visible causal edges whose cause and effect are both in the returned node union.
-   - No duplicate graph edges.
+Prove at minimum with real subprocess tests:
 
-5. **Frontier exactness**
-   - Upstream frontier is exactly the depth-boundary node set with at least one omitted visible parent.
-   - Downstream frontier is exactly the depth-boundary node set with at least one omitted visible child.
-   - `*_truncated` is exactly equivalent to a non-empty corresponding frontier.
-
-6. **Visibility safety**
-   - Hidden referenced Event IDs never surface in nodes, `caused_by`, edges, path output, frontier metadata, or serialized causal query responses.
-
-7. **Cycle safety**
-   - `why` and `influence` return each Event once.
-   - The root is not reinserted into neighborhood side lists.
-   - `causal-path` remains finite and shortest in a cycle.
-
-8. **Input-order determinism**
-   - Reordering `ProjectionSnapshot.timeline.items` without changing Event contents must not alter any causal query response.
-
-## Implementation rule
-
-Prefer a **test-only M199**. Do not change product code merely to make the milestone appear larger. If an invariant test exposes a real semantic inconsistency, fix only that shared causal-graph behavior and keep the query surface unchanged.
+1. multiple NDJSON requests produce multiple ordered protocol-v1 envelopes in one process;
+2. blank lines are ignored;
+3. a semantic QueryError produces an error envelope and the following valid request still succeeds;
+4. malformed JSON after one valid record exits nonzero, reports the transport error on stderr, and preserves exactly the already-completed response line;
+5. existing one-shot machine-query subprocess tests remain unchanged and green.
 
 ## Validation
 
@@ -87,6 +69,6 @@ Before merge:
 - semantic workspace CI and external Pack conformance
 - macOS/GPUI only if dependency-path filtering requires it
 
-## Non-goals for M199
+## Non-goals for M200
 
-Do not add new query variants or DTO fields, protocol v2, pagination, arbitrary graph export, causal comparison between worlds, MCP/HTTP/WebSocket, AgentRuntime access, raw mutation payloads, Pack-specific causal inference, or new property-testing dependencies.
+Do not add request IDs, concurrency, out-of-order responses, mutation commands, world reload/watch semantics, comparison sessions, TCP/HTTP/WebSocket/MCP, AgentRuntime access, protocol v2, or automatic recovery after malformed JSON.

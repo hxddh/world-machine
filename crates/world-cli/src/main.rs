@@ -3,7 +3,7 @@ use std::env;
 use std::error::Error;
 use std::fmt;
 use std::fs;
-use std::io::{self, Read};
+use std::io::{self, BufRead, Read, Write};
 use std::path::{Path, PathBuf};
 use world_integrity::{check_archive, ArchiveIntegrityError};
 use world_persistence::{ArchivedEvent, WorldArchive};
@@ -27,6 +27,7 @@ enum Command {
     EvidencePath(PathBuf, String, String),
     EvidenceCompare(PathBuf, PathBuf, String, usize),
     EvidenceQuery(PathBuf, String),
+    EvidenceQuerySession(PathBuf),
     EvidenceCompareQuery(PathBuf, PathBuf, String),
     ListPacks,
     Help,
@@ -67,6 +68,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             let request = read_query_request(&request)?;
             println!("{}", evidence_query_json_report(&path, &request)?)
         }
+        Command::EvidenceQuerySession(path) => evidence_query_session(&path)?,
         Command::EvidenceCompareQuery(left, right, request) => {
             let request = read_query_request(&request)?;
             println!(
@@ -133,6 +135,9 @@ where
         [command, path, request] if command == "evidence-query" => {
             Ok(Command::EvidenceQuery(PathBuf::from(path), request.clone()))
         }
+        [command, path] if command == "evidence-query-session" => {
+            Ok(Command::EvidenceQuerySession(PathBuf::from(path)))
+        }
         [command, left, right, request] if command == "evidence-compare-query" => {
             Ok(Command::EvidenceCompareQuery(
                 PathBuf::from(left),
@@ -159,6 +164,7 @@ Usage:\n\
   world-cli evidence-path <file.world> <from-key> <to-key>\n\n\
   world-cli evidence-compare <left.world> <right.world> <selection-key> [depth]\n\n\
   world-cli evidence-query <file.world> <request-json|->\n\n\
+  world-cli evidence-query-session <file.world>\n\n\
   world-cli evidence-compare-query <left.world> <right.world> <request-json|->\n\n\
   world-cli list-packs\n\n\
 inspect     Parse and summarize a World archive without requiring its Pack.\n\
@@ -170,6 +176,7 @@ evidence    Print a typed evidence neighborhood around entity-N, relation-N, or 
 evidence-path  Print the typed shortest evidence path between two selections.\n\
 evidence-compare  Compare a typed evidence neighborhood between two World archives.\n\
 evidence-query  Execute an EvidenceQueryRequest JSON document and emit a JSON status envelope. Use - to read JSON from stdin.\n\
+evidence-query-session  Load one World snapshot, then execute newline-delimited EvidenceQueryRequest JSON documents from stdin and emit one v1 status envelope per non-empty line.\n\
 evidence-compare-query  Execute an EvidenceComparisonRequest JSON document and emit a JSON status envelope. Use - to read JSON from stdin.\n\
 list-packs  List World Packs this build can create and restore."
 }
@@ -529,6 +536,48 @@ fn evidence_query_json_report(path: &Path, request_json: &str) -> Result<String,
     let snapshot = session.snapshot();
     evidence_query_json_from_snapshot(&snapshot, request_json)
         .map_err(|error| Box::new(error) as Box<dyn Error>)
+}
+
+fn evidence_query_session(path: &Path) -> Result<(), Box<dyn Error>> {
+    let archive = load_archive(path)?;
+    let registry = world_builtins::registry()?;
+    let session = registry.open_archive(&archive)?;
+    let snapshot = session.snapshot();
+    let stdin = io::stdin();
+    let stdout = io::stdout();
+    run_evidence_query_session(&snapshot, stdin.lock(), stdout.lock())
+        .map_err(|error| Box::new(error) as Box<dyn Error>)
+}
+
+fn run_evidence_query_session<R, W>(
+    snapshot: &ProjectionSnapshot,
+    reader: R,
+    mut writer: W,
+) -> Result<(), CliError>
+where
+    R: BufRead,
+    W: Write,
+{
+    for line in reader.lines() {
+        let line = line
+            .map_err(|error| CliError(format!("failed to read evidence query session: {error}")))?;
+        if line.trim().is_empty() {
+            continue;
+        }
+
+        let output = evidence_query_json_from_snapshot(snapshot, &line)?;
+        writeln!(writer, "{output}").map_err(|error| {
+            CliError(format!(
+                "failed to write evidence query session response: {error}"
+            ))
+        })?;
+        writer.flush().map_err(|error| {
+            CliError(format!(
+                "failed to flush evidence query session response: {error}"
+            ))
+        })?;
+    }
+    Ok(())
 }
 
 fn evidence_query_json_from_snapshot(
