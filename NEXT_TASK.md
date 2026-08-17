@@ -1,36 +1,36 @@
-# Next Coding Task — M205 Executable First-Divergence Continuations
+# Next Coding Task — M206 First-Divergence Continuation Consistency
 
-Make bounded two-world `first-divergence` search directly resumable at every unresolved causal frontier without adding server-side state.
+Prove that M205 segmented `first-divergence` replay is semantically equivalent to a single deeper bounded query before building any higher-level search scheduler.
 
 ## Current baseline
 
-M203 locates the earliest visible causal divergence in one direction and M204 attaches deterministic root-to-witness traces. A bounded search can still end with `identical_within_depth = true` while one or both worlds expose a frontier, which currently leaves the caller to construct follow-up searches manually.
+M203 finds the earliest bounded causal divergence, M204 adds deterministic witness traces, and M205 emits typed replayable frontier continuations with explicit `depth_offset` values. The remaining risk is compositional: a caller may fan out across multiple frontier Events and replay several windows, so the protocol must not miss an earlier divergence, distort absolute depth, or lose same-depth witness branches.
 
-## M205 — first-divergence continuations
+## M206 — consistency invariants
 
-Extend `EvidenceCausalFirstDivergenceResult` additively with `continuations: Vec<EvidenceCausalFirstDivergenceContinuation>` using `#[serde(default)]` compatibility.
+Add a dedicated invariant suite that implements a small test-only segmented search scheduler using only public M205 DTOs and `execute_comparison_query_request`.
 
-Each continuation carries the canonical frontier Event, direction, left/right frontier membership, a `depth_offset`, and an ordinary replayable `EvidenceComparisonQueryRequest::Causal(FirstDivergence { ... })`.
+## Invariants
 
-## Semantics
+- `offset + replay.divergence_depth` must equal the corresponding divergence depth from a monolithic deeper query.
+- When several frontier branches diverge at the same minimum absolute depth, the union of segmented witnesses must equal the monolithic witness set at that depth.
+- A zero-depth bootstrap followed by promoted one-hop replay must converge to the same result as a monolithic query without non-progressing loops.
+- Upstream and downstream segmented searches must both agree with monolithic semantics.
+- Hidden referenced Events and visible causal cycles must not create false segmented divergence or infinite frontier replay.
+- Duplicate continuation requests reached through converging branches may be de-duplicated by `(absolute offset, serialized request)` without changing the result.
 
-- Emit continuations only when no divergence was found in the current bounded window.
-- Build one continuation per Event in the typed union of left/right frontiers.
-- Preserve whether each frontier belongs to the left world, right world, or both.
-- For a non-zero window, re-root at the frontier and preserve that window size.
-- For a zero-depth window, reuse the current root but promote replay to one hop so it always makes progress.
-- `depth_offset` is the distance from the current request root to the continuation root. Add it to a replay response's relative `divergence_depth` to map the result back to the current request root; sum offsets across repeated replays.
-- A one-sided frontier remains executable because first-divergence already supports roots visible in either world.
-- Stop emitting deeper continuations as soon as a divergence is found; the earliest divergence is already resolved for that branch.
+## Scope
 
-## Compatibility
+This milestone adds no production API surface. It is a proof milestone for the existing protocol-v1 continuation semantics and should exercise only public machine-query DTOs and executors.
 
-No request-shape change, protocol bump, CLI command, cursor, visited set, server session, AgentRuntime access, or transport. Existing M204 result payloads without `continuations` deserialize with an empty default.
+## Validation
 
-## Tests
-
-Prove side-aware frontier replay, depth-offset arithmetic, zero-depth progress, typed continuation ordering, suppression after divergence, backward M204 deserialization, and a real two-step stdin `world-cli evidence-compare-query` replay.
+- `cargo fmt --all -- --check`
+- `bash ./scripts/check-boundaries.sh`
+- `cargo test -p world-query`
+- focused Clippy with warnings denied
+- full semantic workspace CI and external Pack conformance
 
 ## Non-goals
 
-No automatic global recursive search scheduler, opaque cursor, arbitrary graph export, MCP/HTTP/WebSocket, mutation authority, Pack-specific inference, protocol v2, or unrestricted AgentRuntime projection access.
+No production recursive scheduler, no new request or response type, no trace-prefix field, no server cursor/session, no MCP/HTTP/WebSocket, no AgentRuntime access, no arbitrary graph export, and no protocol v2.
