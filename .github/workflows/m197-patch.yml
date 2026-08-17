@@ -1,0 +1,41 @@
+name: M197 implementation patch
+
+on:
+  push:
+    branches:
+      - agent/m197-causal-edges
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/m197-causal-edges
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Apply implementation
+        run: python3 .github/m197_patch.py
+      - name: Format
+        run: cargo fmt --all
+      - name: Boundary checks
+        run: bash ./scripts/check-boundaries.sh
+      - name: Query tests
+        run: cargo test -p world-query
+      - name: CLI tests
+        run: cargo test -p world-cli
+      - name: Focused clippy
+        run: cargo clippy -p world-query -p world-cli --all-targets -- -D warnings
+      - name: Commit implementation
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add crates/world-query/src/lib.rs crates/world-query/tests/causal_neighborhood_edges.rs NEXT_TASK.md
+          git diff --cached --check
+          git commit -m "M197: add causal neighborhood edges"
+          git push origin HEAD:agent/m197-causal-edges
