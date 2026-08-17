@@ -9,8 +9,9 @@ use world_integrity::{check_archive, ArchiveIntegrityError};
 use world_persistence::{ArchivedEvent, WorldArchive};
 use world_projection::ProjectionSnapshot;
 use world_query::{
-    execute_comparison_query, execute_query, Difference, EvidenceComparisonRequest,
-    EvidenceComparisonResult, EvidenceEdge, EvidenceQueryRequest, EvidenceQueryResponse,
+    execute_comparison_query, execute_comparison_query_request, execute_query, Difference,
+    EvidenceComparisonQueryRequest, EvidenceComparisonRequest, EvidenceComparisonResult,
+    EvidenceEdge, EvidenceQueryRequest, EvidenceQueryResponse,
 };
 
 const QUERY_PROTOCOL: &str = "world-machine-evidence-query";
@@ -170,7 +171,7 @@ evidence    Print a typed evidence neighborhood around entity-N, relation-N, or 
 evidence-path  Print the typed shortest evidence path between two selections.\n\
 evidence-compare  Compare a typed evidence neighborhood between two World archives.\n\
 evidence-query  Execute an EvidenceQueryRequest JSON document and emit a JSON status envelope. Use - to read JSON from stdin.\n\
-evidence-compare-query  Execute an EvidenceComparisonRequest JSON document and emit a JSON status envelope. Use - to read JSON from stdin.\n\
+evidence-compare-query  Execute a legacy evidence comparison or tagged causal comparison JSON document and emit a JSON status envelope. Use - to read JSON from stdin.\n\
 list-packs  List World Packs this build can create and restore."
 }
 
@@ -576,9 +577,9 @@ fn evidence_compare_query_json_from_snapshots(
     right: &ProjectionSnapshot,
     request_json: &str,
 ) -> Result<String, CliError> {
-    let request: EvidenceComparisonRequest = serde_json::from_str(request_json)
+    let request: EvidenceComparisonQueryRequest = serde_json::from_str(request_json)
         .map_err(|error| CliError(format!("invalid evidence comparison query JSON: {error}")))?;
-    let output = match execute_comparison_query(left, right, &request) {
+    let output = match execute_comparison_query_request(left, right, &request) {
         Ok(response) => serde_json::json!({
             "protocol": QUERY_PROTOCOL,
             "version": QUERY_PROTOCOL_VERSION,
