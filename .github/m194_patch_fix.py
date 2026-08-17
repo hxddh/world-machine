@@ -2,6 +2,13 @@ from pathlib import Path
 import sys
 
 
+def replace_once(text: str, old: str, new: str, label: str) -> str:
+    count = text.count(old)
+    if count != 1:
+        raise SystemExit(f'{label}: expected one match, found {count}')
+    return text.replace(old, new, 1)
+
+
 def stage() -> None:
     patch = Path('.github/m194_patch.py')
     source = patch.read_text()
@@ -29,6 +36,34 @@ def finish() -> None:
     if count != 1:
         raise SystemExit(f'NoCausalPath serde anchor count: {count}')
     lib.write_text(text.replace(anchor, insertion, 1))
+
+    test = Path('crates/world-query/tests/causal_path.rs')
+    test_text = test.read_text()
+    test_text = replace_once(
+        test_text,
+        '''    let snapshot = snapshot(vec![event(1, 1, &[]), event(3, 3, &[2])]);
+    assert_eq!(
+        execute_query(
+            &snapshot,''',
+        '''    let hidden_snapshot = snapshot(vec![event(1, 1, &[]), event(3, 3, &[2])]);
+    assert_eq!(
+        execute_query(
+            &hidden_snapshot,''',
+        'hidden path snapshot',
+    )
+    test_text = replace_once(
+        test_text,
+        '''    let snapshot = snapshot(vec![event(1, 1, &[]), event(2, 2, &[1])]);
+    assert_eq!(
+        execute_query(
+            &snapshot,''',
+        '''    let reverse_snapshot = snapshot(vec![event(1, 1, &[]), event(2, 2, &[1])]);
+    assert_eq!(
+        execute_query(
+            &reverse_snapshot,''',
+        'reverse path snapshot',
+    )
+    test.write_text(test_text)
 
 
 if len(sys.argv) != 2 or sys.argv[1] not in {'stage', 'finish'}:
