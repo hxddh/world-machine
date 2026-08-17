@@ -144,6 +144,14 @@ pub struct EvidenceCausalNeighborhoodResult {
     pub upstream_frontier: Vec<String>,
     #[serde(default)]
     pub downstream_frontier: Vec<String>,
+    #[serde(default)]
+    pub edges: Vec<EvidenceCausalEdge>,
+}
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+pub struct EvidenceCausalEdge {
+    pub cause: String,
+    pub effect: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -531,6 +539,35 @@ impl<'a> VisibleCausalGraph<'a> {
         self.children.get(&event).map(Vec::as_slice).unwrap_or(&[])
     }
 
+    fn induced_edges(
+        &self,
+        included: &std::collections::BTreeSet<SelectionId>,
+    ) -> Vec<EvidenceCausalEdge> {
+        let mut effects = included.iter().copied().collect::<Vec<_>>();
+        effects.sort_by_key(|effect| {
+            let item = self
+                .events
+                .get(effect)
+                .copied()
+                .expect("included causal event must remain visible");
+            (item.world_time, *effect)
+        });
+
+        let mut edges = Vec::new();
+        for effect in effects {
+            let mut seen_causes = std::collections::BTreeSet::new();
+            for cause in self.parents(effect) {
+                if included.contains(&cause) && seen_causes.insert(cause) {
+                    edges.push(EvidenceCausalEdge {
+                        cause: cause.stable_key(),
+                        effect: effect.stable_key(),
+                    });
+                }
+            }
+        }
+        edges
+    }
+
     fn node(&self, event: SelectionId, depth: usize) -> EvidenceCausalNode {
         let item = self
             .events
@@ -716,6 +753,12 @@ pub fn query_causal_neighborhood(
         }
     }
 
+    let included = upstream_discovered
+        .union(&downstream_discovered)
+        .copied()
+        .collect::<std::collections::BTreeSet<_>>();
+    let edges = graph.induced_edges(&included);
+
     Ok(EvidenceCausalNeighborhoodResult {
         root: graph.node(root, 0),
         upstream_depth,
@@ -726,6 +769,7 @@ pub fn query_causal_neighborhood(
         downstream_truncated: !downstream_frontier.is_empty(),
         upstream_frontier,
         downstream_frontier,
+        edges,
     })
 }
 
