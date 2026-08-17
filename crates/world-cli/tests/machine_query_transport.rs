@@ -9,6 +9,36 @@ use world_query::{
 };
 
 #[test]
+fn stdin_why_query_emits_a_versioned_typed_causal_history() {
+    let (path, event) = world_fixture_with_event();
+    let request = serde_json::to_string(&EvidenceQueryRequest::Why {
+        event: event.clone(),
+    })
+    .unwrap();
+
+    let output = run_query(
+        &["evidence-query", path.to_str().unwrap(), "-"],
+        Some(&request),
+    );
+
+    assert!(output.status.success(), "{}", stderr(&output));
+    let envelope: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_protocol(&envelope);
+    assert_eq!(envelope["status"], "ok");
+    let response: EvidenceQueryResponse =
+        serde_json::from_value(envelope["response"].clone()).unwrap();
+    let EvidenceQueryResponse::Why { value } = response else {
+        panic!("expected why response")
+    };
+    assert_eq!(value.event, event);
+    assert!(!value.nodes.is_empty());
+    assert_eq!(value.nodes[0].event, value.event);
+    assert_eq!(value.nodes[0].depth, 0);
+
+    let _ = fs::remove_file(path);
+}
+
+#[test]
 fn stdin_selection_describe_emits_a_versioned_typed_description() {
     let (path, root) = world_fixture();
     let request = serde_json::to_string(&EvidenceQueryRequest::Describe {
@@ -239,6 +269,25 @@ fn run_query(args: &[&str], stdin: Option<&str>) -> Output {
 
 fn stderr(output: &Output) -> String {
     String::from_utf8_lossy(&output.stderr).into_owned()
+}
+
+fn world_fixture_with_event() -> (PathBuf, String) {
+    let registry = world_builtins::registry().unwrap();
+    for descriptor in registry.descriptors() {
+        let session = registry.create(&descriptor.pack.id).unwrap();
+        let snapshot = session.snapshot();
+        let Some(event) = snapshot.timeline.items.first().map(|item| item.id) else {
+            continue;
+        };
+        if !event.stable_key().starts_with("event-") {
+            continue;
+        }
+        let archive = session.archive().unwrap().unwrap();
+        let path = temp_world_path();
+        fs::write(&path, archive.to_json_pretty().unwrap()).unwrap();
+        return (path, event.stable_key());
+    }
+    panic!("a built-in Pack should expose a visible timeline event")
 }
 
 fn world_fixture() -> (PathBuf, String) {
