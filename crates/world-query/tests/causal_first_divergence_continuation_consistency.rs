@@ -228,16 +228,8 @@ fn zero_depth_bootstrap_composes_to_the_same_absolute_divergence() {
 
 #[test]
 fn downstream_segmented_search_matches_monolithic_search() {
-    let left = snapshot(vec![
-        event(1, 1, &[]),
-        event(2, 2, &[1]),
-        event(3, 3, &[2]),
-    ]);
-    let right = snapshot(vec![
-        event(1, 1, &[]),
-        event(2, 2, &[1]),
-        event(4, 3, &[2]),
-    ]);
+    let left = snapshot(vec![event(1, 1, &[]), event(2, 2, &[1]), event(3, 3, &[2])]);
+    let right = snapshot(vec![event(1, 1, &[]), event(2, 2, &[1]), event(4, 3, &[2])]);
 
     let monolithic = compare(
         &left,
@@ -256,10 +248,7 @@ fn downstream_segmented_search_matches_monolithic_search() {
 
 #[test]
 fn hidden_references_and_cycles_do_not_create_segmented_false_positives() {
-    let left = snapshot(vec![
-        event(1, 1, &[2, 99]),
-        event(2, 2, &[1]),
-    ]);
+    let left = snapshot(vec![event(1, 1, &[2, 99]), event(2, 2, &[1])]);
     let right = snapshot(vec![event(1, 1, &[2]), event(2, 2, &[1])]);
 
     let monolithic = compare(
