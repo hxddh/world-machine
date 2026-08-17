@@ -1,0 +1,42 @@
+name: M204 divergence trace patch
+
+on:
+  push:
+    branches:
+      - agent/m204-divergence-traces
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/m204-divergence-traces
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Apply M204 patch
+        run: python .github/m204_patch.py
+      - name: Format
+        run: cargo fmt --all
+      - name: Check boundaries
+        run: bash ./scripts/check-boundaries.sh
+      - name: Test world-query
+        run: cargo test -p world-query
+      - name: Test world-cli
+        run: cargo test -p world-cli
+      - name: Clippy
+        run: cargo clippy -p world-query -p world-cli --all-targets -- -D warnings
+      - name: Commit implementation
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add NEXT_TASK.md crates/world-query/src/lib.rs crates/world-query/tests/causal_first_divergence.rs
+          if git diff --cached --quiet; then
+            echo "No implementation changes to commit"
+          else
+            git commit -m "M204: add first-divergence witness traces"
+            git push origin HEAD:agent/m204-divergence-traces
+          fi
