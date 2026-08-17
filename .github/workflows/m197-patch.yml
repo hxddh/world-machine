@@ -20,7 +20,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Apply implementation
-        run: python3 .github/m197_patch.py
+        run: |
+          python3 .github/m197_patch.py
+          python3 .github/m197_patch_fix.py
       - name: Format
         run: cargo fmt --all
       - name: Boundary checks
