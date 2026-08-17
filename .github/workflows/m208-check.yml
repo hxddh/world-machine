@@ -17,6 +17,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - name: Apply convergence fix
+        run: python .github/m208_fix.py
       - name: Format
         run: cargo fmt --all
       - name: Check boundaries
@@ -25,12 +27,12 @@ jobs:
         run: cargo test -p world-query
       - name: Clippy
         run: cargo clippy -p world-query --all-targets -- -D warnings
-      - name: Commit formatting
+      - name: Commit implementation
         run: |
           git config user.name hxddh
           git config user.email hxddh@users.noreply.github.com
           git add NEXT_TASK.md crates/world-query/tests/causal_first_divergence_trace_composition_consistency.rs
           if ! git diff --cached --quiet; then
-            git commit -m "M208: format divergence trace composition invariants"
+            git commit -m "M208: prove multi-window divergence trace composition"
             git push
           fi
