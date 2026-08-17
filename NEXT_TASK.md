@@ -1,62 +1,58 @@
-# Next Coding Task — M201 Causal Neighborhood Comparison
+# Next Coding Task — M202 Executable Causal Comparison Continuations
 
-Extend the existing two-world machine comparison transport so saved worlds and sibling futures can compare a bounded visible causal neighborhood without conflating it with the state-evidence graph.
+Make bounded two-world causal comparison directly resumable by emitting typed replayable comparison requests at every left/right frontier.
 
 ## Current baseline
 
-The machine causal surface is complete through M200:
+The machine causal investigation surface is complete through M201:
 
-- `why`, `influence`, deterministic `causal-path`;
-- bounded bidirectional `causal-neighborhood` with truncation, frontiers, induced edges, and executable continuations;
-- self-contained traversal edges for `why` / `influence`;
-- cross-query invariant coverage proving all causal surfaces agree on one timeline-visible persisted causal graph;
-- existing `evidence-compare-query` currently accepts the legacy untagged state-evidence request `{ root, max_depth }` and emits a raw `EvidenceComparisonResult` inside protocol-v1 status envelopes.
+- M192–M200 provide single-world causal discovery, traversal, bounded neighborhoods, induced edges, frontiers, executable continuations, and cross-query invariants;
+- M201 extends the existing protocol-v1 `evidence-compare-query` transport with tagged bounded causal-neighborhood structural comparison while preserving the legacy state-evidence compare wire shape exactly;
+- causal comparison supports one-sided roots, so an Event present in only one world can still be investigated as a structural divergence.
 
-## M201 — bounded causal comparison
+## M202 — comparison continuations
 
-Preserve the legacy state-evidence comparison wire shape exactly, while extending `evidence-compare-query` with the tagged request:
+Extend `EvidenceCausalNeighborhoodComparisonResult` additively with:
 
-`{ "query": "causal-neighborhood", "root": "event-N", "upstream_depth": U, "downstream_depth": D }`
+- `upstream_continuations: Vec<EvidenceCausalComparisonContinuation>`;
+- `downstream_continuations: Vec<EvidenceCausalComparisonContinuation>`.
 
-A causal comparison is a structural comparison of the requested bounded visible causal window. Compare:
+Each continuation contains:
 
-- Event membership and directional position (`is_root`, upstream depth, downstream depth);
-- induced visible `cause -> effect` edges;
-- canonical upstream/downstream frontier membership.
+- the canonical frontier Event key;
+- `EvidenceCausalDirection`;
+- `left_frontier` / `right_frontier` membership flags;
+- an ordinary `EvidenceComparisonQueryRequest` that can be serialized and replayed directly through `evidence-compare-query`.
 
-Do not compare display titles/subtitles or causal structure outside the requested window. Hidden referenced Event IDs remain invisible.
+## Semantics
 
-## Compatibility contract
+- Build continuations from the typed union of the left/right canonical frontier sets, one continuation per unique Event in typed Event order.
+- Preserve whether the frontier is present on the left, right, or both sides.
+- Preserve the original non-zero directional comparison window size.
+- Promote a zero-depth frontier to a one-hop continuation so replay always makes progress.
+- The opposite direction is set to depth zero.
+- One-sided frontier Events are valid continuation roots because M201 comparison already supports roots visible in either world.
+- Continuations carry no hidden state, visited set, opaque token, mutation authority, or server-side session state.
+- `identical` remains a property of structural node/edge/frontier equality; continuation arrays are derived metadata and do not independently affect it.
 
-- Introduce an untagged machine comparison request wrapper that accepts the legacy `{ root, max_depth }` shape unchanged and the new tagged causal request.
-- Legacy requests must serialize and respond exactly as before; do not wrap old `EvidenceComparisonResult` in a new result tag.
-- New causal responses use a tagged `result: "causal-neighborhood"` payload.
-- Keep `world-machine-evidence-query` protocol version 1.
-- Keep the human `evidence-compare` command and `execute_comparison_query` legacy API unchanged.
+## Compatibility
 
-## Causal comparison semantics
-
-- Root must be a canonical Event key.
-- If the root is visible in neither world, return `SelectionNotVisibleInEitherWorld`.
-- If visible in only one world, comparison succeeds and reports one-sided root/window differences.
-- Node differences are typed `left-only`, `right-only`, or `changed`; `changed` means the same Event occupies a different bounded directional position/depth.
-- Edge differences are set differences over induced visible causal edges.
-- Frontier lists are canonicalized by typed Event identity before comparison so UI/traversal ordering cannot create false structural differences.
-- `identical` means node positions, induced edges, and canonical frontier membership are all identical.
+- Mark both new continuation arrays `#[serde(default)]` so M201 protocol-v1 causal comparison responses remain readable.
+- Do not change legacy state-evidence comparison wire shapes.
+- Keep `world-machine-evidence-query` at protocol version 1.
 
 ## Tests
 
 Prove at minimum:
 
-1. legacy request and response JSON shapes remain byte-structure compatible;
-2. tagged causal request/response round-trip;
-3. upstream/downstream node and edge divergence;
-4. changed causal depth and cycle positions;
-5. hidden references remain invisible while frontier differences remain semantic;
-6. one-sided root success, neither-side error, kind mismatch, invalid stable key;
-7. same-world comparison is identical;
-8. a real stdin `world-cli evidence-compare-query` executes the tagged causal request through the existing v1 transport;
-9. all M199/M200 causal consistency and continuation tests remain green.
+1. one-sided frontier emits a directly executable continuation with correct side flags;
+2. replay reveals the next one-sided node/edge divergence;
+3. distinct left/right frontier Events form a deterministic typed union;
+4. a shared frontier emits one continuation with both side flags;
+5. zero-depth continuations progress by one hop and non-zero window size is preserved;
+6. M201 causal comparison payloads without continuation fields deserialize with empty defaults;
+7. a real two-step stdin `world-cli evidence-compare-query` replay succeeds through the existing protocol-v1 transport;
+8. all M199–M201 consistency, continuation, legacy comparison, and causal comparison tests remain green.
 
 ## Validation
 
@@ -70,4 +66,4 @@ Prove at minimum:
 
 ## Non-goals
 
-Do not compare arbitrary unbounded causal graphs, display metadata, state-evidence and causal graphs in one result, raw mutation payloads, AgentRuntime perception, MCP/HTTP/WebSocket, server-side comparison state, or protocol v2.
+Do not add automatic recursive comparison, opaque pagination tokens, server-side continuation state, arbitrary graph export, raw mutation payloads, AgentRuntime access, MCP/HTTP/WebSocket, Pack-specific causal inference, or protocol v2.
