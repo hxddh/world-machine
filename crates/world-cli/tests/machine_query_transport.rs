@@ -9,6 +9,35 @@ use world_query::{
 };
 
 #[test]
+fn stdin_selection_discovery_emits_a_versioned_typed_index() {
+    let (path, _) = world_fixture();
+    let request = serde_json::to_string(&EvidenceQueryRequest::Selections).unwrap();
+
+    let output = run_query(
+        &["evidence-query", path.to_str().unwrap(), "-"],
+        Some(&request),
+    );
+
+    assert!(output.status.success(), "{}", stderr(&output));
+    let envelope: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_protocol(&envelope);
+    assert_eq!(envelope["status"], "ok");
+    let response: EvidenceQueryResponse =
+        serde_json::from_value(envelope["response"].clone()).unwrap();
+    let EvidenceQueryResponse::Selections { value } = response else {
+        panic!("expected selections response")
+    };
+    assert!(!value.selections.is_empty());
+    assert!(value.selections.iter().all(|selection| {
+        selection.selection.starts_with("entity-")
+            || selection.selection.starts_with("relation-")
+            || selection.selection.starts_with("event-")
+    }));
+
+    let _ = fs::remove_file(path);
+}
+
+#[test]
 fn stdin_neighborhood_and_shortest_path_queries_emit_typed_json() {
     let (path, root) = world_fixture();
 
