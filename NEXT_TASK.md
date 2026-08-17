@@ -1,109 +1,123 @@
-# Next Coding Task — M190 Evidence Selection Discovery
+# Next Coding Task — M191 Machine Selection Describe
 
-Make the machine-readable evidence-query surface self-discoverable: external tools must be able to learn which stable selection keys are currently queryable before issuing neighborhood or shortest-path requests.
+Complete the basic machine investigation loop by letting callers retrieve structured visible detail for one discovered selection without scraping human-readable inspector output.
 
 ## Current baseline
 
-The evidence/query line is complete through M189:
+The evidence/query line is complete through M190:
 
 - M173–M178: evidence paths, bounded neighborhoods, durable neighborhood semantics, comparison, and divergence.
 - M179: canonical stable selection keys.
 - M180–M182: human-readable CLI neighborhood/path/comparison surfaces.
 - M183–M184: reusable headless `world-query` and CLI routing through it.
-- M185: serializable request/response DTOs, centralized stable-key parsing, and serializable `QueryError`.
-- M186: `world-cli` became a real consumer of the `world-query` contract.
+- M185: serializable query/comparison DTOs, centralized stable-key parsing, and serializable `QueryError`.
+- M186: `world-cli` became a real consumer of that contract.
 - M187: machine-readable JSON query commands.
-- M188: stdin-safe subprocess transport with true exit/stdout/stderr integration tests.
-- M189: versioned CLI response envelope (`world-machine-evidence-query`, version 1).
+- M188: stdin-safe subprocess transport with real stdout/stderr/exit-code tests.
+- M189: versioned response envelope (`world-machine-evidence-query`, version 1).
+- M190: additive `{"query":"selections"}` discovery returns deterministic visible entity/relation/event keys and labels.
 
 Do not redo those milestones.
 
 ## Product goal
 
-Today a machine caller can ask about `entity-7`, `relation-12`, or `event-31`, but it has no typed way to discover which keys exist or what they represent. That forces screen scraping, prior knowledge, or guessing.
+A machine caller can now discover a valid stable key and traverse its evidence graph, but it still cannot retrieve the visible structured details behind that selection without screen scraping.
 
-M190 adds a read-only discovery query to the existing `EvidenceQueryRequest` contract. It must use the same ProjectionSnapshot visibility boundary as neighborhood/path queries and must not expose hidden World state.
+M191 adds one additive describe query so the machine workflow becomes:
+
+1. discover selections;
+2. describe one visible selection;
+3. inspect its neighborhood or shortest evidence path.
 
 ## Architecture boundary
 
-1. `world-query` owns discovery semantics and its typed DTOs.
-2. `world-cli` remains a thin JSON/subprocess transport; do not create a separate discovery command or duplicate discovery logic there.
-3. A selection is discoverable only if it is already query-visible under current evidence semantics:
-   - entities/relations must be visible through the snapshot inspectors;
-   - events must be visible through the snapshot timeline.
-4. Event inspectors alone must not make an event discoverable if the event is absent from the visible timeline.
-5. Do not expose raw World, Pack internals, hidden entities, hidden relations, or Agent perception-bypassing data.
-6. Keep the M189 envelope protocol/version unchanged; this is an additive query capability, not a transport break.
+1. `world-query` owns describe semantics and DTOs.
+2. `world-cli` remains only JSON/subprocess transport; no new top-level command.
+3. Parse the stable key through the same centralized query boundary as neighborhood/path.
+4. Visibility must match M190/evidence semantics:
+   - entity/relation visible only when its inspector is present;
+   - event visible only when present in the visible timeline;
+   - an event inspector by itself must never make an event visible.
+5. Do not expose raw `InspectorProjection.sections` wholesale. Only expose sections already intended for display through `InspectorProjection::display_sections()` so evidence/history/identity support sections remain internal.
+6. Do not read raw World/archive state to reconstruct hidden details.
+7. Keep the M189 protocol/version unchanged; this is an additive query capability.
 
-## M190 — `selections` query
+## M191 — `describe` query
 
 Extend the existing request enum with an additive variant equivalent to:
 
 ```json
-{"query":"selections"}
+{"query":"describe","selection":"entity-7"}
 ```
 
-Return an existing-style typed response variant containing a deterministic list of queryable selections.
-
-Each item should contain at minimum:
-
-- canonical stable key (`entity-N`, `relation-N`, or `event-N`);
-- typed kind (`entity`, `relation`, `event`);
-- human-readable title;
-- human-readable subtitle/detail already present in the visible ProjectionSnapshot.
-
-Suggested DTO shape:
+Return a typed response containing at minimum:
 
 ```rust
-EvidenceSelectionIndex {
-    selections: Vec<EvidenceSelection>,
-}
-
-EvidenceSelection {
+EvidenceSelectionDetail {
     selection: String,
     kind: EvidenceSelectionKind,
     title: String,
     subtitle: String,
+    sections: Vec<EvidenceDetailSection>,
+}
+
+EvidenceDetailSection {
+    title: String,
+    rows: Vec<EvidenceDetailRow>,
+}
+
+EvidenceDetailRow {
+    label: String,
+    value: String,
 }
 ```
 
-The exact Rust names may be tightened during implementation, but keep the JSON compact and generic.
+The exact Rust names may be tightened, but keep the JSON generic and transport-neutral.
 
-## Determinism and visibility
+## Source-of-truth rules
 
-- Output ordering must be deterministic and based on typed `SelectionId`, not hash-map iteration or lexicographic string accidents (`event-10` before `event-2`).
-- Deduplicate by typed selection id.
-- Entity/relation labels come from visible inspectors.
-- Event labels come from visible timeline items.
-- Do not infer or reconstruct hidden selections from causal links, relation endpoints, archive contents, or World state.
+### Entity / relation
+
+- title/subtitle come from the visible inspector;
+- detail rows come only from `inspector.display_sections()`;
+- therefore internal history/evidence/identity sections remain absent from the machine response.
+
+### Event
+
+- visibility and title/subtitle come from the visible timeline item, matching M190 discovery;
+- if a matching event inspector exists, its `display_sections()` may provide Context/Payload/Changes detail rows;
+- if no event inspector exists, return the visible timeline metadata with an empty section list rather than inventing data;
+- an event inspector without a timeline item must return `SelectionNotVisible`.
 
 ## CLI compatibility
 
-The existing M187/M188 machine command should accept the new request automatically:
+Both existing machine transports should automatically accept describe:
 
 ```text
-world-cli evidence-query <file.world> '{"query":"selections"}'
+world-cli evidence-query <file.world> '{"query":"describe","selection":"entity-7"}'
 ```
 
-and through stdin:
+and:
 
 ```text
-printf '%s' '{"query":"selections"}' | world-cli evidence-query <file.world> -
+printf '%s' '{"query":"describe","selection":"entity-7"}' | world-cli evidence-query <file.world> -
 ```
 
-No new top-level CLI command is needed.
+Do not add `world-cli describe`.
 
 ## Tests
 
 At minimum prove:
 
-1. serialized `{"query":"selections"}` executes through `execute_query`;
-2. entities, relations, and timeline-visible events return canonical stable keys and typed kinds;
-3. output ordering is deterministic by typed selection id;
-4. an event present only in inspectors but absent from timeline is not discoverable;
-5. discovery results round-trip through `EvidenceQueryResponse` serde;
-6. a true `world-cli` subprocess request via stdin returns a version-1 success envelope containing a non-empty typed selection index;
-7. existing neighborhood/path/comparison/error tests remain green.
+1. serialized describe request executes through `execute_query` and round-trips through `EvidenceQueryResponse` serde;
+2. entity detail returns visible title/subtitle and display sections;
+3. relation detail excludes `RELATION_HISTORY_SECTION`, `RELATION_ENDPOINTS_SECTION`, and `RELATION_IDENTITY_SECTION`;
+4. entity detail excludes `ENTITY_HISTORY_SECTION`;
+5. timeline-visible event uses timeline title/subtitle and may expose only display-safe event inspector sections;
+6. inspector-only event is rejected as `SelectionNotVisible`;
+7. malformed/noncanonical selection keys still return `InvalidSelectionKey` through the existing semantic error path;
+8. a true stdin subprocess describe request returns a version-1 success envelope with a typed description;
+9. all M190 discovery and existing graph-query tests remain green.
 
 ## Validation
 
@@ -118,19 +132,20 @@ Before merge:
 - external Pack conformance command
 - macOS/GPUI only when dependency-path filtering requires it
 
-## Non-goals for M190
+## Non-goals for M191
 
 Do not add:
 
-- fuzzy search or free-text retrieval;
+- free-text/fuzzy search;
 - pagination/filter syntax;
-- HTTP/WebSocket/MCP transport;
-- AgentRuntime access;
-- changes to `ScopedPerception`;
-- new World state or Event semantics;
-- Pack-specific selection types;
-- request-envelope versioning.
+- HTTP/WebSocket/MCP;
+- AgentRuntime query access;
+- perception-policy changes;
+- raw inspector/evidence support-section export;
+- new World/Event semantics;
+- Pack-specific detail schemas;
+- protocol version 2.
 
 ## Why this is next
 
-M185–M189 created a robust machine query boundary, but it is not yet independently usable: callers need a valid root key before they can ask anything. Selection discovery closes that usability gap while staying entirely within the already-visible ProjectionSnapshot boundary. It is also the safer prerequisite before deciding how an in-world Agent may receive scoped query access, because discovery can be tested without weakening perception policy.
+M190 made the query boundary self-discoverable. The highest-value missing primitive is now structured detail for a discovered node. Adding describe before search, MCP, or AgentRuntime integration yields a complete generic read-only investigation surface while preserving the existing ProjectionSnapshot visibility boundary and avoiding a perception-policy shortcut.
