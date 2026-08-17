@@ -131,10 +131,7 @@ fn inline_json_query_remains_compatible() {
     })
     .unwrap();
 
-    let output = run_query(
-        &["evidence-query", path.to_str().unwrap(), &request],
-        None,
-    );
+    let output = run_query(&["evidence-query", path.to_str().unwrap(), &request], None);
 
     assert!(output.status.success(), "{}", stderr(&output));
     let envelope: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
