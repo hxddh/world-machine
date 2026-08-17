@@ -333,6 +333,18 @@ pub struct EvidenceCausalFirstDivergenceResult {
     pub witnesses: Vec<EvidenceCausalDivergenceWitness>,
     pub left_frontier: Vec<String>,
     pub right_frontier: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub continuations: Vec<EvidenceCausalFirstDivergenceContinuation>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct EvidenceCausalFirstDivergenceContinuation {
+    pub event: String,
+    pub direction: EvidenceCausalDirection,
+    pub left_frontier: bool,
+    pub right_frontier: bool,
+    pub depth_offset: usize,
+    pub request: EvidenceComparisonQueryRequest,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -1091,6 +1103,7 @@ pub fn query_causal_first_divergence(
             }],
             left_frontier,
             right_frontier,
+            continuations: vec![],
         });
     }
 
@@ -1155,6 +1168,11 @@ pub fn query_causal_first_divergence(
             }
         })
         .collect();
+    let continuations = if divergence_depth.is_none() {
+        causal_first_divergence_continuations(&left_frontier, &right_frontier, direction, max_depth)
+    } else {
+        Vec::new()
+    };
 
     Ok(EvidenceCausalFirstDivergenceResult {
         root: root.stable_key(),
@@ -1165,7 +1183,48 @@ pub fn query_causal_first_divergence(
         witnesses,
         left_frontier,
         right_frontier,
+        continuations,
     })
+}
+
+fn causal_first_divergence_continuations(
+    left_frontier: &[String],
+    right_frontier: &[String],
+    direction: EvidenceCausalDirection,
+    max_depth: usize,
+) -> Vec<EvidenceCausalFirstDivergenceContinuation> {
+    let mut membership = std::collections::BTreeMap::<SelectionId, (bool, bool)>::new();
+    for event in left_frontier {
+        let event = parse_selection_key(event)
+            .expect("canonical first-divergence frontier must remain a stable selection key");
+        membership.entry(event).or_default().0 = true;
+    }
+    for event in right_frontier {
+        let event = parse_selection_key(event)
+            .expect("canonical first-divergence frontier must remain a stable selection key");
+        membership.entry(event).or_default().1 = true;
+    }
+
+    membership
+        .into_iter()
+        .map(|(event, (left_frontier, right_frontier))| {
+            let event = event.stable_key();
+            EvidenceCausalFirstDivergenceContinuation {
+                event: event.clone(),
+                direction,
+                left_frontier,
+                right_frontier,
+                depth_offset: max_depth,
+                request: EvidenceComparisonQueryRequest::Causal(
+                    EvidenceCausalComparisonRequest::FirstDivergence {
+                        root: event,
+                        direction,
+                        max_depth: max_depth.max(1),
+                    },
+                ),
+            }
+        })
+        .collect()
 }
 
 fn causal_divergence_trace(
