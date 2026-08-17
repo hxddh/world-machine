@@ -23,6 +23,7 @@ fn stdin_neighborhood_and_shortest_path_queries_emit_typed_json() {
     );
     assert!(output.status.success(), "{}", stderr(&output));
     let envelope: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_protocol(&envelope);
     assert_eq!(envelope["status"], "ok");
     let response: EvidenceQueryResponse =
         serde_json::from_value(envelope["response"].clone()).unwrap();
@@ -43,6 +44,7 @@ fn stdin_neighborhood_and_shortest_path_queries_emit_typed_json() {
     );
     assert!(output.status.success(), "{}", stderr(&output));
     let envelope: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_protocol(&envelope);
     assert_eq!(envelope["status"], "ok");
     let response: EvidenceQueryResponse =
         serde_json::from_value(envelope["response"].clone()).unwrap();
@@ -72,6 +74,7 @@ fn stdin_semantic_error_is_json_and_exits_zero() {
 
     assert!(output.status.success(), "{}", stderr(&output));
     let envelope: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_protocol(&envelope);
     assert_eq!(envelope["status"], "error");
     let error: QueryError = serde_json::from_value(envelope["error"].clone()).unwrap();
     assert_eq!(error, QueryError::InvalidSelectionKey("entity-07".into()));
@@ -114,6 +117,7 @@ fn stdin_comparison_query_emits_typed_comparison_json() {
 
     assert!(output.status.success(), "{}", stderr(&output));
     let envelope: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_protocol(&envelope);
     assert_eq!(envelope["status"], "ok");
     let comparison: EvidenceComparisonResult =
         serde_json::from_value(envelope["response"].clone()).unwrap();
@@ -135,6 +139,7 @@ fn inline_json_query_remains_compatible() {
 
     assert!(output.status.success(), "{}", stderr(&output));
     let envelope: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_protocol(&envelope);
     assert_eq!(envelope["status"], "ok");
     let response: EvidenceQueryResponse =
         serde_json::from_value(envelope["response"].clone()).unwrap();
@@ -143,6 +148,11 @@ fn inline_json_query_remains_compatible() {
     };
     assert_eq!(value.root, root);
     let _ = fs::remove_file(path);
+}
+
+fn assert_protocol(envelope: &serde_json::Value) {
+    assert_eq!(envelope["protocol"], "world-machine-evidence-query");
+    assert_eq!(envelope["version"], 1);
 }
 
 fn run_query(args: &[&str], stdin: Option<&str>) -> Output {

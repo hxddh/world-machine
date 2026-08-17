@@ -13,6 +13,9 @@ use world_query::{
     EvidenceComparisonResult, EvidenceEdge, EvidenceQueryRequest, EvidenceQueryResponse,
 };
 
+const QUERY_PROTOCOL: &str = "world-machine-evidence-query";
+const QUERY_PROTOCOL_VERSION: u64 = 1;
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum Command {
     Inspect(PathBuf),
@@ -536,10 +539,14 @@ fn evidence_query_json_from_snapshot(
         .map_err(|error| CliError(format!("invalid evidence query JSON: {error}")))?;
     let output = match execute_query(snapshot, &request) {
         Ok(response) => serde_json::json!({
+            "protocol": QUERY_PROTOCOL,
+            "version": QUERY_PROTOCOL_VERSION,
             "status": "ok",
             "response": response,
         }),
         Err(error) => serde_json::json!({
+            "protocol": QUERY_PROTOCOL,
+            "version": QUERY_PROTOCOL_VERSION,
             "status": "error",
             "error": error,
         }),
@@ -573,10 +580,14 @@ fn evidence_compare_query_json_from_snapshots(
         .map_err(|error| CliError(format!("invalid evidence comparison query JSON: {error}")))?;
     let output = match execute_comparison_query(left, right, &request) {
         Ok(response) => serde_json::json!({
+            "protocol": QUERY_PROTOCOL,
+            "version": QUERY_PROTOCOL_VERSION,
             "status": "ok",
             "response": response,
         }),
         Err(error) => serde_json::json!({
+            "protocol": QUERY_PROTOCOL,
+            "version": QUERY_PROTOCOL_VERSION,
             "status": "error",
             "error": error,
         }),
@@ -904,6 +915,7 @@ mod tests {
         let neighborhood_json =
             evidence_query_json_from_snapshot(&snapshot, &neighborhood_request).unwrap();
         let neighborhood: serde_json::Value = serde_json::from_str(&neighborhood_json).unwrap();
+        assert_query_protocol(&neighborhood);
         assert_eq!(neighborhood["status"], "ok");
         let response: EvidenceQueryResponse =
             serde_json::from_value(neighborhood["response"].clone()).unwrap();
@@ -920,6 +932,7 @@ mod tests {
         .unwrap();
         let path_json = evidence_query_json_from_snapshot(&snapshot, &path_request).unwrap();
         let path: serde_json::Value = serde_json::from_str(&path_json).unwrap();
+        assert_query_protocol(&path);
         assert_eq!(path["status"], "ok");
         let response: EvidenceQueryResponse =
             serde_json::from_value(path["response"].clone()).unwrap();
@@ -940,6 +953,7 @@ mod tests {
         )
         .unwrap();
         let semantic: serde_json::Value = serde_json::from_str(&semantic_json).unwrap();
+        assert_query_protocol(&semantic);
         assert_eq!(semantic["status"], "error");
         let error: world_query::QueryError =
             serde_json::from_value(semantic["error"].clone()).unwrap();
@@ -965,6 +979,7 @@ mod tests {
         let output =
             evidence_compare_query_json_from_snapshots(&snapshot, &snapshot, &request).unwrap();
         let output: serde_json::Value = serde_json::from_str(&output).unwrap();
+        assert_query_protocol(&output);
         assert_eq!(output["status"], "ok");
         let comparison: EvidenceComparisonResult =
             serde_json::from_value(output["response"].clone()).unwrap();
@@ -1193,6 +1208,11 @@ mod tests {
         let report = pack_report().unwrap();
         assert!(report.starts_with("packs: "));
         assert!(report.lines().count() >= 2);
+    }
+
+    fn assert_query_protocol(envelope: &serde_json::Value) {
+        assert_eq!(envelope["protocol"], QUERY_PROTOCOL);
+        assert_eq!(envelope["version"], QUERY_PROTOCOL_VERSION);
     }
 
     fn first_visible_snapshot_and_key() -> (ProjectionSnapshot, String) {
