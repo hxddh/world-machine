@@ -1,39 +1,36 @@
-# Next Coding Task — M204 First-Divergence Traces
+# Next Coding Task — M205 Executable First-Divergence Continuations
 
-Make each M203 first-divergence edge witness self-explanatory by attaching a deterministic directional Event trace from the comparison root to that exact differing causal edge.
+Make bounded two-world `first-divergence` search directly resumable at every unresolved causal frontier without adding server-side state.
 
 ## Current baseline
 
-M203 adds `first-divergence` over the existing protocol-v1 `evidence-compare-query` transport. It reports the earliest bounded structural divergence layer and every left/right-only causal edge at that depth, with typed witness ordering and frontier-aware bounded identity.
+M203 locates the earliest visible causal divergence in one direction and M204 attaches deterministic root-to-witness traces. A bounded search can still end with `identical_within_depth = true` while one or both worlds expose a frontier, which currently leaves the caller to construct follow-up searches manually.
 
-## M204 — witness traces
+## M205 — first-divergence continuations
 
-Extend the `edge` form of `EvidenceCausalDivergenceWitness` additively with:
+Extend `EvidenceCausalFirstDivergenceResult` additively with `continuations: Vec<EvidenceCausalFirstDivergenceContinuation>` using `#[serde(default)]` compatibility.
 
-- `trace: Vec<String>` using `#[serde(default)]`.
-
-The trace is a canonical directional traversal beginning at the requested root and ending by traversing the witness edge itself.
+Each continuation carries the canonical frontier Event, direction, left/right frontier membership, a `depth_offset`, and an ordinary replayable `EvidenceComparisonQueryRequest::Causal(FirstDivergence { ... })`.
 
 ## Semantics
 
-- Downstream traces walk root → ... → witness cause → witness effect.
-- Upstream traces walk root → ... → witness effect → witness cause, because investigation traverses causal edges in reverse while the stored edge remains cause → effect.
-- Restrict prefix search to Events already inside that side's bounded causal neighborhood; traces must not escape the M203 query window to explain a witness.
-- Choose a shortest directional prefix; break same-length alternatives by typed Event identity rather than timeline/display ordering.
-- Always append the witness edge as the final traversal step, even for cross/cycle edges whose far endpoint was reachable earlier by another route.
-- A trace is side-specific. All structure strictly shallower than `divergence_depth` is necessarily shared, but same-depth traces may pass another parallel divergence before terminating at their own witness.
-- `root-presence` witnesses remain unchanged and carry no trace.
+- Emit continuations only when no divergence was found in the current bounded window.
+- Build one continuation per Event in the typed union of left/right frontiers.
+- Preserve whether each frontier belongs to the left world, right world, or both.
+- For a non-zero window, re-root at the frontier and preserve that window size.
+- For a zero-depth window, reuse the current root but promote replay to one hop so it always makes progress.
+- `depth_offset` is the distance from the current request root to the continuation root. Add it to a replay response's relative `divergence_depth` to map the result back to the current request root; sum offsets across repeated replays.
+- A one-sided frontier remains executable because first-divergence already supports roots visible in either world.
+- Stop emitting deeper continuations as soon as a divergence is found; the earliest divergence is already resolved for that branch.
 
 ## Compatibility
 
-- `#[serde(default)]` allows protocol-v1 M203 edge witnesses without `trace` to deserialize as an empty trace.
-- Older clients can ignore the additive field.
-- No new request, response variant, CLI command, transport, protocol version, AgentRuntime authority, or server-side state.
+No request-shape change, protocol bump, CLI command, cursor, visited set, server session, AgentRuntime access, or transport. Existing M204 result payloads without `continuations` deserialize with an empty default.
 
 ## Tests
 
-Prove downstream and upstream traces, common-prefix behavior, cross/cycle terminal-edge behavior, typed shortest-path selection, and backward deserialization of M203 witnesses without trace.
+Prove side-aware frontier replay, depth-offset arithmetic, zero-depth progress, typed continuation ordering, suppression after divergence, backward M204 deserialization, and a real two-step stdin `world-cli evidence-compare-query` replay.
 
 ## Non-goals
 
-No global recursive divergence search, trace mutation authority, arbitrary graph export, opaque cursor, MCP/HTTP/WebSocket, AgentRuntime access, Pack-specific inference, or protocol v2.
+No automatic global recursive search scheduler, opaque cursor, arbitrary graph export, MCP/HTTP/WebSocket, mutation authority, Pack-specific inference, protocol v2, or unrestricted AgentRuntime projection access.
