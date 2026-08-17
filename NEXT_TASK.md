@@ -1,58 +1,57 @@
-# Next Coding Task — M196 Causal Neighborhood Frontier
+# Next Coding Task — M197 Executable Causal Continuations
 
-Make bounded causal neighborhoods explicitly report whether their visible upstream/downstream context was truncated by the requested depth and which included boundary Events can be expanded next.
+Turn M196 causal frontier metadata into directly executable continuation requests so an external investigator can advance through a large visible causal graph in bounded deterministic windows without reconstructing query arguments.
 
 ## Current baseline
 
-The machine causal investigation surface is complete through M195:
+The machine causal investigation surface is complete through M196:
 
 - M192: `why` upstream ancestry;
 - M193: `influence` downstream traversal;
 - M194: shortest `causal-path` plus one shared private `VisibleCausalGraph`;
-- M195: bounded bidirectional `causal-neighborhood` with independent upstream/downstream depths;
-- all causal queries use timeline-visible Events and persisted `caused_by`, separate from the state-evidence graph;
-- JSON/stdin transport remains protocol `world-machine-evidence-query` v1.
+- M195: bounded bidirectional `causal-neighborhood`;
+- M196: explicit truncation and stable upstream/downstream frontier Events;
+- all causal semantics remain based only on timeline-visible Events and persisted `caused_by`, separate from state-evidence adjacency;
+- JSON/stdin transport remains `world-machine-evidence-query` protocol v1.
 
 ## Product problem
 
-A bounded M195 result currently tells a caller what was returned, but not whether the requested depth omitted additional visible causal context. An agent can therefore mistake a finite window for a complete explanation or influence history.
+M196 tells a caller exactly where a bounded causal window was cut off, but the caller still has to interpret direction, reconstruct a new `causal-neighborhood` request, and avoid generating a zero-depth no-op. That is unnecessary protocol logic for every future agent/tool adapter.
 
-## M196 — frontier metadata
+## M197 — executable continuations
 
 Extend `EvidenceCausalNeighborhoodResult` additively with:
 
-- `upstream_truncated: bool`;
-- `downstream_truncated: bool`;
-- `upstream_frontier: Vec<String>`;
-- `downstream_frontier: Vec<String>`.
+- `upstream_continuations: Vec<EvidenceCausalContinuation>`;
+- `downstream_continuations: Vec<EvidenceCausalContinuation>`.
 
-Mark all four fields `#[serde(default)]` so a newer v1 client can still deserialize a response emitted by an M195-era v1 server.
+Add:
 
-## Frontier semantics
+- `EvidenceCausalDirection::{Upstream, Downstream}`;
+- `EvidenceCausalContinuation { event, direction, request }` where `request` is an ordinary `EvidenceQueryRequest` that can be serialized and passed directly back to the existing `evidence-query` machine transport.
 
-- A frontier entry is an Event already included at the requested depth boundary that has at least one additional timeline-visible neighbor in that direction which was not discovered inside the requested window.
-- Frontier order follows the existing traversal order: persisted parent order/BFS upstream and `(world_time, SelectionId)` child order/BFS downstream.
-- `*_truncated` is exactly whether the corresponding frontier is non-empty.
-- At depth 0, the root itself is the frontier if that direction has additional visible context.
-- Hidden Events never create frontier entries.
-- Already-discovered neighbors, including cycle edges back into the window, do not count as truncation.
-- When the requested window reaches all visible causal context in a direction, the frontier is empty and `*_truncated` is false.
+Mark both continuation arrays `#[serde(default)]` so M196-era protocol-v1 responses remain deserializable.
 
-## Compatibility
+## Continuation semantics
 
-This remains protocol v1 because the response fields are additive. New fields must default on deserialization so old v1 payloads remain readable.
+- There is exactly one continuation per frontier entry, in the same deterministic order as the corresponding frontier.
+- An upstream continuation roots at that frontier Event, sets `downstream_depth = 0`, and preserves the caller's non-zero `upstream_depth` as the next window size.
+- A downstream continuation roots at that frontier Event, sets `upstream_depth = 0`, and preserves the caller's non-zero `downstream_depth` as the next window size.
+- If the original depth was `0`, the continuation depth is promoted to `1`; an executable continuation must always make progress.
+- Continuations are suggestions over the same immutable visible ProjectionSnapshot. They do not carry hidden state, visited sets, opaque server tokens, or mutation authority.
+- Overlap between separately expanded frontier branches is allowed; stable Event keys let the caller deduplicate across windows.
 
 ## Tests
 
 Prove at minimum:
 
-1. exact upstream/downstream frontier nodes at a one-hop boundary;
-2. deeper complete windows clear truncation/frontier metadata;
-3. depth 0 correctly uses the root as frontier when more context exists;
-4. cycles do not produce false frontier after all visible neighbors are discovered;
-5. hidden Events do not create frontier;
-6. an M195-shaped response without the new fields still deserializes with safe defaults;
-7. all M192–M195 causal tests and the M195 stdin subprocess test remain green.
+1. upstream and downstream frontier entries produce exact typed continuation requests;
+2. each emitted request can be passed directly back to `execute_query` and reveals the next causal window;
+3. depth-zero frontiers emit one-hop progressing continuations rather than no-ops;
+4. non-zero window sizes are preserved across continuation generation;
+5. an M196-shaped response without continuation fields deserializes with empty defaults;
+6. a real `world-cli` stdin subprocess can take a continuation emitted by one machine query and replay it as the next machine query;
+7. all M192–M196 causal tests remain green.
 
 ## Validation
 
@@ -66,6 +65,6 @@ Before merge:
 - semantic workspace CI and external Pack conformance
 - macOS/GPUI only if dependency-path filtering requires it
 
-## Non-goals for M196
+## Non-goals for M197
 
-Do not add pagination tokens, automatic recursive expansion, causal comparison between worlds, arbitrary graph export, MCP/HTTP/WebSocket, AgentRuntime access, raw mutation payloads, Pack-specific causal inference, or protocol v2.
+Do not add opaque pagination tokens, server-side continuation state, automatic recursive expansion, causal comparison between worlds, arbitrary graph export, MCP/HTTP/WebSocket, AgentRuntime access, raw mutation payloads, Pack-specific causal inference, or protocol v2.

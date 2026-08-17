@@ -144,6 +144,24 @@ pub struct EvidenceCausalNeighborhoodResult {
     pub upstream_frontier: Vec<String>,
     #[serde(default)]
     pub downstream_frontier: Vec<String>,
+    #[serde(default)]
+    pub upstream_continuations: Vec<EvidenceCausalContinuation>,
+    #[serde(default)]
+    pub downstream_continuations: Vec<EvidenceCausalContinuation>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum EvidenceCausalDirection {
+    Upstream,
+    Downstream,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct EvidenceCausalContinuation {
+    pub event: String,
+    pub direction: EvidenceCausalDirection,
+    pub request: EvidenceQueryRequest,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -716,6 +734,31 @@ pub fn query_causal_neighborhood(
         }
     }
 
+    let upstream_continuations = upstream_frontier
+        .iter()
+        .map(|event| EvidenceCausalContinuation {
+            event: event.clone(),
+            direction: EvidenceCausalDirection::Upstream,
+            request: EvidenceQueryRequest::CausalNeighborhood {
+                root: event.clone(),
+                upstream_depth: upstream_depth.max(1),
+                downstream_depth: 0,
+            },
+        })
+        .collect();
+    let downstream_continuations = downstream_frontier
+        .iter()
+        .map(|event| EvidenceCausalContinuation {
+            event: event.clone(),
+            direction: EvidenceCausalDirection::Downstream,
+            request: EvidenceQueryRequest::CausalNeighborhood {
+                root: event.clone(),
+                upstream_depth: 0,
+                downstream_depth: downstream_depth.max(1),
+            },
+        })
+        .collect();
+
     Ok(EvidenceCausalNeighborhoodResult {
         root: graph.node(root, 0),
         upstream_depth,
@@ -726,6 +769,8 @@ pub fn query_causal_neighborhood(
         downstream_truncated: !downstream_frontier.is_empty(),
         upstream_frontier,
         downstream_frontier,
+        upstream_continuations,
+        downstream_continuations,
     })
 }
 
