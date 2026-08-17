@@ -1,83 +1,58 @@
-# Next Coding Task — M195 Machine Causal Neighborhood
+# Next Coding Task — M196 Causal Neighborhood Frontier
 
-Expose a bounded bidirectional causal context query so external investigators can inspect the visible causes and visible effects around one Event in a single machine request.
+Make bounded causal neighborhoods explicitly report whether their visible upstream/downstream context was truncated by the requested depth and which included boundary Events can be expanded next.
 
 ## Current baseline
 
-The machine investigation surface is complete through M194:
+The machine causal investigation surface is complete through M195:
 
-- M190–M191: visible selection discovery and display-safe describe;
-- state-evidence neighborhood / shortest-path / comparison remain available as a separate graph family;
-- M192: unbounded upstream `why` over visible persisted causal links;
-- M193: unbounded downstream `influence` with deterministic child ordering;
-- M194: deterministic shortest `causal-path`, plus one private `VisibleCausalGraph` shared by all causal queries;
-- generic JSON/stdin CLI transport remains protocol `world-machine-evidence-query` v1.
+- M192: `why` upstream ancestry;
+- M193: `influence` downstream traversal;
+- M194: shortest `causal-path` plus one shared private `VisibleCausalGraph`;
+- M195: bounded bidirectional `causal-neighborhood` with independent upstream/downstream depths;
+- all causal queries use timeline-visible Events and persisted `caused_by`, separate from the state-evidence graph;
+- JSON/stdin transport remains protocol `world-machine-evidence-query` v1.
 
-## Product goal
+## Product problem
 
-A caller should be able to ask:
+A bounded M195 result currently tells a caller what was returned, but not whether the requested depth omitted additional visible causal context. An agent can therefore mistake a finite window for a complete explanation or influence history.
 
-```json
-{
-  "query":"causal-neighborhood",
-  "root":"event-42",
-  "upstream_depth":2,
-  "downstream_depth":2
-}
-```
+## M196 — frontier metadata
 
-and receive one bounded local causal context without issuing and reconciling separate `why` and `influence` requests.
+Extend `EvidenceCausalNeighborhoodResult` additively with:
 
-## Architecture boundary
+- `upstream_truncated: bool`;
+- `downstream_truncated: bool`;
+- `upstream_frontier: Vec<String>`;
+- `downstream_frontier: Vec<String>`.
 
-1. Implement only in `world-query`; `world-cli` remains generic transport.
-2. Reuse the M194 private `VisibleCausalGraph` and `EvidenceCausalNode`.
-3. Read only timeline-visible Events and persisted `TimelineItem.caused_by` links.
-4. Keep causal traversal separate from state-evidence adjacency and inspector visibility.
-5. Do not expose ProjectionSnapshot to AgentRuntime.
-6. Keep protocol v1; the new request/response is additive.
+Mark all four fields `#[serde(default)]` so a newer v1 client can still deserialize a response emitted by an M195-era v1 server.
 
-## M195 — `causal-neighborhood`
+## Frontier semantics
 
-Add request:
+- A frontier entry is an Event already included at the requested depth boundary that has at least one additional timeline-visible neighbor in that direction which was not discovered inside the requested window.
+- Frontier order follows the existing traversal order: persisted parent order/BFS upstream and `(world_time, SelectionId)` child order/BFS downstream.
+- `*_truncated` is exactly whether the corresponding frontier is non-empty.
+- At depth 0, the root itself is the frontier if that direction has additional visible context.
+- Hidden Events never create frontier entries.
+- Already-discovered neighbors, including cycle edges back into the window, do not count as truncation.
+- When the requested window reaches all visible causal context in a direction, the frontier is empty and `*_truncated` is false.
 
-```json
-{"query":"causal-neighborhood","root":"event-42","upstream_depth":2,"downstream_depth":2}
-```
+## Compatibility
 
-Return `EvidenceCausalNeighborhoodResult` with:
-
-- `root: EvidenceCausalNode` at depth 0;
-- the requested `upstream_depth` and `downstream_depth`;
-- `upstream: Vec<EvidenceCausalNode>` excluding the root;
-- `downstream: Vec<EvidenceCausalNode>` excluding the root.
-
-## Traversal rules
-
-- Root uses the existing canonical stable-key parser and timeline-visible Event validation.
-- Upstream and downstream depth limits are independent; zero disables that side.
-- Upstream traversal is BFS, preserving each Event's persisted visible parent order.
-- Downstream traversal is BFS, preserving M193/M194 `(world_time, SelectionId)` child order.
-- Depth is minimum causal edge distance from root in that direction.
-- Each direction deduplicates independently and cycle-protects with the root pre-discovered.
-- In an actual causal cycle, the same non-root Event may legitimately appear once in each direction; direction is represented by membership in `upstream` versus `downstream`.
-- `EvidenceCausalNode.caused_by` keeps its existing contract: persisted order filtered to timeline-visible Events, even if a referenced visible cause lies outside the requested depth window.
-- Hidden Events never appear in traversal or `caused_by` metadata.
+This remains protocol v1 because the response fields are additive. New fields must default on deserialization so old v1 payloads remain readable.
 
 ## Tests
 
 Prove at minimum:
 
-1. request/response serde round-trip;
-2. independent upstream/downstream bounds;
-3. persisted upstream order and stable downstream order;
-4. minimum BFS depth through branching;
-5. zero-depth sides return no contextual nodes while retaining the root;
-6. hidden cause IDs are filtered;
-7. cycles do not duplicate the root or loop;
-8. canonical wrong-kind, malformed key, and invisible Event errors remain stable;
-9. existing M192–M194 causal tests remain green;
-10. a real stdin `world-cli` subprocess emits the v1 typed causal-neighborhood response.
+1. exact upstream/downstream frontier nodes at a one-hop boundary;
+2. deeper complete windows clear truncation/frontier metadata;
+3. depth 0 correctly uses the root as frontier when more context exists;
+4. cycles do not produce false frontier after all visible neighbors are discovered;
+5. hidden Events do not create frontier;
+6. an M195-shaped response without the new fields still deserializes with safe defaults;
+7. all M192–M195 causal tests and the M195 stdin subprocess test remain green.
 
 ## Validation
 
@@ -91,6 +66,6 @@ Before merge:
 - semantic workspace CI and external Pack conformance
 - macOS/GPUI only if dependency-path filtering requires it
 
-## Non-goals for M195
+## Non-goals for M196
 
-Do not add causal graph comparison between worlds, arbitrary graph export, search/filter, pagination, HTTP/WebSocket/MCP, AgentRuntime access, raw mutation payloads, Pack-specific causal inference, or protocol v2.
+Do not add pagination tokens, automatic recursive expansion, causal comparison between worlds, arbitrary graph export, MCP/HTTP/WebSocket, AgentRuntime access, raw mutation payloads, Pack-specific causal inference, or protocol v2.
