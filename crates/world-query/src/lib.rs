@@ -207,6 +207,11 @@ pub enum EvidenceCausalComparisonRequest {
         upstream_depth: usize,
         downstream_depth: usize,
     },
+    FirstDivergence {
+        root: String,
+        direction: EvidenceCausalDirection,
+        max_depth: usize,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -285,6 +290,9 @@ pub enum EvidenceCausalComparisonResponse {
     CausalNeighborhood {
         value: EvidenceCausalNeighborhoodComparisonResult,
     },
+    FirstDivergence {
+        value: EvidenceCausalFirstDivergenceResult,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -313,6 +321,30 @@ pub struct EvidenceCausalComparisonContinuation {
     pub left_frontier: bool,
     pub right_frontier: bool,
     pub request: EvidenceComparisonQueryRequest,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct EvidenceCausalFirstDivergenceResult {
+    pub root: String,
+    pub direction: EvidenceCausalDirection,
+    pub max_depth: usize,
+    pub identical_within_depth: bool,
+    pub divergence_depth: Option<usize>,
+    pub witnesses: Vec<EvidenceCausalDivergenceWitness>,
+    pub left_frontier: Vec<String>,
+    pub right_frontier: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum EvidenceCausalDivergenceWitness {
+    RootPresence {
+        difference: Difference,
+    },
+    Edge {
+        difference: Difference,
+        edge: EvidenceCausalEdge,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -463,27 +495,41 @@ pub fn execute_comparison_query_request(
             execute_comparison_query(left, right, request)
                 .map(EvidenceComparisonQueryResponse::Legacy)
         }
-        EvidenceComparisonQueryRequest::Causal(
+        EvidenceComparisonQueryRequest::Causal(request) => match request {
             EvidenceCausalComparisonRequest::CausalNeighborhood {
                 root,
                 upstream_depth,
                 downstream_depth,
-            },
-        ) => {
-            let root = parse_selection_key(root)?;
-            query_causal_neighborhood_comparison(
-                left,
-                right,
-                root,
-                *upstream_depth,
-                *downstream_depth,
-            )
-            .map(|value| {
-                EvidenceComparisonQueryResponse::Causal(
-                    EvidenceCausalComparisonResponse::CausalNeighborhood { value },
+            } => {
+                let root = parse_selection_key(root)?;
+                query_causal_neighborhood_comparison(
+                    left,
+                    right,
+                    root,
+                    *upstream_depth,
+                    *downstream_depth,
                 )
-            })
-        }
+                .map(|value| {
+                    EvidenceComparisonQueryResponse::Causal(
+                        EvidenceCausalComparisonResponse::CausalNeighborhood { value },
+                    )
+                })
+            }
+            EvidenceCausalComparisonRequest::FirstDivergence {
+                root,
+                direction,
+                max_depth,
+            } => {
+                let root = parse_selection_key(root)?;
+                query_causal_first_divergence(left, right, root, *direction, *max_depth).map(
+                    |value| {
+                        EvidenceComparisonQueryResponse::Causal(
+                            EvidenceCausalComparisonResponse::FirstDivergence { value },
+                        )
+                    },
+                )
+            }
+        },
     }
 }
 
@@ -984,6 +1030,181 @@ pub fn query_shortest_path(
             })
             .collect(),
     })
+}
+
+pub fn query_causal_first_divergence(
+    left: &ProjectionSnapshot,
+    right: &ProjectionSnapshot,
+    root: SelectionId,
+    direction: EvidenceCausalDirection,
+    max_depth: usize,
+) -> Result<EvidenceCausalFirstDivergenceResult, QueryError> {
+    if !matches!(root, SelectionId::Event(_)) {
+        return Err(QueryError::SelectionKindMismatch {
+            selection: root.stable_key(),
+            expected: EvidenceSelectionKind::Event,
+        });
+    }
+
+    let left_graph = VisibleCausalGraph::new(left);
+    let right_graph = VisibleCausalGraph::new(right);
+    let left_visible = left_graph.events.contains_key(&root);
+    let right_visible = right_graph.events.contains_key(&root);
+    if !left_visible && !right_visible {
+        return Err(QueryError::SelectionNotVisibleInEitherWorld(
+            root.stable_key(),
+        ));
+    }
+
+    let neighborhood = |snapshot: &ProjectionSnapshot| match direction {
+        EvidenceCausalDirection::Upstream => {
+            query_causal_neighborhood(snapshot, root, max_depth, 0)
+        }
+        EvidenceCausalDirection::Downstream => {
+            query_causal_neighborhood(snapshot, root, 0, max_depth)
+        }
+    };
+    let left_neighborhood = left_visible
+        .then(|| neighborhood(left).expect("visible causal divergence root must remain queryable"));
+    let right_neighborhood = right_visible.then(|| {
+        neighborhood(right).expect("visible causal divergence root must remain queryable")
+    });
+
+    let left_frontier = directional_causal_frontier(left_neighborhood.as_ref(), direction);
+    let right_frontier = directional_causal_frontier(right_neighborhood.as_ref(), direction);
+
+    if left_visible != right_visible {
+        return Ok(EvidenceCausalFirstDivergenceResult {
+            root: root.stable_key(),
+            direction,
+            max_depth,
+            identical_within_depth: false,
+            divergence_depth: Some(0),
+            witnesses: vec![EvidenceCausalDivergenceWitness::RootPresence {
+                difference: if left_visible {
+                    Difference::LeftOnly
+                } else {
+                    Difference::RightOnly
+                },
+            }],
+            left_frontier,
+            right_frontier,
+        });
+    }
+
+    let left_neighborhood = left_neighborhood
+        .as_ref()
+        .expect("two-sided visible divergence root must have a left neighborhood");
+    let right_neighborhood = right_neighborhood
+        .as_ref()
+        .expect("two-sided visible divergence root must have a right neighborhood");
+    let left_edges = left_neighborhood
+        .edges
+        .iter()
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>();
+    let right_edges = right_neighborhood
+        .edges
+        .iter()
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>();
+    let left_positions = causal_node_positions(left_neighborhood);
+    let right_positions = causal_node_positions(right_neighborhood);
+
+    let mut candidates = Vec::<(usize, Difference, EvidenceCausalEdge)>::new();
+    for edge in left_edges.difference(&right_edges) {
+        candidates.push((
+            directional_causal_edge_depth(edge, &left_positions, direction),
+            Difference::LeftOnly,
+            edge.clone(),
+        ));
+    }
+    for edge in right_edges.difference(&left_edges) {
+        candidates.push((
+            directional_causal_edge_depth(edge, &right_positions, direction),
+            Difference::RightOnly,
+            edge.clone(),
+        ));
+    }
+
+    let divergence_depth = candidates.iter().map(|(depth, _, _)| *depth).min();
+    if let Some(depth) = divergence_depth {
+        candidates.retain(|(candidate_depth, _, _)| *candidate_depth == depth);
+        candidates.sort_by_key(|(_, difference, edge)| {
+            let (cause, effect) = causal_edge_selection_ids(edge);
+            (cause, effect, difference_order(*difference))
+        });
+    }
+    let witnesses = candidates
+        .into_iter()
+        .map(|(_, difference, edge)| EvidenceCausalDivergenceWitness::Edge { difference, edge })
+        .collect();
+
+    Ok(EvidenceCausalFirstDivergenceResult {
+        root: root.stable_key(),
+        direction,
+        max_depth,
+        identical_within_depth: divergence_depth.is_none(),
+        divergence_depth,
+        witnesses,
+        left_frontier,
+        right_frontier,
+    })
+}
+
+fn directional_causal_frontier(
+    neighborhood: Option<&EvidenceCausalNeighborhoodResult>,
+    direction: EvidenceCausalDirection,
+) -> Vec<String> {
+    let frontier = neighborhood
+        .map(|value| match direction {
+            EvidenceCausalDirection::Upstream => value.upstream_frontier.as_slice(),
+            EvidenceCausalDirection::Downstream => value.downstream_frontier.as_slice(),
+        })
+        .unwrap_or(&[]);
+    canonical_causal_frontier(frontier)
+}
+
+fn directional_causal_edge_depth(
+    edge: &EvidenceCausalEdge,
+    positions: &std::collections::BTreeMap<SelectionId, EvidenceCausalNodePosition>,
+    direction: EvidenceCausalDirection,
+) -> usize {
+    let (cause, effect) = causal_edge_selection_ids(edge);
+    [cause, effect]
+        .into_iter()
+        .map(|event| {
+            let position = positions
+                .get(&event)
+                .expect("induced causal edge endpoint must have a neighborhood position");
+            if position.is_root {
+                0
+            } else {
+                match direction {
+                    EvidenceCausalDirection::Upstream => position.upstream_depth,
+                    EvidenceCausalDirection::Downstream => position.downstream_depth,
+                }
+                .expect("directional causal edge endpoint must have a directional depth")
+            }
+        })
+        .max()
+        .expect("causal edge must have two endpoints")
+}
+
+fn causal_edge_selection_ids(edge: &EvidenceCausalEdge) -> (SelectionId, SelectionId) {
+    let cause = parse_selection_key(&edge.cause)
+        .expect("canonical causal edge cause must remain a stable selection key");
+    let effect = parse_selection_key(&edge.effect)
+        .expect("canonical causal edge effect must remain a stable selection key");
+    (cause, effect)
+}
+
+fn difference_order(difference: Difference) -> u8 {
+    match difference {
+        Difference::LeftOnly => 0,
+        Difference::RightOnly => 1,
+        Difference::Changed => 2,
+    }
 }
 
 pub fn query_causal_neighborhood_comparison(
