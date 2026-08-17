@@ -136,6 +136,14 @@ pub struct EvidenceCausalNeighborhoodResult {
     pub downstream_depth: usize,
     pub upstream: Vec<EvidenceCausalNode>,
     pub downstream: Vec<EvidenceCausalNode>,
+    #[serde(default)]
+    pub upstream_truncated: bool,
+    #[serde(default)]
+    pub downstream_truncated: bool,
+    #[serde(default)]
+    pub upstream_frontier: Vec<String>,
+    #[serde(default)]
+    pub downstream_frontier: Vec<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -661,9 +669,17 @@ pub fn query_causal_neighborhood(
     let mut upstream_discovered = std::collections::BTreeSet::from([root]);
     let mut upstream_queue = std::collections::VecDeque::from([(root, 0usize)]);
     let mut upstream = Vec::new();
+    let mut upstream_frontier = Vec::new();
 
     while let Some((current, depth)) = upstream_queue.pop_front() {
         if depth >= upstream_depth {
+            if graph
+                .parents(current)
+                .into_iter()
+                .any(|cause| !upstream_discovered.contains(&cause))
+            {
+                upstream_frontier.push(current.stable_key());
+            }
             continue;
         }
         let next_depth = depth + 1;
@@ -678,9 +694,17 @@ pub fn query_causal_neighborhood(
     let mut downstream_discovered = std::collections::BTreeSet::from([root]);
     let mut downstream_queue = std::collections::VecDeque::from([(root, 0usize)]);
     let mut downstream = Vec::new();
+    let mut downstream_frontier = Vec::new();
 
     while let Some((current, depth)) = downstream_queue.pop_front() {
         if depth >= downstream_depth {
+            if graph
+                .children(current)
+                .iter()
+                .any(|child| !downstream_discovered.contains(child))
+            {
+                downstream_frontier.push(current.stable_key());
+            }
             continue;
         }
         let next_depth = depth + 1;
@@ -698,6 +722,10 @@ pub fn query_causal_neighborhood(
         downstream_depth,
         upstream,
         downstream,
+        upstream_truncated: !upstream_frontier.is_empty(),
+        downstream_truncated: !downstream_frontier.is_empty(),
+        upstream_frontier,
+        downstream_frontier,
     })
 }
 
