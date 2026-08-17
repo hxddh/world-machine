@@ -1,34 +1,36 @@
-# Next Coding Task — M207 Composable First-Divergence Trace Prefixes
+# Next Coding Task — M208 Multi-Window Divergence Trace Composition
 
-Preserve M204 witness explainability across M205 segmented replay by attaching a deterministic root-to-frontier trace prefix to every first-divergence continuation.
+Prove that M205 depth offsets and M207 trace prefixes compose together across repeated `first-divergence` continuation replay, so a segmented search preserves both the absolute divergence depth and the original-root witness explanation.
 
 ## Current baseline
 
-M203 identifies the earliest bounded causal divergence, M204 gives each edge witness a deterministic directional trace, M205 makes the search resumable at frontier Events, and M206 proves segmented depth/witness semantics match monolithic deeper queries. The remaining composition gap is explanatory: a replayed witness trace begins at the continuation root rather than the original query root.
+M203 finds the earliest bounded causal divergence, M204 attaches deterministic witness traces, M205 emits replayable frontier continuations with `depth_offset`, M206 proves segmented depth and witness-set equivalence, and M207 adds deterministic root-to-frontier `trace_prefix` values. The remaining risk is multi-window composition: correct offsets and individually correct prefixes could still combine into a trace that differs from a single deeper query.
 
-## M207 — continuation trace prefixes
+## M208 — composition invariants
 
-Extend `EvidenceCausalFirstDivergenceContinuation` additively with `trace_prefix: Vec<String>` using `#[serde(default)]`.
+Add a test-only segmented search scheduler that carries both an accumulated absolute offset and an accumulated original-root trace prefix. Use only public protocol-v1 DTOs and `execute_comparison_query_request`.
 
-## Semantics
+## Invariants
 
-- `trace_prefix` begins at the current request root and ends at the continuation frontier Event.
-- Use the same directional traversal semantics as M204 witness traces.
-- Restrict the path to Events already visible inside the current bounded neighborhood.
-- Choose a shortest path; break equal-length alternatives by typed Event identity using the existing deterministic path helper.
-- For a frontier present on both sides, either side must yield the same structural prefix because no divergence was found inside the current window; use a deterministic side choice.
-- For one-sided frontier membership, derive the prefix from the side that owns the frontier.
-- A zero-depth continuation has prefix `[root]`.
-- To rebuild an original-root witness trace after replay, concatenate `trace_prefix` with the replay witness trace while dropping the replay trace's first Event, which is the shared frontier root.
+- Across three or more replay windows, accumulated `depth_offset + divergence_depth` equals the monolithic deeper-query divergence depth.
+- Repeated `trace_prefix` composition followed by the replay witness trace reconstructs the exact monolithic M204 witness trace from the original root.
+- Upstream and downstream traversal obey the same composition law.
+- Parallel frontier branches that diverge at the same minimum absolute depth preserve the complete witness set and each witness keeps an original-root trace.
+- A zero-depth bootstrap does not duplicate the root when trace prefixes are composed.
+- Typed shortest-path selection remains stable across replay boundaries, including a diamond where multiple equal-length routes reach the same frontier.
 
-## Compatibility
+## Scope
 
-M205 continuation payloads without `trace_prefix` deserialize with an empty default. No request shape, CLI command, protocol version, server state, AgentRuntime authority, or transport changes.
+This milestone adds no production API surface. It proves the combined M205/M207 protocol semantics before any production-level recursive investigation adapter is introduced.
 
-## Tests
+## Validation
 
-Prove upstream/downstream prefix composition against monolithic M204 traces, zero-depth behavior, typed shortest-path selection in a diamond, and backward M205 deserialization.
+- `cargo fmt --all -- --check`
+- `bash ./scripts/check-boundaries.sh`
+- `cargo test -p world-query`
+- focused Clippy with warnings denied
+- full semantic workspace CI and external Pack conformance
 
 ## Non-goals
 
-No production recursive scheduler, no automatic trace concatenation API, no opaque cursor, no arbitrary graph export, no MCP/HTTP/WebSocket, no AgentRuntime access, and no protocol v2.
+No production recursive scheduler, no new request/response DTO, no automatic server-side trace assembly, no cursor/session state, no MCP/HTTP/WebSocket, no AgentRuntime access, no arbitrary graph export, and no protocol v2.
