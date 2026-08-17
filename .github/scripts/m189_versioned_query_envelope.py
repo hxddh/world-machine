@@ -86,7 +86,7 @@ test_text = integration.read_text()
 # Every protocol response parsed by the subprocess tests must carry the same identity.
 needle = 'let envelope: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();\n'
 count = test_text.count(needle)
-if count != 6:
+if count != 5:
     raise SystemExit(f"unexpected subprocess envelope count: {count}")
 test_text = test_text.replace(
     needle,
