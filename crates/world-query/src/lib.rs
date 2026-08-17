@@ -11,24 +11,61 @@ use world_projection::{
 #[serde(tag = "query", rename_all = "kebab-case")]
 pub enum EvidenceQueryRequest {
     Selections,
-    Describe { selection: String },
-    Why { event: String },
-    Influence { event: String },
-    CausalPath { from: String, to: String },
-    Neighborhood { root: String, max_depth: usize },
-    ShortestPath { from: String, to: String },
+    Describe {
+        selection: String,
+    },
+    Why {
+        event: String,
+    },
+    Influence {
+        event: String,
+    },
+    CausalPath {
+        from: String,
+        to: String,
+    },
+    CausalNeighborhood {
+        root: String,
+        upstream_depth: usize,
+        downstream_depth: usize,
+    },
+    Neighborhood {
+        root: String,
+        max_depth: usize,
+    },
+    ShortestPath {
+        from: String,
+        to: String,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "result", rename_all = "kebab-case")]
 pub enum EvidenceQueryResponse {
-    Selections { value: EvidenceSelectionIndex },
-    Description { value: EvidenceSelectionDetail },
-    Why { value: EvidenceWhyResult },
-    Influence { value: EvidenceInfluenceResult },
-    CausalPath { value: EvidenceCausalPathResult },
-    Neighborhood { value: EvidenceNeighborhoodResult },
-    ShortestPath { value: EvidencePathResult },
+    Selections {
+        value: EvidenceSelectionIndex,
+    },
+    Description {
+        value: EvidenceSelectionDetail,
+    },
+    Why {
+        value: EvidenceWhyResult,
+    },
+    Influence {
+        value: EvidenceInfluenceResult,
+    },
+    CausalPath {
+        value: EvidenceCausalPathResult,
+    },
+    CausalNeighborhood {
+        value: EvidenceCausalNeighborhoodResult,
+    },
+    Neighborhood {
+        value: EvidenceNeighborhoodResult,
+    },
+    ShortestPath {
+        value: EvidencePathResult,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -90,6 +127,15 @@ pub struct EvidenceCausalPathResult {
     pub from: String,
     pub to: String,
     pub nodes: Vec<EvidenceCausalNode>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct EvidenceCausalNeighborhoodResult {
+    pub root: EvidenceCausalNode,
+    pub upstream_depth: usize,
+    pub downstream_depth: usize,
+    pub upstream: Vec<EvidenceCausalNode>,
+    pub downstream: Vec<EvidenceCausalNode>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -261,6 +307,15 @@ pub fn execute_query(
             let to = parse_selection_key(to)?;
             query_causal_path(snapshot, from, to)
                 .map(|value| EvidenceQueryResponse::CausalPath { value })
+        }
+        EvidenceQueryRequest::CausalNeighborhood {
+            root,
+            upstream_depth,
+            downstream_depth,
+        } => {
+            let root = parse_selection_key(root)?;
+            query_causal_neighborhood(snapshot, root, *upstream_depth, *downstream_depth)
+                .map(|value| EvidenceQueryResponse::CausalNeighborhood { value })
         }
         EvidenceQueryRequest::Neighborhood { root, max_depth } => {
             let root = parse_selection_key(root)?;
@@ -591,6 +646,58 @@ pub fn query_causal_path(
             .enumerate()
             .map(|(depth, event)| graph.node(event, depth))
             .collect(),
+    })
+}
+
+pub fn query_causal_neighborhood(
+    snapshot: &ProjectionSnapshot,
+    root: SelectionId,
+    upstream_depth: usize,
+    downstream_depth: usize,
+) -> Result<EvidenceCausalNeighborhoodResult, QueryError> {
+    let graph = VisibleCausalGraph::new(snapshot);
+    graph.require_event(root)?;
+
+    let mut upstream_discovered = std::collections::BTreeSet::from([root]);
+    let mut upstream_queue = std::collections::VecDeque::from([(root, 0usize)]);
+    let mut upstream = Vec::new();
+
+    while let Some((current, depth)) = upstream_queue.pop_front() {
+        if depth >= upstream_depth {
+            continue;
+        }
+        let next_depth = depth + 1;
+        for cause in graph.parents(current) {
+            if upstream_discovered.insert(cause) {
+                upstream.push(graph.node(cause, next_depth));
+                upstream_queue.push_back((cause, next_depth));
+            }
+        }
+    }
+
+    let mut downstream_discovered = std::collections::BTreeSet::from([root]);
+    let mut downstream_queue = std::collections::VecDeque::from([(root, 0usize)]);
+    let mut downstream = Vec::new();
+
+    while let Some((current, depth)) = downstream_queue.pop_front() {
+        if depth >= downstream_depth {
+            continue;
+        }
+        let next_depth = depth + 1;
+        for child in graph.children(current) {
+            if downstream_discovered.insert(*child) {
+                downstream.push(graph.node(*child, next_depth));
+                downstream_queue.push_back((*child, next_depth));
+            }
+        }
+    }
+
+    Ok(EvidenceCausalNeighborhoodResult {
+        root: graph.node(root, 0),
+        upstream_depth,
+        downstream_depth,
+        upstream,
+        downstream,
     })
 }
 
