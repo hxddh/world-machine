@@ -12,6 +12,7 @@ pub enum EvidenceQueryRequest {
     Selections,
     Describe { selection: String },
     Why { event: String },
+    Influence { event: String },
     Neighborhood { root: String, max_depth: usize },
     ShortestPath { from: String, to: String },
 }
@@ -22,6 +23,7 @@ pub enum EvidenceQueryResponse {
     Selections { value: EvidenceSelectionIndex },
     Description { value: EvidenceSelectionDetail },
     Why { value: EvidenceWhyResult },
+    Influence { value: EvidenceInfluenceResult },
     Neighborhood { value: EvidenceNeighborhoodResult },
     ShortestPath { value: EvidencePathResult },
 }
@@ -70,6 +72,12 @@ pub struct EvidenceDetailRow {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct EvidenceWhyResult {
+    pub event: String,
+    pub nodes: Vec<EvidenceCausalNode>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct EvidenceInfluenceResult {
     pub event: String,
     pub nodes: Vec<EvidenceCausalNode>,
 }
@@ -228,6 +236,10 @@ pub fn execute_query(
         EvidenceQueryRequest::Why { event } => {
             let event = parse_selection_key(event)?;
             query_why(snapshot, event).map(|value| EvidenceQueryResponse::Why { value })
+        }
+        EvidenceQueryRequest::Influence { event } => {
+            let event = parse_selection_key(event)?;
+            query_influence(snapshot, event).map(|value| EvidenceQueryResponse::Influence { value })
         }
         EvidenceQueryRequest::Neighborhood { root, max_depth } => {
             let root = parse_selection_key(root)?;
@@ -422,6 +434,94 @@ pub fn query_why(
     }
 
     Ok(EvidenceWhyResult {
+        event: event.stable_key(),
+        nodes,
+    })
+}
+
+pub fn query_influence(
+    snapshot: &ProjectionSnapshot,
+    event: SelectionId,
+) -> Result<EvidenceInfluenceResult, QueryError> {
+    if !matches!(event, SelectionId::Event(_)) {
+        return Err(QueryError::SelectionKindMismatch {
+            selection: event.stable_key(),
+            expected: EvidenceSelectionKind::Event,
+        });
+    }
+
+    let visible = snapshot
+        .timeline
+        .items
+        .iter()
+        .filter(|item| matches!(item.id, SelectionId::Event(_)))
+        .map(|item| (item.id, item))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    if !visible.contains_key(&event) {
+        return Err(QueryError::SelectionNotVisible(event.stable_key()));
+    }
+
+    let mut children = std::collections::BTreeMap::<SelectionId, Vec<SelectionId>>::new();
+    for item in snapshot
+        .timeline
+        .items
+        .iter()
+        .filter(|item| matches!(item.id, SelectionId::Event(_)))
+    {
+        for cause in &item.caused_by {
+            let cause = SelectionId::Event(*cause);
+            if visible.contains_key(&cause) {
+                children.entry(cause).or_default().push(item.id);
+            }
+        }
+    }
+    for direct_children in children.values_mut() {
+        direct_children.sort_by_key(|child| {
+            let item = visible
+                .get(child)
+                .copied()
+                .expect("causal child must remain visible");
+            (item.world_time, *child)
+        });
+        direct_children.dedup();
+    }
+
+    let mut discovered = std::collections::BTreeSet::from([event]);
+    let mut queue = std::collections::VecDeque::from([(event, 0usize)]);
+    let mut nodes = Vec::new();
+
+    while let Some((current, depth)) = queue.pop_front() {
+        let item = visible
+            .get(&current)
+            .copied()
+            .expect("queued causal event must remain visible");
+        let caused_by = item
+            .caused_by
+            .iter()
+            .map(|cause| SelectionId::Event(*cause))
+            .filter(|cause| visible.contains_key(cause))
+            .map(|cause| cause.stable_key())
+            .collect();
+
+        nodes.push(EvidenceCausalNode {
+            event: current.stable_key(),
+            depth,
+            world_time: item.world_time,
+            title: item.title.clone(),
+            subtitle: item.subtitle.clone(),
+            caused_by,
+        });
+
+        if let Some(direct_children) = children.get(&current) {
+            for child in direct_children {
+                if discovered.insert(*child) {
+                    queue.push_back((*child, depth + 1));
+                }
+            }
+        }
+    }
+
+    Ok(EvidenceInfluenceResult {
         event: event.stable_key(),
         nodes,
     })
