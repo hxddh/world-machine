@@ -4,6 +4,7 @@ use std::fmt;
 use world_compare::{compare_evidence_neighborhoods, DifferenceKind};
 use world_projection::{
     InspectorProjection, ProjectionSnapshot, RelationEndpointRole, SelectionId, StateEvidenceEdge,
+    TimelineItem,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -13,6 +14,7 @@ pub enum EvidenceQueryRequest {
     Describe { selection: String },
     Why { event: String },
     Influence { event: String },
+    CausalPath { from: String, to: String },
     Neighborhood { root: String, max_depth: usize },
     ShortestPath { from: String, to: String },
 }
@@ -24,6 +26,7 @@ pub enum EvidenceQueryResponse {
     Description { value: EvidenceSelectionDetail },
     Why { value: EvidenceWhyResult },
     Influence { value: EvidenceInfluenceResult },
+    CausalPath { value: EvidenceCausalPathResult },
     Neighborhood { value: EvidenceNeighborhoodResult },
     ShortestPath { value: EvidencePathResult },
 }
@@ -79,6 +82,13 @@ pub struct EvidenceWhyResult {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct EvidenceInfluenceResult {
     pub event: String,
+    pub nodes: Vec<EvidenceCausalNode>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct EvidenceCausalPathResult {
+    pub from: String,
+    pub to: String,
     pub nodes: Vec<EvidenceCausalNode>,
 }
 
@@ -190,6 +200,10 @@ pub enum QueryError {
         from: String,
         to: String,
     },
+    NoCausalPath {
+        from: String,
+        to: String,
+    },
     SelectionNotVisibleInEitherWorld(String),
 }
 
@@ -211,6 +225,7 @@ impl fmt::Display for QueryError {
                 write!(f, "selection is not visible: {selection}")
             }
             Self::NoEvidencePath { from, to } => write!(f, "no evidence path: {from} -> {to}"),
+            Self::NoCausalPath { from, to } => write!(f, "no causal path: {from} -> {to}"),
             Self::SelectionNotVisibleInEitherWorld(selection) => {
                 write!(f, "selection is not visible in either world: {selection}")
             }
@@ -240,6 +255,12 @@ pub fn execute_query(
         EvidenceQueryRequest::Influence { event } => {
             let event = parse_selection_key(event)?;
             query_influence(snapshot, event).map(|value| EvidenceQueryResponse::Influence { value })
+        }
+        EvidenceQueryRequest::CausalPath { from, to } => {
+            let from = parse_selection_key(from)?;
+            let to = parse_selection_key(to)?;
+            query_causal_path(snapshot, from, to)
+                .map(|value| EvidenceQueryResponse::CausalPath { value })
         }
         EvidenceQueryRequest::Neighborhood { root, max_depth } => {
             let root = parse_selection_key(root)?;
@@ -379,54 +400,109 @@ fn visible_detail_sections(inspector: &InspectorProjection) -> Vec<EvidenceDetai
         .collect()
 }
 
+struct VisibleCausalGraph<'a> {
+    events: std::collections::BTreeMap<SelectionId, &'a TimelineItem>,
+    children: std::collections::BTreeMap<SelectionId, Vec<SelectionId>>,
+}
+
+impl<'a> VisibleCausalGraph<'a> {
+    fn new(snapshot: &'a ProjectionSnapshot) -> Self {
+        let events = snapshot
+            .timeline
+            .items
+            .iter()
+            .filter(|item| matches!(item.id, SelectionId::Event(_)))
+            .map(|item| (item.id, item))
+            .collect::<std::collections::BTreeMap<_, _>>();
+        let mut children = std::collections::BTreeMap::<SelectionId, Vec<SelectionId>>::new();
+
+        for item in events.values().copied() {
+            for cause in &item.caused_by {
+                let cause = SelectionId::Event(*cause);
+                if events.contains_key(&cause) {
+                    children.entry(cause).or_default().push(item.id);
+                }
+            }
+        }
+        for direct_children in children.values_mut() {
+            direct_children.sort_by_key(|child| {
+                let item = events
+                    .get(child)
+                    .copied()
+                    .expect("causal child must remain visible");
+                (item.world_time, *child)
+            });
+            direct_children.dedup();
+        }
+
+        Self { events, children }
+    }
+
+    fn require_event(&self, event: SelectionId) -> Result<(), QueryError> {
+        if !matches!(event, SelectionId::Event(_)) {
+            return Err(QueryError::SelectionKindMismatch {
+                selection: event.stable_key(),
+                expected: EvidenceSelectionKind::Event,
+            });
+        }
+        if !self.events.contains_key(&event) {
+            return Err(QueryError::SelectionNotVisible(event.stable_key()));
+        }
+        Ok(())
+    }
+
+    fn parents(&self, event: SelectionId) -> Vec<SelectionId> {
+        let item = self
+            .events
+            .get(&event)
+            .copied()
+            .expect("causal event must remain visible");
+        item.caused_by
+            .iter()
+            .map(|cause| SelectionId::Event(*cause))
+            .filter(|cause| self.events.contains_key(cause))
+            .collect()
+    }
+
+    fn children(&self, event: SelectionId) -> &[SelectionId] {
+        self.children.get(&event).map(Vec::as_slice).unwrap_or(&[])
+    }
+
+    fn node(&self, event: SelectionId, depth: usize) -> EvidenceCausalNode {
+        let item = self
+            .events
+            .get(&event)
+            .copied()
+            .expect("causal event must remain visible");
+        EvidenceCausalNode {
+            event: event.stable_key(),
+            depth,
+            world_time: item.world_time,
+            title: item.title.clone(),
+            subtitle: item.subtitle.clone(),
+            caused_by: self
+                .parents(event)
+                .into_iter()
+                .map(|cause| cause.stable_key())
+                .collect(),
+        }
+    }
+}
+
 pub fn query_why(
     snapshot: &ProjectionSnapshot,
     event: SelectionId,
 ) -> Result<EvidenceWhyResult, QueryError> {
-    if !matches!(event, SelectionId::Event(_)) {
-        return Err(QueryError::SelectionKindMismatch {
-            selection: event.stable_key(),
-            expected: EvidenceSelectionKind::Event,
-        });
-    }
-
-    let visible = snapshot
-        .timeline
-        .items
-        .iter()
-        .filter(|item| matches!(item.id, SelectionId::Event(_)))
-        .map(|item| (item.id, item))
-        .collect::<std::collections::BTreeMap<_, _>>();
-    if !visible.contains_key(&event) {
-        return Err(QueryError::SelectionNotVisible(event.stable_key()));
-    }
+    let graph = VisibleCausalGraph::new(snapshot);
+    graph.require_event(event)?;
 
     let mut discovered = std::collections::BTreeSet::from([event]);
     let mut queue = std::collections::VecDeque::from([(event, 0usize)]);
     let mut nodes = Vec::new();
 
     while let Some((current, depth)) = queue.pop_front() {
-        let item = visible
-            .get(&current)
-            .copied()
-            .expect("queued causal event must remain visible");
-        let caused_by = item
-            .caused_by
-            .iter()
-            .map(|cause| SelectionId::Event(*cause))
-            .filter(|cause| visible.contains_key(cause))
-            .collect::<Vec<_>>();
-
-        nodes.push(EvidenceCausalNode {
-            event: current.stable_key(),
-            depth,
-            world_time: item.world_time,
-            title: item.title.clone(),
-            subtitle: item.subtitle.clone(),
-            caused_by: caused_by.iter().map(|cause| cause.stable_key()).collect(),
-        });
-
-        for cause in caused_by {
+        nodes.push(graph.node(current, depth));
+        for cause in graph.parents(current) {
             if discovered.insert(cause) {
                 queue.push_back((cause, depth + 1));
             }
@@ -443,80 +519,18 @@ pub fn query_influence(
     snapshot: &ProjectionSnapshot,
     event: SelectionId,
 ) -> Result<EvidenceInfluenceResult, QueryError> {
-    if !matches!(event, SelectionId::Event(_)) {
-        return Err(QueryError::SelectionKindMismatch {
-            selection: event.stable_key(),
-            expected: EvidenceSelectionKind::Event,
-        });
-    }
-
-    let visible = snapshot
-        .timeline
-        .items
-        .iter()
-        .filter(|item| matches!(item.id, SelectionId::Event(_)))
-        .map(|item| (item.id, item))
-        .collect::<std::collections::BTreeMap<_, _>>();
-    if !visible.contains_key(&event) {
-        return Err(QueryError::SelectionNotVisible(event.stable_key()));
-    }
-
-    let mut children = std::collections::BTreeMap::<SelectionId, Vec<SelectionId>>::new();
-    for item in snapshot
-        .timeline
-        .items
-        .iter()
-        .filter(|item| matches!(item.id, SelectionId::Event(_)))
-    {
-        for cause in &item.caused_by {
-            let cause = SelectionId::Event(*cause);
-            if visible.contains_key(&cause) {
-                children.entry(cause).or_default().push(item.id);
-            }
-        }
-    }
-    for direct_children in children.values_mut() {
-        direct_children.sort_by_key(|child| {
-            let item = visible
-                .get(child)
-                .copied()
-                .expect("causal child must remain visible");
-            (item.world_time, *child)
-        });
-        direct_children.dedup();
-    }
+    let graph = VisibleCausalGraph::new(snapshot);
+    graph.require_event(event)?;
 
     let mut discovered = std::collections::BTreeSet::from([event]);
     let mut queue = std::collections::VecDeque::from([(event, 0usize)]);
     let mut nodes = Vec::new();
 
     while let Some((current, depth)) = queue.pop_front() {
-        let item = visible
-            .get(&current)
-            .copied()
-            .expect("queued causal event must remain visible");
-        let caused_by = item
-            .caused_by
-            .iter()
-            .map(|cause| SelectionId::Event(*cause))
-            .filter(|cause| visible.contains_key(cause))
-            .map(|cause| cause.stable_key())
-            .collect();
-
-        nodes.push(EvidenceCausalNode {
-            event: current.stable_key(),
-            depth,
-            world_time: item.world_time,
-            title: item.title.clone(),
-            subtitle: item.subtitle.clone(),
-            caused_by,
-        });
-
-        if let Some(direct_children) = children.get(&current) {
-            for child in direct_children {
-                if discovered.insert(*child) {
-                    queue.push_back((*child, depth + 1));
-                }
+        nodes.push(graph.node(current, depth));
+        for child in graph.children(current) {
+            if discovered.insert(*child) {
+                queue.push_back((*child, depth + 1));
             }
         }
     }
@@ -524,6 +538,59 @@ pub fn query_influence(
     Ok(EvidenceInfluenceResult {
         event: event.stable_key(),
         nodes,
+    })
+}
+
+pub fn query_causal_path(
+    snapshot: &ProjectionSnapshot,
+    from: SelectionId,
+    to: SelectionId,
+) -> Result<EvidenceCausalPathResult, QueryError> {
+    let graph = VisibleCausalGraph::new(snapshot);
+    graph.require_event(from)?;
+    graph.require_event(to)?;
+
+    let mut discovered = std::collections::BTreeSet::from([from]);
+    let mut queue = std::collections::VecDeque::from([from]);
+    let mut predecessor = std::collections::BTreeMap::<SelectionId, SelectionId>::new();
+
+    while let Some(current) = queue.pop_front() {
+        if current == to {
+            break;
+        }
+        for child in graph.children(current) {
+            if discovered.insert(*child) {
+                predecessor.insert(*child, current);
+                queue.push_back(*child);
+            }
+        }
+    }
+
+    if !discovered.contains(&to) {
+        return Err(QueryError::NoCausalPath {
+            from: from.stable_key(),
+            to: to.stable_key(),
+        });
+    }
+
+    let mut path = vec![to];
+    let mut current = to;
+    while current != from {
+        current = *predecessor
+            .get(&current)
+            .expect("discovered causal target must have a predecessor");
+        path.push(current);
+    }
+    path.reverse();
+
+    Ok(EvidenceCausalPathResult {
+        from: from.stable_key(),
+        to: to.stable_key(),
+        nodes: path
+            .into_iter()
+            .enumerate()
+            .map(|(depth, event)| graph.node(event, depth))
+            .collect(),
     })
 }
 
@@ -759,6 +826,13 @@ mod tests {
                     to: "event-9".into(),
                 },
                 r#"{"error":"no-evidence-path","details":{"from":"entity-1","to":"event-9"}}"#,
+            ),
+            (
+                QueryError::NoCausalPath {
+                    from: "event-1".into(),
+                    to: "event-9".into(),
+                },
+                r#"{"error":"no-causal-path","details":{"from":"event-1","to":"event-9"}}"#,
             ),
             (
                 QueryError::SelectionNotVisibleInEitherWorld("relation-5".into()),
