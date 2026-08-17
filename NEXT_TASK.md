@@ -1,68 +1,65 @@
-# Next Coding Task — M197 Causal Neighborhood Edges
+# Next Coding Task — M198 Self-Contained Causal Traversals
 
-Make bounded causal neighborhoods self-contained graph payloads by exporting all persisted visible causal edges induced by the Events already returned in the local window.
+Make the unbounded `why` and `influence` machine results self-contained causal graph payloads by reusing the explicit induced-edge semantics introduced for bounded neighborhoods in M197.
 
 ## Current baseline
 
-The machine causal investigation surface is complete through M196:
+The causal machine-query surface is complete through M197:
 
 - M192: upstream `why`;
 - M193: downstream `influence`;
-- M194: deterministic shortest `causal-path` and shared private `VisibleCausalGraph`;
+- M194: deterministic shortest `causal-path` plus shared private `VisibleCausalGraph`;
 - M195: bounded bidirectional `causal-neighborhood`;
-- M196: explicit truncation/frontier metadata for bounded windows;
-- causal visibility remains timeline-owned and separate from state-evidence adjacency;
+- M196: frontier/truncation metadata;
+- M197: explicit full induced causal `edges` for the bounded neighborhood;
+- all visibility comes from timeline-visible Events and persisted `caused_by` links;
 - protocol remains `world-machine-evidence-query` v1.
 
 ## Product problem
 
-M195/M196 return enough node metadata to infer some edges from each node's `caused_by`, but a consumer must still reconstruct the graph and decide which references are inside the bounded window. This is error-prone, especially for diamonds, cross-branch links, cycles, and duplicated persisted parent IDs.
+`why` and especially `influence` still expose only nodes plus each node's raw visible `caused_by` list. For an influence closure, a returned Event may have an additional visible co-cause that is not reachable from the requested root. A consumer must therefore infer which references belong to the returned graph and which are external context.
 
-## M197 — explicit induced causal edges
+## M198 — traversal edges
 
-Extend `EvidenceCausalNeighborhoodResult` additively with:
-
-```rust
-#[serde(default)]
-pub edges: Vec<EvidenceCausalEdge>
-```
-
-and add:
+Extend both result DTOs additively:
 
 ```rust
-pub struct EvidenceCausalEdge {
-    pub cause: String,
-    pub effect: String,
+pub struct EvidenceWhyResult {
+    pub event: String,
+    pub nodes: Vec<EvidenceCausalNode>,
+    #[serde(default)]
+    pub edges: Vec<EvidenceCausalEdge>,
+}
+
+pub struct EvidenceInfluenceResult {
+    pub event: String,
+    pub nodes: Vec<EvidenceCausalNode>,
+    #[serde(default)]
+    pub edges: Vec<EvidenceCausalEdge>,
 }
 ```
 
-The serde default preserves v1 backward deserialization for M196-era payloads.
+Use the M197 `VisibleCausalGraph::induced_edges` helper over each traversal's discovered Event set.
 
-## Edge semantics
+## Semantics
 
-- The returned Event set is the union of the root, upstream nodes, and downstream nodes.
-- `edges` is the full induced directed causal subgraph over that Event set, not merely BFS traversal-tree edges.
-- An edge exists only when the effect's persisted `caused_by` contains the cause and both endpoints are timeline-visible and included in the returned window.
-- Hidden Events and visible Events outside the requested window never appear as edge endpoints.
-- Duplicate persisted parent IDs emit one edge, keeping the first persisted parent position for ordering.
-- Effects are ordered deterministically by `(world_time, SelectionId)` ascending; within an effect, causes preserve persisted visible parent order.
-- Cycles and self-edges are represented faithfully when both endpoints are included.
-- `EvidenceCausalNode.caused_by` remains unchanged and may still name visible causes outside the bounded window; `edges` is specifically the self-contained local graph.
-
-## Internal implementation
-
-Add a private `VisibleCausalGraph::induced_edges(included)` helper so edge filtering, deduplication, and ordering remain centralized with the causal graph semantics.
+- `why.edges` is the full induced graph over the visible upstream ancestry closure including the root.
+- `influence.edges` is the full induced graph over the visible downstream descendant closure including the root.
+- A visible external co-cause may remain in an `EvidenceCausalNode.caused_by` list for context but must not appear as an edge unless that Event is itself in the traversal closure.
+- Edge order and duplicate-parent handling are exactly M197 semantics; do not introduce query-specific ordering.
+- Hidden Events never appear as edge endpoints.
+- The fields are additive with `#[serde(default)]` so M192/M193-era v1 responses remain readable by newer clients.
+- `causal-path` remains a path, not an induced subgraph, and is intentionally unchanged.
 
 ## Tests
 
 Prove at minimum:
 
-1. a bounded neighborhood exports all induced edges, including a cross-branch edge that was not needed by BFS discovery;
-2. edge order is stable despite shuffled timeline input;
-3. hidden and out-of-window Event endpoints do not leak;
-4. duplicate persisted parent IDs produce one edge;
-5. M196-shaped v1 payloads without `edges` deserialize with an empty default;
-6. all M192–M196 causal tests and existing CLI subprocess tests remain green.
+1. `why` returns the full visible ancestry induced graph;
+2. `influence` excludes a visible external co-cause from `edges` while preserving it in node `caused_by` context;
+3. edge ordering is stable despite shuffled timeline input;
+4. legacy v1 `why` and `influence` responses without `edges` deserialize with empty defaults;
+5. all M192–M197 causal tests and existing CLI subprocess tests remain green.
 
 ## Validation
 
@@ -76,6 +73,6 @@ Before merge:
 - semantic workspace CI and external Pack conformance
 - macOS/GPUI only if dependency-path filtering requires it
 
-## Non-goals for M197
+## Non-goals for M198
 
-Do not export edges to omitted frontier neighbors, add arbitrary causal graph dumps, add causal comparison between worlds, change `caused_by`, add pagination, MCP/HTTP/WebSocket, AgentRuntime access, raw mutation payloads, Pack-specific causal inference, or protocol v2.
+Do not change `causal-path`, expose omitted neighbors as edges, add arbitrary graph dumps, add causal comparison between worlds, add pagination, MCP/HTTP/WebSocket, AgentRuntime access, raw mutation payloads, Pack-specific causal inference, or protocol v2.

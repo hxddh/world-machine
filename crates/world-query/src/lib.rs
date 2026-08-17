@@ -114,12 +114,16 @@ pub struct EvidenceDetailRow {
 pub struct EvidenceWhyResult {
     pub event: String,
     pub nodes: Vec<EvidenceCausalNode>,
+    #[serde(default)]
+    pub edges: Vec<EvidenceCausalEdge>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct EvidenceInfluenceResult {
     pub event: String,
     pub nodes: Vec<EvidenceCausalNode>,
+    #[serde(default)]
+    pub edges: Vec<EvidenceCausalEdge>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -609,9 +613,12 @@ pub fn query_why(
         }
     }
 
+    let edges = graph.induced_edges(&discovered);
+
     Ok(EvidenceWhyResult {
         event: event.stable_key(),
         nodes,
+        edges,
     })
 }
 
@@ -635,9 +642,12 @@ pub fn query_influence(
         }
     }
 
+    let edges = graph.induced_edges(&discovered);
+
     Ok(EvidenceInfluenceResult {
         event: event.stable_key(),
         nodes,
+        edges,
     })
 }
 
