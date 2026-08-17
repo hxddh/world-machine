@@ -89,6 +89,19 @@ if text.count(old) != 1:
     raise SystemExit("query_why traversal block missing or ambiguous")
 text = text.replace(old, new, 1)
 
+old_import = '''use world_projection::{
+    InspectorProjection, ProjectionSnapshot, RelationEndpointRole, SelectionId, StateEvidenceEdge,
+    TimelineItem,
+};
+'''
+new_import = '''use world_projection::{
+    InspectorProjection, ProjectionSnapshot, RelationEndpointRole, SelectionId, StateEvidenceEdge,
+};
+'''
+if text.count(old_import) != 1:
+    raise SystemExit("TimelineItem import marker missing")
+text = text.replace(old_import, new_import, 1)
+
 marker = '''    #[test]
     fn why_query_filters_hidden_causes_and_cycle_protects() {
 '''
