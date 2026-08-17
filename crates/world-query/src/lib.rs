@@ -2,12 +2,15 @@ use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::fmt;
 use world_compare::{compare_evidence_neighborhoods, DifferenceKind};
-use world_projection::{ProjectionSnapshot, RelationEndpointRole, SelectionId, StateEvidenceEdge};
+use world_projection::{
+    InspectorProjection, ProjectionSnapshot, RelationEndpointRole, SelectionId, StateEvidenceEdge,
+};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "query", rename_all = "kebab-case")]
 pub enum EvidenceQueryRequest {
     Selections,
+    Describe { selection: String },
     Neighborhood { root: String, max_depth: usize },
     ShortestPath { from: String, to: String },
 }
@@ -16,6 +19,7 @@ pub enum EvidenceQueryRequest {
 #[serde(tag = "result", rename_all = "kebab-case")]
 pub enum EvidenceQueryResponse {
     Selections { value: EvidenceSelectionIndex },
+    Description { value: EvidenceSelectionDetail },
     Neighborhood { value: EvidenceNeighborhoodResult },
     ShortestPath { value: EvidencePathResult },
 }
@@ -39,6 +43,27 @@ pub enum EvidenceSelectionKind {
     Entity,
     Relation,
     Event,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct EvidenceSelectionDetail {
+    pub selection: String,
+    pub kind: EvidenceSelectionKind,
+    pub title: String,
+    pub subtitle: String,
+    pub sections: Vec<EvidenceDetailSection>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct EvidenceDetailSection {
+    pub title: String,
+    pub rows: Vec<EvidenceDetailRow>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct EvidenceDetailRow {
+    pub label: String,
+    pub value: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -162,6 +187,11 @@ pub fn execute_query(
         EvidenceQueryRequest::Selections => Ok(EvidenceQueryResponse::Selections {
             value: query_selections(snapshot),
         }),
+        EvidenceQueryRequest::Describe { selection } => {
+            let selection = parse_selection_key(selection)?;
+            query_description(snapshot, selection)
+                .map(|value| EvidenceQueryResponse::Description { value })
+        }
         EvidenceQueryRequest::Neighborhood { root, max_depth } => {
             let root = parse_selection_key(root)?;
             query_neighborhood(snapshot, root, *max_depth)
@@ -227,6 +257,69 @@ pub fn query_selections(snapshot: &ProjectionSnapshot) -> EvidenceSelectionIndex
     EvidenceSelectionIndex {
         selections: selections.into_values().collect(),
     }
+}
+
+pub fn query_description(
+    snapshot: &ProjectionSnapshot,
+    selection: SelectionId,
+) -> Result<EvidenceSelectionDetail, QueryError> {
+    match selection {
+        SelectionId::Entity(_) | SelectionId::Relation(_) => {
+            let inspector = snapshot
+                .inspector(selection)
+                .ok_or_else(|| QueryError::SelectionNotVisible(selection.stable_key()))?;
+            Ok(EvidenceSelectionDetail {
+                selection: selection.stable_key(),
+                kind: selection_kind(selection),
+                title: inspector.title.clone(),
+                subtitle: inspector.subtitle.clone(),
+                sections: visible_detail_sections(inspector),
+            })
+        }
+        SelectionId::Event(_) => {
+            let item = snapshot
+                .timeline
+                .items
+                .iter()
+                .find(|item| item.id == selection)
+                .ok_or_else(|| QueryError::SelectionNotVisible(selection.stable_key()))?;
+            Ok(EvidenceSelectionDetail {
+                selection: selection.stable_key(),
+                kind: EvidenceSelectionKind::Event,
+                title: item.title.clone(),
+                subtitle: item.subtitle.clone(),
+                sections: snapshot
+                    .inspector(selection)
+                    .map(visible_detail_sections)
+                    .unwrap_or_default(),
+            })
+        }
+    }
+}
+
+fn selection_kind(selection: SelectionId) -> EvidenceSelectionKind {
+    match selection {
+        SelectionId::Entity(_) => EvidenceSelectionKind::Entity,
+        SelectionId::Relation(_) => EvidenceSelectionKind::Relation,
+        SelectionId::Event(_) => EvidenceSelectionKind::Event,
+    }
+}
+
+fn visible_detail_sections(inspector: &InspectorProjection) -> Vec<EvidenceDetailSection> {
+    inspector
+        .display_sections()
+        .map(|section| EvidenceDetailSection {
+            title: section.title.clone(),
+            rows: section
+                .rows
+                .iter()
+                .map(|row| EvidenceDetailRow {
+                    label: row.label.clone(),
+                    value: row.value.clone(),
+                })
+                .collect(),
+        })
+        .collect()
 }
 
 pub fn query_neighborhood(
@@ -364,6 +457,7 @@ mod tests {
         EntityEventEvidence, EntityRelationEvidence, InspectorProjection, InspectorRow,
         InspectorSection, RelationEventEvidence, TimelineItem, TimelineProjection,
         ENTITY_HISTORY_SECTION, RELATION_ENDPOINTS_SECTION, RELATION_HISTORY_SECTION,
+        RELATION_IDENTITY_SECTION,
     };
 
     fn snapshot(from: EntityId, to: EntityId) -> ProjectionSnapshot {
@@ -526,6 +620,169 @@ mod tests {
         let json = serde_json::to_string(&response).unwrap();
         let restored: EvidenceQueryResponse = serde_json::from_str(&json).unwrap();
         assert_eq!(restored, response);
+    }
+
+    #[test]
+    fn describe_returns_display_safe_entity_and_relation_details() {
+        let mut snapshot = snapshot(EntityId::new(1), EntityId::new(3));
+        let entity = SelectionId::Entity(EntityId::new(2));
+        snapshot
+            .inspectors
+            .get_mut(&entity)
+            .unwrap()
+            .sections
+            .insert(
+                0,
+                InspectorSection {
+                    title: "State".into(),
+                    rows: vec![InspectorRow {
+                        label: "Status".into(),
+                        value: "Active".into(),
+                    }],
+                },
+            );
+
+        let response = execute_query(
+            &snapshot,
+            &EvidenceQueryRequest::Describe {
+                selection: entity.stable_key(),
+            },
+        )
+        .unwrap();
+        let EvidenceQueryResponse::Description { value } = response else {
+            panic!("expected description response")
+        };
+        assert_eq!(value.selection, "entity-2");
+        assert_eq!(value.kind, EvidenceSelectionKind::Entity);
+        assert_eq!(value.title, "entity-2");
+        assert_eq!(value.sections.len(), 1);
+        assert_eq!(value.sections[0].title, "State");
+        assert!(!value
+            .sections
+            .iter()
+            .any(|section| section.title == ENTITY_HISTORY_SECTION));
+
+        let relation = SelectionId::Relation(RelationId::new(5));
+        let relation_inspector = snapshot.inspectors.get_mut(&relation).unwrap();
+        relation_inspector.sections.insert(
+            0,
+            InspectorSection {
+                title: "Relation".into(),
+                rows: vec![InspectorRow {
+                    label: "Status".into(),
+                    value: "Active".into(),
+                }],
+            },
+        );
+        relation_inspector.sections.push(InspectorSection {
+            title: RELATION_IDENTITY_SECTION.into(),
+            rows: vec![InspectorRow {
+                label: "From".into(),
+                value: "entity-1".into(),
+            }],
+        });
+
+        let response = execute_query(
+            &snapshot,
+            &EvidenceQueryRequest::Describe {
+                selection: relation.stable_key(),
+            },
+        )
+        .unwrap();
+        let EvidenceQueryResponse::Description { value } = response else {
+            panic!("expected description response")
+        };
+        assert_eq!(value.kind, EvidenceSelectionKind::Relation);
+        assert_eq!(value.title, "Knows");
+        assert_eq!(value.sections.len(), 1);
+        assert_eq!(value.sections[0].title, "Relation");
+        for internal in [
+            RELATION_HISTORY_SECTION,
+            RELATION_ENDPOINTS_SECTION,
+            RELATION_IDENTITY_SECTION,
+        ] {
+            assert!(!value
+                .sections
+                .iter()
+                .any(|section| section.title == internal));
+        }
+    }
+
+    #[test]
+    fn describe_event_uses_timeline_visibility_and_labels() {
+        let mut snapshot = snapshot(EntityId::new(1), EntityId::new(3));
+        let event = SelectionId::Event(EventId::new(9));
+        snapshot.inspectors.insert(
+            event,
+            InspectorProjection {
+                selection: event,
+                title: "Inspector title must not win".into(),
+                subtitle: "Inspector subtitle must not win".into(),
+                sections: vec![InspectorSection {
+                    title: "Context".into(),
+                    rows: vec![InspectorRow {
+                        label: "Actor".into(),
+                        value: "entity-1".into(),
+                    }],
+                }],
+            },
+        );
+
+        let response = execute_query(
+            &snapshot,
+            &EvidenceQueryRequest::Describe {
+                selection: event.stable_key(),
+            },
+        )
+        .unwrap();
+        let EvidenceQueryResponse::Description { value } = response else {
+            panic!("expected description response")
+        };
+        assert_eq!(value.kind, EvidenceSelectionKind::Event);
+        assert_eq!(value.title, "Changed");
+        assert_eq!(value.subtitle, "Recorded change");
+        assert_eq!(value.sections[0].title, "Context");
+
+        let hidden_event = SelectionId::Event(EventId::new(10));
+        snapshot.inspectors.insert(
+            hidden_event,
+            InspectorProjection {
+                selection: hidden_event,
+                title: "Hidden".into(),
+                subtitle: "Inspector only".into(),
+                sections: Vec::new(),
+            },
+        );
+        assert_eq!(
+            execute_query(
+                &snapshot,
+                &EvidenceQueryRequest::Describe {
+                    selection: hidden_event.stable_key(),
+                },
+            ),
+            Err(QueryError::SelectionNotVisible("event-10".into()))
+        );
+    }
+
+    #[test]
+    fn describe_contract_round_trips_and_reuses_key_validation() {
+        let snapshot = snapshot(EntityId::new(1), EntityId::new(3));
+        let request: EvidenceQueryRequest =
+            serde_json::from_str(r#"{"query":"describe","selection":"relation-5"}"#).unwrap();
+        let response = execute_query(&snapshot, &request).unwrap();
+        let json = serde_json::to_string(&response).unwrap();
+        let restored: EvidenceQueryResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored, response);
+
+        assert_eq!(
+            execute_query(
+                &snapshot,
+                &EvidenceQueryRequest::Describe {
+                    selection: "entity-07".into(),
+                },
+            ),
+            Err(QueryError::InvalidSelectionKey("entity-07".into()))
+        );
     }
 
     #[test]
