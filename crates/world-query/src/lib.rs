@@ -300,6 +300,19 @@ pub struct EvidenceCausalNeighborhoodComparisonResult {
     pub right_upstream_frontier: Vec<String>,
     pub left_downstream_frontier: Vec<String>,
     pub right_downstream_frontier: Vec<String>,
+    #[serde(default)]
+    pub upstream_continuations: Vec<EvidenceCausalComparisonContinuation>,
+    #[serde(default)]
+    pub downstream_continuations: Vec<EvidenceCausalComparisonContinuation>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct EvidenceCausalComparisonContinuation {
+    pub event: String,
+    pub direction: EvidenceCausalDirection,
+    pub left_frontier: bool,
+    pub right_frontier: bool,
+    pub request: EvidenceComparisonQueryRequest,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -1092,6 +1105,19 @@ pub fn query_causal_neighborhood_comparison(
             .unwrap_or(&[]),
     );
 
+    let upstream_continuations = causal_comparison_continuations(
+        &left_upstream_frontier,
+        &right_upstream_frontier,
+        EvidenceCausalDirection::Upstream,
+        upstream_depth,
+    );
+    let downstream_continuations = causal_comparison_continuations(
+        &left_downstream_frontier,
+        &right_downstream_frontier,
+        EvidenceCausalDirection::Downstream,
+        downstream_depth,
+    );
+
     let identical = nodes.is_empty()
         && left_only_edges.is_empty()
         && right_only_edges.is_empty()
@@ -1110,7 +1136,52 @@ pub fn query_causal_neighborhood_comparison(
         right_upstream_frontier,
         left_downstream_frontier,
         right_downstream_frontier,
+        upstream_continuations,
+        downstream_continuations,
     })
+}
+
+fn causal_comparison_continuations(
+    left_frontier: &[String],
+    right_frontier: &[String],
+    direction: EvidenceCausalDirection,
+    depth: usize,
+) -> Vec<EvidenceCausalComparisonContinuation> {
+    let mut membership = std::collections::BTreeMap::<SelectionId, (bool, bool)>::new();
+    for event in left_frontier {
+        let event = parse_selection_key(event)
+            .expect("canonical causal comparison frontier must remain a stable selection key");
+        membership.entry(event).or_default().0 = true;
+    }
+    for event in right_frontier {
+        let event = parse_selection_key(event)
+            .expect("canonical causal comparison frontier must remain a stable selection key");
+        membership.entry(event).or_default().1 = true;
+    }
+
+    membership
+        .into_iter()
+        .map(|(event, (left_frontier, right_frontier))| {
+            let event = event.stable_key();
+            let (upstream_depth, downstream_depth) = match direction {
+                EvidenceCausalDirection::Upstream => (depth.max(1), 0),
+                EvidenceCausalDirection::Downstream => (0, depth.max(1)),
+            };
+            EvidenceCausalComparisonContinuation {
+                event: event.clone(),
+                direction,
+                left_frontier,
+                right_frontier,
+                request: EvidenceComparisonQueryRequest::Causal(
+                    EvidenceCausalComparisonRequest::CausalNeighborhood {
+                        root: event,
+                        upstream_depth,
+                        downstream_depth,
+                    },
+                ),
+            }
+        })
+        .collect()
 }
 
 fn causal_node_positions(
