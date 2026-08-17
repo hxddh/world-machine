@@ -150,12 +150,30 @@ pub struct EvidenceCausalNeighborhoodResult {
     pub downstream_frontier: Vec<String>,
     #[serde(default)]
     pub edges: Vec<EvidenceCausalEdge>,
+    #[serde(default)]
+    pub upstream_continuations: Vec<EvidenceCausalContinuation>,
+    #[serde(default)]
+    pub downstream_continuations: Vec<EvidenceCausalContinuation>,
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub struct EvidenceCausalEdge {
     pub cause: String,
     pub effect: String,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum EvidenceCausalDirection {
+    Upstream,
+    Downstream,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct EvidenceCausalContinuation {
+    pub event: String,
+    pub direction: EvidenceCausalDirection,
+    pub request: EvidenceQueryRequest,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -768,6 +786,30 @@ pub fn query_causal_neighborhood(
         .copied()
         .collect::<std::collections::BTreeSet<_>>();
     let edges = graph.induced_edges(&included);
+    let upstream_continuations = upstream_frontier
+        .iter()
+        .map(|event| EvidenceCausalContinuation {
+            event: event.clone(),
+            direction: EvidenceCausalDirection::Upstream,
+            request: EvidenceQueryRequest::CausalNeighborhood {
+                root: event.clone(),
+                upstream_depth: upstream_depth.max(1),
+                downstream_depth: 0,
+            },
+        })
+        .collect();
+    let downstream_continuations = downstream_frontier
+        .iter()
+        .map(|event| EvidenceCausalContinuation {
+            event: event.clone(),
+            direction: EvidenceCausalDirection::Downstream,
+            request: EvidenceQueryRequest::CausalNeighborhood {
+                root: event.clone(),
+                upstream_depth: 0,
+                downstream_depth: downstream_depth.max(1),
+            },
+        })
+        .collect();
 
     Ok(EvidenceCausalNeighborhoodResult {
         root: graph.node(root, 0),
@@ -780,6 +822,8 @@ pub fn query_causal_neighborhood(
         upstream_frontier,
         downstream_frontier,
         edges,
+        upstream_continuations,
+        downstream_continuations,
     })
 }
 
