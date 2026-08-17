@@ -7,6 +7,7 @@ use world_projection::{ProjectionSnapshot, RelationEndpointRole, SelectionId, St
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "query", rename_all = "kebab-case")]
 pub enum EvidenceQueryRequest {
+    Selections,
     Neighborhood { root: String, max_depth: usize },
     ShortestPath { from: String, to: String },
 }
@@ -14,8 +15,30 @@ pub enum EvidenceQueryRequest {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "result", rename_all = "kebab-case")]
 pub enum EvidenceQueryResponse {
+    Selections { value: EvidenceSelectionIndex },
     Neighborhood { value: EvidenceNeighborhoodResult },
     ShortestPath { value: EvidencePathResult },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct EvidenceSelectionIndex {
+    pub selections: Vec<EvidenceSelection>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct EvidenceSelection {
+    pub selection: String,
+    pub kind: EvidenceSelectionKind,
+    pub title: String,
+    pub subtitle: String,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum EvidenceSelectionKind {
+    Entity,
+    Relation,
+    Event,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -136,6 +159,9 @@ pub fn execute_query(
     request: &EvidenceQueryRequest,
 ) -> Result<EvidenceQueryResponse, QueryError> {
     match request {
+        EvidenceQueryRequest::Selections => Ok(EvidenceQueryResponse::Selections {
+            value: query_selections(snapshot),
+        }),
         EvidenceQueryRequest::Neighborhood { root, max_depth } => {
             let root = parse_selection_key(root)?;
             query_neighborhood(snapshot, root, *max_depth)
@@ -161,6 +187,46 @@ pub fn execute_comparison_query(
 
 fn parse_selection_key(key: &str) -> Result<SelectionId, QueryError> {
     SelectionId::from_stable_key(key).ok_or_else(|| QueryError::InvalidSelectionKey(key.to_owned()))
+}
+
+pub fn query_selections(snapshot: &ProjectionSnapshot) -> EvidenceSelectionIndex {
+    let mut selections = std::collections::BTreeMap::new();
+
+    for (selection, inspector) in &snapshot.inspectors {
+        let kind = match selection {
+            SelectionId::Entity(_) => EvidenceSelectionKind::Entity,
+            SelectionId::Relation(_) => EvidenceSelectionKind::Relation,
+            SelectionId::Event(_) => continue,
+        };
+        selections.insert(
+            *selection,
+            EvidenceSelection {
+                selection: selection.stable_key(),
+                kind,
+                title: inspector.title.clone(),
+                subtitle: inspector.subtitle.clone(),
+            },
+        );
+    }
+
+    for item in &snapshot.timeline.items {
+        if !matches!(item.id, SelectionId::Event(_)) {
+            continue;
+        }
+        selections.insert(
+            item.id,
+            EvidenceSelection {
+                selection: item.id.stable_key(),
+                kind: EvidenceSelectionKind::Event,
+                title: item.title.clone(),
+                subtitle: item.subtitle.clone(),
+            },
+        );
+    }
+
+    EvidenceSelectionIndex {
+        selections: selections.into_values().collect(),
+    }
 }
 
 pub fn query_neighborhood(
@@ -400,6 +466,66 @@ mod tests {
             let restored: QueryError = serde_json::from_str(&json).unwrap();
             assert_eq!(restored, error);
         }
+    }
+
+    #[test]
+    fn serialized_selection_discovery_returns_query_visible_selections_in_typed_order() {
+        let mut snapshot = snapshot(EntityId::new(1), EntityId::new(3));
+        let hidden_event = SelectionId::Event(EventId::new(10));
+        snapshot.inspectors.insert(
+            hidden_event,
+            InspectorProjection {
+                selection: hidden_event,
+                title: "Hidden event".into(),
+                subtitle: "Inspector only".into(),
+                sections: Vec::new(),
+            },
+        );
+
+        let request: EvidenceQueryRequest =
+            serde_json::from_str(r#"{"query":"selections"}"#).unwrap();
+        let response = execute_query(&snapshot, &request).unwrap();
+        let EvidenceQueryResponse::Selections { value } = response else {
+            panic!("expected selections response")
+        };
+
+        assert_eq!(
+            value
+                .selections
+                .iter()
+                .map(|selection| selection.selection.as_str())
+                .collect::<Vec<_>>(),
+            vec!["entity-1", "entity-2", "entity-3", "relation-5", "event-9"]
+        );
+        assert_eq!(
+            value
+                .selections
+                .iter()
+                .map(|selection| selection.kind)
+                .collect::<Vec<_>>(),
+            vec![
+                EvidenceSelectionKind::Entity,
+                EvidenceSelectionKind::Entity,
+                EvidenceSelectionKind::Entity,
+                EvidenceSelectionKind::Relation,
+                EvidenceSelectionKind::Event,
+            ]
+        );
+        assert_eq!(value.selections[3].title, "Knows");
+        assert_eq!(value.selections[4].title, "Changed");
+        assert!(!value
+            .selections
+            .iter()
+            .any(|selection| selection.selection == "event-10"));
+    }
+
+    #[test]
+    fn selection_discovery_response_round_trips_through_query_contract() {
+        let snapshot = snapshot(EntityId::new(1), EntityId::new(3));
+        let response = execute_query(&snapshot, &EvidenceQueryRequest::Selections).unwrap();
+        let json = serde_json::to_string(&response).unwrap();
+        let restored: EvidenceQueryResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored, response);
     }
 
     #[test]
