@@ -344,6 +344,8 @@ pub enum EvidenceCausalDivergenceWitness {
     Edge {
         difference: Difference,
         edge: EvidenceCausalEdge,
+        #[serde(default)]
+        trace: Vec<String>,
     },
 }
 
@@ -1137,7 +1139,21 @@ pub fn query_causal_first_divergence(
     }
     let witnesses = candidates
         .into_iter()
-        .map(|(_, difference, edge)| EvidenceCausalDivergenceWitness::Edge { difference, edge })
+        .map(|(_, difference, edge)| {
+            let (graph, positions) = match difference {
+                Difference::LeftOnly => (&left_graph, &left_positions),
+                Difference::RightOnly => (&right_graph, &right_positions),
+                Difference::Changed => {
+                    unreachable!("causal edge set difference cannot produce changed witness")
+                }
+            };
+            let trace = causal_divergence_trace(graph, root, &edge, positions, direction);
+            EvidenceCausalDivergenceWitness::Edge {
+                difference,
+                edge,
+                trace,
+            }
+        })
         .collect();
 
     Ok(EvidenceCausalFirstDivergenceResult {
@@ -1150,6 +1166,72 @@ pub fn query_causal_first_divergence(
         left_frontier,
         right_frontier,
     })
+}
+
+fn causal_divergence_trace(
+    graph: &VisibleCausalGraph<'_>,
+    root: SelectionId,
+    edge: &EvidenceCausalEdge,
+    positions: &std::collections::BTreeMap<SelectionId, EvidenceCausalNodePosition>,
+    direction: EvidenceCausalDirection,
+) -> Vec<String> {
+    let (cause, effect) = causal_edge_selection_ids(edge);
+    let (near, far) = match direction {
+        EvidenceCausalDirection::Upstream => (effect, cause),
+        EvidenceCausalDirection::Downstream => (cause, effect),
+    };
+    let allowed = positions
+        .keys()
+        .copied()
+        .collect::<std::collections::BTreeSet<_>>();
+    let mut path = directional_shortest_event_path(graph, root, near, direction, &allowed)
+        .expect("divergence edge near endpoint must remain directionally reachable");
+    path.push(far);
+    path.into_iter().map(|event| event.stable_key()).collect()
+}
+
+fn directional_shortest_event_path(
+    graph: &VisibleCausalGraph<'_>,
+    root: SelectionId,
+    target: SelectionId,
+    direction: EvidenceCausalDirection,
+    allowed: &std::collections::BTreeSet<SelectionId>,
+) -> Option<Vec<SelectionId>> {
+    if root == target {
+        return Some(vec![root]);
+    }
+
+    let mut discovered = std::collections::BTreeSet::from([root]);
+    let mut queue = std::collections::VecDeque::from([root]);
+    let mut predecessor = std::collections::BTreeMap::<SelectionId, SelectionId>::new();
+    while let Some(current) = queue.pop_front() {
+        let mut neighbors = match direction {
+            EvidenceCausalDirection::Upstream => graph.parents(current),
+            EvidenceCausalDirection::Downstream => graph.children(current).to_vec(),
+        };
+        neighbors.retain(|event| allowed.contains(event));
+        neighbors.sort();
+        neighbors.dedup();
+        for neighbor in neighbors {
+            if discovered.insert(neighbor) {
+                predecessor.insert(neighbor, current);
+                if neighbor == target {
+                    let mut path = vec![target];
+                    let mut cursor = target;
+                    while cursor != root {
+                        cursor = *predecessor
+                            .get(&cursor)
+                            .expect("discovered divergence trace node must have a predecessor");
+                        path.push(cursor);
+                    }
+                    path.reverse();
+                    return Some(path);
+                }
+                queue.push_back(neighbor);
+            }
+        }
+    }
+    None
 }
 
 fn directional_causal_frontier(
