@@ -1,110 +1,72 @@
-# Next Coding Task — M192 Machine Causal Ancestry
+# Next Coding Task — M193 Machine Causal Influence
 
-Expose persisted Event `caused_by` provenance through the existing machine query contract so external investigators can ask why a visible event happened without scraping timeline UI.
+Expose downstream causal influence through the existing machine query contract so external investigators can ask what visible Events were influenced by a visible root Event.
 
 ## Current baseline
 
-The machine evidence-query line is complete through M191:
+The machine investigation surface is complete through M192:
 
-- M173–M178: typed state-evidence paths, neighborhoods, comparison, and divergence.
-- M179–M186: canonical stable selection keys and reusable headless query boundary.
-- M187–M189: JSON subprocess transport, stdin support, pinned exit semantics, and version-1 response envelopes.
+- M173–M189: canonical machine evidence queries, comparison, JSON subprocess/stdin transport, stable semantic errors, and protocol v1 envelopes.
 - M190: deterministic visible selection discovery.
 - M191: display-safe structured selection detail with timeline-owned Event visibility.
+- M192: `why` causal ancestry over visible persisted `TimelineItem.caused_by`, with hidden-cause filtering, cycle protection, and breadth-first minimum-depth semantics.
 
-The machine workflow now supports `selections -> describe -> neighborhood / shortest-path`, but causal provenance is still only represented inside timeline projection data.
+The workflow now supports `selections -> describe -> neighborhood / shortest-path / why`. M193 adds the downstream half of persisted causal investigation without merging causal edges into the state-evidence graph.
 
 ## Product goal
 
 A caller should be able to ask:
 
 ```json
-{"query":"why","event":"event-42"}
+{"query":"influence","event":"event-42"}
 ```
 
-and receive a deterministic visible causal ancestry rooted at that Event.
-
-This is causal provenance, not state-evidence adjacency. Keep those concepts separate.
+and receive a deterministic visible downstream causal traversal rooted at that Event.
 
 ## Architecture boundary
 
-1. `world-query` owns the machine causal DTO and traversal semantics.
-2. `world-cli` remains a thin JSON/subprocess transport; add no new top-level command.
-3. Use only `ProjectionSnapshot.timeline.items` and their persisted `caused_by` links. Do not read raw World/archive state or rerun Behaviors/Agents.
-4. Root Event visibility is timeline visibility, matching M190/M191.
-5. A cause absent from the visible timeline must not appear in output, even if its ID is referenced by a visible item.
-6. Do not use inspector existence to make an Event visible.
-7. Keep state-evidence graph edges and causal edges as distinct APIs.
-8. Keep the M189 envelope protocol/version unchanged; this is additive query capability.
+1. `world-query` owns the machine influence DTO and traversal semantics.
+2. Reuse the generic M192 `EvidenceCausalNode`; do not create a second almost-identical causal node shape.
+3. `world-cli` remains thin JSON/subprocess transport; no new top-level command.
+4. Derive influence only from visible `ProjectionSnapshot.timeline.items` and their persisted `caused_by` links.
+5. Never traverse or export Events absent from the visible timeline.
+6. Keep causal traversal separate from state-evidence adjacency and inspector visibility.
+7. Keep protocol identity/version at `world-machine-evidence-query` v1; this is additive.
+8. Do not expose the full projection to AgentRuntime.
 
-## M192 — `why` query
+## M193 — `influence` query
 
-Extend `EvidenceQueryRequest` with an additive variant equivalent to:
+Extend `EvidenceQueryRequest` with:
 
 ```json
-{"query":"why","event":"event-42"}
+{"query":"influence","event":"event-42"}
 ```
 
-Return a typed response similar to:
-
-```rust
-EvidenceWhyResult {
-    event: String,
-    nodes: Vec<EvidenceWhyNode>,
-}
-
-EvidenceWhyNode {
-    event: String,
-    depth: usize,
-    world_time: u64,
-    title: String,
-    subtitle: String,
-    caused_by: Vec<String>,
-}
-```
-
-The exact Rust names may be tightened, but retain stable keys and generic visible labels.
+Return `EvidenceInfluenceResult { event, nodes }` using `Vec<EvidenceCausalNode>`.
 
 ## Traversal rules
 
 - Parse through the existing canonical stable-key boundary.
-- A canonical entity/relation key supplied to `why` is a kind mismatch, not malformed syntax. Add a stable typed semantic error for selection-kind mismatch rather than pretending `entity-1` is an invalid stable key.
+- Canonical entity/relation roots return the existing `SelectionKindMismatch { expected: event }` error.
 - Root must be a timeline-visible Event or return `SelectionNotVisible`.
-- Traverse upstream through `caused_by` only when each cause exists in the visible timeline.
-- Preserve deterministic causal order from the persisted `caused_by` vector; deduplicate/cycle-protect traversal.
-- Root depth is 0; direct causes are depth 1, and so on.
-- Each node's exported `caused_by` list must itself be filtered to visible timeline Events so hidden IDs do not leak.
-
-## CLI compatibility
-
-Existing machine transports should accept the new request automatically:
-
-```text
-world-cli evidence-query <file.world> '{"query":"why","event":"event-42"}'
-```
-
-and:
-
-```text
-printf '%s' '{"query":"why","event":"event-42"}' | world-cli evidence-query <file.world> -
-```
-
-No `world-cli why` command is needed.
+- Build child adjacency by reversing visible persisted `caused_by` edges only when both endpoints are visible timeline Events.
+- Root depth is 0. Direct effects are depth 1. Use BFS so multiply reachable Events get minimum causal depth.
+- Deduplicate and cycle-protect traversal.
+- There is no persisted child vector, so direct children use stable `(world_time, SelectionId)` ascending order. This intentionally avoids coupling the machine contract to timeline presentation order.
+- Each exported node retains its persisted `caused_by` order, filtered to visible timeline Events.
 
 ## Tests
 
-At minimum prove:
+Prove at minimum:
 
-1. serialized `why` request executes and round-trips through `EvidenceQueryResponse` serde;
-2. a three-Event causal chain returns root/direct/indirect causes at depths 0/1/2;
-3. multiple persisted causes preserve deterministic order;
-4. a referenced cause absent from timeline is omitted both from traversal and exported `caused_by` IDs;
-5. cycles cannot loop forever or duplicate nodes;
-6. inspector-only Event remains invisible;
-7. canonical `entity-N` / `relation-N` requests return the new stable selection-kind-mismatch error;
-8. noncanonical `event-07` still returns `InvalidSelectionKey`;
-9. a true stdin `world-cli` subprocess request returns a version-1 typed `why` response;
-10. M190/M191 and graph-query tests remain green.
+1. serialized `influence` request/response serde round-trip;
+2. chain/branch/diamond traversal returns minimum BFS depth;
+3. same-depth child order is deterministic by world time then typed selection ID, independent of input timeline ordering;
+4. hidden referenced causes do not leak through exported node metadata or become adjacency roots;
+5. cycles do not duplicate or loop;
+6. canonical wrong-kind, malformed stable key, and invisible Event errors remain stable;
+7. a real stdin `world-cli` subprocess emits the v1 typed influence response;
+8. all M190–M192 query behavior remains green.
 
 ## Validation
 
@@ -112,26 +74,12 @@ Before merge:
 
 - `bash ./scripts/check-boundaries.sh`
 - `cargo fmt --all -- --check`
-- semantic workspace Clippy with warnings denied
-- semantic workspace tests
 - `cargo test -p world-query`
 - `cargo test -p world-cli`
-- external Pack conformance command
-- macOS/GPUI only when dependency-path filtering requires it
+- focused Clippy with warnings denied
+- semantic workspace CI and external Pack conformance
+- macOS/GPUI only if dependency-path filtering requires it
 
-## Non-goals for M192
+## Non-goals for M193
 
-Do not add:
-
-- downstream influence traversal yet;
-- causal edges into the existing state-evidence graph;
-- free-text/fuzzy search;
-- HTTP/WebSocket/MCP;
-- AgentRuntime access or perception-policy changes;
-- raw World/Event mutation data;
-- Pack-specific causal semantics;
-- protocol version 2.
-
-## Why this is next
-
-M190 and M191 made visible state discoverable and describable; M173–M189 made state-evidence topology traversable. The other fundamental investigative dimension already present in World Machine is persisted causal provenance. Exposing `caused_by` as a separate machine query adds real Future Archaeologist / debugging value without weakening the deterministic World or Agent perception boundaries.
+Do not add causal path-between-events queries, free-text search, HTTP/WebSocket/MCP, AgentRuntime access, raw World/Event mutation data, Pack-specific causal semantics, or protocol v2.
