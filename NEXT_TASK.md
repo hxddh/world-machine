@@ -1,68 +1,60 @@
-# Next Coding Task — M197 Causal Neighborhood Edges
+# Next Coding Task — M198 Executable Causal Continuations
 
-Make bounded causal neighborhoods self-contained graph payloads by exporting all persisted visible causal edges induced by the Events already returned in the local window.
+Turn the M196 frontier metadata into directly executable continuation requests while preserving M197's self-contained induced-edge payloads.
 
 ## Current baseline
 
-The machine causal investigation surface is complete through M196:
+The machine causal investigation surface is complete through M197:
 
 - M192: upstream `why`;
 - M193: downstream `influence`;
 - M194: deterministic shortest `causal-path` and shared private `VisibleCausalGraph`;
 - M195: bounded bidirectional `causal-neighborhood`;
-- M196: explicit truncation/frontier metadata for bounded windows;
+- M196: explicit truncation and stable frontier Events;
+- M197: the full induced visible causal edge set for every bounded neighborhood;
 - causal visibility remains timeline-owned and separate from state-evidence adjacency;
-- protocol remains `world-machine-evidence-query` v1.
+- JSON/stdin transport remains `world-machine-evidence-query` protocol v1.
 
 ## Product problem
 
-M195/M196 return enough node metadata to infer some edges from each node's `caused_by`, but a consumer must still reconstruct the graph and decide which references are inside the bounded window. This is error-prone, especially for diamonds, cross-branch links, cycles, and duplicated persisted parent IDs.
+M196/M197 tell a caller where a bounded causal window stops and give a complete local graph, but the caller still has to interpret direction and reconstruct a new request to continue. Every future agent or tool adapter would otherwise duplicate that protocol logic and could accidentally generate a zero-depth no-op.
 
-## M197 — explicit induced causal edges
+## M198 — executable continuations
 
 Extend `EvidenceCausalNeighborhoodResult` additively with:
 
-```rust
-#[serde(default)]
-pub edges: Vec<EvidenceCausalEdge>
-```
+- `upstream_continuations: Vec<EvidenceCausalContinuation>`;
+- `downstream_continuations: Vec<EvidenceCausalContinuation>`.
 
-and add:
+Add:
 
-```rust
-pub struct EvidenceCausalEdge {
-    pub cause: String,
-    pub effect: String,
-}
-```
+- `EvidenceCausalDirection::{Upstream, Downstream}`;
+- `EvidenceCausalContinuation { event, direction, request }`, where `request` is an ordinary `EvidenceQueryRequest` that can be serialized and passed directly back to the existing `evidence-query` transport.
 
-The serde default preserves v1 backward deserialization for M196-era payloads.
+Both continuation arrays use `#[serde(default)]` so M197-era protocol-v1 responses remain readable.
 
-## Edge semantics
+## Continuation semantics
 
-- The returned Event set is the union of the root, upstream nodes, and downstream nodes.
-- `edges` is the full induced directed causal subgraph over that Event set, not merely BFS traversal-tree edges.
-- An edge exists only when the effect's persisted `caused_by` contains the cause and both endpoints are timeline-visible and included in the returned window.
-- Hidden Events and visible Events outside the requested window never appear as edge endpoints.
-- Duplicate persisted parent IDs emit one edge, keeping the first persisted parent position for ordering.
-- Effects are ordered deterministically by `(world_time, SelectionId)` ascending; within an effect, causes preserve persisted visible parent order.
-- Cycles and self-edges are represented faithfully when both endpoints are included.
-- `EvidenceCausalNode.caused_by` remains unchanged and may still name visible causes outside the bounded window; `edges` is specifically the self-contained local graph.
-
-## Internal implementation
-
-Add a private `VisibleCausalGraph::induced_edges(included)` helper so edge filtering, deduplication, and ordering remain centralized with the causal graph semantics.
+- Emit exactly one continuation per frontier entry, in frontier order.
+- Upstream continuations root at the frontier Event, set `downstream_depth = 0`, and preserve the caller's non-zero upstream window size.
+- Downstream continuations are symmetric.
+- If the original directional depth is `0`, promote the continuation window to `1`; a continuation must make progress.
+- Each continuation query independently returns M197 induced edges for its own bounded window.
+- Continuations carry no hidden state, visited set, opaque server token, mutation authority, or server-side session state.
+- Separate continuation branches may overlap; stable Event keys and causal edges let callers deduplicate/merge windows deterministically.
 
 ## Tests
 
 Prove at minimum:
 
-1. a bounded neighborhood exports all induced edges, including a cross-branch edge that was not needed by BFS discovery;
-2. edge order is stable despite shuffled timeline input;
-3. hidden and out-of-window Event endpoints do not leak;
-4. duplicate persisted parent IDs produce one edge;
-5. M196-shaped v1 payloads without `edges` deserialize with an empty default;
-6. all M192–M196 causal tests and existing CLI subprocess tests remain green.
+1. exact typed upstream/downstream continuation requests;
+2. emitted requests execute directly and reveal the next causal window;
+3. depth-zero frontier continuations progress by one hop;
+4. non-zero directional window sizes are preserved;
+5. current M197 induced edges remain present before and after continuation;
+6. an M197-shaped v1 payload with `edges` but no continuation fields deserializes with empty defaults;
+7. a real two-step `world-cli` stdin subprocess can replay an emitted continuation request against the same `.world` file;
+8. all M192–M197 causal tests remain green.
 
 ## Validation
 
@@ -76,6 +68,6 @@ Before merge:
 - semantic workspace CI and external Pack conformance
 - macOS/GPUI only if dependency-path filtering requires it
 
-## Non-goals for M197
+## Non-goals for M198
 
-Do not export edges to omitted frontier neighbors, add arbitrary causal graph dumps, add causal comparison between worlds, change `caused_by`, add pagination, MCP/HTTP/WebSocket, AgentRuntime access, raw mutation payloads, Pack-specific causal inference, or protocol v2.
+Do not add opaque pagination tokens, server-side continuation state, automatic recursive expansion, causal comparison between worlds, arbitrary graph export, MCP/HTTP/WebSocket, AgentRuntime access, raw mutation payloads, Pack-specific causal inference, or protocol v2.
