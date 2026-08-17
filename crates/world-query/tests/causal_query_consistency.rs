@@ -111,7 +111,9 @@ fn causal_neighborhood(
     value
 }
 
-fn node_events<'a>(nodes: impl IntoIterator<Item = &'a world_query::EvidenceCausalNode>) -> BTreeSet<String> {
+fn node_events<'a>(
+    nodes: impl IntoIterator<Item = &'a world_query::EvidenceCausalNode>,
+) -> BTreeSet<String> {
     nodes.into_iter().map(|node| node.event.clone()).collect()
 }
 
@@ -178,7 +180,10 @@ fn influence_and_why_are_dual_reachability_relations_and_match_causal_path() {
                         );
                     }
                 }
-                Err(QueryError::NoCausalPath { from: error_from, to: error_to }) => {
+                Err(QueryError::NoCausalPath {
+                    from: error_from,
+                    to: error_to,
+                }) => {
                     assert!(!reachable);
                     assert_eq!(error_from, *from);
                     assert_eq!(error_to, *to);
@@ -252,13 +257,10 @@ fn causal_neighborhood_is_exactly_the_bounded_prefix_of_why_and_influence() {
 #[test]
 fn causal_neighborhood_edges_are_exactly_the_induced_graph_of_returned_nodes() {
     let snapshot = fixture();
-    for (root, upstream_depth, downstream_depth) in [
-        ("event-4", 1, 1),
-        ("event-4", 2, 2),
-        ("event-10", 8, 8),
-    ] {
-        let neighborhood =
-            causal_neighborhood(&snapshot, root, upstream_depth, downstream_depth);
+    for (root, upstream_depth, downstream_depth) in
+        [("event-4", 1, 1), ("event-4", 2, 2), ("event-10", 8, 8)]
+    {
+        let neighborhood = causal_neighborhood(&snapshot, root, upstream_depth, downstream_depth);
         let all_nodes = std::iter::once(&neighborhood.root)
             .chain(neighborhood.upstream.iter())
             .chain(neighborhood.downstream.iter())
@@ -285,9 +287,7 @@ fn causal_neighborhood_edges_are_exactly_the_induced_graph_of_returned_nodes() {
     }
 }
 
-fn expected_upstream_frontier(
-    neighborhood: &EvidenceCausalNeighborhoodResult,
-) -> Vec<String> {
+fn expected_upstream_frontier(neighborhood: &EvidenceCausalNeighborhoodResult) -> Vec<String> {
     let included = std::iter::once(neighborhood.root.event.clone())
         .chain(neighborhood.upstream.iter().map(|node| node.event.clone()))
         .collect::<BTreeSet<_>>();
@@ -312,7 +312,12 @@ fn expected_downstream_frontier(
     descendants: &EvidenceInfluenceResult,
 ) -> Vec<String> {
     let included = std::iter::once(neighborhood.root.event.clone())
-        .chain(neighborhood.downstream.iter().map(|node| node.event.clone()))
+        .chain(
+            neighborhood
+                .downstream
+                .iter()
+                .map(|node| node.event.clone()),
+        )
         .collect::<BTreeSet<_>>();
     let boundary = if neighborhood.downstream_depth == 0 {
         vec![neighborhood.root.event.clone()]
@@ -345,8 +350,7 @@ fn frontier_and_truncation_exactly_describe_omitted_visible_neighbors() {
         ("event-10", 1, 1),
         ("event-10", 8, 8),
     ] {
-        let neighborhood =
-            causal_neighborhood(&snapshot, root, upstream_depth, downstream_depth);
+        let neighborhood = causal_neighborhood(&snapshot, root, upstream_depth, downstream_depth);
         let descendants = influence(&snapshot, root);
         let expected_upstream = expected_upstream_frontier(&neighborhood);
         let expected_downstream = expected_downstream_frontier(&neighborhood, &descendants);
@@ -384,7 +388,9 @@ fn hidden_references_never_surface_through_any_causal_query() {
             },
         ] {
             let response = execute_query(&snapshot, &request).unwrap();
-            assert!(!serde_json::to_string(&response).unwrap().contains("event-99"));
+            assert!(!serde_json::to_string(&response)
+                .unwrap()
+                .contains("event-99"));
         }
     }
 
@@ -397,7 +403,9 @@ fn hidden_references_never_surface_through_any_causal_query() {
                     to: to.clone(),
                 },
             ) {
-                assert!(!serde_json::to_string(&response).unwrap().contains("event-99"));
+                assert!(!serde_json::to_string(&response)
+                    .unwrap()
+                    .contains("event-99"));
             }
         }
     }
@@ -423,7 +431,11 @@ fn cycles_do_not_duplicate_nodes_or_reinsert_the_root() {
     assert_eq!(ancestry_events.len(), ancestry.nodes.len());
     assert_eq!(descendant_events.len(), descendants.nodes.len());
     assert_eq!(
-        ancestry.nodes.iter().filter(|node| node.event == "event-10").count(),
+        ancestry
+            .nodes
+            .iter()
+            .filter(|node| node.event == "event-10")
+            .count(),
         1
     );
     assert_eq!(
