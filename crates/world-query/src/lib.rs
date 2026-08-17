@@ -193,6 +193,23 @@ pub struct EvidenceComparisonRequest {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum EvidenceComparisonQueryRequest {
+    Causal(EvidenceCausalComparisonRequest),
+    Legacy(EvidenceComparisonRequest),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "query", rename_all = "kebab-case")]
+pub enum EvidenceCausalComparisonRequest {
+    CausalNeighborhood {
+        root: String,
+        upstream_depth: usize,
+        downstream_depth: usize,
+    },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct EvidenceNeighborhoodResult {
     pub root: String,
     pub max_depth: usize,
@@ -253,6 +270,51 @@ pub struct EvidenceComparisonResult {
     pub nodes: Vec<EvidenceNodeDifference>,
     pub left_only_edges: Vec<EvidenceEdge>,
     pub right_only_edges: Vec<EvidenceEdge>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum EvidenceComparisonQueryResponse {
+    Causal(EvidenceCausalComparisonResponse),
+    Legacy(EvidenceComparisonResult),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "result", rename_all = "kebab-case")]
+pub enum EvidenceCausalComparisonResponse {
+    CausalNeighborhood {
+        value: EvidenceCausalNeighborhoodComparisonResult,
+    },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct EvidenceCausalNeighborhoodComparisonResult {
+    pub root: String,
+    pub upstream_depth: usize,
+    pub downstream_depth: usize,
+    pub identical: bool,
+    pub nodes: Vec<EvidenceCausalNodeDifference>,
+    pub left_only_edges: Vec<EvidenceCausalEdge>,
+    pub right_only_edges: Vec<EvidenceCausalEdge>,
+    pub left_upstream_frontier: Vec<String>,
+    pub right_upstream_frontier: Vec<String>,
+    pub left_downstream_frontier: Vec<String>,
+    pub right_downstream_frontier: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct EvidenceCausalNodeDifference {
+    pub event: String,
+    pub kind: Difference,
+    pub left: Option<EvidenceCausalNodePosition>,
+    pub right: Option<EvidenceCausalNodePosition>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct EvidenceCausalNodePosition {
+    pub is_root: bool,
+    pub upstream_depth: Option<usize>,
+    pub downstream_depth: Option<usize>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -376,6 +438,40 @@ pub fn execute_comparison_query(
 ) -> Result<EvidenceComparisonResult, QueryError> {
     let root = parse_selection_key(&request.root)?;
     query_neighborhood_comparison(left, right, root, request.max_depth)
+}
+
+pub fn execute_comparison_query_request(
+    left: &ProjectionSnapshot,
+    right: &ProjectionSnapshot,
+    request: &EvidenceComparisonQueryRequest,
+) -> Result<EvidenceComparisonQueryResponse, QueryError> {
+    match request {
+        EvidenceComparisonQueryRequest::Legacy(request) => {
+            execute_comparison_query(left, right, request)
+                .map(EvidenceComparisonQueryResponse::Legacy)
+        }
+        EvidenceComparisonQueryRequest::Causal(
+            EvidenceCausalComparisonRequest::CausalNeighborhood {
+                root,
+                upstream_depth,
+                downstream_depth,
+            },
+        ) => {
+            let root = parse_selection_key(root)?;
+            query_causal_neighborhood_comparison(
+                left,
+                right,
+                root,
+                *upstream_depth,
+                *downstream_depth,
+            )
+            .map(|value| {
+                EvidenceComparisonQueryResponse::Causal(
+                    EvidenceCausalComparisonResponse::CausalNeighborhood { value },
+                )
+            })
+        }
+    }
 }
 
 fn parse_selection_key(key: &str) -> Result<SelectionId, QueryError> {
@@ -875,6 +971,200 @@ pub fn query_shortest_path(
             })
             .collect(),
     })
+}
+
+pub fn query_causal_neighborhood_comparison(
+    left: &ProjectionSnapshot,
+    right: &ProjectionSnapshot,
+    root: SelectionId,
+    upstream_depth: usize,
+    downstream_depth: usize,
+) -> Result<EvidenceCausalNeighborhoodComparisonResult, QueryError> {
+    if !matches!(root, SelectionId::Event(_)) {
+        return Err(QueryError::SelectionKindMismatch {
+            selection: root.stable_key(),
+            expected: EvidenceSelectionKind::Event,
+        });
+    }
+
+    let left_graph = VisibleCausalGraph::new(left);
+    let right_graph = VisibleCausalGraph::new(right);
+    let left_visible = left_graph.events.contains_key(&root);
+    let right_visible = right_graph.events.contains_key(&root);
+    if !left_visible && !right_visible {
+        return Err(QueryError::SelectionNotVisibleInEitherWorld(
+            root.stable_key(),
+        ));
+    }
+
+    let left_neighborhood = left_visible.then(|| {
+        query_causal_neighborhood(left, root, upstream_depth, downstream_depth)
+            .expect("visible causal comparison root must remain queryable")
+    });
+    let right_neighborhood = right_visible.then(|| {
+        query_causal_neighborhood(right, root, upstream_depth, downstream_depth)
+            .expect("visible causal comparison root must remain queryable")
+    });
+
+    let left_positions = left_neighborhood
+        .as_ref()
+        .map(causal_node_positions)
+        .unwrap_or_default();
+    let right_positions = right_neighborhood
+        .as_ref()
+        .map(causal_node_positions)
+        .unwrap_or_default();
+    let selections = left_positions
+        .keys()
+        .chain(right_positions.keys())
+        .copied()
+        .collect::<std::collections::BTreeSet<_>>();
+    let mut nodes = Vec::new();
+    for event in selections {
+        let left_position = left_positions.get(&event).cloned();
+        let right_position = right_positions.get(&event).cloned();
+        let kind = match (&left_position, &right_position) {
+            (Some(left), Some(right)) if left == right => continue,
+            (Some(_), Some(_)) => Difference::Changed,
+            (Some(_), None) => Difference::LeftOnly,
+            (None, Some(_)) => Difference::RightOnly,
+            (None, None) => unreachable!("comparison node must exist on at least one side"),
+        };
+        nodes.push(EvidenceCausalNodeDifference {
+            event: event.stable_key(),
+            kind,
+            left: left_position,
+            right: right_position,
+        });
+    }
+
+    let left_edges = left_neighborhood
+        .as_ref()
+        .map(|value| {
+            value
+                .edges
+                .iter()
+                .cloned()
+                .collect::<std::collections::BTreeSet<_>>()
+        })
+        .unwrap_or_default();
+    let right_edges = right_neighborhood
+        .as_ref()
+        .map(|value| {
+            value
+                .edges
+                .iter()
+                .cloned()
+                .collect::<std::collections::BTreeSet<_>>()
+        })
+        .unwrap_or_default();
+    let left_only_edges = left_edges
+        .difference(&right_edges)
+        .cloned()
+        .collect::<Vec<_>>();
+    let right_only_edges = right_edges
+        .difference(&left_edges)
+        .cloned()
+        .collect::<Vec<_>>();
+
+    let left_upstream_frontier = canonical_causal_frontier(
+        left_neighborhood
+            .as_ref()
+            .map(|value| value.upstream_frontier.as_slice())
+            .unwrap_or(&[]),
+    );
+    let right_upstream_frontier = canonical_causal_frontier(
+        right_neighborhood
+            .as_ref()
+            .map(|value| value.upstream_frontier.as_slice())
+            .unwrap_or(&[]),
+    );
+    let left_downstream_frontier = canonical_causal_frontier(
+        left_neighborhood
+            .as_ref()
+            .map(|value| value.downstream_frontier.as_slice())
+            .unwrap_or(&[]),
+    );
+    let right_downstream_frontier = canonical_causal_frontier(
+        right_neighborhood
+            .as_ref()
+            .map(|value| value.downstream_frontier.as_slice())
+            .unwrap_or(&[]),
+    );
+
+    let identical = nodes.is_empty()
+        && left_only_edges.is_empty()
+        && right_only_edges.is_empty()
+        && left_upstream_frontier == right_upstream_frontier
+        && left_downstream_frontier == right_downstream_frontier;
+
+    Ok(EvidenceCausalNeighborhoodComparisonResult {
+        root: root.stable_key(),
+        upstream_depth,
+        downstream_depth,
+        identical,
+        nodes,
+        left_only_edges,
+        right_only_edges,
+        left_upstream_frontier,
+        right_upstream_frontier,
+        left_downstream_frontier,
+        right_downstream_frontier,
+    })
+}
+
+fn causal_node_positions(
+    neighborhood: &EvidenceCausalNeighborhoodResult,
+) -> std::collections::BTreeMap<SelectionId, EvidenceCausalNodePosition> {
+    let mut positions = std::collections::BTreeMap::new();
+    let root = parse_selection_key(&neighborhood.root.event)
+        .expect("causal neighborhood root must have a stable selection key");
+    positions.insert(
+        root,
+        EvidenceCausalNodePosition {
+            is_root: true,
+            upstream_depth: None,
+            downstream_depth: None,
+        },
+    );
+
+    for node in &neighborhood.upstream {
+        let event = parse_selection_key(&node.event)
+            .expect("causal neighborhood node must have a stable selection key");
+        positions
+            .entry(event)
+            .or_insert(EvidenceCausalNodePosition {
+                is_root: false,
+                upstream_depth: None,
+                downstream_depth: None,
+            })
+            .upstream_depth = Some(node.depth);
+    }
+    for node in &neighborhood.downstream {
+        let event = parse_selection_key(&node.event)
+            .expect("causal neighborhood node must have a stable selection key");
+        positions
+            .entry(event)
+            .or_insert(EvidenceCausalNodePosition {
+                is_root: false,
+                upstream_depth: None,
+                downstream_depth: None,
+            })
+            .downstream_depth = Some(node.depth);
+    }
+    positions
+}
+
+fn canonical_causal_frontier(frontier: &[String]) -> Vec<String> {
+    frontier
+        .iter()
+        .map(|event| {
+            parse_selection_key(event).expect("causal frontier must have a stable selection key")
+        })
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .map(|event| event.stable_key())
+        .collect()
 }
 
 pub fn query_neighborhood_comparison(

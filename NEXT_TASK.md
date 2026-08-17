@@ -1,30 +1,62 @@
-# Next Coding Task — M200 Executable Causal Continuations
+# Next Coding Task — M201 Causal Neighborhood Comparison
 
-Make bounded causal investigation directly resumable by embedding executable continuation requests at every causal frontier, on top of the consistency guarantees established through M199.
+Extend the existing two-world machine comparison transport so saved worlds and sibling futures can compare a bounded visible causal neighborhood without conflating it with the state-evidence graph.
 
 ## Current baseline
 
-The machine causal investigation surface is complete through M199:
+The machine causal surface is complete through M200:
 
-- M192: upstream `why`;
-- M193: downstream `influence`;
-- M194: deterministic shortest `causal-path` and shared private `VisibleCausalGraph`;
-- M195: bounded bidirectional `causal-neighborhood`;
-- M196: explicit truncation and stable frontier Events;
-- M197: induced visible causal edges for bounded neighborhoods;
-- M198: self-contained edge payloads for `why` and `influence` traversals;
-- M199: cross-query invariant coverage proving these surfaces agree on one visible persisted causal graph;
-- protocol remains `world-machine-evidence-query` v1.
+- `why`, `influence`, deterministic `causal-path`;
+- bounded bidirectional `causal-neighborhood` with truncation, frontiers, induced edges, and executable continuations;
+- self-contained traversal edges for `why` / `influence`;
+- cross-query invariant coverage proving all causal surfaces agree on one timeline-visible persisted causal graph;
+- existing `evidence-compare-query` currently accepts the legacy untagged state-evidence request `{ root, max_depth }` and emits a raw `EvidenceComparisonResult` inside protocol-v1 status envelopes.
 
-## M200 — executable continuations
+## M201 — bounded causal comparison
 
-Extend `EvidenceCausalNeighborhoodResult` additively with `upstream_continuations` and `downstream_continuations`. Each `EvidenceCausalContinuation { event, direction, request }` embeds a normal `EvidenceQueryRequest::CausalNeighborhood` that can be serialized and replayed directly through the existing machine transport.
+Preserve the legacy state-evidence comparison wire shape exactly, while extending `evidence-compare-query` with the tagged request:
 
-Emit one continuation per frontier entry in the same deterministic order. Preserve non-zero directional window sizes; promote zero-depth frontiers to a one-hop request so continuation always makes progress. Continued windows retain induced-edge semantics. Both arrays use `#[serde(default)]` to preserve protocol-v1 backward deserialization.
+`{ "query": "causal-neighborhood", "root": "event-N", "upstream_depth": U, "downstream_depth": D }`
+
+A causal comparison is a structural comparison of the requested bounded visible causal window. Compare:
+
+- Event membership and directional position (`is_root`, upstream depth, downstream depth);
+- induced visible `cause -> effect` edges;
+- canonical upstream/downstream frontier membership.
+
+Do not compare display titles/subtitles or causal structure outside the requested window. Hidden referenced Event IDs remain invisible.
+
+## Compatibility contract
+
+- Introduce an untagged machine comparison request wrapper that accepts the legacy `{ root, max_depth }` shape unchanged and the new tagged causal request.
+- Legacy requests must serialize and respond exactly as before; do not wrap old `EvidenceComparisonResult` in a new result tag.
+- New causal responses use a tagged `result: "causal-neighborhood"` payload.
+- Keep `world-machine-evidence-query` protocol version 1.
+- Keep the human `evidence-compare` command and `execute_comparison_query` legacy API unchanged.
+
+## Causal comparison semantics
+
+- Root must be a canonical Event key.
+- If the root is visible in neither world, return `SelectionNotVisibleInEitherWorld`.
+- If visible in only one world, comparison succeeds and reports one-sided root/window differences.
+- Node differences are typed `left-only`, `right-only`, or `changed`; `changed` means the same Event occupies a different bounded directional position/depth.
+- Edge differences are set differences over induced visible causal edges.
+- Frontier lists are canonicalized by typed Event identity before comparison so UI/traversal ordering cannot create false structural differences.
+- `identical` means node positions, induced edges, and canonical frontier membership are all identical.
 
 ## Tests
 
-Prove exact typed requests, direct re-execution upstream/downstream, zero-depth progress, preserved non-zero window size, induced-edge coexistence, backward deserialization from an edge-bearing payload without continuation fields, and a real two-step `world-cli` stdin replay against the same `.world` file. All M199 cross-query invariants must remain green.
+Prove at minimum:
+
+1. legacy request and response JSON shapes remain byte-structure compatible;
+2. tagged causal request/response round-trip;
+3. upstream/downstream node and edge divergence;
+4. changed causal depth and cycle positions;
+5. hidden references remain invisible while frontier differences remain semantic;
+6. one-sided root success, neither-side error, kind mismatch, invalid stable key;
+7. same-world comparison is identical;
+8. a real stdin `world-cli evidence-compare-query` executes the tagged causal request through the existing v1 transport;
+9. all M199/M200 causal consistency and continuation tests remain green.
 
 ## Validation
 
@@ -38,4 +70,4 @@ Prove exact typed requests, direct re-execution upstream/downstream, zero-depth 
 
 ## Non-goals
 
-Do not add opaque pagination tokens, server-side continuation state, automatic recursive expansion, causal comparison between worlds, arbitrary graph export, MCP/HTTP/WebSocket, AgentRuntime access, raw mutation payloads, Pack-specific causal inference, or protocol v2.
+Do not compare arbitrary unbounded causal graphs, display metadata, state-evidence and causal graphs in one result, raw mutation payloads, AgentRuntime perception, MCP/HTTP/WebSocket, server-side comparison state, or protocol v2.
