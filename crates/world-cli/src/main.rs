@@ -3,6 +3,7 @@ use std::env;
 use std::error::Error;
 use std::fmt;
 use std::fs;
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use world_integrity::{check_archive, ArchiveIntegrityError};
 use world_persistence::{ArchivedEvent, WorldArchive};
@@ -60,9 +61,11 @@ fn main() -> Result<(), Box<dyn Error>> {
             )
         }
         Command::EvidenceQuery(path, request) => {
+            let request = read_query_request(&request)?;
             println!("{}", evidence_query_json_report(&path, &request)?)
         }
         Command::EvidenceCompareQuery(left, right, request) => {
+            let request = read_query_request(&request)?;
             println!(
                 "{}",
                 evidence_compare_query_json_report(&left, &right, &request)?
@@ -152,8 +155,8 @@ Usage:\n\
   world-cli evidence <file.world> <selection-key> [depth]\n\n\
   world-cli evidence-path <file.world> <from-key> <to-key>\n\n\
   world-cli evidence-compare <left.world> <right.world> <selection-key> [depth]\n\n\
-  world-cli evidence-query <file.world> '<request-json>'\n\n\
-  world-cli evidence-compare-query <left.world> <right.world> '<request-json>'\n\n\
+  world-cli evidence-query <file.world> <request-json|->\n\n\
+  world-cli evidence-compare-query <left.world> <right.world> <request-json|->\n\n\
   world-cli list-packs\n\n\
 inspect     Parse and summarize a World archive without requiring its Pack.\n\
 check       Verify Pack-independent archive structure and causal integrity.\n\
@@ -163,9 +166,19 @@ why         Trace an event recursively through its archived caused_by graph.\n\
 evidence    Print a typed evidence neighborhood around entity-N, relation-N, or event-N.\n\
 evidence-path  Print the typed shortest evidence path between two selections.\n\
 evidence-compare  Compare a typed evidence neighborhood between two World archives.\n\
-evidence-query  Execute an EvidenceQueryRequest JSON document and emit a JSON status envelope.\n\
-evidence-compare-query  Execute an EvidenceComparisonRequest JSON document and emit a JSON status envelope.\n\
+evidence-query  Execute an EvidenceQueryRequest JSON document and emit a JSON status envelope. Use - to read JSON from stdin.\n\
+evidence-compare-query  Execute an EvidenceComparisonRequest JSON document and emit a JSON status envelope. Use - to read JSON from stdin.\n\
 list-packs  List World Packs this build can create and restore."
+}
+
+fn read_query_request(request: &str) -> Result<String, Box<dyn Error>> {
+    if request != "-" {
+        return Ok(request.to_owned());
+    }
+
+    let mut json = String::new();
+    io::stdin().read_to_string(&mut json)?;
+    Ok(json)
 }
 
 fn load_archive(path: &Path) -> Result<WorldArchive, Box<dyn Error>> {
