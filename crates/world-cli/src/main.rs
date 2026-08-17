@@ -6,10 +6,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use world_integrity::{check_archive, ArchiveIntegrityError};
 use world_persistence::{ArchivedEvent, WorldArchive};
-use world_projection::{ProjectionSnapshot, SelectionId};
+use world_projection::ProjectionSnapshot;
 use world_query::{
-    query_neighborhood, query_neighborhood_comparison, query_shortest_path, Difference,
-    EvidenceComparisonResult, EvidenceEdge,
+    execute_comparison_query, execute_query, Difference, EvidenceComparisonRequest,
+    EvidenceComparisonResult, EvidenceEdge, EvidenceQueryRequest, EvidenceQueryResponse,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -19,9 +19,9 @@ enum Command {
     Validate(PathBuf),
     Events(PathBuf),
     Why(PathBuf, u64),
-    Evidence(PathBuf, SelectionId, usize),
-    EvidencePath(PathBuf, SelectionId, SelectionId),
-    EvidenceCompare(PathBuf, PathBuf, SelectionId, usize),
+    Evidence(PathBuf, String, usize),
+    EvidencePath(PathBuf, String, String),
+    EvidenceCompare(PathBuf, PathBuf, String, usize),
     ListPacks,
     Help,
 }
@@ -46,15 +46,15 @@ fn main() -> Result<(), Box<dyn Error>> {
         Command::Events(path) => println!("{}", events_report(&path)?),
         Command::Why(path, event_id) => println!("{}", why_report(&path, event_id)?),
         Command::Evidence(path, selection, depth) => {
-            println!("{}", evidence_report(&path, selection, depth)?)
+            println!("{}", evidence_report(&path, &selection, depth)?)
         }
         Command::EvidencePath(path, from, to) => {
-            println!("{}", evidence_path_report(&path, from, to)?)
+            println!("{}", evidence_path_report(&path, &from, &to)?)
         }
         Command::EvidenceCompare(left, right, selection, depth) => {
             println!(
                 "{}",
-                evidence_compare_report(&left, &right, selection, depth)?
+                evidence_compare_report(&left, &right, &selection, depth)?
             )
         }
         Command::ListPacks => println!("{}", pack_report()?),
@@ -80,28 +80,26 @@ where
                 .map_err(|_| CliError(format!("invalid event id: {event_id}")))?;
             Ok(Command::Why(PathBuf::from(path), event_id))
         }
-        [command, path, selection] if command == "evidence" => Ok(Command::Evidence(
-            PathBuf::from(path),
-            parse_selection_key(selection)?,
-            2,
-        )),
+        [command, path, selection] if command == "evidence" => {
+            Ok(Command::Evidence(PathBuf::from(path), selection.clone(), 2))
+        }
         [command, path, selection, depth] if command == "evidence" => Ok(Command::Evidence(
             PathBuf::from(path),
-            parse_selection_key(selection)?,
+            selection.clone(),
             depth
                 .parse::<usize>()
                 .map_err(|_| CliError(format!("invalid evidence depth: {depth}")))?,
         )),
         [command, path, from, to] if command == "evidence-path" => Ok(Command::EvidencePath(
             PathBuf::from(path),
-            parse_selection_key(from)?,
-            parse_selection_key(to)?,
+            from.clone(),
+            to.clone(),
         )),
         [command, left, right, selection] if command == "evidence-compare" => {
             Ok(Command::EvidenceCompare(
                 PathBuf::from(left),
                 PathBuf::from(right),
-                parse_selection_key(selection)?,
+                selection.clone(),
                 2,
             ))
         }
@@ -109,7 +107,7 @@ where
             Ok(Command::EvidenceCompare(
                 PathBuf::from(left),
                 PathBuf::from(right),
-                parse_selection_key(selection)?,
+                selection.clone(),
                 depth
                     .parse::<usize>()
                     .map_err(|_| CliError(format!("invalid evidence depth: {depth}")))?,
@@ -143,11 +141,6 @@ evidence    Print a typed evidence neighborhood around entity-N, relation-N, or 
 evidence-path  Print the typed shortest evidence path between two selections.\n\
 evidence-compare  Compare a typed evidence neighborhood between two World archives.\n\
 list-packs  List World Packs this build can create and restore."
-}
-
-fn parse_selection_key(key: &str) -> Result<SelectionId, CliError> {
-    SelectionId::from_stable_key(key)
-        .ok_or_else(|| CliError(format!("invalid selection key: {key}")))
 }
 
 fn load_archive(path: &Path) -> Result<WorldArchive, Box<dyn Error>> {
@@ -330,7 +323,7 @@ fn render_cause(
 
 fn evidence_report(
     path: &Path,
-    selection: SelectionId,
+    selection: &str,
     max_depth: usize,
 ) -> Result<String, Box<dyn Error>> {
     let archive = load_archive(path)?;
@@ -344,11 +337,21 @@ fn evidence_report(
 fn evidence_report_from_snapshot(
     path: &Path,
     snapshot: &ProjectionSnapshot,
-    selection: SelectionId,
+    selection: &str,
     max_depth: usize,
 ) -> Result<String, CliError> {
-    let neighborhood = query_neighborhood(snapshot, selection, max_depth)
-        .map_err(|error| CliError(error.to_string()))?;
+    let request = EvidenceQueryRequest::Neighborhood {
+        root: selection.to_owned(),
+        max_depth,
+    };
+    let response =
+        execute_query(snapshot, &request).map_err(|error| CliError(error.to_string()))?;
+    let EvidenceQueryResponse::Neighborhood {
+        value: neighborhood,
+    } = response
+    else {
+        unreachable!("neighborhood request returned a different response variant")
+    };
     let mut lines = vec![
         format!("file: {}", path.display()),
         format!("evidence: {}", neighborhood.root),
@@ -387,11 +390,7 @@ fn format_evidence_edge(edge: &EvidenceEdge) -> String {
     }
 }
 
-fn evidence_path_report(
-    path: &Path,
-    from: SelectionId,
-    to: SelectionId,
-) -> Result<String, Box<dyn Error>> {
+fn evidence_path_report(path: &Path, from: &str, to: &str) -> Result<String, Box<dyn Error>> {
     let archive = load_archive(path)?;
     let registry = world_builtins::registry()?;
     let session = registry.open_archive(&archive)?;
@@ -403,11 +402,18 @@ fn evidence_path_report(
 fn evidence_path_report_from_snapshot(
     path: &Path,
     snapshot: &ProjectionSnapshot,
-    from: SelectionId,
-    to: SelectionId,
+    from: &str,
+    to: &str,
 ) -> Result<String, CliError> {
-    let result =
-        query_shortest_path(snapshot, from, to).map_err(|error| CliError(error.to_string()))?;
+    let request = EvidenceQueryRequest::ShortestPath {
+        from: from.to_owned(),
+        to: to.to_owned(),
+    };
+    let response =
+        execute_query(snapshot, &request).map_err(|error| CliError(error.to_string()))?;
+    let EvidenceQueryResponse::ShortestPath { value: result } = response else {
+        unreachable!("shortest-path request returned a different response variant")
+    };
     let mut lines = vec![
         format!("file: {}", path.display()),
         format!("evidence-path: {} -> {}", result.from, result.to),
@@ -438,7 +444,7 @@ fn evidence_edge_kind(edge: &EvidenceEdge) -> &'static str {
 fn evidence_compare_report(
     left_path: &Path,
     right_path: &Path,
-    selection: SelectionId,
+    selection: &str,
     max_depth: usize,
 ) -> Result<String, Box<dyn Error>> {
     let left_archive = load_archive(left_path)?;
@@ -459,10 +465,14 @@ fn evidence_compare_report_from_snapshots(
     right_path: &Path,
     left: &ProjectionSnapshot,
     right: &ProjectionSnapshot,
-    selection: SelectionId,
+    selection: &str,
     max_depth: usize,
 ) -> Result<String, CliError> {
-    let comparison = query_neighborhood_comparison(left, right, selection, max_depth)
+    let request = EvidenceComparisonRequest {
+        root: selection.to_owned(),
+        max_depth,
+    };
+    let comparison = execute_comparison_query(left, right, &request)
         .map_err(|error| CliError(error.to_string()))?;
     Ok(format_evidence_comparison(
         left_path,
@@ -577,26 +587,18 @@ mod tests {
         );
         assert_eq!(
             parse_command(["evidence", "sample.world", "relation-5"]).unwrap(),
-            Command::Evidence(
-                PathBuf::from("sample.world"),
-                SelectionId::from_stable_key("relation-5").unwrap(),
-                2,
-            )
+            Command::Evidence(PathBuf::from("sample.world"), "relation-5".into(), 2,)
         );
         assert_eq!(
             parse_command(["evidence", "sample.world", "event-9", "0"]).unwrap(),
-            Command::Evidence(
-                PathBuf::from("sample.world"),
-                SelectionId::from_stable_key("event-9").unwrap(),
-                0,
-            )
+            Command::Evidence(PathBuf::from("sample.world"), "event-9".into(), 0,)
         );
         assert_eq!(
             parse_command(["evidence-path", "sample.world", "entity-1", "event-9"]).unwrap(),
             Command::EvidencePath(
                 PathBuf::from("sample.world"),
-                SelectionId::from_stable_key("entity-1").unwrap(),
-                SelectionId::from_stable_key("event-9").unwrap(),
+                "entity-1".into(),
+                "event-9".into(),
             )
         );
         assert_eq!(
@@ -610,7 +612,7 @@ mod tests {
             Command::EvidenceCompare(
                 PathBuf::from("left.world"),
                 PathBuf::from("right.world"),
-                SelectionId::from_stable_key("relation-5").unwrap(),
+                "relation-5".into(),
                 2,
             )
         );
@@ -626,7 +628,7 @@ mod tests {
             Command::EvidenceCompare(
                 PathBuf::from("left.world"),
                 PathBuf::from("right.world"),
-                SelectionId::from_stable_key("event-9").unwrap(),
+                "event-9".into(),
                 3,
             )
         );
@@ -634,12 +636,27 @@ mod tests {
         assert_eq!(parse_command(Vec::<String>::new()).unwrap(), Command::Help);
         assert!(parse_command(["inspect"]).is_err());
         assert!(parse_command(["why", "sample.world", "not-a-number"]).is_err());
-        assert!(parse_command(["evidence", "sample.world", "entity-07"]).is_err());
+        assert_eq!(
+            parse_command(["evidence", "sample.world", "entity-07"]).unwrap(),
+            Command::Evidence(PathBuf::from("sample.world"), "entity-07".into(), 2)
+        );
         assert!(parse_command(["evidence", "sample.world", "entity-7", "deep"]).is_err());
-        assert!(parse_command(["evidence-path", "sample.world", "entity-07", "event-9"]).is_err());
-        assert!(parse_command(["evidence-path", "sample.world", "entity-7", "event-09"]).is_err());
-        assert!(
-            parse_command(["evidence-compare", "left.world", "right.world", "entity-07"]).is_err()
+        assert_eq!(
+            parse_command(["evidence-path", "sample.world", "entity-07", "event-09"]).unwrap(),
+            Command::EvidencePath(
+                PathBuf::from("sample.world"),
+                "entity-07".into(),
+                "event-09".into(),
+            )
+        );
+        assert_eq!(
+            parse_command(["evidence-compare", "left.world", "right.world", "entity-07"]).unwrap(),
+            Command::EvidenceCompare(
+                PathBuf::from("left.world"),
+                PathBuf::from("right.world"),
+                "entity-07".into(),
+                2,
+            )
         );
         assert!(parse_command([
             "evidence-compare",
@@ -749,6 +766,20 @@ mod tests {
     }
 
     #[test]
+    fn evidence_report_delegates_selection_key_validation_to_world_query() {
+        let registry = world_builtins::registry().unwrap();
+        let pack_id = registry.descriptors()[0].pack.id.clone();
+        let session = registry.create(&pack_id).unwrap();
+        let snapshot = session.snapshot();
+
+        let error =
+            evidence_report_from_snapshot(Path::new("builtin.world"), &snapshot, "entity-07", 2)
+                .unwrap_err();
+
+        assert_eq!(error.to_string(), "invalid selection key: entity-07");
+    }
+
+    #[test]
     fn evidence_report_exposes_a_machine_stable_depth_zero_neighborhood() {
         let registry = world_builtins::registry().unwrap();
         let mut found = None;
@@ -773,8 +804,13 @@ mod tests {
             }
         }
         let (snapshot, root) = found.expect("a built-in Pack should expose a visible selection");
-        let report =
-            evidence_report_from_snapshot(Path::new("builtin.world"), &snapshot, root, 0).unwrap();
+        let report = evidence_report_from_snapshot(
+            Path::new("builtin.world"),
+            &snapshot,
+            &root.stable_key(),
+            0,
+        )
+        .unwrap();
 
         assert!(report.contains(&format!("evidence: {}", root.stable_key())));
         assert!(report.contains("depth: 0"));
@@ -789,7 +825,7 @@ mod tests {
         let pack_id = registry.descriptors()[0].pack.id.clone();
         let session = registry.create(&pack_id).unwrap();
         let snapshot = session.snapshot();
-        let hidden = SelectionId::from_stable_key("entity-18446744073709551615").unwrap();
+        let hidden = "entity-18446744073709551615";
 
         let error = evidence_report_from_snapshot(Path::new("builtin.world"), &snapshot, hidden, 2)
             .unwrap_err();
@@ -815,9 +851,13 @@ mod tests {
             }
         }
         let (snapshot, root) = found.expect("a built-in Pack should expose a visible selection");
-        let report =
-            evidence_path_report_from_snapshot(Path::new("builtin.world"), &snapshot, root, root)
-                .unwrap();
+        let report = evidence_path_report_from_snapshot(
+            Path::new("builtin.world"),
+            &snapshot,
+            &root.stable_key(),
+            &root.stable_key(),
+        )
+        .unwrap();
 
         assert!(report.contains(&format!(
             "evidence-path: {} -> {}",
@@ -843,9 +883,13 @@ mod tests {
         let Some((snapshot, from, to, edge)) = found else {
             return;
         };
-        let report =
-            evidence_path_report_from_snapshot(Path::new("builtin.world"), &snapshot, from, to)
-                .unwrap();
+        let report = evidence_path_report_from_snapshot(
+            Path::new("builtin.world"),
+            &snapshot,
+            &from.stable_key(),
+            &to.stable_key(),
+        )
+        .unwrap();
 
         assert!(report.contains("steps: 1"));
         assert!(report.contains(&format!(
@@ -869,11 +913,15 @@ mod tests {
             .map(|item| item.id)
             .or_else(|| snapshot.inspectors.keys().copied().next())
             .expect("built-in Pack should expose a visible selection");
-        let hidden = SelectionId::from_stable_key("entity-18446744073709551615").unwrap();
+        let hidden = "entity-18446744073709551615";
 
-        let error =
-            evidence_path_report_from_snapshot(Path::new("builtin.world"), &snapshot, hidden, root)
-                .unwrap_err();
+        let error = evidence_path_report_from_snapshot(
+            Path::new("builtin.world"),
+            &snapshot,
+            hidden,
+            &root.stable_key(),
+        )
+        .unwrap_err();
         assert!(error.to_string().contains("selection is not visible"));
     }
 
@@ -901,7 +949,7 @@ mod tests {
             Path::new("right.world"),
             &snapshot,
             &snapshot,
-            root,
+            &root.stable_key(),
             2,
         )
         .unwrap();
@@ -919,7 +967,7 @@ mod tests {
         let pack_id = registry.descriptors()[0].pack.id.clone();
         let session = registry.create(&pack_id).unwrap();
         let snapshot = session.snapshot();
-        let hidden = SelectionId::from_stable_key("entity-18446744073709551615").unwrap();
+        let hidden = "entity-18446744073709551615";
 
         let error = evidence_compare_report_from_snapshots(
             Path::new("left.world"),
