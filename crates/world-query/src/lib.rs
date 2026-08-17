@@ -71,11 +71,11 @@ pub struct EvidenceDetailRow {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct EvidenceWhyResult {
     pub event: String,
-    pub nodes: Vec<EvidenceWhyNode>,
+    pub nodes: Vec<EvidenceCausalNode>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct EvidenceWhyNode {
+pub struct EvidenceCausalNode {
     pub event: String,
     pub depth: usize,
     pub world_time: u64,
@@ -405,7 +405,7 @@ pub fn query_why(
             .filter(|cause| visible.contains_key(cause))
             .collect::<Vec<_>>();
 
-        nodes.push(EvidenceWhyNode {
+        nodes.push(EvidenceCausalNode {
             event: current.stable_key(),
             depth,
             world_time: item.world_time,
