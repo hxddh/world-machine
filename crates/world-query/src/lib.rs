@@ -103,7 +103,8 @@ pub enum Difference {
     Changed,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "error", content = "details", rename_all = "kebab-case")]
 pub enum QueryError {
     InvalidSelectionKey(String),
     SelectionNotVisible(String),
@@ -366,6 +367,38 @@ mod tests {
                 ),
             ]),
             ..ProjectionSnapshot::default()
+        }
+    }
+
+    #[test]
+    fn query_errors_have_stable_serializable_shapes() {
+        let cases = [
+            (
+                QueryError::InvalidSelectionKey("entity-01".into()),
+                r#"{"error":"invalid-selection-key","details":"entity-01"}"#,
+            ),
+            (
+                QueryError::SelectionNotVisible("entity-99".into()),
+                r#"{"error":"selection-not-visible","details":"entity-99"}"#,
+            ),
+            (
+                QueryError::NoEvidencePath {
+                    from: "entity-1".into(),
+                    to: "event-9".into(),
+                },
+                r#"{"error":"no-evidence-path","details":{"from":"entity-1","to":"event-9"}}"#,
+            ),
+            (
+                QueryError::SelectionNotVisibleInEitherWorld("relation-5".into()),
+                r#"{"error":"selection-not-visible-in-either-world","details":"relation-5"}"#,
+            ),
+        ];
+
+        for (error, expected_json) in cases {
+            let json = serde_json::to_string(&error).unwrap();
+            assert_eq!(json, expected_json);
+            let restored: QueryError = serde_json::from_str(&json).unwrap();
+            assert_eq!(restored, error);
         }
     }
 
