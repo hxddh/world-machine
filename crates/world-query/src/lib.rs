@@ -5,6 +5,26 @@ use world_compare::{compare_evidence_neighborhoods, DifferenceKind};
 use world_projection::{ProjectionSnapshot, RelationEndpointRole, SelectionId, StateEvidenceEdge};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "query", rename_all = "kebab-case")]
+pub enum EvidenceQueryRequest {
+    Neighborhood { root: String, max_depth: usize },
+    ShortestPath { from: String, to: String },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "result", rename_all = "kebab-case")]
+pub enum EvidenceQueryResponse {
+    Neighborhood { value: EvidenceNeighborhoodResult },
+    ShortestPath { value: EvidencePathResult },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct EvidenceComparisonRequest {
+    pub root: String,
+    pub max_depth: usize,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct EvidenceNeighborhoodResult {
     pub root: String,
     pub max_depth: usize,
@@ -83,8 +103,10 @@ pub enum Difference {
     Changed,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "error", content = "details", rename_all = "kebab-case")]
 pub enum QueryError {
+    InvalidSelectionKey(String),
     SelectionNotVisible(String),
     NoEvidencePath { from: String, to: String },
     SelectionNotVisibleInEitherWorld(String),
@@ -93,6 +115,9 @@ pub enum QueryError {
 impl fmt::Display for QueryError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::InvalidSelectionKey(selection) => {
+                write!(f, "invalid selection key: {selection}")
+            }
             Self::SelectionNotVisible(selection) => {
                 write!(f, "selection is not visible: {selection}")
             }
@@ -105,6 +130,38 @@ impl fmt::Display for QueryError {
 }
 
 impl Error for QueryError {}
+
+pub fn execute_query(
+    snapshot: &ProjectionSnapshot,
+    request: &EvidenceQueryRequest,
+) -> Result<EvidenceQueryResponse, QueryError> {
+    match request {
+        EvidenceQueryRequest::Neighborhood { root, max_depth } => {
+            let root = parse_selection_key(root)?;
+            query_neighborhood(snapshot, root, *max_depth)
+                .map(|value| EvidenceQueryResponse::Neighborhood { value })
+        }
+        EvidenceQueryRequest::ShortestPath { from, to } => {
+            let from = parse_selection_key(from)?;
+            let to = parse_selection_key(to)?;
+            query_shortest_path(snapshot, from, to)
+                .map(|value| EvidenceQueryResponse::ShortestPath { value })
+        }
+    }
+}
+
+pub fn execute_comparison_query(
+    left: &ProjectionSnapshot,
+    right: &ProjectionSnapshot,
+    request: &EvidenceComparisonRequest,
+) -> Result<EvidenceComparisonResult, QueryError> {
+    let root = parse_selection_key(&request.root)?;
+    query_neighborhood_comparison(left, right, root, request.max_depth)
+}
+
+fn parse_selection_key(key: &str) -> Result<SelectionId, QueryError> {
+    SelectionId::from_stable_key(key).ok_or_else(|| QueryError::InvalidSelectionKey(key.to_owned()))
+}
 
 pub fn query_neighborhood(
     snapshot: &ProjectionSnapshot,
@@ -311,6 +368,96 @@ mod tests {
             ]),
             ..ProjectionSnapshot::default()
         }
+    }
+
+    #[test]
+    fn query_errors_have_stable_serializable_shapes() {
+        let cases = [
+            (
+                QueryError::InvalidSelectionKey("entity-01".into()),
+                r#"{"error":"invalid-selection-key","details":"entity-01"}"#,
+            ),
+            (
+                QueryError::SelectionNotVisible("entity-99".into()),
+                r#"{"error":"selection-not-visible","details":"entity-99"}"#,
+            ),
+            (
+                QueryError::NoEvidencePath {
+                    from: "entity-1".into(),
+                    to: "event-9".into(),
+                },
+                r#"{"error":"no-evidence-path","details":{"from":"entity-1","to":"event-9"}}"#,
+            ),
+            (
+                QueryError::SelectionNotVisibleInEitherWorld("relation-5".into()),
+                r#"{"error":"selection-not-visible-in-either-world","details":"relation-5"}"#,
+            ),
+        ];
+
+        for (error, expected_json) in cases {
+            let json = serde_json::to_string(&error).unwrap();
+            assert_eq!(json, expected_json);
+            let restored: QueryError = serde_json::from_str(&json).unwrap();
+            assert_eq!(restored, error);
+        }
+    }
+
+    #[test]
+    fn serialized_query_requests_execute_without_callers_parsing_selection_ids() {
+        let snapshot = snapshot(EntityId::new(1), EntityId::new(3));
+        let request: EvidenceQueryRequest =
+            serde_json::from_str(r#"{"query":"neighborhood","root":"relation-5","max_depth":2}"#)
+                .unwrap();
+        let response = execute_query(&snapshot, &request).unwrap();
+        let EvidenceQueryResponse::Neighborhood { value } = response else {
+            panic!("expected neighborhood response");
+        };
+        assert_eq!(value.root, "relation-5");
+        assert!(value
+            .nodes
+            .iter()
+            .any(|node| node.selection == "entity-2" && node.depth == 2));
+
+        let request: EvidenceQueryRequest = serde_json::from_str(
+            r#"{"query":"shortest-path","from":"relation-5","to":"entity-2"}"#,
+        )
+        .unwrap();
+        let response = execute_query(&snapshot, &request).unwrap();
+        let EvidenceQueryResponse::ShortestPath { value } = response else {
+            panic!("expected shortest path response");
+        };
+        assert_eq!(value.from, "relation-5");
+        assert_eq!(value.to, "entity-2");
+        assert_eq!(value.steps.len(), 2);
+    }
+
+    #[test]
+    fn query_contract_rejects_noncanonical_selection_keys() {
+        let snapshot = snapshot(EntityId::new(1), EntityId::new(3));
+        let request = EvidenceQueryRequest::Neighborhood {
+            root: "entity-01".into(),
+            max_depth: 2,
+        };
+        assert_eq!(
+            execute_query(&snapshot, &request),
+            Err(QueryError::InvalidSelectionKey("entity-01".into()))
+        );
+    }
+
+    #[test]
+    fn comparison_request_executes_typed_future_comparison() {
+        let left = snapshot(EntityId::new(1), EntityId::new(3));
+        let right = snapshot(EntityId::new(3), EntityId::new(1));
+        let request: EvidenceComparisonRequest =
+            serde_json::from_str(r#"{"root":"relation-5","max_depth":1}"#).unwrap();
+        let result = execute_comparison_query(&left, &right, &request).unwrap();
+        assert!(!result.identical);
+        assert_eq!(result.left_only_edges.len(), 2);
+        assert_eq!(result.right_only_edges.len(), 2);
+
+        let encoded = serde_json::to_string(&result).unwrap();
+        let restored: EvidenceComparisonResult = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(restored, result);
     }
 
     #[test]
