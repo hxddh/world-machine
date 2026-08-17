@@ -1,65 +1,79 @@
-# Next Coding Task — M198 Self-Contained Causal Traversals
+# Next Coding Task — M199 Cross-Query Causal Consistency
 
-Make the unbounded `why` and `influence` machine results self-contained causal graph payloads by reusing the explicit induced-edge semantics introduced for bounded neighborhoods in M197.
+Harden the causal machine-query thin waist by proving that `why`, `influence`, `causal-path`, and `causal-neighborhood` are different views of one visible persisted causal graph rather than four independently drifting semantics.
 
 ## Current baseline
 
-The causal machine-query surface is complete through M197:
+The causal machine-query surface is complete through M198:
 
 - M192: upstream `why`;
 - M193: downstream `influence`;
-- M194: deterministic shortest `causal-path` plus shared private `VisibleCausalGraph`;
+- M194: deterministic shortest `causal-path` and shared private `VisibleCausalGraph`;
 - M195: bounded bidirectional `causal-neighborhood`;
 - M196: frontier/truncation metadata;
-- M197: explicit full induced causal `edges` for the bounded neighborhood;
-- all visibility comes from timeline-visible Events and persisted `caused_by` links;
+- M197: explicit induced `edges` for bounded neighborhoods;
+- M198: explicit induced `edges` for `why` and `influence`;
+- all causal visibility comes only from timeline-visible Events plus persisted `TimelineItem.caused_by`;
 - protocol remains `world-machine-evidence-query` v1.
 
 ## Product problem
 
-`why` and especially `influence` still expose only nodes plus each node's raw visible `caused_by` list. For an influence closure, a returned Event may have an additional visible co-cause that is not reachable from the requested root. A consumer must therefore infer which references belong to the returned graph and which are external context.
+Each causal query now has solid local tests, but consumers depend on stronger global guarantees. A path query must not disagree with influence reachability; a bounded neighborhood must not assign different depths than unbounded traversals; frontier metadata must describe exactly what the depth bound omitted; and the same visible graph must remain stable if timeline presentation order changes.
 
-## M198 — traversal edges
+M199 adds those cross-query invariants before any additional transport or AgentRuntime integration.
 
-Extend both result DTOs additively:
+## M199 — semantic invariant suite
 
-```rust
-pub struct EvidenceWhyResult {
-    pub event: String,
-    pub nodes: Vec<EvidenceCausalNode>,
-    #[serde(default)]
-    pub edges: Vec<EvidenceCausalEdge>,
-}
+Add one integration test module built around deterministic visible causal fixtures containing:
 
-pub struct EvidenceInfluenceResult {
-    pub event: String,
-    pub nodes: Vec<EvidenceCausalNode>,
-    #[serde(default)]
-    pub edges: Vec<EvidenceCausalEdge>,
-}
-```
+- a chain;
+- a diamond with equal-length paths;
+- a visible external co-cause;
+- a hidden referenced Event ID;
+- a directed causal cycle;
+- disconnected causal components.
 
-Use the M197 `VisibleCausalGraph::induced_edges` helper over each traversal's discovered Event set.
+Do not add a new dependency such as property-testing infrastructure yet. Table-driven deterministic fixtures are sufficient for this milestone and avoid widening the dependency path.
 
-## Semantics
+## Required invariants
 
-- `why.edges` is the full induced graph over the visible upstream ancestry closure including the root.
-- `influence.edges` is the full induced graph over the visible downstream descendant closure including the root.
-- A visible external co-cause may remain in an `EvidenceCausalNode.caused_by` list for context but must not appear as an edge unless that Event is itself in the traversal closure.
-- Edge order and duplicate-parent handling are exactly M197 semantics; do not introduce query-specific ordering.
-- Hidden Events never appear as edge endpoints.
-- The fields are additive with `#[serde(default)]` so M192/M193-era v1 responses remain readable by newer clients.
-- `causal-path` remains a path, not an induced subgraph, and is intentionally unchanged.
+1. **Reachability duality**
+   - For every pair of visible Events A/B, `B` appears in `influence(A)` iff `A` appears in `why(B)`.
+   - Self reachability remains true because traversal results include the root at depth 0.
 
-## Tests
+2. **Path/reachability equivalence**
+   - `causal-path(A,B)` succeeds iff B is in `influence(A)`.
+   - Every adjacent path pair must be an actual persisted edge in `influence(A).edges`.
+   - Path depths are exactly `0..N` and endpoints are A/B.
 
-Prove at minimum:
+3. **Bounded-prefix equivalence**
+   - `causal-neighborhood(root, up, down).upstream` is exactly the `why(root)` nodes with `0 < depth <= up`, in the same order and with the same minimum depths.
+   - `downstream` is the corresponding prefix of `influence(root)`.
+   - The neighborhood root equals the root node exposed by both unbounded traversals.
 
-1. `why` returns the full visible ancestry induced graph;
-2. `influence` excludes a visible external co-cause from `edges` while preserving it in node `caused_by` context;
-3. edge ordering is stable despite shuffled timeline input;
-4. legacy v1 `why` and `influence` responses without `edges` deserialize with empty defaults;
-5. all M192–M197 causal tests and existing CLI subprocess tests remain green.
+4. **Induced-edge consistency**
+   - Neighborhood `edges` must be exactly the persisted visible causal edges whose cause and effect are both in the returned node union.
+   - No duplicate graph edges.
+
+5. **Frontier exactness**
+   - Upstream frontier is exactly the depth-boundary node set with at least one omitted visible parent.
+   - Downstream frontier is exactly the depth-boundary node set with at least one omitted visible child.
+   - `*_truncated` is exactly equivalent to a non-empty corresponding frontier.
+
+6. **Visibility safety**
+   - Hidden referenced Event IDs never surface in nodes, `caused_by`, edges, path output, frontier metadata, or serialized causal query responses.
+
+7. **Cycle safety**
+   - `why` and `influence` return each Event once.
+   - The root is not reinserted into neighborhood side lists.
+   - `causal-path` remains finite and shortest in a cycle.
+
+8. **Input-order determinism**
+   - Reordering `ProjectionSnapshot.timeline.items` without changing Event contents must not alter any causal query response.
+
+## Implementation rule
+
+Prefer a **test-only M199**. Do not change product code merely to make the milestone appear larger. If an invariant test exposes a real semantic inconsistency, fix only that shared causal-graph behavior and keep the query surface unchanged.
 
 ## Validation
 
@@ -73,6 +87,6 @@ Before merge:
 - semantic workspace CI and external Pack conformance
 - macOS/GPUI only if dependency-path filtering requires it
 
-## Non-goals for M198
+## Non-goals for M199
 
-Do not change `causal-path`, expose omitted neighbors as edges, add arbitrary graph dumps, add causal comparison between worlds, add pagination, MCP/HTTP/WebSocket, AgentRuntime access, raw mutation payloads, Pack-specific causal inference, or protocol v2.
+Do not add new query variants or DTO fields, protocol v2, pagination, arbitrary graph export, causal comparison between worlds, MCP/HTTP/WebSocket, AgentRuntime access, raw mutation payloads, Pack-specific causal inference, or new property-testing dependencies.
