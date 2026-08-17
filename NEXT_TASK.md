@@ -1,69 +1,40 @@
-# Next Coding Task — M202 Executable Causal Comparison Continuations
+# Next Coding Task — M203 First Causal Divergence
 
-Make bounded two-world causal comparison directly resumable by emitting typed replayable comparison requests at every left/right frontier.
+Locate the earliest visible causal structural divergence between two persisted worlds without exposing raw World state or expanding the protocol surface beyond the existing comparison transport.
 
 ## Current baseline
 
-The machine causal investigation surface is complete through M201:
+M192–M202 provide a deterministic visible causal graph, single-world traversal/path/neighborhood queries, induced edges, frontiers, executable continuations, structural two-world causal-neighborhood comparison, and replayable comparison continuations through `world-cli evidence-compare-query` protocol v1.
 
-- M192–M200 provide single-world causal discovery, traversal, bounded neighborhoods, induced edges, frontiers, executable continuations, and cross-query invariants;
-- M201 extends the existing protocol-v1 `evidence-compare-query` transport with tagged bounded causal-neighborhood structural comparison while preserving the legacy state-evidence compare wire shape exactly;
-- causal comparison supports one-sided roots, so an Event present in only one world can still be investigated as a structural divergence.
+## M203 — first divergence
 
-## M202 — comparison continuations
+Add an additive causal comparison request:
 
-Extend `EvidenceCausalNeighborhoodComparisonResult` additively with:
+`{"query":"first-divergence","root":"event-N","direction":"upstream|downstream","max_depth":D}`
 
-- `upstream_continuations: Vec<EvidenceCausalComparisonContinuation>`;
-- `downstream_continuations: Vec<EvidenceCausalComparisonContinuation>`.
-
-Each continuation contains:
-
-- the canonical frontier Event key;
-- `EvidenceCausalDirection`;
-- `left_frontier` / `right_frontier` membership flags;
-- an ordinary `EvidenceComparisonQueryRequest` that can be serialized and replayed directly through `evidence-compare-query`.
+The response identifies the minimum directional depth at which the two visible causal graphs differ and returns every differing visible causal edge at that earliest depth as a deterministic witness set.
 
 ## Semantics
 
-- Build continuations from the typed union of the left/right canonical frontier sets, one continuation per unique Event in typed Event order.
-- Preserve whether the frontier is present on the left, right, or both sides.
-- Preserve the original non-zero directional comparison window size.
-- Promote a zero-depth frontier to a one-hop continuation so replay always makes progress.
-- The opposite direction is set to depth zero.
-- One-sided frontier Events are valid continuation roots because M201 comparison already supports roots visible in either world.
-- Continuations carry no hidden state, visited set, opaque token, mutation authority, or server-side session state.
-- `identical` remains a property of structural node/edge/frontier equality; continuation arrays are derived metadata and do not independently affect it.
+- Validate the root with the same Event-only comparison contract used by causal-neighborhood comparison.
+- A root visible in only one world is an immediate depth-0 `root-presence` divergence.
+- Otherwise traverse only the requested direction and compare induced visible causal edges within `max_depth`.
+- Define an edge's divergence depth as the maximum directional BFS depth of its two endpoints, with the root at depth 0.
+- Return only witnesses at the minimum differing depth; do not mix later differences into the first-divergence answer.
+- Sort same-depth witnesses by typed `(cause EventId, effect EventId, side)` order rather than lexical stable-key order.
+- Hidden referenced causes remain invisible and cannot produce witnesses.
+- `identical_within_depth=true` means only that no structural divergence is visible inside the requested bound. Return left/right frontiers so callers can distinguish a bounded answer from a globally exhausted graph.
 
 ## Compatibility
 
-- Mark both new continuation arrays `#[serde(default)]` so M201 protocol-v1 causal comparison responses remain readable.
-- Do not change legacy state-evidence comparison wire shapes.
+- Add request/response enum variants only; preserve legacy state-evidence comparison and M201/M202 causal-neighborhood wire shapes exactly.
+- Reuse `world-cli evidence-compare-query`; no new command or transport.
 - Keep `world-machine-evidence-query` at protocol version 1.
 
 ## Tests
 
-Prove at minimum:
-
-1. one-sided frontier emits a directly executable continuation with correct side flags;
-2. replay reveals the next one-sided node/edge divergence;
-3. distinct left/right frontier Events form a deterministic typed union;
-4. a shared frontier emits one continuation with both side flags;
-5. zero-depth continuations progress by one hop and non-zero window size is preserved;
-6. M201 causal comparison payloads without continuation fields deserialize with empty defaults;
-7. a real two-step stdin `world-cli evidence-compare-query` replay succeeds through the existing protocol-v1 transport;
-8. all M199–M201 consistency, continuation, legacy comparison, and causal comparison tests remain green.
-
-## Validation
-
-- `bash ./scripts/check-boundaries.sh`
-- `cargo fmt --all -- --check`
-- `cargo test -p world-query`
-- `cargo test -p world-cli`
-- focused Clippy with warnings denied
-- semantic workspace CI and external Pack conformance
-- macOS/GPUI only if dependency-path filtering requires it
+Prove downstream and upstream first divergence, root-presence depth 0, deterministic typed witness ordering, bounded identical/frontier semantics, hidden-reference filtering, stable root errors, tagged serde, and real stdin CLI transport.
 
 ## Non-goals
 
-Do not add automatic recursive comparison, opaque pagination tokens, server-side continuation state, arbitrary graph export, raw mutation payloads, AgentRuntime access, MCP/HTTP/WebSocket, Pack-specific causal inference, or protocol v2.
+No global unbounded auto-search, opaque cursor, recursive server state, arbitrary graph export, AgentRuntime access, raw mutation payloads, MCP/HTTP/WebSocket, Pack-specific inference, or protocol v2.
