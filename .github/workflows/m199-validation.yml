@@ -1,0 +1,27 @@
+name: M199 causal consistency validation
+
+on:
+  push:
+    branches:
+      - agent/m199-causal-query-consistency
+
+jobs:
+  validate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/m199-causal-query-consistency
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: Boundary checks
+        run: bash ./scripts/check-boundaries.sh
+      - name: Query tests
+        run: cargo test -p world-query
+      - name: CLI tests
+        run: cargo test -p world-cli
+      - name: Focused clippy
+        run: cargo clippy -p world-query -p world-cli --all-targets -- -D warnings
