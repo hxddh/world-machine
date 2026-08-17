@@ -4,6 +4,7 @@ use std::fmt;
 use world_compare::{compare_evidence_neighborhoods, DifferenceKind};
 use world_projection::{
     InspectorProjection, ProjectionSnapshot, RelationEndpointRole, SelectionId, StateEvidenceEdge,
+    TimelineItem,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -11,6 +12,7 @@ use world_projection::{
 pub enum EvidenceQueryRequest {
     Selections,
     Describe { selection: String },
+    Why { event: String },
     Neighborhood { root: String, max_depth: usize },
     ShortestPath { from: String, to: String },
 }
@@ -20,6 +22,7 @@ pub enum EvidenceQueryRequest {
 pub enum EvidenceQueryResponse {
     Selections { value: EvidenceSelectionIndex },
     Description { value: EvidenceSelectionDetail },
+    Why { value: EvidenceWhyResult },
     Neighborhood { value: EvidenceNeighborhoodResult },
     ShortestPath { value: EvidencePathResult },
 }
@@ -64,6 +67,22 @@ pub struct EvidenceDetailSection {
 pub struct EvidenceDetailRow {
     pub label: String,
     pub value: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct EvidenceWhyResult {
+    pub event: String,
+    pub nodes: Vec<EvidenceWhyNode>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct EvidenceWhyNode {
+    pub event: String,
+    pub depth: usize,
+    pub world_time: u64,
+    pub title: String,
+    pub subtitle: String,
+    pub caused_by: Vec<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -155,8 +174,15 @@ pub enum Difference {
 #[serde(tag = "error", content = "details", rename_all = "kebab-case")]
 pub enum QueryError {
     InvalidSelectionKey(String),
+    SelectionKindMismatch {
+        selection: String,
+        expected: EvidenceSelectionKind,
+    },
     SelectionNotVisible(String),
-    NoEvidencePath { from: String, to: String },
+    NoEvidencePath {
+        from: String,
+        to: String,
+    },
     SelectionNotVisibleInEitherWorld(String),
 }
 
@@ -166,6 +192,14 @@ impl fmt::Display for QueryError {
             Self::InvalidSelectionKey(selection) => {
                 write!(f, "invalid selection key: {selection}")
             }
+            Self::SelectionKindMismatch {
+                selection,
+                expected,
+            } => write!(
+                f,
+                "selection kind mismatch: {selection} (expected {})",
+                selection_kind_name(*expected)
+            ),
             Self::SelectionNotVisible(selection) => {
                 write!(f, "selection is not visible: {selection}")
             }
@@ -191,6 +225,10 @@ pub fn execute_query(
             let selection = parse_selection_key(selection)?;
             query_description(snapshot, selection)
                 .map(|value| EvidenceQueryResponse::Description { value })
+        }
+        EvidenceQueryRequest::Why { event } => {
+            let event = parse_selection_key(event)?;
+            query_why(snapshot, event).map(|value| EvidenceQueryResponse::Why { value })
         }
         EvidenceQueryRequest::Neighborhood { root, max_depth } => {
             let root = parse_selection_key(root)?;
@@ -305,6 +343,14 @@ fn selection_kind(selection: SelectionId) -> EvidenceSelectionKind {
     }
 }
 
+fn selection_kind_name(kind: EvidenceSelectionKind) -> &'static str {
+    match kind {
+        EvidenceSelectionKind::Entity => "entity",
+        EvidenceSelectionKind::Relation => "relation",
+        EvidenceSelectionKind::Event => "event",
+    }
+}
+
 fn visible_detail_sections(inspector: &InspectorProjection) -> Vec<EvidenceDetailSection> {
     inspector
         .display_sections()
@@ -320,6 +366,72 @@ fn visible_detail_sections(inspector: &InspectorProjection) -> Vec<EvidenceDetai
                 .collect(),
         })
         .collect()
+}
+
+pub fn query_why(
+    snapshot: &ProjectionSnapshot,
+    event: SelectionId,
+) -> Result<EvidenceWhyResult, QueryError> {
+    if !matches!(event, SelectionId::Event(_)) {
+        return Err(QueryError::SelectionKindMismatch {
+            selection: event.stable_key(),
+            expected: EvidenceSelectionKind::Event,
+        });
+    }
+
+    let visible = snapshot
+        .timeline
+        .items
+        .iter()
+        .filter(|item| matches!(item.id, SelectionId::Event(_)))
+        .map(|item| (item.id, item))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    if !visible.contains_key(&event) {
+        return Err(QueryError::SelectionNotVisible(event.stable_key()));
+    }
+
+    let mut visited = std::collections::BTreeSet::new();
+    let mut nodes = Vec::new();
+    visit_visible_causes(event, 0, &visible, &mut visited, &mut nodes);
+
+    Ok(EvidenceWhyResult {
+        event: event.stable_key(),
+        nodes,
+    })
+}
+
+fn visit_visible_causes(
+    event: SelectionId,
+    depth: usize,
+    visible: &std::collections::BTreeMap<SelectionId, &TimelineItem>,
+    visited: &mut std::collections::BTreeSet<SelectionId>,
+    nodes: &mut Vec<EvidenceWhyNode>,
+) {
+    if !visited.insert(event) {
+        return;
+    }
+    let Some(item) = visible.get(&event).copied() else {
+        return;
+    };
+
+    let caused_by = item
+        .caused_by
+        .iter()
+        .map(|cause| SelectionId::Event(*cause))
+        .filter(|cause| visible.contains_key(cause))
+        .collect::<Vec<_>>();
+    nodes.push(EvidenceWhyNode {
+        event: event.stable_key(),
+        depth,
+        world_time: item.world_time,
+        title: item.title.clone(),
+        subtitle: item.subtitle.clone(),
+        caused_by: caused_by.iter().map(|cause| cause.stable_key()).collect(),
+    });
+
+    for cause in caused_by {
+        visit_visible_causes(cause, depth + 1, visible, visited, nodes);
+    }
 }
 
 pub fn query_neighborhood(
@@ -536,6 +648,13 @@ mod tests {
             (
                 QueryError::InvalidSelectionKey("entity-01".into()),
                 r#"{"error":"invalid-selection-key","details":"entity-01"}"#,
+            ),
+            (
+                QueryError::SelectionKindMismatch {
+                    selection: "entity-1".into(),
+                    expected: EvidenceSelectionKind::Event,
+                },
+                r#"{"error":"selection-kind-mismatch","details":{"selection":"entity-1","expected":"event"}}"#,
             ),
             (
                 QueryError::SelectionNotVisible("entity-99".into()),
@@ -782,6 +901,126 @@ mod tests {
                 },
             ),
             Err(QueryError::InvalidSelectionKey("entity-07".into()))
+        );
+    }
+
+    #[test]
+    fn why_query_walks_visible_persisted_causes_in_deterministic_order() {
+        let mut snapshot = snapshot(EntityId::new(1), EntityId::new(3));
+        snapshot.timeline.items = vec![
+            TimelineItem {
+                id: SelectionId::Event(EventId::new(3)),
+                world_time: 3,
+                title: "Final effect".into(),
+                subtitle: "Final".into(),
+                caused_by: vec![EventId::new(2)],
+            },
+            TimelineItem {
+                id: SelectionId::Event(EventId::new(2)),
+                world_time: 2,
+                title: "Intermediate effect".into(),
+                subtitle: "Middle".into(),
+                caused_by: vec![EventId::new(1)],
+            },
+            TimelineItem {
+                id: SelectionId::Event(EventId::new(1)),
+                world_time: 1,
+                title: "Root cause".into(),
+                subtitle: "Root".into(),
+                caused_by: Vec::new(),
+            },
+        ];
+
+        let request: EvidenceQueryRequest =
+            serde_json::from_str(r#"{"query":"why","event":"event-3"}"#).unwrap();
+        let response = execute_query(&snapshot, &request).unwrap();
+        let EvidenceQueryResponse::Why { value } = response else {
+            panic!("expected why response")
+        };
+        assert_eq!(value.event, "event-3");
+        assert_eq!(
+            value
+                .nodes
+                .iter()
+                .map(|node| (node.event.as_str(), node.depth))
+                .collect::<Vec<_>>(),
+            vec![("event-3", 0), ("event-2", 1), ("event-1", 2)]
+        );
+        assert_eq!(value.nodes[0].caused_by, vec!["event-2"]);
+        assert_eq!(value.nodes[1].caused_by, vec!["event-1"]);
+
+        let json = serde_json::to_string(&EvidenceQueryResponse::Why {
+            value: value.clone(),
+        })
+        .unwrap();
+        let restored: EvidenceQueryResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored, EvidenceQueryResponse::Why { value });
+    }
+
+    #[test]
+    fn why_query_filters_hidden_causes_and_cycle_protects() {
+        let mut snapshot = snapshot(EntityId::new(1), EntityId::new(3));
+        snapshot.timeline.items = vec![
+            TimelineItem {
+                id: SelectionId::Event(EventId::new(3)),
+                world_time: 3,
+                title: "Final".into(),
+                subtitle: "Visible".into(),
+                caused_by: vec![EventId::new(2), EventId::new(99)],
+            },
+            TimelineItem {
+                id: SelectionId::Event(EventId::new(2)),
+                world_time: 2,
+                title: "Cycle".into(),
+                subtitle: "Visible".into(),
+                caused_by: vec![EventId::new(3)],
+            },
+        ];
+
+        let value = query_why(&snapshot, SelectionId::Event(EventId::new(3))).unwrap();
+        assert_eq!(value.nodes.len(), 2);
+        assert_eq!(value.nodes[0].caused_by, vec!["event-2"]);
+        assert_eq!(value.nodes[1].caused_by, vec!["event-3"]);
+    }
+
+    #[test]
+    fn why_query_enforces_event_kind_and_timeline_visibility() {
+        let mut snapshot = snapshot(EntityId::new(1), EntityId::new(3));
+        assert_eq!(
+            execute_query(
+                &snapshot,
+                &EvidenceQueryRequest::Why {
+                    event: "entity-1".into(),
+                },
+            ),
+            Err(QueryError::SelectionKindMismatch {
+                selection: "entity-1".into(),
+                expected: EvidenceSelectionKind::Event,
+            })
+        );
+        assert_eq!(
+            execute_query(
+                &snapshot,
+                &EvidenceQueryRequest::Why {
+                    event: "event-07".into(),
+                },
+            ),
+            Err(QueryError::InvalidSelectionKey("event-07".into()))
+        );
+
+        let hidden = SelectionId::Event(EventId::new(10));
+        snapshot.inspectors.insert(
+            hidden,
+            InspectorProjection {
+                selection: hidden,
+                title: "Inspector only".into(),
+                subtitle: "Hidden".into(),
+                sections: Vec::new(),
+            },
+        );
+        assert_eq!(
+            query_why(&snapshot, hidden),
+            Err(QueryError::SelectionNotVisible("event-10".into()))
         );
     }
 
