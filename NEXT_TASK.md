@@ -1,90 +1,85 @@
-# Next Coding Task — M188 Stdin-Safe Machine Query Transport
+# Next Coding Task — M189 Versioned Machine Query Envelope
 
-Harden the M187 machine-readable evidence-query CLI into a subprocess boundary that an Agent/tool adapter can invoke without embedding arbitrary JSON in argv.
+Version the machine-readable evidence-query transport before external consumers begin depending on an implicit JSON envelope.
 
 ## Current baseline
 
-The evidence/query line is complete through M187:
+The evidence/query line is complete through M188:
 
 - M173–M178: evidence paths, bounded neighborhoods, durable neighborhood semantics, comparison, and divergence.
 - M179: canonical stable selection keys.
 - M180–M182: human-readable CLI neighborhood/path/comparison surfaces.
 - M183–M184: reusable headless `world-query` and CLI routing through it.
 - M185: serializable query/comparison request DTOs, response DTOs, canonical selection-key parsing, and serializable `QueryError`.
-- M186: `world-cli` became a real consumer of the `world-query` request boundary instead of parsing selection keys itself.
-- M187: machine-readable CLI commands now accept the existing query DTO JSON and return a CLI-owned status envelope while reusing `world-query` semantics and errors.
+- M186: `world-cli` became a real consumer of the `world-query` request boundary.
+- M187: `evidence-query` and `evidence-compare-query` added the first machine-readable JSON subprocess surface.
+- M188: both machine commands accept request JSON from stdin with `-`, and true subprocess tests pin stdout/stderr/exit behavior.
 
 Do not redo those milestones.
 
 ## Product goal
 
-A subprocess caller should be able to pipe exactly one JSON request through stdin and parse exactly one JSON response from stdout. This should be safe for Agent/tool adapters and ordinary process spawning without shell quoting or command-line length concerns.
+External tools should be able to identify which transport contract produced a response before they interpret `status`, `response`, or `error` fields.
 
-M188 is transport hardening only. It must not create another query protocol.
+The query semantics remain the M185 `world-query` DTOs. M189 versions only the CLI transport envelope; it must not wrap or fork the query request schema.
 
 ## Architecture boundary
 
-1. `world-query` remains the sole owner of evidence-query semantics, stable-key parsing, typed results, and `QueryError`.
-2. `world-cli` owns stdin/argv/stdout/stderr and process exit behavior.
-3. Do not move transport concerns into `world-core`, `world-host`, `world-projection`, or GPUI.
-4. Do not duplicate the M185 request/response schema in a new crate.
-5. Query execution remains read-only and replay-safe: no Action dispatch, AgentRuntime invocation, wall clock, or World mutation.
-6. Preserve M187 inline-JSON argv compatibility.
+1. `world-query` remains transport-neutral and owns query semantics, stable selection keys, result DTOs, and `QueryError`.
+2. `world-cli` owns the subprocess envelope and its protocol/version metadata.
+3. Do not add transport/version concerns to `world-core`, projection, persistence, Pack protocols, GPUI, or AgentRuntime.
+4. Preserve both M187 inline JSON and M188 stdin request forms.
+5. Preserve the M188 process contract: semantic query errors are valid protocol responses and exit 0; malformed/transport/archive failures remain nonzero process failures.
 
-## M188 — `-` means request JSON from stdin
+## M189 — explicit envelope identity
 
-Extend both M187 commands:
+Add stable metadata to every successful protocol response and every semantic-error protocol response.
 
-```text
-world-cli evidence-query <file.world> -
-world-cli evidence-compare-query <left.world> <right.world> -
+Use one shared envelope identity for single-World and comparison queries, for example:
+
+```json
+{
+  "protocol": "world-machine-evidence-query",
+  "version": 1,
+  "status": "ok",
+  "response": {}
+}
 ```
 
-When the request argument is `-`:
+and:
 
-1. Read one complete JSON document from stdin to EOF.
-2. Feed those bytes/text into the exact same M187 deserialization and `world-query` execution path used by inline JSON.
-3. Emit the same M187 JSON success/error envelope to stdout.
-4. Do not add NDJSON, streaming, batches, or multiple-request framing.
-
-Inline JSON must continue to work unchanged:
-
-```text
-world-cli evidence-query <file.world> '{"query":"neighborhood","root":"entity-1","max_depth":2}'
+```json
+{
+  "protocol": "world-machine-evidence-query",
+  "version": 1,
+  "status": "error",
+  "error": {}
+}
 ```
 
-## Process semantics
+The exact identifier spelling may be tightened during implementation, but it must be a constant owned in one place in `world-cli` and pinned by tests.
 
-Pin the machine-facing behavior explicitly:
+### Compatibility rules
 
-- valid JSON + successful query -> exit 0; one success envelope on stdout;
-- valid JSON + semantic `QueryError` -> exit 0; one error envelope on stdout;
-- malformed request JSON -> nonzero exit; diagnostic on stderr; no JSON success/error envelope pretending the protocol request was valid;
-- stdin read failure -> nonzero exit;
-- archive read/parse/Pack-open failure -> nonzero exit;
-- ordinary human-readable commands keep their existing behavior.
-
-A semantic query failure is a valid protocol response, not a transport crash.
-
-## Implementation guidance
-
-Keep this small. Prefer a tiny request-source abstraction inside `world-cli`, for example inline text vs stdin, rather than duplicating command handlers.
-
-If the current binary-only shape makes subprocess testing awkward, add focused integration tests under `crates/world-cli/tests/` rather than turning `world-cli` into a large library.
+- Existing request JSON remains exactly `EvidenceQueryRequest` or `EvidenceComparisonRequest`; do not add a request wrapper merely for versioning.
+- Adding protocol/version metadata to response envelopes must be additive; keep `status`, `response`, and `error` semantics from M187/M188.
+- Single-World and comparison commands must emit the same protocol name/version.
+- Inline JSON and stdin JSON must emit the same envelope shape.
+- Human-readable evidence commands remain unchanged.
 
 ## Tests
 
 At minimum prove:
 
-1. `evidence-query <archive> -` accepts a neighborhood request via piped stdin and emits parseable success JSON;
-2. stdin shortest-path identity request uses the same response schema;
-3. `entity-07` via stdin produces the serialized `invalid-selection-key` semantic error envelope and exits 0;
-4. malformed stdin JSON exits nonzero and is distinguishable from a semantic error;
-5. comparison query works via stdin and returns a typed comparison result;
-6. the original inline-JSON M187 commands remain green;
-7. existing human-readable evidence commands remain green.
+1. neighborhood success envelope carries the pinned protocol identifier and version;
+2. shortest-path success uses the same protocol/version;
+3. comparison success uses the same protocol/version;
+4. serialized semantic `QueryError` envelope uses the same protocol/version;
+5. inline and stdin subprocess forms expose identical protocol metadata;
+6. malformed JSON is still a process/transport failure and does not emit a fake versioned semantic-error envelope;
+7. M188 subprocess exit-code tests remain green.
 
-Prefer at least one true subprocess integration test using the built `world-cli` binary so stdin/stdout/stderr/exit-code behavior is verified rather than inferred from helper functions.
+Prefer assertions in the true subprocess integration test as well as focused helper-level tests so the public stdout contract is what is pinned.
 
 ## Validation
 
@@ -97,23 +92,22 @@ Before merge:
 - `cargo test -p world-query`
 - `cargo test -p world-cli`
 - external Pack conformance command
-- macOS/GPUI and `World Machine.app` artifact validation whenever dependency-path filtering requires it
+- macOS/GPUI only when dependency-path filtering requires it
 
-## Non-goals for M188
+## Non-goals for M189
 
 Do not add:
 
-- HTTP/WebSocket transport;
-- MCP;
-- daemon mode;
-- NDJSON or batching;
-- async streaming;
-- authentication/authorization;
-- remote archive URLs;
+- request-envelope versioning or a second request schema;
+- HTTP/WebSocket/MCP transport;
+- daemon or streaming mode;
+- NDJSON/batching;
+- authentication;
+- AgentRuntime query access;
+- perception-policy changes;
 - new evidence semantics;
-- Pack-specific queries;
-- AgentRuntime execution.
+- Pack-specific query variants.
 
 ## Why this is next
 
-M187 proved that the query contract can cross a process boundary as JSON, but argv is still an awkward carrier for arbitrary structured requests. Stdin is the smallest transport hardening that makes the subprocess surface comfortable for Agents, tool adapters, scripts, and tests while keeping the same `world-query` thin waist.
+M187 and M188 made the evidence-query boundary genuinely consumable across a process boundary. The next mistake would be to let external consumers hard-code an anonymous `{status,...}` object and only discover compatibility problems later. A tiny additive protocol/version marker is cheap now and gives future CLI, tool, RPC, or MCP adapters an explicit compatibility anchor without contaminating `world-query` semantics.
