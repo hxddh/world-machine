@@ -1,0 +1,36 @@
+name: M208 divergence trace composition invariants
+
+on:
+  push:
+    branches:
+      - agent/m208-divergence-trace-composition-invariants
+    paths:
+      - .github/workflows/m208-check.yml
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Format
+        run: cargo fmt --all
+      - name: Check boundaries
+        run: bash ./scripts/check-boundaries.sh
+      - name: Test world-query
+        run: cargo test -p world-query
+      - name: Clippy
+        run: cargo clippy -p world-query --all-targets -- -D warnings
+      - name: Commit formatting
+        run: |
+          git config user.name hxddh
+          git config user.email hxddh@users.noreply.github.com
+          git add NEXT_TASK.md crates/world-query/tests/causal_first_divergence_trace_composition_consistency.rs
+          if ! git diff --cached --quiet; then
+            git commit -m "M208: format divergence trace composition invariants"
+            git push
+          fi
