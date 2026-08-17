@@ -1,83 +1,89 @@
-# Next Coding Task — M42 Branch Strategy Comparison
+# Next Coding Task — M187 Machine-Readable Evidence Query Surface
 
-Build the first generic comparison layer for divergent World histories.
+Turn the reusable evidence-query contract into a real machine-facing subprocess boundary without creating a second query protocol.
 
-Tiny Society can now produce materially different futures from the same durable state: after a long-run Harbor Bakery closure, a traditional salaried reopen fails again while an owner-run lean reopen survives. The next step is not another Tiny Society event. It is to make World Machine able to compare those futures as a first-class product capability.
+## Current baseline
+
+The evidence/query line is now complete through M186:
+
+- M173–M178 established shortest evidence paths, bounded evidence neighborhoods, durable neighborhood semantics, comparison, and divergence surfaces.
+- M179 added canonical stable selection keys.
+- M180–M182 exposed neighborhood, shortest-path, and neighborhood-comparison queries through `world-cli`.
+- M183 extracted reusable headless evidence queries into `world-query`.
+- M184 routed the existing CLI evidence reports through `world-query`.
+- M185 added serializable request/response/comparison DTOs, centralized canonical selection-key parsing, and stable serializable `QueryError` shapes.
+- M186 made `world-cli` the first real consumer of that contract: the CLI now keeps selection keys as strings and delegates their semantic parsing/validation to `world-query`.
+
+Do not redo any of those milestones.
 
 ## Product goal
 
-A user should be able to take one World state, create two independent strategies, advance both by the same amount of World time, and understand **what became different and why**.
+A subprocess, Agent adapter, test harness, or future server should be able to send one typed evidence-query request and receive machine-readable JSON without scraping the existing human-readable CLI reports.
 
-The comparison must be generic. Tiny Society is the acceptance World, not the abstraction.
+The JSON surface must be a thin transport adapter over `world-query`. It must not become a new source of query semantics.
 
 ## Architecture boundary
 
-Do not add Tiny Society concepts to `world-core`, `world-host`, `world-projection`, or GPUI.
+Keep the existing thin waist intact:
 
-The comparison layer may depend on generic `WorldSession`, `WorldRegistry`, `WorldArchive`, `ProjectionSnapshot`, `SelectionId`, inspector rows, timeline items, and commands. It must not know about Bakery, Mara, jobs, payroll, fishing, or any other Pack-specific semantic name.
+1. `world-core` remains deterministic World truth and must not depend on query transport, JSON CLI concerns, GPUI, or Pack-specific concepts.
+2. `world-query` owns evidence-query semantics, canonical selection-key parsing, typed result DTOs, and `QueryError`.
+3. `world-cli` may own argv/stdin/stdout transport details and JSON framing.
+4. Do not duplicate `entity-N` / `relation-N` / `event-N` parsing in the CLI.
+5. Do not manufacture Events, causes, selections, or comparison results in the transport layer.
+6. Query execution must remain read-only: no Action dispatch, AgentRuntime invocation, wall clock, filesystem mutation beyond reading the requested archive, or GPUI state.
+7. Tiny Society may be an acceptance Pack, but no Tiny Society semantic name belongs in the query protocol.
 
-Do not modify authoritative World truth merely to support comparison. A comparison is derived from two already-valid World histories.
+## M187 — JSON evidence query commands
 
-## M42A — Headless branch comparison
+Add the first explicit machine-readable CLI surface.
 
-Implement the reusable comparison model before any side-by-side UI.
+Preferred command shape:
 
-Requirements:
+```text
+world-cli evidence-query <file.world> '<request-json>'
+world-cli evidence-compare-query <left.world> <right.world> '<request-json>'
+```
 
-1. Add a small generic comparison module/crate at the Host/Projection boundary. Prefer a new focused crate if that keeps `world-host` and `world-projection` narrow.
-2. Accept two independent World snapshots/history views produced by normal Host sessions. Do not special-case a Pack ID.
-3. Produce a deterministic comparison result that can represent at least:
-   - left/right titles and World times;
-   - visible Entity state differences by stable `SelectionId`;
-   - Inspector row differences for matching entities;
-   - timeline Events present only on the left or right;
-   - commands available only on one side;
-   - a concise list of changed/added/removed visible entities when applicable.
-4. Equality/diffing must use stable semantic identifiers, not screen position or rendered strings alone.
-5. Preserve causal history references. The comparison may summarize Events, but it must not manufacture Events or causes.
-6. Comparison must be pure and replay-safe: the same pair of snapshots always produces the same result and never invokes an AgentRuntime, Behavior, wall clock, filesystem mutation, or GPUI.
-7. Add unit tests using synthetic generic snapshots so the abstraction is proven independently of Tiny Society.
+The exact spelling may change if implementation pressure reveals a cleaner CLI shape, but preserve the semantic contract below.
 
-## M42B — Host strategy harness
+### Single-World query
 
-Add a generic helper that proves two strategies can be evaluated from the same source archive without sharing mutable state.
+1. Deserialize the request directly as `world_query::EvidenceQueryRequest`.
+2. Open the archive through the normal Pack registry/session path.
+3. Execute through `world_query::execute_query` only.
+4. On success, emit JSON containing the existing `EvidenceQueryResponse` without re-rendering it into display strings.
+5. On a semantic query failure, emit the existing serialized `QueryError` inside an explicit, documented JSON status envelope owned by the CLI transport.
+6. Malformed JSON should remain distinguishable from a valid request that produces a semantic `QueryError`.
 
-Requirements:
+### Comparison query
 
-1. Open two independent sessions from the same checked `WorldArchive` through `WorldRegistry`.
-2. Apply a caller-supplied `ProjectionIntent` sequence independently to each session.
-3. Advance both sessions by the same explicit number of background periods when requested.
-4. Return the two resulting `ProjectionSnapshot`s plus their generic comparison.
-5. A failure on one strategy must not mutate the other session or the source archive.
-6. Do not read wall-clock time. M42 receives explicit background periods only.
+1. Deserialize the request directly as `world_query::EvidenceComparisonRequest`.
+2. Open the left and right archives independently through the normal registry/session path.
+3. Execute through `world_query::execute_comparison_query` only.
+4. Emit the existing `EvidenceComparisonResult` on success.
+5. Reuse the same transport-level success/error envelope shape as the single-World command.
 
-## Tiny Society acceptance scenario
+### Compatibility
 
-Use the existing long-run Bakery recovery fork as the product canary:
+- Keep the existing human-readable `evidence`, `evidence-path`, and `evidence-compare` commands unchanged.
+- Do not make existing scripts parse JSON unless they opt into the new machine-readable commands.
+- Do not change `.world` / `.worldpack` persistence formats.
+- Do not add a server process merely to expose this slice.
 
-1. Produce or restore the same durable Tiny Society snapshot in which Harbor Bakery is closed after the long-run demand contraction.
-2. Left strategy: invoke `tiny-society.reopen-bakery`.
-3. Right strategy: invoke `tiny-society.reopen-bakery-lean`.
-4. Advance both by 20 background periods.
-5. The generic comparison must make the divergent outcome observable without Pack-specific comparison code:
-   - traditional branch ends with Bakery closed;
-   - lean branch ends with Bakery open;
-   - Mara's visible job/state differs;
-   - the two histories contain different recovery/closure Events;
-   - relevant visible cash/state differences are represented.
-6. Archive/reopen either branch before comparison in at least one regression so the result is proven against durable history, not only in-memory state.
+## Tests
 
-## M42C — Product surface, only after headless semantics are green
+Use generic/synthetic snapshots wherever possible.
 
-Once M42A/B are stable, expose comparison through the generic product shell:
+At minimum prove:
 
-- side-by-side strategy summary;
-- changed entities/state first, raw timeline second;
-- selection on either side should still use ordinary Inspector/Why surfaces;
-- no Tiny Society-specific GPUI View;
-- no duplicated World truth in UI state.
-
-Do not start M42C until Linux semantic CI for M42A/B is green.
+1. a serialized neighborhood request reaches `execute_query` and returns a JSON success envelope;
+2. a serialized shortest-path request reaches the same execution path;
+3. a noncanonical key such as `entity-07` produces the serialized `invalid-selection-key` `QueryError`, not a CLI-local parser error;
+4. malformed request JSON is distinguishable from semantic query failure;
+5. comparison JSON returns the existing typed comparison result;
+6. output can be parsed back into the expected DTO/error shape without screen-string scraping;
+7. current human-readable evidence command tests remain green.
 
 ## Validation
 
@@ -85,14 +91,31 @@ Before merge:
 
 - `bash ./scripts/check-boundaries.sh`
 - `cargo fmt --all -- --check`
-- semantic Clippy/workspace tests
-- generic comparison unit tests
-- Tiny Society strategy acceptance regression
-- macOS `world-library` / `world-gpui` / desktop regressions
-- release `World Machine.app` artifact build remains green
+- semantic workspace Clippy with warnings denied
+- semantic workspace tests
+- `cargo test -p world-query`
+- `cargo test -p world-cli`
+- external Pack conformance command
+- macOS/GPUI jobs should remain skipped unless their actual dependency paths change
+
+## Non-goals for M187
+
+Do **not** add these yet:
+
+- HTTP/WebSocket server;
+- MCP server/client;
+- long-running daemon;
+- streaming/NDJSON batch protocol;
+- authentication/authorization;
+- remote archive fetching;
+- new evidence graph semantics;
+- new Pack-specific query types;
+- AgentRuntime execution.
+
+Those should be justified by a real consumer after the subprocess contract is proven.
 
 ## Why this is next
 
-World Machine already has persistence, replay, causal history, background living, branching, generic projections, and Worlds whose choices now produce materially different long-run outcomes. The missing product primitive is the ability to **see two possible Worlds together**.
+M185 made the query boundary serializable, and M186 proved an existing product surface can consume that boundary without owning selection-key semantics. The remaining gap is transport: external tools still have to scrape human-readable CLI output.
 
-M42 turns `Fork` from a debugging/history operation into a user-facing strategy instrument. It is also a direct test of the Pocket Universe thesis: if comparison is genuinely generic, the same primitive should later work for a detective investigation, company simulation, football world, personal-data world, or a future generated World without changing the comparison engine.
+M187 closes that gap with the smallest useful machine interface. If this stays thin, the same `world-query` contract can later sit behind a CLI, an Agent tool, an RPC endpoint, or an MCP adapter without changing World truth or creating competing query semantics.
