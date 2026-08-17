@@ -1,40 +1,39 @@
-# Next Coding Task — M203 First Causal Divergence
+# Next Coding Task — M204 First-Divergence Traces
 
-Locate the earliest visible causal structural divergence between two persisted worlds without exposing raw World state or expanding the protocol surface beyond the existing comparison transport.
+Make each M203 first-divergence edge witness self-explanatory by attaching a deterministic directional Event trace from the comparison root to that exact differing causal edge.
 
 ## Current baseline
 
-M192–M202 provide a deterministic visible causal graph, single-world traversal/path/neighborhood queries, induced edges, frontiers, executable continuations, structural two-world causal-neighborhood comparison, and replayable comparison continuations through `world-cli evidence-compare-query` protocol v1.
+M203 adds `first-divergence` over the existing protocol-v1 `evidence-compare-query` transport. It reports the earliest bounded structural divergence layer and every left/right-only causal edge at that depth, with typed witness ordering and frontier-aware bounded identity.
 
-## M203 — first divergence
+## M204 — witness traces
 
-Add an additive causal comparison request:
+Extend the `edge` form of `EvidenceCausalDivergenceWitness` additively with:
 
-`{"query":"first-divergence","root":"event-N","direction":"upstream|downstream","max_depth":D}`
+- `trace: Vec<String>` using `#[serde(default)]`.
 
-The response identifies the minimum directional depth at which the two visible causal graphs differ and returns every differing visible causal edge at that earliest depth as a deterministic witness set.
+The trace is a canonical directional traversal beginning at the requested root and ending by traversing the witness edge itself.
 
 ## Semantics
 
-- Validate the root with the same Event-only comparison contract used by causal-neighborhood comparison.
-- A root visible in only one world is an immediate depth-0 `root-presence` divergence.
-- Otherwise traverse only the requested direction and compare induced visible causal edges within `max_depth`.
-- Define an edge's divergence depth as the maximum directional BFS depth of its two endpoints, with the root at depth 0.
-- Return only witnesses at the minimum differing depth; do not mix later differences into the first-divergence answer.
-- Sort same-depth witnesses by typed `(cause EventId, effect EventId, side)` order rather than lexical stable-key order.
-- Hidden referenced causes remain invisible and cannot produce witnesses.
-- `identical_within_depth=true` means only that no structural divergence is visible inside the requested bound. Return left/right frontiers so callers can distinguish a bounded answer from a globally exhausted graph.
+- Downstream traces walk root → ... → witness cause → witness effect.
+- Upstream traces walk root → ... → witness effect → witness cause, because investigation traverses causal edges in reverse while the stored edge remains cause → effect.
+- Restrict prefix search to Events already inside that side's bounded causal neighborhood; traces must not escape the M203 query window to explain a witness.
+- Choose a shortest directional prefix; break same-length alternatives by typed Event identity rather than timeline/display ordering.
+- Always append the witness edge as the final traversal step, even for cross/cycle edges whose far endpoint was reachable earlier by another route.
+- A trace is side-specific. All structure strictly shallower than `divergence_depth` is necessarily shared, but same-depth traces may pass another parallel divergence before terminating at their own witness.
+- `root-presence` witnesses remain unchanged and carry no trace.
 
 ## Compatibility
 
-- Add request/response enum variants only; preserve legacy state-evidence comparison and M201/M202 causal-neighborhood wire shapes exactly.
-- Reuse `world-cli evidence-compare-query`; no new command or transport.
-- Keep `world-machine-evidence-query` at protocol version 1.
+- `#[serde(default)]` allows protocol-v1 M203 edge witnesses without `trace` to deserialize as an empty trace.
+- Older clients can ignore the additive field.
+- No new request, response variant, CLI command, transport, protocol version, AgentRuntime authority, or server-side state.
 
 ## Tests
 
-Prove downstream and upstream first divergence, root-presence depth 0, deterministic typed witness ordering, bounded identical/frontier semantics, hidden-reference filtering, stable root errors, tagged serde, and real stdin CLI transport.
+Prove downstream and upstream traces, common-prefix behavior, cross/cycle terminal-edge behavior, typed shortest-path selection, and backward deserialization of M203 witnesses without trace.
 
 ## Non-goals
 
-No global unbounded auto-search, opaque cursor, recursive server state, arbitrary graph export, AgentRuntime access, raw mutation payloads, MCP/HTTP/WebSocket, Pack-specific inference, or protocol v2.
+No global recursive divergence search, trace mutation authority, arbitrary graph export, opaque cursor, MCP/HTTP/WebSocket, AgentRuntime access, Pack-specific inference, or protocol v2.

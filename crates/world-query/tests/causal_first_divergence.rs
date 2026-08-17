@@ -120,7 +120,9 @@ fn earliest_witnesses_use_typed_event_order_not_lexical_keys() {
         .witnesses
         .iter()
         .map(|witness| match witness {
-            EvidenceCausalDivergenceWitness::Edge { difference, edge } => {
+            EvidenceCausalDivergenceWitness::Edge {
+                difference, edge, ..
+            } => {
                 assert_eq!(*difference, Difference::LeftOnly);
                 edge.cause.as_str()
             }
@@ -224,5 +226,116 @@ fn first_divergence_preserves_event_root_error_contract() {
         Err(QueryError::SelectionNotVisibleInEitherWorld(
             "event-9".into()
         ))
+    );
+}
+
+#[test]
+fn divergence_edge_witnesses_include_canonical_directional_traces() {
+    let left = snapshot(vec![event(1, 1, &[]), event(2, 2, &[1]), event(3, 3, &[2])]);
+    let right = snapshot(vec![event(1, 1, &[]), event(2, 2, &[1]), event(4, 3, &[2])]);
+    let value = compare(
+        &left,
+        &right,
+        "event-1",
+        EvidenceCausalDirection::Downstream,
+        2,
+    );
+    assert_eq!(value.divergence_depth, Some(2));
+    assert_eq!(value.witnesses.len(), 2);
+    assert_eq!(
+        value.witnesses,
+        vec![
+            EvidenceCausalDivergenceWitness::Edge {
+                difference: Difference::LeftOnly,
+                edge: world_query::EvidenceCausalEdge {
+                    cause: "event-2".into(),
+                    effect: "event-3".into(),
+                },
+                trace: vec!["event-1".into(), "event-2".into(), "event-3".into()],
+            },
+            EvidenceCausalDivergenceWitness::Edge {
+                difference: Difference::RightOnly,
+                edge: world_query::EvidenceCausalEdge {
+                    cause: "event-2".into(),
+                    effect: "event-4".into(),
+                },
+                trace: vec!["event-1".into(), "event-2".into(), "event-4".into()],
+            },
+        ]
+    );
+}
+
+#[test]
+fn trace_ends_with_cross_edge_even_when_endpoint_was_already_reached() {
+    let left = snapshot(vec![
+        event(1, 1, &[]),
+        event(2, 2, &[1, 3]),
+        event(3, 2, &[1]),
+    ]);
+    let right = snapshot(vec![event(1, 1, &[]), event(2, 2, &[1]), event(3, 2, &[1])]);
+    let value = compare(
+        &left,
+        &right,
+        "event-1",
+        EvidenceCausalDirection::Downstream,
+        1,
+    );
+    assert_eq!(value.divergence_depth, Some(1));
+    assert_eq!(
+        value.witnesses,
+        vec![EvidenceCausalDivergenceWitness::Edge {
+            difference: Difference::LeftOnly,
+            edge: world_query::EvidenceCausalEdge {
+                cause: "event-3".into(),
+                effect: "event-2".into(),
+            },
+            trace: vec!["event-1".into(), "event-3".into(), "event-2".into()],
+        }]
+    );
+}
+
+#[test]
+fn upstream_trace_uses_reverse_traversal_but_terminates_with_causal_edge() {
+    let left = snapshot(vec![event(3, 3, &[2]), event(2, 2, &[1]), event(1, 1, &[])]);
+    let right = snapshot(vec![event(3, 3, &[2]), event(2, 2, &[])]);
+    let value = compare(
+        &left,
+        &right,
+        "event-3",
+        EvidenceCausalDirection::Upstream,
+        2,
+    );
+    assert_eq!(value.divergence_depth, Some(2));
+    assert_eq!(
+        value.witnesses,
+        vec![EvidenceCausalDivergenceWitness::Edge {
+            difference: Difference::LeftOnly,
+            edge: world_query::EvidenceCausalEdge {
+                cause: "event-1".into(),
+                effect: "event-2".into(),
+            },
+            trace: vec!["event-3".into(), "event-2".into(), "event-1".into()],
+        }]
+    );
+}
+
+#[test]
+fn m203_edge_witness_without_trace_deserializes_with_empty_trace() {
+    let json = json!({
+        "kind":"edge",
+        "difference":"left-only",
+        "edge":{"cause":"event-1","effect":"event-2"}
+    });
+    let witness: EvidenceCausalDivergenceWitness = serde_json::from_value(json).unwrap();
+    assert_eq!(
+        witness,
+        EvidenceCausalDivergenceWitness::Edge {
+            difference: Difference::LeftOnly,
+            edge: world_query::EvidenceCausalEdge {
+                cause: "event-1".into(),
+                effect: "event-2".into(),
+            },
+            trace: vec![],
+        }
     );
 }
