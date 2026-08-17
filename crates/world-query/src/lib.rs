@@ -344,6 +344,8 @@ pub struct EvidenceCausalFirstDivergenceContinuation {
     pub left_frontier: bool,
     pub right_frontier: bool,
     pub depth_offset: usize,
+    #[serde(default)]
+    pub trace_prefix: Vec<String>,
     pub request: EvidenceComparisonQueryRequest,
 }
 
@@ -1169,7 +1171,15 @@ pub fn query_causal_first_divergence(
         })
         .collect();
     let continuations = if divergence_depth.is_none() {
-        causal_first_divergence_continuations(&left_frontier, &right_frontier, direction, max_depth)
+        causal_first_divergence_continuations(
+            (&left_graph, &left_positions),
+            (&right_graph, &right_positions),
+            root,
+            &left_frontier,
+            &right_frontier,
+            direction,
+            max_depth,
+        )
     } else {
         Vec::new()
     };
@@ -1188,6 +1198,15 @@ pub fn query_causal_first_divergence(
 }
 
 fn causal_first_divergence_continuations(
+    left: (
+        &VisibleCausalGraph<'_>,
+        &std::collections::BTreeMap<SelectionId, EvidenceCausalNodePosition>,
+    ),
+    right: (
+        &VisibleCausalGraph<'_>,
+        &std::collections::BTreeMap<SelectionId, EvidenceCausalNodePosition>,
+    ),
+    root: SelectionId,
     left_frontier: &[String],
     right_frontier: &[String],
     direction: EvidenceCausalDirection,
@@ -1208,6 +1227,17 @@ fn causal_first_divergence_continuations(
     membership
         .into_iter()
         .map(|(event, (left_frontier, right_frontier))| {
+            let (graph, positions) = if left_frontier { left } else { right };
+            let allowed = positions
+                .keys()
+                .copied()
+                .collect::<std::collections::BTreeSet<_>>();
+            let trace_prefix =
+                directional_shortest_event_path(graph, root, event, direction, &allowed)
+                    .expect("first-divergence frontier must remain directionally reachable")
+                    .into_iter()
+                    .map(|event| event.stable_key())
+                    .collect();
             let event = event.stable_key();
             EvidenceCausalFirstDivergenceContinuation {
                 event: event.clone(),
@@ -1215,6 +1245,7 @@ fn causal_first_divergence_continuations(
                 left_frontier,
                 right_frontier,
                 depth_offset: max_depth,
+                trace_prefix,
                 request: EvidenceComparisonQueryRequest::Causal(
                     EvidenceCausalComparisonRequest::FirstDivergence {
                         root: event,
