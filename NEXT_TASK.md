@@ -1,36 +1,34 @@
-# Next Coding Task — M206 First-Divergence Continuation Consistency
+# Next Coding Task — M207 Composable First-Divergence Trace Prefixes
 
-Prove that M205 segmented `first-divergence` replay is semantically equivalent to a single deeper bounded query before building any higher-level search scheduler.
+Preserve M204 witness explainability across M205 segmented replay by attaching a deterministic root-to-frontier trace prefix to every first-divergence continuation.
 
 ## Current baseline
 
-M203 finds the earliest bounded causal divergence, M204 adds deterministic witness traces, and M205 emits typed replayable frontier continuations with explicit `depth_offset` values. The remaining risk is compositional: a caller may fan out across multiple frontier Events and replay several windows, so the protocol must not miss an earlier divergence, distort absolute depth, or lose same-depth witness branches.
+M203 identifies the earliest bounded causal divergence, M204 gives each edge witness a deterministic directional trace, M205 makes the search resumable at frontier Events, and M206 proves segmented depth/witness semantics match monolithic deeper queries. The remaining composition gap is explanatory: a replayed witness trace begins at the continuation root rather than the original query root.
 
-## M206 — consistency invariants
+## M207 — continuation trace prefixes
 
-Add a dedicated invariant suite that implements a small test-only segmented search scheduler using only public M205 DTOs and `execute_comparison_query_request`.
+Extend `EvidenceCausalFirstDivergenceContinuation` additively with `trace_prefix: Vec<String>` using `#[serde(default)]`.
 
-## Invariants
+## Semantics
 
-- `offset + replay.divergence_depth` must equal the corresponding divergence depth from a monolithic deeper query.
-- When several frontier branches diverge at the same minimum absolute depth, the union of segmented witnesses must equal the monolithic witness set at that depth.
-- A zero-depth bootstrap followed by promoted one-hop replay must converge to the same result as a monolithic query without non-progressing loops.
-- Upstream and downstream segmented searches must both agree with monolithic semantics.
-- Hidden referenced Events and visible causal cycles must not create false segmented divergence or infinite frontier replay.
-- Duplicate continuation requests reached through converging branches may be de-duplicated by `(absolute offset, serialized request)` without changing the result.
+- `trace_prefix` begins at the current request root and ends at the continuation frontier Event.
+- Use the same directional traversal semantics as M204 witness traces.
+- Restrict the path to Events already visible inside the current bounded neighborhood.
+- Choose a shortest path; break equal-length alternatives by typed Event identity using the existing deterministic path helper.
+- For a frontier present on both sides, either side must yield the same structural prefix because no divergence was found inside the current window; use a deterministic side choice.
+- For one-sided frontier membership, derive the prefix from the side that owns the frontier.
+- A zero-depth continuation has prefix `[root]`.
+- To rebuild an original-root witness trace after replay, concatenate `trace_prefix` with the replay witness trace while dropping the replay trace's first Event, which is the shared frontier root.
 
-## Scope
+## Compatibility
 
-This milestone adds no production API surface. It is a proof milestone for the existing protocol-v1 continuation semantics and should exercise only public machine-query DTOs and executors.
+M205 continuation payloads without `trace_prefix` deserialize with an empty default. No request shape, CLI command, protocol version, server state, AgentRuntime authority, or transport changes.
 
-## Validation
+## Tests
 
-- `cargo fmt --all -- --check`
-- `bash ./scripts/check-boundaries.sh`
-- `cargo test -p world-query`
-- focused Clippy with warnings denied
-- full semantic workspace CI and external Pack conformance
+Prove upstream/downstream prefix composition against monolithic M204 traces, zero-depth behavior, typed shortest-path selection in a diamond, and backward M205 deserialization.
 
 ## Non-goals
 
-No production recursive scheduler, no new request or response type, no trace-prefix field, no server cursor/session, no MCP/HTTP/WebSocket, no AgentRuntime access, no arbitrary graph export, and no protocol v2.
+No production recursive scheduler, no automatic trace concatenation API, no opaque cursor, no arbitrary graph export, no MCP/HTTP/WebSocket, no AgentRuntime access, and no protocol v2.
