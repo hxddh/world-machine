@@ -109,9 +109,7 @@ fn edge_witnesses(
         .collect()
 }
 
-fn monolithic_outcome(
-    value: &world_query::EvidenceCausalFirstDivergenceResult,
-) -> SearchOutcome {
+fn monolithic_outcome(value: &world_query::EvidenceCausalFirstDivergenceResult) -> SearchOutcome {
     SearchOutcome {
         depth: value.divergence_depth,
         witnesses: edge_witnesses(&value.witnesses, &[]),
@@ -125,13 +123,13 @@ fn segmented_search(
     absolute_depth_limit: usize,
 ) -> SearchOutcome {
     let mut queue = VecDeque::from([(0usize, Vec::<String>::new(), initial)]);
-    let mut seen = BTreeSet::<(usize, String, Vec<String>)>::new();
+    let mut seen = BTreeSet::<(usize, String)>::new();
     let mut best_depth = None;
     let mut best_witnesses = BTreeSet::new();
 
     while let Some((offset, prefix, request)) = queue.pop_front() {
         let serialized = serde_json::to_string(&request).unwrap();
-        if !seen.insert((offset, serialized, prefix.clone())) {
+        if !seen.insert((offset, serialized)) {
             continue;
         }
         if best_depth.is_some_and(|best| offset >= best) {
@@ -203,7 +201,10 @@ fn three_window_upstream_replay_matches_monolithic_depth_witness_and_trace() {
     assert_eq!(segmented, monolithic_outcome(&monolithic));
     assert_eq!(segmented.depth, Some(3));
     let witness = segmented.witnesses.iter().next().unwrap();
-    assert_eq!(witness.trace, vec!["event-4", "event-3", "event-2", "event-1"]);
+    assert_eq!(
+        witness.trace,
+        vec!["event-4", "event-3", "event-2", "event-1"]
+    );
 }
 
 #[test]
@@ -231,7 +232,10 @@ fn three_window_downstream_replay_matches_monolithic_depth_witness_and_trace() {
     assert_eq!(segmented, monolithic_outcome(&monolithic));
     assert_eq!(segmented.depth, Some(3));
     let witness = segmented.witnesses.iter().next().unwrap();
-    assert_eq!(witness.trace, vec!["event-1", "event-2", "event-3", "event-4"]);
+    assert_eq!(
+        witness.trace,
+        vec!["event-1", "event-2", "event-3", "event-4"]
+    );
 }
 
 #[test]
@@ -328,5 +332,8 @@ fn diamond_prefix_choice_remains_stable_across_multiple_replay_windows() {
 
     assert_eq!(segmented, monolithic_outcome(&monolithic));
     let witness = segmented.witnesses.iter().next().unwrap();
-    assert_eq!(witness.trace, vec!["event-1", "event-2", "event-4", "event-5"]);
+    assert_eq!(
+        witness.trace,
+        vec!["event-1", "event-2", "event-4", "event-5"]
+    );
 }
