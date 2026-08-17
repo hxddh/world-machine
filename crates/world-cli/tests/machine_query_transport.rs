@@ -9,6 +9,34 @@ use world_query::{
 };
 
 #[test]
+fn stdin_selection_describe_emits_a_versioned_typed_description() {
+    let (path, root) = world_fixture();
+    let request = serde_json::to_string(&EvidenceQueryRequest::Describe {
+        selection: root.clone(),
+    })
+    .unwrap();
+
+    let output = run_query(
+        &["evidence-query", path.to_str().unwrap(), "-"],
+        Some(&request),
+    );
+
+    assert!(output.status.success(), "{}", stderr(&output));
+    let envelope: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_protocol(&envelope);
+    assert_eq!(envelope["status"], "ok");
+    let response: EvidenceQueryResponse =
+        serde_json::from_value(envelope["response"].clone()).unwrap();
+    let EvidenceQueryResponse::Description { value } = response else {
+        panic!("expected description response")
+    };
+    assert_eq!(value.selection, root);
+    assert!(!value.title.is_empty());
+
+    let _ = fs::remove_file(path);
+}
+
+#[test]
 fn stdin_selection_discovery_emits_a_versioned_typed_index() {
     let (path, _) = world_fixture();
     let request = serde_json::to_string(&EvidenceQueryRequest::Selections).unwrap();
