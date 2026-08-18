@@ -38,3 +38,4 @@ jobs:
         run: cargo test -p world-investigation
       - name: Clippy
         run: cargo clippy -p world-agent-tools -p world-investigation --all-targets -- -D warnings
+# trigger after workflow registration
