@@ -31,3 +31,4 @@ jobs:
             git commit -m "chore: update lockfile for stdio analyst process"
             git push
           fi
+# retrigger after workflow registration
