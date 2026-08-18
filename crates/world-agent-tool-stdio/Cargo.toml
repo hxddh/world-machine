@@ -1,0 +1,16 @@
+[package]
+name = "world-agent-tool-stdio"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+serde_json = "1"
+world-agent-tool-host = { path = "../world-agent-tool-host" }
+world-agent-tools = { path = "../world-agent-tools" }
+world-investigation-local = { path = "../world-investigation-local" }
+
+[dev-dependencies]
+world-builtins = { path = "../world-builtins" }
+world-projection = { path = "../world-projection" }
