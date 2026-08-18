@@ -6620,6 +6620,7 @@ dependencies = [
  "serde_json",
  "world-builtins",
  "world-integrity",
+ "world-investigation",
  "world-persistence",
  "world-projection",
  "world-query",
