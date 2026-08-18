@@ -62,12 +62,12 @@ where
                 source,
             }
         })?;
-        let response = host
-            .handle_json(request)
-            .map_err(|source| StdioAdapterError::InvalidHostRequest {
-                line: line_number,
-                source,
-            })?;
+        let response =
+            host.handle_json(request)
+                .map_err(|source| StdioAdapterError::InvalidHostRequest {
+                    line: line_number,
+                    source,
+                })?;
         serde_json::to_writer(&mut writer, &response).map_err(StdioAdapterError::Serialize)?;
         writer.write_all(b"\n").map_err(StdioAdapterError::Write)?;
         writer.flush().map_err(StdioAdapterError::Write)?;
