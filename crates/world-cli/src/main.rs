@@ -1170,10 +1170,7 @@ mod tests {
         assert_eq!(output["version"], INVESTIGATION_PROTOCOL_VERSION);
         assert_eq!(output["status"], "ok");
         assert_eq!(output["response"]["result"], "first-divergence");
-        assert_eq!(
-            output["response"]["value"]["identical_within_depth"],
-            true
-        );
+        assert_eq!(output["response"]["value"]["identical_within_depth"], true);
     }
 
     #[test]
