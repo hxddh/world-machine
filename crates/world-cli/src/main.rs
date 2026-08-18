@@ -628,8 +628,7 @@ fn evidence_investigate_compare_json_report(
     right_path: &Path,
     request_json: &str,
 ) -> Result<String, Box<dyn Error>> {
-    let mut executor =
-        LocalArchiveComparisonExecutor::from_archive_paths(left_path, right_path)?;
+    let mut executor = LocalArchiveComparisonExecutor::from_archive_paths(left_path, right_path)?;
     evidence_investigate_compare_json_with_executor(&mut executor, request_json)
         .map_err(|error| Box::new(error) as Box<dyn Error>)
 }
