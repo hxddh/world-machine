@@ -180,6 +180,10 @@ export class AnalystJsonlClient {
 
   async #withAbort(promise, signal) {
     if (!signal) return promise;
+    if (signal.aborted) {
+      this.kill();
+      throw new AnalystBridgeError("analyst tool call aborted");
+    }
     let onAbort;
     const aborted = new Promise((_, reject) => {
       onAbort = () => {
