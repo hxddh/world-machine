@@ -11,7 +11,7 @@ pub const READ_ONLY_JSON_TOOL_HOST_PROTOCOL: &str = "world-machine-readonly-tool
 pub const READ_ONLY_JSON_TOOL_HOST_VERSION: u64 = 1;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "op", rename_all = "kebab-case", deny_unknown_fields)]
+#[serde(tag = "op", rename_all = "kebab-case")]
 pub enum ReadOnlyJsonToolHostRequest {
     ListTools,
     Invoke {
@@ -64,15 +64,15 @@ pub struct ReadOnlyJsonToolHostEnvelope {
 
 #[derive(Debug)]
 pub enum ReadOnlyJsonToolHostProtocolError {
-    InvalidRequest(serde_json::Error),
+    InvalidRequest(String),
     ResponseSerialization(serde_json::Error),
 }
 
 impl fmt::Display for ReadOnlyJsonToolHostProtocolError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::InvalidRequest(error) => {
-                write!(f, "invalid read-only tool host request: {error}")
+            Self::InvalidRequest(message) => {
+                write!(f, "invalid read-only tool host request: {message}")
             }
             Self::ResponseSerialization(error) => {
                 write!(
@@ -87,7 +87,8 @@ impl fmt::Display for ReadOnlyJsonToolHostProtocolError {
 impl Error for ReadOnlyJsonToolHostProtocolError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::InvalidRequest(error) | Self::ResponseSerialization(error) => Some(error),
+            Self::InvalidRequest(_) => None,
+            Self::ResponseSerialization(error) => Some(error),
         }
     }
 }
@@ -152,11 +153,43 @@ where
         &mut self,
         request: Value,
     ) -> Result<Value, ReadOnlyJsonToolHostProtocolError> {
+        validate_request_shape(&request)?;
         let request = serde_json::from_value::<ReadOnlyJsonToolHostRequest>(request)
-            .map_err(ReadOnlyJsonToolHostProtocolError::InvalidRequest)?;
+            .map_err(|error| ReadOnlyJsonToolHostProtocolError::InvalidRequest(error.to_string()))?;
         serde_json::to_value(self.handle(request))
             .map_err(ReadOnlyJsonToolHostProtocolError::ResponseSerialization)
     }
+}
+
+fn validate_request_shape(request: &Value) -> Result<(), ReadOnlyJsonToolHostProtocolError> {
+    let object = request.as_object().ok_or_else(|| {
+        ReadOnlyJsonToolHostProtocolError::InvalidRequest(
+            "request must be a JSON object".to_owned(),
+        )
+    })?;
+    let operation = object.get("op").and_then(Value::as_str).ok_or_else(|| {
+        ReadOnlyJsonToolHostProtocolError::InvalidRequest(
+            "request must contain a string `op` field".to_owned(),
+        )
+    })?;
+    let allowed = match operation {
+        "list-tools" => &["op"][..],
+        "invoke" => &["op", "call_id", "tool", "input"][..],
+        other => {
+            return Err(ReadOnlyJsonToolHostProtocolError::InvalidRequest(format!(
+                "unsupported operation `{other}`"
+            )))
+        }
+    };
+    if let Some(field) = object
+        .keys()
+        .find(|field| !allowed.contains(&field.as_str()))
+    {
+        return Err(ReadOnlyJsonToolHostProtocolError::InvalidRequest(format!(
+            "unknown field `{field}` for `{operation}` request"
+        )));
+    }
+    Ok(())
 }
 
 fn host_error_from_dispatch<E>(error: &JsonToolDispatchError<E>) -> ReadOnlyJsonToolHostError
