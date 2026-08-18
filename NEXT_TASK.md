@@ -1,45 +1,43 @@
-# Next Coding Task — M211 Read-Only Agent Tool Boundary
+# Next Coding Task — M212 Provider-Neutral JSON Tool Contract
 
-Expose the proven M209/M210 progressive investigation capability as a provider-neutral host-side agent tool without weakening the in-world `AgentRuntime` perception boundary.
+Turn the M211 typed read-only investigation tool into a dynamic JSON contract that any external Agent SDK adapter can register without importing World internals or duplicating investigation semantics.
 
 ## Current baseline
 
-M209 provides `world-investigation`, a scheduler that depends only on public `world-query` DTOs. M210 proves a concrete local adapter can own `ProjectionSnapshot` while delegating all progressive search semantics through `ComparisonQueryExecutor`. The remaining gap is a reusable typed tool surface for external agent hosts.
+M209 owns progressive first-divergence orchestration, M210 proves a concrete CLI executor adapter, and M211 adds host-side typed `world.first-divergence` with no in-world `AgentRuntime` or Projection access. The remaining integration gap is the common shape expected by practical Agent SDKs: a tool descriptor with an input schema plus dynamic JSON invocation.
 
-## M211 — `world-agent-tools`
+## M212 — JSON tool contract
 
-Add a new `world-agent-tools` crate with a read-only `world.first-divergence` tool.
+Extend `world-agent-tools` with:
 
-The crate exposes:
+- serializable `ReadOnlyJsonToolDescriptor`;
+- deterministic JSON Schema for `world.first-divergence` input;
+- `ReadOnlyJsonTool` trait with provider-neutral `json_descriptor` and `invoke_json`;
+- strict JSON input decoding into the existing typed `FirstDivergenceToolInput`;
+- JSON output encoding from the existing typed `FirstDivergenceToolOutput`;
+- `JsonToolInvocationError` that distinguishes malformed tool input, investigation/executor failures, and output serialization failures.
 
-- a stable `ReadOnlyToolDescriptor` with `read_only = true`;
-- serializable `FirstDivergenceToolInput { root, direction, window_depth, max_depth }`;
-- serializable `FirstDivergenceToolOutput` carrying the absolute M209 result;
-- `FirstDivergenceTool<E>` parameterized only by the existing `ComparisonQueryExecutor` authority boundary;
-- `invoke`, which maps the typed input to `investigate_first_divergence` and does not reimplement continuation replay, convergence, depth accounting, or trace composition.
+## Schema semantics
+
+The input schema is an object with no additional properties. It requires `root`, `direction`, `window_depth`, and `max_depth`; direction is `upstream|downstream`, window depth has minimum 1, and maximum investigation depth has minimum 0.
+
+The schema describes the transport contract only. Canonical Event visibility and causal semantics remain validated by the existing machine-query/investigation layers.
 
 ## Boundary rules
 
-- `world-agent-tools` production dependencies are limited to `serde`, `world-investigation`, and `world-query`.
-- It must not depend on or name Projection/Core truth, `world-agent` / in-world `AgentRuntime`, GPUI, model-provider SDKs, or transport stacks.
-- The tool executor is supplied by a host adapter. The tool itself has no archive, snapshot, filesystem, network, mutation, or model authority.
-- This does not add tools to the in-world `AgentRuntime`; `AgentObservation` remains the only perception surface there.
-
-## Compatibility
-
-No change to evidence-query protocol v1, investigation envelope v1, CLI commands, Pack APIs, persistence formats, or AgentRuntime interfaces.
+- No provider SDK types or names enter the tool contract.
+- JSON dispatch delegates to typed `invoke`, which delegates to M209; no investigation logic is reimplemented.
+- The tool still owns no Projection, archive, filesystem, network, model, or mutation authority.
+- The in-world `AgentRuntime` remains unchanged and does not gain this tool automatically.
 
 ## Validation
 
-- stable read-only descriptor and typed JSON input shape;
-- progressive multi-window invocation proves reuse of M209 and preserves original-root witness traces;
-- serializable output contains no executor or world-internal state;
-- hard dependency/content boundary checks;
-- `cargo fmt --all -- --check`;
-- `cargo test -p world-agent-tools` and `cargo test -p world-investigation`;
-- focused Clippy with warnings denied;
-- full workspace CI, external Pack conformance, and macOS/GPUI validation when lockfile/workspace paths trigger it.
+- stable serializable descriptor and deterministic input schema;
+- valid JSON dispatch reaches the typed M211/M209 path and returns original-root witnesses;
+- invalid direction / unknown fields fail before the executor is used;
+- existing typed API remains compatible;
+- boundary check, fmt, focused tests/Clippy, full workspace CI and Pack conformance.
 
 ## Non-goals
 
-No provider-specific SDK integration, no MCP/HTTP/WebSocket adapter, no in-world AgentRuntime query access, no `ProjectionSnapshot` exposure, no mutation tools, no server cursor/session, and no protocol v2.
+No provider-specific adapter yet, no generic multi-tool registry yet, no MCP/HTTP/WebSocket server, no in-world AgentRuntime tool injection, no mutation tools, and no protocol v2.

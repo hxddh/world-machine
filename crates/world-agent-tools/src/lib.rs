@@ -1,4 +1,7 @@
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::error::Error;
+use std::fmt;
 use world_investigation::{
     investigate_first_divergence, ComparisonQueryExecutor, FirstDivergenceInvestigationRequest,
     InvestigationError,
@@ -22,7 +25,52 @@ pub fn first_divergence_tool_descriptor() -> ReadOnlyToolDescriptor {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct ReadOnlyJsonToolDescriptor {
+    pub name: &'static str,
+    pub description: &'static str,
+    pub read_only: bool,
+    pub input_schema: Value,
+}
+
+pub fn first_divergence_input_schema() -> Value {
+    serde_json::json!({
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+            "root": {
+                "type": "string",
+                "description": "Canonical visible Event selection key such as event-7."
+            },
+            "direction": {
+                "type": "string",
+                "enum": ["upstream", "downstream"]
+            },
+            "window_depth": {
+                "type": "integer",
+                "minimum": 1
+            },
+            "max_depth": {
+                "type": "integer",
+                "minimum": 0
+            }
+        },
+        "required": ["root", "direction", "window_depth", "max_depth"]
+    })
+}
+
+pub fn first_divergence_json_tool_descriptor() -> ReadOnlyJsonToolDescriptor {
+    let descriptor = first_divergence_tool_descriptor();
+    ReadOnlyJsonToolDescriptor {
+        name: descriptor.name,
+        description: descriptor.description,
+        read_only: descriptor.read_only,
+        input_schema: first_divergence_input_schema(),
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct FirstDivergenceToolInput {
     pub root: String,
     pub direction: EvidenceCausalDirection,
@@ -93,6 +141,71 @@ where
             witnesses: result.witnesses,
             truncated: result.truncated,
         })
+    }
+}
+
+#[derive(Debug)]
+pub enum JsonToolInvocationError<E> {
+    InvalidInput(serde_json::Error),
+    Investigation(InvestigationError<E>),
+    OutputSerialization(serde_json::Error),
+}
+
+impl<E: fmt::Display> fmt::Display for JsonToolInvocationError<E> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidInput(error) => write!(f, "invalid tool input: {error}"),
+            Self::Investigation(error) => error.fmt(f),
+            Self::OutputSerialization(error) => {
+                write!(f, "failed to serialize tool output: {error}")
+            }
+        }
+    }
+}
+
+impl<E> Error for JsonToolInvocationError<E>
+where
+    E: Error + 'static,
+{
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::InvalidInput(error) | Self::OutputSerialization(error) => Some(error),
+            Self::Investigation(error) => Some(error),
+        }
+    }
+}
+
+pub trait ReadOnlyJsonTool {
+    type ExecutorError;
+
+    fn json_descriptor(&self) -> ReadOnlyJsonToolDescriptor;
+
+    fn invoke_json(
+        &mut self,
+        input: Value,
+    ) -> Result<Value, JsonToolInvocationError<Self::ExecutorError>>;
+}
+
+impl<E> ReadOnlyJsonTool for FirstDivergenceTool<E>
+where
+    E: ComparisonQueryExecutor,
+{
+    type ExecutorError = E::Error;
+
+    fn json_descriptor(&self) -> ReadOnlyJsonToolDescriptor {
+        first_divergence_json_tool_descriptor()
+    }
+
+    fn invoke_json(
+        &mut self,
+        input: Value,
+    ) -> Result<Value, JsonToolInvocationError<Self::ExecutorError>> {
+        let input = serde_json::from_value::<FirstDivergenceToolInput>(input)
+            .map_err(JsonToolInvocationError::InvalidInput)?;
+        let output = self
+            .invoke(&input)
+            .map_err(JsonToolInvocationError::Investigation)?;
+        serde_json::to_value(output).map_err(JsonToolInvocationError::OutputSerialization)
     }
 }
 
@@ -309,6 +422,80 @@ mod tests {
             output.witnesses,
             vec![witness(&["event-4", "event-3", "event-2", "event-1"])]
         );
+        assert!(tool.executor().script.is_empty());
+    }
+
+    #[test]
+    fn json_descriptor_has_stable_provider_neutral_schema() {
+        let descriptor = first_divergence_json_tool_descriptor();
+        assert_eq!(descriptor.name, "world.first-divergence");
+        assert!(descriptor.read_only);
+        assert_eq!(descriptor.input_schema["type"], "object");
+        assert_eq!(descriptor.input_schema["additionalProperties"], false);
+        assert_eq!(
+            descriptor.input_schema["properties"]["direction"]["enum"],
+            serde_json::json!(["upstream", "downstream"])
+        );
+        assert_eq!(
+            descriptor.input_schema["properties"]["window_depth"]["minimum"],
+            1
+        );
+        assert_eq!(
+            descriptor.input_schema["required"],
+            serde_json::json!(["root", "direction", "window_depth", "max_depth"])
+        );
+        let serialized = serde_json::to_value(descriptor).unwrap();
+        assert_eq!(serialized["name"], "world.first-divergence");
+        assert_eq!(serialized["read_only"], true);
+    }
+
+    #[test]
+    fn json_tool_dispatches_valid_input_through_typed_investigation() {
+        let direction = EvidenceCausalDirection::Upstream;
+        let mut tool = FirstDivergenceTool::new(ScriptedExecutor::new(vec![(
+            request("event-2", direction, 1),
+            response(
+                "event-2",
+                direction,
+                1,
+                Some(1),
+                vec![witness(&["event-2", "event-1"])],
+                vec![],
+            ),
+        )]));
+
+        let output = tool
+            .invoke_json(serde_json::json!({
+                "root": "event-2",
+                "direction": "upstream",
+                "window_depth": 1,
+                "max_depth": 1,
+            }))
+            .unwrap();
+
+        assert_eq!(output["root"], "event-2");
+        assert_eq!(output["direction"], "upstream");
+        assert_eq!(output["divergence_depth"], 1);
+        assert_eq!(
+            output["witnesses"][0]["trace"],
+            serde_json::json!(["event-2", "event-1"])
+        );
+        assert!(tool.executor().script.is_empty());
+    }
+
+    #[test]
+    fn json_tool_rejects_unknown_or_malformed_fields_before_executor_use() {
+        let mut tool = FirstDivergenceTool::new(ScriptedExecutor::new(vec![]));
+        let error = tool
+            .invoke_json(serde_json::json!({
+                "root": "event-2",
+                "direction": "sideways",
+                "window_depth": 1,
+                "max_depth": 2,
+                "mutate": true,
+            }))
+            .unwrap_err();
+        assert!(matches!(error, JsonToolInvocationError::InvalidInput(_)));
         assert!(tool.executor().script.is_empty());
     }
 
