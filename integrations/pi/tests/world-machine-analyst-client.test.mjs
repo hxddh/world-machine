@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import worldMachineAnalyst from "../world-machine-analyst.mjs";
 import { AnalystBridgeError, AnalystJsonlClient, providerSafeToolName } from "../world-machine-analyst-client.mjs";
 
 function fakeServer(script) {
@@ -68,6 +69,67 @@ test("catalog and invoke share one single-flight child session", async () => {
   }
 });
 
+test("actual Pi extension registers the host catalog and executes through it", async () => {
+  const previous = {
+    program: process.env.WORLD_MACHINE_ANALYST_PROGRAM,
+    left: process.env.WORLD_MACHINE_LEFT_ARCHIVE,
+    right: process.env.WORLD_MACHINE_RIGHT_ARCHIVE,
+  };
+  process.env.WORLD_MACHINE_ANALYST_PROGRAM = process.execPath;
+  process.env.WORLD_MACHINE_LEFT_ARCHIVE = "-e";
+  process.env.WORLD_MACHINE_RIGHT_ARCHIVE = SERVER;
+
+  const handlers = new Map();
+  const registered = [];
+  const activeHistory = [];
+  const pi = {
+    on(event, handler) {
+      handlers.set(event, handler);
+    },
+    setActiveTools(names) {
+      activeHistory.push([...names]);
+    },
+    registerTool(tool) {
+      registered.push(tool);
+    },
+  };
+
+  worldMachineAnalyst(pi);
+  try {
+    await handlers.get("session_start")();
+    assert.deepEqual(activeHistory[0], []);
+    assert.deepEqual(activeHistory.at(-1), ["world_first_divergence"]);
+    assert.equal(registered.length, 1);
+
+    const tool = registered[0];
+    assert.equal(tool.name, "world_first_divergence");
+    assert.equal(tool.label, "world.first-divergence");
+    assert.equal(tool.executionMode, "sequential");
+    assert.deepEqual(tool.parameters, {
+      type: "object",
+      properties: { root: { type: "string" } },
+      required: ["root"],
+    });
+
+    const result = await tool.execute(
+      "pi-call-1",
+      { root: "event-9" },
+      new AbortController().signal,
+    );
+    assert.equal(result.details.worldMachineTool, "world.first-divergence");
+    assert.deepEqual(result.details.output, { echoed: { root: "event-9" } });
+    assert.deepEqual(JSON.parse(result.content[0].text), { echoed: { root: "event-9" } });
+  } finally {
+    if (handlers.has("session_shutdown")) {
+      await handlers.get("session_shutdown")();
+    }
+    restoreEnv("WORLD_MACHINE_ANALYST_PROGRAM", previous.program);
+    restoreEnv("WORLD_MACHINE_LEFT_ARCHIVE", previous.left);
+    restoreEnv("WORLD_MACHINE_RIGHT_ARCHIVE", previous.right);
+  }
+  assert.deepEqual(activeHistory.at(-1), []);
+});
+
 test("remote tool errors stay correlated and do not poison the session", async () => {
   const client = fakeServer(SERVER);
   try {
@@ -126,3 +188,8 @@ test("provider tool names are deterministic and constrained", () => {
   assert.equal(providerSafeToolName("7.bad tool"), "world_7_bad_tool");
   assert.ok(providerSafeToolName("x".repeat(100)).length <= 64);
 });
+
+function restoreEnv(name, value) {
+  if (value === undefined) delete process.env[name];
+  else process.env[name] = value;
+}
