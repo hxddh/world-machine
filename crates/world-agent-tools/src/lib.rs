@@ -81,18 +81,6 @@ pub fn read_only_json_tool_catalog() -> Vec<ReadOnlyJsonToolDescriptor> {
     descriptors
 }
 
-pub fn read_only_json_tool_catalog() -> Vec<ReadOnlyJsonToolDescriptor> {
-    let mut descriptors = vec![first_divergence_json_tool_descriptor()];
-    descriptors.sort_by(|left, right| left.name.cmp(right.name));
-    debug_assert!(
-        descriptors
-            .windows(2)
-            .all(|pair| pair[0].name != pair[1].name),
-        "read-only tool names must be unique"
-    );
-    descriptors
-}
-
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FirstDivergenceToolInput {
@@ -230,103 +218,6 @@ where
             .invoke(&input)
             .map_err(JsonToolInvocationError::Investigation)?;
         serde_json::to_value(output).map_err(JsonToolInvocationError::OutputSerialization)
-    }
-}
-
-#[derive(Debug)]
-pub enum JsonToolDispatchError<E> {
-    UnknownTool(String),
-    Invocation {
-        name: &'static str,
-        source: JsonToolInvocationError<E>,
-    },
-}
-
-impl<E: fmt::Display> fmt::Display for JsonToolDispatchError<E> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::UnknownTool(name) => write!(f, "unknown read-only tool: {name}"),
-            Self::Invocation { name, source } => {
-                write!(f, "read-only tool {name} failed: {source}")
-            }
-        }
-    }
-}
-
-impl<E> Error for JsonToolDispatchError<E>
-where
-    E: Error + 'static,
-{
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::UnknownTool(_) => None,
-            Self::Invocation { source, .. } => Some(source),
-        }
-    }
-}
-
-pub trait ReadOnlyJsonToolSet {
-    type ExecutorError;
-
-    fn descriptors(&self) -> Vec<ReadOnlyJsonToolDescriptor>;
-
-    fn invoke_named_json(
-        &mut self,
-        name: &str,
-        input: Value,
-    ) -> Result<Value, JsonToolDispatchError<Self::ExecutorError>>;
-}
-
-pub struct WorldReadOnlyToolSet<E> {
-    first_divergence: FirstDivergenceTool<E>,
-}
-
-impl<E> WorldReadOnlyToolSet<E> {
-    pub fn new(executor: E) -> Self {
-        Self {
-            first_divergence: FirstDivergenceTool::new(executor),
-        }
-    }
-
-    pub fn executor(&self) -> &E {
-        self.first_divergence.executor()
-    }
-
-    pub fn executor_mut(&mut self) -> &mut E {
-        self.first_divergence.executor_mut()
-    }
-
-    pub fn into_inner(self) -> E {
-        self.first_divergence.into_inner()
-    }
-}
-
-impl<E> ReadOnlyJsonToolSet for WorldReadOnlyToolSet<E>
-where
-    E: ComparisonQueryExecutor,
-{
-    type ExecutorError = E::Error;
-
-    fn descriptors(&self) -> Vec<ReadOnlyJsonToolDescriptor> {
-        read_only_json_tool_catalog()
-    }
-
-    fn invoke_named_json(
-        &mut self,
-        name: &str,
-        input: Value,
-    ) -> Result<Value, JsonToolDispatchError<Self::ExecutorError>> {
-        match name {
-            FIRST_DIVERGENCE_TOOL_NAME => {
-                self.first_divergence.invoke_json(input).map_err(|source| {
-                    JsonToolDispatchError::Invocation {
-                        name: FIRST_DIVERGENCE_TOOL_NAME,
-                        source,
-                    }
-                })
-            }
-            _ => Err(JsonToolDispatchError::UnknownTool(name.to_owned())),
-        }
     }
 }
 
@@ -715,72 +606,6 @@ mod tests {
             .unwrap_err();
         assert!(matches!(error, JsonToolInvocationError::InvalidInput(_)));
         assert!(tool.executor().script.is_empty());
-    }
-
-    #[test]
-    fn read_only_catalog_is_deterministic_unique_and_read_only() {
-        let catalog = read_only_json_tool_catalog();
-        let names = catalog
-            .iter()
-            .map(|descriptor| descriptor.name)
-            .collect::<Vec<_>>();
-        assert_eq!(names, vec!["world.first-divergence"]);
-        assert!(catalog.iter().all(|descriptor| descriptor.read_only));
-        assert!(names.windows(2).all(|pair| pair[0] < pair[1]));
-    }
-
-    #[test]
-    fn tool_set_lists_the_same_catalog_exposed_to_provider_adapters() {
-        let tool_set = WorldReadOnlyToolSet::new(ScriptedExecutor::new(vec![]));
-        assert_eq!(tool_set.descriptors(), read_only_json_tool_catalog());
-    }
-
-    #[test]
-    fn tool_set_dispatches_known_name_through_existing_json_tool() {
-        let direction = EvidenceCausalDirection::Upstream;
-        let mut tool_set = WorldReadOnlyToolSet::new(ScriptedExecutor::new(vec![(
-            request("event-2", direction, 1),
-            response(
-                "event-2",
-                direction,
-                1,
-                Some(1),
-                vec![witness(&["event-2", "event-1"])],
-                vec![],
-            ),
-        )]));
-
-        let output = tool_set
-            .invoke_named_json(
-                FIRST_DIVERGENCE_TOOL_NAME,
-                serde_json::json!({
-                    "root": "event-2",
-                    "direction": "upstream",
-                    "window_depth": 1,
-                    "max_depth": 1,
-                }),
-            )
-            .unwrap();
-
-        assert_eq!(output["divergence_depth"], 1);
-        assert_eq!(
-            output["witnesses"][0]["trace"],
-            serde_json::json!(["event-2", "event-1"])
-        );
-        assert!(tool_set.executor().script.is_empty());
-    }
-
-    #[test]
-    fn unknown_tool_name_fails_before_executor_use() {
-        let mut tool_set = WorldReadOnlyToolSet::new(ScriptedExecutor::new(vec![]));
-        let error = tool_set
-            .invoke_named_json("world.mutate", serde_json::json!({}))
-            .unwrap_err();
-        assert!(matches!(
-            error,
-            JsonToolDispatchError::UnknownTool(name) if name == "world.mutate"
-        ));
-        assert!(tool_set.executor().script.is_empty());
     }
 
     #[test]
