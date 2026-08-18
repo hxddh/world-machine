@@ -38,3 +38,4 @@ jobs:
             git commit -m "M214: add read-only analyst tool host"
             git push
           fi
+# retrigger after workflow registration
