@@ -1,0 +1,42 @@
+name: M215 CLI local executor refactor
+
+on:
+  push:
+    branches:
+      - agent/m215-stdio-analyst-process-direct
+    paths:
+      - .github/workflows/m215-cli-refactor.yml
+
+permissions:
+  contents: write
+
+jobs:
+  refactor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Apply CLI refactor
+        run: python3 .github/m215_cli_refactor.py
+      - name: Format
+        run: cargo fmt --all
+      - name: Test local executor
+        run: cargo test -p world-investigation-local
+      - name: Test stdio process
+        run: cargo test -p world-agent-tool-stdio
+      - name: Test M210 CLI regression
+        run: cargo test -p world-cli --test machine_investigation_first_divergence
+      - name: Check boundaries
+        run: bash ./scripts/check-boundaries.sh
+      - name: Clippy
+        run: cargo clippy -p world-investigation-local -p world-agent-tool-stdio -p world-cli --all-targets -- -D warnings
+      - name: Commit refactor and lockfile
+        run: |
+          git config user.name hxddh
+          git config user.email hxddh@users.noreply.github.com
+          git add Cargo.lock crates/world-cli/Cargo.toml crates/world-cli/src/main.rs
+          if ! git diff --cached --quiet; then
+            git commit -m "M215: reuse local investigation executor in CLI"
+            git push
+          fi
