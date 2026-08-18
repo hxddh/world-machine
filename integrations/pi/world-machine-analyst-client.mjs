@@ -98,15 +98,16 @@ export class AnalystJsonlClient {
     if (this.child.exitCode !== null || this.child.signalCode !== null) {
       return;
     }
-    this.child.stdin.end();
     const exited = once(this.child, "exit").then(() => true);
+    this.child.stdin.end();
     const timedOut = new Promise((resolve) => {
       const timer = setTimeout(() => resolve(false), 500);
       timer.unref?.();
     });
     if (!(await Promise.race([exited, timedOut]))) {
+      const terminated = once(this.child, "exit");
       this.child.kill("SIGTERM");
-      await Promise.race([once(this.child, "exit"), new Promise((resolve) => setTimeout(resolve, 500))]);
+      await Promise.race([terminated, new Promise((resolve) => setTimeout(resolve, 500))]);
     }
   }
 
@@ -181,6 +182,7 @@ export class AnalystJsonlClient {
   async #withAbort(promise, signal) {
     if (!signal) return promise;
     if (signal.aborted) {
+      promise.catch(() => {});
       this.kill();
       throw new AnalystBridgeError("analyst tool call aborted");
     }
