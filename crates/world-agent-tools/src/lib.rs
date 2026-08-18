@@ -164,21 +164,19 @@ mod tests {
         witnesses: Vec<EvidenceCausalDivergenceWitness>,
         continuations: Vec<EvidenceCausalFirstDivergenceContinuation>,
     ) -> EvidenceComparisonQueryResponse {
-        EvidenceComparisonQueryResponse::Causal(
-            EvidenceCausalComparisonResponse::FirstDivergence {
-                value: EvidenceCausalFirstDivergenceResult {
-                    root: root.into(),
-                    direction,
-                    max_depth,
-                    identical_within_depth: divergence_depth.is_none(),
-                    divergence_depth,
-                    witnesses,
-                    left_frontier: vec![],
-                    right_frontier: vec![],
-                    continuations,
-                },
+        EvidenceComparisonQueryResponse::Causal(EvidenceCausalComparisonResponse::FirstDivergence {
+            value: EvidenceCausalFirstDivergenceResult {
+                root: root.into(),
+                direction,
+                max_depth,
+                identical_within_depth: divergence_depth.is_none(),
+                divergence_depth,
+                witnesses,
+                left_frontier: vec![],
+                right_frontier: vec![],
+                continuations,
             },
-        )
+        })
     }
 
     fn continuation(
@@ -307,7 +305,10 @@ mod tests {
         assert_eq!(output.divergence_depth, Some(3));
         assert!(!output.identical_within_depth);
         assert!(!output.truncated);
-        assert_eq!(output.witnesses, vec![witness(&["event-4", "event-3", "event-2", "event-1"])]);
+        assert_eq!(
+            output.witnesses,
+            vec![witness(&["event-4", "event-3", "event-2", "event-1"])]
+        );
         assert!(tool.executor().script.is_empty());
     }
 

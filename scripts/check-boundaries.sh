@@ -12,6 +12,7 @@ PACK_CATALOG="$ROOT/crates/world-pack-catalog"
 PACK_SERVER="$ROOT/crates/world-pack-server"
 PROJECTION="$ROOT/crates/world-projection"
 INVESTIGATION="$ROOT/crates/world-investigation"
+AGENT_TOOLS="$ROOT/crates/world-agent-tools"
 HOST="$ROOT/crates/world-host"
 LIBRARY="$ROOT/crates/world-library"
 LINEAGE="$ROOT/crates/world-lineage"
@@ -30,6 +31,7 @@ pack_process_forbidden=("TinySociety" "tiny_society" "tiny-society" "Tiny Societ
 pack_protocol_forbidden=("TinySociety" "tiny_society" "tiny-society" "Tiny Society" "FutureArchaeologist" "future_archaeologist" "future-archaeologist" "Future Archaeologist" "gpui" "pi_agent" "openai" "anthropic")
 projection_forbidden=("TinySociety" "Tiny Society" "FutureArchaeologist" "Future Archaeologist" "Bakery" "Society" "gpui" "pi_agent")
 investigation_forbidden=("world_projection" "world-projection" "ProjectionSnapshot" "world_core" "world-core" "world_agent" "world-agent" "gpui" "pi_agent" "openai" "anthropic")
+agent_tools_forbidden=("world_projection" "world-projection" "ProjectionSnapshot" "world_core" "world-core" "../world-agent" "world_agent::" "gpui" "pi_agent" "openai" "anthropic")
 host_forbidden=("TinySociety" "tiny_society" "FutureArchaeologist" "future_archaeologist" "gpui" "pi_agent")
 library_forbidden=("TinySociety" "tiny_society" "FutureArchaeologist" "future_archaeologist" "gpui" "pi_agent")
 lineage_forbidden=("TinySociety" "tiny_society" "FutureArchaeologist" "future_archaeologist" "Bakery" "Mara" "Jonas" "gpui" "pi_agent")
@@ -132,6 +134,16 @@ if [[ -d "$INVESTIGATION" ]]; then
     if grep -Rni --exclude-dir=target -i -- "$token" "$INVESTIGATION" >/tmp/world-machine-investigation-boundary-check 2>/dev/null; then
       echo "Boundary violation: '$token' found in query-only world-investigation adapter:"
       cat /tmp/world-machine-investigation-boundary-check
+      failed=1
+    fi
+  done
+fi
+
+if [[ -d "$AGENT_TOOLS" ]]; then
+  for token in "${agent_tools_forbidden[@]}"; do
+    if grep -Rni --exclude-dir=target -i -- "$token" "$AGENT_TOOLS" >/tmp/world-machine-agent-tools-boundary-check 2>/dev/null; then
+      echo "Boundary violation: '$token' found in read-only world-agent-tools boundary:"
+      cat /tmp/world-machine-agent-tools-boundary-check
       failed=1
     fi
   done

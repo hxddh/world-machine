@@ -1,47 +1,45 @@
-# Next Coding Task — M210 CLI Investigation Adapter
+# Next Coding Task — M211 Read-Only Agent Tool Boundary
 
-Expose the M209 read-only progressive investigation boundary through `world-cli` without duplicating continuation scheduling or weakening the Projection/AgentRuntime boundary.
+Expose the proven M209/M210 progressive investigation capability as a provider-neutral host-side agent tool without weakening the in-world `AgentRuntime` perception boundary.
 
 ## Current baseline
 
-M203–M208 define and prove deterministic, replayable first-divergence semantics. M209 packages those semantics in `world-investigation`, whose production dependency is only `world-query` and whose executor trait prevents the scheduler from reaching `ProjectionSnapshot` directly. The remaining gap is a concrete local adapter that external automation can invoke today.
+M209 provides `world-investigation`, a scheduler that depends only on public `world-query` DTOs. M210 proves a concrete local adapter can own `ProjectionSnapshot` while delegating all progressive search semantics through `ComparisonQueryExecutor`. The remaining gap is a reusable typed tool surface for external agent hosts.
 
-## M210 — local CLI adapter
+## M211 — `world-agent-tools`
 
-Add `world-cli evidence-investigate-compare <left.world> <right.world> <request-json|->`.
+Add a new `world-agent-tools` crate with a read-only `world.first-divergence` tool.
 
-The request is an orchestration-layer JSON document:
+The crate exposes:
 
-```json
-{"query":"first-divergence","root":"event-7","direction":"upstream","window_depth":2,"max_depth":12}
-```
-
-`world-cli` opens the two archives, owns the snapshots locally, implements `ComparisonQueryExecutor`, and delegates all progressive scheduling to `world-investigation`.
-
-## Machine contract
-
-- Emit a separate `world-machine-evidence-investigation` version-1 JSON envelope so orchestration results are not confused with the existing `world-machine-evidence-query` version-1 response DTOs.
-- Successful responses contain the M209 absolute result: root, direction, max depth, bounded identity, absolute divergence depth, original-root witnesses, and truncation.
-- Underlying `QueryError` values retain their existing stable serialized shape inside the investigation error envelope.
-- M209 orchestration contract errors use stable kebab-case error keys.
-- Malformed request JSON, unsupported query names, missing/wrong field types, and invalid direction remain CLI transport/input failures: non-zero exit, stderr, no success envelope.
-- `-` reads one full JSON document from stdin, matching the existing machine-query commands.
+- a stable `ReadOnlyToolDescriptor` with `read_only = true`;
+- serializable `FirstDivergenceToolInput { root, direction, window_depth, max_depth }`;
+- serializable `FirstDivergenceToolOutput` carrying the absolute M209 result;
+- `FirstDivergenceTool<E>` parameterized only by the existing `ComparisonQueryExecutor` authority boundary;
+- `invoke`, which maps the typed input to `investigate_first_divergence` and does not reimplement continuation replay, convergence, depth accounting, or trace composition.
 
 ## Boundary rules
 
-- `world-cli` may hold `ProjectionSnapshot`; `world-investigation` still may not.
-- The CLI adapter must call `investigate_first_divergence` rather than reimplement replay, offset accumulation, frontier convergence, or trace composition.
-- No mutation authority and no AgentRuntime access are introduced.
+- `world-agent-tools` production dependencies are limited to `serde`, `world-investigation`, and `world-query`.
+- It must not depend on or name Projection/Core truth, `world-agent` / in-world `AgentRuntime`, GPUI, model-provider SDKs, or transport stacks.
+- The tool executor is supplied by a host adapter. The tool itself has no archive, snapshot, filesystem, network, mutation, or model authority.
+- This does not add tools to the in-world `AgentRuntime`; `AgentObservation` remains the only perception surface there.
+
+## Compatibility
+
+No change to evidence-query protocol v1, investigation envelope v1, CLI commands, Pack APIs, persistence formats, or AgentRuntime interfaces.
 
 ## Validation
 
-- subprocess test for stdin investigation and a real two-archive first divergence;
-- stable investigation envelope and absolute witness trace;
-- underlying query error remains a status-error envelope with exit zero;
-- malformed JSON remains a non-zero CLI failure;
+- stable read-only descriptor and typed JSON input shape;
+- progressive multi-window invocation proves reuse of M209 and preserves original-root witness traces;
+- serializable output contains no executor or world-internal state;
+- hard dependency/content boundary checks;
 - `cargo fmt --all -- --check`;
-- boundary checks, `world-cli` / `world-investigation` tests, Clippy, full workspace CI, external Pack conformance.
+- `cargo test -p world-agent-tools` and `cargo test -p world-investigation`;
+- focused Clippy with warnings denied;
+- full workspace CI, external Pack conformance, and macOS/GPUI validation when lockfile/workspace paths trigger it.
 
 ## Non-goals
 
-No Agent tool adapter yet, no MCP/HTTP/WebSocket, no server cursor/session, no protocol-v2 change to evidence queries, no arbitrary graph export, and no mutation APIs.
+No provider-specific SDK integration, no MCP/HTTP/WebSocket adapter, no in-world AgentRuntime query access, no `ProjectionSnapshot` exposure, no mutation tools, no server cursor/session, and no protocol v2.

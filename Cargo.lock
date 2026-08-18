@@ -6605,6 +6605,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "world-agent-tools"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "world-investigation",
+ "world-query",
+]
+
+[[package]]
 name = "world-builtins"
 version = "0.1.0"
 dependencies = [
