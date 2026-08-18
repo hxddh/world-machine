@@ -42,3 +42,4 @@ jobs:
             git commit -m "M215: add local stdio analyst process"
             git push
           fi
+# retrigger after workflow registration
