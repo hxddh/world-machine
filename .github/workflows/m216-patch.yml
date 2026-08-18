@@ -4,13 +4,19 @@ on:
   push:
     branches:
       - agent/m216-cli-local-executor-dedup
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: write
 
 jobs:
   patch:
-    if: github.event.head_commit.message == 'M216 patch workflow'
+    if: >-
+      (github.event_name == 'push' && github.event.head_commit.message == 'M216 patch workflow') ||
+      (github.event_name == 'pull_request' && github.head_ref == 'agent/m216-cli-local-executor-dedup')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
