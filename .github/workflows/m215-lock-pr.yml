@@ -31,3 +31,4 @@ jobs:
             git commit -m "chore: update lockfile for stdio analyst process"
             git push origin HEAD:${{ github.event.pull_request.head.ref }}
           fi
+# rerun after stable stderr handling
