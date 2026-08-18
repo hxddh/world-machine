@@ -30,4 +30,4 @@ jobs:
             git commit -m "chore: update lockfile for analyst tool host"
             git push
           fi
-# retrigger after workflow registration
+# retrigger after strict request validation and rustfmt fixes
