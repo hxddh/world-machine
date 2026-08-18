@@ -1,47 +1,50 @@
-# Next Coding Task — M214 Read-Only Analyst Tool Host
+# Next Coding Task — M215 Local Stdio Analyst Process
 
-Expose the M213 provider-neutral registry through a transport-neutral, correlated JSON host boundary for external analyst agents, while keeping the in-world `AgentRuntime` decision-only and perception-scoped.
+Turn the M214 transport-neutral analyst host into a real long-lived local process without introducing provider SDKs or network authority, and establish one reusable concrete boundary for local archive comparison.
 
 ## Current baseline
 
-M209 owns progressive investigation, M210 adds the local CLI executor adapter, M211/M212 define typed and JSON read-only tools, and M213 adds deterministic multi-tool registration and dispatch. `world-pi-rpc` remains an in-world decision adapter and explicitly rejects tool execution events, so investigation tools must not be injected there.
+M209 owns progressive investigation semantics. M210 exposes them through a CLI-local comparison executor. M211–M213 define read-only tools, JSON dispatch, and deterministic registry semantics. M214 adds a strict external analyst host while keeping `world-pi-rpc` decision-only.
 
-## M214 — `world-agent-tool-host`
+## M215 — reusable local executor + JSON-lines stdio
 
-Add a separate host crate rather than expanding the core tool crate. Production dependencies are limited to `serde`, `serde_json`, and `world-agent-tools`.
+Add `world-investigation-local` as the explicit authority-bearing companion to query-only `world-investigation`:
 
-Requests are strict provider-neutral JSON:
+- own the left/right `ProjectionSnapshot` values;
+- load two `.world` archives through built-in Pack restoration;
+- implement M209 `ComparisonQueryExecutor` by delegating to existing `world-query` semantics;
+- preserve typed side-specific read/parse/open errors;
+- contain no Agent/provider/network/UI dependencies.
 
-- `{"op":"list-tools"}`
-- `{"op":"invoke","call_id":"...","tool":"...","input":{...}}`
+Add `world-agent-tool-stdio <left.world> <right.world>`:
 
-Responses carry protocol `world-machine-readonly-tools`, version `1`, and one of:
+- bind the archive pair once at process startup, so tool calls cannot choose arbitrary filesystem paths;
+- register `world.first-divergence` in the M213 registry;
+- read one M214 JSON request per non-empty stdin line;
+- write and flush exactly one M214 JSON response line per valid host request;
+- keep correlated tool-level errors in-band and continue serving later requests;
+- treat malformed JSON or malformed host request envelopes as process-level failures.
 
-- deterministic `catalog` from frozen M213 descriptors;
-- correlated `result` echoing `call_id` and tool name;
-- correlated `error` with stable kind `unknown-tool`, `invalid-input`, `investigation`, or `output-serialization`.
+After the shared local executor and stdio process are green, refactor M210 `world-cli evidence-investigate-compare` to reuse `world-investigation-local` instead of retaining its private snapshot executor.
 
-## Error boundary
+## Authority boundary
 
-M213 keeps typed `JsonToolDispatchError<E>` internally. M214 erases that typed error only at the external JSON host boundary, preserving a stable error kind plus diagnostic message. Malformed host requests are protocol failures from `handle_json` and never reach registry dispatch.
+The concrete local archive/Projection authority lives only in `world-investigation-local`. The stdio process depends on that adapter and the M214/M213 layers but does not directly depend on Projection/Core, in-world `world-agent`/`world-pi-rpc`, provider SDKs, or network/server stacks.
 
-## Boundary rules
+Invocation remains:
 
-- Do not connect this host to in-world `world-pi-rpc` / `AgentRuntime`; that path remains decision-only and continues rejecting tool execution.
-- `world-agent-tool-host` may depend on `world-agent-tools`, but not directly on Projection/Core truth, `world-agent`, GPUI, model providers, or network/server stacks.
-- The host owns only a read-only registry supplied by its caller. It gains no archive, filesystem, network, model, or World mutation authority.
-- No OpenAI, Anthropic, Pi, MCP, HTTP, or WebSocket SDK/protocol types enter the host contract.
-- Tool invocation remains M214 host -> M213 registry -> M212 JSON tool -> M211 typed tool -> M209 investigation.
+`stdio framing -> M214 host -> M213 registry -> M212 JSON tool -> M211 typed tool -> M209 investigation -> world-investigation-local -> world-query`
 
 ## Validation
 
-- stable protocol/version and deterministic catalog;
-- correlated call id/tool name on result and error;
-- real first-divergence invocation preserves witness trace;
-- unknown tool and invalid input map to distinct stable error kinds;
-- unknown host request fields fail before dispatch;
-- focused fmt/tests/Clippy plus full workspace CI, external Pack conformance, and macOS validation because workspace membership changes.
+- local adapter opens real built-in archives and preserves left/right failure attribution;
+- one stdio session can list tools then invoke a real first divergence;
+- unknown tool returns correlated error and does not terminate the session;
+- malformed JSON is a non-zero process-level failure;
+- crate-level authority guards for local executor and stdio leaf;
+- M210 CLI regression remains green after the follow-up refactor;
+- fmt, boundaries, focused tests/Clippy, full workspace CI, external Pack conformance, and macOS/GPUI/.app validation because workspace/lockfile changes.
 
 ## Non-goals
 
-No provider-specific adapter yet, no in-world tool use, no network server, no mutable tools, no server-side investigation cursor/session, and no evidence-query protocol v2.
+No OpenAI/Anthropic/Pi adapter yet, no MCP/HTTP/WebSocket server, no mutable tools, no in-world AgentRuntime tool injection, no arbitrary archive paths in tool input, and no evidence-query protocol v2.
