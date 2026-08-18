@@ -1,50 +1,40 @@
-# Next Coding Task — M215 Local Stdio Analyst Process
+# Next Coding Task — M216 Reuse Local Investigation Executor in CLI
 
-Turn the M214 transport-neutral analyst host into a real long-lived local process without introducing provider SDKs or network authority, and establish one reusable concrete boundary for local archive comparison.
+Remove the remaining duplicate local comparison authority from M210 `world-cli` now that M215 has established `world-investigation-local` as the reusable concrete archive/Projection adapter.
 
 ## Current baseline
 
-M209 owns progressive investigation semantics. M210 exposes them through a CLI-local comparison executor. M211–M213 define read-only tools, JSON dispatch, and deterministic registry semantics. M214 adds a strict external analyst host while keeping `world-pi-rpc` decision-only.
+M209 owns progressive investigation semantics. M210 exposes them through `world-cli` but still contains a private `SnapshotComparisonQueryExecutor` and duplicates archive restoration for investigation calls. M211–M214 build the provider-neutral external analyst tool stack. M215 adds `world-investigation-local` plus the long-lived `world-agent-tool-stdio` process, proving the shared local authority boundary independently.
 
-## M215 — reusable local executor + JSON-lines stdio
+## M216 — CLI local executor de-duplication
 
-Add `world-investigation-local` as the explicit authority-bearing companion to query-only `world-investigation`:
+Refactor only the M210 investigation path:
 
-- own the left/right `ProjectionSnapshot` values;
-- load two `.world` archives through built-in Pack restoration;
-- implement M209 `ComparisonQueryExecutor` by delegating to existing `world-query` semantics;
-- preserve typed side-specific read/parse/open errors;
-- contain no Agent/provider/network/UI dependencies.
+- add `world-investigation-local` to `world-cli` dependencies;
+- remove the CLI-private `SnapshotComparisonQueryExecutor`;
+- make `evidence_investigate_compare_json_report` construct `LocalArchiveComparisonExecutor::from_archive_paths(left, right)`;
+- keep snapshot-based unit helpers by constructing `LocalArchiveComparisonExecutor::new(left.clone(), right.clone())`;
+- continue delegating orchestration to `investigate_first_divergence` without duplicating replay, frontier, depth, or trace semantics.
 
-Add `world-agent-tool-stdio <left.world> <right.world>`:
+## Compatibility requirements
 
-- bind the archive pair once at process startup, so tool calls cannot choose arbitrary filesystem paths;
-- register `world.first-divergence` in the M213 registry;
-- read one M214 JSON request per non-empty stdin line;
-- write and flush exactly one M214 JSON response line per valid host request;
-- keep correlated tool-level errors in-band and continue serving later requests;
-- treat malformed JSON or malformed host request envelopes as process-level failures.
+Preserve the existing command exactly:
 
-After the shared local executor and stdio process are green, refactor M210 `world-cli evidence-investigate-compare` to reuse `world-investigation-local` instead of retaining its private snapshot executor.
+`world-cli evidence-investigate-compare <left.world> <right.world> <request-json|->`
 
-## Authority boundary
+Preserve the `world-machine-evidence-investigation` version-1 envelope, stdin behavior, status-error semantics, malformed JSON failure behavior, and existing M210 subprocess tests. Do not change evidence-query protocol v1 or the M214 analyst-host protocol.
 
-The concrete local archive/Projection authority lives only in `world-investigation-local`. The stdio process depends on that adapter and the M214/M213 layers but does not directly depend on Projection/Core, in-world `world-agent`/`world-pi-rpc`, provider SDKs, or network/server stacks.
+## Boundary rules
 
-Invocation remains:
-
-`stdio framing -> M214 host -> M213 registry -> M212 JSON tool -> M211 typed tool -> M209 investigation -> world-investigation-local -> world-query`
+`world-investigation-local` is the concrete archive/Projection authority. Query-only `world-investigation`, external tool layers, and in-world `AgentRuntime` remain unchanged. No provider SDK, network server, mutable tool, or in-world tool injection is introduced.
 
 ## Validation
 
-- local adapter opens real built-in archives and preserves left/right failure attribution;
-- one stdio session can list tools then invoke a real first divergence;
-- unknown tool returns correlated error and does not terminate the session;
-- malformed JSON is a non-zero process-level failure;
-- crate-level authority guards for local executor and stdio leaf;
-- M210 CLI regression remains green after the follow-up refactor;
-- fmt, boundaries, focused tests/Clippy, full workspace CI, external Pack conformance, and macOS/GPUI/.app validation because workspace/lockfile changes.
+- existing `machine_investigation_first_divergence` subprocess suite stays unchanged and green;
+- focused `world-cli` / `world-investigation-local` tests and Clippy;
+- no CLI wire-format diff;
+- full workspace CI and external Pack conformance; macOS/GPUI follows normal path filters.
 
 ## Non-goals
 
-No OpenAI/Anthropic/Pi adapter yet, no MCP/HTTP/WebSocket server, no mutable tools, no in-world AgentRuntime tool injection, no arbitrary archive paths in tool input, and no evidence-query protocol v2.
+No provider-specific adapter yet, no MCP/HTTP/WebSocket server, no mutation tools, no AgentRuntime query access, and no protocol v2.
