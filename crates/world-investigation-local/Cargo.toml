@@ -1,0 +1,14 @@
+[package]
+name = "world-investigation-local"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+world-builtins = { path = "../world-builtins" }
+world-host = { path = "../world-host" }
+world-investigation = { path = "../world-investigation" }
+world-persistence = { path = "../world-persistence" }
+world-projection = { path = "../world-projection" }
+world-query = { path = "../world-query" }
