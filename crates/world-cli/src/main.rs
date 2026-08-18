@@ -633,6 +633,7 @@ fn evidence_investigate_compare_json_report(
         .map_err(|error| Box::new(error) as Box<dyn Error>)
 }
 
+#[cfg(test)]
 fn evidence_investigate_compare_json_from_snapshots(
     left: &ProjectionSnapshot,
     right: &ProjectionSnapshot,
@@ -1146,6 +1147,33 @@ mod tests {
             serde_json::from_value(output["response"].clone()).unwrap();
         assert_eq!(comparison.root, root);
         assert!(comparison.identical);
+    }
+
+    #[test]
+    fn evidence_investigation_snapshot_helper_reuses_local_executor() {
+        let (snapshot, root) = first_visible_snapshot_and_key();
+        let request = serde_json::json!({
+            "query": "first-divergence",
+            "root": root,
+            "direction": "upstream",
+            "window_depth": 1,
+            "max_depth": 1,
+        })
+        .to_string();
+
+        let output =
+            evidence_investigate_compare_json_from_snapshots(&snapshot, &snapshot, &request)
+                .unwrap();
+        let output: serde_json::Value = serde_json::from_str(&output).unwrap();
+
+        assert_eq!(output["protocol"], INVESTIGATION_PROTOCOL);
+        assert_eq!(output["version"], INVESTIGATION_PROTOCOL_VERSION);
+        assert_eq!(output["status"], "ok");
+        assert_eq!(output["response"]["result"], "first-divergence");
+        assert_eq!(
+            output["response"]["value"]["identical_within_depth"],
+            true
+        );
     }
 
     #[test]
