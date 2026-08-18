@@ -14,9 +14,10 @@ bash -n "$launcher"
 
 for required in \
   'pi.setActiveTools([])' \
+  'pi.registerTool({' \
   'executionMode: "sequential"' \
   'descriptor.read_only !== true' \
-  'Type.Unsafe(descriptor.input_schema)'
+  'parameters: descriptor.input_schema'
 do
   if ! grep -Fq "$required" "$extension"; then
     echo "Pi analyst extension is missing required boundary: $required" >&2
@@ -30,10 +31,11 @@ for forbidden in \
   'node:https' \
   'fetch(' \
   'world-projection' \
-  'world-core'
+  'world-core' \
+  'typebox'
 do
   if grep -Fqi "$forbidden" "$extension" "$client"; then
-    echo "Pi analyst extension contains forbidden authority/network token: $forbidden" >&2
+    echo "Pi analyst extension contains forbidden authority/network/runtime token: $forbidden" >&2
     exit 1
   fi
 done
