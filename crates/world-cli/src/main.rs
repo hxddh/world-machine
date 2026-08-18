@@ -7,9 +7,9 @@ use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use world_integrity::{check_archive, ArchiveIntegrityError};
 use world_investigation::{
-    investigate_first_divergence, ComparisonQueryExecutor, FirstDivergenceInvestigationRequest,
-    InvestigationError,
+    investigate_first_divergence, FirstDivergenceInvestigationRequest, InvestigationError,
 };
+use world_investigation_local::LocalArchiveComparisonExecutor;
 use world_persistence::{ArchivedEvent, WorldArchive};
 use world_projection::ProjectionSnapshot;
 use world_query::{
@@ -623,46 +623,32 @@ fn evidence_compare_query_json_from_snapshots(
     })
 }
 
-struct SnapshotComparisonQueryExecutor<'a> {
-    left: &'a ProjectionSnapshot,
-    right: &'a ProjectionSnapshot,
-}
-
-impl ComparisonQueryExecutor for SnapshotComparisonQueryExecutor<'_> {
-    type Error = world_query::QueryError;
-
-    fn execute(
-        &mut self,
-        request: &EvidenceComparisonQueryRequest,
-    ) -> Result<world_query::EvidenceComparisonQueryResponse, Self::Error> {
-        execute_comparison_query_request(self.left, self.right, request)
-    }
-}
-
 fn evidence_investigate_compare_json_report(
     left_path: &Path,
     right_path: &Path,
     request_json: &str,
 ) -> Result<String, Box<dyn Error>> {
-    let left_archive = load_archive(left_path)?;
-    let right_archive = load_archive(right_path)?;
-    let registry = world_builtins::registry()?;
-    let left_session = registry.open_archive(&left_archive)?;
-    let right_session = registry.open_archive(&right_archive)?;
-    let left = left_session.snapshot();
-    let right = right_session.snapshot();
-    evidence_investigate_compare_json_from_snapshots(&left, &right, request_json)
+    let mut executor = LocalArchiveComparisonExecutor::from_archive_paths(left_path, right_path)?;
+    evidence_investigate_compare_json_with_executor(&mut executor, request_json)
         .map_err(|error| Box::new(error) as Box<dyn Error>)
 }
 
+#[cfg(test)]
 fn evidence_investigate_compare_json_from_snapshots(
     left: &ProjectionSnapshot,
     right: &ProjectionSnapshot,
     request_json: &str,
 ) -> Result<String, CliError> {
+    let mut executor = LocalArchiveComparisonExecutor::new(left.clone(), right.clone());
+    evidence_investigate_compare_json_with_executor(&mut executor, request_json)
+}
+
+fn evidence_investigate_compare_json_with_executor(
+    executor: &mut LocalArchiveComparisonExecutor,
+    request_json: &str,
+) -> Result<String, CliError> {
     let request = parse_investigation_request(request_json)?;
-    let mut executor = SnapshotComparisonQueryExecutor { left, right };
-    let output = match investigate_first_divergence(&mut executor, &request) {
+    let output = match investigate_first_divergence(executor, &request) {
         Ok(result) => serde_json::json!({
             "protocol": INVESTIGATION_PROTOCOL,
             "version": INVESTIGATION_PROTOCOL_VERSION,
@@ -1161,6 +1147,30 @@ mod tests {
             serde_json::from_value(output["response"].clone()).unwrap();
         assert_eq!(comparison.root, root);
         assert!(comparison.identical);
+    }
+
+    #[test]
+    fn evidence_investigation_snapshot_helper_reuses_local_executor() {
+        let (snapshot, root) = first_visible_snapshot_and_key();
+        let request = serde_json::json!({
+            "query": "first-divergence",
+            "root": root,
+            "direction": "upstream",
+            "window_depth": 1,
+            "max_depth": 1,
+        })
+        .to_string();
+
+        let output =
+            evidence_investigate_compare_json_from_snapshots(&snapshot, &snapshot, &request)
+                .unwrap();
+        let output: serde_json::Value = serde_json::from_str(&output).unwrap();
+
+        assert_eq!(output["protocol"], INVESTIGATION_PROTOCOL);
+        assert_eq!(output["version"], INVESTIGATION_PROTOCOL_VERSION);
+        assert_eq!(output["status"], "ok");
+        assert_eq!(output["response"]["result"], "first-divergence");
+        assert_eq!(output["response"]["value"]["identical_within_depth"], true);
     }
 
     #[test]

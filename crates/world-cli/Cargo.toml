@@ -10,5 +10,6 @@ world-builtins = { path = "../world-builtins" }
 world-query = { path = "../world-query" }
 world-integrity = { path = "../world-integrity" }
 world-investigation = { path = "../world-investigation" }
+world-investigation-local = { path = "../world-investigation-local" }
 world-persistence = { path = "../world-persistence" }
 world-projection = { path = "../world-projection" }
