@@ -12,6 +12,7 @@ members = [
   "crates/world-projection",
   "crates/world-compare",
   "crates/world-query",
+  "crates/world-investigation",
   "crates/world-strategy",
   "crates/world-strategy-document",
   "crates/world-strategy-gpui",

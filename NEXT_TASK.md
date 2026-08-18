@@ -1,37 +1,39 @@
-# Next Coding Task — M208 Multi-Window Divergence Trace Composition
+# Next Coding Task — M209 Read-Only Investigation Orchestrator
 
-Prove that M205 depth offsets and M207 trace prefixes compose together across repeated `first-divergence` continuation replay, so a segmented search preserves both the absolute divergence depth and the original-root witness explanation.
+Turn the now-proven M203–M208 machine-query continuation semantics into a reusable orchestration boundary without exposing `ProjectionSnapshot` or embedding transport/provider concerns in `world-query` or `world-agent`.
 
 ## Current baseline
 
-M203 finds the earliest bounded causal divergence, M204 attaches deterministic witness traces, M205 emits replayable frontier continuations with `depth_offset`, M206 proves segmented depth and witness-set equivalence, and M207 adds deterministic root-to-frontier `trace_prefix` values. The remaining risk is multi-window composition: correct offsets and individually correct prefixes could still combine into a trace that differs from a single deeper query.
+M203–M205 provide bounded first-divergence search, witness traces, and replayable continuations. M206–M208 prove that segmented replay preserves absolute divergence depth, witness sets, original-root traces, zero-depth progress, typed tie-breaking, and canonical convergence semantics. External callers can therefore orchestrate investigation safely, but each caller would otherwise have to reimplement the scheduler.
 
-## M208 — composition invariants
+## M209 — `world-investigation`
 
-Add a test-only segmented search scheduler that carries both an accumulated absolute offset and an accumulated original-root trace prefix. Use only public protocol-v1 DTOs and `execute_comparison_query_request`.
+Add a new `world-investigation` crate whose production dependency is only `world-query`.
 
-## Invariants
+The crate exposes:
 
-- Across three or more replay windows, accumulated `depth_offset + divergence_depth` equals the monolithic deeper-query divergence depth.
-- Repeated `trace_prefix` composition followed by the replay witness trace reconstructs the exact monolithic M204 witness trace from the original root.
-- Upstream and downstream traversal obey the same composition law.
-- Parallel frontier branches that diverge at the same minimum absolute depth preserve the complete witness set and each witness keeps an original-root trace.
-- A zero-depth bootstrap does not duplicate the root when trace prefixes are composed.
-- Typed shortest-path selection remains stable across replay boundaries, including a diamond where multiple equal-length routes reach the same frontier.
-- When multiple traversal prefixes converge on the same `(absolute offset, serialized replay request)`, they are one search state rather than separate explanation branches. Deterministic typed frontier ordering makes the first retained prefix the canonical explanation, matching the monolithic shortest-path tie-break and preventing duplicate witnesses after convergence.
+- a provider-neutral `ComparisonQueryExecutor` trait that accepts ordinary `EvidenceComparisonQueryRequest` DTOs;
+- `FirstDivergenceInvestigationRequest { root, direction, window_depth, max_depth }`;
+- `investigate_first_divergence`, which incrementally replays first-divergence continuations until it finds the globally earliest divergence or exhausts the requested depth budget;
+- a result carrying absolute divergence depth, original-root witness traces, bounded identity, and whether unexplored causal frontier remains beyond `max_depth`.
 
-## Scope
+## Boundary rules
 
-This milestone adds no production API surface. It proves the combined M205/M207 protocol semantics before any production-level recursive investigation adapter is introduced.
+- `world-investigation` must not depend on or name `world-projection`, `ProjectionSnapshot`, `world-core`, `world-agent`, GPUI, model providers, or transport stacks.
+- The executor is the only authority boundary. CLI, local in-memory adapters, MCP, or future Agent tools may implement it later without changing the orchestration semantics.
+- Validate that returned continuations are self-consistent first-divergence requests before replaying them.
+- Require M207 trace prefixes for cross-window original-root explanations; do not silently invent missing paths.
+- Keep canonical convergence keyed by `(absolute offset, continuation Event)` so equal search states execute once and retain deterministic typed-order explanation prefixes.
+- Retarget the final replay window to the remaining depth budget instead of overscanning past `max_depth`.
 
-## Validation
+## Compatibility
 
-- `cargo fmt --all -- --check`
-- `bash ./scripts/check-boundaries.sh`
-- `cargo test -p world-query`
-- focused Clippy with warnings denied
-- full semantic workspace CI and external Pack conformance
+No change to `world-machine-evidence-query` protocol v1, existing request/response DTOs, `world-cli`, AgentRuntime, Pack APIs, or persistence formats. This is orchestration over the existing public machine-query boundary.
+
+## Tests
+
+Prove three-window trace/depth composition, partial final windows, converging-diamond state dedup and canonical traces, bounded truncation vs exhausted identity, invalid zero-size windows, executor error preservation, and unexpected-response rejection.
 
 ## Non-goals
 
-No production recursive scheduler, no new request/response DTO, no automatic server-side trace assembly, no cursor/session state, no MCP/HTTP/WebSocket, no AgentRuntime access, no arbitrary graph export, and no protocol v2.
+No CLI integration yet, no AgentRuntime tool exposure yet, no MCP/HTTP/WebSocket, no server cursor/session, no mutation authority, no arbitrary graph export, and no protocol v2.

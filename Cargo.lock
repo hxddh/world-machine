@@ -6671,6 +6671,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "world-investigation"
+version = "0.1.0"
+dependencies = [
+ "world-query",
+]
+
+[[package]]
 name = "world-library"
 version = "0.1.0"
 dependencies = [
