@@ -1,43 +1,41 @@
-# Next Coding Task — M212 Provider-Neutral JSON Tool Contract
+# Next Coding Task — M213 Provider-Neutral Read-Only Tool Set
 
-Turn the M211 typed read-only investigation tool into a dynamic JSON contract that any external Agent SDK adapter can register without importing World internals or duplicating investigation semantics.
+Add deterministic tool discovery and name-based JSON dispatch on top of the M212 provider-neutral JSON tool contract so each future provider adapter can integrate the World tool surface once instead of wiring every tool independently.
 
 ## Current baseline
 
-M209 owns progressive first-divergence orchestration, M210 proves a concrete CLI executor adapter, and M211 adds host-side typed `world.first-divergence` with no in-world `AgentRuntime` or Projection access. The remaining integration gap is the common shape expected by practical Agent SDKs: a tool descriptor with an input schema plus dynamic JSON invocation.
+M211 introduces typed host-side `world.first-divergence`; M212 adds a provider-neutral JSON descriptor/schema and dynamic JSON invocation for that tool. A provider adapter can now register one tool, but it still needs tool-specific wiring. The next boundary is a deterministic read-only tool catalog and generic name dispatch.
 
-## M212 — JSON tool contract
+## M213 — tool set/catalog
 
 Extend `world-agent-tools` with:
 
-- serializable `ReadOnlyJsonToolDescriptor`;
-- deterministic JSON Schema for `world.first-divergence` input;
-- `ReadOnlyJsonTool` trait with provider-neutral `json_descriptor` and `invoke_json`;
-- strict JSON input decoding into the existing typed `FirstDivergenceToolInput`;
-- JSON output encoding from the existing typed `FirstDivergenceToolOutput`;
-- `JsonToolInvocationError` that distinguishes malformed tool input, investigation/executor failures, and output serialization failures.
+- `read_only_json_tool_catalog()` returning all host-side read-only tool descriptors in stable name order;
+- a uniqueness invariant for tool names;
+- provider-neutral `ReadOnlyJsonToolSet` trait for discovery and name-based JSON invocation;
+- `WorldReadOnlyToolSet<E>` that owns the shared `ComparisonQueryExecutor` authority and dispatches `world.first-divergence` through the existing M212 JSON tool;
+- `JsonToolDispatchError` distinguishing unknown tool names from invocation failures.
 
-## Schema semantics
+## Dispatch semantics
 
-The input schema is an object with no additional properties. It requires `root`, `direction`, `window_depth`, and `max_depth`; direction is `upstream|downstream`, window depth has minimum 1, and maximum investigation depth has minimum 0.
-
-The schema describes the transport contract only. Canonical Event visibility and causal semantics remain validated by the existing machine-query/investigation layers.
+- Unknown names fail before the executor is touched.
+- Known names must call the existing JSON tool surface; no schema parsing or investigation logic is duplicated in the tool set.
+- Catalog order is deterministic and all entries are explicitly read-only.
+- The tool set exposes the underlying executor only as the same generic authority already accepted by M209–M212; it gains no additional capabilities.
 
 ## Boundary rules
 
-- No provider SDK types or names enter the tool contract.
-- JSON dispatch delegates to typed `invoke`, which delegates to M209; no investigation logic is reimplemented.
-- The tool still owns no Projection, archive, filesystem, network, model, or mutation authority.
-- The in-world `AgentRuntime` remains unchanged and does not gain this tool automatically.
+No provider SDK, Projection/Core, in-world `world-agent`/AgentRuntime, filesystem, network, archive loading, or mutation authority enters `world-agent-tools`.
 
 ## Validation
 
-- stable serializable descriptor and deterministic input schema;
-- valid JSON dispatch reaches the typed M211/M209 path and returns original-root witnesses;
-- invalid direction / unknown fields fail before the executor is used;
-- existing typed API remains compatible;
-- boundary check, fmt, focused tests/Clippy, full workspace CI and Pack conformance.
+- stable unique read-only catalog;
+- tool-set discovery exactly matches the public catalog;
+- known-name dispatch returns the same JSON output as M212;
+- unknown-name dispatch never invokes the executor;
+- existing typed and JSON tool tests remain green;
+- boundary/fmt/focused Clippy, full workspace CI, external Pack conformance.
 
 ## Non-goals
 
-No provider-specific adapter yet, no generic multi-tool registry yet, no MCP/HTTP/WebSocket server, no in-world AgentRuntime tool injection, no mutation tools, and no protocol v2.
+No second World tool yet, no provider-specific adapter, no MCP/HTTP/WebSocket server, no in-world AgentRuntime injection, no mutation tools, and no protocol v2.
