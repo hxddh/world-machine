@@ -10,7 +10,14 @@ use world_investigation_local::LocalArchiveComparisonExecutor;
 
 const USAGE: &str = "Usage: world-agent-tool-stdio <left.world> <right.world>\n\nReads one world-machine-readonly-tools JSON request per stdin line and writes one response per line. The World archive pair is fixed at process startup.";
 
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() {
+    if let Err(error) = run() {
+        eprintln!("{error}");
+        std::process::exit(1);
+    }
+}
+
+fn run() -> Result<(), Box<dyn Error>> {
     let args = env::args().skip(1).collect::<Vec<_>>();
     if args.as_slice() == ["--help"] || args.as_slice() == ["-h"] {
         println!("{USAGE}");
