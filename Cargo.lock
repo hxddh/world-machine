@@ -6616,6 +6616,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "world-agent-tool-stdio"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "world-agent-tool-host",
+ "world-agent-tools",
+ "world-builtins",
+ "world-investigation-local",
+ "world-projection",
+]
+
+[[package]]
 name = "world-agent-tools"
 version = "0.1.0"
 dependencies = [
@@ -6696,6 +6708,18 @@ dependencies = [
 name = "world-investigation"
 version = "0.1.0"
 dependencies = [
+ "world-query",
+]
+
+[[package]]
+name = "world-investigation-local"
+version = "0.1.0"
+dependencies = [
+ "world-builtins",
+ "world-host",
+ "world-investigation",
+ "world-persistence",
+ "world-projection",
  "world-query",
 ]
 
