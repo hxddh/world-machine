@@ -9,5 +9,6 @@ serde_json = "1"
 world-builtins = { path = "../world-builtins" }
 world-query = { path = "../world-query" }
 world-integrity = { path = "../world-integrity" }
+world-investigation = { path = "../world-investigation" }
 world-persistence = { path = "../world-persistence" }
 world-projection = { path = "../world-projection" }

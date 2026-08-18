@@ -6,6 +6,10 @@ use std::fs;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use world_integrity::{check_archive, ArchiveIntegrityError};
+use world_investigation::{
+    investigate_first_divergence, ComparisonQueryExecutor, FirstDivergenceInvestigationRequest,
+    InvestigationError,
+};
 use world_persistence::{ArchivedEvent, WorldArchive};
 use world_projection::ProjectionSnapshot;
 use world_query::{
@@ -16,6 +20,8 @@ use world_query::{
 
 const QUERY_PROTOCOL: &str = "world-machine-evidence-query";
 const QUERY_PROTOCOL_VERSION: u64 = 1;
+const INVESTIGATION_PROTOCOL: &str = "world-machine-evidence-investigation";
+const INVESTIGATION_PROTOCOL_VERSION: u64 = 1;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum Command {
@@ -29,6 +35,7 @@ enum Command {
     EvidenceCompare(PathBuf, PathBuf, String, usize),
     EvidenceQuery(PathBuf, String),
     EvidenceCompareQuery(PathBuf, PathBuf, String),
+    EvidenceInvestigateCompare(PathBuf, PathBuf, String),
     ListPacks,
     Help,
 }
@@ -73,6 +80,13 @@ fn main() -> Result<(), Box<dyn Error>> {
             println!(
                 "{}",
                 evidence_compare_query_json_report(&left, &right, &request)?
+            )
+        }
+        Command::EvidenceInvestigateCompare(left, right, request) => {
+            let request = read_query_request(&request)?;
+            println!(
+                "{}",
+                evidence_investigate_compare_json_report(&left, &right, &request)?
             )
         }
         Command::ListPacks => println!("{}", pack_report()?),
@@ -141,6 +155,13 @@ where
                 request.clone(),
             ))
         }
+        [command, left, right, request] if command == "evidence-investigate-compare" => {
+            Ok(Command::EvidenceInvestigateCompare(
+                PathBuf::from(left),
+                PathBuf::from(right),
+                request.clone(),
+            ))
+        }
         [command] if command == "list-packs" => Ok(Command::ListPacks),
         [command] if matches!(command.as_str(), "help" | "--help" | "-h") => Ok(Command::Help),
         [] => Ok(Command::Help),
@@ -161,6 +182,7 @@ Usage:\n\
   world-cli evidence-compare <left.world> <right.world> <selection-key> [depth]\n\n\
   world-cli evidence-query <file.world> <request-json|->\n\n\
   world-cli evidence-compare-query <left.world> <right.world> <request-json|->\n\n\
+  world-cli evidence-investigate-compare <left.world> <right.world> <request-json|->\n\n\
   world-cli list-packs\n\n\
 inspect     Parse and summarize a World archive without requiring its Pack.\n\
 check       Verify Pack-independent archive structure and causal integrity.\n\
@@ -172,6 +194,7 @@ evidence-path  Print the typed shortest evidence path between two selections.\n\
 evidence-compare  Compare a typed evidence neighborhood between two World archives.\n\
 evidence-query  Execute an EvidenceQueryRequest JSON document and emit a JSON status envelope. Use - to read JSON from stdin.\n\
 evidence-compare-query  Execute a legacy evidence comparison or tagged causal comparison JSON document and emit a JSON status envelope. Use - to read JSON from stdin.\n\
+evidence-investigate-compare  Progressively investigate first causal divergence across two World archives and emit an investigation JSON status envelope. Use - to read JSON from stdin.\n\
 list-packs  List World Packs this build can create and restore."
 }
 
@@ -596,6 +619,158 @@ fn evidence_compare_query_json_from_snapshots(
     serde_json::to_string(&output).map_err(|error| {
         CliError(format!(
             "failed to serialize evidence comparison query JSON: {error}"
+        ))
+    })
+}
+
+struct SnapshotComparisonQueryExecutor<'a> {
+    left: &'a ProjectionSnapshot,
+    right: &'a ProjectionSnapshot,
+}
+
+impl ComparisonQueryExecutor for SnapshotComparisonQueryExecutor<'_> {
+    type Error = world_query::QueryError;
+
+    fn execute(
+        &mut self,
+        request: &EvidenceComparisonQueryRequest,
+    ) -> Result<world_query::EvidenceComparisonQueryResponse, Self::Error> {
+        execute_comparison_query_request(self.left, self.right, request)
+    }
+}
+
+fn evidence_investigate_compare_json_report(
+    left_path: &Path,
+    right_path: &Path,
+    request_json: &str,
+) -> Result<String, Box<dyn Error>> {
+    let left_archive = load_archive(left_path)?;
+    let right_archive = load_archive(right_path)?;
+    let registry = world_builtins::registry()?;
+    let left_session = registry.open_archive(&left_archive)?;
+    let right_session = registry.open_archive(&right_archive)?;
+    let left = left_session.snapshot();
+    let right = right_session.snapshot();
+    evidence_investigate_compare_json_from_snapshots(&left, &right, request_json)
+        .map_err(|error| Box::new(error) as Box<dyn Error>)
+}
+
+fn evidence_investigate_compare_json_from_snapshots(
+    left: &ProjectionSnapshot,
+    right: &ProjectionSnapshot,
+    request_json: &str,
+) -> Result<String, CliError> {
+    let request = parse_investigation_request(request_json)?;
+    let mut executor = SnapshotComparisonQueryExecutor { left, right };
+    let output = match investigate_first_divergence(&mut executor, &request) {
+        Ok(result) => serde_json::json!({
+            "protocol": INVESTIGATION_PROTOCOL,
+            "version": INVESTIGATION_PROTOCOL_VERSION,
+            "status": "ok",
+            "response": {
+                "result": "first-divergence",
+                "value": {
+                    "root": result.root,
+                    "direction": result.direction,
+                    "max_depth": result.max_depth,
+                    "identical_within_depth": result.identical_within_depth,
+                    "divergence_depth": result.divergence_depth,
+                    "witnesses": result.witnesses,
+                    "truncated": result.truncated,
+                }
+            },
+        }),
+        Err(InvestigationError::Executor(error)) => serde_json::json!({
+            "protocol": INVESTIGATION_PROTOCOL,
+            "version": INVESTIGATION_PROTOCOL_VERSION,
+            "status": "error",
+            "error": error,
+        }),
+        Err(InvestigationError::InvalidWindowDepth) => investigation_error("invalid-window-depth"),
+        Err(InvestigationError::UnexpectedResponse) => investigation_error("unexpected-response"),
+        Err(InvestigationError::InvalidContinuation) => investigation_error("invalid-continuation"),
+        Err(InvestigationError::InvalidTrace) => investigation_error("invalid-trace"),
+        Err(InvestigationError::UnexpectedNestedRootPresence) => {
+            investigation_error("unexpected-nested-root-presence")
+        }
+    };
+    serde_json::to_string(&output).map_err(|error| {
+        CliError(format!(
+            "failed to serialize evidence investigation JSON: {error}"
+        ))
+    })
+}
+
+fn investigation_error(error: &str) -> serde_json::Value {
+    serde_json::json!({
+        "protocol": INVESTIGATION_PROTOCOL,
+        "version": INVESTIGATION_PROTOCOL_VERSION,
+        "status": "error",
+        "error": { "error": error },
+    })
+}
+
+fn parse_investigation_request(
+    request_json: &str,
+) -> Result<FirstDivergenceInvestigationRequest, CliError> {
+    let value: serde_json::Value = serde_json::from_str(request_json)
+        .map_err(|error| CliError(format!("invalid evidence investigation JSON: {error}")))?;
+    let object = value
+        .as_object()
+        .ok_or_else(|| CliError("invalid evidence investigation JSON: expected object".into()))?;
+    let query = investigation_string_field(object, "query")?;
+    if query != "first-divergence" {
+        return Err(CliError(format!(
+            "unsupported evidence investigation query: {query}"
+        )));
+    }
+    let root = investigation_string_field(object, "root")?.to_owned();
+    let direction = match investigation_string_field(object, "direction")? {
+        "upstream" => world_query::EvidenceCausalDirection::Upstream,
+        "downstream" => world_query::EvidenceCausalDirection::Downstream,
+        direction => {
+            return Err(CliError(format!(
+                "invalid evidence investigation direction: {direction}"
+            )))
+        }
+    };
+    Ok(FirstDivergenceInvestigationRequest {
+        root,
+        direction,
+        window_depth: investigation_usize_field(object, "window_depth")?,
+        max_depth: investigation_usize_field(object, "max_depth")?,
+    })
+}
+
+fn investigation_string_field<'a>(
+    object: &'a serde_json::Map<String, serde_json::Value>,
+    field: &str,
+) -> Result<&'a str, CliError> {
+    object
+        .get(field)
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| {
+            CliError(format!(
+                "invalid evidence investigation JSON: {field} must be a string"
+            ))
+        })
+}
+
+fn investigation_usize_field(
+    object: &serde_json::Map<String, serde_json::Value>,
+    field: &str,
+) -> Result<usize, CliError> {
+    let value = object
+        .get(field)
+        .and_then(serde_json::Value::as_u64)
+        .ok_or_else(|| {
+            CliError(format!(
+                "invalid evidence investigation JSON: {field} must be a non-negative integer"
+            ))
+        })?;
+    usize::try_from(value).map_err(|_| {
+        CliError(format!(
+            "invalid evidence investigation JSON: {field} is too large"
         ))
     })
 }
