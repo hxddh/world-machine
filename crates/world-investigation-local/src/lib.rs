@@ -131,9 +131,10 @@ mod tests {
     fn read_errors_preserve_left_right_attribution() {
         let missing_left = temp_world_path("missing-left");
         let missing_right = temp_world_path("missing-right");
-        let error = LocalArchiveComparisonExecutor::from_archive_paths(&missing_left, &missing_right)
-            .err()
-            .unwrap();
+        let error =
+            LocalArchiveComparisonExecutor::from_archive_paths(&missing_left, &missing_right)
+                .err()
+                .unwrap();
         assert!(matches!(
             error,
             LocalArchiveComparisonOpenError::ReadLeft(_)
