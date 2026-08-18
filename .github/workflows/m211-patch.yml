@@ -38,3 +38,4 @@ jobs:
             git commit -m "M211: add read-only agent tool boundary"
             git push
           fi
+# trigger after workflow registration
