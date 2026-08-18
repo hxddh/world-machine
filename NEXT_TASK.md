@@ -1,43 +1,44 @@
-# Next Coding Task — M212 Provider-Neutral JSON Tool Contract
+# Next Coding Task — M213 Provider-Neutral Multi-Tool Registry
 
-Turn the M211 typed read-only investigation tool into a dynamic JSON contract that any external Agent SDK adapter can register without importing World internals or duplicating investigation semantics.
+Turn the M212 provider-neutral JSON tool contract into a deterministic host-side registry that can expose and dispatch multiple read-only World tools without introducing provider SDKs or weakening World authority boundaries.
 
 ## Current baseline
 
-M209 owns progressive first-divergence orchestration, M210 proves a concrete CLI executor adapter, and M211 adds host-side typed `world.first-divergence` with no in-world `AgentRuntime` or Projection access. The remaining integration gap is the common shape expected by practical Agent SDKs: a tool descriptor with an input schema plus dynamic JSON invocation.
+M209 owns progressive first-divergence orchestration, M210 provides a local CLI executor adapter, M211 introduces the host-side typed `world.first-divergence` tool, and M212 adds provider-neutral JSON descriptor/schema plus dynamic invocation. The remaining host integration gap is a stable collection boundary: an Agent host needs to enumerate tools once and dispatch tool calls by stable name.
 
-## M212 — JSON tool contract
+## M213 — read-only JSON tool registry
 
-Extend `world-agent-tools` with:
+Extend `world-agent-tools` with `ReadOnlyJsonToolRegistry<E>`.
 
-- serializable `ReadOnlyJsonToolDescriptor`;
-- deterministic JSON Schema for `world.first-divergence` input;
-- `ReadOnlyJsonTool` trait with provider-neutral `json_descriptor` and `invoke_json`;
-- strict JSON input decoding into the existing typed `FirstDivergenceToolInput`;
-- JSON output encoding from the existing typed `FirstDivergenceToolOutput`;
-- `JsonToolInvocationError` that distinguishes malformed tool input, investigation/executor failures, and output serialization failures.
+The registry:
 
-## Schema semantics
+- accepts any `'static` `ReadOnlyJsonTool<ExecutorError = E>`;
+- freezes each tool descriptor at registration time;
+- stores tools by stable name in a `BTreeMap` so descriptor enumeration is deterministic;
+- rejects duplicate tool names instead of replacing an existing tool;
+- provides exact-name descriptor lookup and JSON dispatch;
+- distinguishes `UnknownTool` from a named tool invocation failure while preserving the typed `JsonToolInvocationError<E>` source.
 
-The input schema is an object with no additional properties. It requires `root`, `direction`, `window_depth`, and `max_depth`; direction is `upstream|downstream`, window depth has minimum 1, and maximum investigation depth has minimum 0.
+## Error-type boundary
 
-The schema describes the transport contract only. Canonical Event visibility and causal semantics remain validated by the existing machine-query/investigation layers.
+A registry intentionally has one host-normalized executor error type `E`. This preserves typed invocation errors instead of erasing them to strings. Provider or transport adapters that combine multiple authority sources can normalize their own underlying errors into one host error before tool registration.
 
 ## Boundary rules
 
-- No provider SDK types or names enter the tool contract.
-- JSON dispatch delegates to typed `invoke`, which delegates to M209; no investigation logic is reimplemented.
-- The tool still owns no Projection, archive, filesystem, network, model, or mutation authority.
-- The in-world `AgentRuntime` remains unchanged and does not gain this tool automatically.
+- Registry membership is host configuration only; registry mutation never mutates a World.
+- No provider SDK, MCP/HTTP/WebSocket, Projection, archive, filesystem, network, model, or World mutation authority enters `world-agent-tools`.
+- Dispatch delegates to each M212 `ReadOnlyJsonTool`; `world.first-divergence` still delegates through M211 to M209.
+- The in-world `AgentRuntime` and `AgentObservation` surfaces remain unchanged.
 
 ## Validation
 
-- stable serializable descriptor and deterministic input schema;
-- valid JSON dispatch reaches the typed M211/M209 path and returns original-root witnesses;
-- invalid direction / unknown fields fail before the executor is used;
-- existing typed API remains compatible;
-- boundary check, fmt, focused tests/Clippy, full workspace CI and Pack conformance.
+- deterministic lexicographic descriptor enumeration independent of registration order;
+- descriptor schema is frozen and available by exact name;
+- duplicate registration fails and does not replace the original tool;
+- unknown tool dispatch is distinct from invocation failure;
+- real `world.first-divergence` registry dispatch preserves its JSON result and witness trace;
+- boundary check, fmt, focused tests/Clippy, full workspace CI and external Pack conformance.
 
 ## Non-goals
 
-No provider-specific adapter yet, no generic multi-tool registry yet, no MCP/HTTP/WebSocket server, no in-world AgentRuntime tool injection, no mutation tools, and no protocol v2.
+No provider-specific adapter yet, no cross-error type erasure, no mutable World tools, no generic network service, no protocol v2, and no automatic injection into the in-world `AgentRuntime`.

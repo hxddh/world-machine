@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
 use world_investigation::{
@@ -209,6 +210,145 @@ where
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ReadOnlyJsonToolRegistryError {
+    DuplicateTool { name: String },
+}
+
+impl fmt::Display for ReadOnlyJsonToolRegistryError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::DuplicateTool { name } => {
+                write!(f, "read-only JSON tool is already registered: {name}")
+            }
+        }
+    }
+}
+
+impl Error for ReadOnlyJsonToolRegistryError {}
+
+#[derive(Debug)]
+pub enum JsonToolDispatchError<E> {
+    UnknownTool {
+        name: String,
+    },
+    Invocation {
+        tool: String,
+        source: JsonToolInvocationError<E>,
+    },
+}
+
+impl<E: fmt::Display> fmt::Display for JsonToolDispatchError<E> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::UnknownTool { name } => write!(f, "unknown read-only JSON tool: {name}"),
+            Self::Invocation { tool, source } => {
+                write!(f, "read-only JSON tool {tool} failed: {source}")
+            }
+        }
+    }
+}
+
+impl<E> Error for JsonToolDispatchError<E>
+where
+    E: Error + 'static,
+{
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::UnknownTool { .. } => None,
+            Self::Invocation { source, .. } => Some(source),
+        }
+    }
+}
+
+struct RegisteredReadOnlyJsonTool<E> {
+    descriptor: ReadOnlyJsonToolDescriptor,
+    tool: Box<dyn ReadOnlyJsonTool<ExecutorError = E>>,
+}
+
+pub struct ReadOnlyJsonToolRegistry<E> {
+    tools: BTreeMap<&'static str, RegisteredReadOnlyJsonTool<E>>,
+}
+
+impl<E> Default for ReadOnlyJsonToolRegistry<E> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<E> ReadOnlyJsonToolRegistry<E> {
+    pub fn new() -> Self {
+        Self {
+            tools: BTreeMap::new(),
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.tools.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.tools.is_empty()
+    }
+
+    pub fn contains(&self, name: &str) -> bool {
+        self.tools.contains_key(name)
+    }
+
+    pub fn register<T>(&mut self, tool: T) -> Result<(), ReadOnlyJsonToolRegistryError>
+    where
+        T: ReadOnlyJsonTool<ExecutorError = E> + 'static,
+    {
+        let descriptor = tool.json_descriptor();
+        if self.tools.contains_key(descriptor.name) {
+            return Err(ReadOnlyJsonToolRegistryError::DuplicateTool {
+                name: descriptor.name.to_owned(),
+            });
+        }
+        self.tools.insert(
+            descriptor.name,
+            RegisteredReadOnlyJsonTool {
+                descriptor,
+                tool: Box::new(tool),
+            },
+        );
+        Ok(())
+    }
+
+    pub fn descriptor(&self, name: &str) -> Option<&ReadOnlyJsonToolDescriptor> {
+        self.tools
+            .get(name)
+            .map(|registered| &registered.descriptor)
+    }
+
+    pub fn descriptors(&self) -> Vec<ReadOnlyJsonToolDescriptor> {
+        self.tools
+            .values()
+            .map(|registered| registered.descriptor.clone())
+            .collect()
+    }
+
+    pub fn dispatch(
+        &mut self,
+        name: &str,
+        input: Value,
+    ) -> Result<Value, JsonToolDispatchError<E>> {
+        let registered =
+            self.tools
+                .get_mut(name)
+                .ok_or_else(|| JsonToolDispatchError::UnknownTool {
+                    name: name.to_owned(),
+                })?;
+        registered
+            .tool
+            .invoke_json(input)
+            .map_err(|source| JsonToolDispatchError::Invocation {
+                tool: name.to_owned(),
+                source,
+            })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -254,6 +394,40 @@ mod tests {
                 .expect("every tool query should have a scripted response");
             assert_eq!(&expected, request);
             Ok(response)
+        }
+    }
+
+    struct StaticJsonTool {
+        name: &'static str,
+        output: Value,
+    }
+
+    impl StaticJsonTool {
+        fn new(name: &'static str, output: Value) -> Self {
+            Self { name, output }
+        }
+    }
+
+    impl ReadOnlyJsonTool for StaticJsonTool {
+        type ExecutorError = Infallible;
+
+        fn json_descriptor(&self) -> ReadOnlyJsonToolDescriptor {
+            ReadOnlyJsonToolDescriptor {
+                name: self.name,
+                description: "Static test tool.",
+                read_only: true,
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "additionalProperties": false
+                }),
+            }
+        }
+
+        fn invoke_json(
+            &mut self,
+            _input: Value,
+        ) -> Result<Value, JsonToolInvocationError<Self::ExecutorError>> {
+            Ok(self.output.clone())
         }
     }
 
@@ -497,6 +671,127 @@ mod tests {
             .unwrap_err();
         assert!(matches!(error, JsonToolInvocationError::InvalidInput(_)));
         assert!(tool.executor().script.is_empty());
+    }
+
+    #[test]
+    fn registry_freezes_descriptors_in_deterministic_name_order() {
+        let mut registry = ReadOnlyJsonToolRegistry::<Infallible>::new();
+        registry
+            .register(StaticJsonTool::new(
+                "world.zz-static",
+                serde_json::json!({"source": "static"}),
+            ))
+            .unwrap();
+        registry
+            .register(FirstDivergenceTool::new(ScriptedExecutor::new(vec![])))
+            .unwrap();
+
+        assert_eq!(registry.len(), 2);
+        assert!(registry.contains("world.first-divergence"));
+        assert_eq!(
+            registry
+                .descriptors()
+                .into_iter()
+                .map(|descriptor| descriptor.name)
+                .collect::<Vec<_>>(),
+            vec!["world.first-divergence", "world.zz-static"]
+        );
+        assert_eq!(
+            registry
+                .descriptor("world.first-divergence")
+                .unwrap()
+                .input_schema["additionalProperties"],
+            false
+        );
+    }
+
+    #[test]
+    fn registry_rejects_duplicate_names_without_replacing_the_original_tool() {
+        let mut registry = ReadOnlyJsonToolRegistry::<Infallible>::new();
+        registry
+            .register(StaticJsonTool::new(
+                "world.static",
+                serde_json::json!({"value": 1}),
+            ))
+            .unwrap();
+        let error = registry
+            .register(StaticJsonTool::new(
+                "world.static",
+                serde_json::json!({"value": 2}),
+            ))
+            .unwrap_err();
+        assert_eq!(
+            error,
+            ReadOnlyJsonToolRegistryError::DuplicateTool {
+                name: "world.static".into()
+            }
+        );
+        assert_eq!(
+            registry
+                .dispatch("world.static", serde_json::json!({}))
+                .unwrap(),
+            serde_json::json!({"value": 1})
+        );
+    }
+
+    #[test]
+    fn registry_reports_unknown_tool_before_any_registered_dispatch() {
+        let mut registry = ReadOnlyJsonToolRegistry::<Infallible>::new();
+        registry
+            .register(StaticJsonTool::new(
+                "world.static",
+                serde_json::json!({"value": 1}),
+            ))
+            .unwrap();
+        let error = registry
+            .dispatch("world.missing", serde_json::json!({}))
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            JsonToolDispatchError::UnknownTool { ref name } if name == "world.missing"
+        ));
+        assert_eq!(
+            registry
+                .dispatch("world.static", serde_json::json!({}))
+                .unwrap(),
+            serde_json::json!({"value": 1})
+        );
+    }
+
+    #[test]
+    fn registry_dispatches_first_divergence_through_the_existing_json_tool() {
+        let direction = EvidenceCausalDirection::Upstream;
+        let mut registry = ReadOnlyJsonToolRegistry::<Infallible>::new();
+        registry
+            .register(FirstDivergenceTool::new(ScriptedExecutor::new(vec![(
+                request("event-2", direction, 1),
+                response(
+                    "event-2",
+                    direction,
+                    1,
+                    Some(1),
+                    vec![witness(&["event-2", "event-1"])],
+                    vec![],
+                ),
+            )])))
+            .unwrap();
+
+        let output = registry
+            .dispatch(
+                "world.first-divergence",
+                serde_json::json!({
+                    "root": "event-2",
+                    "direction": "upstream",
+                    "window_depth": 1,
+                    "max_depth": 1,
+                }),
+            )
+            .unwrap();
+        assert_eq!(output["divergence_depth"], 1);
+        assert_eq!(
+            output["witnesses"][0]["trace"],
+            serde_json::json!(["event-2", "event-1"])
+        );
     }
 
     #[test]
