@@ -1,4 +1,3 @@
-import { Type } from "typebox";
 import { AnalystJsonlClient, providerSafeToolName } from "./world-machine-analyst-client.mjs";
 
 const PROGRAM_ENV = "WORLD_MACHINE_ANALYST_PROGRAM";
@@ -74,7 +73,7 @@ export default function worldMachineAnalyst(pi) {
           `Use ${providerName} only for read-only analysis of the World archives bound to this analyst session.`,
           "Do not infer that analyst tools can mutate the World or choose different archive paths.",
         ],
-        parameters: Type.Unsafe(descriptor.input_schema),
+        parameters: descriptor.input_schema,
         executionMode: "sequential",
         async execute(toolCallId, params, signal) {
           if (!client) {
