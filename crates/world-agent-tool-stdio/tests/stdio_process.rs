@@ -4,6 +4,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
+use world_agent_tool_stdio::ReadOnlyJsonToolStdioProcess;
 use world_projection::SelectionId;
 
 #[test]
@@ -36,6 +37,64 @@ fn stdio_process_lists_tools_and_invokes_first_divergence_in_one_session() {
     assert_eq!(lines[1]["tool"], "world.first-divergence");
     assert_eq!(lines[1]["output"]["divergence_depth"], 1);
     assert_eq!(lines[1]["output"]["witnesses"][0]["trace"][0], root);
+    cleanup(left, right);
+}
+
+#[test]
+fn reusable_stdio_client_drives_real_analyst_process_session() {
+    let (left, right, root) = divergent_world_fixture();
+    let mut process = ReadOnlyJsonToolStdioProcess::spawn(
+        env!("CARGO_BIN_EXE_world-agent-tool-stdio"),
+        &left,
+        &right,
+    )
+    .unwrap();
+
+    let tools = process.list_tools().unwrap();
+    assert_eq!(tools.len(), 1);
+    assert_eq!(tools[0].name, "world.first-divergence");
+    assert!(tools[0].read_only);
+
+    let output = process
+        .invoke(
+            "client-call-1",
+            "world.first-divergence",
+            serde_json::json!({
+                "root": root,
+                "direction": "upstream",
+                "window_depth": 1,
+                "max_depth": 3
+            }),
+        )
+        .unwrap();
+    assert_eq!(output["divergence_depth"], 1);
+    assert_eq!(output["witnesses"][0]["trace"][0], root);
+
+    let status = process.shutdown().unwrap();
+    assert!(status.success());
+    cleanup(left, right);
+}
+
+#[test]
+fn reusable_stdio_client_preserves_remote_error_and_session_continues() {
+    let (left, right, _) = divergent_world_fixture();
+    let mut process = ReadOnlyJsonToolStdioProcess::spawn(
+        env!("CARGO_BIN_EXE_world-agent-tool-stdio"),
+        &left,
+        &right,
+    )
+    .unwrap();
+
+    let error = process
+        .invoke("missing", "world.missing", serde_json::json!({}))
+        .unwrap_err();
+    assert!(error.to_string().contains("failed remotely"));
+
+    let tools = process.list_tools().unwrap();
+    assert_eq!(tools[0].name, "world.first-divergence");
+
+    let status = process.shutdown().unwrap();
+    assert!(status.success());
     cleanup(left, right);
 }
 
@@ -152,7 +211,7 @@ fn temp_world_path(label: &str) -> PathBuf {
         .unwrap()
         .as_nanos();
     std::env::temp_dir().join(format!(
-        "world-machine-m215-stdio-{}-{nonce}-{label}.world",
+        "world-machine-m217-stdio-{}-{nonce}-{label}.world",
         std::process::id()
     ))
 }
