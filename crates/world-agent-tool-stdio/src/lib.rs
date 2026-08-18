@@ -88,8 +88,8 @@ where
         &mut self,
         request: &ReadOnlyJsonToolHostRequest,
     ) -> Result<ReadOnlyJsonToolHostEnvelope, ReadOnlyJsonToolStdioClientError> {
-        let encoded =
-            serde_json::to_vec(request).map_err(ReadOnlyJsonToolStdioClientError::SerializeRequest)?;
+        let encoded = serde_json::to_vec(request)
+            .map_err(ReadOnlyJsonToolStdioClientError::SerializeRequest)?;
         self.writer
             .write_all(&encoded)
             .map_err(ReadOnlyJsonToolStdioClientError::WriteRequest)?;
@@ -234,9 +234,7 @@ impl Error for ReadOnlyJsonToolStdioClientError {
 
 pub struct ReadOnlyJsonToolStdioProcess {
     child: Child,
-    client: Option<
-        ReadOnlyJsonToolStdioClient<BufReader<ChildStdout>, BufWriter<ChildStdin>>,
-    >,
+    client: Option<ReadOnlyJsonToolStdioClient<BufReader<ChildStdout>, BufWriter<ChildStdin>>>,
 }
 
 impl ReadOnlyJsonToolStdioProcess {
