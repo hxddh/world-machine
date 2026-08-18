@@ -38,3 +38,4 @@ jobs:
             git commit -m "M210: add CLI investigation adapter"
             git push
           fi
+# retrigger validation after workflow registration
