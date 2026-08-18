@@ -38,3 +38,4 @@ jobs:
             git commit -m "M213: add provider-neutral read-only tool set"
             git push
           fi
+# trigger after workflow registration
