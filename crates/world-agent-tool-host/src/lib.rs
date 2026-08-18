@@ -71,9 +71,14 @@ pub enum ReadOnlyJsonToolHostProtocolError {
 impl fmt::Display for ReadOnlyJsonToolHostProtocolError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::InvalidRequest(error) => write!(f, "invalid read-only tool host request: {error}"),
+            Self::InvalidRequest(error) => {
+                write!(f, "invalid read-only tool host request: {error}")
+            }
             Self::ResponseSerialization(error) => {
-                write!(f, "failed to serialize read-only tool host response: {error}")
+                write!(
+                    f,
+                    "failed to serialize read-only tool host response: {error}"
+                )
             }
         }
     }
@@ -162,7 +167,9 @@ where
         JsonToolDispatchError::UnknownTool { .. } => ReadOnlyJsonToolHostErrorKind::UnknownTool,
         JsonToolDispatchError::Invocation { source, .. } => match source {
             JsonToolInvocationError::InvalidInput(_) => ReadOnlyJsonToolHostErrorKind::InvalidInput,
-            JsonToolInvocationError::Investigation(_) => ReadOnlyJsonToolHostErrorKind::Investigation,
+            JsonToolInvocationError::Investigation(_) => {
+                ReadOnlyJsonToolHostErrorKind::Investigation
+            }
             JsonToolInvocationError::OutputSerialization(_) => {
                 ReadOnlyJsonToolHostErrorKind::OutputSerialization
             }
