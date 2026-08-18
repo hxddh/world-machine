@@ -40,4 +40,4 @@ jobs:
             git commit -m "M215: reuse local investigation executor in CLI"
             git push
           fi
-# retrigger after workflow registration
+# second explicit retrigger
