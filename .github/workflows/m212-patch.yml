@@ -38,3 +38,4 @@ jobs:
             git commit -m "M212: add provider-neutral JSON tool contract"
             git push
           fi
+# trigger after workflow registration
