@@ -21,7 +21,26 @@ pub enum ReadOnlyJsonToolHostRequest {
     },
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ReadOnlyJsonToolHostDescriptor {
+    pub name: String,
+    pub description: String,
+    pub read_only: bool,
+    pub input_schema: Value,
+}
+
+impl From<ReadOnlyJsonToolDescriptor> for ReadOnlyJsonToolHostDescriptor {
+    fn from(descriptor: ReadOnlyJsonToolDescriptor) -> Self {
+        Self {
+            name: descriptor.name.to_owned(),
+            description: descriptor.description.to_owned(),
+            read_only: descriptor.read_only,
+            input_schema: descriptor.input_schema,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ReadOnlyJsonToolHostErrorKind {
     UnknownTool,
@@ -30,17 +49,17 @@ pub enum ReadOnlyJsonToolHostErrorKind {
     OutputSerialization,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ReadOnlyJsonToolHostError {
     pub kind: ReadOnlyJsonToolHostErrorKind,
     pub message: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum ReadOnlyJsonToolHostResponse {
     Catalog {
-        tools: Vec<ReadOnlyJsonToolDescriptor>,
+        tools: Vec<ReadOnlyJsonToolHostDescriptor>,
     },
     Result {
         call_id: String,
@@ -54,9 +73,19 @@ pub enum ReadOnlyJsonToolHostResponse {
     },
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize)]
+impl ReadOnlyJsonToolHostResponse {
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::Catalog { .. } => "catalog",
+            Self::Result { .. } => "result",
+            Self::Error { .. } => "error",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ReadOnlyJsonToolHostEnvelope {
-    pub protocol: &'static str,
+    pub protocol: String,
     pub version: u64,
     #[serde(flatten)]
     pub response: ReadOnlyJsonToolHostResponse,
@@ -122,7 +151,12 @@ where
     pub fn handle(&mut self, request: ReadOnlyJsonToolHostRequest) -> ReadOnlyJsonToolHostEnvelope {
         let response = match request {
             ReadOnlyJsonToolHostRequest::ListTools => ReadOnlyJsonToolHostResponse::Catalog {
-                tools: self.registry.descriptors(),
+                tools: self
+                    .registry
+                    .descriptors()
+                    .into_iter()
+                    .map(ReadOnlyJsonToolHostDescriptor::from)
+                    .collect(),
             },
             ReadOnlyJsonToolHostRequest::Invoke {
                 call_id,
@@ -143,7 +177,7 @@ where
         };
 
         ReadOnlyJsonToolHostEnvelope {
-            protocol: READ_ONLY_JSON_TOOL_HOST_PROTOCOL,
+            protocol: READ_ONLY_JSON_TOOL_HOST_PROTOCOL.to_owned(),
             version: READ_ONLY_JSON_TOOL_HOST_VERSION,
             response,
         }
@@ -365,6 +399,24 @@ mod tests {
             ),
             response => panic!("unexpected host response: {response:?}"),
         }
+    }
+
+    #[test]
+    fn host_envelope_round_trips_through_owned_wire_types() {
+        let mut registry = ReadOnlyJsonToolRegistry::<Infallible>::new();
+        registry
+            .register(StaticJsonTool::new(
+                "world.static",
+                serde_json::json!({"ok": true}),
+            ))
+            .unwrap();
+        let mut host = ReadOnlyJsonToolHost::new(registry);
+        let envelope = host.handle(ReadOnlyJsonToolHostRequest::ListTools);
+
+        let json = serde_json::to_string(&envelope).unwrap();
+        let decoded: ReadOnlyJsonToolHostEnvelope = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(decoded, envelope);
     }
 
     #[test]
