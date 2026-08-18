@@ -38,3 +38,4 @@ jobs:
             git commit -m "M213: add provider-neutral tool registry"
             git push
           fi
+# retrigger after workflow registration
