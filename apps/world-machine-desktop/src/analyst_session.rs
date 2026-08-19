@@ -3,7 +3,9 @@ use std::fmt;
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::process::Command;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc as SharedArc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use world_analyst_client::{
     AnalystTurn, AnalystTurnClientError, AnalystTurnProcess, AnalystTurnProcessConfig,
@@ -66,6 +68,39 @@ impl DesktopAnalystConfig {
     }
 }
 
+#[derive(Clone)]
+pub struct DesktopAnalystCancellation {
+    active: SharedArc<AtomicBool>,
+    signal: SharedArc<dyn Fn() -> Result<(), String> + Send + Sync>,
+}
+
+impl DesktopAnalystCancellation {
+    fn for_process(process_id: u32) -> Self {
+        Self::new(move || signal_process_termination(process_id))
+    }
+
+    fn new<F>(signal: F) -> Self
+    where
+        F: Fn() -> Result<(), String> + Send + Sync + 'static,
+    {
+        Self {
+            active: SharedArc::new(AtomicBool::new(true)),
+            signal: SharedArc::new(signal),
+        }
+    }
+
+    pub fn cancel(&self) -> Result<(), DesktopAnalystSessionError> {
+        if !self.active.swap(false, Ordering::SeqCst) {
+            return Ok(());
+        }
+        (self.signal)().map_err(DesktopAnalystSessionError::Cancel)
+    }
+
+    fn deactivate(&self) {
+        self.active.store(false, Ordering::SeqCst);
+    }
+}
+
 #[derive(Debug)]
 pub enum DesktopAnalystSessionError {
     SameWorld(WorldDocumentId),
@@ -96,6 +131,7 @@ pub enum DesktopAnalystSessionError {
     Client(AnalystTurnClientError),
     FatalSession(String),
     Closed,
+    Cancel(String),
     Shutdown(String),
 }
 
@@ -134,6 +170,7 @@ impl fmt::Display for DesktopAnalystSessionError {
                 write!(f, "analyst session is unavailable: {message}")
             }
             Self::Closed => write!(f, "analyst session is closed"),
+            Self::Cancel(message) => write!(f, "could not cancel analyst session: {message}"),
             Self::Shutdown(message) => {
                 write!(f, "could not close analyst session cleanly: {message}")
             }
@@ -155,6 +192,7 @@ impl Error for DesktopAnalystSessionError {
             | Self::Spawn(_)
             | Self::FatalSession(_)
             | Self::Closed
+            | Self::Cancel(_)
             | Self::Shutdown(_) => None,
         }
     }
@@ -168,6 +206,10 @@ trait AnalystSessionProcess {
     ) -> Result<AnalystTurn, AnalystTurnClientError>;
 
     fn shutdown(self) -> Result<(), String>;
+
+    fn cancellation_handle(&self) -> Option<DesktopAnalystCancellation> {
+        None
+    }
 }
 
 impl AnalystSessionProcess for AnalystTurnProcess {
@@ -183,6 +225,10 @@ impl AnalystSessionProcess for AnalystTurnProcess {
         AnalystTurnProcess::shutdown(self)
             .map(|_| ())
             .map_err(|error| error.to_string())
+    }
+
+    fn cancellation_handle(&self) -> Option<DesktopAnalystCancellation> {
+        Some(DesktopAnalystCancellation::for_process(self.id()))
     }
 }
 
@@ -223,6 +269,7 @@ struct SessionCore<P: AnalystSessionProcess> {
     right: WorldDocumentId,
     archives: Option<ArchiveSnapshotPair>,
     process: Option<P>,
+    cancellation: Option<DesktopAnalystCancellation>,
     state: DesktopAnalystState,
     turns: Vec<AnalystTurn>,
     timeout_ms: Option<u64>,
@@ -247,12 +294,14 @@ impl<P: AnalystSessionProcess> SessionCore<P> {
         let process_config =
             config.process_config(archives.left_path.clone(), archives.right_path.clone());
         let process = spawn(&process_config).map_err(DesktopAnalystSessionError::Spawn)?;
+        let cancellation = process.cancellation_handle();
 
         Ok(Self {
             left,
             right,
             archives: Some(archives),
             process: Some(process),
+            cancellation,
             state: DesktopAnalystState::Ready,
             turns: Vec::new(),
             timeout_ms: config.timeout_ms,
@@ -311,6 +360,9 @@ impl<P: AnalystSessionProcess> SessionCore<P> {
     }
 
     fn shutdown_process(&mut self) -> Result<(), String> {
+        if let Some(cancellation) = &self.cancellation {
+            cancellation.deactivate();
+        }
         match self.process.take() {
             Some(process) => process.shutdown(),
             None => Ok(()),
@@ -362,12 +414,39 @@ impl DesktopAnalystSession {
         &self.inner.turns
     }
 
+    pub fn cancellation_handle(&self) -> Option<DesktopAnalystCancellation> {
+        self.inner.cancellation.clone()
+    }
+
     pub fn ask(&mut self, prompt: &str) -> Result<AnalystTurn, DesktopAnalystSessionError> {
         self.inner.ask(prompt)
     }
 
     pub fn close(&mut self) -> Result<(), DesktopAnalystSessionError> {
         self.inner.close()
+    }
+}
+
+fn signal_process_termination(process_id: u32) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        let status = Command::new("/bin/kill")
+            .arg("-TERM")
+            .arg(process_id.to_string())
+            .status()
+            .map_err(|error| format!("could not signal analyst process: {error}"))?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(format!(
+                "analyst cancellation signal failed with status {status}"
+            ))
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = process_id;
+        Err("analyst cancellation is unsupported on this platform".into())
     }
 }
 
@@ -501,6 +580,29 @@ mod tests {
             self.shutdowns.fetch_add(1, Ordering::SeqCst);
             Ok(())
         }
+    }
+
+    #[test]
+    fn cancellation_handle_is_idempotent_and_can_be_deactivated() {
+        let signals = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&signals);
+        let cancellation = DesktopAnalystCancellation::new(move || {
+            counter.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        });
+        cancellation.cancel().unwrap();
+        cancellation.cancel().unwrap();
+        assert_eq!(signals.load(Ordering::SeqCst), 1);
+
+        let signals = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&signals);
+        let cancellation = DesktopAnalystCancellation::new(move || {
+            counter.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        });
+        cancellation.deactivate();
+        cancellation.cancel().unwrap();
+        assert_eq!(signals.load(Ordering::SeqCst), 0);
     }
 
     #[test]
