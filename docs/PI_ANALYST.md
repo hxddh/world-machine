@@ -1,15 +1,16 @@
 # Pi Read-only Analyst Bridge
 
-M218 exposes the existing World Machine analyst tool host to Pi without granting Pi direct World, Projection, filesystem, shell, or mutation authority.
+M218–M220 provide a complete external read-only analyst path without granting Pi direct World, Projection, filesystem, shell, or mutation authority.
 
-## Boundary
-
-The runtime path is:
+## Runtime layers
 
 ```text
-Pi model/tool loop
-  -> integrations/pi/world-machine-analyst.mjs
-  -> world-agent-tool-stdio <left.world> <right.world>
+Product / future Rust client
+  -> world-machine-analyst-turns@1
+  -> integrations/pi/world-machine-analyst-turn-host.mjs   (M220)
+  -> integrations/pi/world-machine-analyst-rpc.mjs         (M219)
+  -> restricted Pi RPC process + analyst extension          (M218)
+  -> world-agent-tool-stdio <left.world> <right.world>      (M215)
   -> world-agent-tool-host
   -> world-agent-tools
   -> world-investigation-local
@@ -17,49 +18,109 @@ Pi model/tool loop
   -> world-query
 ```
 
-The left/right archive paths are process configuration. They are supplied when the analyst session starts and are never part of an LLM-visible tool schema.
+The archive pair, provider, model, and thinking level are process configuration. Per-turn requests cannot replace archive paths or acquire new tools.
 
-The Pi extension reads the M214/M215 catalog at session start and dynamically registers only descriptors whose `read_only` field is `true`. Host tool names are normalized for provider tool-name constraints (`world.first-divergence` becomes `world_first_divergence`). Each Pi tool call preserves Pi's `toolCallId` as the host `call_id`, validates the correlated host response, and executes sequentially through one bound JSONL process.
+This path is deliberately separate from `world-pi-rpc`. `world-pi-rpc` remains the provider adapter for in-World `AgentRuntime` decisions. The analyst stack is external, read-only evidence analysis and never becomes World mutation authority.
 
-This is separate from `world-pi-rpc`. `world-pi-rpc` remains the provider adapter for in-World `AgentRuntime` decisions. The analyst extension is an external read-only evidence surface and never becomes World mutation authority.
+## Restricted Pi layer
 
-## Build and start
-
-Build the local analyst host:
+Build the local read-only tool host:
 
 ```bash
 cargo build -p world-agent-tool-stdio
 ```
 
-Start Pi in restricted RPC mode:
+The restricted launcher is:
 
 ```bash
 bash scripts/run-pi-analyst.sh left.world right.world --provider <provider> --model <model>
 ```
 
-The launcher intentionally disables Pi built-in tools, automatic extension discovery, skills, prompt templates, themes, context files, and session persistence. It loads only `integrations/pi/world-machine-analyst.mjs` and replaces the default system prompt with a read-only analyst prompt.
+It disables Pi built-in tools, automatic extension discovery, skills, prompt templates, themes, context files, and session persistence. It loads only `integrations/pi/world-machine-analyst.mjs` and supplies a read-only analyst system prompt.
 
-Use `WORLD_MACHINE_ANALYST_PROGRAM` to point at an installed `world-agent-tool-stdio` binary. Use `PI_PROGRAM` to override the `pi` executable.
+The extension reads the canonical M214/M215 tool catalog at session start, rejects descriptors not marked `read_only`, and dynamically registers only the returned tools. Host names are normalized for provider constraints (`world.first-divergence` becomes `world_first_divergence`). Pi's `toolCallId` is preserved as the host `call_id`.
 
-## Protocol behavior
+## M219 long-lived analyst session
 
-The bridge keeps the M214 protocol unchanged:
+`PiAnalystRpcSession` keeps one restricted Pi process alive across sequential prompts. It is intentionally single-flight because Pi's event stream is session-ordered rather than request-multiplexed.
 
-- protocol: `world-machine-readonly-tools`
+A turn:
+
+- sends a correlated prompt request id;
+- validates the immediate `prompt` acknowledgement;
+- accepts the restricted analyst tool events;
+- keeps tool-call telemetry correlated by `toolCallId`;
+- waits for `agent_settled`, not the first `agent_end`;
+- returns final assistant text plus internal tool/runtime telemetry.
+
+Prompt rejection is a command error and may leave the session reusable. Protocol contamination, timeout, abort, EOF, or unexpected process exit terminate the session so stale events cannot leak into a later turn.
+
+## M220 stable analyst-turn protocol
+
+Higher-level product code must not consume Pi events or provider-normalized tool names. M220 is the normalization boundary and exposes one World Machine-owned JSONL protocol:
+
+- protocol: `world-machine-analyst-turns`
 - version: `1`
-- transport: one JSON document per UTF-8 line
-- `list-tools` returns the canonical read-only catalog
-- `invoke` echoes `call_id` and host tool name on both success and correlated tool failure
-- protocol/version/correlation mismatches are bridge failures
-- host tool failures are thrown back to Pi as tool failures rather than returned as successful text
-- the bridge is single-flight and Pi tools are registered with `executionMode: "sequential"`
+- one UTF-8 JSON request/response per line
+- process startup binds the archive pair and model configuration
 
-The extension parses stdout by byte-delimited LF rather than chunk/string splitting, so UTF-8 characters remain intact across Node stream chunk boundaries.
+Request:
+
+```json
+{"id":"ask-1","op":"ask","prompt":"Where do these histories first diverge?","timeout_ms":120000}
+```
+
+Successful response:
+
+```json
+{
+  "protocol":"world-machine-analyst-turns",
+  "version":1,
+  "type":"result",
+  "id":"ask-1",
+  "turn":{
+    "request_id":"world-analyst-1",
+    "text":"...",
+    "tool_calls":[
+      {
+        "call_id":"tool-1",
+        "tool":"world.first-divergence",
+        "input":{},
+        "output":{},
+        "is_error":false
+      }
+    ],
+    "runtime_errors":[]
+  }
+}
+```
+
+M220 deliberately removes raw Pi event names, provider-safe tool names, provider result wrappers, and raw Pi error details. A tool call uses the canonical World Machine tool name and canonical tool output whenever the M218 result metadata supplies them.
+
+Correlated error response:
+
+```json
+{
+  "protocol":"world-machine-analyst-turns",
+  "version":1,
+  "type":"error",
+  "id":"ask-1",
+  "error":{
+    "kind":"command",
+    "fatal":false,
+    "message":"..."
+  }
+}
+```
+
+`command` rejection is non-fatal and later asks may reuse the session. `protocol`, `transport`, and `internal` errors are fatal; the contaminated turn-host process emits the correlated error and terminates.
+
+Per-turn request fields are strict. In particular, archive paths are not valid request fields.
 
 ## Safety properties
 
-The extension does not import filesystem or network modules and does not expose arbitrary command execution. The only child process it starts is the configured `world-agent-tool-stdio` executable with the two archive paths fixed at session startup.
+Production analyst integration modules import no filesystem or network API and expose no arbitrary command execution. The Pi extension starts with no active tools and activates only catalog-derived read-only World Machine tools. The restricted launcher independently disables Pi built-ins and automatic resource discovery.
 
-The extension starts with no active Pi tools, rejects any catalog descriptor not marked read-only, then activates only the normalized World Machine analyst tool names. The restricted launcher independently disables Pi built-ins and automatic resource discovery, providing defense in depth.
+M219 and M220 parse JSONL using LF byte framing rather than Node `readline`, preserving UTF-8 data across stream chunk boundaries.
 
-`cargo test -p world-agent-tool-stdio` runs the Node transport tests through `scripts/check-pi-analyst.sh`, including catalog/invoke reuse, correlated remote errors, protocol/correlation rejection, abort cleanup, source-level authority guards, and launcher flag checks.
+`cargo test -p world-agent-tool-stdio` reaches `scripts/check-pi-analyst.sh`, which runs the Node transport/session/turn-host tests plus source-level authority and launcher checks. The M220 process regression uses a fake Pi executable but crosses the actual restricted launcher, proves two asks reuse one Pi child, and verifies provider-only event/result details do not escape the M220 protocol.

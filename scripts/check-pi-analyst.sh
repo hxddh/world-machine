@@ -5,12 +5,14 @@ repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 extension="$repo_root/integrations/pi/world-machine-analyst.mjs"
 client="$repo_root/integrations/pi/world-machine-analyst-client.mjs"
 rpc="$repo_root/integrations/pi/world-machine-analyst-rpc.mjs"
+turn_host="$repo_root/integrations/pi/world-machine-analyst-turn-host.mjs"
 tests_dir="$repo_root/integrations/pi/tests"
 launcher="$repo_root/scripts/run-pi-analyst.sh"
 
 node --check "$extension"
 node --check "$client"
 node --check "$rpc"
+node --check "$turn_host"
 node --test "$tests_dir"/*.test.mjs
 bash -n "$launcher"
 
@@ -45,6 +47,18 @@ if grep -Fq 'launcher =' "$rpc"; then
   exit 1
 fi
 
+for required in \
+  'world-machine-analyst-turns' \
+  'PiAnalystRpcSession.spawnRestricted' \
+  'unknown analyst turn request field' \
+  'tool_calls'
+do
+  if ! grep -Fq "$required" "$turn_host"; then
+    echo "Analyst turn host is missing required boundary: $required" >&2
+    exit 1
+  fi
+done
+
 for forbidden in \
   'node:fs' \
   'node:http' \
@@ -56,7 +70,7 @@ for forbidden in \
   'agentruntime' \
   'typebox'
 do
-  if grep -Fqi "$forbidden" "$extension" "$client" "$rpc"; then
+  if grep -Fqi "$forbidden" "$extension" "$client" "$rpc" "$turn_host"; then
     echo "Pi analyst integration contains forbidden authority/network/runtime token: $forbidden" >&2
     exit 1
   fi
