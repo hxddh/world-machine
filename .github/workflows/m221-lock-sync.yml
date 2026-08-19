@@ -1,0 +1,32 @@
+name: M221 lock sync
+
+on:
+  push:
+    branches:
+      - agent/m221-rust-analyst-turn-client
+
+permissions:
+  contents: write
+
+jobs:
+  sync-lock:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/m221-rust-analyst-turn-client
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Generate Cargo.lock
+        run: cargo generate-lockfile
+      - name: Commit generated lockfile
+        shell: bash
+        run: |
+          if git diff --quiet -- Cargo.lock; then
+            echo "Cargo.lock is already current."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.lock
+          git commit -m "M221: sync generated Cargo.lock"
+          git push origin HEAD:agent/m221-rust-analyst-turn-client
