@@ -45,6 +45,23 @@ pub(crate) fn bind_keys(cx: &mut gpui::App) {
     ]);
 }
 
+fn utf8_offset_from_utf16(text: &str, offset: usize) -> usize {
+    let mut utf8_offset = 0;
+    let mut utf16_count = 0;
+    for ch in text.chars() {
+        if utf16_count >= offset {
+            break;
+        }
+        utf16_count += ch.len_utf16();
+        utf8_offset += ch.len_utf8();
+    }
+    utf8_offset
+}
+
+fn utf8_range_from_utf16(text: &str, range: &Range<usize>) -> Range<usize> {
+    utf8_offset_from_utf16(text, range.start)..utf8_offset_from_utf16(text, range.end)
+}
+
 pub(crate) struct AnalystTextInput {
     focus_handle: FocusHandle,
     content: SharedString,
@@ -264,16 +281,7 @@ impl AnalystTextInput {
     }
 
     fn offset_from_utf16(&self, offset: usize) -> usize {
-        let mut utf8_offset = 0;
-        let mut utf16_count = 0;
-        for ch in self.content.chars() {
-            if utf16_count >= offset {
-                break;
-            }
-            utf16_count += ch.len_utf16();
-            utf8_offset += ch.len_utf8();
-        }
-        utf8_offset
+        utf8_offset_from_utf16(&self.content, offset)
     }
 
     fn offset_to_utf16(&self, offset: usize) -> usize {
@@ -294,7 +302,7 @@ impl AnalystTextInput {
     }
 
     fn range_from_utf16(&self, range: &Range<usize>) -> Range<usize> {
-        self.offset_from_utf16(range.start)..self.offset_from_utf16(range.end)
+        utf8_range_from_utf16(&self.content, range)
     }
 }
 
@@ -372,7 +380,7 @@ impl EntityInputHandler for AnalystTextInput {
             (!new_text.is_empty()).then(|| range.start..range.start + new_text.len());
         self.selected_range = new_selected_range_utf16
             .as_ref()
-            .map(|selection| self.range_from_utf16(selection))
+            .map(|selection| utf8_range_from_utf16(new_text, selection))
             .map(|selection| range.start + selection.start..range.start + selection.end)
             .unwrap_or_else(|| {
                 let cursor = range.start + new_text.len();
@@ -405,7 +413,7 @@ impl EntityInputHandler for AnalystTextInput {
         let bounds = self.last_bounds?;
         let line = self.last_layout.as_ref()?;
         let local = bounds.localize(&position)?;
-        let index = line.index_for_x(position.x - local.x)?;
+        let index = line.index_for_x(local.x)?;
         Some(self.offset_to_utf16(index))
     }
 }
@@ -627,5 +635,29 @@ impl Render for AnalystTextInput {
 impl Focusable for AnalystTextInput {
     fn focus_handle(&self, _: &gpui::App) -> FocusHandle {
         self.focus_handle.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ime_selection_offsets_are_relative_to_inserted_text() {
+        let japanese = utf8_range_from_utf16("日", &(0..1));
+        assert_eq!(japanese, 0..3);
+        let absolute = 2 + japanese.start..2 + japanese.end;
+        let composed = "ab日";
+        assert_eq!(absolute, 2..5);
+        assert!(composed.is_char_boundary(absolute.start));
+        assert!(composed.is_char_boundary(absolute.end));
+
+        let emoji = utf8_range_from_utf16("🙂", &(0..2));
+        assert_eq!(emoji, 0..4);
+        let absolute = 1 + emoji.start..1 + emoji.end;
+        let composed = "x🙂";
+        assert_eq!(absolute, 1..5);
+        assert!(composed.is_char_boundary(absolute.start));
+        assert!(composed.is_char_boundary(absolute.end));
     }
 }
