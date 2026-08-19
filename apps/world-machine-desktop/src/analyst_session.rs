@@ -85,7 +85,10 @@ impl fmt::Display for DesktopAnalystSessionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::SameWorld(id) => {
-                write!(f, "analyst session requires two different Worlds; both are {id}")
+                write!(
+                    f,
+                    "analyst session requires two different Worlds; both are {id}"
+                )
             }
             Self::MissingWorld { side, id, path } => write!(
                 f,
@@ -447,16 +450,10 @@ mod tests {
         );
 
         assert_eq!(session.ask("first").unwrap().text.as_deref(), Some("one"));
-        assert_eq!(
-            session.state,
-            DesktopAnalystState::Answer { turn_index: 0 }
-        );
+        assert_eq!(session.state, DesktopAnalystState::Answer { turn_index: 0 });
         assert_eq!(session.ask("second").unwrap().text.as_deref(), Some("two"));
         assert_eq!(session.turns.len(), 2);
-        assert_eq!(
-            session.state,
-            DesktopAnalystState::Answer { turn_index: 1 }
-        );
+        assert_eq!(session.state, DesktopAnalystState::Answer { turn_index: 1 });
 
         session.close().unwrap();
         assert_eq!(session.state, DesktopAnalystState::Closed);
@@ -502,7 +499,10 @@ mod tests {
             session.ask("first").unwrap_err(),
             DesktopAnalystSessionError::Client(AnalystTurnClientError::RemoteFatal(_))
         ));
-        assert!(matches!(session.state, DesktopAnalystState::FatalError { .. }));
+        assert!(matches!(
+            session.state,
+            DesktopAnalystState::FatalError { .. }
+        ));
         assert_eq!(shutdowns.load(Ordering::SeqCst), 1);
         assert!(matches!(
             session.ask("again").unwrap_err(),
