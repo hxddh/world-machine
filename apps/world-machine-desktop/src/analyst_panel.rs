@@ -10,7 +10,7 @@ use gpui::{
 use std::sync::Arc;
 use world_library::{WorldDocumentId, WorldDocumentSummary, WorldLibrary};
 use world_machine_desktop::analyst_session::{
-    DesktopAnalystConfig, DesktopAnalystSession, DesktopAnalystState,
+    DesktopAnalystCancellation, DesktopAnalystConfig, DesktopAnalystSession, DesktopAnalystState,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -131,6 +131,7 @@ struct AnalystPanelView {
     right: WorldDocumentId,
     runtime: Result<DesktopAnalystConfig, String>,
     session: Option<DesktopAnalystSession>,
+    cancellation: Option<DesktopAnalystCancellation>,
     question: Entity<AnalystTextInput>,
     phase: PanelPhase,
     busy: bool,
@@ -147,9 +148,21 @@ impl AnalystPanelView {
         runtime: Result<DesktopAnalystConfig, String>,
         cx: &mut Context<Self>,
     ) -> Self {
-        cx.on_release(|this, _| {
-            if let Some(mut session) = this.session.take() {
-                let _ = session.close();
+        cx.on_release(|this, cx| {
+            let session = this.session.take();
+            let cancellation = this.cancellation.take();
+            if let Some(mut session) = session {
+                cx.background_executor()
+                    .spawn(async move {
+                        let _ = session.close();
+                    })
+                    .detach();
+            } else if let Some(cancellation) = cancellation {
+                cx.background_executor()
+                    .spawn(async move {
+                        let _ = cancellation.cancel();
+                    })
+                    .detach();
             }
         })
         .detach();
@@ -161,6 +174,7 @@ impl AnalystPanelView {
             right,
             runtime,
             session: None,
+            cancellation: None,
             question,
             phase: PanelPhase::Setup,
             busy: false,
@@ -200,11 +214,13 @@ impl AnalystPanelView {
                 match result {
                     Ok(session) => {
                         this.history = snapshot_history(&session);
+                        this.cancellation = session.cancellation_handle();
                         this.session = Some(session);
                         this.phase = PanelPhase::Active;
                         this.last_error = None;
                     }
                     Err(error) => {
+                        this.cancellation = None;
                         this.phase = PanelPhase::Setup;
                         this.last_error = Some(error);
                     }
