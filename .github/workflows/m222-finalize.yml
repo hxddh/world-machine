@@ -1,3 +1,4 @@
+# Temporary M222-only workflow; delete after finalized commit lands.
 name: M222 finalize
 
 on:
