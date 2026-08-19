@@ -1,0 +1,68 @@
+name: M222 finalize
+
+on:
+  push:
+    branches:
+      - agent/m222-desktop-analyst-session
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Sync minimal lock metadata
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('Cargo.lock')
+          text = path.read_text()
+          old = '''[[package]]
+          name = "world-machine-desktop"
+          version = "0.1.0"
+          dependencies = [
+           "gpui",
+           "gpui_platform",
+           "url",
+           "world-builtins",
+          '''
+          new = '''[[package]]
+          name = "world-machine-desktop"
+          version = "0.1.0"
+          dependencies = [
+           "gpui",
+           "gpui_platform",
+           "url",
+           "world-analyst-client",
+           "world-builtins",
+          '''
+          if old not in text:
+              if ' "world-analyst-client",' in text:
+                  raise SystemExit(0)
+              raise SystemExit('world-machine-desktop lock block did not match')
+          path.write_text(text.replace(old, new, 1))
+          PY
+      - name: Format and validate
+        run: |
+          cargo fmt --all
+          cargo metadata --locked --no-deps --format-version 1 >/dev/null
+          cargo test -p world-machine-desktop
+          cargo clippy -p world-machine-desktop --all-targets -- -D warnings
+      - name: Commit finalized controller
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            exit 0
+          fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add Cargo.lock apps/world-machine-desktop/src/analyst_session.rs
+          git commit -m "M222: finalize desktop analyst session controller"
+          git push
