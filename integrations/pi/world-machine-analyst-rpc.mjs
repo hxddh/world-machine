@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 1000;
 const DEFAULT_PROMPT_TIMEOUT_MS = 120000;
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const DEFAULT_LAUNCHER = resolve(REPO_ROOT, "scripts/run-pi-analyst.sh");
+const RESTRICTED_LAUNCHER = resolve(REPO_ROOT, "scripts/run-pi-analyst.sh");
 
 export class PiAnalystRpcError extends Error {
   constructor(message, details = {}) {
@@ -44,7 +44,6 @@ export class PiAnalystRpcSession {
     provider,
     model,
     thinking,
-    launcher = DEFAULT_LAUNCHER,
     piProgram,
     analystProgram,
     env = process.env,
@@ -55,7 +54,7 @@ export class PiAnalystRpcSession {
       throw new PiAnalystRpcTransportError("Pi analyst session requires both archive paths");
     }
 
-    const args = [launcher, leftArchive, rightArchive];
+    const args = [RESTRICTED_LAUNCHER, leftArchive, rightArchive];
     if (provider) args.push("--provider", provider);
     if (model) args.push("--model", model);
     if (thinking) args.push("--thinking", thinking);
@@ -88,9 +87,11 @@ export class PiAnalystRpcSession {
 
     child.stdout.on("data", (chunk) => this.#acceptChunk(chunk));
     child.stdout.on("end", () => {
-      this.#finish(
-        new PiAnalystRpcTransportError("Pi analyst RPC process closed stdout before shutdown"),
-      );
+      if (!this.closed) {
+        this.#finish(
+          new PiAnalystRpcTransportError("Pi analyst RPC process closed stdout unexpectedly"),
+        );
+      }
     });
     child.on("error", (error) => {
       this.#finish(
@@ -126,7 +127,9 @@ export class PiAnalystRpcSession {
       throw this.closedError ?? new PiAnalystRpcTransportError("Pi analyst RPC session is closed");
     }
     if (signal?.aborted) {
-      await this.#terminateForInterruptedTurn("Pi analyst prompt aborted before dispatch");
+      const error = new PiAnalystRpcTransportError("Pi analyst prompt aborted before dispatch");
+      await this.#terminateAfterBrokenTurn(error);
+      throw error;
     }
 
     const requestId = `world-analyst-${this.nextRequestNumber++}`;
@@ -138,7 +141,7 @@ export class PiAnalystRpcSession {
       return await this.#consumeTurn(turn, signal, timeoutMs);
     } catch (error) {
       if (!(error instanceof PiAnalystRpcCommandError)) {
-        await this.#terminateForInterruptedTurn(error.message);
+        await this.#terminateAfterBrokenTurn(error);
       }
       throw error;
     } finally {
@@ -204,6 +207,13 @@ export class PiAnalystRpcSession {
 
   async #nextRecordWithInterruption(signal, timeoutMs, requestId) {
     const recordPromise = this.#nextRecord();
+    if (signal?.aborted) {
+      recordPromise.catch(() => {});
+      throw new PiAnalystRpcTransportError("Pi analyst prompt aborted", {
+        requestId,
+      });
+    }
+
     const races = [recordPromise];
     let onAbort;
     let timer;
@@ -229,6 +239,7 @@ export class PiAnalystRpcSession {
             reject(
               new PiAnalystRpcTransportError("Pi analyst prompt timed out", {
                 requestId,
+                timeoutMs,
               }),
             );
           }, Math.max(0, timeoutMs));
@@ -310,19 +321,17 @@ export class PiAnalystRpcSession {
     for (const waiter of waiters) waiter.reject(error);
   }
 
-  async #terminateForInterruptedTurn(message) {
+  async #terminateAfterBrokenTurn(error) {
     this.closed = true;
-    const error = new PiAnalystRpcTransportError(message);
     this.#finish(error);
+    if (this.child.exitCode !== null || this.child.signalCode !== null) return;
+
+    const exited = once(this.child, "exit");
+    this.child.kill("SIGTERM");
+    await settledBefore(exited, DEFAULT_SHUTDOWN_TIMEOUT_MS);
     if (this.child.exitCode === null && this.child.signalCode === null) {
-      const exited = once(this.child, "exit");
-      this.child.kill("SIGTERM");
-      await settledBefore(exited, DEFAULT_SHUTDOWN_TIMEOUT_MS);
-      if (this.child.exitCode === null && this.child.signalCode === null) {
-        this.child.kill("SIGKILL");
-      }
+      this.child.kill("SIGKILL");
     }
-    throw error;
   }
 }
 
