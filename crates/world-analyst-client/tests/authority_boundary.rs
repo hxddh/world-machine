@@ -1,7 +1,11 @@
 #[test]
 fn analyst_client_has_only_transport_and_wire_dependencies() {
     let manifest = include_str!("../Cargo.toml").to_ascii_lowercase();
-    let production = include_str!("../src/lib.rs").to_ascii_lowercase();
+    let source = include_str!("../src/lib.rs");
+    let production = source
+        .split_once("#[cfg(test)]")
+        .map_or(source, |(production, _)| production)
+        .to_ascii_lowercase();
 
     for forbidden in [
         "world-agent =",
