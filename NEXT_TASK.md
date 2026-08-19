@@ -2,7 +2,7 @@
 
 M214–M221 now provide a complete external read-only analyst stack from World evidence through a restricted Pi tool loop to a provider-neutral Rust client. The native product can finally consume one completed analyst turn without knowing Pi RPC, Node event names, or provider-normalized tool shapes.
 
-The next missing layer is not UI. It is a small desktop-owned session controller that binds the existing saved-World comparison context to `world-analyst-client` while keeping process lifecycle and configuration out of GPUI views.
+The next missing layer is not UI. It is a small desktop-owned session controller that binds a fixed pair of saved Library Worlds to `world-analyst-client` while keeping process lifecycle and configuration out of GPUI views.
 
 ## Current baseline
 
@@ -10,8 +10,8 @@ The next missing layer is not UI. It is a small desktop-owned session controller
 - M219 owns Pi prompt acknowledgement, event accumulation, `agent_settled` completion, and process failure semantics.
 - M220 normalizes the completed turn into `world-machine-analyst-turns@1` and strips Pi/provider internals.
 - M221 exposes that protocol to Rust as typed DTOs plus a fail-closed long-lived child-process client.
-- `WorldLibrary` already exposes `path(&WorldDocumentId) -> PathBuf`.
-- `apps/world-machine-desktop/src/saved_compare.rs` already owns the selected left/right `WorldDocumentId` pair and `Arc<WorldLibrary>` when a saved-World comparison opens.
+- `WorldLibrary` already exposes `path(&WorldDocumentId) -> PathBuf`, so desktop code does not need another archive-resolver crate.
+- The live desktop document actions currently wire `world_fork` and `strategy_compare`. A `saved_compare.rs` source file exists, but it is not currently wired from `main.rs`; M222 must not depend on that dormant UI path as if it were already product surface.
 
 ## M222 — native desktop analyst session controller
 
@@ -19,20 +19,20 @@ Add a non-View controller in `world-machine-desktop` that:
 
 - accepts a fixed saved-World pair (`left`, `right`) plus the existing `WorldLibrary`;
 - resolves both archive paths exactly once with `WorldLibrary::path` and refuses identical/missing documents before starting an analyst process;
-- owns one `world_analyst_client::AnalystTurnProcess` for the lifetime of the comparison analyst session;
-- exposes a small state model such as idle / asking / answer / recoverable-error / fatal-error / closed without exposing Pi concepts;
+- owns one `world_analyst_client::AnalystTurnProcess` for the lifetime of the analyst session;
+- exposes a small product state model such as idle / answer / recoverable-error / fatal-error / closed without exposing Pi concepts;
 - submits sequential questions through M221 and retains completed `AnalystTurn` values for later UI rendering;
 - keeps correlated non-fatal command rejection reusable and closes/poisons the controller after fatal M221 failures;
-- owns deterministic shutdown/drop behavior so a comparison window cannot orphan Node/Pi children;
+- owns deterministic shutdown/drop behavior so future comparison windows cannot orphan Node/Pi children;
 - keeps provider/model/thinking and executable/script resolution in explicit desktop configuration rather than hard-coding them inside GPUI rendering code.
 
 The controller should be testable without GPUI by injecting an analyst-process factory or similarly narrow abstraction. Its production implementation may use `AnalystTurnProcess`; tests should prove path binding, state transitions, reuse after non-fatal rejection, fail-closed fatal behavior, and cleanup.
 
 ## Product integration point
 
-The natural owner is the existing saved-World comparison flow. `SavedWorldSetupView` already chooses left/right document IDs and `open_saved_comparison` already opens the comparison window. M222 should prepare the analyst session at that boundary or immediately below it, but **must not add the visible analyst panel yet**.
+M222 should remain independent of a particular View. It establishes the desktop ownership boundary first: `WorldLibrary + left/right WorldDocumentId -> analyst session controller`.
 
-M223 can then render a native analyst panel/chat surface from this controller without learning process or protocol mechanics.
+M223 can then choose the actual product entry point. Likely options include wiring a saved-World comparison surface or attaching analysis to persisted outcomes from the existing strategy comparison flow. That decision should be made against the live UI, not by reviving the dormant `saved_compare.rs` file implicitly.
 
 ## Boundary rules
 
