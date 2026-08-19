@@ -22,10 +22,11 @@ export class AnalystTurnHost {
     this.session = session;
   }
 
-  async handle(request) {
+  async handle(request, { signal } = {}) {
     const parsed = parseRequest(request);
     try {
       const turn = await this.session.prompt(parsed.prompt, {
+        signal,
         timeoutMs: parsed.timeoutMs,
       });
       return envelope({
@@ -52,6 +53,7 @@ export async function runAnalystTurnHost({
   stdout = process.stdout,
   argv = process.argv.slice(2),
   env = process.env,
+  signalSource = process,
 } = {}) {
   const config = parseProcessArgs(argv);
   const session = PiAnalystRpcSession.spawnRestricted({
@@ -63,6 +65,9 @@ export async function runAnalystTurnHost({
     env,
   });
   const host = new AnalystTurnHost(session);
+  const abortController = new AbortController();
+  const onTerminate = () => abortController.abort();
+  signalSource.on("SIGTERM", onTerminate);
 
   try {
     for await (const line of jsonLines(stdin)) {
@@ -73,13 +78,14 @@ export async function runAnalystTurnHost({
         throw new AnalystTurnHostInputError(`invalid analyst turn JSON: ${error.message}`);
       }
 
-      const response = await host.handle(request);
+      const response = await host.handle(request, { signal: abortController.signal });
       await writeJsonLine(stdout, response);
       if (response.type === "error" && response.error.fatal === true) {
         throw new Error(response.error.message);
       }
     }
   } finally {
+    signalSource.off("SIGTERM", onTerminate);
     await host.shutdown();
   }
 
