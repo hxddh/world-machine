@@ -244,10 +244,8 @@ impl<P: AnalystSessionProcess> SessionCore<P> {
         }
 
         let archives = ArchiveSnapshotPair::capture(library, &left, &right)?;
-        let process_config = config.process_config(
-            archives.left_path.clone(),
-            archives.right_path.clone(),
-        );
+        let process_config =
+            config.process_config(archives.left_path.clone(), archives.right_path.clone());
         let process = spawn(&process_config).map_err(DesktopAnalystSessionError::Spawn)?;
 
         Ok(Self {
@@ -528,10 +526,8 @@ mod tests {
                     WorldArchive::from_json(&right_json).unwrap(),
                     expected_right_archive
                 );
-                *process_paths.lock().unwrap() = Some((
-                    config.left_archive.clone(),
-                    config.right_archive.clone(),
-                ));
+                *process_paths.lock().unwrap() =
+                    Some((config.left_archive.clone(), config.right_archive.clone()));
                 Ok(FakeProcess {
                     script: VecDeque::new(),
                     shutdowns: process_shutdowns,
@@ -583,10 +579,8 @@ mod tests {
             fixture.right.clone(),
             DesktopAnalystConfig::new("turn-host.mjs"),
             move |config| {
-                *process_paths.lock().unwrap() = Some((
-                    config.left_archive.clone(),
-                    config.right_archive.clone(),
-                ));
+                *process_paths.lock().unwrap() =
+                    Some((config.left_archive.clone(), config.right_archive.clone()));
                 Err("spawn failed".into())
             },
         );
