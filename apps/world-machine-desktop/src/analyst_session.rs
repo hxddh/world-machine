@@ -8,7 +8,7 @@ use world_analyst_client::{
 use world_library::{WorldDocumentId, WorldLibrary};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum DesktopAnalystState {
+pub enum DesktopAnalystState {
     Ready,
     Answer { turn_index: usize },
     RecoverableError { message: String },
@@ -17,7 +17,7 @@ pub(crate) enum DesktopAnalystState {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct DesktopAnalystConfig {
+pub struct DesktopAnalystConfig {
     pub node_program: PathBuf,
     pub turn_host_script: PathBuf,
     pub provider: Option<String>,
@@ -29,7 +29,7 @@ pub(crate) struct DesktopAnalystConfig {
 }
 
 impl DesktopAnalystConfig {
-    pub(crate) fn new(turn_host_script: impl Into<PathBuf>) -> Self {
+    pub fn new(turn_host_script: impl Into<PathBuf>) -> Self {
         Self {
             node_program: PathBuf::from("node"),
             turn_host_script: turn_host_script.into(),
@@ -42,7 +42,11 @@ impl DesktopAnalystConfig {
         }
     }
 
-    fn process_config(&self, left_archive: PathBuf, right_archive: PathBuf) -> AnalystTurnProcessConfig {
+    fn process_config(
+        &self,
+        left_archive: PathBuf,
+        right_archive: PathBuf,
+    ) -> AnalystTurnProcessConfig {
         AnalystTurnProcessConfig {
             node_program: self.node_program.clone(),
             turn_host_script: self.turn_host_script.clone(),
@@ -58,7 +62,7 @@ impl DesktopAnalystConfig {
 }
 
 #[derive(Debug)]
-pub(crate) enum DesktopAnalystSessionError {
+pub enum DesktopAnalystSessionError {
     SameWorld(WorldDocumentId),
     MissingWorld {
         side: &'static str,
@@ -80,7 +84,9 @@ pub(crate) enum DesktopAnalystSessionError {
 impl fmt::Display for DesktopAnalystSessionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::SameWorld(id) => write!(f, "analyst session requires two different Worlds; both are {id}"),
+            Self::SameWorld(id) => {
+                write!(f, "analyst session requires two different Worlds; both are {id}")
+            }
             Self::MissingWorld { side, id, path } => write!(
                 f,
                 "{side} analyst World {id} does not exist at {}",
@@ -93,9 +99,13 @@ impl fmt::Display for DesktopAnalystSessionError {
             ),
             Self::Spawn(message) => write!(f, "could not start analyst session: {message}"),
             Self::Client(error) => error.fmt(f),
-            Self::FatalSession(message) => write!(f, "analyst session is unavailable: {message}"),
+            Self::FatalSession(message) => {
+                write!(f, "analyst session is unavailable: {message}")
+            }
             Self::Closed => write!(f, "analyst session is closed"),
-            Self::Shutdown(message) => write!(f, "could not close analyst session cleanly: {message}"),
+            Self::Shutdown(message) => {
+                write!(f, "could not close analyst session cleanly: {message}")
+            }
         }
     }
 }
@@ -115,7 +125,7 @@ impl Error for DesktopAnalystSessionError {
     }
 }
 
-pub(crate) trait AnalystSessionProcess {
+trait AnalystSessionProcess {
     fn ask(
         &mut self,
         prompt: &str,
@@ -141,7 +151,7 @@ impl AnalystSessionProcess for AnalystTurnProcess {
     }
 }
 
-pub(crate) struct DesktopAnalystSession<P: AnalystSessionProcess> {
+struct SessionCore<P: AnalystSessionProcess> {
     left: WorldDocumentId,
     right: WorldDocumentId,
     left_path: PathBuf,
@@ -152,21 +162,8 @@ pub(crate) struct DesktopAnalystSession<P: AnalystSessionProcess> {
     timeout_ms: Option<u64>,
 }
 
-impl DesktopAnalystSession<AnalystTurnProcess> {
-    pub(crate) fn start(
-        library: &WorldLibrary,
-        left: WorldDocumentId,
-        right: WorldDocumentId,
-        config: DesktopAnalystConfig,
-    ) -> Result<Self, DesktopAnalystSessionError> {
-        Self::start_with(library, left, right, config, |process_config| {
-            AnalystTurnProcess::spawn(process_config).map_err(|error| error.to_string())
-        })
-    }
-}
-
-impl<P: AnalystSessionProcess> DesktopAnalystSession<P> {
-    pub(crate) fn start_with<F>(
+impl<P: AnalystSessionProcess> SessionCore<P> {
+    fn start_with<F>(
         library: &WorldLibrary,
         left: WorldDocumentId,
         right: WorldDocumentId,
@@ -197,37 +194,10 @@ impl<P: AnalystSessionProcess> DesktopAnalystSession<P> {
         })
     }
 
-    pub(crate) fn left(&self) -> &WorldDocumentId {
-        &self.left
-    }
-
-    pub(crate) fn right(&self) -> &WorldDocumentId {
-        &self.right
-    }
-
-    pub(crate) fn left_path(&self) -> &Path {
-        &self.left_path
-    }
-
-    pub(crate) fn right_path(&self) -> &Path {
-        &self.right_path
-    }
-
-    pub(crate) fn state(&self) -> &DesktopAnalystState {
-        &self.state
-    }
-
-    pub(crate) fn turns(&self) -> &[AnalystTurn] {
-        &self.turns
-    }
-
-    pub(crate) fn ask(
-        &mut self,
-        prompt: &str,
-    ) -> Result<AnalystTurn, DesktopAnalystSessionError> {
+    fn ask(&mut self, prompt: &str) -> Result<AnalystTurn, DesktopAnalystSessionError> {
         match &self.state {
             DesktopAnalystState::FatalError { message } => {
-                return Err(DesktopAnalystSessionError::FatalSession(message.clone()))
+                return Err(DesktopAnalystSessionError::FatalSession(message.clone()));
             }
             DesktopAnalystState::Closed => return Err(DesktopAnalystSessionError::Closed),
             DesktopAnalystState::Ready
@@ -264,7 +234,7 @@ impl<P: AnalystSessionProcess> DesktopAnalystSession<P> {
         }
     }
 
-    pub(crate) fn close(&mut self) -> Result<(), DesktopAnalystSessionError> {
+    fn close(&mut self) -> Result<(), DesktopAnalystSessionError> {
         if matches!(self.state, DesktopAnalystState::Closed) {
             return Ok(());
         }
@@ -281,9 +251,59 @@ impl<P: AnalystSessionProcess> DesktopAnalystSession<P> {
     }
 }
 
-impl<P: AnalystSessionProcess> Drop for DesktopAnalystSession<P> {
+impl<P: AnalystSessionProcess> Drop for SessionCore<P> {
     fn drop(&mut self) {
         let _ = self.shutdown_process();
+    }
+}
+
+pub struct DesktopAnalystSession {
+    inner: SessionCore<AnalystTurnProcess>,
+}
+
+impl DesktopAnalystSession {
+    pub fn start(
+        library: &WorldLibrary,
+        left: WorldDocumentId,
+        right: WorldDocumentId,
+        config: DesktopAnalystConfig,
+    ) -> Result<Self, DesktopAnalystSessionError> {
+        let inner = SessionCore::start_with(library, left, right, config, |process_config| {
+            AnalystTurnProcess::spawn(process_config).map_err(|error| error.to_string())
+        })?;
+        Ok(Self { inner })
+    }
+
+    pub fn left(&self) -> &WorldDocumentId {
+        &self.inner.left
+    }
+
+    pub fn right(&self) -> &WorldDocumentId {
+        &self.inner.right
+    }
+
+    pub fn left_path(&self) -> &Path {
+        &self.inner.left_path
+    }
+
+    pub fn right_path(&self) -> &Path {
+        &self.inner.right_path
+    }
+
+    pub fn state(&self) -> &DesktopAnalystState {
+        &self.inner.state
+    }
+
+    pub fn turns(&self) -> &[AnalystTurn] {
+        &self.inner.turns
+    }
+
+    pub fn ask(&mut self, prompt: &str) -> Result<AnalystTurn, DesktopAnalystSessionError> {
+        self.inner.ask(prompt)
+    }
+
+    pub fn close(&mut self) -> Result<(), DesktopAnalystSessionError> {
+        self.inner.close()
     }
 }
 
@@ -346,7 +366,7 @@ mod tests {
         let expected_right = fixture.library.path(&fixture.right);
         let process_shutdowns = Arc::clone(&shutdowns);
 
-        let session = DesktopAnalystSession::start_with(
+        let session = SessionCore::start_with(
             &fixture.library,
             fixture.left.clone(),
             fixture.right.clone(),
@@ -360,13 +380,13 @@ mod tests {
                 })
             },
         )
-        .unwrap();
+        .expect("valid analyst fixture should start");
 
-        assert_eq!(session.left(), &fixture.left);
-        assert_eq!(session.right(), &fixture.right);
-        assert_eq!(session.left_path(), fixture.library.path(&fixture.left));
-        assert_eq!(session.right_path(), fixture.library.path(&fixture.right));
-        assert_eq!(session.state(), &DesktopAnalystState::Ready);
+        assert_eq!(session.left, fixture.left);
+        assert_eq!(session.right, fixture.right);
+        assert_eq!(session.left_path, fixture.library.path(&fixture.left));
+        assert_eq!(session.right_path, fixture.library.path(&fixture.right));
+        assert_eq!(session.state, DesktopAnalystState::Ready);
         drop(session);
         assert_eq!(shutdowns.load(Ordering::SeqCst), 1);
     }
@@ -376,7 +396,7 @@ mod tests {
         let fixture = Fixture::new("invalid");
         let same_spawned = Arc::new(AtomicUsize::new(0));
         let same_counter = Arc::clone(&same_spawned);
-        let error = DesktopAnalystSession::<FakeProcess>::start_with(
+        let same_result = SessionCore::<FakeProcess>::start_with(
             &fixture.library,
             fixture.left.clone(),
             fixture.left.clone(),
@@ -385,15 +405,18 @@ mod tests {
                 same_counter.fetch_add(1, Ordering::SeqCst);
                 unreachable!()
             },
-        )
-        .unwrap_err();
+        );
+        let error = match same_result {
+            Ok(_) => panic!("same World pair unexpectedly started"),
+            Err(error) => error,
+        };
         assert!(matches!(error, DesktopAnalystSessionError::SameWorld(_)));
         assert_eq!(same_spawned.load(Ordering::SeqCst), 0);
 
         fs::remove_file(fixture.library.path(&fixture.right)).unwrap();
         let missing_spawned = Arc::new(AtomicUsize::new(0));
         let missing_counter = Arc::clone(&missing_spawned);
-        let error = DesktopAnalystSession::<FakeProcess>::start_with(
+        let missing_result = SessionCore::<FakeProcess>::start_with(
             &fixture.library,
             fixture.left.clone(),
             fixture.right.clone(),
@@ -402,8 +425,11 @@ mod tests {
                 missing_counter.fetch_add(1, Ordering::SeqCst);
                 unreachable!()
             },
-        )
-        .unwrap_err();
+        );
+        let error = match missing_result {
+            Ok(_) => panic!("missing World unexpectedly started"),
+            Err(error) => error,
+        };
         assert!(matches!(
             error,
             DesktopAnalystSessionError::MissingWorld { side: "right", .. }
@@ -415,38 +441,34 @@ mod tests {
     fn successful_asks_retain_turns_and_advance_answer_state() {
         let fixture = Fixture::new("answers");
         let shutdowns = Arc::new(AtomicUsize::new(0));
-        let process_shutdowns = Arc::clone(&shutdowns);
         let mut session = fixture.session_with(
             vec![Ok(turn("one")), Ok(turn("two"))],
-            process_shutdowns,
+            Arc::clone(&shutdowns),
         );
 
         assert_eq!(session.ask("first").unwrap().text.as_deref(), Some("one"));
         assert_eq!(
-            session.state(),
-            &DesktopAnalystState::Answer { turn_index: 0 }
+            session.state,
+            DesktopAnalystState::Answer { turn_index: 0 }
         );
         assert_eq!(session.ask("second").unwrap().text.as_deref(), Some("two"));
-        assert_eq!(session.turns().len(), 2);
+        assert_eq!(session.turns.len(), 2);
         assert_eq!(
-            session.state(),
-            &DesktopAnalystState::Answer { turn_index: 1 }
+            session.state,
+            DesktopAnalystState::Answer { turn_index: 1 }
         );
 
         session.close().unwrap();
-        assert_eq!(session.state(), &DesktopAnalystState::Closed);
+        assert_eq!(session.state, DesktopAnalystState::Closed);
         assert_eq!(shutdowns.load(Ordering::SeqCst), 1);
     }
 
     #[test]
-    fn nonfatal_command_error_is_recoverable_and_session_reuses_process() {
+    fn nonfatal_errors_are_recoverable_and_reuse_process() {
         let fixture = Fixture::new("recoverable");
         let shutdowns = Arc::new(AtomicUsize::new(0));
         let mut session = fixture.session_with(
-            vec![
-                Err(remote_command("busy")),
-                Ok(turn("recovered")),
-            ],
+            vec![Err(remote_command("busy")), Ok(turn("recovered"))],
             Arc::clone(&shutdowns),
         );
 
@@ -455,7 +477,7 @@ mod tests {
             DesktopAnalystSessionError::Client(AnalystTurnClientError::RemoteCommand(_))
         ));
         assert!(matches!(
-            session.state(),
+            session.state,
             DesktopAnalystState::RecoverableError { .. }
         ));
         assert_eq!(shutdowns.load(Ordering::SeqCst), 0);
@@ -480,15 +502,25 @@ mod tests {
             session.ask("first").unwrap_err(),
             DesktopAnalystSessionError::Client(AnalystTurnClientError::RemoteFatal(_))
         ));
-        assert!(matches!(
-            session.state(),
-            DesktopAnalystState::FatalError { .. }
-        ));
+        assert!(matches!(session.state, DesktopAnalystState::FatalError { .. }));
         assert_eq!(shutdowns.load(Ordering::SeqCst), 1);
         assert!(matches!(
             session.ask("again").unwrap_err(),
             DesktopAnalystSessionError::FatalSession(_)
         ));
+        assert_eq!(shutdowns.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn close_is_idempotent_and_drop_does_not_shutdown_twice() {
+        let fixture = Fixture::new("close");
+        let shutdowns = Arc::new(AtomicUsize::new(0));
+        let mut session = fixture.session_with(Vec::new(), Arc::clone(&shutdowns));
+
+        session.close().unwrap();
+        session.close().unwrap();
+        assert_eq!(session.state, DesktopAnalystState::Closed);
+        drop(session);
         assert_eq!(shutdowns.load(Ordering::SeqCst), 1);
     }
 
@@ -570,8 +602,8 @@ mod tests {
             &self,
             script: Vec<Result<AnalystTurn, AnalystTurnClientError>>,
             shutdowns: Arc<AtomicUsize>,
-        ) -> DesktopAnalystSession<FakeProcess> {
-            DesktopAnalystSession::start_with(
+        ) -> SessionCore<FakeProcess> {
+            SessionCore::start_with(
                 &self.library,
                 self.left.clone(),
                 self.right.clone(),
@@ -583,7 +615,7 @@ mod tests {
                     })
                 },
             )
-            .unwrap()
+            .expect("valid fake analyst session should start")
         }
     }
 
