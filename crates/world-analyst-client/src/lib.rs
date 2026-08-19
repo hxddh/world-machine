@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::{de, Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use std::error::Error;
 use std::fmt;
@@ -8,6 +8,7 @@ use std::process::{Child, ChildStdin, ChildStdout, Command, ExitStatus, Stdio};
 
 pub const ANALYST_TURN_PROTOCOL: &str = "world-machine-analyst-turns";
 pub const ANALYST_TURN_PROTOCOL_VERSION: u64 = 1;
+pub const ANALYST_TURN_MAX_TIMEOUT_MS: u64 = 9_007_199_254_740_991;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "kebab-case")]
@@ -83,7 +84,7 @@ pub enum AnalystTurnResponse {
     },
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct AnalystTurnEnvelope {
     pub protocol: String,
     pub version: u64,
@@ -91,8 +92,34 @@ pub struct AnalystTurnEnvelope {
     pub response: AnalystTurnResponse,
 }
 
+#[derive(Deserialize)]
+struct AnalystTurnEnvelopeUnchecked {
+    protocol: String,
+    version: u64,
+    #[serde(flatten)]
+    response: AnalystTurnResponse,
+}
+
+impl<'de> Deserialize<'de> for AnalystTurnEnvelope {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = Value::deserialize(deserializer)?;
+        validate_response_shape(&value).map_err(de::Error::custom)?;
+        let unchecked: AnalystTurnEnvelopeUnchecked =
+            serde_json::from_value(value).map_err(de::Error::custom)?;
+        Ok(Self {
+            protocol: unchecked.protocol,
+            version: unchecked.version,
+            response: unchecked.response,
+        })
+    }
+}
+
 #[derive(Debug)]
 pub enum AnalystTurnClientError {
+    InvalidRequest(String),
     SerializeRequest(serde_json::Error),
     WriteRequest(io::Error),
     ReadResponse(io::Error),
@@ -109,13 +136,17 @@ pub enum AnalystTurnClientError {
 
 impl AnalystTurnClientError {
     pub fn is_session_fatal(&self) -> bool {
-        !matches!(self, Self::SerializeRequest(_) | Self::RemoteCommand(_))
+        !matches!(
+            self,
+            Self::InvalidRequest(_) | Self::SerializeRequest(_) | Self::RemoteCommand(_)
+        )
     }
 }
 
 impl fmt::Display for AnalystTurnClientError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::InvalidRequest(message) => write!(f, "invalid analyst turn request: {message}"),
             Self::SerializeRequest(error) => {
                 write!(f, "failed to serialize analyst turn request: {error}")
             }
@@ -158,7 +189,8 @@ impl Error for AnalystTurnClientError {
         match self {
             Self::SerializeRequest(error) | Self::InvalidResponseJson(error) => Some(error),
             Self::WriteRequest(error) | Self::ReadResponse(error) => Some(error),
-            Self::UnexpectedEof
+            Self::InvalidRequest(_)
+            | Self::UnexpectedEof
             | Self::InvalidResponseShape(_)
             | Self::ProtocolMismatch { .. }
             | Self::VersionMismatch { .. }
@@ -210,11 +242,25 @@ where
             return Err(AnalystTurnClientError::Poisoned);
         }
 
+        let prompt = prompt.into();
+        if prompt.is_empty() {
+            return Err(AnalystTurnClientError::InvalidRequest(
+                "prompt must be a non-empty string".into(),
+            ));
+        }
+        if let Some(timeout_ms) = timeout_ms {
+            if timeout_ms == 0 || timeout_ms > ANALYST_TURN_MAX_TIMEOUT_MS {
+                return Err(AnalystTurnClientError::InvalidRequest(format!(
+                    "timeout_ms must be an integer in 1..={ANALYST_TURN_MAX_TIMEOUT_MS}"
+                )));
+            }
+        }
+
         let id = format!("world-rust-analyst-{}", self.next_request_id);
         self.next_request_id += 1;
         let request = AnalystTurnRequest::Ask {
             id: id.clone(),
-            prompt: prompt.into(),
+            prompt,
             timeout_ms,
         };
 
@@ -447,15 +493,11 @@ impl AnalystTurnProcess {
         prompt: impl Into<String>,
         timeout_ms: Option<u64>,
     ) -> Result<AnalystTurn, AnalystTurnClientError> {
-        let result = self
-            .client
-            .as_mut()
-            .expect("analyst client remains available until shutdown")
-            .ask(prompt, timeout_ms);
-        let poisoned = self
-            .client
-            .as_ref()
-            .is_some_and(AnalystTurnClient::is_poisoned);
+        let Some(client) = self.client.as_mut() else {
+            return Err(AnalystTurnClientError::Poisoned);
+        };
+        let result = client.ask(prompt, timeout_ms);
+        let poisoned = client.is_poisoned();
         if poisoned {
             self.client.take();
             terminate_child(&mut self.child);
@@ -619,13 +661,63 @@ mod tests {
     }
 
     #[test]
+    fn invalid_requests_are_rejected_locally_without_consuming_id() {
+        for (prompt, timeout_ms) in [
+            ("", None),
+            ("question", Some(0)),
+            ("question", Some(ANALYST_TURN_MAX_TIMEOUT_MS + 1)),
+        ] {
+            let mut client = response_client(success_response("world-rust-analyst-1"));
+            let error = client.ask(prompt, timeout_ms).unwrap_err();
+            assert!(matches!(error, AnalystTurnClientError::InvalidRequest(_)));
+            assert!(!error.is_session_fatal());
+            assert!(!client.is_poisoned());
+
+            let turn = client.ask("valid", None).unwrap();
+            assert_eq!(turn.text.as_deref(), Some("answer"));
+            let (_, written) = client.into_parts();
+            let request: Value = serde_json::from_slice(&written[..written.len() - 1]).unwrap();
+            assert_eq!(request["id"], "world-rust-analyst-1");
+        }
+    }
+
+    #[test]
     fn unknown_top_level_response_fields_are_rejected() {
         let mut response = success_response("world-rust-analyst-1");
         response["provider_event"] = serde_json::json!(true);
+        assert!(serde_json::from_value::<AnalystTurnEnvelope>(response.clone()).is_err());
+
         let mut client = response_client(response);
         assert!(matches!(
             client.ask("question", None).unwrap_err(),
             AnalystTurnClientError::InvalidResponseShape(_)
+        ));
+    }
+    #[cfg(unix)]
+    #[test]
+    fn process_returns_poisoned_after_fatal_teardown() {
+        let mut child = Command::new("sh")
+            .arg("-c")
+            .arg("exit 0")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let stdin = child.stdin.take().unwrap();
+        let stdout = child.stdout.take().unwrap();
+        let mut process = AnalystTurnProcess {
+            child,
+            client: Some(AnalystTurnClient::new(
+                BufReader::new(stdout),
+                BufWriter::new(stdin),
+            )),
+        };
+
+        let first = process.ask("question", None).unwrap_err();
+        assert!(first.is_session_fatal());
+        assert!(matches!(
+            process.ask("again", None).unwrap_err(),
+            AnalystTurnClientError::Poisoned
         ));
     }
 }
