@@ -1,1 +1,1 @@
-mod analyst_session;
+pub mod analyst_session;
