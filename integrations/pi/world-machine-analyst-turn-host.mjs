@@ -1,4 +1,5 @@
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 import {
   PiAnalystRpcCommandError,
   PiAnalystRpcProtocolError,
@@ -33,16 +34,11 @@ export class AnalystTurnHost {
         turn: normalizeTurn(turn),
       });
     } catch (error) {
-      const mapped = mapSessionError(error);
-      const response = envelope({
+      return envelope({
         type: "error",
         id: parsed.id,
-        error: mapped.error,
+        error: mapSessionError(error),
       });
-      return {
-        response,
-        fatal: mapped.fatal,
-      };
     }
   }
 
@@ -54,7 +50,6 @@ export class AnalystTurnHost {
 export async function runAnalystTurnHost({
   stdin = process.stdin,
   stdout = process.stdout,
-  stderr = process.stderr,
   argv = process.argv.slice(2),
   env = process.env,
 } = {}) {
@@ -78,11 +73,10 @@ export async function runAnalystTurnHost({
         throw new AnalystTurnHostInputError(`invalid analyst turn JSON: ${error.message}`);
       }
 
-      const handled = await host.handle(request);
-      const response = handled.response ?? handled;
+      const response = await host.handle(request);
       await writeJsonLine(stdout, response);
-      if (handled.fatal === true) {
-        throw new Error(response.error?.message ?? "fatal analyst session failure");
+      if (response.type === "error" && response.error.fatal === true) {
+        throw new Error(response.error.message);
       }
     }
   } finally {
@@ -155,50 +149,58 @@ function normalizeTurn(turn) {
   return {
     request_id: turn.requestId,
     text: turn.text ?? null,
-    tool_calls: turn.toolCalls ?? [],
-    extension_errors: turn.extensionErrors ?? [],
-    events: turn.events ?? [],
+    tool_calls: (turn.toolCalls ?? []).map(normalizeToolCall),
+    runtime_errors: (turn.extensionErrors ?? []).map(normalizeRuntimeError),
+  };
+}
+
+function normalizeToolCall(call) {
+  const details = call.result?.details;
+  const hasCanonicalOutput =
+    details && Object.prototype.hasOwnProperty.call(details, "output");
+  return {
+    call_id: call.toolCallId,
+    tool: details?.worldMachineTool ?? call.toolName,
+    input: call.args ?? null,
+    output: hasCanonicalOutput ? details.output : (call.result ?? null),
+    is_error: call.isError === true,
+  };
+}
+
+function normalizeRuntimeError(error) {
+  return {
+    kind: "extension",
+    source: error.extensionPath ?? null,
+    message: typeof error.error === "string" ? error.error : "extension error",
   };
 }
 
 function mapSessionError(error) {
   if (error instanceof PiAnalystRpcCommandError) {
     return {
+      kind: "command",
       fatal: false,
-      error: {
-        kind: "command",
-        message: error.message,
-        details: error.details ?? {},
-      },
+      message: error.message,
     };
   }
   if (error instanceof PiAnalystRpcProtocolError) {
     return {
+      kind: "protocol",
       fatal: true,
-      error: {
-        kind: "protocol",
-        message: error.message,
-        details: error.details ?? {},
-      },
+      message: error.message,
     };
   }
   if (error instanceof PiAnalystRpcTransportError) {
     return {
+      kind: "transport",
       fatal: true,
-      error: {
-        kind: "transport",
-        message: error.message,
-        details: error.details ?? {},
-      },
+      message: error.message,
     };
   }
   return {
+    kind: "internal",
     fatal: true,
-    error: {
-      kind: "internal",
-      message: error instanceof Error ? error.message : String(error),
-      details: {},
-    },
+    message: error instanceof Error ? error.message : String(error),
   };
 }
 
@@ -239,7 +241,7 @@ async function writeJsonLine(stream, value) {
   });
 }
 
-const isMain = process.argv[1] && new URL(import.meta.url).pathname === process.argv[1];
+const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
 if (isMain) {
   runAnalystTurnHost().catch((error) => {
     process.stderr.write(`${error.message}\n`);
