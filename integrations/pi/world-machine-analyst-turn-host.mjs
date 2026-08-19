@@ -219,7 +219,7 @@ function envelope(body) {
 
 async function* jsonLines(stream) {
   let buffer = Buffer.alloc(0);
-  for await (const chunk of stdinChunks(stream)) {
+  for await (const chunk of stream) {
     buffer = Buffer.concat([buffer, Buffer.from(chunk)]);
     while (true) {
       const newline = buffer.indexOf(0x0a);
@@ -234,10 +234,6 @@ async function* jsonLines(stream) {
     const line = buffer.toString("utf8").replace(/\r$/, "");
     if (line.length > 0) yield line;
   }
-}
-
-async function* stdinChunks(stream) {
-  for await (const chunk of stream) yield chunk;
 }
 
 async function writeJsonLine(stream, value) {
