@@ -1,3 +1,5 @@
+//! Resolve the external analyst runtime without leaking process paths into GPUI rendering code.
+
 use std::env;
 use std::path::{Path, PathBuf};
 use world_machine_desktop::analyst_session::DesktopAnalystConfig;
@@ -97,7 +99,9 @@ fn validate_root(root: &Path) -> Result<(), String> {
 }
 
 fn env_path(name: &str) -> Option<PathBuf> {
-    env::var_os(name).filter(|value| !value.is_empty()).map(PathBuf::from)
+    env::var_os(name)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
 }
 
 fn env_value(name: &str) -> Option<String> {
