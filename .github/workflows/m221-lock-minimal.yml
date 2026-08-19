@@ -1,3 +1,4 @@
+# Temporary M221-only workflow; delete after the validated lock commit lands.
 name: M221 minimal lock
 
 on:
