@@ -65,7 +65,10 @@ export async function runAnalystTurnHost({
   });
   const host = new AnalystTurnHost(session);
   const abortController = new AbortController();
-  const onTerminate = () => abortController.abort();
+  const onTerminate = () => {
+    abortController.abort();
+    if (typeof stdin.destroy === "function") stdin.destroy();
+  };
   signalSource.on("SIGTERM", onTerminate);
 
   try {
