@@ -1,11 +1,16 @@
 use std::error::Error;
 use std::fmt;
-use std::io;
+use std::fs::{self, OpenOptions};
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 use world_analyst_client::{
     AnalystTurn, AnalystTurnClientError, AnalystTurnProcess, AnalystTurnProcessConfig,
 };
-use world_library::{WorldDocumentId, WorldLibrary};
+use world_library::{LibraryError, WorldDocumentId, WorldLibrary};
+
+static ANALYST_SNAPSHOT_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DesktopAnalystState {
@@ -67,9 +72,22 @@ pub enum DesktopAnalystSessionError {
     MissingWorld {
         side: &'static str,
         id: WorldDocumentId,
-        path: PathBuf,
     },
-    InspectWorld {
+    LoadWorld {
+        side: &'static str,
+        id: WorldDocumentId,
+        source: LibraryError,
+    },
+    SerializeArchive {
+        side: &'static str,
+        id: WorldDocumentId,
+        message: String,
+    },
+    CreateSnapshotDir {
+        path: PathBuf,
+        source: io::Error,
+    },
+    WriteSnapshot {
         side: &'static str,
         path: PathBuf,
         source: io::Error,
@@ -90,14 +108,24 @@ impl fmt::Display for DesktopAnalystSessionError {
                     "analyst session requires two different Worlds; both are {id}"
                 )
             }
-            Self::MissingWorld { side, id, path } => write!(
+            Self::MissingWorld { side, id } => {
+                write!(f, "{side} analyst World {id} does not exist")
+            }
+            Self::LoadWorld { side, id, source } => {
+                write!(f, "could not load {side} analyst World {id}: {source}")
+            }
+            Self::SerializeArchive { side, id, message } => write!(
                 f,
-                "{side} analyst World {id} does not exist at {}",
+                "could not serialize {side} analyst World {id} as an archive snapshot: {message}"
+            ),
+            Self::CreateSnapshotDir { path, source } => write!(
+                f,
+                "could not create analyst snapshot directory {}: {source}",
                 path.display()
             ),
-            Self::InspectWorld { side, path, source } => write!(
+            Self::WriteSnapshot { side, path, source } => write!(
                 f,
-                "could not inspect {side} analyst World {}: {source}",
+                "could not write {side} analyst archive snapshot {}: {source}",
                 path.display()
             ),
             Self::Spawn(message) => write!(f, "could not start analyst session: {message}"),
@@ -116,10 +144,14 @@ impl fmt::Display for DesktopAnalystSessionError {
 impl Error for DesktopAnalystSessionError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::InspectWorld { source, .. } => Some(source),
+            Self::LoadWorld { source, .. } => Some(source),
+            Self::CreateSnapshotDir { source, .. } | Self::WriteSnapshot { source, .. } => {
+                Some(source)
+            }
             Self::Client(error) => Some(error),
             Self::SameWorld(_)
             | Self::MissingWorld { .. }
+            | Self::SerializeArchive { .. }
             | Self::Spawn(_)
             | Self::FatalSession(_)
             | Self::Closed
@@ -154,11 +186,57 @@ impl AnalystSessionProcess for AnalystTurnProcess {
     }
 }
 
+struct ArchiveSnapshotPair {
+    root: PathBuf,
+    left_path: PathBuf,
+    right_path: PathBuf,
+}
+
+impl ArchiveSnapshotPair {
+    fn capture(
+        library: &WorldLibrary,
+        left: &WorldDocumentId,
+        right: &WorldDocumentId,
+    ) -> Result<Self, DesktopAnalystSessionError> {
+        let left_archive = load_archive(library, "left", left)?;
+        let right_archive = load_archive(library, "right", right)?;
+        let left_json = left_archive.to_json_pretty().map_err(|error| {
+            DesktopAnalystSessionError::SerializeArchive {
+                side: "left",
+                id: left.clone(),
+                message: error.to_string(),
+            }
+        })?;
+        let right_json = right_archive.to_json_pretty().map_err(|error| {
+            DesktopAnalystSessionError::SerializeArchive {
+                side: "right",
+                id: right.clone(),
+                message: error.to_string(),
+            }
+        })?;
+
+        let root = create_snapshot_root()?;
+        let pair = Self {
+            left_path: root.join("left.world-archive.json"),
+            right_path: root.join("right.world-archive.json"),
+            root,
+        };
+        write_private_snapshot("left", &pair.left_path, &left_json)?;
+        write_private_snapshot("right", &pair.right_path, &right_json)?;
+        Ok(pair)
+    }
+}
+
+impl Drop for ArchiveSnapshotPair {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.root);
+    }
+}
+
 struct SessionCore<P: AnalystSessionProcess> {
     left: WorldDocumentId,
     right: WorldDocumentId,
-    left_path: PathBuf,
-    right_path: PathBuf,
+    archives: ArchiveSnapshotPair,
     process: Option<P>,
     state: DesktopAnalystState,
     turns: Vec<AnalystTurn>,
@@ -180,16 +258,17 @@ impl<P: AnalystSessionProcess> SessionCore<P> {
             return Err(DesktopAnalystSessionError::SameWorld(left));
         }
 
-        let left_path = required_world_path(library, "left", &left)?;
-        let right_path = required_world_path(library, "right", &right)?;
-        let process_config = config.process_config(left_path.clone(), right_path.clone());
+        let archives = ArchiveSnapshotPair::capture(library, &left, &right)?;
+        let process_config = config.process_config(
+            archives.left_path.clone(),
+            archives.right_path.clone(),
+        );
         let process = spawn(&process_config).map_err(DesktopAnalystSessionError::Spawn)?;
 
         Ok(Self {
             left,
             right,
-            left_path,
-            right_path,
+            archives,
             process: Some(process),
             state: DesktopAnalystState::Ready,
             turns: Vec::new(),
@@ -285,14 +364,6 @@ impl DesktopAnalystSession {
         &self.inner.right
     }
 
-    pub fn left_path(&self) -> &Path {
-        &self.inner.left_path
-    }
-
-    pub fn right_path(&self) -> &Path {
-        &self.inner.right_path
-    }
-
     pub fn state(&self) -> &DesktopAnalystState {
         &self.inner.state
     }
@@ -310,34 +381,103 @@ impl DesktopAnalystSession {
     }
 }
 
-fn required_world_path(
+fn load_archive(
     library: &WorldLibrary,
     side: &'static str,
     id: &WorldDocumentId,
-) -> Result<PathBuf, DesktopAnalystSessionError> {
-    let path = library.path(id);
-    match path.try_exists() {
-        Ok(true) => Ok(path),
-        Ok(false) => Err(DesktopAnalystSessionError::MissingWorld {
+) -> Result<world_persistence::WorldArchive, DesktopAnalystSessionError> {
+    library
+        .load(id)
+        .map_err(|source| DesktopAnalystSessionError::LoadWorld {
             side,
             id: id.clone(),
-            path,
-        }),
-        Err(source) => Err(DesktopAnalystSessionError::InspectWorld { side, path, source }),
+            source,
+        })?
+        .ok_or_else(|| DesktopAnalystSessionError::MissingWorld {
+            side,
+            id: id.clone(),
+        })
+}
+
+fn create_snapshot_root() -> Result<PathBuf, DesktopAnalystSessionError> {
+    let base = std::env::temp_dir();
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    for _ in 0..32 {
+        let sequence = ANALYST_SNAPSHOT_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let path = base.join(format!(
+            "world-machine-analyst-{}-{now}-{sequence}",
+            std::process::id()
+        ));
+        match create_private_dir(&path) {
+            Ok(()) => return Ok(path),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(source) => {
+                return Err(DesktopAnalystSessionError::CreateSnapshotDir { path, source });
+            }
+        }
     }
+
+    let path = base.join(format!(
+        "world-machine-analyst-{}-{now}",
+        std::process::id()
+    ));
+    Err(DesktopAnalystSessionError::CreateSnapshotDir {
+        path,
+        source: io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "could not allocate a unique analyst snapshot directory",
+        ),
+    })
+}
+
+fn create_private_dir(path: &Path) -> io::Result<()> {
+    let mut builder = fs::DirBuilder::new();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        builder.mode(0o700);
+    }
+    builder.create(path)
+}
+
+fn write_private_snapshot(side: &'static str, path: &Path, json: &str) -> Result<(), DesktopAnalystSessionError> {
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options
+        .open(path)
+        .map_err(|source| DesktopAnalystSessionError::WriteSnapshot {
+            side,
+            path: path.to_path_buf(),
+            source,
+        })?;
+    file.write_all(json.as_bytes())
+        .map_err(|source| DesktopAnalystSessionError::WriteSnapshot {
+            side,
+            path: path.to_path_buf(),
+            source,
+        })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::collections::VecDeque;
-    use std::fs;
     use std::sync::{
         atomic::{AtomicUsize, Ordering},
-        Arc,
+        Arc, Mutex,
     };
-    use std::time::{SystemTime, UNIX_EPOCH};
     use world_analyst_client::{AnalystRemoteError, AnalystRemoteErrorKind};
+    use world_persistence::{
+        WorldArchive, WorldPackRef, WORLD_ARCHIVE_FORMAT, WORLD_ARCHIVE_VERSION,
+    };
 
     struct FakeProcess {
         script: VecDeque<Result<AnalystTurn, AnalystTurnClientError>>,
@@ -362,12 +502,12 @@ mod tests {
     }
 
     #[test]
-    fn start_binds_two_existing_library_paths_once() {
+    fn start_binds_raw_archive_snapshots_and_cleans_them_on_drop() {
         let fixture = Fixture::new("bind");
         let shutdowns = Arc::new(AtomicUsize::new(0));
-        let expected_left = fixture.library.path(&fixture.left);
-        let expected_right = fixture.library.path(&fixture.right);
+        let captured_paths = Arc::new(Mutex::new(None));
         let process_shutdowns = Arc::clone(&shutdowns);
+        let process_paths = Arc::clone(&captured_paths);
 
         let session = SessionCore::start_with(
             &fixture.library,
@@ -375,8 +515,16 @@ mod tests {
             fixture.right.clone(),
             DesktopAnalystConfig::new("turn-host.mjs"),
             move |config| {
-                assert_eq!(config.left_archive, expected_left);
-                assert_eq!(config.right_archive, expected_right);
+                assert_ne!(config.left_archive, fixture.library.path(&fixture.left));
+                assert_ne!(config.right_archive, fixture.library.path(&fixture.right));
+                let left_json = fs::read_to_string(&config.left_archive).unwrap();
+                let right_json = fs::read_to_string(&config.right_archive).unwrap();
+                assert_eq!(WorldArchive::from_json(&left_json).unwrap(), fixture.left_archive);
+                assert_eq!(WorldArchive::from_json(&right_json).unwrap(), fixture.right_archive);
+                *process_paths.lock().unwrap() = Some((
+                    config.left_archive.clone(),
+                    config.right_archive.clone(),
+                ));
                 Ok(FakeProcess {
                     script: VecDeque::new(),
                     shutdowns: process_shutdowns,
@@ -387,11 +535,55 @@ mod tests {
 
         assert_eq!(session.left, fixture.left);
         assert_eq!(session.right, fixture.right);
-        assert_eq!(session.left_path, fixture.library.path(&fixture.left));
-        assert_eq!(session.right_path, fixture.library.path(&fixture.right));
         assert_eq!(session.state, DesktopAnalystState::Ready);
+        let (left_snapshot, right_snapshot) = captured_paths.lock().unwrap().clone().unwrap();
+        assert!(left_snapshot.exists());
+        assert!(right_snapshot.exists());
         drop(session);
         assert_eq!(shutdowns.load(Ordering::SeqCst), 1);
+        assert!(!left_snapshot.exists());
+        assert!(!right_snapshot.exists());
+    }
+
+    #[test]
+    fn archive_snapshots_do_not_follow_later_library_changes() {
+        let fixture = Fixture::new("stable");
+        let shutdowns = Arc::new(AtomicUsize::new(0));
+        let mut session = fixture.session_with(Vec::new(), Arc::clone(&shutdowns));
+        let snapshot_before = fs::read_to_string(&session.archives.left_path).unwrap();
+
+        let replacement = archive("replacement", 99);
+        fixture.library.save(&fixture.left, &replacement).unwrap();
+        let snapshot_after = fs::read_to_string(&session.archives.left_path).unwrap();
+        assert_eq!(snapshot_before, snapshot_after);
+        assert_eq!(WorldArchive::from_json(&snapshot_after).unwrap(), fixture.left_archive);
+
+        session.close().unwrap();
+        assert_eq!(shutdowns.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn spawn_failure_cleans_archive_snapshots() {
+        let fixture = Fixture::new("spawn-failure");
+        let captured_paths = Arc::new(Mutex::new(None));
+        let process_paths = Arc::clone(&captured_paths);
+        let result = SessionCore::<FakeProcess>::start_with(
+            &fixture.library,
+            fixture.left.clone(),
+            fixture.right.clone(),
+            DesktopAnalystConfig::new("turn-host.mjs"),
+            move |config| {
+                *process_paths.lock().unwrap() = Some((
+                    config.left_archive.clone(),
+                    config.right_archive.clone(),
+                ));
+                Err("spawn failed".into())
+            },
+        );
+        assert!(matches!(result, Err(DesktopAnalystSessionError::Spawn(_))));
+        let (left_snapshot, right_snapshot) = captured_paths.lock().unwrap().clone().unwrap();
+        assert!(!left_snapshot.exists());
+        assert!(!right_snapshot.exists());
     }
 
     #[test]
@@ -409,11 +601,7 @@ mod tests {
                 unreachable!()
             },
         );
-        let error = match same_result {
-            Ok(_) => panic!("same World pair unexpectedly started"),
-            Err(error) => error,
-        };
-        assert!(matches!(error, DesktopAnalystSessionError::SameWorld(_)));
+        assert!(matches!(same_result, Err(DesktopAnalystSessionError::SameWorld(_))));
         assert_eq!(same_spawned.load(Ordering::SeqCst), 0);
 
         fs::remove_file(fixture.library.path(&fixture.right)).unwrap();
@@ -429,13 +617,9 @@ mod tests {
                 unreachable!()
             },
         );
-        let error = match missing_result {
-            Ok(_) => panic!("missing World unexpectedly started"),
-            Err(error) => error,
-        };
         assert!(matches!(
-            error,
-            DesktopAnalystSessionError::MissingWorld { side: "right", .. }
+            missing_result,
+            Err(DesktopAnalystSessionError::MissingWorld { side: "right", .. })
         ));
         assert_eq!(missing_spawned.load(Ordering::SeqCst), 0);
     }
@@ -567,11 +751,24 @@ mod tests {
         })
     }
 
+    fn archive(label: &str, world_time: u64) -> WorldArchive {
+        WorldArchive {
+            format: WORLD_ARCHIVE_FORMAT.into(),
+            format_version: WORLD_ARCHIVE_VERSION,
+            pack: WorldPackRef::new(format!("test-{label}"), "1"),
+            world_time,
+            events: Vec::new(),
+            pending: Vec::new(),
+        }
+    }
+
     struct Fixture {
         root: PathBuf,
         library: WorldLibrary,
         left: WorldDocumentId,
         right: WorldDocumentId,
+        left_archive: WorldArchive,
+        right_archive: WorldArchive,
     }
 
     impl Fixture {
@@ -588,13 +785,17 @@ mod tests {
             let library = WorldLibrary::new(root.clone());
             let left = WorldDocumentId::new("left").unwrap();
             let right = WorldDocumentId::new("right").unwrap();
-            fs::write(library.path(&left), "left").unwrap();
-            fs::write(library.path(&right), "right").unwrap();
+            let left_archive = archive("left", 1);
+            let right_archive = archive("right", 2);
+            library.save(&left, &left_archive).unwrap();
+            library.save(&right, &right_archive).unwrap();
             Self {
                 root,
                 library,
                 left,
                 right,
+                left_archive,
+                right_archive,
             }
         }
 
