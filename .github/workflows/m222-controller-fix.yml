@@ -1,3 +1,4 @@
+# Temporary M222-only workflow; delete after controller fix lands.
 name: M222 controller fix
 
 on:
