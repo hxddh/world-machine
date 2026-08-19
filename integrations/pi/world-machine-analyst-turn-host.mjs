@@ -25,10 +25,9 @@ export class AnalystTurnHost {
   async handle(request, { signal } = {}) {
     const parsed = parseRequest(request);
     try {
-      const turn = await this.session.prompt(parsed.prompt, {
-        signal,
-        timeoutMs: parsed.timeoutMs,
-      });
+      const options = { timeoutMs: parsed.timeoutMs };
+      if (signal !== undefined) options.signal = signal;
+      const turn = await this.session.prompt(parsed.prompt, options);
       return envelope({
         type: "result",
         id: parsed.id,
@@ -220,7 +219,7 @@ function envelope(body) {
 
 async function* jsonLines(stream) {
   let buffer = Buffer.alloc(0);
-  for await (const chunk of stream) {
+  for await (const chunk of stdinChunks(stream)) {
     buffer = Buffer.concat([buffer, Buffer.from(chunk)]);
     while (true) {
       const newline = buffer.indexOf(0x0a);
@@ -235,6 +234,10 @@ async function* jsonLines(stream) {
     const line = buffer.toString("utf8").replace(/\r$/, "");
     if (line.length > 0) yield line;
   }
+}
+
+async function* stdinChunks(stream) {
+  for await (const chunk of stream) yield chunk;
 }
 
 async function writeJsonLine(stream, value) {
