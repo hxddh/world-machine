@@ -3,6 +3,7 @@ members = [
   "crates/world-core",
   "crates/world-cli",
   "crates/world-agent",
+  "crates/world-analyst-client",
   "crates/world-pi-rpc",
   "crates/world-pack-protocol",
   "crates/world-pack-bundle",

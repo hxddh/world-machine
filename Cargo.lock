@@ -6638,6 +6638,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "world-analyst-client"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "world-builtins"
 version = "0.1.0"
 dependencies = [
@@ -6654,6 +6662,7 @@ dependencies = [
  "world-builtins",
  "world-integrity",
  "world-investigation",
+ "world-investigation-local",
  "world-persistence",
  "world-projection",
  "world-query",
