@@ -4,12 +4,14 @@ set -euo pipefail
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 extension="$repo_root/integrations/pi/world-machine-analyst.mjs"
 client="$repo_root/integrations/pi/world-machine-analyst-client.mjs"
-tests="$repo_root/integrations/pi/tests/world-machine-analyst-client.test.mjs"
+rpc="$repo_root/integrations/pi/world-machine-analyst-rpc.mjs"
+tests_dir="$repo_root/integrations/pi/tests"
 launcher="$repo_root/scripts/run-pi-analyst.sh"
 
 node --check "$extension"
 node --check "$client"
-node --test "$tests"
+node --check "$rpc"
+node --test "$tests_dir"/*.test.mjs
 bash -n "$launcher"
 
 for required in \
@@ -25,6 +27,24 @@ do
   fi
 done
 
+for required in \
+  'agent_settled' \
+  'Pi analyst RPC session is single-flight' \
+  'toolCallId' \
+  'RESTRICTED_LAUNCHER' \
+  'scripts/run-pi-analyst.sh'
+do
+  if ! grep -Fq "$required" "$rpc"; then
+    echo "Pi analyst RPC session is missing required boundary: $required" >&2
+    exit 1
+  fi
+done
+
+if grep -Fq 'launcher =' "$rpc"; then
+  echo "Pi analyst spawnRestricted must not accept a caller-supplied launcher" >&2
+  exit 1
+fi
+
 for forbidden in \
   'node:fs' \
   'node:http' \
@@ -32,10 +52,12 @@ for forbidden in \
   'fetch(' \
   'world-projection' \
   'world-core' \
+  'WORLD_ACTION' \
+  'agentruntime' \
   'typebox'
 do
-  if grep -Fqi "$forbidden" "$extension" "$client"; then
-    echo "Pi analyst extension contains forbidden authority/network/runtime token: $forbidden" >&2
+  if grep -Fqi "$forbidden" "$extension" "$client" "$rpc"; then
+    echo "Pi analyst integration contains forbidden authority/network/runtime token: $forbidden" >&2
     exit 1
   fi
 done
