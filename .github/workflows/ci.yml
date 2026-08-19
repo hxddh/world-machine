@@ -64,6 +64,8 @@ jobs:
         with:
           shared-key: semantic
       - run: bash ./scripts/check-boundaries.sh
+      - name: Check Pi analyst integration
+        run: bash ./scripts/check-pi-analyst.sh
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --exclude world-gpui --exclude world-strategy-gpui --exclude world-lineage-gpui --exclude tiny-society-desktop --exclude future-archaeologist-desktop --exclude world-machine-desktop --exclude strategy-comparison-desktop --exclude lineage-explorer-desktop --all-targets -- -D warnings
       - run: cargo test --workspace --exclude world-gpui --exclude world-strategy-gpui --exclude world-lineage-gpui --exclude tiny-society-desktop --exclude future-archaeologist-desktop --exclude world-machine-desktop --exclude strategy-comparison-desktop --exclude lineage-explorer-desktop
