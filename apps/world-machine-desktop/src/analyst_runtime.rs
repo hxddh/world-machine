@@ -27,9 +27,8 @@ pub(crate) fn discover() -> Result<DesktopAnalystConfig, String> {
     let mut config = DesktopAnalystConfig::new(root.join(TURN_HOST));
     config.node_program = env_path(NODE_PROGRAM_ENV).unwrap_or_else(|| PathBuf::from("node"));
     config.pi_program = env_path(PI_PROGRAM_ENV);
-    config.analyst_program = Some(
-        env_path(ANALYST_PROGRAM_ENV).unwrap_or_else(|| root.join(BUNDLED_ANALYST_PROGRAM)),
-    );
+    config.analyst_program =
+        Some(env_path(ANALYST_PROGRAM_ENV).unwrap_or_else(|| root.join(BUNDLED_ANALYST_PROGRAM)));
     config.provider = env_value(PROVIDER_ENV);
     config.model = env_value(MODEL_ENV);
     config.thinking = env_value(THINKING_ENV);
