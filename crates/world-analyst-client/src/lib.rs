@@ -73,8 +73,14 @@ pub struct AnalystRemoteError {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum AnalystTurnResponse {
-    Result { id: String, turn: AnalystTurn },
-    Error { id: String, error: AnalystRemoteError },
+    Result {
+        id: String,
+        turn: AnalystTurn,
+    },
+    Error {
+        id: String,
+        error: AnalystRemoteError,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -103,10 +109,7 @@ pub enum AnalystTurnClientError {
 
 impl AnalystTurnClientError {
     pub fn is_session_fatal(&self) -> bool {
-        !matches!(
-            self,
-            Self::SerializeRequest(_) | Self::RemoteCommand(_)
-        )
+        !matches!(self, Self::SerializeRequest(_) | Self::RemoteCommand(_))
     }
 }
 
@@ -215,8 +218,8 @@ where
             timeout_ms,
         };
 
-        let encoded = serde_json::to_vec(&request)
-            .map_err(AnalystTurnClientError::SerializeRequest)?;
+        let encoded =
+            serde_json::to_vec(&request).map_err(AnalystTurnClientError::SerializeRequest)?;
         if let Err(error) = self.writer.write_all(&encoded) {
             self.poisoned = true;
             return Err(AnalystTurnClientError::WriteRequest(error));
@@ -607,8 +610,7 @@ mod tests {
         assert!(client.is_poisoned());
 
         let mut raw_tool = success_response("world-rust-analyst-1");
-        raw_tool["turn"]["tool_calls"][0]["toolName"] =
-            serde_json::json!("world_first_divergence");
+        raw_tool["turn"]["tool_calls"][0]["toolName"] = serde_json::json!("world_first_divergence");
         let mut client = response_client(raw_tool);
         assert!(matches!(
             client.ask("question", None).unwrap_err(),
