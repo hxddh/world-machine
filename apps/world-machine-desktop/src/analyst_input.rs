@@ -323,11 +323,7 @@ impl EntityInputHandler for AnalystTextInput {
         })
     }
 
-    fn marked_text_range(
-        &self,
-        _: &mut Window,
-        _: &mut Context<Self>,
-    ) -> Option<Range<usize>> {
+    fn marked_text_range(&self, _: &mut Window, _: &mut Context<Self>) -> Option<Range<usize>> {
         self.marked_range
             .as_ref()
             .map(|range| self.range_to_utf16(range))
@@ -372,13 +368,12 @@ impl EntityInputHandler for AnalystTextInput {
             .unwrap_or(self.selected_range.clone());
         self.content =
             (self.content[..range.start].to_owned() + new_text + &self.content[range.end..]).into();
-        self.marked_range = (!new_text.is_empty()).then(|| range.start..range.start + new_text.len());
+        self.marked_range =
+            (!new_text.is_empty()).then(|| range.start..range.start + new_text.len());
         self.selected_range = new_selected_range_utf16
             .as_ref()
             .map(|selection| self.range_from_utf16(selection))
-            .map(|selection| {
-                range.start + selection.start..range.start + selection.end
-            })
+            .map(|selection| range.start + selection.start..range.start + selection.end)
             .unwrap_or_else(|| {
                 let cursor = range.start + new_text.len();
                 cursor..cursor
