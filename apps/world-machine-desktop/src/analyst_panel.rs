@@ -1,7 +1,8 @@
-use crate::{
-    analyst_input::AnalystTextInput, analyst_runtime, DocumentStatus, SharedDocument,
-    WorldDocumentView,
+use super::{
+    analyst_input::{self, AnalystTextInput},
+    analyst_runtime,
 };
+use crate::{DocumentStatus, SharedDocument, WorldDocumentView};
 use gpui::{
     div, prelude::*, px, rgb, size, AppContext, Bounds, Context, Div, Entity, IntoElement, Render,
     SharedString, Styled, Window, WindowBounds, WindowOptions,
@@ -71,6 +72,7 @@ fn open_panel(
     document: &SharedDocument,
     cx: &mut Context<WorldDocumentView>,
 ) -> Result<usize, String> {
+    analyst_input::bind_keys(cx);
     let (left, library) = {
         let document = document.borrow();
         let left = document
