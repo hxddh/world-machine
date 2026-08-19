@@ -207,9 +207,13 @@ impl AnalystPanelView {
             DesktopAnalystSession::start(library.as_ref(), left, right, config)
                 .map_err(|error| error.to_string())
         });
+        let background = cx.background_executor().clone();
         cx.spawn(async move |this, cx| {
-            let result = task.await;
-            let _ = this.update(cx, |this, cx| {
+            let mut result = Some(task.await);
+            let update = this.update(cx, |this, cx| {
+                let result = result
+                    .take()
+                    .expect("analyst startup result should be consumed once");
                 this.busy = false;
                 match result {
                     Ok(session) => {
@@ -227,6 +231,15 @@ impl AnalystPanelView {
                 }
                 cx.notify();
             });
+            if update.is_err() {
+                if let Some(Ok(mut session)) = result.take() {
+                    background
+                        .spawn(async move {
+                            let _ = session.close();
+                        })
+                        .detach();
+                }
+            }
         })
         .detach();
     }
@@ -255,9 +268,13 @@ impl AnalystPanelView {
             let result = session.ask(&prompt).map_err(|error| error.to_string());
             (session, result)
         });
+        let background = cx.background_executor().clone();
         cx.spawn(async move |this, cx| {
-            let (session, result) = task.await;
-            let _ = this.update(cx, |this, cx| {
+            let mut completed = Some(task.await);
+            let update = this.update(cx, |this, cx| {
+                let (session, result) = completed
+                    .take()
+                    .expect("analyst turn result should be consumed once");
                 this.busy = false;
                 this.history = snapshot_history(&session);
                 match session.state() {
@@ -277,6 +294,15 @@ impl AnalystPanelView {
                 this.session = Some(session);
                 cx.notify();
             });
+            if update.is_err() {
+                if let Some((mut session, _)) = completed.take() {
+                    background
+                        .spawn(async move {
+                            let _ = session.close();
+                        })
+                        .detach();
+                }
+            }
         })
         .detach();
     }
