@@ -51,13 +51,13 @@ A turn:
 - accepts the restricted analyst tool events;
 - keeps tool-call telemetry correlated by `toolCallId`;
 - waits for `agent_settled`, not the first `agent_end`;
-- returns final assistant text, tool calls, extension errors, and observed event types.
+- returns final assistant text plus internal tool/runtime telemetry.
 
 Prompt rejection is a command error and may leave the session reusable. Protocol contamination, timeout, abort, EOF, or unexpected process exit terminate the session so stale events cannot leak into a later turn.
 
 ## M220 stable analyst-turn protocol
 
-Higher-level product code should not consume Pi events directly. M220 exposes one World Machine-owned JSONL protocol:
+Higher-level product code must not consume Pi events or provider-normalized tool names. M220 is the normalization boundary and exposes one World Machine-owned JSONL protocol:
 
 - protocol: `world-machine-analyst-turns`
 - version: `1`
@@ -81,14 +81,39 @@ Successful response:
   "turn":{
     "request_id":"world-analyst-1",
     "text":"...",
-    "tool_calls":[],
-    "extension_errors":[],
-    "events":[]
+    "tool_calls":[
+      {
+        "call_id":"tool-1",
+        "tool":"world.first-divergence",
+        "input":{},
+        "output":{},
+        "is_error":false
+      }
+    ],
+    "runtime_errors":[]
   }
 }
 ```
 
-Pi command rejection is returned as a correlated non-fatal `error` envelope. Pi protocol/transport failures are returned as correlated fatal errors and the contaminated turn-host process terminates.
+M220 deliberately removes raw Pi event names, provider-safe tool names, provider result wrappers, and raw Pi error details. A tool call uses the canonical World Machine tool name and canonical tool output whenever the M218 result metadata supplies them.
+
+Correlated error response:
+
+```json
+{
+  "protocol":"world-machine-analyst-turns",
+  "version":1,
+  "type":"error",
+  "id":"ask-1",
+  "error":{
+    "kind":"command",
+    "fatal":false,
+    "message":"..."
+  }
+}
+```
+
+`command` rejection is non-fatal and later asks may reuse the session. `protocol`, `transport`, and `internal` errors are fatal; the contaminated turn-host process emits the correlated error and terminates.
 
 Per-turn request fields are strict. In particular, archive paths are not valid request fields.
 
@@ -98,4 +123,4 @@ Production analyst integration modules import no filesystem or network API and e
 
 M219 and M220 parse JSONL using LF byte framing rather than Node `readline`, preserving UTF-8 data across stream chunk boundaries.
 
-`cargo test -p world-agent-tool-stdio` reaches `scripts/check-pi-analyst.sh`, which runs the Node transport/session/turn-host tests plus source-level authority and launcher checks. The M220 process regression uses a fake Pi executable but crosses the actual restricted launcher and proves two asks reuse one Pi child without model credentials.
+`cargo test -p world-agent-tool-stdio` reaches `scripts/check-pi-analyst.sh`, which runs the Node transport/session/turn-host tests plus source-level authority and launcher checks. The M220 process regression uses a fake Pi executable but crosses the actual restricted launcher, proves two asks reuse one Pi child, and verifies provider-only event/result details do not escape the M220 protocol.
