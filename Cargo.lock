@@ -6782,6 +6782,7 @@ dependencies = [
  "gpui",
  "gpui_platform",
  "url",
+ "world-analyst-client",
  "world-builtins",
  "world-document",
  "world-gpui",
