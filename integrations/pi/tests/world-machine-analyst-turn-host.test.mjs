@@ -34,12 +34,28 @@ class ScriptedSession {
   }
 }
 
-test("host maps a completed analyst turn into stable protocol v1", async () => {
+test("host maps a completed analyst turn into provider-neutral protocol v1", async () => {
   const session = new ScriptedSession([{
     requestId: "world-analyst-1",
     text: "The divergence starts at event 7.",
-    toolCalls: [{ toolCallId: "tool-1", toolName: "world_first_divergence", args: {}, result: {}, isError: false }],
-    extensionErrors: [],
+    toolCalls: [{
+      toolCallId: "tool-1",
+      toolName: "world_first_divergence",
+      args: { root: "event-7" },
+      result: {
+        content: [{ type: "text", text: "opaque provider content" }],
+        details: {
+          worldMachineTool: "world.first-divergence",
+          output: { divergence_depth: 1 },
+        },
+      },
+      isError: false,
+    }],
+    extensionErrors: [{
+      extensionPath: "world-machine-analyst.mjs",
+      event: "tool",
+      error: "recoverable extension diagnostic",
+    }],
     events: ["agent_start", "tool_execution_start", "tool_execution_end", "message_end", "agent_settled"],
   }]);
   const host = new AnalystTurnHost(session);
@@ -50,29 +66,52 @@ test("host maps a completed analyst turn into stable protocol v1", async () => {
   assert.equal(response.version, ANALYST_TURN_PROTOCOL_VERSION);
   assert.equal(response.type, "result");
   assert.equal(response.id, "ask-1");
-  assert.equal(response.turn.request_id, "world-analyst-1");
-  assert.equal(response.turn.text, "The divergence starts at event 7.");
-  assert.equal(response.turn.tool_calls[0].toolName, "world_first_divergence");
+  assert.deepEqual(response.turn, {
+    request_id: "world-analyst-1",
+    text: "The divergence starts at event 7.",
+    tool_calls: [{
+      call_id: "tool-1",
+      tool: "world.first-divergence",
+      input: { root: "event-7" },
+      output: { divergence_depth: 1 },
+      is_error: false,
+    }],
+    runtime_errors: [{
+      kind: "extension",
+      source: "world-machine-analyst.mjs",
+      message: "recoverable extension diagnostic",
+    }],
+  });
+  assert.equal("events" in response.turn, false);
+  assert.equal(JSON.stringify(response).includes("world_first_divergence"), false);
   assert.deepEqual(session.prompts, [{ prompt: "What changed?", options: { timeoutMs: 5000 } }]);
 });
 
 test("command errors are correlated and non-fatal while protocol errors are fatal", async () => {
   const session = new ScriptedSession([
-    new PiAnalystRpcCommandError("rejected", { reason: "busy" }),
-    new PiAnalystRpcProtocolError("bad event", { type: "mismatch" }),
+    new PiAnalystRpcCommandError("rejected", { reason: "busy", provider_response: "opaque" }),
+    new PiAnalystRpcProtocolError("bad event", { type: "mismatch", event: "opaque" }),
   ]);
   const host = new AnalystTurnHost(session);
 
   const rejected = await host.handle({ id: "ask-1", op: "ask", prompt: "one" });
-  assert.equal(rejected.fatal, false);
-  assert.equal(rejected.response.type, "error");
-  assert.equal(rejected.response.error.kind, "command");
-  assert.equal(rejected.response.id, "ask-1");
+  assert.deepEqual(rejected, {
+    protocol: ANALYST_TURN_PROTOCOL,
+    version: ANALYST_TURN_PROTOCOL_VERSION,
+    type: "error",
+    id: "ask-1",
+    error: { kind: "command", fatal: false, message: "rejected" },
+  });
 
   const broken = await host.handle({ id: "ask-2", op: "ask", prompt: "two" });
-  assert.equal(broken.fatal, true);
-  assert.equal(broken.response.error.kind, "protocol");
-  assert.equal(broken.response.id, "ask-2");
+  assert.deepEqual(broken, {
+    protocol: ANALYST_TURN_PROTOCOL,
+    version: ANALYST_TURN_PROTOCOL_VERSION,
+    type: "error",
+    id: "ask-2",
+    error: { kind: "protocol", fatal: true, message: "bad event" },
+  });
+  assert.equal(JSON.stringify(broken).includes("opaque"), false);
 });
 
 test("request shape is strict and archive paths cannot appear per turn", async () => {
@@ -105,7 +144,19 @@ process.stdin.on("data", (chunk) => {
     turn += 1;
     emit({ type: "response", id: request.id, command: "prompt", success: true });
     emit({ type: "tool_execution_start", toolCallId: "tool-" + turn, toolName: "world_first_divergence", args: { root: "event-" + turn } });
-    emit({ type: "tool_execution_end", toolCallId: "tool-" + turn, toolName: "world_first_divergence", result: { ok: true }, isError: false });
+    emit({
+      type: "tool_execution_end",
+      toolCallId: "tool-" + turn,
+      toolName: "world_first_divergence",
+      result: {
+        content: [{ type: "text", text: "provider-only" }],
+        details: {
+          worldMachineTool: "world.first-divergence",
+          output: { turn }
+        }
+      },
+      isError: false
+    });
     emit({ type: "message_end", message: { role: "assistant", content: "answer-" + turn } });
     emit({ type: "agent_settled" });
   }
@@ -125,6 +176,7 @@ function emit(value) { process.stdout.write(JSON.stringify(value) + "\\n"); }
     },
     stdio: ["pipe", "pipe", "pipe"],
   });
+  const exit = new Promise((resolveCode) => child.on("exit", (exitCode) => resolveCode(exitCode)));
 
   child.stdin.write(`${JSON.stringify({ id: "ask-1", op: "ask", prompt: "first" })}\n`);
   child.stdin.write(`${JSON.stringify({ id: "ask-2", op: "ask", prompt: "second" })}\n`);
@@ -133,7 +185,7 @@ function emit(value) { process.stdout.write(JSON.stringify(value) + "\\n"); }
   const [stdout, stderr, code] = await Promise.all([
     collect(child.stdout),
     collect(child.stderr),
-    new Promise((resolveCode) => child.on("exit", (exitCode) => resolveCode(exitCode))),
+    exit,
   ]);
   await rm(temp, { recursive: true, force: true });
 
@@ -142,9 +194,19 @@ function emit(value) { process.stdout.write(JSON.stringify(value) + "\\n"); }
   assert.equal(responses.length, 2);
   assert.equal(responses[0].id, "ask-1");
   assert.equal(responses[0].turn.text, "answer-1");
+  assert.deepEqual(responses[0].turn.tool_calls[0], {
+    call_id: "tool-1",
+    tool: "world.first-divergence",
+    input: { root: "event-1" },
+    output: { turn: 1 },
+    is_error: false,
+  });
   assert.equal(responses[1].id, "ask-2");
   assert.equal(responses[1].turn.text, "answer-2");
-  assert.equal(responses[1].turn.tool_calls[0].toolCallId, "tool-2");
+  assert.equal(responses[1].turn.tool_calls[0].call_id, "tool-2");
+  assert.equal(responses[1].turn.tool_calls[0].tool, "world.first-divergence");
+  assert.equal(JSON.stringify(responses).includes("provider-only"), false);
+  assert.equal(JSON.stringify(responses).includes("world_first_divergence"), false);
 });
 
 async function collect(stream) {
