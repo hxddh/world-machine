@@ -1,4 +1,7 @@
-use crate::{analyst_input::AnalystTextInput, analyst_runtime, DocumentStatus, SharedDocument, WorldDocumentView};
+use crate::{
+    analyst_input::AnalystTextInput, analyst_runtime, DocumentStatus, SharedDocument,
+    WorldDocumentView,
+};
 use gpui::{
     div, prelude::*, px, rgb, size, AppContext, Bounds, Context, Div, Entity, IntoElement, Render,
     SharedString, Styled, Window, WindowBounds, WindowOptions,
@@ -8,7 +11,6 @@ use world_library::{WorldDocumentId, WorldDocumentSummary, WorldLibrary};
 use world_machine_desktop::analyst_session::{
     DesktopAnalystConfig, DesktopAnalystSession, DesktopAnalystState,
 };
-use world_analyst_client::AnalystTurn;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum PanelPhase {
@@ -16,6 +18,21 @@ enum PanelPhase {
     Starting,
     Active,
     Fatal(String),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct PanelTurn {
+    answer: String,
+    tool_calls: Vec<PanelToolCall>,
+    runtime_errors: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct PanelToolCall {
+    tool: String,
+    input: String,
+    output: String,
+    is_error: bool,
 }
 
 pub(super) fn document_action(
@@ -42,9 +59,9 @@ pub(super) fn document_action(
                 Ok(count) => DocumentStatus::success(format!(
                     "Opened World analyst · {count} saved Worlds"
                 )),
-                Err(error) => DocumentStatus::error(format!(
-                    "Could not open World analyst: {error}"
-                )),
+                Err(error) => {
+                    DocumentStatus::error(format!("Could not open World analyst: {error}"))
+                }
             });
             cx.notify();
         }))
@@ -115,7 +132,7 @@ struct AnalystPanelView {
     question: Entity<AnalystTextInput>,
     phase: PanelPhase,
     busy: bool,
-    history: Vec<AnalystTurn>,
+    history: Vec<PanelTurn>,
     last_error: Option<String>,
 }
 
@@ -180,7 +197,7 @@ impl AnalystPanelView {
                 this.busy = false;
                 match result {
                     Ok(session) => {
-                        this.history = session.turns().to_vec();
+                        this.history = snapshot_history(&session);
                         this.session = Some(session);
                         this.phase = PanelPhase::Active;
                         this.last_error = None;
@@ -224,7 +241,7 @@ impl AnalystPanelView {
             let (session, result) = task.await;
             let _ = this.update(cx, |this, cx| {
                 this.busy = false;
-                this.history = session.turns().to_vec();
+                this.history = snapshot_history(&session);
                 match session.state() {
                     DesktopAnalystState::FatalError { message } => {
                         this.phase = PanelPhase::Fatal(message.clone());
@@ -323,7 +340,11 @@ impl AnalystPanelView {
             .rounded_md()
             .border_1()
             .text_sm()
-            .child(if self.busy { "Starting…" } else { "Start analysis" });
+            .child(if self.busy {
+                "Starting…"
+            } else {
+                "Start analysis"
+            });
         start = if can_start {
             start
                 .cursor_pointer()
@@ -346,9 +367,12 @@ impl AnalystPanelView {
                     .text_sm()
                     .child(format!("Left · {}", self.label_for(&self.left))),
             )
-            .child(div().text_sm().text_color(rgb(0x666660)).child(
-                "Choose the saved World to compare with the current World.",
-            ))
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(rgb(0x666660))
+                    .child("Choose the saved World to compare with the current World."),
+            )
             .child(worlds)
             .child(runtime_status)
             .child(start)
@@ -457,7 +481,7 @@ impl AnalystPanelView {
 impl Render for AnalystPanelView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         window.set_window_title("World Analyst — World Machine");
-        let content = match self.phase {
+        let content = match &self.phase {
             PanelPhase::Setup | PanelPhase::Starting => self.render_setup(cx),
             PanelPhase::Active | PanelPhase::Fatal(_) => self.render_active(cx),
         };
@@ -507,13 +531,38 @@ fn document_title(document: &WorldDocumentSummary) -> String {
         .unwrap_or_else(|| document.id.to_string())
 }
 
-fn render_turn(index: usize, turn: &AnalystTurn) -> Div {
-    let answer = turn
-        .text
-        .as_deref()
-        .map(str::trim)
-        .filter(|text| !text.is_empty())
-        .unwrap_or("The analyst returned no text answer.");
+fn snapshot_history(session: &DesktopAnalystSession) -> Vec<PanelTurn> {
+    session
+        .turns()
+        .iter()
+        .map(|turn| PanelTurn {
+            answer: turn
+                .text
+                .as_deref()
+                .map(str::trim)
+                .filter(|text| !text.is_empty())
+                .unwrap_or("The analyst returned no text answer.")
+                .to_owned(),
+            tool_calls: turn
+                .tool_calls
+                .iter()
+                .map(|call| PanelToolCall {
+                    tool: call.tool.clone(),
+                    input: call.input.to_string(),
+                    output: call.output.to_string(),
+                    is_error: call.is_error,
+                })
+                .collect(),
+            runtime_errors: turn
+                .runtime_errors
+                .iter()
+                .map(|error| error.message.clone())
+                .collect(),
+        })
+        .collect()
+}
+
+fn render_turn(index: usize, turn: &PanelTurn) -> Div {
     let mut card = div()
         .id(SharedString::from(format!("analyst-turn-{index}")))
         .w_full()
@@ -525,7 +574,7 @@ fn render_turn(index: usize, turn: &AnalystTurn) -> Div {
         .flex()
         .flex_col()
         .gap_2()
-        .child(div().text_sm().child(answer.to_string()));
+        .child(div().text_sm().child(turn.answer.clone()));
 
     if !turn.tool_calls.is_empty() {
         let mut tools = div().flex().flex_col().gap_2().child(
@@ -573,7 +622,7 @@ fn render_turn(index: usize, turn: &AnalystTurn) -> Div {
                 div()
                     .text_xs()
                     .text_color(rgb(0x9b4a42))
-                    .child(format!("Runtime error · {}", error.message)),
+                    .child(format!("Runtime error · {error}")),
             );
         }
         card = card.child(errors);
@@ -636,20 +685,21 @@ mod tests {
     }
 
     #[test]
-    fn panel_source_does_not_import_pi_or_raw_analyst_process() {
+    fn panel_source_stays_above_process_and_pi_layers() {
         let source = include_str!("analyst_panel.rs").to_ascii_lowercase();
-        for forbidden in [
-            "world_analyst_client",
-            "analystturnprocess",
-            "childstdin",
-            "childstdout",
-            "agent_settled",
-            "tool_execution_start",
-            "world-machine-analyst-rpc",
-        ] {
+        let forbidden = [
+            ["world_", "analyst_client"].concat(),
+            ["analystturn", "process"].concat(),
+            ["child", "stdin"].concat(),
+            ["child", "stdout"].concat(),
+            ["agent_", "settled"].concat(),
+            ["tool_execution", "_start"].concat(),
+            ["world-machine-analyst", "-rpc"].concat(),
+        ];
+        for token in forbidden {
             assert!(
-                !source.contains(forbidden),
-                "analyst panel contains forbidden lower-layer token {forbidden}"
+                !source.contains(&token),
+                "analyst panel contains forbidden lower-layer token {token}"
             );
         }
     }
