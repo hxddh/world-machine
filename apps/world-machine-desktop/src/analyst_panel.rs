@@ -39,7 +39,7 @@ struct PanelToolCall {
 pub(super) fn document_action(
     document: &SharedDocument,
     cx: &mut Context<WorldDocumentView>,
-) -> Div {
+) -> impl IntoElement {
     if document.borrow().session.document_id().is_none() {
         return div().id("analyze-saved-worlds-unavailable");
     }
@@ -57,9 +57,9 @@ pub(super) fn document_action(
         .child("Analyze saved Worlds…")
         .on_click(cx.listener(move |this, _, _, cx| {
             this.status = Some(match open_panel(&document, cx) {
-                Ok(count) => DocumentStatus::success(format!(
-                    "Opened World analyst · {count} saved Worlds"
-                )),
+                Ok(count) => {
+                    DocumentStatus::success(format!("Opened World analyst · {count} saved Worlds"))
+                }
                 Err(error) => {
                     DocumentStatus::error(format!("Could not open World analyst: {error}"))
                 }
@@ -276,6 +276,7 @@ impl AnalystPanelView {
 
     fn render_setup(&self, cx: &mut Context<Self>) -> Div {
         let mut worlds = div()
+            .id("analyst-world-list")
             .w_full()
             .max_h(px(400.0))
             .overflow_y_scroll()
@@ -305,15 +306,10 @@ impl AnalystPanelView {
                 .flex_col()
                 .gap_1()
                 .child(div().text_sm().child(title))
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(rgb(0x777770))
-                        .child(format!(
-                            "{} · t={} · {} events",
-                            summary, document.world_time, document.event_count
-                        )),
-                );
+                .child(div().text_xs().text_color(rgb(0x777770)).child(format!(
+                    "{} · t={} · {} events",
+                    summary, document.world_time, document.event_count
+                )));
             card = if selected {
                 card.border_color(rgb(0x6684c4)).bg(rgb(0xf2f6ff))
             } else {
@@ -382,6 +378,7 @@ impl AnalystPanelView {
 
     fn render_active(&self, cx: &mut Context<Self>) -> Div {
         let mut history = div()
+            .id("analyst-history")
             .w_full()
             .flex_1()
             .overflow_y_scroll()
@@ -500,12 +497,9 @@ impl Render for AnalystPanelView {
                     .flex_col()
                     .gap_1()
                     .child(div().text_lg().child("World Analyst"))
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(rgb(0x777770))
-                            .child("Evidence-backed questions over two immutable saved-World snapshots"),
-                    ),
+                    .child(div().text_xs().text_color(rgb(0x777770)).child(
+                        "Evidence-backed questions over two immutable saved-World snapshots",
+                    )),
             )
             .child(content);
         if let Some(error) = &self.last_error {
@@ -564,7 +558,7 @@ fn snapshot_history(session: &DesktopAnalystSession) -> Vec<PanelTurn> {
         .collect()
 }
 
-fn render_turn(index: usize, turn: &PanelTurn) -> Div {
+fn render_turn(index: usize, turn: &PanelTurn) -> impl IntoElement {
     let mut card = div()
         .id(SharedString::from(format!("analyst-turn-{index}")))
         .w_full()
@@ -595,11 +589,7 @@ fn render_turn(index: usize, turn: &PanelTurn) -> Div {
                     .flex()
                     .flex_col()
                     .gap_1()
-                    .child(
-                        div()
-                            .text_xs()
-                            .child(format!("{} · {status}", call.tool)),
-                    )
+                    .child(div().text_xs().child(format!("{} · {status}", call.tool)))
                     .child(
                         div()
                             .text_xs()
