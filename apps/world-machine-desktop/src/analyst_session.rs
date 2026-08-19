@@ -221,7 +221,7 @@ impl Drop for ArchiveSnapshotPair {
 struct SessionCore<P: AnalystSessionProcess> {
     left: WorldDocumentId,
     right: WorldDocumentId,
-    _archives: ArchiveSnapshotPair,
+    archives: Option<ArchiveSnapshotPair>,
     process: Option<P>,
     state: DesktopAnalystState,
     turns: Vec<AnalystTurn>,
@@ -251,7 +251,7 @@ impl<P: AnalystSessionProcess> SessionCore<P> {
         Ok(Self {
             left,
             right,
-            _archives: archives,
+            archives: Some(archives),
             process: Some(process),
             state: DesktopAnalystState::Ready,
             turns: Vec::new(),
@@ -285,6 +285,7 @@ impl<P: AnalystSessionProcess> SessionCore<P> {
             Err(error) if error.is_session_fatal() => {
                 let message = error.to_string();
                 let _ = self.shutdown_process();
+                self.cleanup_archives();
                 self.state = DesktopAnalystState::FatalError {
                     message: message.clone(),
                 };
@@ -304,6 +305,7 @@ impl<P: AnalystSessionProcess> SessionCore<P> {
             return Ok(());
         }
         let result = self.shutdown_process();
+        self.cleanup_archives();
         self.state = DesktopAnalystState::Closed;
         result.map_err(DesktopAnalystSessionError::Shutdown)
     }
@@ -314,11 +316,16 @@ impl<P: AnalystSessionProcess> SessionCore<P> {
             None => Ok(()),
         }
     }
+
+    fn cleanup_archives(&mut self) {
+        self.archives.take();
+    }
 }
 
 impl<P: AnalystSessionProcess> Drop for SessionCore<P> {
     fn drop(&mut self) {
         let _ = self.shutdown_process();
+        self.cleanup_archives();
     }
 }
 
@@ -549,15 +556,21 @@ mod tests {
     }
 
     #[test]
-    fn archive_snapshots_do_not_follow_later_library_changes() {
+    fn archive_snapshots_do_not_follow_later_library_changes_and_close_cleans_them() {
         let fixture = Fixture::new("stable");
         let shutdowns = Arc::new(AtomicUsize::new(0));
         let mut session = fixture.session_with(Vec::new(), Arc::clone(&shutdowns));
-        let snapshot_before = fs::read_to_string(&session._archives.left_path).unwrap();
+        let left_snapshot = session
+            .archives
+            .as_ref()
+            .expect("active session owns archive snapshots")
+            .left_path
+            .clone();
+        let snapshot_before = fs::read_to_string(&left_snapshot).unwrap();
 
         let replacement = archive("replacement", 99);
         fixture.library.save(&fixture.left, &replacement).unwrap();
-        let snapshot_after = fs::read_to_string(&session._archives.left_path).unwrap();
+        let snapshot_after = fs::read_to_string(&left_snapshot).unwrap();
         assert_eq!(snapshot_before, snapshot_after);
         assert_eq!(
             WorldArchive::from_json(&snapshot_after).unwrap(),
@@ -566,6 +579,8 @@ mod tests {
 
         session.close().unwrap();
         assert_eq!(shutdowns.load(Ordering::SeqCst), 1);
+        assert!(!left_snapshot.exists());
+        assert!(session.archives.is_none());
     }
 
     #[test]
@@ -678,13 +693,19 @@ mod tests {
     }
 
     #[test]
-    fn fatal_client_error_closes_process_and_prevents_later_ask() {
+    fn fatal_client_error_closes_process_cleans_snapshots_and_prevents_later_ask() {
         let fixture = Fixture::new("fatal");
         let shutdowns = Arc::new(AtomicUsize::new(0));
         let mut session = fixture.session_with(
             vec![Err(remote_fatal("transport ended"))],
             Arc::clone(&shutdowns),
         );
+        let left_snapshot = session
+            .archives
+            .as_ref()
+            .expect("active session owns archive snapshots")
+            .left_path
+            .clone();
 
         assert!(matches!(
             session.ask("first").unwrap_err(),
@@ -695,6 +716,8 @@ mod tests {
             DesktopAnalystState::FatalError { .. }
         ));
         assert_eq!(shutdowns.load(Ordering::SeqCst), 1);
+        assert!(!left_snapshot.exists());
+        assert!(session.archives.is_none());
         assert!(matches!(
             session.ask("again").unwrap_err(),
             DesktopAnalystSessionError::FatalSession(_)
@@ -711,6 +734,7 @@ mod tests {
         session.close().unwrap();
         session.close().unwrap();
         assert_eq!(session.state, DesktopAnalystState::Closed);
+        assert!(session.archives.is_none());
         drop(session);
         assert_eq!(shutdowns.load(Ordering::SeqCst), 1);
     }
