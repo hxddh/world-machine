@@ -1,3 +1,4 @@
+# Temporary M221.1 workflow; delete after the hardening commit lands.
 name: M221.1 analyst client hardening
 
 on:
