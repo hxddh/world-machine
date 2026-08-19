@@ -11,6 +11,12 @@ use world_library::{
     DurableWorldSession, WorldDocumentId, LEGACY_WORLD_DOCUMENT_SUFFIX, WORLD_DOCUMENT_SUFFIX,
 };
 
+#[path = "analyst_input.rs"]
+mod analyst_input;
+#[path = "analyst_panel.rs"]
+mod analyst_panel;
+#[path = "analyst_runtime.rs"]
+mod analyst_runtime;
 mod lineage;
 #[path = "saved_compare.rs"]
 mod saved_compare;
@@ -52,6 +58,7 @@ pub(crate) fn document_action(
         .flex()
         .gap_2()
         .child(fork)
+        .child(analyst_panel::document_action(document, cx))
         .child(saved_compare::document_action(document, cx))
         .child(lineage::document_action(document, cx))
 }
