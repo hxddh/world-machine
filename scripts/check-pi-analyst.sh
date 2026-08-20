@@ -37,7 +37,9 @@ for required in \
   'RESTRICTED_LAUNCHER' \
   'scripts/run-pi-analyst.sh' \
   'get_commands' \
-  'ANALYST_READY_COMMAND'
+  'ANALYST_READY_COMMAND' \
+  'hasOwnProperty.call(state.data, "model")' \
+  'Pi analyst has no configured model'
 do
   if ! grep -Fq "$required" "$rpc"; then
     echo "Pi analyst RPC session is missing required boundary: $required" >&2

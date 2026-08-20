@@ -88,7 +88,7 @@ test("two prompts reuse one Pi process and settle after low-level agent_end", as
   }
 });
 
-test("startup probe uses get_state without consuming prompt correlation", async () => {
+test("startup probe requires a selected model without consuming prompt correlation", async () => {
   const session = fakeSession(String.raw`
     let buffer = "";
     process.stdin.setEncoding("utf8");
@@ -106,11 +106,16 @@ test("startup probe uses get_state without consuming prompt correlation", async 
             id: request.id,
             command: "get_state",
             success: true,
-            data: { model: null, thinkingLevel: "off", isStreaming: false, isCompacting: false }
+            data: {
+              model: { provider: "fake", id: "fake-model" },
+              thinkingLevel: "off",
+              isStreaming: false,
+              isCompacting: false
+            }
           });
           continue;
         }
-                  if (request.type === "get_commands") {
+        if (request.type === "get_commands") {
           emit({
             type: "response",
             id: request.id,
@@ -136,6 +141,56 @@ test("startup probe uses get_state without consuming prompt correlation", async 
   } finally {
     await session.shutdown();
   }
+});
+
+test("startup probe rejects a Pi session with no configured model", async () => {
+  const session = fakeSession(String.raw`
+    process.stdin.once("data", (chunk) => {
+      const request = JSON.parse(chunk.toString("utf8").trim());
+      process.stdout.write(JSON.stringify({
+        type: "response",
+        id: request.id,
+        command: "get_state",
+        success: true,
+        data: { model: null, thinkingLevel: "off", isStreaming: false, isCompacting: false }
+      }) + "\n");
+    });
+    process.stdin.resume();
+  `);
+  try {
+    await assert.rejects(
+      session.probe({ timeoutMs: 2000 }),
+      (error) =>
+        error instanceof PiAnalystRpcCommandError && /no configured model/.test(error.message),
+    );
+  } finally {
+    await session.shutdown();
+  }
+});
+
+test("startup probe treats missing model state as protocol contamination", async () => {
+  const session = fakeSession(String.raw`
+    process.stdin.once("data", (chunk) => {
+      const request = JSON.parse(chunk.toString("utf8").trim());
+      process.stdout.write(JSON.stringify({
+        type: "response",
+        id: request.id,
+        command: "get_state",
+        success: true,
+        data: { thinkingLevel: "off", isStreaming: false, isCompacting: false }
+      }) + "\n");
+    });
+    process.stdin.resume();
+  `);
+
+  await assert.rejects(
+    session.probe({ timeoutMs: 2000 }),
+    (error) => error instanceof PiAnalystRpcProtocolError && /omitted model state/.test(error.message),
+  );
+  await assert.rejects(
+    session.probe({ timeoutMs: 2000 }),
+    (error) => error instanceof PiAnalystRpcProtocolError,
+  );
 });
 
 test("tool failures remain telemetry instead of transport failures", async () => {

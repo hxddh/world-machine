@@ -154,6 +154,24 @@ export class PiAnalystRpcSession {
           response: state,
         });
       }
+      if (!Object.prototype.hasOwnProperty.call(state.data, "model")) {
+        throw new PiAnalystRpcProtocolError("Pi analyst get_state probe omitted model state", {
+          requestId: probeId,
+          response: state,
+        });
+      }
+      if (state.data.model === null) {
+        throw new PiAnalystRpcCommandError(
+          "Pi analyst has no configured model. Configure a model and authentication in Pi, then recheck World Analyst.",
+          { requestId: probeId },
+        );
+      }
+      if (typeof state.data.model !== "object" || Array.isArray(state.data.model)) {
+        throw new PiAnalystRpcProtocolError("Pi analyst get_state probe returned invalid model state", {
+          requestId: probeId,
+          response: state,
+        });
+      }
 
       const commands = await this.#probeCommand(
         { id: `${probeId}-commands`, type: "get_commands" },

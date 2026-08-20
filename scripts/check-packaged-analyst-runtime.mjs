@@ -344,7 +344,12 @@ async function main() {
         id: request.id,
         command: "get_state",
         success: true,
-        data: { model: null, thinkingLevel: "off", isStreaming: false, isCompacting: false }
+        data: {
+          model: { provider: "fake", id: "fake-model" },
+          thinkingLevel: "off",
+          isStreaming: false,
+          isCompacting: false
+        }
       });
       continue;
     }
@@ -355,7 +360,7 @@ async function main() {
         command: "get_commands",
         success: true,
         data: {
-commands: [...commands.keys()].map((name) => ({ name, source: "extension" }))
+          commands: [...commands.keys()].map((name) => ({ name, source: "extension" }))
         }
       });
       continue;

@@ -1,63 +1,61 @@
-# Next Coding Task — M227 Installed Analyst Runtime Probe
+# Next Coding Task — M229 Analyst Conversation Transcript
 
-M214–M226 now provide a complete installed-app path from read-only World evidence through a restricted long-lived Pi analyst, stable World Machine JSONL turn protocol, strict Rust client, immutable desktop snapshots, packaged runtime validation, installed readiness, and persistent Node/Pi executable paths for Finder-launched use.
+M214–M228 now provide a complete installed-app path from immutable saved-World evidence through a restricted long-lived Pi analyst, a stable provider-neutral turn protocol, strict Rust process ownership, native runtime setup, packaged validation, functional startup probing, and a model-state gate that prevents the known `model: null` false-ready case before the first question is sent.
 
-## M227 — functional startup probe
+## M229 — retain the user's questions with completed analyst turns
 
-M225/M226 currently prove that the configured runtime files exist and are executable. That is necessary but not sufficient: an arbitrary executable can satisfy X_OK, an incompatible Pi binary can reject the restricted RPC flags, and an installed runtime can still fail only after the user presses Start analysis.
+The native analyst panel is now usable across multiple sequential asks, but its visible history is incomplete: the composer clears the question before dispatch, while `DesktopAnalystSession` retains only returned `AnalystTurn` values. After several asks, the panel renders answers and evidence calls without the question that produced each answer.
 
-Add the smallest no-model startup handshake that proves the exact configured chain can start before a desktop analyst session becomes Ready.
+Add the smallest product-owned conversation transcript needed to keep user intent paired with the provider-neutral result.
 
-### Required path
+### Product model
 
-`DesktopAnalystSession::start` must keep the existing M222 order:
+Introduce an immutable completed exchange shape below GPUI, owned by the desktop analyst session. Each completed exchange contains:
 
-1. capture the two immutable raw archive snapshots;
-2. spawn the configured M220 turn host through Node;
-3. on that **same long-lived process**, issue a startup `probe`;
-4. M220 asks the restricted Pi RPC process for `get_state` and verifies the post-catalog extension readiness marker through `get_commands`, without sending a prompt;
-5. only a correlated successful probe may expose `DesktopAnalystState::Ready`;
-6. any probe failure closes the process and releases the snapshots.
+- the exact non-empty user prompt accepted for that ask;
+- the corresponding provider-neutral `AnalystTurn` returned by M220.
 
-Do not launch a second probe-only Pi process and do not make a provider/model request.
+On a successful ask, append the prompt and turn atomically and preserve their order for the lifetime of the session. A failed ask must not fabricate a completed exchange.
 
-### Protocol
+Keep the existing process/session state machine and single-flight semantics. If retaining `turns()` is useful for compatibility, derive or maintain it without allowing prompt/turn ordering to diverge.
 
-Keep `world-machine-analyst-turns@1`. Add an additive strict request/response pair:
+### Native analyst surface
 
-- request: `{ "id": "...", "op": "probe", "timeout_ms": ... }`;
-- success: `{ "protocol": "world-machine-analyst-turns", "version": 1, "type": "ready", "id": "..." }`.
+Render every completed exchange as a question/answer pair:
 
-The ready response carries no Pi state, model/provider details, tool names, archive paths, or raw runtime events. Existing `ask -> result/error` semantics remain unchanged.
+- clearly distinguish the user's question from the analyst answer;
+- keep existing evidence-call and runtime-error disclosure attached to the same exchange;
+- preserve chronological order across follow-up asks;
+- do not expose raw Pi/provider events or internal request envelopes.
 
-### Authority and lifecycle
+Do not require persistence across app launches in this milestone.
 
-- probe is read-only and must not dispatch a model prompt;
-- archive selection remains fixed at process startup;
-- restricted launcher flags and M218 tool authority are unchanged;
-- Pi/provider internals remain below M220/M221;
-- probe shares the same single-flight runtime as later asks;
-- probe timeout/protocol/transport contamination fails the startup closed;
-- a command-level probe rejection also rejects startup and the desktop layer closes that process;
-- GPUI continues to own no Node/Pi/process code and reuses its existing Starting/error/Recheck surface.
+### Failed asks
 
-### Validation
+The panel currently clears the composer before the background ask completes. Do not silently lose the user's text when an ask fails before producing a completed exchange. Preserve enough product state to let the user see or retry the failed question without creating a fake successful history item.
+
+Fatal-session behavior and snapshot/process cleanup remain unchanged.
+
+### Layering and authority
+
+- GPUI must consume only desktop product exchange state, not Pi/RPC structures.
+- M220 remains the provider-normalization boundary.
+- The immutable archive pair, restricted tools, and no-mutation authority remain unchanged.
+- No transcript file persistence, session resume, token streaming, concurrent asks, model selector, provider settings, or credential management.
+
+## Validation
 
 Required gates:
 
-- Pi RPC probe sends `get_state`, is correlated, and does not consume prompt request numbering;
-- M220 emits only provider-neutral `ready` on successful probe;
-- probe request shape is strict and cannot carry prompt/archive/tool fields;
-- Rust client accepts `ready`, rejects mismatched result/correlation/protocol/version, and preserves poison semantics;
-- `AnalystTurnProcess` tears down on fatal probe contamination;
-- desktop startup invokes probe before Ready;
-- probe failure shuts the process and cleans immutable snapshots;
-- first real ask still reuses that same process;
-- existing M219/M220 ask behavior stays green;
-- M224 packaged runtime smoke stays green;
-- Linux boundary/fmt/Clippy/workspace tests stay green;
-- full macOS GPUI/desktop tests and World Machine.app build/validate/smoke/archive/upload stay green.
+- two successful asks retain two prompts paired with the correct turns in order;
+- a recoverable failed ask does not append a completed exchange and its prompt is not silently lost in the panel;
+- a fatal failed ask does not append a completed exchange and existing cleanup semantics stay green;
+- native history renders question + answer + evidence for each completed exchange;
+- panel source remains above process/Pi implementation details;
+- existing M219–M228 protocol, probe, model-state, packaged-runtime, and desktop-session regressions remain green;
+- Linux boundary/fmt/Clippy/workspace tests remain green;
+- full macOS GPUI/desktop tests and `World Machine.app` build/validate/packaged smoke/archive/upload remain green.
 
 ## Non-goals
 
-No model call during readiness, no provider/API-key settings, no protocol v2, no token streaming UI, no second analyst process, no mutation tools, no concurrent asks, no broad Preferences framework, and no loosening of M222 immutable-snapshot or M223 cancellation boundaries.
+No persistent chat history, no resuming analyst sessions after app restart, no streaming UI, no concurrent turns, no protocol v2, no model/provider picker, no API-key storage, no new tools, and no mutation authority.
