@@ -150,8 +150,8 @@ export class PiAnalystRpcSession {
       );
       if (!state.data || typeof state.data !== "object" || Array.isArray(state.data)) {
         throw new PiAnalystRpcProtocolError("Pi analyst get_state probe returned invalid state", {
-requestId: probeId,
-response: state,
+          requestId: probeId,
+          response: state,
         });
       }
 
@@ -165,20 +165,20 @@ response: state,
       const entries = commands.data?.commands;
       if (!Array.isArray(entries)) {
         throw new PiAnalystRpcProtocolError("Pi analyst get_commands probe returned invalid commands", {
-requestId: probeId,
-response: commands,
+          requestId: probeId,
+          response: commands,
         });
       }
       const ready = entries.some(
         (command) =>
-command &&
-command.name === ANALYST_READY_COMMAND &&
-command.source === "extension",
+          command &&
+          command.name === ANALYST_READY_COMMAND &&
+          command.source === "extension",
       );
       if (!ready) {
         throw new PiAnalystRpcProtocolError(
-"Pi analyst extension did not expose the World Machine readiness marker",
-{ requestId: probeId },
+          "Pi analyst extension did not expose the World Machine readiness marker",
+          { requestId: probeId },
         );
       }
       return { requestId: probeId };
@@ -297,7 +297,7 @@ command.source === "extension",
     while (true) {
       const remaining = deadline === null ? null : deadline - Date.now();
       if (remaining !== null && remaining <= 0) {
-        throw new PiAnalystRpcTransportError(`Pi analyst ${operation} timed out`, {
+        throw new PiAnalystRpcTransportError("Pi analyst prompt timed out", {
           requestId: turn.requestId,
           timeoutMs,
         });
@@ -333,7 +333,7 @@ command.source === "extension",
       const aborted = new Promise((_, reject) => {
         onAbort = () => {
           reject(
-            new PiAnalystRpcTransportError("Pi analyst prompt aborted", {
+            new PiAnalystRpcTransportError(`Pi analyst ${operation} aborted`, {
               requestId,
             }),
           );
@@ -348,7 +348,7 @@ command.source === "extension",
         new Promise((_, reject) => {
           timer = setTimeout(() => {
             reject(
-              new PiAnalystRpcTransportError("Pi analyst prompt timed out", {
+              new PiAnalystRpcTransportError(`Pi analyst ${operation} timed out`, {
                 requestId,
                 timeoutMs,
               }),
