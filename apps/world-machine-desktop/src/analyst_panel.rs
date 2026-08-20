@@ -424,11 +424,8 @@ impl AnalystPanelView {
                 }
                 let succeeded = result.is_ok();
                 let current_question = this.question.read(cx).text().to_owned();
-                if should_clear_completed_prompt(
-                    &current_question,
-                    &submitted_question,
-                    succeeded,
-                ) {
+                if should_clear_completed_prompt(&current_question, &submitted_question, succeeded)
+                {
                     this.question.update(cx, |input, cx| input.clear(cx));
                 }
                 this.last_error = result.err();
@@ -975,12 +972,7 @@ fn render_turn(index: usize, turn: &PanelTurn) -> impl IntoElement {
                 .flex()
                 .flex_col()
                 .gap_1()
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(rgb(0x66718a))
-                        .child("Question"),
-                )
+                .child(div().text_xs().text_color(rgb(0x66718a)).child("Question"))
                 .child(div().text_sm().child(turn.question.clone())),
         )
         .child(
@@ -988,12 +980,7 @@ fn render_turn(index: usize, turn: &PanelTurn) -> impl IntoElement {
                 .flex()
                 .flex_col()
                 .gap_1()
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(rgb(0x777770))
-                        .child("Analyst"),
-                )
+                .child(div().text_xs().text_color(rgb(0x777770)).child("Analyst"))
                 .child(div().text_sm().child(turn.answer.clone())),
         );
 
