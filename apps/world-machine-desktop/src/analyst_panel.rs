@@ -188,11 +188,7 @@ impl AnalystPanelView {
     }
 
     fn refresh_runtime(&mut self, cx: &mut Context<Self>) {
-        if self.busy
-            || self.settings_busy
-            || self.session.is_some()
-            || self.runtime_checking
-        {
+        if self.busy || self.settings_busy || self.session.is_some() || self.runtime_checking {
             return;
         }
         self.runtime = None;
@@ -219,11 +215,7 @@ impl AnalystPanelView {
         program: analyst_runtime::AnalystRuntimeProgram,
         cx: &mut Context<Self>,
     ) {
-        if self.busy
-            || self.settings_busy
-            || self.session.is_some()
-            || self.runtime_checking
-        {
+        if self.busy || self.settings_busy || self.session.is_some() || self.runtime_checking {
             return;
         }
         let label = runtime_program_label(program);
@@ -245,9 +237,8 @@ impl AnalystPanelView {
                 Ok(Err(error)) => {
                     let _ = this.update(cx, |this, cx| {
                         this.settings_busy = false;
-                        this.last_error = Some(format!(
-                            "Could not choose {label} executable: {error}"
-                        ));
+                        this.last_error =
+                            Some(format!("Could not choose {label} executable: {error}"));
                         cx.notify();
                     });
                     return;
@@ -293,11 +284,7 @@ impl AnalystPanelView {
         program: analyst_runtime::AnalystRuntimeProgram,
         cx: &mut Context<Self>,
     ) {
-        if self.busy
-            || self.settings_busy
-            || self.session.is_some()
-            || self.runtime_checking
-        {
+        if self.busy || self.settings_busy || self.session.is_some() || self.runtime_checking {
             return;
         }
         self.settings_busy = true;
@@ -472,10 +459,9 @@ impl AnalystPanelView {
                 .child(format!("{label} · waiting for runtime check"));
         };
         let Some(selections) = status.selections.as_ref() else {
-            return div()
-                .text_xs()
-                .text_color(rgb(0x777770))
-                .child(format!("{label} · settings unavailable until runtime settings load"));
+            return div().text_xs().text_color(rgb(0x777770)).child(format!(
+                "{label} · settings unavailable until runtime settings load"
+            ));
         };
         let selection = match program {
             analyst_runtime::AnalystRuntimeProgram::Node => &selections.node,
@@ -486,10 +472,8 @@ impl AnalystPanelView {
             analyst_runtime::AnalystRuntimeProgram::Pi => settings.pi_program.as_ref(),
         });
         let environment_controlled = selection.source == DesktopAnalystProgramSource::Environment;
-        let controls_enabled = !self.busy
-            && !self.settings_busy
-            && !self.runtime_checking
-            && self.session.is_none();
+        let controls_enabled =
+            !self.busy && !self.settings_busy && !self.runtime_checking && self.session.is_none();
 
         let mut actions = div().flex().gap_2().items_center();
         if environment_controlled {
@@ -514,9 +498,9 @@ impl AnalystPanelView {
                 .text_xs()
                 .child("Choose…");
             if controls_enabled {
-                choose = choose.cursor_pointer().on_click(cx.listener(
-                    move |this, _, _, cx| this.configure_program(program, cx),
-                ));
+                choose = choose.cursor_pointer().on_click(
+                    cx.listener(move |this, _, _, cx| this.configure_program(program, cx)),
+                );
             } else {
                 choose = choose.text_color(rgb(0x999990));
             }
@@ -537,9 +521,9 @@ impl AnalystPanelView {
                     .text_xs()
                     .child("Clear saved path");
                 if controls_enabled {
-                    clear = clear.cursor_pointer().on_click(cx.listener(
-                        move |this, _, _, cx| this.clear_program(program, cx),
-                    ));
+                    clear = clear.cursor_pointer().on_click(
+                        cx.listener(move |this, _, _, cx| this.clear_program(program, cx)),
+                    );
                 } else {
                     clear = clear.text_color(rgb(0x999990));
                 }
@@ -624,10 +608,8 @@ impl AnalystPanelView {
             })));
         }
 
-        let recheck_enabled = !self.busy
-            && !self.settings_busy
-            && !self.runtime_checking
-            && self.session.is_none();
+        let recheck_enabled =
+            !self.busy && !self.settings_busy && !self.runtime_checking && self.session.is_none();
         let mut recheck = div()
             .id("retry-analyst-runtime")
             .px_3()
@@ -697,9 +679,10 @@ impl AnalystPanelView {
         let can_start = !self.busy
             && !self.settings_busy
             && !self.runtime_checking
-            && self.runtime.as_ref().is_some_and(|status| {
-                status.readiness.is_ready()
-            })
+            && self
+                .runtime
+                .as_ref()
+                .is_some_and(|status| status.readiness.is_ready())
             && self.left != self.right;
         let mut start = div()
             .id("start-world-analyst")
