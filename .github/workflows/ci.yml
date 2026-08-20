@@ -46,6 +46,7 @@ jobs:
               - 'crates/world-agent-tool-stdio/**'
               - 'integrations/pi/**'
               - 'scripts/run-pi-analyst.sh'
+              - 'scripts/check-packaged-analyst-runtime.mjs'
               - 'apps/tiny-society-pack/**'
               - 'apps/pocket-universe-pack/**'
               - 'apps/micro-company-pack/**'
@@ -109,6 +110,8 @@ jobs:
       - run: cargo test -p lineage-explorer-desktop
       - name: Build and validate World Machine.app
         run: bash apps/world-machine-desktop/macos/build-app.sh
+      - name: Smoke packaged analyst runtime
+        run: node scripts/check-packaged-analyst-runtime.mjs "target/bundle/World Machine.app"
       - name: Archive World Machine.app
         run: ditto -c -k --keepParent "target/bundle/World Machine.app" target/bundle/World-Machine-macOS.zip
       - uses: actions/upload-artifact@v4
