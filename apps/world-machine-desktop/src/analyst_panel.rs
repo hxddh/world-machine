@@ -217,7 +217,8 @@ impl AnalystPanelView {
             .and_then(DesktopAnalystRuntimeReadiness::config)
             .cloned()
         else {
-            self.last_error = Some("World analyst runtime is not ready. Recheck the runtime first.".into());
+            self.last_error =
+                Some("World analyst runtime is not ready. Recheck the runtime first.".into());
             cx.notify();
             return;
         };
