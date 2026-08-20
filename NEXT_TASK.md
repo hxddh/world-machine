@@ -1,5 +1,7 @@
 # Next Coding Task — M231 Analyst New Comparison
 
+Implementation branch: `agent/m231-analyst-new-comparison`.
+
 M214–M230 now provide a complete installed-app path from immutable saved-World evidence through a restricted long-lived Pi analyst, stable provider-neutral turns, native runtime setup and probing, model-state readiness, an in-memory Question → Answer → Evidence transcript, and an explicit recovery path after fatal analyst failure.
 
 ## M231 — start a new comparison without closing the analyst window
