@@ -223,12 +223,32 @@ fn executable_file(path: &Path) -> bool {
 
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        metadata.permissions().mode() & 0o111 != 0
+        effective_executable_access(path)
     }
     #[cfg(not(unix))]
     {
         true
+    }
+}
+
+#[cfg(unix)]
+fn effective_executable_access(path: &Path) -> bool {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+
+    let Ok(path) = CString::new(path.as_os_str().as_bytes()) else {
+        return false;
+    };
+    // SAFETY: `path` is a live NUL-terminated C string for the duration of the call. `faccessat`
+    // only reads it and does not retain the pointer. AT_EACCESS asks the OS to apply the current
+    // effective user/group and filesystem ACL semantics instead of approximating with mode bits.
+    unsafe {
+        libc::faccessat(
+            libc::AT_FDCWD,
+            path.as_ptr(),
+            libc::X_OK,
+            libc::AT_EACCESS,
+        ) == 0
     }
 }
 
@@ -304,21 +324,21 @@ mod tests {
     fn write_executable(path: &Path) {
         fs::write(path, "#!/bin/sh\nexit 0\n").unwrap();
         #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mut permissions = fs::metadata(path).unwrap().permissions();
-            permissions.set_mode(0o755);
-            fs::set_permissions(path, permissions).unwrap();
-        }
+        set_mode(path, 0o755);
     }
 
     #[cfg(unix)]
     fn write_non_executable(path: &Path) {
+        fs::write(path, "#!/bin/sh\nexit 0\n").unwrap();
+        set_mode(path, 0o644);
+    }
+
+    #[cfg(unix)]
+    fn set_mode(path: &Path, mode: u32) {
         use std::os::unix::fs::PermissionsExt;
 
-        fs::write(path, "#!/bin/sh\nexit 0\n").unwrap();
         let mut permissions = fs::metadata(path).unwrap().permissions();
-        permissions.set_mode(0o644);
+        permissions.set_mode(mode);
         fs::set_permissions(path, permissions).unwrap();
     }
 
@@ -459,6 +479,29 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn execute_bit_for_another_class_does_not_imply_current_user_access() {
+        if unsafe { libc::geteuid() } == 0 {
+            return;
+        }
+
+        let fixture = Fixture::new();
+        let node = fixture.bin.join("node");
+        fs::write(&node, "#!/bin/sh\nexit 0\n").unwrap();
+        set_mode(&node, 0o010);
+        fixture.executable("pi");
+        let readiness = check_with_environment(
+            fixture.config(),
+            Some(fixture.bin.clone().into_os_string()),
+            Some(fixture.root.clone()),
+        );
+        assert_eq!(
+            readiness.issue().unwrap().kind(),
+            DesktopAnalystRuntimeIssueKind::NodeUnavailable
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn non_executable_node_is_rejected() {
         let fixture = Fixture::new();
         write_non_executable(&fixture.bin.join("node"));
@@ -494,14 +537,10 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn non_executable_tool_host_is_rejected() {
-        use std::os::unix::fs::PermissionsExt;
-
         let fixture = Fixture::new();
         fixture.executable("node");
         fixture.executable("pi");
-        let mut permissions = fs::metadata(&fixture.analyst).unwrap().permissions();
-        permissions.set_mode(0o644);
-        fs::set_permissions(&fixture.analyst, permissions).unwrap();
+        set_mode(&fixture.analyst, 0o644);
         let readiness = check_with_environment(
             fixture.config(),
             Some(fixture.bin.clone().into_os_string()),
