@@ -27,7 +27,9 @@ impl DesktopAnalystSettings {
 
     pub fn validate(&self) -> Result<(), DesktopAnalystSettingsError> {
         if self.version != SETTINGS_VERSION {
-            return Err(DesktopAnalystSettingsError::UnsupportedVersion(self.version));
+            return Err(DesktopAnalystSettingsError::UnsupportedVersion(
+                self.version,
+            ));
         }
         for (field, path) in [
             ("Node", self.node_program.as_deref()),
@@ -83,7 +85,9 @@ impl fmt::Display for DesktopAnalystSettingsError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Io(message) => f.write_str(message),
-            Self::Malformed(message) => write!(f, "World Analyst settings are malformed: {message}"),
+            Self::Malformed(message) => {
+                write!(f, "World Analyst settings are malformed: {message}")
+            }
             Self::UnsupportedVersion(version) => write!(
                 f,
                 "World Analyst settings use unsupported format version {version}"
@@ -273,7 +277,10 @@ mod tests {
     #[test]
     fn absent_file_loads_defaults() {
         let fixture = Fixture::new();
-        assert_eq!(load(&fixture.root).unwrap(), DesktopAnalystSettings::empty());
+        assert_eq!(
+            load(&fixture.root).unwrap(),
+            DesktopAnalystSettings::empty()
+        );
     }
 
     #[test]
@@ -335,7 +342,10 @@ mod tests {
         };
         let selected = selections(&settings, Some(PathBuf::from("/env/node")), None);
         assert_eq!(selected.node.program, PathBuf::from("/env/node"));
-        assert_eq!(selected.node.source, DesktopAnalystProgramSource::Environment);
+        assert_eq!(
+            selected.node.source,
+            DesktopAnalystProgramSource::Environment
+        );
         assert_eq!(selected.pi.program, PathBuf::from("/persisted/pi"));
         assert_eq!(selected.pi.source, DesktopAnalystProgramSource::Persisted);
 
