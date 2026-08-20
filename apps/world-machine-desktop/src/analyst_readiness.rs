@@ -133,11 +133,20 @@ fn check_with_environment(
     path: Option<OsString>,
     current_dir: Option<PathBuf>,
 ) -> DesktopAnalystRuntimeReadiness {
-    if !config.turn_host_script.is_file() {
+    let Ok(turn_host_metadata) = config.turn_host_script.metadata() else {
         return DesktopAnalystRuntimeReadiness::unavailable(
             DesktopAnalystRuntimeIssueKind::RuntimeIncomplete,
             format!(
                 "World Machine analyst runtime is incomplete: missing {}",
+                config.turn_host_script.display()
+            ),
+        );
+    };
+    if !turn_host_metadata.is_file() || turn_host_metadata.len() == 0 {
+        return DesktopAnalystRuntimeReadiness::unavailable(
+            DesktopAnalystRuntimeIssueKind::RuntimeIncomplete,
+            format!(
+                "World Machine analyst runtime is incomplete: {} is not a non-empty file",
                 config.turn_host_script.display()
             ),
         );
@@ -533,6 +542,21 @@ mod tests {
         let issue = readiness.issue().expect("missing Pi should fail");
         assert_eq!(issue.kind(), DesktopAnalystRuntimeIssueKind::PiUnavailable);
         assert!(issue.message().contains("PI_PROGRAM"));
+    }
+
+    #[test]
+    fn empty_turn_host_is_runtime_incomplete() {
+        let fixture = Fixture::new();
+        fs::write(&fixture.turn_host, "").unwrap();
+        let readiness = check_with_environment(
+            fixture.config(),
+            Some(fixture.bin.clone().into_os_string()),
+            Some(fixture.root.clone()),
+        );
+        assert_eq!(
+            readiness.issue().unwrap().kind(),
+            DesktopAnalystRuntimeIssueKind::RuntimeIncomplete
+        );
     }
 
     #[cfg(any(target_os = "macos", target_os = "linux"))]
