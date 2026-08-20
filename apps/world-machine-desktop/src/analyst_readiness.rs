@@ -144,17 +144,11 @@ fn check_with_environment(
     }
 
     for launcher_program in LAUNCHER_PROGRAMS {
-        if resolve_program(
-            Path::new(launcher_program),
-            path.as_deref(),
-            current_dir.as_deref(),
-        )
-        .is_none()
-        {
+        if resolve_launcher_program(Path::new(launcher_program), path.as_deref()).is_none() {
             return DesktopAnalystRuntimeReadiness::unavailable(
                 DesktopAnalystRuntimeIssueKind::LauncherUnavailable,
                 format!(
-                    "World Machine analyst launcher needs `{launcher_program}`, but it is not executable or not available on PATH. Ensure the standard macOS system executable directories are available on PATH."
+                    "World Machine analyst launcher needs `{launcher_program}`, but it is not executable in an absolute PATH directory. Ensure the standard macOS system executable directories are available on PATH."
                 ),
             );
         }
@@ -218,6 +212,14 @@ fn check_with_environment(
     config.pi_program = Some(pi_program);
     config.analyst_program = Some(analyst_program);
     DesktopAnalystRuntimeReadiness::ready(config)
+}
+
+fn resolve_launcher_program(program: &Path, path: Option<&OsStr>) -> Option<PathBuf> {
+    let path = path?;
+    env::split_paths(path)
+        .filter(|directory| directory.is_absolute())
+        .map(|directory| directory.join(program))
+        .find(|candidate| executable_file(candidate))
 }
 
 fn resolve_program(
@@ -387,20 +389,42 @@ mod tests {
     }
 
     #[test]
-    fn relative_path_entries_are_resolved_against_current_dir() {
+    fn relative_path_entries_are_resolved_for_node_and_pi_only() {
         let fixture = Fixture::new();
         let node = fixture.executable("node");
         let pi = fixture.executable("pi");
+        let launcher_bin = fixture.root.join("launcher-bin");
+        write_launcher_tools(&launcher_bin);
+        let search_path = env::join_paths([PathBuf::from("bin"), launcher_bin]).unwrap();
         let readiness = check_with_environment(
             fixture.config(),
-            Some(PathBuf::from("bin").into_os_string()),
+            Some(search_path),
             Some(fixture.root.clone()),
         );
         let config = readiness
             .config()
-            .expect("relative PATH entry should resolve");
+            .expect("relative PATH entry should resolve Node and Pi");
         assert_eq!(config.node_program, node);
         assert_eq!(config.pi_program.as_deref(), Some(pi.as_path()));
+    }
+
+    #[test]
+    fn relative_path_entries_do_not_satisfy_launcher_dependencies() {
+        let fixture = Fixture::new();
+        let node = fixture.executable("custom-node");
+        let pi = fixture.executable("custom-pi");
+        let mut config = fixture.config();
+        config.node_program = node;
+        config.pi_program = Some(pi);
+        let readiness = check_with_environment(
+            config,
+            Some(PathBuf::from("bin").into_os_string()),
+            Some(fixture.root.clone()),
+        );
+        assert_eq!(
+            readiness.issue().unwrap().kind(),
+            DesktopAnalystRuntimeIssueKind::LauncherUnavailable
+        );
     }
 
     #[test]
