@@ -19,6 +19,7 @@ bash -n "$launcher"
 for required in \
   'pi.setActiveTools([])' \
   'pi.registerTool({' \
+  'pi.registerCommand(READY_COMMAND' \
   'executionMode: "sequential"' \
   'descriptor.read_only !== true' \
   'parameters: descriptor.input_schema'
@@ -34,7 +35,9 @@ for required in \
   'Pi analyst RPC session is single-flight' \
   'toolCallId' \
   'RESTRICTED_LAUNCHER' \
-  'scripts/run-pi-analyst.sh'
+  'scripts/run-pi-analyst.sh' \
+  'get_commands' \
+  'ANALYST_READY_COMMAND'
 do
   if ! grep -Fq "$required" "$rpc"; then
     echo "Pi analyst RPC session is missing required boundary: $required" >&2

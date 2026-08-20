@@ -4,7 +4,9 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 1000;
+const DEFAULT_PROBE_TIMEOUT_MS = 10000;
 const DEFAULT_PROMPT_TIMEOUT_MS = 120000;
+const ANALYST_READY_COMMAND = "world-machine-analyst-ready";
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const RESTRICTED_LAUNCHER = resolve(REPO_ROOT, "scripts/run-pi-analyst.sh");
 
@@ -84,6 +86,7 @@ export class PiAnalystRpcSession {
     this.closed = false;
     this.busy = false;
     this.nextRequestNumber = 1;
+    this.nextProbeNumber = 1;
 
     child.stdout.on("data", (chunk) => this.#acceptChunk(chunk));
     child.stdout.on("end", () => {
@@ -114,6 +117,114 @@ export class PiAnalystRpcSession {
 
   id() {
     return this.child.pid;
+  }
+
+  async probe({ signal, timeoutMs = DEFAULT_PROBE_TIMEOUT_MS } = {}) {
+    if (this.busy) {
+      throw new PiAnalystRpcProtocolError("Pi analyst RPC session is single-flight");
+    }
+    if (this.closed || this.closedError) {
+      throw this.closedError ?? new PiAnalystRpcTransportError("Pi analyst RPC session is closed");
+    }
+    if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
+      throw new PiAnalystRpcProtocolError(
+        "Pi analyst probe timeout must be a positive safe integer",
+      );
+    }
+    if (signal?.aborted) {
+      const error = new PiAnalystRpcTransportError("Pi analyst probe aborted before dispatch");
+      await this.#terminateAfterBrokenTurn(error);
+      throw error;
+    }
+
+    const probeId = `world-analyst-probe-${this.nextProbeNumber++}`;
+    const deadline = Date.now() + timeoutMs;
+    this.busy = true;
+    try {
+      const state = await this.#probeCommand(
+        { id: `${probeId}-state`, type: "get_state" },
+        "get_state",
+        signal,
+        deadline,
+        probeId,
+      );
+      if (!state.data || typeof state.data !== "object" || Array.isArray(state.data)) {
+        throw new PiAnalystRpcProtocolError("Pi analyst get_state probe returned invalid state", {
+requestId: probeId,
+response: state,
+        });
+      }
+
+      const commands = await this.#probeCommand(
+        { id: `${probeId}-commands`, type: "get_commands" },
+        "get_commands",
+        signal,
+        deadline,
+        probeId,
+      );
+      const entries = commands.data?.commands;
+      if (!Array.isArray(entries)) {
+        throw new PiAnalystRpcProtocolError("Pi analyst get_commands probe returned invalid commands", {
+requestId: probeId,
+response: commands,
+        });
+      }
+      const ready = entries.some(
+        (command) =>
+command &&
+command.name === ANALYST_READY_COMMAND &&
+command.source === "extension",
+      );
+      if (!ready) {
+        throw new PiAnalystRpcProtocolError(
+"Pi analyst extension did not expose the World Machine readiness marker",
+{ requestId: probeId },
+        );
+      }
+      return { requestId: probeId };
+    } catch (error) {
+      if (!(error instanceof PiAnalystRpcCommandError)) {
+        await this.#terminateAfterBrokenTurn(error);
+      }
+      throw error;
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  async #probeCommand(request, expectedCommand, signal, deadline, requestId) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      throw new PiAnalystRpcTransportError("Pi analyst probe timed out", { requestId });
+    }
+    await this.#write(request);
+    const response = await this.#nextRecordWithInterruption(
+      signal,
+      remaining,
+      requestId,
+      "probe",
+    );
+    if (!response || response.type !== "response") {
+      throw new PiAnalystRpcProtocolError(
+        `Pi analyst probe received an event before ${expectedCommand} response`,
+        { requestId, response },
+      );
+    }
+    if (response.id !== request.id || response.command !== expectedCommand) {
+      throw new PiAnalystRpcProtocolError("Pi analyst probe correlation mismatch", {
+        expectedId: request.id,
+        actualId: response.id,
+        expectedCommand,
+        command: response.command,
+      });
+    }
+    if (response.success !== true) {
+      throw new PiAnalystRpcCommandError(`Pi analyst ${expectedCommand} probe was rejected`, {
+        requestId,
+        response,
+      });
+    }
+    return response;
   }
 
   async prompt(message, { signal, timeoutMs = DEFAULT_PROMPT_TIMEOUT_MS } = {}) {
@@ -186,7 +297,7 @@ export class PiAnalystRpcSession {
     while (true) {
       const remaining = deadline === null ? null : deadline - Date.now();
       if (remaining !== null && remaining <= 0) {
-        throw new PiAnalystRpcTransportError("Pi analyst prompt timed out", {
+        throw new PiAnalystRpcTransportError(`Pi analyst ${operation} timed out`, {
           requestId: turn.requestId,
           timeoutMs,
         });
@@ -205,11 +316,11 @@ export class PiAnalystRpcSession {
     }
   }
 
-  async #nextRecordWithInterruption(signal, timeoutMs, requestId) {
+  async #nextRecordWithInterruption(signal, timeoutMs, requestId, operation = "prompt") {
     const recordPromise = this.#nextRecord();
     if (signal?.aborted) {
       recordPromise.catch(() => {});
-      throw new PiAnalystRpcTransportError("Pi analyst prompt aborted", {
+      throw new PiAnalystRpcTransportError(`Pi analyst ${operation} aborted`, {
         requestId,
       });
     }

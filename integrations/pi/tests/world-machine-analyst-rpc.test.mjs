@@ -88,6 +88,56 @@ test("two prompts reuse one Pi process and settle after low-level agent_end", as
   }
 });
 
+test("startup probe uses get_state without consuming prompt correlation", async () => {
+  const session = fakeSession(String.raw`
+    let buffer = "";
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", (chunk) => {
+      buffer += chunk;
+      while (buffer.includes("\n")) {
+        const at = buffer.indexOf("\n");
+        const line = buffer.slice(0, at);
+        buffer = buffer.slice(at + 1);
+        if (!line) continue;
+        const request = JSON.parse(line);
+        if (request.type === "get_state") {
+          emit({
+            type: "response",
+            id: request.id,
+            command: "get_state",
+            success: true,
+            data: { model: null, thinkingLevel: "off", isStreaming: false, isCompacting: false }
+          });
+          continue;
+        }
+                  if (request.type === "get_commands") {
+          emit({
+            type: "response",
+            id: request.id,
+            command: "get_commands",
+            success: true,
+            data: { commands: [{ name: "world-machine-analyst-ready", source: "extension" }] }
+          });
+          continue;
+        }
+        emit({ type: "response", id: request.id, command: "prompt", success: true });
+        emit({ type: "message_end", message: { role: "assistant", content: "after-probe" } });
+        emit({ type: "agent_settled" });
+      }
+    });
+    function emit(value) { process.stdout.write(JSON.stringify(value) + "\n"); }
+  `);
+  try {
+    const probe = await session.probe({ timeoutMs: 2000 });
+    assert.equal(probe.requestId, "world-analyst-probe-1");
+    const result = await session.prompt("question", { timeoutMs: 2000 });
+    assert.equal(result.requestId, "world-analyst-1");
+    assert.equal(result.text, "after-probe");
+  } finally {
+    await session.shutdown();
+  }
+});
+
 test("tool failures remain telemetry instead of transport failures", async () => {
   const session = fakeSession(REUSABLE_SERVER);
   try {

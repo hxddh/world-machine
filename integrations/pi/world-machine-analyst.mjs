@@ -3,11 +3,13 @@ import { AnalystJsonlClient, providerSafeToolName } from "./world-machine-analys
 const PROGRAM_ENV = "WORLD_MACHINE_ANALYST_PROGRAM";
 const LEFT_ENV = "WORLD_MACHINE_LEFT_ARCHIVE";
 const RIGHT_ENV = "WORLD_MACHINE_RIGHT_ARCHIVE";
+const READY_COMMAND = "world-machine-analyst-ready";
 
 export default function worldMachineAnalyst(pi) {
   let client = null;
   let activeToolNames = [];
   const registeredHostTools = new Map();
+  let readinessCommandRegistered = false;
 
   const onProcessExit = () => client?.kill();
   process.on("exit", onProcessExit);
@@ -19,6 +21,13 @@ export default function worldMachineAnalyst(pi) {
       registerCatalog(descriptors);
       activeToolNames = descriptors.map((descriptor) => providerSafeToolName(descriptor.name));
       pi.setActiveTools(activeToolNames);
+      if (!readinessCommandRegistered) {
+        pi.registerCommand(READY_COMMAND, {
+description: "Internal World Machine analyst readiness marker.",
+async handler() {},
+        });
+        readinessCommandRegistered = true;
+      }
     } catch (error) {
       await closeClient();
       throw error;

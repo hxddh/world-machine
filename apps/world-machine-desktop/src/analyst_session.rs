@@ -13,6 +13,7 @@ use world_analyst_client::{
 use world_library::{LibraryError, WorldDocumentId, WorldLibrary};
 
 static ANALYST_SNAPSHOT_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+const ANALYST_STARTUP_PROBE_TIMEOUT_MS: u64 = 10_000;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DesktopAnalystState {
@@ -199,6 +200,8 @@ impl Error for DesktopAnalystSessionError {
 }
 
 trait AnalystSessionProcess {
+    fn probe(&mut self, timeout_ms: Option<u64>) -> Result<(), AnalystTurnClientError>;
+
     fn ask(
         &mut self,
         prompt: &str,
@@ -213,6 +216,10 @@ trait AnalystSessionProcess {
 }
 
 impl AnalystSessionProcess for AnalystTurnProcess {
+    fn probe(&mut self, timeout_ms: Option<u64>) -> Result<(), AnalystTurnClientError> {
+        AnalystTurnProcess::probe(self, timeout_ms)
+    }
+
     fn ask(
         &mut self,
         prompt: &str,
@@ -293,7 +300,11 @@ impl<P: AnalystSessionProcess> SessionCore<P> {
         let archives = ArchiveSnapshotPair::capture(library, &left, &right)?;
         let process_config =
             config.process_config(archives.left_path.clone(), archives.right_path.clone());
-        let process = spawn(&process_config).map_err(DesktopAnalystSessionError::Spawn)?;
+        let mut process = spawn(&process_config).map_err(DesktopAnalystSessionError::Spawn)?;
+        if let Err(error) = process.probe(Some(ANALYST_STARTUP_PROBE_TIMEOUT_MS)) {
+            let _ = process.shutdown();
+            return Err(DesktopAnalystSessionError::Client(error));
+        }
         let cancellation = process.cancellation_handle();
 
         Ok(Self {
@@ -563,9 +574,17 @@ mod tests {
     struct FakeProcess {
         script: VecDeque<Result<AnalystTurn, AnalystTurnClientError>>,
         shutdowns: Arc<AtomicUsize>,
+        probe_error: Option<AnalystTurnClientError>,
     }
 
     impl AnalystSessionProcess for FakeProcess {
+        fn probe(&mut self, _timeout_ms: Option<u64>) -> Result<(), AnalystTurnClientError> {
+            match self.probe_error.take() {
+                Some(error) => Err(error),
+                None => Ok(()),
+            }
+        }
+
         fn ask(
             &mut self,
             _prompt: &str,
@@ -640,6 +659,7 @@ mod tests {
                 Ok(FakeProcess {
                     script: VecDeque::new(),
                     shutdowns: process_shutdowns,
+                    probe_error: None,
                 })
             },
         )
@@ -702,6 +722,40 @@ mod tests {
             },
         );
         assert!(matches!(result, Err(DesktopAnalystSessionError::Spawn(_))));
+        let (left_snapshot, right_snapshot) = captured_paths.lock().unwrap().clone().unwrap();
+        assert!(!left_snapshot.exists());
+        assert!(!right_snapshot.exists());
+    }
+
+    #[test]
+    fn startup_probe_failure_shuts_process_and_cleans_archive_snapshots() {
+        let fixture = Fixture::new("probe-failure");
+        let shutdowns = Arc::new(AtomicUsize::new(0));
+        let captured_paths = Arc::new(Mutex::new(None));
+        let process_paths = Arc::clone(&captured_paths);
+        let process_shutdowns = Arc::clone(&shutdowns);
+        let result = SessionCore::<FakeProcess>::start_with(
+            &fixture.library,
+            fixture.left.clone(),
+            fixture.right.clone(),
+            DesktopAnalystConfig::new("turn-host.mjs"),
+            move |config| {
+                *process_paths.lock().unwrap() =
+                    Some((config.left_archive.clone(), config.right_archive.clone()));
+                Ok(FakeProcess {
+                    script: VecDeque::new(),
+                    shutdowns: process_shutdowns,
+                    probe_error: Some(remote_command("probe rejected")),
+                })
+            },
+        );
+        assert!(matches!(
+            result,
+            Err(DesktopAnalystSessionError::Client(
+                AnalystTurnClientError::RemoteCommand(_)
+            ))
+        ));
+        assert_eq!(shutdowns.load(Ordering::SeqCst), 1);
         let (left_snapshot, right_snapshot) = captured_paths.lock().unwrap().clone().unwrap();
         assert!(!left_snapshot.exists());
         assert!(!right_snapshot.exists());
@@ -946,6 +1000,7 @@ mod tests {
                     Ok(FakeProcess {
                         script: script.into(),
                         shutdowns,
+                        probe_error: None,
                     })
                 },
             )
