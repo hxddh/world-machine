@@ -9,8 +9,9 @@ use gpui::{
 };
 use std::sync::Arc;
 use world_library::{WorldDocumentId, WorldDocumentSummary, WorldLibrary};
+use world_machine_desktop::analyst_readiness::DesktopAnalystRuntimeReadiness;
 use world_machine_desktop::analyst_session::{
-    DesktopAnalystCancellation, DesktopAnalystConfig, DesktopAnalystSession, DesktopAnalystState,
+    DesktopAnalystCancellation, DesktopAnalystSession, DesktopAnalystState,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -89,7 +90,6 @@ fn open_panel(
     let right = default_right_for(&left, &documents)
         .ok_or_else(|| "World analyst could not find another saved World".to_string())?;
     let count = documents.len();
-    let runtime = analyst_runtime::discover();
     let bounds = Bounds::centered(None, size(px(920.0), px(820.0)), cx);
 
     cx.open_window(
@@ -97,9 +97,7 @@ fn open_panel(
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             ..Default::default()
         },
-        move |_, cx| {
-            cx.new(|cx| AnalystPanelView::new(library, documents, left, right, runtime, cx))
-        },
+        move |_, cx| cx.new(|cx| AnalystPanelView::new(library, documents, left, right, cx)),
     )
     .map_err(|error| error.to_string())?;
     Ok(count)
@@ -129,7 +127,8 @@ struct AnalystPanelView {
     documents: Vec<WorldDocumentSummary>,
     left: WorldDocumentId,
     right: WorldDocumentId,
-    runtime: Result<DesktopAnalystConfig, String>,
+    runtime: Option<DesktopAnalystRuntimeReadiness>,
+    runtime_checking: bool,
     session: Option<DesktopAnalystSession>,
     cancellation: Option<DesktopAnalystCancellation>,
     question: Entity<AnalystTextInput>,
@@ -145,7 +144,6 @@ impl AnalystPanelView {
         documents: Vec<WorldDocumentSummary>,
         left: WorldDocumentId,
         right: WorldDocumentId,
-        runtime: Result<DesktopAnalystConfig, String>,
         cx: &mut Context<Self>,
     ) -> Self {
         cx.on_release(|this, cx| {
@@ -167,12 +165,13 @@ impl AnalystPanelView {
         })
         .detach();
         let question = cx.new(|cx| AnalystTextInput::new("Ask why these Worlds differ…", cx));
-        Self {
+        let mut view = Self {
             library,
             documents,
             left,
             right,
-            runtime,
+            runtime: None,
+            runtime_checking: false,
             session: None,
             cancellation: None,
             question,
@@ -180,20 +179,48 @@ impl AnalystPanelView {
             busy: false,
             history: Vec::new(),
             last_error: None,
+        };
+        view.refresh_runtime(cx);
+        view
+    }
+
+    fn refresh_runtime(&mut self, cx: &mut Context<Self>) {
+        if self.busy || self.session.is_some() || self.runtime_checking {
+            return;
         }
+        self.runtime = None;
+        self.runtime_checking = true;
+        self.last_error = None;
+        cx.notify();
+
+        let task = cx
+            .background_executor()
+            .spawn(async move { analyst_runtime::discover() });
+        cx.spawn(async move |this, cx| {
+            let readiness = task.await;
+            let _ = this.update(cx, |this, cx| {
+                this.runtime = Some(readiness);
+                this.runtime_checking = false;
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     fn start_session(&mut self, cx: &mut Context<Self>) {
         if self.busy || self.left == self.right {
             return;
         }
-        let config = match &self.runtime {
-            Ok(config) => config.clone(),
-            Err(error) => {
-                self.last_error = Some(error.clone());
-                cx.notify();
-                return;
-            }
+        let Some(config) = self
+            .runtime
+            .as_ref()
+            .and_then(DesktopAnalystRuntimeReadiness::config)
+            .cloned()
+        else {
+            self.last_error =
+                Some("World analyst runtime is not ready. Recheck the runtime first.".into());
+            cx.notify();
+            return;
         };
         let library = Arc::clone(&self.library);
         let left = self.left.clone();
@@ -362,17 +389,57 @@ impl AnalystPanelView {
             })));
         }
 
-        let runtime_status = match &self.runtime {
-            Ok(_) => div()
+        let runtime_status = if self.runtime_checking {
+            div()
                 .text_xs()
-                .text_color(rgb(0x4d6748))
-                .child("Analyst runtime available"),
-            Err(error) => div()
-                .text_xs()
-                .text_color(rgb(0x9b4a42))
-                .child(error.clone()),
+                .text_color(rgb(0x666660))
+                .child("Checking analyst runtime readiness…")
+        } else {
+            match self.runtime.as_ref() {
+                Some(DesktopAnalystRuntimeReadiness::Ready { .. }) => div()
+                    .text_xs()
+                    .text_color(rgb(0x4d6748))
+                    .child("Analyst runtime ready · Node and Pi resolved"),
+                Some(DesktopAnalystRuntimeReadiness::Unavailable { issue }) => {
+                    let retry = div()
+                        .id("retry-analyst-runtime")
+                        .cursor_pointer()
+                        .px_3()
+                        .p_1()
+                        .rounded_md()
+                        .border_1()
+                        .border_color(rgb(0xb8b2a8))
+                        .bg(rgb(0xffffff))
+                        .text_xs()
+                        .child("Retry")
+                        .on_click(cx.listener(|this, _, _, cx| this.refresh_runtime(cx)));
+                    div()
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .gap_3()
+                        .child(
+                            div()
+                                .flex_1()
+                                .text_xs()
+                                .text_color(rgb(0x9b4a42))
+                                .child(issue.message().to_owned()),
+                        )
+                        .child(retry)
+                }
+                None => div()
+                    .text_xs()
+                    .text_color(rgb(0x9b4a42))
+                    .child("Analyst runtime readiness is unavailable. Retry the check."),
+            }
         };
-        let can_start = !self.busy && self.runtime.is_ok() && self.left != self.right;
+        let can_start = !self.busy
+            && !self.runtime_checking
+            && self
+                .runtime
+                .as_ref()
+                .is_some_and(DesktopAnalystRuntimeReadiness::is_ready)
+            && self.left != self.right;
         let mut start = div()
             .id("start-world-analyst")
             .px_4()
@@ -729,6 +796,8 @@ mod tests {
             ["agent_", "settled"].concat(),
             ["tool_execution", "_start"].concat(),
             ["world-machine-analyst", "-rpc"].concat(),
+            ["command", "::new"].concat(),
+            ["var_os", "(\"path\")"].concat(),
         ];
         for token in forbidden {
             assert!(
