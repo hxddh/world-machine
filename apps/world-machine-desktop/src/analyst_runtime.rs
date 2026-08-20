@@ -49,7 +49,7 @@ fn discover_config() -> Result<DesktopAnalystConfig, DesktopAnalystRuntimeIssue>
 
 fn discover_root() -> Result<PathBuf, DesktopAnalystRuntimeIssue> {
     if let Some(root) = env_path(RUNTIME_ROOT_ENV) {
-        return Ok(root);
+        return resolve_root_override(root, env::current_dir().ok().as_deref());
     }
 
     if let Ok(executable) = env::current_exe() {
@@ -72,6 +72,23 @@ fn discover_root() -> Result<PathBuf, DesktopAnalystRuntimeIssue> {
             "World Machine analyst runtime is unavailable. Expected the bundled `Analyst Runtime` resource or set {RUNTIME_ROOT_ENV}."
         ),
     ))
+}
+
+fn resolve_root_override(
+    root: PathBuf,
+    current_dir: Option<&Path>,
+) -> Result<PathBuf, DesktopAnalystRuntimeIssue> {
+    if root.is_absolute() {
+        return Ok(root);
+    }
+    current_dir.map(|directory| directory.join(root)).ok_or_else(|| {
+        DesktopAnalystRuntimeIssue::new(
+            DesktopAnalystRuntimeIssueKind::RuntimeUnavailable,
+            format!(
+                "{RUNTIME_ROOT_ENV} is relative, but the current directory could not be resolved. Set it to an absolute analyst runtime path."
+            ),
+        )
+    })
 }
 
 fn bundled_runtime_root(executable: &Path) -> Option<PathBuf> {
@@ -133,6 +150,34 @@ mod tests {
             bundled_runtime_root(Path::new("/tmp/world-machine-desktop")),
             None
         );
+    }
+
+    #[test]
+    fn relative_runtime_root_override_is_normalized() {
+        assert_eq!(
+            resolve_root_override(
+                PathBuf::from("dev/Analyst Runtime"),
+                Some(Path::new("/tmp/world-machine"))
+            )
+            .unwrap(),
+            PathBuf::from("/tmp/world-machine/dev/Analyst Runtime")
+        );
+    }
+
+    #[test]
+    fn relative_runtime_root_requires_current_directory() {
+        let issue = resolve_root_override(PathBuf::from("Analyst Runtime"), None).unwrap_err();
+        assert_eq!(
+            issue.kind(),
+            DesktopAnalystRuntimeIssueKind::RuntimeUnavailable
+        );
+        assert!(issue.message().contains("absolute analyst runtime path"));
+    }
+
+    #[test]
+    fn absolute_runtime_root_override_is_preserved() {
+        let root = PathBuf::from("/tmp/Analyst Runtime");
+        assert_eq!(resolve_root_override(root.clone(), None).unwrap(), root);
     }
 
     #[test]
