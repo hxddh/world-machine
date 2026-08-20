@@ -879,7 +879,10 @@ mod tests {
         );
         assert_eq!(session.exchanges.len(), 1);
         assert_eq!(session.exchanges[0].prompt(), "retry");
-        assert_eq!(session.exchanges[0].turn().text.as_deref(), Some("recovered"));
+        assert_eq!(
+            session.exchanges[0].turn().text.as_deref(),
+            Some("recovered")
+        );
         assert_eq!(shutdowns.load(Ordering::SeqCst), 0);
     }
 
