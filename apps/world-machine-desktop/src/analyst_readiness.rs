@@ -174,7 +174,14 @@ fn resolve_program(
 
     let path = path?;
     env::split_paths(path)
-        .map(|directory| directory.join(program))
+        .filter_map(|directory| {
+            let directory = if directory.is_absolute() {
+                directory
+            } else {
+                current_dir?.join(directory)
+            };
+            Some(directory.join(program))
+        })
         .find(|candidate| executable_file(candidate))
 }
 
@@ -278,6 +285,16 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
+    fn write_non_executable(path: &Path) {
+        use std::os::unix::fs::PermissionsExt;
+
+        fs::write(path, "#!/bin/sh\nexit 0\n").unwrap();
+        let mut permissions = fs::metadata(path).unwrap().permissions();
+        permissions.set_mode(0o644);
+        fs::set_permissions(path, permissions).unwrap();
+    }
+
     #[test]
     fn bare_node_and_default_pi_resolve_from_path() {
         let fixture = Fixture::new();
@@ -295,6 +312,23 @@ mod tests {
             config.analyst_program.as_deref(),
             Some(fixture.analyst.as_path())
         );
+    }
+
+    #[test]
+    fn relative_path_entries_are_resolved_against_current_dir() {
+        let fixture = Fixture::new();
+        let node = fixture.executable("node");
+        let pi = fixture.executable("pi");
+        let readiness = check_with_environment(
+            fixture.config(),
+            Some(PathBuf::from("bin").into_os_string()),
+            Some(fixture.root.clone()),
+        );
+        let config = readiness
+            .config()
+            .expect("relative PATH entry should resolve");
+        assert_eq!(config.node_program, node);
+        assert_eq!(config.pi_program.as_deref(), Some(pi.as_path()));
     }
 
     #[test]
@@ -346,6 +380,40 @@ mod tests {
         let issue = readiness.issue().expect("missing Pi should fail");
         assert_eq!(issue.kind(), DesktopAnalystRuntimeIssueKind::PiUnavailable);
         assert!(issue.message().contains("PI_PROGRAM"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn non_executable_node_is_rejected() {
+        let fixture = Fixture::new();
+        write_non_executable(&fixture.bin.join("node"));
+        fixture.executable("pi");
+        let readiness = check_with_environment(
+            fixture.config(),
+            Some(fixture.bin.clone().into_os_string()),
+            Some(fixture.root.clone()),
+        );
+        assert_eq!(
+            readiness.issue().unwrap().kind(),
+            DesktopAnalystRuntimeIssueKind::NodeUnavailable
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn non_executable_pi_is_rejected() {
+        let fixture = Fixture::new();
+        fixture.executable("node");
+        write_non_executable(&fixture.bin.join("pi"));
+        let readiness = check_with_environment(
+            fixture.config(),
+            Some(fixture.bin.clone().into_os_string()),
+            Some(fixture.root.clone()),
+        );
+        assert_eq!(
+            readiness.issue().unwrap().kind(),
+            DesktopAnalystRuntimeIssueKind::PiUnavailable
+        );
     }
 
     #[cfg(unix)]
