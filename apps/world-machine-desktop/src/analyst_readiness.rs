@@ -7,6 +7,52 @@ use std::path::{Component, Path, PathBuf};
 
 const LAUNCHER_PROGRAMS: [&str; 2] = ["bash", "dirname"];
 
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+mod effective_access {
+    use std::os::raw::{c_char, c_int};
+
+    const X_OK: c_int = 1;
+
+    #[cfg(target_os = "macos")]
+    const AT_FDCWD: c_int = -2;
+    #[cfg(target_os = "macos")]
+    const AT_EACCESS: c_int = 0x0010;
+
+    #[cfg(target_os = "linux")]
+    const AT_FDCWD: c_int = -100;
+    #[cfg(target_os = "linux")]
+    const AT_EACCESS: c_int = 0x0200;
+
+    unsafe extern "C" {
+        fn faccessat(
+            dirfd: c_int,
+            pathname: *const c_char,
+            mode: c_int,
+            flags: c_int,
+        ) -> c_int;
+        fn geteuid() -> u32;
+    }
+
+    pub(super) fn can_execute(path: &Path) -> bool {
+        use std::ffi::CString;
+        use std::os::unix::ffi::OsStrExt;
+
+        let Ok(path) = CString::new(path.as_os_str().as_bytes()) else {
+            return false;
+        };
+        // SAFETY: `path` is a live NUL-terminated C string for the duration of the call.
+        // `faccessat` only reads it and does not retain the pointer. AT_EACCESS asks the OS to
+        // apply the current effective user/group and filesystem ACL semantics.
+        unsafe { faccessat(AT_FDCWD, path.as_ptr(), X_OK, AT_EACCESS) == 0 }
+    }
+
+    #[cfg(test)]
+    pub(super) fn effective_uid() -> u32 {
+        // SAFETY: `geteuid` takes no arguments and has no memory-safety preconditions.
+        unsafe { geteuid() }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DesktopAnalystRuntimeIssueKind {
     RuntimeUnavailable,
@@ -221,34 +267,17 @@ fn executable_file(path: &Path) -> bool {
         return false;
     }
 
-    #[cfg(unix)]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
-        effective_executable_access(path)
+        effective_access::can_execute(path)
+    }
+    #[cfg(all(unix, not(any(target_os = "macos", target_os = "linux"))))]
+    {
+        false
     }
     #[cfg(not(unix))]
     {
         true
-    }
-}
-
-#[cfg(unix)]
-fn effective_executable_access(path: &Path) -> bool {
-    use std::ffi::CString;
-    use std::os::unix::ffi::OsStrExt;
-
-    let Ok(path) = CString::new(path.as_os_str().as_bytes()) else {
-        return false;
-    };
-    // SAFETY: `path` is a live NUL-terminated C string for the duration of the call. `faccessat`
-    // only reads it and does not retain the pointer. AT_EACCESS asks the OS to apply the current
-    // effective user/group and filesystem ACL semantics instead of approximating with mode bits.
-    unsafe {
-        libc::faccessat(
-            libc::AT_FDCWD,
-            path.as_ptr(),
-            libc::X_OK,
-            libc::AT_EACCESS,
-        ) == 0
     }
 }
 
@@ -477,10 +506,10 @@ mod tests {
         assert!(issue.message().contains("PI_PROGRAM"));
     }
 
-    #[cfg(unix)]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     #[test]
     fn execute_bit_for_another_class_does_not_imply_current_user_access() {
-        if unsafe { libc::geteuid() } == 0 {
+        if effective_access::effective_uid() == 0 {
             return;
         }
 
