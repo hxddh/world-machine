@@ -10,6 +10,7 @@ const LAUNCHER_PROGRAMS: [&str; 2] = ["bash", "dirname"];
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod effective_access {
     use std::os::raw::{c_char, c_int};
+    use std::path::Path;
 
     const X_OK: c_int = 1;
 
@@ -24,12 +25,7 @@ mod effective_access {
     const AT_EACCESS: c_int = 0x0200;
 
     unsafe extern "C" {
-        fn faccessat(
-            dirfd: c_int,
-            pathname: *const c_char,
-            mode: c_int,
-            flags: c_int,
-        ) -> c_int;
+        fn faccessat(dirfd: c_int, pathname: *const c_char, mode: c_int, flags: c_int) -> c_int;
         fn geteuid() -> u32;
     }
 
