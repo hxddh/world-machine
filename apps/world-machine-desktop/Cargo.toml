@@ -6,7 +6,6 @@ license = "Apache-2.0"
 publish = false
 
 [dependencies]
-libc = "0.2"
 world-analyst-client = { path = "../../crates/world-analyst-client" }
 world-builtins = { path = "../../crates/world-builtins" }
 world-host = { path = "../../crates/world-host" }
