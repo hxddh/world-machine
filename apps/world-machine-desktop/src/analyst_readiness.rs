@@ -5,10 +5,13 @@ use std::fmt;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
+const LAUNCHER_PROGRAMS: [&str; 2] = ["bash", "dirname"];
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DesktopAnalystRuntimeIssueKind {
     RuntimeUnavailable,
     RuntimeIncomplete,
+    LauncherUnavailable,
     AnalystProgramUnavailable,
     NodeUnavailable,
     PiUnavailable,
@@ -96,6 +99,23 @@ fn check_with_environment(
                 config.turn_host_script.display()
             ),
         );
+    }
+
+    for launcher_program in LAUNCHER_PROGRAMS {
+        if resolve_program(
+            Path::new(launcher_program),
+            path.as_deref(),
+            current_dir.as_deref(),
+        )
+        .is_none()
+        {
+            return DesktopAnalystRuntimeReadiness::unavailable(
+                DesktopAnalystRuntimeIssueKind::LauncherUnavailable,
+                format!(
+                    "World Machine analyst launcher needs `{launcher_program}`, but it is not executable or not available on PATH. Ensure the standard macOS system executable directories are available on PATH."
+                ),
+            );
+        }
     }
 
     let node_program = match resolve_program(
@@ -241,6 +261,7 @@ mod tests {
             ));
             let bin = root.join("bin");
             fs::create_dir_all(&bin).unwrap();
+            write_launcher_tools(&bin);
             let turn_host = root.join("turn-host.mjs");
             fs::write(&turn_host, "// test host\n").unwrap();
             let analyst = bin.join("world-agent-tool-stdio");
@@ -272,6 +293,12 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.root);
         }
+    }
+
+    fn write_launcher_tools(directory: &Path) {
+        fs::create_dir_all(directory).unwrap();
+        write_executable(&directory.join("bash"));
+        write_executable(&directory.join("dirname"));
     }
 
     fn write_executable(path: &Path) {
@@ -332,15 +359,18 @@ mod tests {
     }
 
     #[test]
-    fn explicit_program_overrides_do_not_depend_on_path() {
+    fn explicit_program_overrides_only_need_launcher_path() {
         let fixture = Fixture::new();
         let node = fixture.executable("custom-node");
         let pi = fixture.executable("custom-pi");
         let mut config = fixture.config();
         config.node_program = node.clone();
         config.pi_program = Some(pi.clone());
-        let readiness =
-            check_with_environment(config, Some(OsString::new()), Some(fixture.root.clone()));
+        let readiness = check_with_environment(
+            config,
+            Some(fixture.bin.clone().into_os_string()),
+            Some(fixture.root.clone()),
+        );
         let config = readiness
             .config()
             .expect("explicit executables should be ready");
@@ -349,12 +379,57 @@ mod tests {
     }
 
     #[test]
+    fn missing_bash_is_reported_before_ready() {
+        let fixture = Fixture::new();
+        let node = fixture.executable("custom-node");
+        let pi = fixture.executable("custom-pi");
+        let isolated = fixture.root.join("no-launcher");
+        fs::create_dir_all(&isolated).unwrap();
+        let mut config = fixture.config();
+        config.node_program = node;
+        config.pi_program = Some(pi);
+        let readiness = check_with_environment(
+            config,
+            Some(isolated.into_os_string()),
+            Some(fixture.root.clone()),
+        );
+        let issue = readiness.issue().expect("missing bash should fail");
+        assert_eq!(
+            issue.kind(),
+            DesktopAnalystRuntimeIssueKind::LauncherUnavailable
+        );
+        assert!(issue.message().contains("`bash`"));
+    }
+
+    #[test]
+    fn missing_dirname_is_reported_before_ready() {
+        let fixture = Fixture::new();
+        let node = fixture.executable("custom-node");
+        let pi = fixture.executable("custom-pi");
+        let isolated = fixture.root.join("bash-only");
+        fs::create_dir_all(&isolated).unwrap();
+        write_executable(&isolated.join("bash"));
+        let mut config = fixture.config();
+        config.node_program = node;
+        config.pi_program = Some(pi);
+        let readiness = check_with_environment(
+            config,
+            Some(isolated.into_os_string()),
+            Some(fixture.root.clone()),
+        );
+        let issue = readiness.issue().expect("missing dirname should fail");
+        assert_eq!(
+            issue.kind(),
+            DesktopAnalystRuntimeIssueKind::LauncherUnavailable
+        );
+        assert!(issue.message().contains("`dirname`"));
+    }
+
+    #[test]
     fn finder_like_limited_path_reports_missing_node() {
         let fixture = Fixture::new();
-        fixture.executable("node");
-        fixture.executable("pi");
         let limited = fixture.root.join("finder-bin");
-        fs::create_dir_all(&limited).unwrap();
+        write_launcher_tools(&limited);
         let readiness = check_with_environment(
             fixture.config(),
             Some(limited.into_os_string()),
