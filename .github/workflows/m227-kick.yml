@@ -24,6 +24,33 @@ jobs:
           awk '/python3 - <<'\''PY'\''/{capture=1; next} /^          PY$/{capture=0} capture{sub(/^          /, ""); print}' \
             .github/workflows/m227-apply-probe.yml > /tmp/m227-apply.py
           test -s /tmp/m227-apply.py
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('/tmp/m227-apply.py')
+          source = path.read_text()
+          old = '''def replace_once(text, old, new, label):
+    if old not in text:
+        if new in text:
+            return text
+        raise SystemExit(f"missing patch marker: {label}")
+    return text.replace(old, new, 1)
+'''
+          new = '''def replace_once(text, old, new, label):
+    if old not in text:
+        if new in text:
+            return text
+        if label == "desktop direct fake constructor":
+            compact = "                    shutdowns: process_shutdowns,\\n                })"
+            expanded = "                    shutdowns: process_shutdowns,\\n                    probe_error: None,\\n                })"
+            if compact in text:
+                return text.replace(compact, expanded, 1)
+        raise SystemExit(f"missing patch marker: {label}")
+    return text.replace(old, new, 1)
+'''
+          if old not in source:
+              raise SystemExit('could not harden staged replace_once helper')
+          path.write_text(source.replace(old, new, 1))
+          PY
           python3 /tmp/m227-apply.py
           cargo fmt --all
           git diff --check
