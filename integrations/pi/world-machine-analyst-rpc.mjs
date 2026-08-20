@@ -166,7 +166,15 @@ export class PiAnalystRpcSession {
           { requestId: probeId },
         );
       }
-      if (typeof state.data.model !== "object" || Array.isArray(state.data.model)) {
+      const model = state.data.model;
+      if (
+        typeof model !== "object" ||
+        Array.isArray(model) ||
+        typeof model.provider !== "string" ||
+        model.provider.trim().length === 0 ||
+        typeof model.id !== "string" ||
+        model.id.trim().length === 0
+      ) {
         throw new PiAnalystRpcProtocolError("Pi analyst get_state probe returned invalid model state", {
           requestId: probeId,
           response: state,
