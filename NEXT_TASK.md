@@ -1,65 +1,75 @@
-# Next Coding Task — M230 Analyst Fatal-Session Recovery
+# Next Coding Task — M231 Analyst New Comparison
 
-M214–M229 now provide a complete installed-app path from immutable saved-World evidence through a restricted long-lived Pi analyst, stable provider-neutral turns, native runtime setup and probing, model-state readiness, and an in-memory product transcript that keeps each accepted user question paired with its completed answer and evidence.
+M214–M230 now provide a complete installed-app path from immutable saved-World evidence through a restricted long-lived Pi analyst, stable provider-neutral turns, native runtime setup and probing, model-state readiness, an in-memory Question → Answer → Evidence transcript, and an explicit recovery path after fatal analyst failure.
 
-## M230 — recover explicitly from a fatal analyst session
+## M231 — start a new comparison without closing the analyst window
 
-A fatal analyst failure is currently a dead end in the native panel. The process and immutable snapshots are correctly torn down, but the panel remains in `Fatal`, Ask is disabled, and the only practical escape is closing the analyst window. M229 now preserves the failed question in the composer, so the next step is to give that preserved user intent a safe recovery path.
+A healthy Active analyst session is still sticky to its original immutable snapshot pair. Once analysis starts, the right-hand World selector is intentionally locked and the only practical way to compare a different pair is to close the analyst window and reopen it.
 
-Add the smallest explicit recovery flow above the existing fatal-session semantics.
+Add the smallest explicit healthy-session exit / new-comparison flow above the existing session semantics.
 
 ### Product behavior
 
-When a session becomes fatal:
+While a session is Active and not busy:
 
-- keep the fatal message visible;
-- keep the completed transcript from that ended session visible while the panel remains in Fatal;
-- keep the failed or edited composer text intact;
-- expose a clear recovery action that returns the panel to runtime/setup flow without closing the window.
+- expose a clear `New comparison` action;
+- keep the current transcript visible until the user explicitly chooses that action;
+- do not silently stop or restart analysis;
+- do not automatically choose a different World.
 
-Recovery is explicit. Do not automatically retry a model request or silently restart Pi.
+When the user chooses `New comparison`:
+
+- close the current `DesktopAnalystSession` through the existing clean shutdown path;
+- clear the panel cancellation handle and ended-session transcript;
+- return to Setup in the same analyst window;
+- preserve the current left/right World selection as the initial Setup selection so the user can keep it or choose another right-hand World;
+- preserve any composer draft that has not yet been submitted;
+- invalidate the old runtime readiness and perform a fresh installed-runtime recheck before another Start is enabled.
 
 ### New-session boundary
 
-The recovery action must discard the ended `DesktopAnalystSession`, clear its cancellation handle, and re-run installed runtime readiness before another Start is allowed.
+A later Start must create a completely new analyst session through the existing M222/M227/M228 path:
 
-A later Start creates a completely new analyst session using the existing M222/M227/M228 path:
-
-1. capture a fresh immutable archive pair for the currently selected saved Worlds;
+1. capture fresh immutable archives for the selected saved Worlds;
 2. spawn a fresh restricted turn host/Pi process;
-3. run startup probe and model-state gate;
+3. run startup probe and model-state readiness;
 4. only then expose the new session as Active.
 
-Do not reuse the fatal process, old archive snapshots, or old startup readiness result.
+Never reuse the old Pi process, old immutable archive pair, old startup readiness result, or old transcript.
 
 ### Transcript semantics
 
-Do not mix completed exchanges from different immutable snapshot pairs into one conversation history.
+Completed exchanges belong to exactly one immutable snapshot pair.
 
-The ended session's transcript may remain visible while the user is looking at the Fatal state. Once the user explicitly enters recovery/setup for a new session, clear that ended-session history before the next session begins. Preserve the composer text so the failed question can be retried after successful startup.
+- show the current transcript while the healthy session remains Active;
+- clear it only after the user explicitly starts the new-comparison flow;
+- never append exchanges from the later session to the previous session's history;
+- no persistent cross-session transcript or session resume.
 
 ### Layering and authority
 
-- GPUI continues to own only panel/product state and `DesktopAnalystSession`, never Node/Pi process internals.
-- Fatal process shutdown and snapshot cleanup remain owned below GPUI.
-- Runtime recheck reuses M225/M226 readiness and M228 model semantics; no provider/model picker or credential storage.
-- No transcript persistence, session resume, automatic retries, token streaming, concurrent asks, new tools, or mutation authority.
+- GPUI owns only panel/product state plus `DesktopAnalystSession` lifecycle calls;
+- process shutdown and snapshot cleanup remain below GPUI;
+- runtime recheck reuses existing readiness semantics;
+- no provider/model picker, credential storage, Pi/RPC protocol change, new tools, or mutation authority.
 
 ## Validation
 
 Required gates:
 
-- fatal ask still tears down the process/snapshots and appends no completed exchange;
-- failed prompt remains available in the composer;
-- Fatal UI exposes an explicit recovery action while keeping the ended transcript visible;
-- recovery clears the ended session/cancellation/history but preserves the composer and selected World pair;
-- recovery invalidates old runtime readiness and performs a fresh readiness check;
-- a subsequent Start creates/probes a fresh analyst process and fresh snapshots rather than reusing the fatal session;
-- completed exchanges from the old and new snapshot pairs are never mixed;
-- existing M219–M229 protocol, model-state, transcript, packaged-runtime, and desktop-session regressions remain green;
+- Active UI exposes `New comparison` only when a session is healthy and not busy;
+- choosing it closes the current session instead of dropping a live Pi process implicitly;
+- clean shutdown removes the old immutable snapshot pair;
+- panel clears the old session/cancellation/history and returns to Setup;
+- selected World pair and unsent composer draft are preserved;
+- stale runtime readiness is invalidated and rechecked;
+- subsequent Start creates/probes a fresh process and fresh archive pair;
+- old and new snapshot-pair transcripts are never mixed;
+- fatal recovery from M230 remains independent and green;
+- existing M219–M230 protocol/model/transcript/runtime regressions remain green;
 - Linux boundary/fmt/Clippy/workspace tests remain green;
 - full macOS GPUI/desktop tests and `World Machine.app` build/validate/packaged smoke/archive/upload remain green.
 
 ## Non-goals
 
-No automatic retry, no reconnecting the fatal Pi process, no cross-session transcript merge, no persistent chat history, no session resume after app restart, no streaming UI, no concurrent turns, no protocol v2, no model/provider picker, no API-key storage, no new tools, and no mutation authority.
+No automatic restart, no cross-session transcript merge, no persistent chat history, no session resume after app restart, no streaming UI, no concurrent turns, no protocol v2, no model/provider picker, no API-key storage, no new tools, and no mutation authority.

@@ -354,7 +354,6 @@ impl AnalystPanelView {
                         this.cancellation = session.cancellation_handle();
                         this.session = Some(session);
                         this.phase = PanelPhase::Active;
-                        this.failed_question = None;
                         this.last_error = None;
                     }
                     Err(error) => {
@@ -447,6 +446,24 @@ impl AnalystPanelView {
             }
         })
         .detach();
+    }
+
+    fn recover_from_fatal(&mut self, cx: &mut Context<Self>) {
+        if self.busy
+            || !reset_fatal_recovery_state(
+                &mut self.phase,
+                &mut self.history,
+                &mut self.runtime,
+                &mut self.last_error,
+            )
+        {
+            return;
+        }
+
+        self.session.take();
+        self.cancellation.take();
+        self.runtime_checking = false;
+        self.refresh_runtime(cx);
     }
 
     fn choose_right(&mut self, id: WorldDocumentId, cx: &mut Context<Self>) {
@@ -823,14 +840,38 @@ impl AnalystPanelView {
             .child(history)
             .child(composer);
         if let PanelPhase::Fatal(message) = &self.phase {
+            let mut recover = div()
+                .id("recover-world-analyst")
+                .px_4()
+                .p_2()
+                .rounded_md()
+                .border_1()
+                .border_color(rgb(0xb8b2a8))
+                .bg(rgb(0xffffff))
+                .text_sm()
+                .child("Recover and recheck runtime");
+            if !self.busy {
+                recover = recover
+                    .cursor_pointer()
+                    .on_click(cx.listener(|this, _, _, cx| this.recover_from_fatal(cx)));
+            } else {
+                recover = recover.text_color(rgb(0x999990));
+            }
             body = body.child(
                 div()
                     .p_3()
                     .rounded_md()
                     .bg(rgb(0xfff2f0))
-                    .text_sm()
-                    .text_color(rgb(0x9b4a42))
-                    .child(format!("Analyst session ended: {message}")),
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(0x9b4a42))
+                            .child(format!("Analyst session ended: {message}")),
+                    )
+                    .child(recover),
             );
         }
         body
@@ -943,6 +984,22 @@ fn should_clear_completed_prompt(current: &str, submitted: &str, succeeded: bool
 
 fn failed_question_after_turn(submitted: &str, succeeded: bool) -> Option<String> {
     (!succeeded).then(|| submitted.to_owned())
+}
+
+fn reset_fatal_recovery_state<T>(
+    phase: &mut PanelPhase,
+    history: &mut Vec<PanelTurn>,
+    runtime: &mut Option<T>,
+    last_error: &mut Option<String>,
+) -> bool {
+    if !matches!(phase, PanelPhase::Fatal(_)) {
+        return false;
+    }
+    *phase = PanelPhase::Setup;
+    history.clear();
+    *runtime = None;
+    *last_error = None;
+    true
 }
 
 fn snapshot_history(session: &DesktopAnalystSession) -> Vec<PanelTurn> {
@@ -1078,6 +1135,15 @@ mod tests {
         }
     }
 
+    fn panel_turn(question: &str, answer: &str) -> PanelTurn {
+        PanelTurn {
+            question: question.to_owned(),
+            answer: answer.to_owned(),
+            tool_calls: Vec::new(),
+            runtime_errors: Vec::new(),
+        }
+    }
+
     #[test]
     fn default_right_prefers_same_pack_then_any_other_world() {
         let documents = vec![
@@ -1145,6 +1211,44 @@ mod tests {
             failed_question_after_turn("Why did the old ask fail?", true),
             None
         );
+    }
+
+    #[test]
+    fn fatal_recovery_clears_snapshot_pair_history_and_stale_readiness() {
+        let mut phase = PanelPhase::Fatal("transport ended".into());
+        let mut history = vec![panel_turn("old question", "old answer")];
+        let mut runtime = Some("stale readiness");
+        let mut last_error = Some("transport ended".into());
+
+        assert!(reset_fatal_recovery_state(
+            &mut phase,
+            &mut history,
+            &mut runtime,
+            &mut last_error,
+        ));
+        assert_eq!(phase, PanelPhase::Setup);
+        assert!(history.is_empty());
+        assert_eq!(runtime, None);
+        assert_eq!(last_error, None);
+    }
+
+    #[test]
+    fn fatal_recovery_transition_is_explicit_and_does_not_reset_active_state() {
+        let mut phase = PanelPhase::Active;
+        let mut history = vec![panel_turn("question", "answer")];
+        let mut runtime = Some("current readiness");
+        let mut last_error = Some("recoverable warning".into());
+
+        assert!(!reset_fatal_recovery_state(
+            &mut phase,
+            &mut history,
+            &mut runtime,
+            &mut last_error,
+        ));
+        assert_eq!(phase, PanelPhase::Active);
+        assert_eq!(history.len(), 1);
+        assert_eq!(runtime, Some("current readiness"));
+        assert_eq!(last_error.as_deref(), Some("recoverable warning"));
     }
 
     #[test]
