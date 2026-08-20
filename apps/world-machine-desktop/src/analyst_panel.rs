@@ -138,6 +138,7 @@ struct AnalystPanelView {
     phase: PanelPhase,
     busy: bool,
     history: Vec<PanelTurn>,
+    failed_question: Option<String>,
     last_error: Option<String>,
 }
 
@@ -182,6 +183,7 @@ impl AnalystPanelView {
             phase: PanelPhase::Setup,
             busy: false,
             history: Vec::new(),
+            failed_question: None,
             last_error: None,
         };
         view.refresh_runtime(cx);
@@ -352,6 +354,7 @@ impl AnalystPanelView {
                         this.cancellation = session.cancellation_handle();
                         this.session = Some(session);
                         this.phase = PanelPhase::Active;
+                        this.failed_question = None;
                         this.last_error = None;
                     }
                     Err(error) => {
@@ -428,6 +431,7 @@ impl AnalystPanelView {
                 {
                     this.question.update(cx, |input, cx| input.clear(cx));
                 }
+                this.failed_question = failed_question_after_turn(&submitted_question, succeeded);
                 this.last_error = result.err();
                 this.session = Some(session);
                 cx.notify();
@@ -866,6 +870,26 @@ impl Render for AnalystPanelView {
                     )),
             )
             .child(content);
+        if let Some(failed_question) = &self.failed_question {
+            root = root.child(
+                div()
+                    .p_3()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(rgb(0xe1b4aa))
+                    .bg(rgb(0xfff8f6))
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(0x9b4a42))
+                            .child("Failed question"),
+                    )
+                    .child(div().text_sm().child(failed_question.clone())),
+            );
+        }
         if let Some(error) = &self.last_error {
             root = root.child(
                 div()
@@ -915,6 +939,10 @@ fn document_title(document: &WorldDocumentSummary) -> String {
 
 fn should_clear_completed_prompt(current: &str, submitted: &str, succeeded: bool) -> bool {
     succeeded && current == submitted
+}
+
+fn failed_question_after_turn(submitted: &str, succeeded: bool) -> Option<String> {
+    (!succeeded).then(|| submitted.to_owned())
 }
 
 fn snapshot_history(session: &DesktopAnalystSession) -> Vec<PanelTurn> {
@@ -1105,6 +1133,18 @@ mod tests {
             "Why did this diverge?",
             true
         ));
+    }
+
+    #[test]
+    fn failed_submission_is_retained_separately_from_a_newer_draft() {
+        assert_eq!(
+            failed_question_after_turn("Why did the old ask fail?", false).as_deref(),
+            Some("Why did the old ask fail?")
+        );
+        assert_eq!(
+            failed_question_after_turn("Why did the old ask fail?", true),
+            None
+        );
     }
 
     #[test]
