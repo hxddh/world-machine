@@ -107,11 +107,20 @@ fn bundled_runtime_root(executable: &Path) -> Option<PathBuf> {
 fn validate_root(root: &Path) -> Result<(), DesktopAnalystRuntimeIssue> {
     for relative in [TURN_HOST, RPC_MODULE, EXTENSION, CLIENT_MODULE, LAUNCHER] {
         let path = root.join(relative);
-        if !path.is_file() {
+        let Ok(metadata) = path.metadata() else {
             return Err(DesktopAnalystRuntimeIssue::new(
                 DesktopAnalystRuntimeIssueKind::RuntimeIncomplete,
                 format!(
                     "World Machine analyst runtime is incomplete: missing {}",
+                    path.display()
+                ),
+            ));
+        };
+        if !metadata.is_file() || metadata.len() == 0 {
+            return Err(DesktopAnalystRuntimeIssue::new(
+                DesktopAnalystRuntimeIssueKind::RuntimeIncomplete,
+                format!(
+                    "World Machine analyst runtime is incomplete: {} is not a non-empty file",
                     path.display()
                 ),
             ));
