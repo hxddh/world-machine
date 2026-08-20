@@ -355,6 +355,7 @@ impl AnalystPanelView {
                     }
                     Err(error) => {
                         this.cancellation = None;
+                        this.runtime = None;
                         this.phase = PanelPhase::Setup;
                         this.last_error = Some(error);
                     }

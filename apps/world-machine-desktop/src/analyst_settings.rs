@@ -185,17 +185,11 @@ pub fn save(
     Ok(())
 }
 
-pub fn save_node_program(
-    root: &Path,
-    path: PathBuf,
-) -> Result<(), DesktopAnalystSettingsError> {
+pub fn save_node_program(root: &Path, path: PathBuf) -> Result<(), DesktopAnalystSettingsError> {
     update_settings(root, move |settings| settings.node_program = Some(path))
 }
 
-pub fn save_pi_program(
-    root: &Path,
-    path: PathBuf,
-) -> Result<(), DesktopAnalystSettingsError> {
+pub fn save_pi_program(root: &Path, path: PathBuf) -> Result<(), DesktopAnalystSettingsError> {
     update_settings(root, move |settings| settings.pi_program = Some(path))
 }
 
@@ -451,7 +445,10 @@ mod tests {
         clear_node_program(&fixture.root).unwrap();
         let after_node_clear = load(&fixture.root).unwrap();
         assert_eq!(after_node_clear.node_program, None);
-        assert_eq!(after_node_clear.pi_program, Some(PathBuf::from("/saved/pi")));
+        assert_eq!(
+            after_node_clear.pi_program,
+            Some(PathBuf::from("/saved/pi"))
+        );
 
         clear_programs(&fixture.root).unwrap();
         assert_eq!(
@@ -485,7 +482,10 @@ mod tests {
         pi.join().unwrap();
 
         let settings = load(root.as_ref()).unwrap();
-        assert_eq!(settings.node_program, Some(PathBuf::from("/concurrent/node")));
+        assert_eq!(
+            settings.node_program,
+            Some(PathBuf::from("/concurrent/node"))
+        );
         assert_eq!(settings.pi_program, Some(PathBuf::from("/concurrent/pi")));
     }
 
