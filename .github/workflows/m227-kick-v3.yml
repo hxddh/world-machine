@@ -1,0 +1,472 @@
+name: M227 kick startup probe v3
+
+on:
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.head_ref == 'agent/m227-installed-analyst-runtime-probe'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/m227-installed-analyst-runtime-probe
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Apply staged product patch and hardening
+        run: |
+          awk '/python3 - <<'\''PY'\''/{capture=1; next} /^          PY$/{capture=0} capture{sub(/^          /, ""); print}' \
+            .github/workflows/m227-apply-probe.yml > /tmp/m227-apply.py
+          test -s /tmp/m227-apply.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('/tmp/m227-apply.py')
+          s = p.read_text()
+          old = '''    if old not in text:\n        if new in text:\n            return text\n        raise SystemExit(f"missing patch marker: {label}")'''
+          new = '''    if old not in text:\n        if new in text:\n            return text\n        if label in {"desktop direct fake constructor", "desktop fixture fake constructor"}:\n            return text\n        raise SystemExit(f"missing patch marker: {label}")'''
+          if old not in s:
+              raise SystemExit('could not harden staged replace_once helper')
+          p.write_text(s.replace(old, new, 1))
+          PY
+          python3 /tmp/m227-apply.py
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          READY = 'world-machine-analyst-ready'
+
+          def replace_once(text, old, new, label):
+              if old not in text:
+                  if new in text:
+                      return text
+                  raise SystemExit(f'missing hardening marker: {label}')
+              return text.replace(old, new, 1)
+
+          def replace_between(text, start, end, new, label):
+              a = text.find(start)
+              if a < 0:
+                  raise SystemExit(f'missing hardening start: {label}')
+              b = text.find(end, a)
+              if b < 0:
+                  raise SystemExit(f'missing hardening end: {label}')
+              return text[:a] + new + text[b:]
+
+          # Fix staged Rust insertion: process-level probe belongs on AnalystTurnProcess.
+          p = Path('crates/world-analyst-client/src/lib.rs')
+          s = p.read_text()
+          wrong = '''    pub fn probe(
+        &mut self,
+        timeout_ms: Option<u64>,
+    ) -> Result<(), AnalystTurnClientError> {
+        let Some(client) = self.client.as_mut() else {
+            return Err(AnalystTurnClientError::Poisoned);
+        };
+        let result = client.probe(timeout_ms);
+        if client.is_poisoned() {
+            self.client.take();
+            terminate_child(&mut self.child);
+        }
+        result
+    }
+
+'''
+          if s.count(wrong) != 1:
+              raise SystemExit(f'expected exactly one misplaced process probe, found {s.count(wrong)}')
+          s = s.replace(wrong, '', 1)
+          process_probe = '''    pub fn probe(
+        &mut self,
+        timeout_ms: Option<u64>,
+    ) -> Result<(), AnalystTurnClientError> {
+        let Some(client) = self.client.as_mut() else {
+            return Err(AnalystTurnClientError::Poisoned);
+        };
+        let result = client.probe(timeout_ms);
+        if client.is_poisoned() {
+            self.client.take();
+            terminate_child(&mut self.child);
+        }
+        result
+    }
+
+'''
+          marker = '''    pub fn id(&self) -> u32 {
+        self.child.id()
+    }
+
+    pub fn ask(
+'''
+          s = replace_once(s, marker, marker.replace('    pub fn ask(\n', process_probe + '    pub fn ask(\n'), 'AnalystTurnProcess probe')
+          p.write_text(s)
+
+          # Fill FakeProcess probe defaults missed by the staged exact markers.
+          p = Path('apps/world-machine-desktop/src/analyst_session.rs')
+          s = p.read_text()
+          pattern = re.compile(r'Ok\(FakeProcess \{\n(?P<body>.*?\n)(?P<indent>\s*)\}\)', re.S)
+          def fix_fake(m):
+              body = m.group('body')
+              if 'probe_error:' in body:
+                  return m.group(0)
+              indent = m.group('indent')
+              return 'Ok(FakeProcess {\n' + body + indent + '    probe_error: None,\n' + indent + '})'
+          s, count = pattern.subn(fix_fake, s)
+          if count == 0:
+              raise SystemExit('no FakeProcess constructors found')
+          p.write_text(s)
+
+          # Extension exposes a command marker only after read-only catalog initialization succeeds.
+          p = Path('integrations/pi/world-machine-analyst.mjs')
+          s = p.read_text()
+          s = replace_once(
+              s,
+              'const RIGHT_ENV = "WORLD_MACHINE_RIGHT_ARCHIVE";\n',
+              f'const RIGHT_ENV = "WORLD_MACHINE_RIGHT_ARCHIVE";\nconst READY_COMMAND = "{READY}";\n',
+              'extension readiness constant',
+          )
+          s = replace_once(
+              s,
+              '  const registeredHostTools = new Map();\n',
+              '  const registeredHostTools = new Map();\n  let readinessCommandRegistered = false;\n',
+              'extension readiness state',
+          )
+          s = replace_once(
+              s,
+              '      pi.setActiveTools(activeToolNames);\n',
+              '''      pi.setActiveTools(activeToolNames);
+      if (!readinessCommandRegistered) {
+        pi.registerCommand(READY_COMMAND, {
+          description: "Internal World Machine analyst readiness marker.",
+          async handler() {},
+        });
+        readinessCommandRegistered = true;
+      }
+''',
+              'extension readiness registration',
+          )
+          p.write_text(s)
+
+          # Pi RPC probe validates both process state and extension/catalog readiness.
+          p = Path('integrations/pi/world-machine-analyst-rpc.mjs')
+          s = p.read_text()
+          s = replace_once(
+              s,
+              'const DEFAULT_PROMPT_TIMEOUT_MS = 120000;\n',
+              f'const DEFAULT_PROMPT_TIMEOUT_MS = 120000;\nconst ANALYST_READY_COMMAND = "{READY}";\n',
+              'rpc readiness constant',
+          )
+          hardened_probe = '''  async probe({ signal, timeoutMs = DEFAULT_PROBE_TIMEOUT_MS } = {}) {
+    if (this.busy) {
+      throw new PiAnalystRpcProtocolError("Pi analyst RPC session is single-flight");
+    }
+    if (this.closed || this.closedError) {
+      throw this.closedError ?? new PiAnalystRpcTransportError("Pi analyst RPC session is closed");
+    }
+    if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
+      throw new PiAnalystRpcProtocolError(
+        "Pi analyst probe timeout must be a positive safe integer",
+      );
+    }
+    if (signal?.aborted) {
+      const error = new PiAnalystRpcTransportError("Pi analyst probe aborted before dispatch");
+      await this.#terminateAfterBrokenTurn(error);
+      throw error;
+    }
+
+    const probeId = `world-analyst-probe-${this.nextProbeNumber++}`;
+    const deadline = Date.now() + timeoutMs;
+    this.busy = true;
+    try {
+      const state = await this.#probeCommand(
+        { id: `${probeId}-state`, type: "get_state" },
+        "get_state",
+        signal,
+        deadline,
+        probeId,
+      );
+      if (!state.data || typeof state.data !== "object" || Array.isArray(state.data)) {
+        throw new PiAnalystRpcProtocolError("Pi analyst get_state probe returned invalid state", {
+          requestId: probeId,
+          response: state,
+        });
+      }
+
+      const commands = await this.#probeCommand(
+        { id: `${probeId}-commands`, type: "get_commands" },
+        "get_commands",
+        signal,
+        deadline,
+        probeId,
+      );
+      const entries = commands.data?.commands;
+      if (!Array.isArray(entries)) {
+        throw new PiAnalystRpcProtocolError("Pi analyst get_commands probe returned invalid commands", {
+          requestId: probeId,
+          response: commands,
+        });
+      }
+      const ready = entries.some(
+        (command) =>
+          command &&
+          command.name === ANALYST_READY_COMMAND &&
+          command.source === "extension",
+      );
+      if (!ready) {
+        throw new PiAnalystRpcProtocolError(
+          "Pi analyst extension did not expose the World Machine readiness marker",
+          { requestId: probeId },
+        );
+      }
+      return { requestId: probeId };
+    } catch (error) {
+      if (!(error instanceof PiAnalystRpcCommandError)) {
+        await this.#terminateAfterBrokenTurn(error);
+      }
+      throw error;
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  async #probeCommand(request, expectedCommand, signal, deadline, requestId) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      throw new PiAnalystRpcTransportError("Pi analyst probe timed out", { requestId });
+    }
+    await this.#write(request);
+    const response = await this.#nextRecordWithInterruption(
+      signal,
+      remaining,
+      requestId,
+      "probe",
+    );
+    if (!response || response.type !== "response") {
+      throw new PiAnalystRpcProtocolError(
+        `Pi analyst probe received an event before ${expectedCommand} response`,
+        { requestId, response },
+      );
+    }
+    if (response.id !== request.id || response.command !== expectedCommand) {
+      throw new PiAnalystRpcProtocolError("Pi analyst probe correlation mismatch", {
+        expectedId: request.id,
+        actualId: response.id,
+        expectedCommand,
+        command: response.command,
+      });
+    }
+    if (response.success !== true) {
+      throw new PiAnalystRpcCommandError(`Pi analyst ${expectedCommand} probe was rejected`, {
+        requestId,
+        response,
+      });
+    }
+    return response;
+  }
+
+'''
+          s = replace_between(
+              s,
+              '  async probe({ signal, timeoutMs = DEFAULT_PROBE_TIMEOUT_MS } = {}) {',
+              '  async prompt(message, { signal, timeoutMs = DEFAULT_PROMPT_TIMEOUT_MS } = {}) {',
+              hardened_probe,
+              'hardened Pi RPC probe',
+          )
+          p.write_text(s)
+
+          # Extension integration test captures the post-catalog readiness marker.
+          p = Path('integrations/pi/tests/world-machine-analyst-client.test.mjs')
+          s = p.read_text()
+          s = replace_once(s, '  const registered = [];\n  const activeHistory = [];\n', '  const registered = [];\n  const registeredCommands = [];\n  const activeHistory = [];\n', 'extension test command capture')
+          s = replace_once(
+              s,
+              '    registerTool(tool) {\n      registered.push(tool);\n    },\n',
+              '    registerTool(tool) {\n      registered.push(tool);\n    },\n    registerCommand(name, command) {\n      registeredCommands.push({ name, command });\n    },\n',
+              'extension test registerCommand',
+          )
+          s = replace_once(
+              s,
+              '    assert.equal(registered.length, 1);\n',
+              f'    assert.equal(registered.length, 1);\n    assert.equal(registeredCommands.length, 1);\n    assert.equal(registeredCommands[0].name, "{READY}");\n',
+              'extension readiness assertion',
+          )
+          p.write_text(s)
+
+          # RPC unit fake answers both readiness commands.
+          p = Path('integrations/pi/tests/world-machine-analyst-rpc.test.mjs')
+          s = p.read_text()
+          state_branch = '''                  if (request.type === "get_state") {
+                    emit({
+                      type: "response",
+                      id: request.id,
+                      command: "get_state",
+                      success: true,
+                      data: { model: null, thinkingLevel: "off", isStreaming: false, isCompacting: false }
+                    });
+                    continue;
+                  }
+'''
+          commands_branch = state_branch + f'''                  if (request.type === "get_commands") {{
+                    emit({{
+                      type: "response",
+                      id: request.id,
+                      command: "get_commands",
+                      success: true,
+                      data: {{ commands: [{{ name: "{READY}", source: "extension" }}] }}
+                    }});
+                    continue;
+                  }}
+'''
+          s = replace_once(s, state_branch, commands_branch, 'rpc test get_commands readiness')
+          p.write_text(s)
+
+          # Real turn-host fake Pi also proves the marker before model prompts.
+          p = Path('integrations/pi/tests/world-machine-analyst-turn-host.test.mjs')
+          s = p.read_text()
+          state_branch = '''    if (request.type === "get_state") {
+      emit({
+        type: "response",
+        id: request.id,
+        command: "get_state",
+        success: true,
+        data: { model: null, thinkingLevel: "off", isStreaming: false, isCompacting: false }
+      });
+      continue;
+    }
+'''
+          commands_branch = state_branch + f'''    if (request.type === "get_commands") {{
+      emit({{
+        type: "response",
+        id: request.id,
+        command: "get_commands",
+        success: true,
+        data: {{ commands: [{{ name: "{READY}", source: "extension" }}] }}
+      }});
+      continue;
+    }}
+'''
+          s = replace_once(s, state_branch, commands_branch, 'turn host test readiness marker')
+          p.write_text(s)
+
+          # Packaged smoke loads the actual packaged extension and proves its marker before asks.
+          p = Path('scripts/check-packaged-analyst-runtime.mjs')
+          s = p.read_text()
+          s = replace_once(
+              s,
+              '    child.stdin.write(`${JSON.stringify({ id: "smoke-1", op: "ask", prompt: "first packaged turn" })}\\n`);\n',
+              '    child.stdin.write(`${JSON.stringify({ id: "smoke-probe", op: "probe", timeout_ms: 5000 })}\\n`);\n    child.stdin.write(`${JSON.stringify({ id: "smoke-1", op: "ask", prompt: "first packaged turn" })}\\n`);\n',
+              'packaged smoke probe request',
+          )
+          s = replace_once(
+              s,
+              '    assert.equal(responses.length, 2, stdout);\n    assertTurn(responses[0], 1);\n    assertTurn(responses[1], 2);\n',
+              '    assert.equal(responses.length, 3, stdout);\n    assert.equal(responses[0].type, "ready");\n    assert.equal(responses[0].id, "smoke-probe");\n    assertTurn(responses[1], 1);\n    assertTurn(responses[2], 2);\n',
+              'packaged smoke ready response',
+          )
+          s = replace_once(s, '  const tools = new Map();\n  let activeTools = [];\n', '  const tools = new Map();\n  const commands = new Map();\n  let activeTools = [];\n', 'packaged smoke command map')
+          s = replace_once(
+              s,
+              '    registerTool(tool) {\n      assert.equal(typeof tool?.name, "string");\n      tools.set(tool.name, tool);\n    },\n',
+              '    registerTool(tool) {\n      assert.equal(typeof tool?.name, "string");\n      tools.set(tool.name, tool);\n    },\n    registerCommand(name, command) {\n      commands.set(name, command);\n    },\n',
+              'packaged smoke registerCommand',
+          )
+          s = replace_once(
+              s,
+              '  assert.ok(activeTools.includes("world_first_divergence"));\n',
+              f'  assert.ok(activeTools.includes("world_first_divergence"));\n  assert.ok(commands.has("{READY}"), "packaged extension did not expose readiness marker");\n',
+              'packaged smoke readiness assertion',
+          )
+          loop_marker = '''    const request = JSON.parse(line);
+    assert.equal(request.type, "prompt");
+'''
+          loop_replacement = f'''    const request = JSON.parse(line);
+    if (request.type === "get_state") {{
+      emit({{
+        type: "response",
+        id: request.id,
+        command: "get_state",
+        success: true,
+        data: {{ model: null, thinkingLevel: "off", isStreaming: false, isCompacting: false }}
+      }});
+      continue;
+    }}
+    if (request.type === "get_commands") {{
+      emit({{
+        type: "response",
+        id: request.id,
+        command: "get_commands",
+        success: true,
+        data: {{
+          commands: [...commands.keys()].map((name) => ({{ name, source: "extension" }}))
+        }}
+      }});
+      continue;
+    }}
+    assert.equal(request.type, "prompt");
+'''
+          s = replace_once(s, loop_marker, loop_replacement, 'packaged smoke RPC readiness responses')
+          p.write_text(s)
+
+          # Source-level boundary checks pin the new no-model readiness mechanism.
+          p = Path('scripts/check-pi-analyst.sh')
+          s = p.read_text()
+          s = replace_once(
+              s,
+              "  'pi.registerTool({' \\\n",
+              "  'pi.registerTool({' \\\n  'pi.registerCommand(READY_COMMAND' \\\n",
+              'boundary extension readiness marker',
+          )
+          s = replace_once(
+              s,
+              "  'scripts/run-pi-analyst.sh'\n",
+              "  'scripts/run-pi-analyst.sh' \\\n  'get_commands' \\\n  'ANALYST_READY_COMMAND'\n",
+              'boundary rpc readiness commands',
+          )
+          p.write_text(s)
+
+          # Docs describe functional readiness, not get_state-only liveness.
+          for filename in ['NEXT_TASK.md', 'docs/PI_ANALYST.md']:
+              p = Path(filename)
+              s = p.read_text()
+              s = s.replace(
+                  'asks the already-started restricted Pi RPC process for `get_state` and returns only `{type:"ready", id}`',
+                  'asks the already-started restricted Pi RPC process for `get_state`, then verifies an extension command marker exposed only after the read-only tool catalog initialized successfully via `get_commands`, and returns only `{type:"ready", id}`',
+              )
+              s = s.replace(
+                  'M220 asks the restricted Pi RPC process for `get_state` without sending a prompt;',
+                  'M220 asks the restricted Pi RPC process for `get_state` and verifies the post-catalog extension readiness marker through `get_commands`, without sending a prompt;',
+              )
+              p.write_text(s)
+          PY
+          cargo fmt --all
+          git diff --check
+      - name: Validate probe slice
+        run: |
+          bash ./scripts/check-pi-analyst.sh
+          cargo test -p world-analyst-client
+          cargo test -p world-agent-tool-stdio
+          cargo test -p world-machine-desktop
+      - name: Commit product implementation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- \
+            NEXT_TASK.md \
+            docs/PI_ANALYST.md \
+            scripts/check-pi-analyst.sh \
+            scripts/check-packaged-analyst-runtime.mjs \
+            integrations/pi/world-machine-analyst.mjs \
+            integrations/pi/world-machine-analyst-rpc.mjs \
+            integrations/pi/world-machine-analyst-turn-host.mjs \
+            integrations/pi/tests/world-machine-analyst-client.test.mjs \
+            integrations/pi/tests/world-machine-analyst-rpc.test.mjs \
+            integrations/pi/tests/world-machine-analyst-turn-host.test.mjs \
+            crates/world-analyst-client/src/lib.rs \
+            apps/world-machine-desktop/src/analyst_session.rs
+          git diff --cached --quiet && exit 0
+          git commit -m "M227: probe installed analyst runtime"
+          git push origin HEAD:agent/m227-installed-analyst-runtime-probe
