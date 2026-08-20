@@ -2,7 +2,7 @@ use crate::analyst_session::DesktopAnalystConfig;
 use std::env;
 use std::ffi::{OsStr, OsString};
 use std::fmt;
-use std::fs;
+use std::fs::{self, File};
 use std::path::{Component, Path, PathBuf};
 
 const LAUNCHER_PROGRAMS: [&str; 2] = ["bash", "dirname"];
@@ -138,6 +138,15 @@ fn check_with_environment(
             DesktopAnalystRuntimeIssueKind::RuntimeIncomplete,
             format!(
                 "World Machine analyst runtime is incomplete: missing {}",
+                config.turn_host_script.display()
+            ),
+        );
+    }
+    if File::open(&config.turn_host_script).is_err() {
+        return DesktopAnalystRuntimeReadiness::unavailable(
+            DesktopAnalystRuntimeIssueKind::RuntimeIncomplete,
+            format!(
+                "World Machine analyst runtime is incomplete: {} is not readable by the current user",
                 config.turn_host_script.display()
             ),
         );
@@ -524,6 +533,26 @@ mod tests {
         let issue = readiness.issue().expect("missing Pi should fail");
         assert_eq!(issue.kind(), DesktopAnalystRuntimeIssueKind::PiUnavailable);
         assert!(issue.message().contains("PI_PROGRAM"));
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn unreadable_turn_host_is_runtime_incomplete() {
+        if effective_access::effective_uid() == 0 {
+            return;
+        }
+
+        let fixture = Fixture::new();
+        set_mode(&fixture.turn_host, 0o000);
+        let readiness = check_with_environment(
+            fixture.config(),
+            Some(fixture.bin.clone().into_os_string()),
+            Some(fixture.root.clone()),
+        );
+        assert_eq!(
+            readiness.issue().unwrap().kind(),
+            DesktopAnalystRuntimeIssueKind::RuntimeIncomplete
+        );
     }
 
     #[cfg(any(target_os = "macos", target_os = "linux"))]
