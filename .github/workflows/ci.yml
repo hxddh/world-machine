@@ -154,6 +154,25 @@ jobs:
           awk '/python3 - <<'\''PY'\''/{block+=1; next} /^          PY$/{if(block==2){exit}; next} block==2{sub(/^          /, ""); print}' \
             .github/workflows/m227-kick-v3.yml > /tmp/m227-harden.py
           test -s /tmp/m227-harden.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('/tmp/m227-harden.py')
+          s = p.read_text()
+          old = '''              at = part.find(anchor)
+              if at < 0:
+                  raise SystemExit(f"could not locate {label} anchor")
+              part = part[:at] + insertion + part[at:]'''
+          new = '''              at = part.find(anchor.strip())
+              if at < 0 and "RPC probe" in label:
+                  at = part.find('command: "prompt"')
+              if at < 0:
+                  raise SystemExit(f"could not locate {label} anchor")
+              line_at = part.rfind("\\n", 0, at) + 1
+              part = part[:line_at] + insertion + part[line_at:]'''
+          if old not in s:
+              raise SystemExit('could not harden payload patch_range helper')
+          p.write_text(s.replace(old, new, 1))
+          PY
           python3 /tmp/m227-harden.py
           cargo fmt --all
           git diff --check
