@@ -4,8 +4,8 @@ use super::{
 };
 use crate::{DocumentStatus, SharedDocument, WorldDocumentView};
 use gpui::{
-    div, prelude::*, px, rgb, size, AppContext, Bounds, Context, Div, Entity, IntoElement, Render,
-    SharedString, Styled, Window, WindowBounds, WindowOptions,
+    div, prelude::*, px, rgb, size, AppContext, Bounds, Context, Div, Entity, IntoElement,
+    PathPromptOptions, Render, SharedString, Styled, Window, WindowBounds, WindowOptions,
 };
 use std::sync::Arc;
 use world_library::{WorldDocumentId, WorldDocumentSummary, WorldLibrary};
@@ -13,6 +13,7 @@ use world_machine_desktop::analyst_readiness::DesktopAnalystRuntimeReadiness;
 use world_machine_desktop::analyst_session::{
     DesktopAnalystCancellation, DesktopAnalystSession, DesktopAnalystState,
 };
+use world_machine_desktop::analyst_settings::DesktopAnalystProgramSource;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum PanelPhase {
@@ -127,8 +128,9 @@ struct AnalystPanelView {
     documents: Vec<WorldDocumentSummary>,
     left: WorldDocumentId,
     right: WorldDocumentId,
-    runtime: Option<DesktopAnalystRuntimeReadiness>,
+    runtime: Option<analyst_runtime::AnalystRuntimeStatus>,
     runtime_checking: bool,
+    settings_busy: bool,
     session: Option<DesktopAnalystSession>,
     cancellation: Option<DesktopAnalystCancellation>,
     question: Entity<AnalystTextInput>,
@@ -172,6 +174,7 @@ impl AnalystPanelView {
             right,
             runtime: None,
             runtime_checking: false,
+            settings_busy: false,
             session: None,
             cancellation: None,
             question,
@@ -185,7 +188,7 @@ impl AnalystPanelView {
     }
 
     fn refresh_runtime(&mut self, cx: &mut Context<Self>) {
-        if self.busy || self.session.is_some() || self.runtime_checking {
+        if self.busy || self.settings_busy || self.session.is_some() || self.runtime_checking {
             return;
         }
         self.runtime = None;
@@ -195,11 +198,11 @@ impl AnalystPanelView {
 
         let task = cx
             .background_executor()
-            .spawn(async move { analyst_runtime::discover() });
+            .spawn(async move { analyst_runtime::discover_status() });
         cx.spawn(async move |this, cx| {
-            let readiness = task.await;
+            let status = task.await;
             let _ = this.update(cx, |this, cx| {
-                this.runtime = Some(readiness);
+                this.runtime = Some(status);
                 this.runtime_checking = false;
                 cx.notify();
             });
@@ -207,14 +210,114 @@ impl AnalystPanelView {
         .detach();
     }
 
+    fn configure_program(
+        &mut self,
+        program: analyst_runtime::AnalystRuntimeProgram,
+        cx: &mut Context<Self>,
+    ) {
+        if self.busy || self.settings_busy || self.session.is_some() || self.runtime_checking {
+            return;
+        }
+        let label = runtime_program_label(program);
+        self.settings_busy = true;
+        self.last_error = None;
+        cx.notify();
+
+        let picker = cx.prompt_for_paths(PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some(SharedString::from(format!("Choose {label} executable"))),
+        });
+        let background = cx.background_executor().clone();
+        cx.spawn(async move |this, cx| {
+            let selected = match picker.await {
+                Ok(Ok(Some(paths))) => paths.into_iter().next(),
+                Ok(Ok(None)) => None,
+                Ok(Err(error)) => {
+                    let _ = this.update(cx, |this, cx| {
+                        this.settings_busy = false;
+                        this.last_error =
+                            Some(format!("Could not choose {label} executable: {error}"));
+                        cx.notify();
+                    });
+                    return;
+                }
+                Err(error) => {
+                    let _ = this.update(cx, |this, cx| {
+                        this.settings_busy = false;
+                        this.last_error = Some(format!(
+                            "{label} executable chooser was interrupted: {error}"
+                        ));
+                        cx.notify();
+                    });
+                    return;
+                }
+            };
+            let Some(path) = selected else {
+                let _ = this.update(cx, |this, cx| {
+                    this.settings_busy = false;
+                    cx.notify();
+                });
+                return;
+            };
+
+            let result = background
+                .spawn(async move { analyst_runtime::save_program(program, path) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.settings_busy = false;
+                match result {
+                    Ok(()) => this.refresh_runtime(cx),
+                    Err(error) => {
+                        this.last_error = Some(error);
+                        cx.notify();
+                    }
+                }
+            });
+        })
+        .detach();
+    }
+
+    fn clear_program(
+        &mut self,
+        program: analyst_runtime::AnalystRuntimeProgram,
+        cx: &mut Context<Self>,
+    ) {
+        if self.busy || self.settings_busy || self.session.is_some() || self.runtime_checking {
+            return;
+        }
+        self.settings_busy = true;
+        self.last_error = None;
+        cx.notify();
+
+        let task = cx
+            .background_executor()
+            .spawn(async move { analyst_runtime::clear_program(program) });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                this.settings_busy = false;
+                match result {
+                    Ok(()) => this.refresh_runtime(cx),
+                    Err(error) => {
+                        this.last_error = Some(error);
+                        cx.notify();
+                    }
+                }
+            });
+        })
+        .detach();
+    }
+
     fn start_session(&mut self, cx: &mut Context<Self>) {
-        if self.busy || self.left == self.right {
+        if self.busy || self.settings_busy || self.left == self.right {
             return;
         }
         let Some(config) = self
             .runtime
             .as_ref()
-            .and_then(DesktopAnalystRuntimeReadiness::config)
+            .and_then(|status| status.readiness.config())
             .cloned()
         else {
             self.last_error =
@@ -252,6 +355,7 @@ impl AnalystPanelView {
                     }
                     Err(error) => {
                         this.cancellation = None;
+                        this.runtime = None;
                         this.phase = PanelPhase::Setup;
                         this.last_error = Some(error);
                     }
@@ -335,12 +439,128 @@ impl AnalystPanelView {
     }
 
     fn choose_right(&mut self, id: WorldDocumentId, cx: &mut Context<Self>) {
-        if self.busy || self.session.is_some() || id == self.left {
+        if self.busy || self.settings_busy || self.session.is_some() || id == self.left {
             return;
         }
         self.right = id;
         self.last_error = None;
         cx.notify();
+    }
+
+    fn render_program_row(
+        &self,
+        program: analyst_runtime::AnalystRuntimeProgram,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let label = runtime_program_label(program);
+        let Some(status) = self.runtime.as_ref() else {
+            return div()
+                .text_xs()
+                .text_color(rgb(0x777770))
+                .child(format!("{label} · waiting for runtime check"));
+        };
+        let Some(selections) = status.selections.as_ref() else {
+            return div().text_xs().text_color(rgb(0x777770)).child(format!(
+                "{label} · settings unavailable until runtime settings load"
+            ));
+        };
+        let selection = match program {
+            analyst_runtime::AnalystRuntimeProgram::Node => &selections.node,
+            analyst_runtime::AnalystRuntimeProgram::Pi => &selections.pi,
+        };
+        let persisted = status.settings.as_ref().and_then(|settings| match program {
+            analyst_runtime::AnalystRuntimeProgram::Node => settings.node_program.as_ref(),
+            analyst_runtime::AnalystRuntimeProgram::Pi => settings.pi_program.as_ref(),
+        });
+        let environment_controlled = selection.source == DesktopAnalystProgramSource::Environment;
+        let controls_enabled =
+            !self.busy && !self.settings_busy && !self.runtime_checking && self.session.is_none();
+
+        let mut actions = div().flex().gap_2().items_center();
+        if environment_controlled {
+            actions = actions.child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0x777770))
+                    .child("Environment controlled"),
+            );
+        } else {
+            let mut choose = div()
+                .id(SharedString::from(format!(
+                    "choose-{}-analyst-runtime",
+                    runtime_program_slug(program)
+                )))
+                .px_3()
+                .p_1()
+                .rounded_md()
+                .border_1()
+                .border_color(rgb(0xb8b2a8))
+                .bg(rgb(0xffffff))
+                .text_xs()
+                .child("Choose…");
+            if controls_enabled {
+                choose = choose.cursor_pointer().on_click(
+                    cx.listener(move |this, _, _, cx| this.configure_program(program, cx)),
+                );
+            } else {
+                choose = choose.text_color(rgb(0x999990));
+            }
+            actions = actions.child(choose);
+
+            if persisted.is_some() {
+                let mut clear = div()
+                    .id(SharedString::from(format!(
+                        "clear-{}-analyst-runtime",
+                        runtime_program_slug(program)
+                    )))
+                    .px_3()
+                    .p_1()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(rgb(0xd8d8d2))
+                    .bg(rgb(0xf7f7f3))
+                    .text_xs()
+                    .child("Clear saved path");
+                if controls_enabled {
+                    clear = clear.cursor_pointer().on_click(
+                        cx.listener(move |this, _, _, cx| this.clear_program(program, cx)),
+                    );
+                } else {
+                    clear = clear.text_color(rgb(0x999990));
+                }
+                actions = actions.child(clear);
+            }
+        }
+
+        div()
+            .w_full()
+            .p_2()
+            .rounded_md()
+            .border_1()
+            .border_color(rgb(0xe0e0db))
+            .bg(rgb(0xfafaf8))
+            .flex()
+            .items_center()
+            .justify_between()
+            .gap_3()
+            .child(
+                div()
+                    .flex_1()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(div().text_xs().child(format!(
+                        "{label} · {}",
+                        runtime_program_source_label(selection.source)
+                    )))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(0x777770))
+                            .child(selection.program.display().to_string()),
+                    ),
+            )
+            .child(actions)
     }
 
     fn render_setup(&self, cx: &mut Context<Self>) -> Div {
@@ -389,56 +609,81 @@ impl AnalystPanelView {
             })));
         }
 
+        let recheck_enabled =
+            !self.busy && !self.settings_busy && !self.runtime_checking && self.session.is_none();
+        let mut recheck = div()
+            .id("retry-analyst-runtime")
+            .px_3()
+            .p_1()
+            .rounded_md()
+            .border_1()
+            .border_color(rgb(0xb8b2a8))
+            .bg(rgb(0xffffff))
+            .text_xs()
+            .child("Recheck");
+        if recheck_enabled {
+            recheck = recheck
+                .cursor_pointer()
+                .on_click(cx.listener(|this, _, _, cx| this.refresh_runtime(cx)));
+        } else {
+            recheck = recheck.text_color(rgb(0x999990));
+        }
+
         let runtime_status = if self.runtime_checking {
             div()
-                .text_xs()
-                .text_color(rgb(0x666660))
-                .child("Checking analyst runtime readiness…")
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap_3()
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(rgb(0x666660))
+                        .child("Checking analyst runtime readiness…"),
+                )
+                .child(recheck)
         } else {
-            match self.runtime.as_ref() {
+            let message = match self.runtime.as_ref().map(|status| &status.readiness) {
                 Some(DesktopAnalystRuntimeReadiness::Ready { .. }) => div()
+                    .flex_1()
                     .text_xs()
                     .text_color(rgb(0x4d6748))
                     .child("Analyst runtime ready · Node and Pi resolved"),
-                Some(DesktopAnalystRuntimeReadiness::Unavailable { issue }) => {
-                    let retry = div()
-                        .id("retry-analyst-runtime")
-                        .cursor_pointer()
-                        .px_3()
-                        .p_1()
-                        .rounded_md()
-                        .border_1()
-                        .border_color(rgb(0xb8b2a8))
-                        .bg(rgb(0xffffff))
-                        .text_xs()
-                        .child("Retry")
-                        .on_click(cx.listener(|this, _, _, cx| this.refresh_runtime(cx)));
-                    div()
-                        .flex()
-                        .items_center()
-                        .justify_between()
-                        .gap_3()
-                        .child(
-                            div()
-                                .flex_1()
-                                .text_xs()
-                                .text_color(rgb(0x9b4a42))
-                                .child(issue.message().to_owned()),
-                        )
-                        .child(retry)
-                }
-                None => div()
+                Some(DesktopAnalystRuntimeReadiness::Unavailable { issue }) => div()
+                    .flex_1()
                     .text_xs()
                     .text_color(rgb(0x9b4a42))
-                    .child("Analyst runtime readiness is unavailable. Retry the check."),
-            }
+                    .child(issue.message().to_owned()),
+                None => div()
+                    .flex_1()
+                    .text_xs()
+                    .text_color(rgb(0x9b4a42))
+                    .child("Analyst runtime readiness is unavailable. Recheck the runtime."),
+            };
+            div()
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap_3()
+                .child(message)
+                .child(recheck)
         };
+
+        let runtime_controls = div()
+            .w_full()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(self.render_program_row(analyst_runtime::AnalystRuntimeProgram::Node, cx))
+            .child(self.render_program_row(analyst_runtime::AnalystRuntimeProgram::Pi, cx));
+
         let can_start = !self.busy
+            && !self.settings_busy
             && !self.runtime_checking
             && self
                 .runtime
                 .as_ref()
-                .is_some_and(DesktopAnalystRuntimeReadiness::is_ready)
+                .is_some_and(|status| status.readiness.is_ready())
             && self.left != self.right;
         let mut start = div()
             .id("start-world-analyst")
@@ -449,6 +694,8 @@ impl AnalystPanelView {
             .text_sm()
             .child(if self.busy {
                 "Starting…"
+            } else if self.settings_busy {
+                "Saving runtime path…"
             } else {
                 "Start analysis"
             });
@@ -482,6 +729,7 @@ impl AnalystPanelView {
             )
             .child(worlds)
             .child(runtime_status)
+            .child(runtime_controls)
             .child(start)
     }
 
@@ -623,6 +871,28 @@ impl Render for AnalystPanelView {
             );
         }
         root
+    }
+}
+
+fn runtime_program_label(program: analyst_runtime::AnalystRuntimeProgram) -> &'static str {
+    match program {
+        analyst_runtime::AnalystRuntimeProgram::Node => "Node",
+        analyst_runtime::AnalystRuntimeProgram::Pi => "Pi",
+    }
+}
+
+fn runtime_program_slug(program: analyst_runtime::AnalystRuntimeProgram) -> &'static str {
+    match program {
+        analyst_runtime::AnalystRuntimeProgram::Node => "node",
+        analyst_runtime::AnalystRuntimeProgram::Pi => "pi",
+    }
+}
+
+fn runtime_program_source_label(source: DesktopAnalystProgramSource) -> &'static str {
+    match source {
+        DesktopAnalystProgramSource::Environment => "Environment override",
+        DesktopAnalystProgramSource::Persisted => "Saved path",
+        DesktopAnalystProgramSource::Default => "PATH/default",
     }
 }
 
@@ -798,6 +1068,9 @@ mod tests {
             ["world-machine-analyst", "-rpc"].concat(),
             ["command", "::new"].concat(),
             ["var_os", "(\"path\")"].concat(),
+            ["std", "::fs"].concat(),
+            ["file", "::open"].concat(),
+            ["settings_", "path"].concat(),
         ];
         for token in forbidden {
             assert!(

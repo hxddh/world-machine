@@ -1,4 +1,4 @@
-//! Resolve the installed analyst runtime without leaking process or PATH details into GPUI code.
+//! Resolve the installed analyst runtime without leaking process, PATH, or settings I/O into GPUI.
 
 use std::env;
 use std::fs::File;
@@ -8,6 +8,9 @@ use world_machine_desktop::analyst_readiness::{
     DesktopAnalystRuntimeReadiness,
 };
 use world_machine_desktop::analyst_session::DesktopAnalystConfig;
+use world_machine_desktop::analyst_settings::{
+    self, DesktopAnalystProgramSelections, DesktopAnalystSettings,
+};
 
 const RUNTIME_ROOT_ENV: &str = "WORLD_MACHINE_ANALYST_RUNTIME_ROOT";
 const NODE_PROGRAM_ENV: &str = "WORLD_MACHINE_NODE_PROGRAM";
@@ -25,20 +28,114 @@ const CLIENT_MODULE: &str = "integrations/pi/world-machine-analyst-client.mjs";
 const LAUNCHER: &str = "scripts/run-pi-analyst.sh";
 const BUNDLED_ANALYST_PROGRAM: &str = "bin/world-agent-tool-stdio";
 
-pub(crate) fn discover() -> DesktopAnalystRuntimeReadiness {
-    match discover_config() {
-        Ok(config) => analyst_readiness::check(config),
-        Err(issue) => DesktopAnalystRuntimeReadiness::Unavailable { issue },
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum AnalystRuntimeProgram {
+    Node,
+    Pi,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct AnalystRuntimeStatus {
+    pub readiness: DesktopAnalystRuntimeReadiness,
+    pub selections: Option<DesktopAnalystProgramSelections>,
+    pub settings: Option<DesktopAnalystSettings>,
+}
+
+impl AnalystRuntimeStatus {
+    fn unavailable(message: impl Into<String>) -> Self {
+        Self {
+            readiness: DesktopAnalystRuntimeReadiness::unavailable(
+                DesktopAnalystRuntimeIssueKind::RuntimeUnavailable,
+                message,
+            ),
+            selections: None,
+            settings: None,
+        }
     }
 }
 
-fn discover_config() -> Result<DesktopAnalystConfig, DesktopAnalystRuntimeIssue> {
+pub(crate) fn discover() -> DesktopAnalystRuntimeReadiness {
+    discover_status().readiness
+}
+
+pub(crate) fn discover_status() -> AnalystRuntimeStatus {
+    let settings_root = match analyst_settings::application_support_root() {
+        Ok(root) => root,
+        Err(error) => return AnalystRuntimeStatus::unavailable(error.to_string()),
+    };
+    let settings = match analyst_settings::load(&settings_root) {
+        Ok(settings) => settings,
+        Err(error) => return AnalystRuntimeStatus::unavailable(error.to_string()),
+    };
+    let selections = analyst_settings::selections(
+        &settings,
+        env_path(NODE_PROGRAM_ENV),
+        env_path(PI_PROGRAM_ENV),
+    );
+    let readiness = match discover_config(&selections) {
+        Ok(config) => analyst_readiness::check(config),
+        Err(issue) => DesktopAnalystRuntimeReadiness::Unavailable { issue },
+    };
+    AnalystRuntimeStatus {
+        readiness,
+        selections: Some(selections),
+        settings: Some(settings),
+    }
+}
+
+pub(crate) fn save_program(program: AnalystRuntimeProgram, path: PathBuf) -> Result<(), String> {
+    if !path.is_absolute() {
+        return Err(format!(
+            "World Analyst executable selection must be an absolute path: {}",
+            path.display()
+        ));
+    }
+    if environment_controls(program) {
+        return Err(format!(
+            "{} is controlled by an environment override; remove that override before saving a user path",
+            program_label(program)
+        ));
+    }
+    let root = analyst_settings::application_support_root().map_err(|error| error.to_string())?;
+    let result = match program {
+        AnalystRuntimeProgram::Node => analyst_settings::save_node_program(&root, path),
+        AnalystRuntimeProgram::Pi => analyst_settings::save_pi_program(&root, path),
+    };
+    result.map_err(|error| error.to_string())
+}
+
+pub(crate) fn clear_program(program: AnalystRuntimeProgram) -> Result<(), String> {
+    let root = analyst_settings::application_support_root().map_err(|error| error.to_string())?;
+    let result = match program {
+        AnalystRuntimeProgram::Node => analyst_settings::clear_node_program(&root),
+        AnalystRuntimeProgram::Pi => analyst_settings::clear_pi_program(&root),
+    };
+    result.map_err(|error| error.to_string())
+}
+
+fn environment_controls(program: AnalystRuntimeProgram) -> bool {
+    match program {
+        AnalystRuntimeProgram::Node => env_path(NODE_PROGRAM_ENV).is_some(),
+        AnalystRuntimeProgram::Pi => env_path(PI_PROGRAM_ENV).is_some(),
+    }
+}
+
+fn program_label(program: AnalystRuntimeProgram) -> &'static str {
+    match program {
+        AnalystRuntimeProgram::Node => "Node",
+        AnalystRuntimeProgram::Pi => "Pi",
+    }
+}
+
+fn discover_config(
+    selections: &DesktopAnalystProgramSelections,
+) -> Result<DesktopAnalystConfig, DesktopAnalystRuntimeIssue> {
     let root = discover_root()?;
     validate_root(&root)?;
 
     let mut config = DesktopAnalystConfig::new(root.join(TURN_HOST));
-    config.node_program = env_path(NODE_PROGRAM_ENV).unwrap_or_else(|| PathBuf::from("node"));
-    config.pi_program = env_path(PI_PROGRAM_ENV);
+    config.node_program = selections.node.program.clone();
+    config.pi_program = Some(selections.pi.program.clone());
     config.analyst_program =
         Some(env_path(ANALYST_PROGRAM_ENV).unwrap_or_else(|| root.join(BUNDLED_ANALYST_PROGRAM)));
     config.provider = env_value(PROVIDER_ENV);
@@ -154,6 +251,7 @@ fn env_value(name: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use world_machine_desktop::analyst_settings::DesktopAnalystProgramSource;
 
     #[test]
     fn bundled_runtime_root_is_derived_from_app_executable() {
@@ -197,6 +295,25 @@ mod tests {
     fn absolute_runtime_root_override_is_preserved() {
         let root = PathBuf::from("/tmp/Analyst Runtime");
         assert_eq!(resolve_root_override(root.clone(), None).unwrap(), root);
+    }
+
+    #[test]
+    fn persisted_selection_enters_existing_session_config() {
+        let selections = DesktopAnalystProgramSelections {
+            node: world_machine_desktop::analyst_settings::DesktopAnalystProgramSelection {
+                program: PathBuf::from("/persisted/node"),
+                source: DesktopAnalystProgramSource::Persisted,
+            },
+            pi: world_machine_desktop::analyst_settings::DesktopAnalystProgramSelection {
+                program: PathBuf::from("/persisted/pi"),
+                source: DesktopAnalystProgramSource::Persisted,
+            },
+        };
+        let mut config = DesktopAnalystConfig::new("/tmp/turn-host.mjs");
+        config.node_program = selections.node.program.clone();
+        config.pi_program = Some(selections.pi.program.clone());
+        assert_eq!(config.node_program, PathBuf::from("/persisted/node"));
+        assert_eq!(config.pi_program, Some(PathBuf::from("/persisted/pi")));
     }
 
     #[test]
