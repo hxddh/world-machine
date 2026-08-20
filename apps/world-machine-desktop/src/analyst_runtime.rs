@@ -54,7 +54,11 @@ impl AnalystRuntimeStatus {
     }
 }
 
-pub(crate) fn discover() -> AnalystRuntimeStatus {
+pub(crate) fn discover() -> DesktopAnalystRuntimeReadiness {
+    discover_status().readiness
+}
+
+pub(crate) fn discover_status() -> AnalystRuntimeStatus {
     let settings_root = match analyst_settings::application_support_root() {
         Ok(root) => root,
         Err(error) => return AnalystRuntimeStatus::unavailable(error.to_string()),
@@ -79,10 +83,7 @@ pub(crate) fn discover() -> AnalystRuntimeStatus {
     }
 }
 
-pub(crate) fn save_program(
-    program: AnalystRuntimeProgram,
-    path: PathBuf,
-) -> Result<(), String> {
+pub(crate) fn save_program(program: AnalystRuntimeProgram, path: PathBuf) -> Result<(), String> {
     if !path.is_absolute() {
         return Err(format!(
             "World Analyst executable selection must be an absolute path: {}",
