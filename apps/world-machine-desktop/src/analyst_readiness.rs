@@ -54,10 +54,7 @@ impl DesktopAnalystRuntimeReadiness {
         Self::Ready { config }
     }
 
-    pub fn unavailable(
-        kind: DesktopAnalystRuntimeIssueKind,
-        message: impl Into<String>,
-    ) -> Self {
+    pub fn unavailable(kind: DesktopAnalystRuntimeIssueKind, message: impl Into<String>) -> Self {
         Self::Unavailable {
             issue: DesktopAnalystRuntimeIssue::new(kind, message),
         }
@@ -101,7 +98,11 @@ fn check_with_environment(
         );
     }
 
-    let node_program = match resolve_program(&config.node_program, path.as_deref(), current_dir.as_deref()) {
+    let node_program = match resolve_program(
+        &config.node_program,
+        path.as_deref(),
+        current_dir.as_deref(),
+    ) {
         Some(program) => program,
         None => {
             return DesktopAnalystRuntimeReadiness::unavailable(
@@ -157,7 +158,11 @@ fn check_with_environment(
     DesktopAnalystRuntimeReadiness::ready(config)
 }
 
-fn resolve_program(program: &Path, path: Option<&OsStr>, current_dir: Option<&Path>) -> Option<PathBuf> {
+fn resolve_program(
+    program: &Path,
+    path: Option<&OsStr>,
+    current_dir: Option<&Path>,
+) -> Option<PathBuf> {
     if is_explicit_path(program) {
         let candidate = if program.is_absolute() {
             program.to_path_buf()
@@ -286,7 +291,10 @@ mod tests {
         let config = readiness.config().expect("runtime should be ready");
         assert_eq!(config.node_program, node);
         assert_eq!(config.pi_program.as_deref(), Some(pi.as_path()));
-        assert_eq!(config.analyst_program.as_deref(), Some(fixture.analyst.as_path()));
+        assert_eq!(
+            config.analyst_program.as_deref(),
+            Some(fixture.analyst.as_path())
+        );
     }
 
     #[test]
@@ -297,8 +305,11 @@ mod tests {
         let mut config = fixture.config();
         config.node_program = node.clone();
         config.pi_program = Some(pi.clone());
-        let readiness = check_with_environment(config, Some(OsString::new()), Some(fixture.root.clone()));
-        let config = readiness.config().expect("explicit executables should be ready");
+        let readiness =
+            check_with_environment(config, Some(OsString::new()), Some(fixture.root.clone()));
+        let config = readiness
+            .config()
+            .expect("explicit executables should be ready");
         assert_eq!(config.node_program, node);
         assert_eq!(config.pi_program.as_deref(), Some(pi.as_path()));
     }
@@ -316,7 +327,10 @@ mod tests {
             Some(fixture.root.clone()),
         );
         let issue = readiness.issue().expect("limited PATH should fail");
-        assert_eq!(issue.kind(), DesktopAnalystRuntimeIssueKind::NodeUnavailable);
+        assert_eq!(
+            issue.kind(),
+            DesktopAnalystRuntimeIssueKind::NodeUnavailable
+        );
         assert!(issue.message().contains("WORLD_MACHINE_NODE_PROGRAM"));
     }
 
