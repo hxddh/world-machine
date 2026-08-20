@@ -25,6 +25,7 @@ enum PanelPhase {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct PanelTurn {
+    question: String,
     answer: String,
     tool_calls: Vec<PanelToolCall>,
     runtime_errors: Vec<String>,
@@ -379,7 +380,8 @@ impl AnalystPanelView {
         if self.busy || !matches!(self.phase, PanelPhase::Active) {
             return;
         }
-        let prompt = self.question.read(cx).text().trim().to_owned();
+        let submitted_question = self.question.read(cx).text().to_owned();
+        let prompt = submitted_question.trim().to_owned();
         if prompt.is_empty() {
             self.last_error = Some("Enter a question before asking the analyst".into());
             cx.notify();
@@ -392,18 +394,17 @@ impl AnalystPanelView {
         };
         self.busy = true;
         self.last_error = None;
-        self.question.update(cx, |input, cx| input.clear(cx));
         cx.notify();
 
         let task = cx.background_executor().spawn(async move {
             let result = session.ask(&prompt).map_err(|error| error.to_string());
-            (session, result)
+            (session, result, submitted_question)
         });
         let background = cx.background_executor().clone();
         cx.spawn(async move |this, cx| {
             let mut completed = Some(task.await);
             let update = this.update(cx, |this, cx| {
-                let (session, result) = completed
+                let (session, result, submitted_question) = completed
                     .take()
                     .expect("analyst turn result should be consumed once");
                 this.busy = false;
@@ -421,12 +422,21 @@ impl AnalystPanelView {
                         this.phase = PanelPhase::Active;
                     }
                 }
+                let succeeded = result.is_ok();
+                let current_question = this.question.read(cx).text().to_owned();
+                if should_clear_completed_prompt(
+                    &current_question,
+                    &submitted_question,
+                    succeeded,
+                ) {
+                    this.question.update(cx, |input, cx| input.clear(cx));
+                }
                 this.last_error = result.err();
                 this.session = Some(session);
                 cx.notify();
             });
             if update.is_err() {
-                if let Some((mut session, _)) = completed.take() {
+                if let Some((mut session, _, _)) = completed.take() {
                     background
                         .spawn(async move {
                             let _ = session.close();
@@ -906,33 +916,41 @@ fn document_title(document: &WorldDocumentSummary) -> String {
         .unwrap_or_else(|| document.id.to_string())
 }
 
+fn should_clear_completed_prompt(current: &str, submitted: &str, succeeded: bool) -> bool {
+    succeeded && current == submitted
+}
+
 fn snapshot_history(session: &DesktopAnalystSession) -> Vec<PanelTurn> {
     session
-        .turns()
+        .exchanges()
         .iter()
-        .map(|turn| PanelTurn {
-            answer: turn
-                .text
-                .as_deref()
-                .map(str::trim)
-                .filter(|text| !text.is_empty())
-                .unwrap_or("The analyst returned no text answer.")
-                .to_owned(),
-            tool_calls: turn
-                .tool_calls
-                .iter()
-                .map(|call| PanelToolCall {
-                    tool: call.tool.clone(),
-                    input: call.input.to_string(),
-                    output: call.output.to_string(),
-                    is_error: call.is_error,
-                })
-                .collect(),
-            runtime_errors: turn
-                .runtime_errors
-                .iter()
-                .map(|error| error.message.clone())
-                .collect(),
+        .map(|exchange| {
+            let turn = exchange.turn();
+            PanelTurn {
+                question: exchange.prompt().to_owned(),
+                answer: turn
+                    .text
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|text| !text.is_empty())
+                    .unwrap_or("The analyst returned no text answer.")
+                    .to_owned(),
+                tool_calls: turn
+                    .tool_calls
+                    .iter()
+                    .map(|call| PanelToolCall {
+                        tool: call.tool.clone(),
+                        input: call.input.to_string(),
+                        output: call.output.to_string(),
+                        is_error: call.is_error,
+                    })
+                    .collect(),
+                runtime_errors: turn
+                    .runtime_errors
+                    .iter()
+                    .map(|error| error.message.clone())
+                    .collect(),
+            }
         })
         .collect()
 }
@@ -949,7 +967,35 @@ fn render_turn(index: usize, turn: &PanelTurn) -> impl IntoElement {
         .flex()
         .flex_col()
         .gap_2()
-        .child(div().text_sm().child(turn.answer.clone()));
+        .child(
+            div()
+                .p_2()
+                .rounded_md()
+                .bg(rgb(0xf2f6ff))
+                .flex()
+                .flex_col()
+                .gap_1()
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(rgb(0x66718a))
+                        .child("Question"),
+                )
+                .child(div().text_sm().child(turn.question.clone())),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(rgb(0x777770))
+                        .child("Analyst"),
+                )
+                .child(div().text_sm().child(turn.answer.clone())),
+        );
 
     if !turn.tool_calls.is_empty() {
         let mut tools = div().flex().flex_col().gap_2().child(
@@ -1053,6 +1099,25 @@ mod tests {
             document_title(&summary("world-1", "tiny", Some("  "))),
             "world-1"
         );
+    }
+
+    #[test]
+    fn completed_prompt_is_cleared_only_after_success_if_the_draft_is_unchanged() {
+        assert!(should_clear_completed_prompt(
+            "Why did this diverge?",
+            "Why did this diverge?",
+            true
+        ));
+        assert!(!should_clear_completed_prompt(
+            "Why did this diverge?",
+            "Why did this diverge?",
+            false
+        ));
+        assert!(!should_clear_completed_prompt(
+            "A follow-up draft",
+            "Why did this diverge?",
+            true
+        ));
     }
 
     #[test]
