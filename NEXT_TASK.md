@@ -1,71 +1,78 @@
-# Next Coding Task — M224 Packaged Analyst Runtime End-to-End Readiness
+# Next Coding Task — M225 Installed Analyst Runtime Readiness
 
-M214–M223 now form a complete first product path for read-only World analysis: evidence tools, restricted Pi analyst execution, a stable provider-neutral JSONL boundary, a strict Rust client, a desktop-owned session controller, and a native GPUI analyst panel.
-
-M223 also bundles the analyst host, launcher, and Pi integration modules inside `World Machine.app`. The app build currently proves that those files exist, are non-empty, and produce a valid signed app. It does **not** yet prove that the packaged runtime can actually start from the installed app layout and complete analyst turns without relying on the source checkout.
+M214–M224 now form a complete first product path for read-only World analysis: evidence tools, restricted Pi analyst execution, a stable provider-neutral JSONL boundary, a strict Rust client, a desktop-owned session controller, a native GPUI analyst panel, and a macOS packaged-runtime smoke that proves the built app can run two real evidence-backed turns from outside the source checkout.
 
 ## Current baseline
 
 - M220 defines `world-machine-analyst-turns@1` and strips raw Pi/provider events from the product boundary.
-- M221/M221.1 provide strict request validation, correlation, poisoning semantics, and process lifecycle handling.
-- M222 binds one desktop session to two immutable raw archive snapshots and cleans them on close/fatal/drop.
-- M223 adds the live `Analyze saved Worlds…` action, a separate native analyst window, fixed-pair selection, sequential background asks, answer/evidence/error rendering, and a native GPUI text input.
-- M223 packages `world-agent-tool-stdio`, the M220 turn host/RPC modules, the restricted Pi extension/client, and `scripts/run-pi-analyst.sh` under `World Machine.app/Contents/Resources/Analyst Runtime`.
-- The live `world_fork` action row also wires saved comparison and lineage actions; `saved_compare.rs` is therefore live through `world_fork.rs` rather than dormant.
-- Node and Pi remain external runtime dependencies. Their absence or a launch failure is surfaced to the user instead of being hidden inside GPUI.
+- M221/M221.1 provide strict correlation, request validation, poisoning semantics, and process lifecycle handling.
+- M222 binds one desktop session to two immutable raw archive snapshots and owns cleanup/cancellation below GPUI.
+- M223 adds the live `Analyze saved Worlds…` surface and packages the analyst host, launcher, extension/client, and `world-agent-tool-stdio` under `World Machine.app/Contents/Resources/Analyst Runtime`.
+- M224 proves that packaged substrate end to end: from a non-repository working directory, the packaged turn host launches the packaged restricted analyst path, the packaged extension performs a real read-only evidence call through the packaged Rust tool host, and two sequential turns reuse one long-lived Pi process.
+- Node and Pi intentionally remain external runtime dependencies. The desktop currently resolves Node as `WORLD_MACHINE_NODE_PROGRAM` or bare `node`, resolves Pi from `PI_PROGRAM` or the launcher default, and generally discovers a missing executable only when session startup fails.
 
-## M224 — packaged runtime end-to-end smoke
+## M225 — installed runtime readiness
 
-Add a deterministic macOS integration check that proves the **built app's packaged analyst runtime** can execute end to end without a source-tree runtime dependency.
+Turn the now-proven packaged substrate into an installed-app experience that can explain whether the analyst runtime is usable **before** starting a World session.
 
-The smoke path should:
+Add a desktop-owned readiness layer with a small stable result model. It should distinguish at least:
 
-1. build `World Machine.app` using the existing app bundle script;
-2. address the analyst runtime exclusively through `Contents/Resources/Analyst Runtime`;
-3. use deterministic local archive fixtures and the existing fake/test Pi strategy rather than real provider credentials or network calls;
-4. start the packaged M220 turn host with the packaged `world-agent-tool-stdio` binary and packaged launcher/integration modules;
-5. complete at least two sequential analyst turns in one long-lived session;
-6. verify request/response correlation, canonical tool-call output, and final analyst text at the stable `world-machine-analyst-turns@1` boundary;
-7. verify the second turn reuses the same analyst process/session rather than silently spawning a fresh one;
-8. run from a working directory that is **not** the repository root so accidental source-checkout fallback is detected;
-9. fail clearly if any packaged relative path, executable bit, launcher contract, or environment handoff is broken.
+1. packaged analyst runtime missing/incomplete;
+2. packaged `world-agent-tool-stdio` missing or not executable;
+3. Node program unresolved/not executable;
+4. Pi program unresolved/not executable;
+5. runtime ready to start analyst sessions.
 
-## Product/runtime boundary
+The readiness result must be product-safe: do not expose raw Pi events, provider payloads, shell output, or unstable process internals.
 
-Keep this milestone below the GPUI interaction layer. M224 is about proving that the app artifact contains a runnable analyst substrate, not adding more UI.
+## Ownership and layering
 
-- Do not make GPUI own Node/Pi/process state.
-- Do not add mutation tools or broaden analyst authority.
-- Do not require real API keys, provider accounts, or external network access in CI.
-- Do not weaken M220/M221 strict protocol validation to make the smoke test easier.
-- Prefer exercising the same packaged files and launch contract that a real installed app uses instead of constructing a parallel test-only runtime layout.
+The executable/runtime probe belongs below GPUI interaction code.
 
-## Runtime diagnostics
+- GPUI may request readiness asynchronously and render the stable result.
+- GPUI View types must not search `PATH`, invoke `Command`, own child processes, or know Pi protocol details.
+- Preserve `DesktopAnalystConfig` as the concrete session-start configuration; readiness should validate/resolve that configuration rather than create a second execution model.
+- Prefer a small desktop product API that can be injected/tested independently from the View.
+- Keep M220/M221 protocol and authority semantics unchanged.
 
-Where a packaging/runtime precondition can be checked deterministically before process launch, make the failure actionable. In particular, distinguish failures such as:
+## Executable resolution
 
-- packaged runtime file missing/incomplete;
-- packaged analyst host missing or not executable;
-- Node executable unavailable;
-- Pi executable/launcher unavailable;
-- analyst process started but failed protocol startup;
-- turn protocol failure after startup.
+Honor explicit overrides first:
 
-Keep these as product-safe diagnostics; do not expose raw provider payloads or Pi event streams.
+- `WORLD_MACHINE_NODE_PROGRAM`
+- `PI_PROGRAM`
+- `WORLD_MACHINE_ANALYST_PROGRAM`
+- `WORLD_MACHINE_ANALYST_RUNTIME_ROOT`
+
+For bare program names, resolve against the process environment deterministically and verify executable eligibility before declaring readiness. The implementation must behave predictably under a Finder-like limited `PATH`; tests should not assume an interactive shell startup file has run.
+
+Do not silently execute arbitrary shell startup files and do not bundle Node or Pi in this milestone.
+
+## Native analyst surface
+
+The analyst setup window should expose a concise readiness state before `Start analyst` can launch a session.
+
+Required behavior:
+
+- readiness work runs off the GPUI update/render path;
+- ready state allows the existing M222 session start flow unchanged;
+- missing Node/Pi/runtime state is visible and actionable rather than surfacing only as a later generic `Spawn` failure;
+- retry/recheck is possible without reopening the World document;
+- no provider credentials or provider settings UI is added in M225.
 
 ## Validation
 
 Required gates:
 
-- packaged-runtime smoke completes two sequential turns from outside the source checkout;
-- the smoke uses packaged `world-agent-tool-stdio` and packaged JS/launcher files, not repository copies;
-- no provider/network credentials are needed;
-- malformed or missing packaged runtime pieces fail deterministically;
-- existing M220/M221/M222 tests remain unchanged in authority semantics;
+- deterministic tests for explicit executable paths, bare-name `PATH` resolution, non-executable/missing programs, and Finder-like limited `PATH`;
+- readiness never mutates a World or starts an analyst turn;
+- panel source remains above raw process/Pi layers;
+- existing M222/M223 cancellation and immutable-snapshot behavior remains unchanged;
+- M224 packaged-runtime smoke remains green;
 - standard Linux boundary/fmt/Clippy/workspace tests stay green;
 - full macOS/GPUI tests stay green;
-- `World Machine.app` still builds, validates, signs, archives, and uploads successfully.
+- `World Machine.app` still builds, validates, signs, passes the packaged analyst smoke, archives, and uploads successfully.
 
 ## Non-goals
 
-No token streaming UI, no concurrent asks, no provider settings redesign, no bundled Node/Pi distribution, no mutation tools, no HTTP/MCP/WebSocket server, and no protocol v2 in M224.
+No bundled Node/Pi distribution, no credential manager, no provider/model settings redesign, no token streaming UI, no concurrent asks, no mutation tools, no HTTP/MCP/WebSocket server, and no analyst protocol v2.
