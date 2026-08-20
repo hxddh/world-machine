@@ -1,7 +1,11 @@
-//! Resolve the external analyst runtime without leaking process paths into GPUI rendering code.
+//! Resolve the installed analyst runtime without leaking process or PATH details into GPUI code.
 
 use std::env;
 use std::path::{Path, PathBuf};
+use world_machine_desktop::analyst_readiness::{
+    self, DesktopAnalystRuntimeIssue, DesktopAnalystRuntimeIssueKind,
+    DesktopAnalystRuntimeReadiness,
+};
 use world_machine_desktop::analyst_session::DesktopAnalystConfig;
 
 const RUNTIME_ROOT_ENV: &str = "WORLD_MACHINE_ANALYST_RUNTIME_ROOT";
@@ -20,7 +24,14 @@ const CLIENT_MODULE: &str = "integrations/pi/world-machine-analyst-client.mjs";
 const LAUNCHER: &str = "scripts/run-pi-analyst.sh";
 const BUNDLED_ANALYST_PROGRAM: &str = "bin/world-agent-tool-stdio";
 
-pub(crate) fn discover() -> Result<DesktopAnalystConfig, String> {
+pub(crate) fn discover() -> DesktopAnalystRuntimeReadiness {
+    match discover_config() {
+        Ok(config) => analyst_readiness::check(config),
+        Err(issue) => DesktopAnalystRuntimeReadiness::Unavailable { issue },
+    }
+}
+
+fn discover_config() -> Result<DesktopAnalystConfig, DesktopAnalystRuntimeIssue> {
     let root = discover_root()?;
     validate_root(&root)?;
 
@@ -33,22 +44,10 @@ pub(crate) fn discover() -> Result<DesktopAnalystConfig, String> {
     config.model = env_value(MODEL_ENV);
     config.thinking = env_value(THINKING_ENV);
     config.timeout_ms = Some(TURN_TIMEOUT_MS);
-
-    let analyst_program = config
-        .analyst_program
-        .as_deref()
-        .expect("analyst program is always resolved");
-    if analyst_program.components().count() > 1 && !analyst_program.is_file() {
-        return Err(format!(
-            "World Machine analyst executable not found: {}",
-            analyst_program.display()
-        ));
-    }
-
     Ok(config)
 }
 
-fn discover_root() -> Result<PathBuf, String> {
+fn discover_root() -> Result<PathBuf, DesktopAnalystRuntimeIssue> {
     if let Some(root) = env_path(RUNTIME_ROOT_ENV) {
         return Ok(root);
     }
@@ -67,8 +66,11 @@ fn discover_root() -> Result<PathBuf, String> {
         }
     }
 
-    Err(format!(
-        "World Machine analyst runtime is unavailable. Expected a bundled `Analyst Runtime` resource or set {RUNTIME_ROOT_ENV}."
+    Err(DesktopAnalystRuntimeIssue::new(
+        DesktopAnalystRuntimeIssueKind::RuntimeUnavailable,
+        format!(
+            "World Machine analyst runtime is unavailable. Expected the bundled `Analyst Runtime` resource or set {RUNTIME_ROOT_ENV}."
+        ),
     ))
 }
 
@@ -84,13 +86,16 @@ fn bundled_runtime_root(executable: &Path) -> Option<PathBuf> {
     Some(contents.join("Resources").join("Analyst Runtime"))
 }
 
-fn validate_root(root: &Path) -> Result<(), String> {
+fn validate_root(root: &Path) -> Result<(), DesktopAnalystRuntimeIssue> {
     for relative in [TURN_HOST, RPC_MODULE, EXTENSION, CLIENT_MODULE, LAUNCHER] {
         let path = root.join(relative);
         if !path.is_file() {
-            return Err(format!(
-                "World Machine analyst runtime is incomplete: missing {}",
-                path.display()
+            return Err(DesktopAnalystRuntimeIssue::new(
+                DesktopAnalystRuntimeIssueKind::RuntimeIncomplete,
+                format!(
+                    "World Machine analyst runtime is incomplete: missing {}",
+                    path.display()
+                ),
             ));
         }
     }
