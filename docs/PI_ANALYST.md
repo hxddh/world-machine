@@ -117,6 +117,8 @@ Correlated error response:
 
 Per-turn request fields are strict. In particular, archive paths are not valid request fields.
 
+M227 adds an additive protocol-v1 startup probe used by the desktop before exposing a session as Ready. The probe sends no model prompt: M220 asks the already-started restricted Pi RPC process for `get_state`, verifies the post-catalog extension readiness marker through `get_commands`, and returns only `{type:"ready", id}`. Raw Pi state, provider/model details, and tool names are not exposed. The same long-lived Pi process is then reused by later `ask` requests.
+
 ## Safety properties
 
 Production analyst integration modules import no filesystem or network API and expose no arbitrary command execution. The Pi extension starts with no active tools and activates only catalog-derived read-only World Machine tools. The restricted launcher independently disables Pi built-ins and automatic resource discovery.

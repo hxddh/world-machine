@@ -13,6 +13,11 @@ pub const ANALYST_TURN_MAX_TIMEOUT_MS: u64 = 9_007_199_254_740_991;
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "kebab-case")]
 pub enum AnalystTurnRequest {
+    Probe {
+        id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        timeout_ms: Option<u64>,
+    },
     Ask {
         id: String,
         prompt: String,
@@ -74,6 +79,9 @@ pub struct AnalystRemoteError {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum AnalystTurnResponse {
+    Ready {
+        id: String,
+    },
     Result {
         id: String,
         turn: AnalystTurn,
@@ -233,6 +241,27 @@ where
     R: BufRead,
     W: Write,
 {
+    pub fn probe(&mut self, timeout_ms: Option<u64>) -> Result<(), AnalystTurnClientError> {
+        if self.poisoned {
+            return Err(AnalystTurnClientError::Poisoned);
+        }
+        validate_timeout(timeout_ms)?;
+
+        let id = format!("world-rust-analyst-{}", self.next_request_id);
+        self.next_request_id += 1;
+        let request = AnalystTurnRequest::Probe {
+            id: id.clone(),
+            timeout_ms,
+        };
+        match self.transact(&request, &id)? {
+            AnalystTurnResponse::Ready { .. } => Ok(()),
+            AnalystTurnResponse::Result { .. } => {
+                self.unexpected_response("analyst startup probe received a turn result")
+            }
+            AnalystTurnResponse::Error { error, .. } => self.remote_error(error),
+        }
+    }
+
     pub fn ask(
         &mut self,
         prompt: impl Into<String>,
@@ -248,13 +277,7 @@ where
                 "prompt must be a non-empty string".into(),
             ));
         }
-        if let Some(timeout_ms) = timeout_ms {
-            if timeout_ms == 0 || timeout_ms > ANALYST_TURN_MAX_TIMEOUT_MS {
-                return Err(AnalystTurnClientError::InvalidRequest(format!(
-                    "timeout_ms must be an integer in 1..={ANALYST_TURN_MAX_TIMEOUT_MS}"
-                )));
-            }
-        }
+        validate_timeout(timeout_ms)?;
 
         let id = format!("world-rust-analyst-{}", self.next_request_id);
         self.next_request_id += 1;
@@ -263,9 +286,22 @@ where
             prompt,
             timeout_ms,
         };
+        match self.transact(&request, &id)? {
+            AnalystTurnResponse::Result { turn, .. } => Ok(turn),
+            AnalystTurnResponse::Ready { .. } => {
+                self.unexpected_response("analyst ask received a startup-ready response")
+            }
+            AnalystTurnResponse::Error { error, .. } => self.remote_error(error),
+        }
+    }
 
+    fn transact(
+        &mut self,
+        request: &AnalystTurnRequest,
+        expected_id: &str,
+    ) -> Result<AnalystTurnResponse, AnalystTurnClientError> {
         let encoded =
-            serde_json::to_vec(&request).map_err(AnalystTurnClientError::SerializeRequest)?;
+            serde_json::to_vec(request).map_err(AnalystTurnClientError::SerializeRequest)?;
         if let Err(error) = self.writer.write_all(&encoded) {
             self.poisoned = true;
             return Err(AnalystTurnClientError::WriteRequest(error));
@@ -324,46 +360,61 @@ where
             });
         }
 
-        match envelope.response {
-            AnalystTurnResponse::Result { id: actual, turn } => {
-                if actual != id {
-                    self.poisoned = true;
-                    return Err(AnalystTurnClientError::CorrelationMismatch {
-                        expected: id,
-                        actual,
-                    });
-                }
-                Ok(turn)
+        let actual_id = response_id(&envelope.response).to_owned();
+        if actual_id != expected_id {
+            self.poisoned = true;
+            return Err(AnalystTurnClientError::CorrelationMismatch {
+                expected: expected_id.to_owned(),
+                actual: actual_id,
+            });
+        }
+        Ok(envelope.response)
+    }
+
+    fn remote_error<T>(&mut self, error: AnalystRemoteError) -> Result<T, AnalystTurnClientError> {
+        match (error.kind, error.fatal) {
+            (AnalystRemoteErrorKind::Command, false) => {
+                Err(AnalystTurnClientError::RemoteCommand(error))
             }
-            AnalystTurnResponse::Error { id: actual, error } => {
-                if actual != id {
-                    self.poisoned = true;
-                    return Err(AnalystTurnClientError::CorrelationMismatch {
-                        expected: id,
-                        actual,
-                    });
-                }
-                match (error.kind, error.fatal) {
-                    (AnalystRemoteErrorKind::Command, false) => {
-                        Err(AnalystTurnClientError::RemoteCommand(error))
-                    }
-                    (AnalystRemoteErrorKind::Protocol, true)
-                    | (AnalystRemoteErrorKind::Transport, true)
-                    | (AnalystRemoteErrorKind::Internal, true)
-                    | (AnalystRemoteErrorKind::Command, true) => {
-                        self.poisoned = true;
-                        Err(AnalystTurnClientError::RemoteFatal(error))
-                    }
-                    (_, false) => {
-                        self.poisoned = true;
-                        Err(AnalystTurnClientError::InvalidResponseShape(format!(
-                            "non-command remote error {:?} cannot be non-fatal",
-                            error.kind
-                        )))
-                    }
-                }
+            (AnalystRemoteErrorKind::Protocol, true)
+            | (AnalystRemoteErrorKind::Transport, true)
+            | (AnalystRemoteErrorKind::Internal, true)
+            | (AnalystRemoteErrorKind::Command, true) => {
+                self.poisoned = true;
+                Err(AnalystTurnClientError::RemoteFatal(error))
+            }
+            (_, false) => {
+                self.poisoned = true;
+                Err(AnalystTurnClientError::InvalidResponseShape(format!(
+                    "non-command remote error {:?} cannot be non-fatal",
+                    error.kind
+                )))
             }
         }
+    }
+
+    fn unexpected_response<T>(&mut self, message: &str) -> Result<T, AnalystTurnClientError> {
+        self.poisoned = true;
+        Err(AnalystTurnClientError::InvalidResponseShape(message.into()))
+    }
+}
+
+fn validate_timeout(timeout_ms: Option<u64>) -> Result<(), AnalystTurnClientError> {
+    if let Some(timeout_ms) = timeout_ms {
+        if timeout_ms == 0 || timeout_ms > ANALYST_TURN_MAX_TIMEOUT_MS {
+            return Err(AnalystTurnClientError::InvalidRequest(format!(
+                "timeout_ms must be an integer in 1..={ANALYST_TURN_MAX_TIMEOUT_MS}"
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn response_id(response: &AnalystTurnResponse) -> &str {
+    match response {
+        AnalystTurnResponse::Ready { id }
+        | AnalystTurnResponse::Result { id, .. }
+        | AnalystTurnResponse::Error { id, .. } => id,
     }
 }
 
@@ -375,6 +426,7 @@ fn validate_response_shape(value: &Value) -> Result<(), AnalystTurnClientError> 
         AnalystTurnClientError::InvalidResponseShape("response requires string `type`".into())
     })?;
     let allowed = match response_type {
+        "ready" => ["protocol", "version", "type", "id"].as_slice(),
         "result" => ["protocol", "version", "type", "id", "turn"].as_slice(),
         "error" => ["protocol", "version", "type", "id", "error"].as_slice(),
         other => {
@@ -488,6 +540,18 @@ impl AnalystTurnProcess {
         self.child.id()
     }
 
+    pub fn probe(&mut self, timeout_ms: Option<u64>) -> Result<(), AnalystTurnClientError> {
+        let Some(client) = self.client.as_mut() else {
+            return Err(AnalystTurnClientError::Poisoned);
+        };
+        let result = client.probe(timeout_ms);
+        if client.is_poisoned() {
+            self.client.take();
+            terminate_child(&mut self.child);
+        }
+        result
+    }
+
     pub fn ask(
         &mut self,
         prompt: impl Into<String>,
@@ -556,6 +620,39 @@ mod tests {
                 "runtime_errors": []
             }
         })
+    }
+
+    fn ready_response(id: &str) -> Value {
+        serde_json::json!({
+        "protocol": ANALYST_TURN_PROTOCOL,
+        "version": ANALYST_TURN_PROTOCOL_VERSION,
+        "type": "ready",
+        "id": id
+              })
+    }
+
+    #[test]
+    fn probe_serializes_request_and_accepts_provider_neutral_ready() {
+        let mut client = response_client(ready_response("world-rust-analyst-1"));
+        client.probe(Some(2500)).unwrap();
+        assert!(!client.is_poisoned());
+
+        let (_, written) = client.into_parts();
+        let request: Value = serde_json::from_slice(&written[..written.len() - 1]).unwrap();
+        assert_eq!(request["op"], "probe");
+        assert_eq!(request["id"], "world-rust-analyst-1");
+        assert_eq!(request["timeout_ms"], 2500);
+        assert!(request.get("prompt").is_none());
+    }
+
+    #[test]
+    fn probe_rejects_turn_result_and_poison_session() {
+        let mut client = response_client(success_response("world-rust-analyst-1"));
+        assert!(matches!(
+            client.probe(Some(2500)).unwrap_err(),
+            AnalystTurnClientError::InvalidResponseShape(_)
+        ));
+        assert!(client.is_poisoned());
     }
 
     #[test]
@@ -693,6 +790,34 @@ mod tests {
             AnalystTurnClientError::InvalidResponseShape(_)
         ));
     }
+    #[cfg(unix)]
+    #[test]
+    fn process_returns_poisoned_after_fatal_probe_teardown() {
+        let mut child = Command::new("sh")
+            .arg("-c")
+            .arg("exit 0")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let stdin = child.stdin.take().unwrap();
+        let stdout = child.stdout.take().unwrap();
+        let mut process = AnalystTurnProcess {
+            child,
+            client: Some(AnalystTurnClient::new(
+                BufReader::new(stdout),
+                BufWriter::new(stdin),
+            )),
+        };
+
+        let first = process.probe(Some(1000)).unwrap_err();
+        assert!(first.is_session_fatal());
+        assert!(matches!(
+            process.probe(Some(1000)).unwrap_err(),
+            AnalystTurnClientError::Poisoned
+        ));
+    }
+
     #[cfg(unix)]
     #[test]
     fn process_returns_poisoned_after_fatal_teardown() {

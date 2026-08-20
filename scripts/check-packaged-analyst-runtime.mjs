@@ -81,6 +81,7 @@ async function main() {
     );
     child.stdin.on("error", () => {});
 
+    child.stdin.write(`${JSON.stringify({ id: "smoke-probe", op: "probe", timeout_ms: 5000 })}\n`);
     child.stdin.write(`${JSON.stringify({ id: "smoke-1", op: "ask", prompt: "first packaged turn" })}\n`);
     child.stdin.write(`${JSON.stringify({ id: "smoke-2", op: "ask", prompt: "second packaged turn" })}\n`);
     child.stdin.end();
@@ -108,9 +109,11 @@ async function main() {
       .split("\n")
       .filter(Boolean)
       .map((line) => JSON.parse(line));
-    assert.equal(responses.length, 2, stdout);
-    assertTurn(responses[0], 1);
-    assertTurn(responses[1], 2);
+    assert.equal(responses.length, 3, stdout);
+    assert.equal(responses[0].type, "ready");
+    assert.equal(responses[0].id, "smoke-probe");
+    assertTurn(responses[1], 1);
+    assertTurn(responses[2], 2);
 
     const serializedResponses = JSON.stringify(responses);
     assert.equal(
@@ -300,6 +303,7 @@ async function main() {
 
   const handlers = new Map();
   const tools = new Map();
+  const commands = new Map();
   let activeTools = [];
   const pi = {
     on(event, handler) {
@@ -314,6 +318,9 @@ async function main() {
       assert.equal(typeof tool?.name, "string");
       tools.set(tool.name, tool);
     },
+    registerCommand(name, command) {
+      commands.set(name, command);
+    },
   };
 
   const extension = (await import(pathToFileURL(extensionPath).href)).default;
@@ -321,6 +328,7 @@ async function main() {
   extension(pi);
   await fire(handlers, "session_start");
   assert.ok(activeTools.includes("world_first_divergence"));
+  assert.ok(commands.has("world-machine-analyst-ready"), "packaged extension did not expose readiness marker");
   const tool = tools.get("world_first_divergence");
   assert.ok(tool, "packaged extension did not register world_first_divergence");
   await log(logPath, { type: "start", pid: process.pid, cwd: process.cwd(), extension: extensionPath });
@@ -330,6 +338,28 @@ async function main() {
   for await (const line of lines) {
     if (!line) continue;
     const request = JSON.parse(line);
+    if (request.type === "get_state") {
+      emit({
+        type: "response",
+        id: request.id,
+        command: "get_state",
+        success: true,
+        data: { model: null, thinkingLevel: "off", isStreaming: false, isCompacting: false }
+      });
+      continue;
+    }
+    if (request.type === "get_commands") {
+      emit({
+        type: "response",
+        id: request.id,
+        command: "get_commands",
+        success: true,
+        data: {
+commands: [...commands.keys()].map((name) => ({ name, source: "extension" }))
+        }
+      });
+      continue;
+    }
     assert.equal(request.type, "prompt");
     assert.equal(typeof request.id, "string");
     turn += 1;

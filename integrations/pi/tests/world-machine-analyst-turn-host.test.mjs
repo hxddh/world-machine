@@ -19,7 +19,13 @@ class ScriptedSession {
   constructor(script) {
     this.script = [...script];
     this.prompts = [];
+    this.probes = [];
     this.shutdownCount = 0;
+  }
+
+  async probe(options) {
+    this.probes.push(options);
+    return { requestId: "probe" };
   }
 
   async prompt(prompt, options) {
@@ -87,6 +93,20 @@ test("host maps a completed analyst turn into provider-neutral protocol v1", asy
   assert.deepEqual(session.prompts, [{ prompt: "What changed?", options: { timeoutMs: 5000 } }]);
 });
 
+test("startup probe is provider-neutral and does not dispatch a model prompt", async () => {
+  const session = new ScriptedSession([]);
+  const host = new AnalystTurnHost(session);
+  const response = await host.handle({ id: "probe-1", op: "probe", timeout_ms: 2500 });
+  assert.deepEqual(response, {
+    protocol: ANALYST_TURN_PROTOCOL,
+    version: ANALYST_TURN_PROTOCOL_VERSION,
+    type: "ready",
+    id: "probe-1",
+  });
+  assert.deepEqual(session.probes, [{ timeoutMs: 2500 }]);
+  assert.deepEqual(session.prompts, []);
+});
+
 test("command errors are correlated and non-fatal while protocol errors are fatal", async () => {
   const session = new ScriptedSession([
     new PiAnalystRpcCommandError("rejected", { reason: "busy", provider_response: "opaque" }),
@@ -141,6 +161,26 @@ process.stdin.on("data", (chunk) => {
     buffer = buffer.subarray(newline + 1);
     if (!line) continue;
     const request = JSON.parse(line);
+    if (request.type === "get_state") {
+      emit({
+        type: "response",
+        id: request.id,
+        command: "get_state",
+        success: true,
+        data: { model: null, thinkingLevel: "off", isStreaming: false, isCompacting: false }
+      });
+      continue;
+    }
+    if (request.type === "get_commands") {
+      emit({
+        type: "response",
+        id: request.id,
+        command: "get_commands",
+        success: true,
+        data: { commands: [{ name: "world-machine-analyst-ready", source: "extension" }] }
+      });
+      continue;
+    }
     turn += 1;
     emit({ type: "response", id: request.id, command: "prompt", success: true });
     emit({ type: "tool_execution_start", toolCallId: "tool-" + turn, toolName: "world_first_divergence", args: { root: "event-" + turn } });
@@ -178,6 +218,7 @@ function emit(value) { process.stdout.write(JSON.stringify(value) + "\\n"); }
   });
   const exit = new Promise((resolveCode) => child.on("exit", (exitCode) => resolveCode(exitCode)));
 
+  child.stdin.write(`${JSON.stringify({ id: "probe-1", op: "probe", timeout_ms: 2000 })}\n`);
   child.stdin.write(`${JSON.stringify({ id: "ask-1", op: "ask", prompt: "first" })}\n`);
   child.stdin.write(`${JSON.stringify({ id: "ask-2", op: "ask", prompt: "second" })}\n`);
   child.stdin.end();
@@ -191,20 +232,22 @@ function emit(value) { process.stdout.write(JSON.stringify(value) + "\\n"); }
 
   assert.equal(code, 0, stderr);
   const responses = stdout.trim().split("\n").map((line) => JSON.parse(line));
-  assert.equal(responses.length, 2);
-  assert.equal(responses[0].id, "ask-1");
-  assert.equal(responses[0].turn.text, "answer-1");
-  assert.deepEqual(responses[0].turn.tool_calls[0], {
+  assert.equal(responses.length, 3);
+  assert.equal(responses[0].type, "ready");
+  assert.equal(responses[0].id, "probe-1");
+  assert.equal(responses[1].id, "ask-1");
+  assert.equal(responses[1].turn.text, "answer-1");
+  assert.deepEqual(responses[1].turn.tool_calls[0], {
     call_id: "tool-1",
     tool: "world.first-divergence",
     input: { root: "event-1" },
     output: { turn: 1 },
     is_error: false,
   });
-  assert.equal(responses[1].id, "ask-2");
-  assert.equal(responses[1].turn.text, "answer-2");
-  assert.equal(responses[1].turn.tool_calls[0].call_id, "tool-2");
-  assert.equal(responses[1].turn.tool_calls[0].tool, "world.first-divergence");
+  assert.equal(responses[2].id, "ask-2");
+  assert.equal(responses[2].turn.text, "answer-2");
+  assert.equal(responses[2].turn.tool_calls[0].call_id, "tool-2");
+  assert.equal(responses[2].turn.tool_calls[0].tool, "world.first-divergence");
   assert.equal(JSON.stringify(responses).includes("provider-only"), false);
   assert.equal(JSON.stringify(responses).includes("world_first_divergence"), false);
 });

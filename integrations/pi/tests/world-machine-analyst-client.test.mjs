@@ -81,6 +81,7 @@ test("actual Pi extension registers the host catalog and executes through it", a
 
   const handlers = new Map();
   const registered = [];
+  const registeredCommands = [];
   const activeHistory = [];
   const pi = {
     on(event, handler) {
@@ -92,6 +93,9 @@ test("actual Pi extension registers the host catalog and executes through it", a
     registerTool(tool) {
       registered.push(tool);
     },
+    registerCommand(name, command) {
+      registeredCommands.push({ name, command });
+    },
   };
 
   worldMachineAnalyst(pi);
@@ -100,6 +104,8 @@ test("actual Pi extension registers the host catalog and executes through it", a
     assert.deepEqual(activeHistory[0], []);
     assert.deepEqual(activeHistory.at(-1), ["world_first_divergence"]);
     assert.equal(registered.length, 1);
+    assert.equal(registeredCommands.length, 1);
+    assert.equal(registeredCommands[0].name, "world-machine-analyst-ready");
 
     const tool = registered[0];
     assert.equal(tool.name, "world_first_divergence");

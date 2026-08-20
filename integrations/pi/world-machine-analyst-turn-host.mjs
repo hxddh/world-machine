@@ -23,24 +23,29 @@ export class AnalystTurnHost {
   }
 
   async handle(request, { signal } = {}) {
-    const parsed = parseRequest(request);
-    try {
-      const options = { timeoutMs: parsed.timeoutMs };
-      if (signal !== undefined) options.signal = signal;
-      const turn = await this.session.prompt(parsed.prompt, options);
-      return envelope({
-        type: "result",
-        id: parsed.id,
-        turn: normalizeTurn(turn),
-      });
-    } catch (error) {
-      return envelope({
-        type: "error",
-        id: parsed.id,
-        error: mapSessionError(error),
-      });
+  const parsed = parseRequest(request);
+  try {
+    const options = {};
+    if (parsed.timeoutMs !== undefined) options.timeoutMs = parsed.timeoutMs;
+    if (signal !== undefined) options.signal = signal;
+    if (parsed.op === "probe") {
+      await this.session.probe(options);
+      return envelope({ type: "ready", id: parsed.id });
     }
+    const turn = await this.session.prompt(parsed.prompt, options);
+    return envelope({
+      type: "result",
+      id: parsed.id,
+      turn: normalizeTurn(turn),
+    });
+  } catch (error) {
+    return envelope({
+      type: "error",
+      id: parsed.id,
+      error: mapSessionError(error),
+    });
   }
+}
 
   async shutdown() {
     await this.session.shutdown();
@@ -98,19 +103,21 @@ function parseRequest(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new AnalystTurnHostInputError("analyst turn request must be a JSON object");
   }
-  const allowed = new Set(["id", "op", "prompt", "timeout_ms"]);
+  if (value.op !== "ask" && value.op !== "probe") {
+    throw new AnalystTurnHostInputError("analyst turn request op must be `ask` or `probe`");
+  }
+  const allowed = value.op === "ask"
+    ? new Set(["id", "op", "prompt", "timeout_ms"])
+    : new Set(["id", "op", "timeout_ms"]);
   for (const key of Object.keys(value)) {
     if (!allowed.has(key)) {
       throw new AnalystTurnHostInputError(`unknown analyst turn request field: ${key}`);
     }
   }
-  if (value.op !== "ask") {
-    throw new AnalystTurnHostInputError("analyst turn request op must be `ask`");
-  }
   if (typeof value.id !== "string" || value.id.length === 0) {
     throw new AnalystTurnHostInputError("analyst turn request id must be a non-empty string");
   }
-  if (typeof value.prompt !== "string" || value.prompt.length === 0) {
+  if (value.op === "ask" && (typeof value.prompt !== "string" || value.prompt.length === 0)) {
     throw new AnalystTurnHostInputError("analyst turn request prompt must be a non-empty string");
   }
   let timeoutMs;
@@ -122,6 +129,7 @@ function parseRequest(value) {
   }
   return {
     id: value.id,
+    op: value.op,
     prompt: value.prompt,
     timeoutMs,
   };
