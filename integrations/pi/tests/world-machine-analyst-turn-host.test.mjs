@@ -167,7 +167,12 @@ process.stdin.on("data", (chunk) => {
         id: request.id,
         command: "get_state",
         success: true,
-        data: { model: null, thinkingLevel: "off", isStreaming: false, isCompacting: false }
+        data: {
+          model: { provider: "fake", id: "fake-model" },
+          thinkingLevel: "off",
+          isStreaming: false,
+          isCompacting: false
+        }
       });
       continue;
     }
