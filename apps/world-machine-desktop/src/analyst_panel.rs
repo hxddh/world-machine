@@ -479,6 +479,7 @@ impl AnalystPanelView {
                             &mut this.phase,
                             &mut this.history,
                             &mut this.runtime,
+                            &mut this.failed_question,
                             &mut this.last_error,
                         );
                         debug_assert!(transitioned);
@@ -1058,6 +1059,7 @@ fn reset_new_comparison_state<T>(
     phase: &mut PanelPhase,
     history: &mut Vec<PanelTurn>,
     runtime: &mut Option<T>,
+    failed_question: &mut Option<String>,
     last_error: &mut Option<String>,
 ) -> bool {
     if !matches!(phase, PanelPhase::Active) {
@@ -1066,6 +1068,7 @@ fn reset_new_comparison_state<T>(
     *phase = PanelPhase::Setup;
     history.clear();
     *runtime = None;
+    *failed_question = None;
     *last_error = None;
     true
 }
@@ -1302,17 +1305,20 @@ mod tests {
         let mut phase = PanelPhase::Active;
         let mut history = vec![panel_turn("old question", "old answer")];
         let mut runtime = Some("stale readiness");
+        let mut failed_question = Some("old failed question".into());
         let mut last_error = Some("old warning".into());
 
         assert!(reset_new_comparison_state(
             &mut phase,
             &mut history,
             &mut runtime,
+            &mut failed_question,
             &mut last_error,
         ));
         assert_eq!(phase, PanelPhase::Setup);
         assert!(history.is_empty());
         assert_eq!(runtime, None);
+        assert_eq!(failed_question, None);
         assert_eq!(last_error, None);
     }
 
@@ -1321,17 +1327,20 @@ mod tests {
         let mut phase = PanelPhase::Fatal("transport ended".into());
         let mut history = vec![panel_turn("question", "answer")];
         let mut runtime = Some("current readiness");
+        let mut failed_question = Some("failed question".into());
         let mut last_error = Some("transport ended".into());
 
         assert!(!reset_new_comparison_state(
             &mut phase,
             &mut history,
             &mut runtime,
+            &mut failed_question,
             &mut last_error,
         ));
         assert!(matches!(phase, PanelPhase::Fatal(_)));
         assert_eq!(history.len(), 1);
         assert_eq!(runtime, Some("current readiness"));
+        assert_eq!(failed_question.as_deref(), Some("failed question"));
         assert_eq!(last_error.as_deref(), Some("transport ended"));
     }
 
