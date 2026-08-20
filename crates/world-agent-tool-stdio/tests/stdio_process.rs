@@ -3,9 +3,12 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use world_agent_tool_stdio::ReadOnlyJsonToolStdioProcess;
 use world_projection::SelectionId;
+
+static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 #[test]
 fn stdio_process_lists_tools_and_invokes_first_divergence_in_one_session() {
@@ -210,8 +213,9 @@ fn temp_world_path(label: &str) -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
+    let sequence = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
     std::env::temp_dir().join(format!(
-        "world-machine-m217-stdio-{}-{nonce}-{label}.world",
+        "world-machine-m217-stdio-{}-{nonce}-{sequence}-{label}.world",
         std::process::id()
     ))
 }
