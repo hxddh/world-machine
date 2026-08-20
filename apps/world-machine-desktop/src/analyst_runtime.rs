@@ -97,22 +97,20 @@ pub(crate) fn save_program(program: AnalystRuntimeProgram, path: PathBuf) -> Res
         ));
     }
     let root = analyst_settings::application_support_root().map_err(|error| error.to_string())?;
-    let mut settings = analyst_settings::load(&root).map_err(|error| error.to_string())?;
-    match program {
-        AnalystRuntimeProgram::Node => settings.node_program = Some(path),
-        AnalystRuntimeProgram::Pi => settings.pi_program = Some(path),
-    }
-    analyst_settings::save(&root, &settings).map_err(|error| error.to_string())
+    let result = match program {
+        AnalystRuntimeProgram::Node => analyst_settings::save_node_program(&root, path),
+        AnalystRuntimeProgram::Pi => analyst_settings::save_pi_program(&root, path),
+    };
+    result.map_err(|error| error.to_string())
 }
 
 pub(crate) fn clear_program(program: AnalystRuntimeProgram) -> Result<(), String> {
     let root = analyst_settings::application_support_root().map_err(|error| error.to_string())?;
-    let mut settings = analyst_settings::load(&root).map_err(|error| error.to_string())?;
-    match program {
-        AnalystRuntimeProgram::Node => settings.node_program = None,
-        AnalystRuntimeProgram::Pi => settings.pi_program = None,
-    }
-    analyst_settings::save(&root, &settings).map_err(|error| error.to_string())
+    let result = match program {
+        AnalystRuntimeProgram::Node => analyst_settings::clear_node_program(&root),
+        AnalystRuntimeProgram::Pi => analyst_settings::clear_pi_program(&root),
+    };
+    result.map_err(|error| error.to_string())
 }
 
 fn environment_controls(program: AnalystRuntimeProgram) -> bool {
