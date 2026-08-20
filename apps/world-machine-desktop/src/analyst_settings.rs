@@ -4,9 +4,11 @@ use std::fmt;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 const SETTINGS_VERSION: u32 = 1;
 const SETTINGS_FILE_NAME: &str = "Analyst Settings.json";
+static SAVE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -155,21 +157,45 @@ pub fn save(
         ))
     })?;
     let target = settings_path(root);
-    let temp = root.join(format!(".{SETTINGS_FILE_NAME}.tmp-{}", std::process::id()));
+    let sequence = SAVE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    let temp = root.join(format!(
+        ".{SETTINGS_FILE_NAME}.tmp-{}-{sequence}",
+        std::process::id()
+    ));
     let payload = serde_json::to_vec_pretty(settings)
         .map_err(|error| DesktopAnalystSettingsError::Malformed(error.to_string()))?;
+
+    let write_result = write_temporary_settings(&temp, &payload);
+    if let Err(error) = write_result {
+        let _ = fs::remove_file(&temp);
+        return Err(error);
+    }
+
+    fs::rename(&temp, &target).map_err(|error| {
+        let _ = fs::remove_file(&temp);
+        DesktopAnalystSettingsError::Io(format!(
+            "World Analyst could not replace settings at {}: {error}",
+            target.display()
+        ))
+    })?;
+    Ok(())
+}
+
+fn write_temporary_settings(
+    temp: &Path,
+    payload: &[u8],
+) -> Result<(), DesktopAnalystSettingsError> {
     let mut file = OpenOptions::new()
-        .create(true)
-        .truncate(true)
+        .create_new(true)
         .write(true)
-        .open(&temp)
+        .open(temp)
         .map_err(|error| {
             DesktopAnalystSettingsError::Io(format!(
                 "World Analyst could not write temporary settings {}: {error}",
                 temp.display()
             ))
         })?;
-    file.write_all(&payload).map_err(|error| {
+    file.write_all(payload).map_err(|error| {
         DesktopAnalystSettingsError::Io(format!(
             "World Analyst could not write temporary settings {}: {error}",
             temp.display()
@@ -185,14 +211,6 @@ pub fn save(
         DesktopAnalystSettingsError::Io(format!(
             "World Analyst could not sync temporary settings {}: {error}",
             temp.display()
-        ))
-    })?;
-    drop(file);
-    fs::rename(&temp, &target).map_err(|error| {
-        let _ = fs::remove_file(&temp);
-        DesktopAnalystSettingsError::Io(format!(
-            "World Analyst could not replace settings at {}: {error}",
-            target.display()
         ))
     })?;
     Ok(())
@@ -243,7 +261,6 @@ fn select_program(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(1);
