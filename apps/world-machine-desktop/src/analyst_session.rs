@@ -24,6 +24,22 @@ pub enum DesktopAnalystState {
     Closed,
 }
 
+#[derive(Clone, Debug)]
+pub struct DesktopAnalystExchange {
+    prompt: String,
+    turn: AnalystTurn,
+}
+
+impl DesktopAnalystExchange {
+    pub fn prompt(&self) -> &str {
+        &self.prompt
+    }
+
+    pub fn turn(&self) -> &AnalystTurn {
+        &self.turn
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DesktopAnalystConfig {
     pub node_program: PathBuf,
@@ -278,7 +294,7 @@ struct SessionCore<P: AnalystSessionProcess> {
     process: Option<P>,
     cancellation: Option<DesktopAnalystCancellation>,
     state: DesktopAnalystState,
-    turns: Vec<AnalystTurn>,
+    exchanges: Vec<DesktopAnalystExchange>,
     timeout_ms: Option<u64>,
 }
 
@@ -314,7 +330,7 @@ impl<P: AnalystSessionProcess> SessionCore<P> {
             process: Some(process),
             cancellation,
             state: DesktopAnalystState::Ready,
-            turns: Vec::new(),
+            exchanges: Vec::new(),
             timeout_ms: config.timeout_ms,
         })
     }
@@ -336,9 +352,12 @@ impl<P: AnalystSessionProcess> SessionCore<P> {
             .ok_or(DesktopAnalystSessionError::Closed)?;
         match process.ask(prompt, self.timeout_ms) {
             Ok(turn) => {
-                self.turns.push(turn.clone());
+                self.exchanges.push(DesktopAnalystExchange {
+                    prompt: prompt.to_owned(),
+                    turn: turn.clone(),
+                });
                 self.state = DesktopAnalystState::Answer {
-                    turn_index: self.turns.len() - 1,
+                    turn_index: self.exchanges.len() - 1,
                 };
                 Ok(turn)
             }
@@ -421,8 +440,16 @@ impl DesktopAnalystSession {
         &self.inner.state
     }
 
-    pub fn turns(&self) -> &[AnalystTurn] {
-        &self.inner.turns
+    pub fn exchanges(&self) -> &[DesktopAnalystExchange] {
+        &self.inner.exchanges
+    }
+
+    pub fn turns(&self) -> Vec<&AnalystTurn> {
+        self.inner
+            .exchanges
+            .iter()
+            .map(DesktopAnalystExchange::turn)
+            .collect()
     }
 
     pub fn cancellation_handle(&self) -> Option<DesktopAnalystCancellation> {
@@ -803,7 +830,7 @@ mod tests {
     }
 
     #[test]
-    fn successful_asks_retain_turns_and_advance_answer_state() {
+    fn successful_asks_retain_exchanges_and_advance_answer_state() {
         let fixture = Fixture::new("answers");
         let shutdowns = Arc::new(AtomicUsize::new(0));
         let mut session = fixture.session_with(
@@ -814,7 +841,11 @@ mod tests {
         assert_eq!(session.ask("first").unwrap().text.as_deref(), Some("one"));
         assert_eq!(session.state, DesktopAnalystState::Answer { turn_index: 0 });
         assert_eq!(session.ask("second").unwrap().text.as_deref(), Some("two"));
-        assert_eq!(session.turns.len(), 2);
+        assert_eq!(session.exchanges.len(), 2);
+        assert_eq!(session.exchanges[0].prompt(), "first");
+        assert_eq!(session.exchanges[0].turn().text.as_deref(), Some("one"));
+        assert_eq!(session.exchanges[1].prompt(), "second");
+        assert_eq!(session.exchanges[1].turn().text.as_deref(), Some("two"));
         assert_eq!(session.state, DesktopAnalystState::Answer { turn_index: 1 });
 
         session.close().unwrap();
@@ -823,7 +854,7 @@ mod tests {
     }
 
     #[test]
-    fn nonfatal_errors_are_recoverable_and_reuse_process() {
+    fn nonfatal_errors_are_recoverable_and_reuse_process_without_fake_exchange() {
         let fixture = Fixture::new("recoverable");
         let shutdowns = Arc::new(AtomicUsize::new(0));
         let mut session = fixture.session_with(
@@ -839,17 +870,21 @@ mod tests {
             session.state,
             DesktopAnalystState::RecoverableError { .. }
         ));
+        assert!(session.exchanges.is_empty());
         assert_eq!(shutdowns.load(Ordering::SeqCst), 0);
 
         assert_eq!(
             session.ask("retry").unwrap().text.as_deref(),
             Some("recovered")
         );
+        assert_eq!(session.exchanges.len(), 1);
+        assert_eq!(session.exchanges[0].prompt(), "retry");
+        assert_eq!(session.exchanges[0].turn().text.as_deref(), Some("recovered"));
         assert_eq!(shutdowns.load(Ordering::SeqCst), 0);
     }
 
     #[test]
-    fn fatal_client_error_closes_process_cleans_snapshots_and_prevents_later_ask() {
+    fn fatal_client_error_closes_process_cleans_snapshots_and_does_not_append_exchange() {
         let fixture = Fixture::new("fatal");
         let shutdowns = Arc::new(AtomicUsize::new(0));
         let mut session = fixture.session_with(
@@ -871,6 +906,7 @@ mod tests {
             session.state,
             DesktopAnalystState::FatalError { .. }
         ));
+        assert!(session.exchanges.is_empty());
         assert_eq!(shutdowns.load(Ordering::SeqCst), 1);
         assert!(!left_snapshot.exists());
         assert!(session.archives.is_none());
@@ -878,6 +914,7 @@ mod tests {
             session.ask("again").unwrap_err(),
             DesktopAnalystSessionError::FatalSession(_)
         ));
+        assert!(session.exchanges.is_empty());
         assert_eq!(shutdowns.load(Ordering::SeqCst), 1);
     }
 
