@@ -39,6 +39,75 @@ jobs:
           awk '/python3 - <<'\''PY'\''/{block+=1; next} /^          PY$/{if(block==2){exit}; next} block==2{sub(/^          /, ""); print}' \
             .github/workflows/m227-kick-v3.yml > /tmp/m227-harden.py
           test -s /tmp/m227-harden.py
+          python3 - <<'PY'
+          from pathlib import Path
+
+          READY = 'world-machine-analyst-ready'
+
+          def patch_range(path, start_marker, end_marker, anchor, insertion, label):
+              p = Path(path)
+              s = p.read_text()
+              a = s.find(start_marker)
+              b = s.find(end_marker, a + 1) if a >= 0 else -1
+              if a < 0 or b < 0:
+                  raise SystemExit(f'could not locate {label} test range')
+              part = s[a:b]
+              if READY not in part:
+                  at = part.find(anchor)
+                  if at < 0:
+                      raise SystemExit(f'could not locate {label} insertion anchor')
+                  part = part[:at] + insertion + part[at:]
+                  s = s[:a] + part + s[b:]
+                  p.write_text(s)
+
+          patch_range(
+              'integrations/pi/tests/world-machine-analyst-rpc.test.mjs',
+              'test("startup probe uses get_state without consuming prompt correlation"',
+              'test("tool failures remain telemetry instead of transport failures"',
+              '                  emit({ type: "response", id: request.id, command: "prompt", success: true });',
+              f'''                  if (request.type === "get_commands") {{
+                    emit({{
+                      type: "response",
+                      id: request.id,
+                      command: "get_commands",
+                      success: true,
+                      data: {{ commands: [{{ name: "{READY}", source: "extension" }}] }}
+                    }});
+                    continue;
+                  }}
+''',
+              'RPC probe',
+          )
+          patch_range(
+              'integrations/pi/tests/world-machine-analyst-turn-host.test.mjs',
+              'test("real turn-host process reuses one restricted Pi child for two asks"',
+              'async function collect(stream)',
+              '    turn += 1;',
+              f'''    if (request.type === "get_commands") {{
+      emit({{
+        type: "response",
+        id: request.id,
+        command: "get_commands",
+        success: true,
+        data: {{ commands: [{{ name: "{READY}", source: "extension" }}] }}
+      }});
+      continue;
+    }}
+''',
+              'turn-host probe',
+          )
+
+          p = Path('/tmp/m227-harden.py')
+          s = p.read_text()
+          for call in [
+              "s = replace_once(s, state_branch, commands_branch, 'rpc test get_commands readiness')",
+              "s = replace_once(s, state_branch, commands_branch, 'turn host test readiness marker')",
+          ]:
+              if call not in s:
+                  raise SystemExit(f'missing hardening call to bypass: {call}')
+              s = s.replace(call, 's = s', 1)
+          p.write_text(s)
+          PY
           python3 /tmp/m227-harden.py
           cargo fmt --all
           git diff --check
