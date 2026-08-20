@@ -4,11 +4,15 @@ use std::fmt;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Mutex,
+};
 
 const SETTINGS_VERSION: u32 = 1;
 const SETTINGS_FILE_NAME: &str = "Analyst Settings.json";
 static SAVE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+static SETTINGS_UPDATE_LOCK: Mutex<()> = Mutex::new(());
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -181,6 +185,47 @@ pub fn save(
     Ok(())
 }
 
+pub fn save_node_program(
+    root: &Path,
+    path: PathBuf,
+) -> Result<(), DesktopAnalystSettingsError> {
+    update_settings(root, move |settings| settings.node_program = Some(path))
+}
+
+pub fn save_pi_program(
+    root: &Path,
+    path: PathBuf,
+) -> Result<(), DesktopAnalystSettingsError> {
+    update_settings(root, move |settings| settings.pi_program = Some(path))
+}
+
+pub fn clear_node_program(root: &Path) -> Result<(), DesktopAnalystSettingsError> {
+    update_settings(root, |settings| settings.node_program = None)
+}
+
+pub fn clear_pi_program(root: &Path) -> Result<(), DesktopAnalystSettingsError> {
+    update_settings(root, |settings| settings.pi_program = None)
+}
+
+pub fn clear_programs(root: &Path) -> Result<(), DesktopAnalystSettingsError> {
+    update_settings(root, |settings| {
+        settings.node_program = None;
+        settings.pi_program = None;
+    })
+}
+
+fn update_settings(
+    root: &Path,
+    update: impl FnOnce(&mut DesktopAnalystSettings),
+) -> Result<(), DesktopAnalystSettingsError> {
+    let _guard = SETTINGS_UPDATE_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut settings = load(root)?;
+    update(&mut settings);
+    save(root, &settings)
+}
+
 fn write_temporary_settings(
     temp: &Path,
     payload: &[u8],
@@ -261,6 +306,8 @@ fn select_program(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Arc, Barrier};
+    use std::thread;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(1);
@@ -329,24 +376,38 @@ mod tests {
         let path = settings_path(&fixture.root);
         fs::write(&path, "{not-json").unwrap();
         assert!(matches!(
-            load(&fixture.root),
+            save_node_program(&fixture.root, PathBuf::from("/new/node")),
             Err(DesktopAnalystSettingsError::Malformed(_))
         ));
         assert_eq!(fs::read_to_string(path).unwrap(), "{not-json");
     }
 
     #[test]
-    fn unsupported_version_is_rejected() {
+    fn unsupported_version_is_rejected_without_data_loss() {
+        let fixture = Fixture::new();
+        fs::create_dir_all(&fixture.root).unwrap();
+        let path = settings_path(&fixture.root);
+        let contents = r#"{"version":2,"node_program":null,"pi_program":null}"#;
+        fs::write(&path, contents).unwrap();
+        assert!(matches!(
+            clear_programs(&fixture.root),
+            Err(DesktopAnalystSettingsError::UnsupportedVersion(2))
+        ));
+        assert_eq!(fs::read_to_string(path).unwrap(), contents);
+    }
+
+    #[test]
+    fn unknown_fields_are_rejected() {
         let fixture = Fixture::new();
         fs::create_dir_all(&fixture.root).unwrap();
         fs::write(
             settings_path(&fixture.root),
-            r#"{"version":2,"node_program":null,"pi_program":null}"#,
+            r#"{"version":1,"node_program":null,"pi_program":null,"provider":"x"}"#,
         )
         .unwrap();
         assert!(matches!(
             load(&fixture.root),
-            Err(DesktopAnalystSettingsError::UnsupportedVersion(2))
+            Err(DesktopAnalystSettingsError::Malformed(_))
         ));
     }
 
@@ -371,6 +432,61 @@ mod tests {
         assert_eq!(defaults.node.source, DesktopAnalystProgramSource::Default);
         assert_eq!(defaults.pi.program, PathBuf::from("pi"));
         assert_eq!(defaults.pi.source, DesktopAnalystProgramSource::Default);
+    }
+
+    #[test]
+    fn field_updates_preserve_each_other_and_clear_individually_or_together() {
+        let fixture = Fixture::new();
+        save_node_program(&fixture.root, PathBuf::from("/saved/node")).unwrap();
+        save_pi_program(&fixture.root, PathBuf::from("/saved/pi")).unwrap();
+        assert_eq!(
+            load(&fixture.root).unwrap(),
+            DesktopAnalystSettings {
+                version: SETTINGS_VERSION,
+                node_program: Some(PathBuf::from("/saved/node")),
+                pi_program: Some(PathBuf::from("/saved/pi")),
+            }
+        );
+
+        clear_node_program(&fixture.root).unwrap();
+        let after_node_clear = load(&fixture.root).unwrap();
+        assert_eq!(after_node_clear.node_program, None);
+        assert_eq!(after_node_clear.pi_program, Some(PathBuf::from("/saved/pi")));
+
+        clear_programs(&fixture.root).unwrap();
+        assert_eq!(
+            load(&fixture.root).unwrap(),
+            DesktopAnalystSettings::empty()
+        );
+    }
+
+    #[test]
+    fn concurrent_node_and_pi_updates_do_not_drop_a_field() {
+        let fixture = Fixture::new();
+        let root = Arc::new(fixture.root.clone());
+        let barrier = Arc::new(Barrier::new(3));
+
+        let node_root = Arc::clone(&root);
+        let node_barrier = Arc::clone(&barrier);
+        let node = thread::spawn(move || {
+            node_barrier.wait();
+            save_node_program(node_root.as_ref(), PathBuf::from("/concurrent/node")).unwrap();
+        });
+
+        let pi_root = Arc::clone(&root);
+        let pi_barrier = Arc::clone(&barrier);
+        let pi = thread::spawn(move || {
+            pi_barrier.wait();
+            save_pi_program(pi_root.as_ref(), PathBuf::from("/concurrent/pi")).unwrap();
+        });
+
+        barrier.wait();
+        node.join().unwrap();
+        pi.join().unwrap();
+
+        let settings = load(root.as_ref()).unwrap();
+        assert_eq!(settings.node_program, Some(PathBuf::from("/concurrent/node")));
+        assert_eq!(settings.pi_program, Some(PathBuf::from("/concurrent/pi")));
     }
 
     #[test]
