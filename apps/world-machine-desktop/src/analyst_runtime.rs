@@ -1,6 +1,7 @@
 //! Resolve the installed analyst runtime without leaking process or PATH details into GPUI code.
 
 use std::env;
+use std::fs::File;
 use std::path::{Path, PathBuf};
 use world_machine_desktop::analyst_readiness::{
     self, DesktopAnalystRuntimeIssue, DesktopAnalystRuntimeIssueKind,
@@ -111,6 +112,15 @@ fn validate_root(root: &Path) -> Result<(), DesktopAnalystRuntimeIssue> {
                 DesktopAnalystRuntimeIssueKind::RuntimeIncomplete,
                 format!(
                     "World Machine analyst runtime is incomplete: missing {}",
+                    path.display()
+                ),
+            ));
+        }
+        if File::open(&path).is_err() {
+            return Err(DesktopAnalystRuntimeIssue::new(
+                DesktopAnalystRuntimeIssueKind::RuntimeIncomplete,
+                format!(
+                    "World Machine analyst runtime is incomplete: {} is not readable by the current user",
                     path.display()
                 ),
             ));
