@@ -465,9 +465,9 @@ impl AnalystPanelView {
         self.last_error = None;
         cx.notify();
 
-        let task = cx.background_executor().spawn(async move {
-            session.close().map_err(|error| error.to_string())
-        });
+        let task = cx
+            .background_executor()
+            .spawn(async move { session.close().map_err(|error| error.to_string()) });
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
@@ -866,16 +866,12 @@ impl AnalystPanelView {
             .child(div().flex_1().child(self.question.clone()))
             .child(ask);
 
-        let mut snapshot_status = div()
-            .flex()
-            .gap_2()
-            .items_center()
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(rgb(0x777770))
-                    .child("Read-only · fixed snapshot pair"),
-            );
+        let mut snapshot_status = div().flex().gap_2().items_center().child(
+            div()
+                .text_xs()
+                .text_color(rgb(0x777770))
+                .child("Read-only · fixed snapshot pair"),
+        );
         if !self.busy && matches!(self.phase, PanelPhase::Active) {
             snapshot_status = snapshot_status.child(
                 div()
