@@ -842,7 +842,7 @@ mod tests {
         );
         assert!(matches!(
             same_result,
-            Err(DesktopAnalystSessionError::SameWorld { .. })
+            Err(DesktopAnalystSessionError::SameWorld(_))
         ));
         assert_eq!(same_spawned.load(Ordering::SeqCst), 0);
 
