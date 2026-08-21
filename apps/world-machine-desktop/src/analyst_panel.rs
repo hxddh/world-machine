@@ -137,6 +137,7 @@ struct AnalystPanelView {
     question: Entity<AnalystTextInput>,
     phase: PanelPhase,
     busy: bool,
+    cancel_requested: bool,
     history: Vec<PanelTurn>,
     failed_question: Option<String>,
     last_error: Option<String>,
@@ -182,6 +183,7 @@ impl AnalystPanelView {
             question,
             phase: PanelPhase::Setup,
             busy: false,
+            cancel_requested: false,
             history: Vec::new(),
             failed_question: None,
             last_error: None,
@@ -332,6 +334,7 @@ impl AnalystPanelView {
         let left = self.left.clone();
         let right = self.right.clone();
         self.busy = true;
+        self.cancel_requested = false;
         self.phase = PanelPhase::Starting;
         self.last_error = None;
         cx.notify();
@@ -348,6 +351,7 @@ impl AnalystPanelView {
                     .take()
                     .expect("analyst startup result should be consumed once");
                 this.busy = false;
+                this.cancel_requested = false;
                 match result {
                     Ok(session) => {
                         this.history = snapshot_history(&session);
@@ -379,7 +383,7 @@ impl AnalystPanelView {
     }
 
     fn ask(&mut self, cx: &mut Context<Self>) {
-        if self.busy || !matches!(self.phase, PanelPhase::Active) {
+        if self.busy || self.cancel_requested || !matches!(self.phase, PanelPhase::Active) {
             return;
         }
         let submitted_question = self.question.read(cx).text().to_owned();
@@ -395,6 +399,7 @@ impl AnalystPanelView {
             return;
         };
         self.busy = true;
+        self.cancel_requested = false;
         self.last_error = None;
         cx.notify();
 
@@ -409,29 +414,46 @@ impl AnalystPanelView {
                 let (session, result, submitted_question) = completed
                     .take()
                     .expect("analyst turn result should be consumed once");
+                let cancel_requested = this.cancel_requested;
                 this.busy = false;
-                this.history = snapshot_history(&session);
-                match session.state() {
-                    DesktopAnalystState::FatalError { message } => {
-                        this.phase = PanelPhase::Fatal(message.clone());
-                    }
-                    DesktopAnalystState::Closed => {
-                        this.phase = PanelPhase::Fatal("World analyst session closed".into());
-                    }
-                    DesktopAnalystState::Ready
-                    | DesktopAnalystState::Answer { .. }
-                    | DesktopAnalystState::RecoverableError { .. } => {
-                        this.phase = PanelPhase::Active;
+                this.cancel_requested = false;
+                if cancel_requested {
+                    this.phase = PanelPhase::Fatal("Analysis cancelled by user".into());
+                } else {
+                    this.history = snapshot_history(&session);
+                    match session.state() {
+                        DesktopAnalystState::FatalError { message } => {
+                            this.phase = PanelPhase::Fatal(message.clone());
+                        }
+                        DesktopAnalystState::Closed => {
+                            this.phase = PanelPhase::Fatal("World analyst session closed".into());
+                        }
+                        DesktopAnalystState::Ready
+                        | DesktopAnalystState::Answer { .. }
+                        | DesktopAnalystState::RecoverableError { .. } => {
+                            this.phase = PanelPhase::Active;
+                        }
                     }
                 }
                 let succeeded = result.is_ok();
                 let current_question = this.question.read(cx).text().to_owned();
-                if should_clear_completed_prompt(&current_question, &submitted_question, succeeded)
-                {
+                if should_clear_completed_prompt(
+                    &current_question,
+                    &submitted_question,
+                    succeeded,
+                    cancel_requested,
+                ) {
                     this.question.update(cx, |input, cx| input.clear(cx));
                 }
-                this.failed_question = failed_question_after_turn(&submitted_question, succeeded);
-                this.last_error = result.err();
+                this.failed_question =
+                    failed_question_after_turn(&submitted_question, succeeded, cancel_requested);
+                this.last_error = if cancel_requested {
+                    result
+                        .err()
+                        .or_else(|| Some("Analysis cancelled by user".to_string()))
+                } else {
+                    result.err()
+                };
                 this.session = Some(session);
                 cx.notify();
             });
@@ -444,6 +466,40 @@ impl AnalystPanelView {
                         .detach();
                 }
             }
+        })
+        .detach();
+    }
+
+    fn cancel_analysis(&mut self, cx: &mut Context<Self>) {
+        if !can_cancel_analysis(
+            &self.phase,
+            self.busy,
+            self.session.is_some(),
+            self.cancellation.is_some(),
+            self.cancel_requested,
+        ) {
+            return;
+        }
+        let Some(cancellation) = self.cancellation.take() else {
+            return;
+        };
+        self.cancel_requested = true;
+        self.last_error = None;
+        cx.notify();
+
+        let task = cx.background_executor().spawn(async move {
+            cancellation.cancel().map_err(|error| error.to_string())
+        });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                if this.cancel_requested {
+                    if let Err(error) = result {
+                        this.last_error = Some(error);
+                    }
+                    cx.notify();
+                }
+            });
         })
         .detach();
     }
@@ -462,6 +518,7 @@ impl AnalystPanelView {
 
         self.cancellation.take();
         self.busy = true;
+        self.cancel_requested = false;
         self.last_error = None;
         cx.notify();
 
@@ -472,6 +529,7 @@ impl AnalystPanelView {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
                 this.busy = false;
+                this.cancel_requested = false;
                 this.cancellation = None;
                 match result {
                     Ok(()) => {
@@ -513,6 +571,7 @@ impl AnalystPanelView {
 
         self.session.take();
         self.cancellation.take();
+        self.cancel_requested = false;
         self.runtime_checking = false;
         self.refresh_runtime(cx);
     }
@@ -859,13 +918,49 @@ impl AnalystPanelView {
                 .text_color(rgb(0x999990))
         };
 
+        let can_cancel = can_cancel_analysis(
+            &self.phase,
+            self.busy,
+            self.session.is_some(),
+            self.cancellation.is_some(),
+            self.cancel_requested,
+        );
+        let cancelling = self.busy
+            && matches!(self.phase, PanelPhase::Active)
+            && self.cancel_requested;
+        let mut composer_actions = div().flex().gap_2().items_center().child(ask);
+        if can_cancel || cancelling {
+            let mut cancel = div()
+                .id("cancel-world-analyst")
+                .px_4()
+                .p_2()
+                .rounded_md()
+                .border_1()
+                .border_color(rgb(0xc9aaa1))
+                .bg(rgb(0xfff8f6))
+                .text_sm()
+                .child(if cancelling {
+                    "Cancelling…"
+                } else {
+                    "Cancel analysis"
+                });
+            if can_cancel {
+                cancel = cancel
+                    .cursor_pointer()
+                    .on_click(cx.listener(|this, _, _, cx| this.cancel_analysis(cx)));
+            } else {
+                cancel = cancel.text_color(rgb(0x999990));
+            }
+            composer_actions = composer_actions.child(cancel);
+        }
+
         let composer = div()
             .w_full()
             .flex()
             .gap_2()
             .items_center()
             .child(div().flex_1().child(self.question.clone()))
-            .child(ask);
+            .child(composer_actions);
 
         let mut snapshot_status = div().flex().gap_2().items_center().child(
             div()
@@ -1047,12 +1142,35 @@ fn document_title(document: &WorldDocumentSummary) -> String {
         .unwrap_or_else(|| document.id.to_string())
 }
 
-fn should_clear_completed_prompt(current: &str, submitted: &str, succeeded: bool) -> bool {
-    succeeded && current == submitted
+fn can_cancel_analysis(
+    phase: &PanelPhase,
+    busy: bool,
+    has_session: bool,
+    has_cancellation: bool,
+    cancel_requested: bool,
+) -> bool {
+    busy
+        && matches!(phase, PanelPhase::Active)
+        && !has_session
+        && has_cancellation
+        && !cancel_requested
 }
 
-fn failed_question_after_turn(submitted: &str, succeeded: bool) -> Option<String> {
-    (!succeeded).then(|| submitted.to_owned())
+fn should_clear_completed_prompt(
+    current: &str,
+    submitted: &str,
+    succeeded: bool,
+    cancel_requested: bool,
+) -> bool {
+    succeeded && !cancel_requested && current == submitted
+}
+
+fn failed_question_after_turn(
+    submitted: &str,
+    succeeded: bool,
+    cancel_requested: bool,
+) -> Option<String> {
+    (!succeeded || cancel_requested).then(|| submitted.to_owned())
 }
 
 fn reset_new_comparison_state<T>(
@@ -1270,33 +1388,92 @@ mod tests {
     }
 
     #[test]
-    fn completed_prompt_is_cleared_only_after_success_if_the_draft_is_unchanged() {
-        assert!(should_clear_completed_prompt(
-            "Why did this diverge?",
-            "Why did this diverge?",
-            true
+    fn cancel_control_requires_a_real_in_flight_ask_with_a_live_handle() {
+        assert!(can_cancel_analysis(
+            &PanelPhase::Active,
+            true,
+            false,
+            true,
+            false,
         ));
-        assert!(!should_clear_completed_prompt(
-            "Why did this diverge?",
-            "Why did this diverge?",
-            false
+        assert!(!can_cancel_analysis(
+            &PanelPhase::Active,
+            false,
+            false,
+            true,
+            false,
         ));
-        assert!(!should_clear_completed_prompt(
-            "A follow-up draft",
-            "Why did this diverge?",
-            true
+        assert!(!can_cancel_analysis(
+            &PanelPhase::Starting,
+            true,
+            false,
+            true,
+            false,
+        ));
+        assert!(!can_cancel_analysis(
+            &PanelPhase::Active,
+            true,
+            true,
+            true,
+            false,
+        ));
+        assert!(!can_cancel_analysis(
+            &PanelPhase::Active,
+            true,
+            false,
+            false,
+            false,
+        ));
+        assert!(!can_cancel_analysis(
+            &PanelPhase::Active,
+            true,
+            false,
+            true,
+            true,
         ));
     }
 
     #[test]
-    fn failed_submission_is_retained_separately_from_a_newer_draft() {
+    fn completed_prompt_is_cleared_only_after_uncancelled_success_if_the_draft_is_unchanged() {
+        assert!(should_clear_completed_prompt(
+            "Why did this diverge?",
+            "Why did this diverge?",
+            true,
+            false,
+        ));
+        assert!(!should_clear_completed_prompt(
+            "Why did this diverge?",
+            "Why did this diverge?",
+            false,
+            false,
+        ));
+        assert!(!should_clear_completed_prompt(
+            "A follow-up draft",
+            "Why did this diverge?",
+            true,
+            false,
+        ));
+        assert!(!should_clear_completed_prompt(
+            "Why did this diverge?",
+            "Why did this diverge?",
+            true,
+            true,
+        ));
+    }
+
+    #[test]
+    fn failed_or_cancelled_submission_is_retained_separately_from_a_newer_draft() {
         assert_eq!(
-            failed_question_after_turn("Why did the old ask fail?", false).as_deref(),
+            failed_question_after_turn("Why did the old ask fail?", false, false).as_deref(),
             Some("Why did the old ask fail?")
         );
         assert_eq!(
-            failed_question_after_turn("Why did the old ask fail?", true),
+            failed_question_after_turn("Why did the old ask fail?", true, false),
             None
+        );
+        assert_eq!(
+            failed_question_after_turn("Why did the cancelled ask stop?", true, true).as_deref(),
+            Some("Why did the cancelled ask stop?")
         );
     }
 
