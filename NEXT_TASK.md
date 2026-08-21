@@ -1,75 +1,67 @@
-# Next Coding Task — M231 Analyst New Comparison
+# Next Coding Task — M232 Analyst Cancel Running Analysis
 
-M214–M230 now provide a complete installed-app path from immutable saved-World evidence through a restricted long-lived Pi analyst, stable provider-neutral turns, native runtime setup and probing, model-state readiness, an in-memory Question → Answer → Evidence transcript, and an explicit recovery path after fatal analyst failure.
+M214–M231 now provide the installed World Analyst path from immutable saved-World evidence through a restricted long-lived Pi analyst, stable provider-neutral turns, native runtime/model readiness, an in-memory Question → Answer → Evidence transcript, explicit fatal recovery, and an explicit clean exit from a healthy session into a fresh comparison.
 
-## M231 — start a new comparison without closing the analyst window
+## M232 — cancel a running analyst turn explicitly
 
-A healthy Active analyst session is still sticky to its original immutable snapshot pair. Once analysis starts, the right-hand World selector is intentionally locked and the only practical way to compare a different pair is to close the analyst window and reopen it.
+A submitted analyst question is currently single-flight and safe, but the native panel gives the user no direct way to stop a long-running turn. The only existing cancellation handle is used for window teardown; an in-progress Ask otherwise runs until completion or timeout.
 
-Add the smallest explicit healthy-session exit / new-comparison flow above the existing session semantics.
+Add the smallest explicit `Cancel analysis` flow using the existing `DesktopAnalystCancellation` authority. Cancellation intentionally ends the current analyst session; it is not an attempt to keep using the same Pi process after an interrupted model turn.
 
 ### Product behavior
 
-While a session is Active and not busy:
+While a question is actively being analyzed:
 
-- expose a clear `New comparison` action;
-- keep the current transcript visible until the user explicitly chooses that action;
-- do not silently stop or restart analysis;
-- do not automatically choose a different World.
+- keep the completed transcript visible;
+- keep any newer composer draft intact;
+- expose a clear `Cancel analysis` action only when an Ask is actually in flight and a cancellation handle is available;
+- do not expose the action during Setup, startup probing, normal idle Active state, fatal recovery, or the M231 clean `New comparison` shutdown.
 
-When the user chooses `New comparison`:
+When the user chooses `Cancel analysis`:
 
-- close the current `DesktopAnalystSession` through the existing clean shutdown path;
-- clear the panel cancellation handle and ended-session transcript;
-- return to Setup in the same analyst window;
-- preserve the current left/right World selection as the initial Setup selection so the user can keep it or choose another right-hand World;
-- preserve any composer draft that has not yet been submitted;
-- invalidate the old runtime readiness and perform a fresh installed-runtime recheck before another Start is enabled.
+- signal the existing session cancellation handle once;
+- do not fabricate a completed exchange for the interrupted question;
+- do not automatically retry the question or start another Pi process;
+- let the existing in-flight Ask settle through the normal session-fatal path;
+- surface the ended/cancelled session in the existing Fatal UI so M230 explicit recovery is the only route to a fresh session.
 
-### New-session boundary
+### User intent and transcript
 
-A later Start must create a completely new analyst session through the existing M222/M227/M228 path:
+Cancellation must preserve product intent:
 
-1. capture fresh immutable archives for the selected saved Worlds;
-2. spawn a fresh restricted turn host/Pi process;
-3. run startup probe and model-state readiness;
-4. only then expose the new session as Active.
+- completed exchanges already in the transcript remain visible while Fatal;
+- the interrupted submitted question remains available through the existing failed-question/composer semantics once the Ask settles;
+- a newer draft typed while the Ask was running must not be overwritten;
+- no interrupted question is appended as a completed Question → Answer exchange.
 
-Never reuse the old Pi process, old immutable archive pair, old startup readiness result, or old transcript.
+### Lifecycle boundary
 
-### Transcript semantics
+Reuse the existing cancellation handle and fatal cleanup semantics:
 
-Completed exchanges belong to exactly one immutable snapshot pair.
+1. GPUI requests cancellation through `DesktopAnalystCancellation` only;
+2. the restricted analyst process is terminated by the existing session layer;
+3. the in-flight Ask resolves as a fatal client/session error;
+4. session cleanup removes the immutable snapshot pair;
+5. panel enters Fatal;
+6. M230 recovery is required before another Start creates fresh snapshots/process/probe/model readiness.
 
-- show the current transcript while the healthy session remains Active;
-- clear it only after the user explicitly starts the new-comparison flow;
-- never append exchanges from the later session to the previous session's history;
-- no persistent cross-session transcript or session resume.
+Do not add a second process-control path in GPUI and do not attempt to reconnect or reuse the cancelled Pi process.
 
-### Layering and authority
-
-- GPUI owns only panel/product state plus `DesktopAnalystSession` lifecycle calls;
-- process shutdown and snapshot cleanup remain below GPUI;
-- runtime recheck reuses existing readiness semantics;
-- no provider/model picker, credential storage, Pi/RPC protocol change, new tools, or mutation authority.
-
-## Validation
+### Validation
 
 Required gates:
 
-- Active UI exposes `New comparison` only when a session is healthy and not busy;
-- choosing it closes the current session instead of dropping a live Pi process implicitly;
-- clean shutdown removes the old immutable snapshot pair;
-- panel clears the old session/cancellation/history and returns to Setup;
-- selected World pair and unsent composer draft are preserved;
-- stale runtime readiness is invalidated and rechecked;
-- subsequent Start creates/probes a fresh process and fresh archive pair;
-- old and new snapshot-pair transcripts are never mixed;
-- fatal recovery from M230 remains independent and green;
-- existing M219–M230 protocol/model/transcript/runtime regressions remain green;
+- cancel control appears only for a real in-flight Ask with a live cancellation handle;
+- clicking cancel is idempotent and cannot send repeated termination signals;
+- completed transcript remains intact and the interrupted question is not appended as a successful exchange;
+- edited composer drafts and failed-question semantics remain safe;
+- the Ask settles into Fatal rather than returning the panel to healthy Active;
+- fatal process/snapshot cleanup remains owned by the existing desktop session layer;
+- M230 recovery and M231 clean New Comparison remain independent and green;
+- existing M219–M231 protocol/model/runtime/transcript regressions remain green;
 - Linux boundary/fmt/Clippy/workspace tests remain green;
 - full macOS GPUI/desktop tests and `World Machine.app` build/validate/packaged smoke/archive/upload remain green.
 
 ## Non-goals
 
-No automatic restart, no cross-session transcript merge, no persistent chat history, no session resume after app restart, no streaming UI, no concurrent turns, no protocol v2, no model/provider picker, no API-key storage, no new tools, and no mutation authority.
+No resumable model turn, no pause/resume, no reconnecting a cancelled Pi process, no automatic retry, no cross-session transcript merge, no persistent chat history, no token streaming, no concurrent turns, no protocol v2, no provider/model picker, no API-key storage, no new analyst tools, and no mutation authority.

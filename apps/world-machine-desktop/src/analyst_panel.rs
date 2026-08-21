@@ -448,6 +448,57 @@ impl AnalystPanelView {
         .detach();
     }
 
+    fn start_new_comparison(&mut self, cx: &mut Context<Self>) {
+        if self.busy || !matches!(self.phase, PanelPhase::Active) {
+            return;
+        }
+        let Some(mut session) = self.session.take() else {
+            let message = "World analyst session is not available".to_string();
+            self.phase = PanelPhase::Fatal(message.clone());
+            self.last_error = Some(message);
+            cx.notify();
+            return;
+        };
+
+        self.cancellation.take();
+        self.busy = true;
+        self.last_error = None;
+        cx.notify();
+
+        let task = cx
+            .background_executor()
+            .spawn(async move { session.close().map_err(|error| error.to_string()) });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                this.busy = false;
+                this.cancellation = None;
+                match result {
+                    Ok(()) => {
+                        let transitioned = reset_new_comparison_state(
+                            &mut this.phase,
+                            &mut this.history,
+                            &mut this.runtime,
+                            &mut this.failed_question,
+                            &mut this.last_error,
+                        );
+                        debug_assert!(transitioned);
+                        this.runtime_checking = false;
+                        this.refresh_runtime(cx);
+                    }
+                    Err(error) => {
+                        this.phase = PanelPhase::Fatal(
+                            "World analyst session could not close cleanly".into(),
+                        );
+                        this.last_error = Some(error);
+                        cx.notify();
+                    }
+                }
+            });
+        })
+        .detach();
+    }
+
     fn recover_from_fatal(&mut self, cx: &mut Context<Self>) {
         if self.busy
             || !reset_fatal_recovery_state(
@@ -816,6 +867,29 @@ impl AnalystPanelView {
             .child(div().flex_1().child(self.question.clone()))
             .child(ask);
 
+        let mut snapshot_status = div().flex().gap_2().items_center().child(
+            div()
+                .text_xs()
+                .text_color(rgb(0x777770))
+                .child("Read-only · fixed snapshot pair"),
+        );
+        if !self.busy && matches!(self.phase, PanelPhase::Active) {
+            snapshot_status = snapshot_status.child(
+                div()
+                    .id("new-world-analyst-comparison")
+                    .cursor_pointer()
+                    .px_3()
+                    .p_1()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(rgb(0xb8b2a8))
+                    .bg(rgb(0xffffff))
+                    .text_xs()
+                    .child("New comparison")
+                    .on_click(cx.listener(|this, _, _, cx| this.start_new_comparison(cx))),
+            );
+        }
+
         let mut body = div()
             .size_full()
             .flex()
@@ -830,12 +904,7 @@ impl AnalystPanelView {
                         self.label_for(&self.left),
                         self.label_for(&self.right)
                     )))
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(rgb(0x777770))
-                            .child("Read-only · fixed snapshot pair"),
-                    ),
+                    .child(snapshot_status),
             )
             .child(history)
             .child(composer);
@@ -984,6 +1053,24 @@ fn should_clear_completed_prompt(current: &str, submitted: &str, succeeded: bool
 
 fn failed_question_after_turn(submitted: &str, succeeded: bool) -> Option<String> {
     (!succeeded).then(|| submitted.to_owned())
+}
+
+fn reset_new_comparison_state<T>(
+    phase: &mut PanelPhase,
+    history: &mut Vec<PanelTurn>,
+    runtime: &mut Option<T>,
+    failed_question: &mut Option<String>,
+    last_error: &mut Option<String>,
+) -> bool {
+    if !matches!(phase, PanelPhase::Active) {
+        return false;
+    }
+    *phase = PanelPhase::Setup;
+    history.clear();
+    *runtime = None;
+    *failed_question = None;
+    *last_error = None;
+    true
 }
 
 fn reset_fatal_recovery_state<T>(
@@ -1211,6 +1298,50 @@ mod tests {
             failed_question_after_turn("Why did the old ask fail?", true),
             None
         );
+    }
+
+    #[test]
+    fn new_comparison_clears_snapshot_pair_history_and_stale_readiness_after_close() {
+        let mut phase = PanelPhase::Active;
+        let mut history = vec![panel_turn("old question", "old answer")];
+        let mut runtime = Some("stale readiness");
+        let mut failed_question = Some("old failed question".into());
+        let mut last_error = Some("old warning".into());
+
+        assert!(reset_new_comparison_state(
+            &mut phase,
+            &mut history,
+            &mut runtime,
+            &mut failed_question,
+            &mut last_error,
+        ));
+        assert_eq!(phase, PanelPhase::Setup);
+        assert!(history.is_empty());
+        assert_eq!(runtime, None);
+        assert_eq!(failed_question, None);
+        assert_eq!(last_error, None);
+    }
+
+    #[test]
+    fn new_comparison_transition_does_not_reset_non_active_state() {
+        let mut phase = PanelPhase::Fatal("transport ended".into());
+        let mut history = vec![panel_turn("question", "answer")];
+        let mut runtime = Some("current readiness");
+        let mut failed_question = Some("failed question".into());
+        let mut last_error = Some("transport ended".into());
+
+        assert!(!reset_new_comparison_state(
+            &mut phase,
+            &mut history,
+            &mut runtime,
+            &mut failed_question,
+            &mut last_error,
+        ));
+        assert!(matches!(phase, PanelPhase::Fatal(_)));
+        assert_eq!(history.len(), 1);
+        assert_eq!(runtime, Some("current readiness"));
+        assert_eq!(failed_question.as_deref(), Some("failed question"));
+        assert_eq!(last_error.as_deref(), Some("transport ended"));
     }
 
     #[test]
