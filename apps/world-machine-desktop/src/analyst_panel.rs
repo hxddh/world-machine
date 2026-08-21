@@ -11,7 +11,8 @@ use std::sync::Arc;
 use world_library::{WorldDocumentId, WorldDocumentSummary, WorldLibrary};
 use world_machine_desktop::analyst_readiness::DesktopAnalystRuntimeReadiness;
 use world_machine_desktop::analyst_session::{
-    DesktopAnalystCancellation, DesktopAnalystSession, DesktopAnalystState,
+    DesktopAnalystCancellation, DesktopAnalystCancellationOutcome, DesktopAnalystSession,
+    DesktopAnalystState,
 };
 use world_machine_desktop::analyst_settings::DesktopAnalystProgramSource;
 
@@ -490,9 +491,12 @@ impl AnalystPanelView {
         };
 
         match cancellation.cancel() {
-            Ok(()) => {
+            Ok(DesktopAnalystCancellationOutcome::Signaled) => {
                 self.cancel_requested = true;
                 self.last_error = None;
+            }
+            Ok(DesktopAnalystCancellationOutcome::Inactive) => {
+                self.cancel_requested = false;
             }
             Err(error) => {
                 self.cancel_requested = false;
