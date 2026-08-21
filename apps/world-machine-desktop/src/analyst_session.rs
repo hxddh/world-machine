@@ -4,8 +4,8 @@ use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc as SharedArc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc as SharedArc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use world_analyst_client::{
     AnalystTurn, AnalystTurnClientError, AnalystTurnProcess, AnalystTurnProcessConfig,
@@ -93,7 +93,7 @@ pub enum DesktopAnalystCancellationOutcome {
 
 #[derive(Clone)]
 pub struct DesktopAnalystCancellation {
-    active: SharedArc<AtomicBool>,
+    active: SharedArc<Mutex<bool>>,
     signal: SharedArc<dyn Fn() -> Result<(), String> + Send + Sync>,
 }
 
@@ -107,22 +107,31 @@ impl DesktopAnalystCancellation {
         F: Fn() -> Result<(), String> + Send + Sync + 'static,
     {
         Self {
-            active: SharedArc::new(AtomicBool::new(true)),
+            active: SharedArc::new(Mutex::new(true)),
             signal: SharedArc::new(signal),
         }
     }
 
     pub fn cancel(&self) -> Result<DesktopAnalystCancellationOutcome, DesktopAnalystSessionError> {
-        if !self.active.swap(false, Ordering::SeqCst) {
+        let mut active = self
+            .active
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if !*active {
             return Ok(DesktopAnalystCancellationOutcome::Inactive);
         }
+        *active = false;
         (self.signal)()
             .map(|()| DesktopAnalystCancellationOutcome::Signaled)
             .map_err(DesktopAnalystSessionError::Cancel)
     }
 
     fn deactivate(&self) {
-        self.active.store(false, Ordering::SeqCst);
+        let mut active = self
+            .active
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *active = false;
     }
 }
 
