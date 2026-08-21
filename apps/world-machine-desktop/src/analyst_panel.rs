@@ -483,25 +483,18 @@ impl AnalystPanelView {
         let Some(cancellation) = self.cancellation.take() else {
             return;
         };
-        self.cancel_requested = true;
-        self.last_error = None;
-        cx.notify();
 
-        let task = cx
-            .background_executor()
-            .spawn(async move { cancellation.cancel().map_err(|error| error.to_string()) });
-        cx.spawn(async move |this, cx| {
-            let result = task.await;
-            let _ = this.update(cx, |this, cx| {
-                if this.cancel_requested {
-                    if let Err(error) = result {
-                        this.last_error = Some(error);
-                    }
-                    cx.notify();
-                }
-            });
-        })
-        .detach();
+        match cancellation.cancel() {
+            Ok(()) => {
+                self.cancel_requested = true;
+                self.last_error = None;
+            }
+            Err(error) => {
+                self.cancel_requested = false;
+                self.last_error = Some(error.to_string());
+            }
+        }
+        cx.notify();
     }
 
     fn start_new_comparison(&mut self, cx: &mut Context<Self>) {
