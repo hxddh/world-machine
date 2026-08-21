@@ -415,23 +415,26 @@ impl AnalystPanelView {
                     .take()
                     .expect("analyst turn result should be consumed once");
                 let cancel_requested = this.cancel_requested;
+                let forced_fatal = matches!(this.phase, PanelPhase::Fatal(_));
                 this.busy = false;
                 this.cancel_requested = false;
                 if cancel_requested {
                     this.phase = PanelPhase::Fatal("Analysis cancelled by user".into());
                 } else {
                     this.history = snapshot_history(&session);
-                    match session.state() {
-                        DesktopAnalystState::FatalError { message } => {
-                            this.phase = PanelPhase::Fatal(message.clone());
-                        }
-                        DesktopAnalystState::Closed => {
-                            this.phase = PanelPhase::Fatal("World analyst session closed".into());
-                        }
-                        DesktopAnalystState::Ready
-                        | DesktopAnalystState::Answer { .. }
-                        | DesktopAnalystState::RecoverableError { .. } => {
-                            this.phase = PanelPhase::Active;
+                    if !forced_fatal {
+                        match session.state() {
+                            DesktopAnalystState::FatalError { message } => {
+                                this.phase = PanelPhase::Fatal(message.clone());
+                            }
+                            DesktopAnalystState::Closed => {
+                                this.phase = PanelPhase::Fatal("World analyst session closed".into());
+                            }
+                            DesktopAnalystState::Ready
+                            | DesktopAnalystState::Answer { .. }
+                            | DesktopAnalystState::RecoverableError { .. } => {
+                                this.phase = PanelPhase::Active;
+                            }
                         }
                     }
                 }
@@ -447,12 +450,13 @@ impl AnalystPanelView {
                 }
                 this.failed_question =
                     failed_question_after_turn(&submitted_question, succeeded, cancel_requested);
+                let turn_error = result.err();
                 this.last_error = if cancel_requested {
-                    result
-                        .err()
-                        .or_else(|| Some("Analysis cancelled by user".to_string()))
+                    turn_error.or_else(|| Some("Analysis cancelled by user".to_string()))
+                } else if forced_fatal {
+                    this.last_error.take().or(turn_error)
                 } else {
-                    result.err()
+                    turn_error
                 };
                 this.session = Some(session);
                 cx.notify();
@@ -491,6 +495,9 @@ impl AnalystPanelView {
             }
             Err(error) => {
                 self.cancel_requested = false;
+                self.phase = PanelPhase::Fatal(
+                    "Analysis cancellation failed; recover before continuing".into(),
+                );
                 self.last_error = Some(error.to_string());
             }
         }
