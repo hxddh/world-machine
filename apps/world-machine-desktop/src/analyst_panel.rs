@@ -428,7 +428,8 @@ impl AnalystPanelView {
                                 this.phase = PanelPhase::Fatal(message.clone());
                             }
                             DesktopAnalystState::Closed => {
-                                this.phase = PanelPhase::Fatal("World analyst session closed".into());
+                                this.phase =
+                                    PanelPhase::Fatal("World analyst session closed".into());
                             }
                             DesktopAnalystState::Ready
                             | DesktopAnalystState::Answer { .. }
