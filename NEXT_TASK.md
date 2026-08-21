@@ -1,67 +1,77 @@
-# Next Coding Task — M232 Analyst Cancel Running Analysis
+# Next Coding Task — M233 Explicit Retry Failed Analyst Question
 
-M214–M231 now provide the installed World Analyst path from immutable saved-World evidence through a restricted long-lived Pi analyst, stable provider-neutral turns, native runtime/model readiness, an in-memory Question → Answer → Evidence transcript, explicit fatal recovery, and an explicit clean exit from a healthy session into a fresh comparison.
+M214–M232 now provide the installed World Analyst path from immutable saved-World evidence through a restricted long-lived Pi analyst, stable provider-neutral turns, native runtime/model readiness, an in-memory Question → Answer → Evidence transcript, explicit fatal recovery, clean New Comparison lifecycle, and explicit cancellation of a running Ask.
 
-## M232 — cancel a running analyst turn explicitly
+## M233 — retry a retained failed analyst question without disturbing the current draft
 
-A submitted analyst question is currently single-flight and safe, but the native panel gives the user no direct way to stop a long-running turn. The only existing cancellation handle is used for window teardown; an in-progress Ask otherwise runs until completion or timeout.
+M229 introduced `failed_question` so a failed submitted prompt is not lost when the user edits a newer composer draft while an Ask is running. M230 deliberately preserves that failed question across fatal recovery for the same selected World pair. M231 clears it when the user explicitly changes comparison scope, and M232 also uses the same retained-question semantics for a successfully cancelled Ask.
 
-Add the smallest explicit `Cancel analysis` flow using the existing `DesktopAnalystCancellation` authority. Cancellation intentionally ends the current analyst session; it is not an attempt to keep using the same Pi process after an interrupted model turn.
+The missing product step is that the native panel can display the retained failed question but cannot explicitly submit it again without the user manually replacing or copying the current composer text. That makes the safety state visible but not actionable.
+
+Add the smallest explicit `Retry failed question` flow above the existing session API. The retry must submit the retained failed question itself and must not overwrite, clear, or otherwise borrow the current composer draft.
 
 ### Product behavior
 
-While a question is actively being analyzed:
+When `failed_question` exists:
 
-- keep the completed transcript visible;
-- keep any newer composer draft intact;
-- expose a clear `Cancel analysis` action only when an Ask is actually in flight and a cancellation handle is available;
-- do not expose the action during Setup, startup probing, normal idle Active state, fatal recovery, or the M231 clean `New comparison` shutdown.
+- continue displaying the failed-question callout exactly as retained product state;
+- expose `Retry failed question` only while the panel has a healthy, idle `PanelPhase::Active` analyst session;
+- do not expose or enable retry during Setup, startup probing, an in-flight Ask, M232 cancellation settlement, M231 clean New Comparison shutdown, or Fatal state;
+- after M230 recovery, the failed question remains visible through Setup and can become retryable only after a fresh Start successfully reaches Active for the same selected World pair.
 
-When the user chooses `Cancel analysis`:
+When the user chooses `Retry failed question`:
 
-- signal the existing session cancellation handle once;
-- do not fabricate a completed exchange for the interrupted question;
-- do not automatically retry the question or start another Pi process;
-- let the existing in-flight Ask settle through the normal session-fatal path;
-- surface the ended/cancelled session in the existing Fatal UI so M230 explicit recovery is the only route to a fresh session.
+- submit exactly the retained failed-question text through the existing `DesktopAnalystSession::ask` path;
+- leave the current composer draft byte-for-byte unchanged, even if it contains a different newer question;
+- use the same single-flight, cancellation, transcript, recoverable/fatal error, and immutable snapshot semantics as a normal Ask;
+- do not automatically start a session, retry after another failure, or create a second Pi process.
 
-### User intent and transcript
+### Completion semantics
 
-Cancellation must preserve product intent:
+On successful retry:
 
-- completed exchanges already in the transcript remain visible while Fatal;
-- the interrupted submitted question remains available through the existing failed-question/composer semantics once the Ask settles;
-- a newer draft typed while the Ask was running must not be overwritten;
-- no interrupted question is appended as a completed Question → Answer exchange.
+- append the resulting exchange once using the exact retried failed-question prompt;
+- clear `failed_question` because that retained failure has now been successfully answered;
+- keep the current composer draft unchanged rather than applying the normal composer-clear policy to a prompt that did not originate from the composer.
 
-### Lifecycle boundary
+On recoverable retry failure:
 
-Reuse the existing cancellation handle and fatal cleanup semantics:
+- append no fake successful exchange;
+- keep the same failed question retained for another explicit retry;
+- keep the current composer draft unchanged;
+- keep the session Active if the existing lower session state remains recoverable.
 
-1. GPUI requests cancellation through `DesktopAnalystCancellation` only;
-2. the restricted analyst process is terminated by the existing session layer;
-3. the in-flight Ask resolves as a fatal client/session error;
-4. session cleanup removes the immutable snapshot pair;
-5. panel enters Fatal;
-6. M230 recovery is required before another Start creates fresh snapshots/process/probe/model readiness.
+On fatal retry failure:
 
-Do not add a second process-control path in GPUI and do not attempt to reconnect or reuse the cancelled Pi process.
+- append no fake successful exchange;
+- retain the failed question and current composer draft;
+- enter the existing Fatal UI and require M230 recovery before another session can be started.
+
+If the user chooses M231 `New comparison`, the retained question remains scoped to the old immutable snapshot pair and must still be cleared only after the clean comparison reset succeeds.
+
+### Implementation boundary
+
+Prefer one shared internal Ask completion path rather than duplicating session state handling between composer Ask and failed-question retry. The shared path must make prompt origin explicit enough that composer clearing can never be accidentally applied to a retry prompt.
+
+GPUI must continue to consume only `DesktopAnalystSession` / `DesktopAnalystCancellation` product APIs. Do not move Pi/RPC/process/provider details into the panel and do not add a protocol field for retry; retry is a native product action over the existing M220/M221 `ask` contract.
 
 ### Validation
 
 Required gates:
 
-- cancel control appears only for a real in-flight Ask with a live cancellation handle;
-- clicking cancel is idempotent and cannot send repeated termination signals;
-- completed transcript remains intact and the interrupted question is not appended as a successful exchange;
-- edited composer drafts and failed-question semantics remain safe;
-- the Ask settles into Fatal rather than returning the panel to healthy Active;
-- fatal process/snapshot cleanup remains owned by the existing desktop session layer;
-- M230 recovery and M231 clean New Comparison remain independent and green;
-- existing M219–M231 protocol/model/runtime/transcript regressions remain green;
-- Linux boundary/fmt/Clippy/workspace tests remain green;
+- retry control appears only for idle healthy Active state with a retained failed question;
+- retry submits the retained failed question rather than the current composer text;
+- a different newer composer draft survives successful, recoverable-failed, and fatal-failed retry unchanged;
+- successful retry appends exactly one Question → Answer exchange and clears `failed_question`;
+- recoverable retry failure appends no exchange and retains `failed_question`;
+- fatal retry failure retains question/draft and enters Fatal;
+- M230 recovery preserves the retained question until a later successful retry;
+- M231 New Comparison still clears old snapshot-pair `failed_question` only after clean close;
+- M232 cancellation remains single-flight and independent;
+- existing M219–M232 protocol/model/runtime/transcript/session regressions remain green;
+- Linux boundary/fmt/Clippy/workspace/Pack conformance remain green;
 - full macOS GPUI/desktop tests and `World Machine.app` build/validate/packaged smoke/archive/upload remain green.
 
 ## Non-goals
 
-No resumable model turn, no pause/resume, no reconnecting a cancelled Pi process, no automatic retry, no cross-session transcript merge, no persistent chat history, no token streaming, no concurrent turns, no protocol v2, no provider/model picker, no API-key storage, no new analyst tools, and no mutation authority.
+No automatic retry, no retry timer/backoff, no resumable or paused model turn, no reconnecting an ended Pi process, no cross-comparison failed-question carryover, no persistent chat history, no token streaming, no concurrent turns, no protocol v2, no provider/model picker, no API-key storage, no new analyst tools, and no mutation authority.
