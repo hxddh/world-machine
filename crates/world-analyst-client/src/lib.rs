@@ -547,7 +547,7 @@ impl AnalystTurnProcess {
         let result = client.probe(timeout_ms);
         if client.is_poisoned() {
             self.client.take();
-            terminate_child(&mut self.child);
+            stop_child_without_reap(&mut self.child);
         }
         result
     }
@@ -564,7 +564,7 @@ impl AnalystTurnProcess {
         let poisoned = client.is_poisoned();
         if poisoned {
             self.client.take();
-            terminate_child(&mut self.child);
+            stop_child_without_reap(&mut self.child);
         }
         result
     }
@@ -585,8 +585,12 @@ impl Drop for AnalystTurnProcess {
     }
 }
 
-fn terminate_child(child: &mut Child) {
+fn stop_child_without_reap(child: &mut Child) {
     let _ = child.kill();
+}
+
+fn terminate_child(child: &mut Child) {
+    stop_child_without_reap(child);
     let _ = child.wait();
 }
 
@@ -820,7 +824,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn process_returns_poisoned_after_fatal_teardown() {
+    fn process_keeps_poisoned_child_unreaped_until_shutdown() {
         let mut child = Command::new("sh")
             .arg("-c")
             .arg("exit 0")
@@ -837,6 +841,7 @@ mod tests {
                 BufWriter::new(stdin),
             )),
         };
+        let pid = process.id();
 
         let first = process.ask("question", None).unwrap_err();
         assert!(first.is_session_fatal());
@@ -844,5 +849,16 @@ mod tests {
             process.ask("again", None).unwrap_err(),
             AnalystTurnClientError::Poisoned
         ));
+        let still_owned = Command::new("/bin/kill")
+            .arg("-0")
+            .arg(pid.to_string())
+            .status()
+            .unwrap();
+        assert!(
+            still_owned.success(),
+            "poisoned analyst child PID must remain owned until explicit shutdown"
+        );
+
+        process.shutdown().unwrap();
     }
 }
