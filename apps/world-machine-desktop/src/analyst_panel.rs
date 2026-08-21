@@ -487,9 +487,9 @@ impl AnalystPanelView {
         self.last_error = None;
         cx.notify();
 
-        let task = cx.background_executor().spawn(async move {
-            cancellation.cancel().map_err(|error| error.to_string())
-        });
+        let task = cx
+            .background_executor()
+            .spawn(async move { cancellation.cancel().map_err(|error| error.to_string()) });
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
@@ -925,9 +925,8 @@ impl AnalystPanelView {
             self.cancellation.is_some(),
             self.cancel_requested,
         );
-        let cancelling = self.busy
-            && matches!(self.phase, PanelPhase::Active)
-            && self.cancel_requested;
+        let cancelling =
+            self.busy && matches!(self.phase, PanelPhase::Active) && self.cancel_requested;
         let mut composer_actions = div().flex().gap_2().items_center().child(ask);
         if can_cancel || cancelling {
             let mut cancel = div()
@@ -1149,8 +1148,7 @@ fn can_cancel_analysis(
     has_cancellation: bool,
     cancel_requested: bool,
 ) -> bool {
-    busy
-        && matches!(phase, PanelPhase::Active)
+    busy && matches!(phase, PanelPhase::Active)
         && !has_session
         && has_cancellation
         && !cancel_requested
