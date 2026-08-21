@@ -85,6 +85,12 @@ impl DesktopAnalystConfig {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DesktopAnalystCancellationOutcome {
+    Signaled,
+    Inactive,
+}
+
 #[derive(Clone)]
 pub struct DesktopAnalystCancellation {
     active: SharedArc<AtomicBool>,
@@ -106,11 +112,13 @@ impl DesktopAnalystCancellation {
         }
     }
 
-    pub fn cancel(&self) -> Result<(), DesktopAnalystSessionError> {
+    pub fn cancel(&self) -> Result<DesktopAnalystCancellationOutcome, DesktopAnalystSessionError> {
         if !self.active.swap(false, Ordering::SeqCst) {
-            return Ok(());
+            return Ok(DesktopAnalystCancellationOutcome::Inactive);
         }
-        (self.signal)().map_err(DesktopAnalystSessionError::Cancel)
+        (self.signal)()
+            .map(|()| DesktopAnalystCancellationOutcome::Signaled)
+            .map_err(DesktopAnalystSessionError::Cancel)
     }
 
     fn deactivate(&self) {
@@ -629,15 +637,21 @@ mod tests {
     }
 
     #[test]
-    fn cancellation_handle_is_idempotent_and_can_be_deactivated() {
+    fn cancellation_handle_reports_signal_and_inactive_no_op() {
         let signals = Arc::new(AtomicUsize::new(0));
         let counter = Arc::clone(&signals);
         let cancellation = DesktopAnalystCancellation::new(move || {
             counter.fetch_add(1, Ordering::SeqCst);
             Ok(())
         });
-        cancellation.cancel().unwrap();
-        cancellation.cancel().unwrap();
+        assert_eq!(
+            cancellation.cancel().unwrap(),
+            DesktopAnalystCancellationOutcome::Signaled
+        );
+        assert_eq!(
+            cancellation.cancel().unwrap(),
+            DesktopAnalystCancellationOutcome::Inactive
+        );
         assert_eq!(signals.load(Ordering::SeqCst), 1);
 
         let signals = Arc::new(AtomicUsize::new(0));
@@ -647,8 +661,31 @@ mod tests {
             Ok(())
         });
         cancellation.deactivate();
-        cancellation.cancel().unwrap();
+        assert_eq!(
+            cancellation.cancel().unwrap(),
+            DesktopAnalystCancellationOutcome::Inactive
+        );
         assert_eq!(signals.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn failed_cancellation_signal_deactivates_future_attempts() {
+        let signals = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&signals);
+        let cancellation = DesktopAnalystCancellation::new(move || {
+            counter.fetch_add(1, Ordering::SeqCst);
+            Err("signal failed".into())
+        });
+
+        assert!(matches!(
+            cancellation.cancel(),
+            Err(DesktopAnalystSessionError::Cancel(message)) if message == "signal failed"
+        ));
+        assert_eq!(
+            cancellation.cancel().unwrap(),
+            DesktopAnalystCancellationOutcome::Inactive
+        );
+        assert_eq!(signals.load(Ordering::SeqCst), 1);
     }
 
     #[test]
@@ -805,7 +842,7 @@ mod tests {
         );
         assert!(matches!(
             same_result,
-            Err(DesktopAnalystSessionError::SameWorld(_))
+            Err(DesktopAnalystSessionError::SameWorld { .. })
         ));
         assert_eq!(same_spawned.load(Ordering::SeqCst), 0);
 
