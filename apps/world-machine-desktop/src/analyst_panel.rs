@@ -12,7 +12,7 @@ use world_library::{WorldDocumentId, WorldDocumentSummary, WorldLibrary};
 use world_machine_desktop::analyst_readiness::DesktopAnalystRuntimeReadiness;
 use world_machine_desktop::analyst_session::{
     DesktopAnalystCancellation, DesktopAnalystCancellationOutcome, DesktopAnalystEvidenceScope,
-    DesktopAnalystSession, DesktopAnalystState,
+    DesktopAnalystSession, DesktopAnalystSessionError, DesktopAnalystState,
 };
 use world_machine_desktop::analyst_settings::DesktopAnalystProgramSource;
 
@@ -447,7 +447,6 @@ impl AnalystPanelView {
 
         let task = cx.background_executor().spawn(async move {
             DesktopAnalystSession::start(library.as_ref(), left, right, config)
-                .map_err(|error| error.to_string())
         });
         let background = cx.background_executor().clone();
         cx.spawn(async move |this, cx| {
@@ -476,10 +475,14 @@ impl AnalystPanelView {
                         this.last_error = None;
                     }
                     Err(error) => {
+                        let refresh_catalog = startup_error_requires_catalog_refresh(&error);
                         this.cancellation = None;
                         this.runtime = None;
                         this.phase = PanelPhase::Setup;
-                        this.last_error = Some(error);
+                        this.last_error = Some(error.to_string());
+                        if refresh_catalog {
+                            this.refresh_saved_world_catalog(cx);
+                        }
                     }
                 }
                 cx.notify();
@@ -1459,6 +1462,14 @@ fn can_apply_catalog_refresh_completion(
         && !has_session
 }
 
+fn startup_error_requires_catalog_refresh(error: &DesktopAnalystSessionError) -> bool {
+    matches!(
+        error,
+        DesktopAnalystSessionError::MissingWorld { .. }
+            | DesktopAnalystSessionError::LoadWorld { .. }
+    )
+}
+
 fn update_pending_right<T>(
     left: &WorldDocumentId,
     right: &mut WorldDocumentId,
@@ -1884,6 +1895,42 @@ mod tests {
             7,
             7,
             true,
+        ));
+    }
+
+    #[test]
+    fn startup_pair_drift_errors_require_catalog_refresh() {
+        let left = WorldDocumentId::new("left").unwrap();
+        let right = WorldDocumentId::new("right").unwrap();
+
+        assert!(startup_error_requires_catalog_refresh(
+            &DesktopAnalystSessionError::MissingWorld {
+                side: "left",
+                id: left.clone(),
+            }
+        ));
+        assert!(startup_error_requires_catalog_refresh(
+            &DesktopAnalystSessionError::MissingWorld {
+                side: "right",
+                id: right.clone(),
+            }
+        ));
+        assert!(startup_error_requires_catalog_refresh(
+            &DesktopAnalystSessionError::LoadWorld {
+                side: "right",
+                id: right,
+                source: world_library::LibraryError::InvalidDocumentId("bad".into()),
+            }
+        ));
+        assert!(!startup_error_requires_catalog_refresh(
+            &DesktopAnalystSessionError::SerializeArchive {
+                side: "left",
+                id: left,
+                message: "serialization failed".into(),
+            }
+        ));
+        assert!(!startup_error_requires_catalog_refresh(
+            &DesktopAnalystSessionError::Spawn("node unavailable".into())
         ));
     }
 
