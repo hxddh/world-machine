@@ -1259,7 +1259,7 @@ fn document_title(document: &WorldDocumentSummary) -> String {
         .map(str::trim)
         .filter(|title| !title.is_empty())
         .map(str::to_owned)
-        .unwrap_or_else(|| id.to_string())
+        .unwrap_or_else(|| document.id.to_string())
 }
 
 fn can_cancel_analysis(
