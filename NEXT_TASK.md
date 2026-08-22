@@ -1,63 +1,58 @@
-# Next Coding Task — M234 Explicit Dismiss Failed Analyst Question
+# Next Coding Task — M235 Invalidate Failed Question When Comparison Selection Changes
 
-M214–M233 now provide the installed World Analyst path from immutable saved-World evidence through a restricted long-lived Pi analyst, stable provider-neutral turns, native runtime/model readiness, an in-memory Question → Answer → Evidence transcript, explicit fatal recovery, clean New Comparison lifecycle, explicit cancellation of a running Ask, and explicit retry of a retained failed/cancelled question without disturbing a newer composer draft.
+M214–M234 now provide the installed World Analyst path from immutable saved-World evidence through a restricted long-lived Pi analyst, stable provider-neutral turns, native runtime/model readiness, an in-memory Question → Answer → Evidence transcript, explicit fatal recovery, clean New Comparison lifecycle, explicit cancellation, explicit retry of retained failed/cancelled questions, and explicit dismissal of retained failed-question intent.
 
-## M234 — explicitly dismiss a retained failed question without changing analyst state
+## M235 — prevent retained failed-question intent from crossing snapshot-pair scope
 
-M229 introduced `failed_question` as durable in-panel intent so an unsuccessful submitted prompt is not lost. M230 preserves it across fatal recovery, M231 clears it only when a clean New Comparison changes snapshot scope, M232 retains a successfully cancelled Ask, and M233 makes the retained question actionable through explicit Retry.
+M230 deliberately preserves `failed_question` across Fatal recovery so the user can recover the runtime and retry the same question against the same selected immutable World pair. M233 makes that retained question explicitly retryable. M231 clears it when New Comparison cleanly resets scope.
 
-The remaining product gap is intentional abandonment. Once a failed question is retained, a user who no longer wants to retry it has no direct way to remove the callout without starting a new comparison. The retained question is user intent, not session/runtime state, so it should have its own explicit discard action.
+There is one remaining scope hole: after M230 recovery, the panel is back in Setup with no live session, and existing `choose_right` allows the user to select a different right-hand saved World. Today that selection change clears `last_error` but leaves `failed_question` intact. A later Start can therefore make a question retained from pair A↔B retryable against pair A↔C.
 
-Add the smallest native `Dismiss failed question` action. Dismissal must clear only the retained failed-question intent and must not restart, close, recover, cancel, or otherwise mutate the analyst session.
+That is incorrect product state. A failed question is scoped to the immutable snapshot pair on which it was submitted.
 
 ### Product behavior
 
-When `failed_question` exists:
+When Setup changes the pending comparison selection to a different World:
 
-- continue displaying the retained failed-question callout;
-- expose `Dismiss failed question` whenever no analyst lifecycle operation is currently busy;
-- dismissal may remain available in idle Setup and Fatal states because it is a local intent change and does not require a live analyst session;
-- do not expose or enable dismissal during startup, an in-flight composer Ask, M233 Retry, M232 cancellation settlement, or M231 clean New Comparison shutdown;
-- M233 `Retry failed question` keeps its stricter requirement of an idle healthy Active session with a live session.
-
-When the user chooses `Dismiss failed question`:
-
-- set only `failed_question` to `None`;
+- clear any retained `failed_question` immediately because its evidence scope no longer matches;
 - leave the composer draft byte-for-byte unchanged;
-- leave transcript/history unchanged;
-- leave `PanelPhase`, `last_error`, runtime/readiness state, selected Worlds, live session, and cancellation authority unchanged;
-- do not issue any lower session/process/RPC/provider call;
-- do not automatically start, recover, close, retry, or create another Pi process.
+- leave runtime/readiness state unchanged;
+- leave the selected replacement World in place;
+- do not start, close, recover, cancel, or otherwise touch an analyst session/process;
+- do not fabricate or retain transcript history from the previous pair.
 
-After dismissal:
+A no-op selection of the already-selected World must not clear anything.
 
-- the failed-question callout and Retry/Dismiss actions disappear immediately;
-- a later failed or successfully cancelled composer Ask can create a new retained failed question normally;
-- successful normal Ask behavior remains unchanged;
-- M230 recovery, M231 New Comparison, M232 cancellation, and M233 Retry semantics remain unchanged.
+The important recovery case is:
+
+1. an Ask fails fatally for pair A↔B and retains its submitted question;
+2. M230 Recover returns the panel to Setup while preserving that retained question;
+3. if the user keeps A↔B and starts a fresh session, M233 Retry remains available once Active;
+4. if the user changes B to C before Start, the retained A↔B question is cleared immediately and can never become retryable against A↔C.
+
+M231 New Comparison already clears `failed_question` before Setup and remains unchanged. M234 Dismiss remains an independent explicit local action.
 
 ### Implementation boundary
 
-Keep dismissal entirely in `analyst_panel.rs` as a native product-state action over `failed_question`. Do not add a `DesktopAnalystSession` method, protocol field, process command, persistence record, or provider-specific behavior for dismissal.
+Keep this entirely in native panel selection state. Prefer a small pure transition/helper around pending comparison selection so the scope-clearing rule is directly testable rather than coupling it to rendering.
 
-Prefer a small pure eligibility helper so visibility rules are directly testable. The action itself should have no side effects beyond clearing the retained question and notifying GPUI.
+Do not add a protocol field, session method, process command, persistence record, provider-specific behavior, or model call. GPUI must continue to consume only the existing product-level analyst APIs.
 
 ### Validation
 
 Required gates:
 
-- Dismiss appears only while a retained failed question exists and the panel is not busy;
-- Dismiss is available in idle Active, Setup, and Fatal states without requiring a live session;
-- Dismiss is unavailable during startup, Ask, Retry, cancellation settlement, and New Comparison close;
-- Dismiss clears only `failed_question`;
-- composer draft, transcript/history, phase, errors, runtime/readiness, World selection, session, and cancellation state are unchanged;
-- after dismissal, a later failed/cancelled composer Ask can retain a new failed question normally;
-- M233 Retry still uses the exact retained question and preserves the composer across success/recoverable/fatal/cancel paths;
-- M230 recovery, M231 New Comparison, and M232 cancellation regressions remain green;
-- existing M219–M233 protocol/model/runtime/transcript/session regressions remain green;
+- changing the right-hand World in Setup clears retained `failed_question`;
+- selecting the already-selected right-hand World is a no-op and preserves retained intent;
+- composer draft is unaffected by selection changes;
+- runtime/readiness is unaffected by selection changes;
+- no session/process/cancellation action is introduced;
+- keeping the same pair through Fatal → Recover → Start still preserves M233 Retry behavior;
+- M231 New Comparison, M232 cancellation, M233 Retry, and M234 Dismiss regressions remain green;
+- existing M219–M234 protocol/model/runtime/transcript/session regressions remain green;
 - Linux boundary/fmt/Clippy/workspace/Pack conformance remain green;
 - full macOS GPUI/desktop tests and `World Machine.app` build/validate/packaged smoke/archive/upload remain green.
 
 ## Non-goals
 
-No bulk transcript clearing, no automatic expiration of failed questions, no confirmation dialog, no persistent chat history, no automatic retry/backoff, no resumable or paused model turn, no reconnecting an ended Pi process, no cross-comparison failed-question carryover, no token streaming, no concurrent turns, no protocol v2, no provider/model picker, no API-key storage, no new analyst tools, and no mutation authority.
+No two-sided World selector yet, no automatic pair swapping, no cross-comparison failed-question carryover, no persistent chat history, no automatic retry/backoff, no resumable model turn, no reconnect, no token streaming, no concurrent turns, no protocol v2, no provider/model picker, no API-key storage, no new analyst tools, and no mutation authority.
