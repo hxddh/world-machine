@@ -11,8 +11,8 @@ use std::sync::Arc;
 use world_library::{WorldDocumentId, WorldDocumentSummary, WorldLibrary};
 use world_machine_desktop::analyst_readiness::DesktopAnalystRuntimeReadiness;
 use world_machine_desktop::analyst_session::{
-    DesktopAnalystCancellation, DesktopAnalystCancellationOutcome, DesktopAnalystSession,
-    DesktopAnalystState,
+    DesktopAnalystCancellation, DesktopAnalystCancellationOutcome, DesktopAnalystEvidenceScope,
+    DesktopAnalystSession, DesktopAnalystState,
 };
 use world_machine_desktop::analyst_settings::DesktopAnalystProgramSource;
 
@@ -147,6 +147,7 @@ struct AnalystPanelView {
     cancel_requested: bool,
     history: Vec<PanelTurn>,
     failed_question: Option<String>,
+    failed_question_scope: Option<DesktopAnalystEvidenceScope>,
     last_error: Option<String>,
 }
 
@@ -193,6 +194,7 @@ impl AnalystPanelView {
             cancel_requested: false,
             history: Vec::new(),
             failed_question: None,
+            failed_question_scope: None,
             last_error: None,
         };
         view.refresh_runtime(cx);
@@ -361,6 +363,15 @@ impl AnalystPanelView {
                 this.cancel_requested = false;
                 match result {
                     Ok(session) => {
+                        if this.failed_question.is_some()
+                            && !retained_failed_question_matches_scope(
+                                this.failed_question_scope.as_ref(),
+                                session.evidence_scope(),
+                            )
+                        {
+                            this.failed_question = None;
+                            this.failed_question_scope = None;
+                        }
                         this.history = snapshot_history(&session);
                         this.cancellation = session.cancellation_handle();
                         this.session = Some(session);
@@ -436,6 +447,7 @@ impl AnalystPanelView {
             return;
         }
         self.failed_question = None;
+        self.failed_question_scope = None;
         cx.notify();
     }
 
@@ -516,7 +528,16 @@ impl AnalystPanelView {
                     cancel_requested,
                     forced_fatal,
                 );
+                let next_failed_question_scope = failed_question_scope_after_completion(
+                    this.failed_question_scope.as_ref(),
+                    source,
+                    succeeded,
+                    cancel_requested,
+                    forced_fatal,
+                    session.evidence_scope(),
+                );
                 this.failed_question = next_failed_question;
+                this.failed_question_scope = next_failed_question_scope;
                 let turn_error = result.err();
                 this.last_error = if cancel_requested {
                     turn_error.or_else(|| Some("Analysis cancelled by user".to_string()))
@@ -608,6 +629,7 @@ impl AnalystPanelView {
                             &mut this.history,
                             &mut this.runtime,
                             &mut this.failed_question,
+                            &mut this.failed_question_scope,
                             &mut this.last_error,
                         );
                         debug_assert!(transitioned);
@@ -650,7 +672,13 @@ impl AnalystPanelView {
         if self.busy || self.settings_busy || self.session.is_some() {
             return;
         }
-        if !update_pending_right(&self.left, &mut self.right, &mut self.failed_question, id) {
+        if !update_pending_right(
+            &self.left,
+            &mut self.right,
+            &mut self.failed_question,
+            &mut self.failed_question_scope,
+            id,
+        ) {
             return;
         }
         self.last_error = None;
@@ -1264,10 +1292,11 @@ fn document_title(document: &WorldDocumentSummary) -> String {
         .unwrap_or_else(|| document.id.to_string())
 }
 
-fn update_pending_right(
+fn update_pending_right<T>(
     left: &WorldDocumentId,
     right: &mut WorldDocumentId,
     failed_question: &mut Option<String>,
+    failed_question_scope: &mut Option<T>,
     id: WorldDocumentId,
 ) -> bool {
     if id == *left || id == *right {
@@ -1275,7 +1304,15 @@ fn update_pending_right(
     }
     *right = id;
     *failed_question = None;
+    *failed_question_scope = None;
     true
+}
+
+fn retained_failed_question_matches_scope<T: PartialEq>(
+    retained_scope: Option<&T>,
+    current_scope: &T,
+) -> bool {
+    retained_scope.is_some_and(|scope| scope == current_scope)
 }
 
 fn can_cancel_analysis(
@@ -1347,11 +1384,30 @@ fn failed_question_after_completion(
     }
 }
 
-fn reset_new_comparison_state<T>(
+fn failed_question_scope_after_completion<T: Clone>(
+    existing_scope: Option<&T>,
+    source: PanelAskSource,
+    succeeded: bool,
+    cancel_requested: bool,
+    forced_fatal: bool,
+    current_scope: &T,
+) -> Option<T> {
+    if !succeeded || cancel_requested || (forced_fatal && source == PanelAskSource::FailedQuestion)
+    {
+        return Some(current_scope.clone());
+    }
+    match source {
+        PanelAskSource::Composer => existing_scope.cloned(),
+        PanelAskSource::FailedQuestion => None,
+    }
+}
+
+fn reset_new_comparison_state<T, S>(
     phase: &mut PanelPhase,
     history: &mut Vec<PanelTurn>,
     runtime: &mut Option<T>,
     failed_question: &mut Option<String>,
+    failed_question_scope: &mut Option<S>,
     last_error: &mut Option<String>,
 ) -> bool {
     if !matches!(phase, PanelPhase::Active) {
@@ -1361,6 +1417,7 @@ fn reset_new_comparison_state<T>(
     history.clear();
     *runtime = None;
     *failed_question = None;
+    *failed_question_scope = None;
     *last_error = None;
     true
 }
@@ -1566,33 +1623,51 @@ mod tests {
         let left = WorldDocumentId::new("left").unwrap();
         let mut right = WorldDocumentId::new("right").unwrap();
         let mut failed_question = Some("Why did A and B diverge?".to_string());
+        let mut failed_question_scope = Some("scope-a-b".to_string());
 
         assert!(!update_pending_right(
             &left,
             &mut right,
             &mut failed_question,
+            &mut failed_question_scope,
             WorldDocumentId::new("right").unwrap(),
         ));
         assert_eq!(right.as_str(), "right");
         assert_eq!(failed_question.as_deref(), Some("Why did A and B diverge?"));
+        assert_eq!(failed_question_scope.as_deref(), Some("scope-a-b"));
 
         assert!(!update_pending_right(
             &left,
             &mut right,
             &mut failed_question,
+            &mut failed_question_scope,
             WorldDocumentId::new("left").unwrap(),
         ));
         assert_eq!(right.as_str(), "right");
         assert_eq!(failed_question.as_deref(), Some("Why did A and B diverge?"));
+        assert_eq!(failed_question_scope.as_deref(), Some("scope-a-b"));
 
         assert!(update_pending_right(
             &left,
             &mut right,
             &mut failed_question,
+            &mut failed_question_scope,
             WorldDocumentId::new("replacement").unwrap(),
         ));
         assert_eq!(right.as_str(), "replacement");
         assert_eq!(failed_question, None);
+        assert_eq!(failed_question_scope, None);
+    }
+
+    #[test]
+    fn retained_failed_question_requires_the_same_evidence_scope() {
+        let scope = "scope-a-b";
+        assert!(retained_failed_question_matches_scope(Some(&scope), &scope));
+        assert!(!retained_failed_question_matches_scope::<&str>(None, &scope));
+        assert!(!retained_failed_question_matches_scope(
+            Some(&"old-scope"),
+            &scope,
+        ));
     }
 
     #[test]
@@ -1876,11 +1951,89 @@ mod tests {
     }
 
     #[test]
+    fn failed_question_scope_completion_policy_matches_question_policy() {
+        let current_scope = "current".to_string();
+        let older_scope = "older".to_string();
+        assert_eq!(
+            failed_question_scope_after_completion(
+                Some(&older_scope),
+                PanelAskSource::Composer,
+                true,
+                false,
+                false,
+                &current_scope,
+            )
+            .as_deref(),
+            Some("older")
+        );
+        assert_eq!(
+            failed_question_scope_after_completion(
+                Some(&older_scope),
+                PanelAskSource::Composer,
+                false,
+                false,
+                false,
+                &current_scope,
+            )
+            .as_deref(),
+            Some("current")
+        );
+        assert_eq!(
+            failed_question_scope_after_completion(
+                Some(&older_scope),
+                PanelAskSource::FailedQuestion,
+                true,
+                false,
+                false,
+                &current_scope,
+            ),
+            None
+        );
+        assert_eq!(
+            failed_question_scope_after_completion(
+                Some(&older_scope),
+                PanelAskSource::FailedQuestion,
+                false,
+                false,
+                false,
+                &current_scope,
+            )
+            .as_deref(),
+            Some("current")
+        );
+        assert_eq!(
+            failed_question_scope_after_completion(
+                Some(&older_scope),
+                PanelAskSource::FailedQuestion,
+                true,
+                true,
+                false,
+                &current_scope,
+            )
+            .as_deref(),
+            Some("current")
+        );
+        assert_eq!(
+            failed_question_scope_after_completion(
+                Some(&older_scope),
+                PanelAskSource::FailedQuestion,
+                true,
+                false,
+                true,
+                &current_scope,
+            )
+            .as_deref(),
+            Some("current")
+        );
+    }
+
+    #[test]
     fn new_comparison_clears_snapshot_pair_history_and_stale_readiness_after_close() {
         let mut phase = PanelPhase::Active;
         let mut history = vec![panel_turn("old question", "old answer")];
         let mut runtime = Some("stale readiness");
         let mut failed_question = Some("old failed question".into());
+        let mut failed_question_scope = Some("old evidence scope");
         let mut last_error = Some("old warning".into());
 
         assert!(reset_new_comparison_state(
@@ -1888,12 +2041,14 @@ mod tests {
             &mut history,
             &mut runtime,
             &mut failed_question,
+            &mut failed_question_scope,
             &mut last_error,
         ));
         assert_eq!(phase, PanelPhase::Setup);
         assert!(history.is_empty());
         assert_eq!(runtime, None);
         assert_eq!(failed_question, None);
+        assert_eq!(failed_question_scope, None);
         assert_eq!(last_error, None);
     }
 
@@ -1903,6 +2058,7 @@ mod tests {
         let mut history = vec![panel_turn("question", "answer")];
         let mut runtime = Some("current readiness");
         let mut failed_question = Some("failed question".into());
+        let mut failed_question_scope = Some("current evidence scope");
         let mut last_error = Some("transport ended".into());
 
         assert!(!reset_new_comparison_state(
@@ -1910,12 +2066,14 @@ mod tests {
             &mut history,
             &mut runtime,
             &mut failed_question,
+            &mut failed_question_scope,
             &mut last_error,
         ));
         assert!(matches!(phase, PanelPhase::Fatal(_)));
         assert_eq!(history.len(), 1);
         assert_eq!(runtime, Some("current readiness"));
         assert_eq!(failed_question.as_deref(), Some("failed question"));
+        assert_eq!(failed_question_scope, Some("current evidence scope"));
         assert_eq!(last_error.as_deref(), Some("transport ended"));
     }
 
