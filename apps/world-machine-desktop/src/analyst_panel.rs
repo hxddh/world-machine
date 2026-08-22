@@ -311,6 +311,7 @@ impl AnalystPanelView {
                         this.refresh_runtime(cx);
                     }
                     Err(error) => {
+                        this.documents.clear();
                         this.last_error = Some(format!("Could not refresh saved Worlds: {error}"));
                         cx.notify();
                     }
