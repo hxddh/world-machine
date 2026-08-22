@@ -1,6 +1,8 @@
+use std::collections::hash_map::DefaultHasher;
 use std::error::Error;
 use std::fmt;
 use std::fs::{self, OpenOptions};
+use std::hash::{Hash, Hasher};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -22,6 +24,39 @@ pub enum DesktopAnalystState {
     RecoverableError { message: String },
     FatalError { message: String },
     Closed,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct ArchiveSnapshotFingerprint {
+    len: u64,
+    first: u64,
+    second: u64,
+}
+
+impl ArchiveSnapshotFingerprint {
+    fn from_bytes(bytes: &[u8]) -> Self {
+        let mut first = DefaultHasher::new();
+        0x414e_414c_5953_5431_u64.hash(&mut first);
+        bytes.hash(&mut first);
+
+        let mut second = DefaultHasher::new();
+        0x414e_414c_5953_5432_u64.hash(&mut second);
+        bytes.hash(&mut second);
+
+        Self {
+            len: bytes.len() as u64,
+            first: first.finish(),
+            second: second.finish(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DesktopAnalystEvidenceScope {
+    left: WorldDocumentId,
+    right: WorldDocumentId,
+    left_archive: ArchiveSnapshotFingerprint,
+    right_archive: ArchiveSnapshotFingerprint,
 }
 
 #[derive(Clone, Debug)]
@@ -276,6 +311,7 @@ struct ArchiveSnapshotPair {
     root: PathBuf,
     left_path: PathBuf,
     right_path: PathBuf,
+    scope: DesktopAnalystEvidenceScope,
 }
 
 impl ArchiveSnapshotPair {
@@ -286,11 +322,18 @@ impl ArchiveSnapshotPair {
     ) -> Result<Self, DesktopAnalystSessionError> {
         let left_json = load_archive_json(library, "left", left)?;
         let right_json = load_archive_json(library, "right", right)?;
+        let scope = DesktopAnalystEvidenceScope {
+            left: left.clone(),
+            right: right.clone(),
+            left_archive: ArchiveSnapshotFingerprint::from_bytes(left_json.as_bytes()),
+            right_archive: ArchiveSnapshotFingerprint::from_bytes(right_json.as_bytes()),
+        };
         let root = create_snapshot_root()?;
         let pair = Self {
             left_path: root.join("left.world-archive.json"),
             right_path: root.join("right.world-archive.json"),
             root,
+            scope,
         };
         write_private_snapshot("left", &pair.left_path, &left_json)?;
         write_private_snapshot("right", &pair.right_path, &right_json)?;
@@ -307,6 +350,7 @@ impl Drop for ArchiveSnapshotPair {
 struct SessionCore<P: AnalystSessionProcess> {
     left: WorldDocumentId,
     right: WorldDocumentId,
+    scope: DesktopAnalystEvidenceScope,
     archives: Option<ArchiveSnapshotPair>,
     process: Option<P>,
     cancellation: Option<DesktopAnalystCancellation>,
@@ -331,6 +375,7 @@ impl<P: AnalystSessionProcess> SessionCore<P> {
         }
 
         let archives = ArchiveSnapshotPair::capture(library, &left, &right)?;
+        let scope = archives.scope.clone();
         let process_config =
             config.process_config(archives.left_path.clone(), archives.right_path.clone());
         let mut process = spawn(&process_config).map_err(DesktopAnalystSessionError::Spawn)?;
@@ -343,6 +388,7 @@ impl<P: AnalystSessionProcess> SessionCore<P> {
         Ok(Self {
             left,
             right,
+            scope,
             archives: Some(archives),
             process: Some(process),
             cancellation,
@@ -451,6 +497,10 @@ impl DesktopAnalystSession {
 
     pub fn right(&self) -> &WorldDocumentId {
         &self.inner.right
+    }
+
+    pub fn evidence_scope(&self) -> &DesktopAnalystEvidenceScope {
+        &self.inner.scope
     }
 
     pub fn state(&self) -> &DesktopAnalystState {
@@ -751,6 +801,32 @@ mod tests {
     }
 
     #[test]
+    fn evidence_scope_tracks_bound_archive_content_across_fresh_sessions() {
+        let fixture = Fixture::new("scope");
+        let first_shutdowns = Arc::new(AtomicUsize::new(0));
+        let first = fixture.session_with(Vec::new(), Arc::clone(&first_shutdowns));
+        let first_scope = first.scope.clone();
+        drop(first);
+        assert_eq!(first_shutdowns.load(Ordering::SeqCst), 1);
+
+        let same_shutdowns = Arc::new(AtomicUsize::new(0));
+        let same = fixture.session_with(Vec::new(), Arc::clone(&same_shutdowns));
+        assert_eq!(same.scope, first_scope);
+        drop(same);
+        assert_eq!(same_shutdowns.load(Ordering::SeqCst), 1);
+
+        fixture
+            .library
+            .save(&fixture.left, &archive("left-revised", 99))
+            .unwrap();
+        let changed_shutdowns = Arc::new(AtomicUsize::new(0));
+        let changed = fixture.session_with(Vec::new(), Arc::clone(&changed_shutdowns));
+        assert_ne!(changed.scope, first_scope);
+        drop(changed);
+        assert_eq!(changed_shutdowns.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
     fn archive_snapshots_do_not_follow_later_library_changes_and_close_cleans_them() {
         let fixture = Fixture::new("stable");
         let shutdowns = Arc::new(AtomicUsize::new(0));
@@ -946,6 +1022,7 @@ mod tests {
             .expect("active session owns archive snapshots")
             .left_path
             .clone();
+        let scope_before = session.scope.clone();
 
         assert!(matches!(
             session.ask("first").unwrap_err(),
@@ -955,6 +1032,7 @@ mod tests {
             session.state,
             DesktopAnalystState::FatalError { .. }
         ));
+        assert_eq!(session.scope, scope_before);
         assert!(session.exchanges.is_empty());
         assert_eq!(shutdowns.load(Ordering::SeqCst), 1);
         assert!(!left_snapshot.exists());
