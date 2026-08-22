@@ -24,6 +24,12 @@ enum PanelPhase {
     Fatal(String),
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PanelAskSource {
+    Composer,
+    FailedQuestion,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct PanelTurn {
     question: String,
@@ -394,6 +400,46 @@ impl AnalystPanelView {
             cx.notify();
             return;
         }
+        self.start_ask(
+            submitted_question,
+            prompt,
+            PanelAskSource::Composer,
+            cx,
+        );
+    }
+
+    fn retry_failed_question(&mut self, cx: &mut Context<Self>) {
+        if !can_retry_failed_question(
+            &self.phase,
+            self.busy,
+            self.session.is_some(),
+            self.failed_question.is_some(),
+            self.cancel_requested,
+        ) {
+            return;
+        }
+        let Some(submitted_question) = self.failed_question.clone() else {
+            return;
+        };
+        let prompt = submitted_question.clone();
+        self.start_ask(
+            submitted_question,
+            prompt,
+            PanelAskSource::FailedQuestion,
+            cx,
+        );
+    }
+
+    fn start_ask(
+        &mut self,
+        submitted_question: String,
+        prompt: String,
+        source: PanelAskSource,
+        cx: &mut Context<Self>,
+    ) {
+        if self.busy || self.cancel_requested || !matches!(self.phase, PanelPhase::Active) {
+            return;
+        }
         let Some(mut session) = self.session.take() else {
             self.last_error = Some("World analyst session is not available".into());
             cx.notify();
@@ -406,13 +452,13 @@ impl AnalystPanelView {
 
         let task = cx.background_executor().spawn(async move {
             let result = session.ask(&prompt).map_err(|error| error.to_string());
-            (session, result, submitted_question)
+            (session, result, submitted_question, source)
         });
         let background = cx.background_executor().clone();
         cx.spawn(async move |this, cx| {
             let mut completed = Some(task.await);
             let update = this.update(cx, |this, cx| {
-                let (session, result, submitted_question) = completed
+                let (session, result, submitted_question, source) = completed
                     .take()
                     .expect("analyst turn result should be consumed once");
                 let cancel_requested = this.cancel_requested;
@@ -441,17 +487,26 @@ impl AnalystPanelView {
                     }
                 }
                 let succeeded = result.is_ok();
-                let current_question = this.question.read(cx).text().to_owned();
-                if should_clear_completed_prompt(
-                    &current_question,
+                if source == PanelAskSource::Composer {
+                    let current_question = this.question.read(cx).text().to_owned();
+                    if should_clear_completed_prompt(
+                        source,
+                        &current_question,
+                        &submitted_question,
+                        succeeded,
+                        cancel_requested,
+                    ) {
+                        this.question.update(cx, |input, cx| input.clear(cx));
+                    }
+                }
+                let next_failed_question = failed_question_after_completion(
+                    this.failed_question.as_deref(),
+                    source,
                     &submitted_question,
                     succeeded,
                     cancel_requested,
-                ) {
-                    this.question.update(cx, |input, cx| input.clear(cx));
-                }
-                this.failed_question =
-                    failed_question_after_turn(&submitted_question, succeeded, cancel_requested);
+                );
+                this.failed_question = next_failed_question;
                 let turn_error = result.err();
                 this.last_error = if cancel_requested {
                     turn_error.or_else(|| Some("Analysis cancelled by user".to_string()))
@@ -464,7 +519,7 @@ impl AnalystPanelView {
                 cx.notify();
             });
             if update.is_err() {
-                if let Some((mut session, _, _)) = completed.take() {
+                if let Some((mut session, _, _, _)) = completed.take() {
                     background
                         .spawn(async move {
                             let _ = session.close();
@@ -1080,24 +1135,45 @@ impl Render for AnalystPanelView {
             )
             .child(content);
         if let Some(failed_question) = &self.failed_question {
-            root = root.child(
-                div()
-                    .p_3()
-                    .rounded_md()
-                    .border_1()
-                    .border_color(rgb(0xe1b4aa))
-                    .bg(rgb(0xfff8f6))
-                    .flex()
-                    .flex_col()
-                    .gap_1()
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(rgb(0x9b4a42))
-                            .child("Failed question"),
-                    )
-                    .child(div().text_sm().child(failed_question.clone())),
-            );
+            let mut failed = div()
+                .p_3()
+                .rounded_md()
+                .border_1()
+                .border_color(rgb(0xe1b4aa))
+                .bg(rgb(0xfff8f6))
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(rgb(0x9b4a42))
+                        .child("Failed question"),
+                )
+                .child(div().text_sm().child(failed_question.clone()));
+            if can_retry_failed_question(
+                &self.phase,
+                self.busy,
+                self.session.is_some(),
+                true,
+                self.cancel_requested,
+            ) {
+                failed = failed.child(
+                    div()
+                        .id("retry-failed-world-analyst-question")
+                        .cursor_pointer()
+                        .px_3()
+                        .p_1()
+                        .rounded_md()
+                        .border_1()
+                        .border_color(rgb(0xc9aaa1))
+                        .bg(rgb(0xffffff))
+                        .text_xs()
+                        .child("Retry failed question")
+                        .on_click(cx.listener(|this, _, _, cx| this.retry_failed_question(cx))),
+                );
+            }
+            root = root.child(failed);
         }
         if let Some(error) = &self.last_error {
             root = root.child(
@@ -1159,21 +1235,47 @@ fn can_cancel_analysis(
         && !cancel_requested
 }
 
+fn can_retry_failed_question(
+    phase: &PanelPhase,
+    busy: bool,
+    has_session: bool,
+    has_failed_question: bool,
+    cancel_requested: bool,
+) -> bool {
+    matches!(phase, PanelPhase::Active)
+        && !busy
+        && has_session
+        && has_failed_question
+        && !cancel_requested
+}
+
 fn should_clear_completed_prompt(
+    source: PanelAskSource,
     current: &str,
     submitted: &str,
     succeeded: bool,
     cancel_requested: bool,
 ) -> bool {
-    succeeded && !cancel_requested && current == submitted
+    source == PanelAskSource::Composer
+        && succeeded
+        && !cancel_requested
+        && current == submitted
 }
 
-fn failed_question_after_turn(
+fn failed_question_after_completion(
+    existing_failed_question: Option<&str>,
+    source: PanelAskSource,
     submitted: &str,
     succeeded: bool,
     cancel_requested: bool,
 ) -> Option<String> {
-    (!succeeded || cancel_requested).then(|| submitted.to_owned())
+    if !succeeded || cancel_requested {
+        return Some(submitted.to_owned());
+    }
+    match source {
+        PanelAskSource::Composer => existing_failed_question.map(str::to_owned),
+        PanelAskSource::FailedQuestion => None,
+    }
 }
 
 fn reset_new_comparison_state<T>(
@@ -1437,45 +1539,158 @@ mod tests {
     }
 
     #[test]
-    fn completed_prompt_is_cleared_only_after_uncancelled_success_if_the_draft_is_unchanged() {
-        assert!(should_clear_completed_prompt(
-            "Why did this diverge?",
-            "Why did this diverge?",
+    fn retry_control_requires_retained_question_and_idle_live_active_session() {
+        assert!(can_retry_failed_question(
+            &PanelPhase::Active,
+            false,
+            true,
             true,
             false,
         ));
-        assert!(!should_clear_completed_prompt(
-            "Why did this diverge?",
-            "Why did this diverge?",
+        assert!(!can_retry_failed_question(
+            &PanelPhase::Setup,
             false,
-            false,
-        ));
-        assert!(!should_clear_completed_prompt(
-            "A follow-up draft",
-            "Why did this diverge?",
+            true,
             true,
             false,
         ));
-        assert!(!should_clear_completed_prompt(
-            "Why did this diverge?",
-            "Why did this diverge?",
+        assert!(!can_retry_failed_question(
+            &PanelPhase::Starting,
+            true,
+            false,
+            true,
+            false,
+        ));
+        assert!(!can_retry_failed_question(
+            &PanelPhase::Fatal("ended".into()),
+            false,
+            true,
+            true,
+            false,
+        ));
+        assert!(!can_retry_failed_question(
+            &PanelPhase::Active,
+            true,
+            false,
+            true,
+            false,
+        ));
+        assert!(!can_retry_failed_question(
+            &PanelPhase::Active,
+            false,
+            false,
+            true,
+            false,
+        ));
+        assert!(!can_retry_failed_question(
+            &PanelPhase::Active,
+            false,
+            true,
+            false,
+            false,
+        ));
+        assert!(!can_retry_failed_question(
+            &PanelPhase::Active,
+            false,
+            true,
             true,
             true,
         ));
     }
 
     #[test]
-    fn failed_or_cancelled_submission_is_retained_separately_from_a_newer_draft() {
+    fn completed_prompt_is_cleared_only_for_uncancelled_composer_success_if_draft_is_unchanged() {
+        assert!(should_clear_completed_prompt(
+            PanelAskSource::Composer,
+            "Why did this diverge?",
+            "Why did this diverge?",
+            true,
+            false,
+        ));
+        assert!(!should_clear_completed_prompt(
+            PanelAskSource::Composer,
+            "Why did this diverge?",
+            "Why did this diverge?",
+            false,
+            false,
+        ));
+        assert!(!should_clear_completed_prompt(
+            PanelAskSource::Composer,
+            "A follow-up draft",
+            "Why did this diverge?",
+            true,
+            false,
+        ));
+        assert!(!should_clear_completed_prompt(
+            PanelAskSource::Composer,
+            "Why did this diverge?",
+            "Why did this diverge?",
+            true,
+            true,
+        ));
+        assert!(!should_clear_completed_prompt(
+            PanelAskSource::FailedQuestion,
+            "A newer composer draft",
+            "Why did the old ask fail?",
+            true,
+            false,
+        ));
+    }
+
+    #[test]
+    fn failed_question_completion_policy_distinguishes_composer_and_retry() {
         assert_eq!(
-            failed_question_after_turn("Why did the old ask fail?", false, false).as_deref(),
-            Some("Why did the old ask fail?")
+            failed_question_after_completion(
+                Some("older failed question"),
+                PanelAskSource::Composer,
+                "new successful question",
+                true,
+                false,
+            )
+            .as_deref(),
+            Some("older failed question")
         );
         assert_eq!(
-            failed_question_after_turn("Why did the old ask fail?", true, false),
+            failed_question_after_completion(
+                Some("older failed question"),
+                PanelAskSource::Composer,
+                "new failed question",
+                false,
+                false,
+            )
+            .as_deref(),
+            Some("new failed question")
+        );
+        assert_eq!(
+            failed_question_after_completion(
+                Some("Why did the old ask fail?"),
+                PanelAskSource::FailedQuestion,
+                "Why did the old ask fail?",
+                true,
+                false,
+            ),
             None
         );
         assert_eq!(
-            failed_question_after_turn("Why did the cancelled ask stop?", true, true).as_deref(),
+            failed_question_after_completion(
+                Some("Why did the old ask fail?"),
+                PanelAskSource::FailedQuestion,
+                "Why did the old ask fail?",
+                false,
+                false,
+            )
+            .as_deref(),
+            Some("Why did the old ask fail?")
+        );
+        assert_eq!(
+            failed_question_after_completion(
+                Some("Why did the cancelled ask stop?"),
+                PanelAskSource::FailedQuestion,
+                "Why did the cancelled ask stop?",
+                true,
+                true,
+            )
+            .as_deref(),
             Some("Why did the cancelled ask stop?")
         );
     }
