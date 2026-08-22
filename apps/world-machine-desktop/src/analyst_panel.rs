@@ -38,7 +38,7 @@ struct PanelTurn {
     runtime_errors: Vec<String>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq,PartialEq)]
 struct PanelToolCall {
     tool: String,
     input: String,
@@ -253,9 +253,9 @@ impl AnalystPanelView {
         let library = Arc::clone(&self.library);
         cx.notify();
 
-        let task = cx.background_executor().spawn(async move {
-            library.list().map_err(|error| error.to_string())
-        });
+        let task = cx
+            .background_executor()
+            .spawn(async move { library.list().map_err(|error| error.to_string()) });
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
@@ -915,10 +915,8 @@ impl AnalystPanelView {
     }
 
     fn render_setup(&self, cx: &mut Context<Self>) -> Div {
-        let can_choose_world = !self.busy
-            && !self.settings_busy
-            && !self.catalog_refreshing
-            && self.session.is_none();
+        let can_choose_world =
+            !self.busy && !self.settings_busy && !self.catalog_refreshing && self.session.is_none();
         let mut worlds = div()
             .id("analyst-world-list")
             .w_full()
