@@ -1206,7 +1206,9 @@ impl Render for AnalystPanelView {
                             .bg(rgb(0xffffff))
                             .text_xs()
                             .child("Dismiss failed question")
-                            .on_click(cx.listener(|this, _, _, cx| this.dismiss_failed_question(cx))),
+                            .on_click(
+                                cx.listener(|this, _, _, cx| this.dismiss_failed_question(cx)),
+                            ),
                     );
                 }
                 failed = failed.child(actions);
@@ -1257,7 +1259,7 @@ fn document_title(document: &WorldDocumentSummary) -> String {
         .map(str::trim)
         .filter(|title| !title.is_empty())
         .map(str::to_owned)
-        .unwrap_or_else(|| document.id.to_string())
+        .unwrap_or_else(|| id.to_string())
 }
 
 fn can_cancel_analysis(
