@@ -400,12 +400,7 @@ impl AnalystPanelView {
             cx.notify();
             return;
         }
-        self.start_ask(
-            submitted_question,
-            prompt,
-            PanelAskSource::Composer,
-            cx,
-        );
+        self.start_ask(submitted_question, prompt, PanelAskSource::Composer, cx);
     }
 
     fn retry_failed_question(&mut self, cx: &mut Context<Self>) {
@@ -1256,10 +1251,7 @@ fn should_clear_completed_prompt(
     succeeded: bool,
     cancel_requested: bool,
 ) -> bool {
-    source == PanelAskSource::Composer
-        && succeeded
-        && !cancel_requested
-        && current == submitted
+    source == PanelAskSource::Composer && succeeded && !cancel_requested && current == submitted
 }
 
 fn failed_question_after_completion(
