@@ -1663,7 +1663,9 @@ mod tests {
     fn retained_failed_question_requires_the_same_evidence_scope() {
         let scope = "scope-a-b";
         assert!(retained_failed_question_matches_scope(Some(&scope), &scope));
-        assert!(!retained_failed_question_matches_scope::<&str>(None, &scope));
+        assert!(!retained_failed_question_matches_scope::<&str>(
+            None, &scope
+        ));
         assert!(!retained_failed_question_matches_scope(
             Some(&"old-scope"),
             &scope,
