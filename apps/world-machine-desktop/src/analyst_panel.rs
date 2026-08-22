@@ -138,6 +138,8 @@ struct AnalystPanelView {
     right: WorldDocumentId,
     runtime: Option<analyst_runtime::AnalystRuntimeStatus>,
     runtime_checking: bool,
+    catalog_refreshing: bool,
+    catalog_refresh_generation: u64,
     settings_busy: bool,
     session: Option<DesktopAnalystSession>,
     cancellation: Option<DesktopAnalystCancellation>,
@@ -185,6 +187,8 @@ impl AnalystPanelView {
             right,
             runtime: None,
             runtime_checking: false,
+            catalog_refreshing: false,
+            catalog_refresh_generation: 0,
             settings_busy: false,
             session: None,
             cancellation: None,
@@ -202,7 +206,12 @@ impl AnalystPanelView {
     }
 
     fn refresh_runtime(&mut self, cx: &mut Context<Self>) {
-        if self.busy || self.settings_busy || self.session.is_some() || self.runtime_checking {
+        if self.busy
+            || self.settings_busy
+            || self.session.is_some()
+            || self.runtime_checking
+            || self.catalog_refreshing
+        {
             return;
         }
         self.runtime = None;
@@ -224,12 +233,104 @@ impl AnalystPanelView {
         .detach();
     }
 
+    fn refresh_saved_world_catalog(&mut self, cx: &mut Context<Self>) {
+        if self.busy
+            || self.settings_busy
+            || self.session.is_some()
+            || self.runtime_checking
+            || self.catalog_refreshing
+            || !matches!(self.phase, PanelPhase::Setup)
+        {
+            return;
+        }
+
+        self.catalog_refresh_generation = self.catalog_refresh_generation.wrapping_add(1);
+        let generation = self.catalog_refresh_generation;
+        self.catalog_refreshing = true;
+        self.busy = true;
+        self.runtime = None;
+        self.last_error = None;
+        let library = Arc::clone(&self.library);
+        cx.notify();
+
+        let task = cx.background_executor().spawn(async move {
+            library.list().map_err(|error| error.to_string())
+        });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                if !can_apply_catalog_refresh_completion(
+                    &this.phase,
+                    this.busy,
+                    this.catalog_refreshing,
+                    generation,
+                    this.catalog_refresh_generation,
+                    this.session.is_some(),
+                ) {
+                    return;
+                }
+
+                this.catalog_refreshing = false;
+                this.busy = false;
+                match result {
+                    Ok(documents) => {
+                        if !documents.iter().any(|document| document.id == this.left) {
+                            this.documents = documents;
+                            this.last_error = Some(
+                                "The current analyst anchor World is no longer saved. Close this analyst window and reopen it from a saved World."
+                                    .into(),
+                            );
+                            cx.notify();
+                            return;
+                        }
+
+                        let Some(next_right) =
+                            refreshed_right_for(&this.left, &this.right, &documents)
+                        else {
+                            this.documents = documents;
+                            this.last_error = Some(
+                                "World analyst needs at least two saved Worlds. Create or import another saved World, then Recheck."
+                                    .into(),
+                            );
+                            cx.notify();
+                            return;
+                        };
+
+                        if next_right != this.right {
+                            let changed = update_pending_right(
+                                &this.left,
+                                &mut this.right,
+                                &mut this.failed_question,
+                                &mut this.failed_question_scope,
+                                next_right,
+                            );
+                            debug_assert!(changed);
+                        }
+                        this.documents = documents;
+                        this.last_error = None;
+                        this.refresh_runtime(cx);
+                    }
+                    Err(error) => {
+                        this.last_error = Some(format!("Could not refresh saved Worlds: {error}"));
+                        cx.notify();
+                    }
+                }
+            });
+        })
+        .detach();
+    }
+
     fn configure_program(
         &mut self,
         program: analyst_runtime::AnalystRuntimeProgram,
         cx: &mut Context<Self>,
     ) {
-        if self.busy || self.settings_busy || self.session.is_some() || self.runtime_checking {
+        if self.busy
+            || self.settings_busy
+            || self.session.is_some()
+            || self.runtime_checking
+            || self.catalog_refreshing
+        {
             return;
         }
         let label = runtime_program_label(program);
@@ -298,7 +399,12 @@ impl AnalystPanelView {
         program: analyst_runtime::AnalystRuntimeProgram,
         cx: &mut Context<Self>,
     ) {
-        if self.busy || self.settings_busy || self.session.is_some() || self.runtime_checking {
+        if self.busy
+            || self.settings_busy
+            || self.session.is_some()
+            || self.runtime_checking
+            || self.catalog_refreshing
+        {
             return;
         }
         self.settings_busy = true;
@@ -325,7 +431,11 @@ impl AnalystPanelView {
     }
 
     fn start_session(&mut self, cx: &mut Context<Self>) {
-        if self.busy || self.settings_busy || self.left == self.right {
+        if self.busy
+            || self.settings_busy
+            || self.catalog_refreshing
+            || !catalog_pair_is_available(&self.left, &self.right, &self.documents)
+        {
             return;
         }
         let Some(config) = self
@@ -634,7 +744,7 @@ impl AnalystPanelView {
                         );
                         debug_assert!(transitioned);
                         this.runtime_checking = false;
-                        this.refresh_runtime(cx);
+                        this.refresh_saved_world_catalog(cx);
                     }
                     Err(error) => {
                         this.phase = PanelPhase::Fatal(
@@ -665,11 +775,11 @@ impl AnalystPanelView {
         self.cancellation.take();
         self.cancel_requested = false;
         self.runtime_checking = false;
-        self.refresh_runtime(cx);
+        self.refresh_saved_world_catalog(cx);
     }
 
     fn choose_right(&mut self, id: WorldDocumentId, cx: &mut Context<Self>) {
-        if self.busy || self.settings_busy || self.session.is_some() {
+        if self.busy || self.settings_busy || self.catalog_refreshing || self.session.is_some() {
             return;
         }
         if !update_pending_right(
@@ -711,8 +821,11 @@ impl AnalystPanelView {
             analyst_runtime::AnalystRuntimeProgram::Pi => settings.pi_program.as_ref(),
         });
         let environment_controlled = selection.source == DesktopAnalystProgramSource::Environment;
-        let controls_enabled =
-            !self.busy && !self.settings_busy && !self.runtime_checking && self.session.is_none();
+        let controls_enabled = !self.busy
+            && !self.settings_busy
+            && !self.runtime_checking
+            && !self.catalog_refreshing
+            && self.session.is_none();
 
         let mut actions = div().flex().gap_2().items_center();
         if environment_controlled {
@@ -802,6 +915,10 @@ impl AnalystPanelView {
     }
 
     fn render_setup(&self, cx: &mut Context<Self>) -> Div {
+        let can_choose_world = !self.busy
+            && !self.settings_busy
+            && !self.catalog_refreshing
+            && self.session.is_none();
         let mut worlds = div()
             .id("analyst-world-list")
             .w_full()
@@ -825,7 +942,6 @@ impl AnalystPanelView {
                 .unwrap_or("Saved World");
             let mut card = div()
                 .id(SharedString::from(format!("analyst-world-{id}")))
-                .cursor_pointer()
                 .p_3()
                 .rounded_md()
                 .border_1()
@@ -842,13 +958,20 @@ impl AnalystPanelView {
             } else {
                 card.border_color(rgb(0xd8d8d2)).bg(rgb(0xffffff))
             };
-            worlds = worlds.child(card.on_click(cx.listener(move |this, _, _, cx| {
-                this.choose_right(id.clone(), cx);
-            })));
+            if can_choose_world {
+                worlds = worlds.child(card.cursor_pointer().on_click(
+                    cx.listener(move |this, _, _, cx| this.choose_right(id.clone(), cx)),
+                ));
+            } else {
+                worlds = worlds.child(card);
+            }
         }
 
-        let recheck_enabled =
-            !self.busy && !self.settings_busy && !self.runtime_checking && self.session.is_none();
+        let recheck_enabled = !self.busy
+            && !self.settings_busy
+            && !self.runtime_checking
+            && !self.catalog_refreshing
+            && self.session.is_none();
         let mut recheck = div()
             .id("retry-analyst-runtime")
             .px_3()
@@ -862,12 +985,25 @@ impl AnalystPanelView {
         if recheck_enabled {
             recheck = recheck
                 .cursor_pointer()
-                .on_click(cx.listener(|this, _, _, cx| this.refresh_runtime(cx)));
+                .on_click(cx.listener(|this, _, _, cx| this.refresh_saved_world_catalog(cx)));
         } else {
             recheck = recheck.text_color(rgb(0x999990));
         }
 
-        let runtime_status = if self.runtime_checking {
+        let runtime_status = if self.catalog_refreshing {
+            div()
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap_3()
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(rgb(0x666660))
+                        .child("Refreshing saved Worlds…"),
+                )
+                .child(recheck)
+        } else if self.runtime_checking {
             div()
                 .flex()
                 .items_center()
@@ -918,11 +1054,12 @@ impl AnalystPanelView {
         let can_start = !self.busy
             && !self.settings_busy
             && !self.runtime_checking
+            && !self.catalog_refreshing
             && self
                 .runtime
                 .as_ref()
                 .is_some_and(|status| status.readiness.is_ready())
-            && self.left != self.right;
+            && catalog_pair_is_available(&self.left, &self.right, &self.documents);
         let mut start = div()
             .id("start-world-analyst")
             .px_4()
@@ -930,7 +1067,9 @@ impl AnalystPanelView {
             .rounded_md()
             .border_1()
             .text_sm()
-            .child(if self.busy {
+            .child(if self.catalog_refreshing {
+                "Refreshing saved Worlds…"
+            } else if self.busy {
                 "Starting…"
             } else if self.settings_busy {
                 "Saving runtime path…"
@@ -1292,6 +1431,43 @@ fn document_title(document: &WorldDocumentSummary) -> String {
         .unwrap_or_else(|| document.id.to_string())
 }
 
+fn catalog_pair_is_available(
+    left: &WorldDocumentId,
+    right: &WorldDocumentId,
+    documents: &[WorldDocumentSummary],
+) -> bool {
+    left != right
+        && documents.iter().any(|document| document.id == *left)
+        && documents.iter().any(|document| document.id == *right)
+}
+
+fn refreshed_right_for(
+    left: &WorldDocumentId,
+    current_right: &WorldDocumentId,
+    documents: &[WorldDocumentSummary],
+) -> Option<WorldDocumentId> {
+    if catalog_pair_is_available(left, current_right, documents) {
+        Some(current_right.clone())
+    } else {
+        default_right_for(left, documents)
+    }
+}
+
+fn can_apply_catalog_refresh_completion(
+    phase: &PanelPhase,
+    busy: bool,
+    catalog_refreshing: bool,
+    generation: u64,
+    current_generation: u64,
+    has_session: bool,
+) -> bool {
+    matches!(phase, PanelPhase::Setup)
+        && busy
+        && catalog_refreshing
+        && generation == current_generation
+        && !has_session
+}
+
 fn update_pending_right<T>(
     left: &WorldDocumentId,
     right: &mut WorldDocumentId,
@@ -1604,6 +1780,92 @@ mod tests {
                 .as_str(),
             "other-pack"
         );
+    }
+
+    #[test]
+    fn refreshed_catalog_preserves_existing_right_and_falls_back_deterministically() {
+        let left = WorldDocumentId::new("left").unwrap();
+        let right = WorldDocumentId::new("right").unwrap();
+        let documents = vec![
+            summary("left", "tiny", Some("Left refreshed")),
+            summary("right", "pocket", Some("Right refreshed")),
+            summary("same-pack", "tiny", Some("Sibling")),
+        ];
+        assert_eq!(
+            refreshed_right_for(&left, &right, &documents)
+                .unwrap()
+                .as_str(),
+            "right"
+        );
+        assert!(catalog_pair_is_available(&left, &right, &documents));
+
+        let without_right = vec![
+            summary("left", "tiny", Some("Left refreshed")),
+            summary("other-pack", "pocket", Some("Pocket")),
+            summary("same-pack", "tiny", Some("Sibling")),
+        ];
+        assert_eq!(
+            refreshed_right_for(&left, &right, &without_right)
+                .unwrap()
+                .as_str(),
+            "same-pack"
+        );
+        assert!(!catalog_pair_is_available(&left, &right, &without_right));
+
+        let only_left = vec![summary("left", "tiny", Some("Left"))];
+        assert!(refreshed_right_for(&left, &right, &only_left).is_none());
+    }
+
+    #[test]
+    fn catalog_refresh_completion_rejects_stale_or_non_setup_results() {
+        assert!(can_apply_catalog_refresh_completion(
+            &PanelPhase::Setup,
+            true,
+            true,
+            7,
+            7,
+            false,
+        ));
+        assert!(!can_apply_catalog_refresh_completion(
+            &PanelPhase::Setup,
+            true,
+            true,
+            6,
+            7,
+            false,
+        ));
+        assert!(!can_apply_catalog_refresh_completion(
+            &PanelPhase::Active,
+            true,
+            true,
+            7,
+            7,
+            false,
+        ));
+        assert!(!can_apply_catalog_refresh_completion(
+            &PanelPhase::Setup,
+            false,
+            true,
+            7,
+            7,
+            false,
+        ));
+        assert!(!can_apply_catalog_refresh_completion(
+            &PanelPhase::Setup,
+            true,
+            false,
+            7,
+            7,
+            false,
+        ));
+        assert!(!can_apply_catalog_refresh_completion(
+            &PanelPhase::Setup,
+            true,
+            true,
+            7,
+            7,
+            true,
+        ));
     }
 
     #[test]
