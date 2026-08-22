@@ -425,6 +425,20 @@ impl AnalystPanelView {
         );
     }
 
+    fn dismiss_failed_question(&mut self, cx: &mut Context<Self>) {
+        if !can_dismiss_failed_question(
+            &self.phase,
+            self.busy,
+            self.runtime_checking,
+            self.settings_busy,
+            self.failed_question.is_some(),
+        ) {
+            return;
+        }
+        self.failed_question = None;
+        cx.notify();
+    }
+
     fn start_ask(
         &mut self,
         submitted_question: String,
@@ -1147,27 +1161,55 @@ impl Render for AnalystPanelView {
                         .child("Failed question"),
                 )
                 .child(div().text_sm().child(failed_question.clone()));
-            if can_retry_failed_question(
+            let can_retry = can_retry_failed_question(
                 &self.phase,
                 self.busy,
                 self.session.is_some(),
                 true,
                 self.cancel_requested,
-            ) {
-                failed = failed.child(
-                    div()
-                        .id("retry-failed-world-analyst-question")
-                        .cursor_pointer()
-                        .px_3()
-                        .p_1()
-                        .rounded_md()
-                        .border_1()
-                        .border_color(rgb(0xc9aaa1))
-                        .bg(rgb(0xffffff))
-                        .text_xs()
-                        .child("Retry failed question")
-                        .on_click(cx.listener(|this, _, _, cx| this.retry_failed_question(cx))),
-                );
+            );
+            let can_dismiss = can_dismiss_failed_question(
+                &self.phase,
+                self.busy,
+                self.runtime_checking,
+                self.settings_busy,
+                true,
+            );
+            if can_retry || can_dismiss {
+                let mut actions = div().flex().gap_2().items_center();
+                if can_retry {
+                    actions = actions.child(
+                        div()
+                            .id("retry-failed-world-analyst-question")
+                            .cursor_pointer()
+                            .px_3()
+                            .p_1()
+                            .rounded_md()
+                            .border_1()
+                            .border_color(rgb(0xc9aaa1))
+                            .bg(rgb(0xffffff))
+                            .text_xs()
+                            .child("Retry failed question")
+                            .on_click(cx.listener(|this, _, _, cx| this.retry_failed_question(cx))),
+                    );
+                }
+                if can_dismiss {
+                    actions = actions.child(
+                        div()
+                            .id("dismiss-failed-world-analyst-question")
+                            .cursor_pointer()
+                            .px_3()
+                            .p_1()
+                            .rounded_md()
+                            .border_1()
+                            .border_color(rgb(0xb8b2a8))
+                            .bg(rgb(0xffffff))
+                            .text_xs()
+                            .child("Dismiss failed question")
+                            .on_click(cx.listener(|this, _, _, cx| this.dismiss_failed_question(cx))),
+                    );
+                }
+                failed = failed.child(actions);
             }
             root = root.child(failed);
         }
@@ -1243,6 +1285,20 @@ fn can_retry_failed_question(
         && has_session
         && has_failed_question
         && !cancel_requested
+}
+
+fn can_dismiss_failed_question(
+    phase: &PanelPhase,
+    busy: bool,
+    runtime_checking: bool,
+    settings_busy: bool,
+    has_failed_question: bool,
+) -> bool {
+    !matches!(phase, PanelPhase::Starting)
+        && !busy
+        && !runtime_checking
+        && !settings_busy
+        && has_failed_question
 }
 
 fn should_clear_completed_prompt(
@@ -1590,6 +1646,66 @@ mod tests {
             true,
             true,
             true,
+        ));
+    }
+
+    #[test]
+    fn dismiss_control_is_local_to_retained_intent_and_requires_an_idle_panel() {
+        assert!(can_dismiss_failed_question(
+            &PanelPhase::Active,
+            false,
+            false,
+            false,
+            true,
+        ));
+        assert!(can_dismiss_failed_question(
+            &PanelPhase::Setup,
+            false,
+            false,
+            false,
+            true,
+        ));
+        assert!(can_dismiss_failed_question(
+            &PanelPhase::Fatal("ended".into()),
+            false,
+            false,
+            false,
+            true,
+        ));
+        assert!(!can_dismiss_failed_question(
+            &PanelPhase::Starting,
+            false,
+            false,
+            false,
+            true,
+        ));
+        assert!(!can_dismiss_failed_question(
+            &PanelPhase::Active,
+            true,
+            false,
+            false,
+            true,
+        ));
+        assert!(!can_dismiss_failed_question(
+            &PanelPhase::Setup,
+            false,
+            true,
+            false,
+            true,
+        ));
+        assert!(!can_dismiss_failed_question(
+            &PanelPhase::Setup,
+            false,
+            false,
+            true,
+            true,
+        ));
+        assert!(!can_dismiss_failed_question(
+            &PanelPhase::Active,
+            false,
+            false,
+            false,
+            false,
         ));
     }
 
