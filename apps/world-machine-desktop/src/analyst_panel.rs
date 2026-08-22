@@ -500,6 +500,7 @@ impl AnalystPanelView {
                     &submitted_question,
                     succeeded,
                     cancel_requested,
+                    forced_fatal,
                 );
                 this.failed_question = next_failed_question;
                 let turn_error = result.err();
@@ -1260,8 +1261,12 @@ fn failed_question_after_completion(
     submitted: &str,
     succeeded: bool,
     cancel_requested: bool,
+    forced_fatal: bool,
 ) -> Option<String> {
-    if !succeeded || cancel_requested {
+    if !succeeded
+        || cancel_requested
+        || (forced_fatal && source == PanelAskSource::FailedQuestion)
+    {
         return Some(submitted.to_owned());
     }
     match source {
@@ -1638,6 +1643,7 @@ mod tests {
                 "new successful question",
                 true,
                 false,
+                false,
             )
             .as_deref(),
             Some("older failed question")
@@ -1647,6 +1653,7 @@ mod tests {
                 Some("older failed question"),
                 PanelAskSource::Composer,
                 "new failed question",
+                false,
                 false,
                 false,
             )
@@ -1660,6 +1667,7 @@ mod tests {
                 "Why did the old ask fail?",
                 true,
                 false,
+                false,
             ),
             None
         );
@@ -1668,6 +1676,7 @@ mod tests {
                 Some("Why did the old ask fail?"),
                 PanelAskSource::FailedQuestion,
                 "Why did the old ask fail?",
+                false,
                 false,
                 false,
             )
@@ -1681,9 +1690,22 @@ mod tests {
                 "Why did the cancelled ask stop?",
                 true,
                 true,
+                false,
             )
             .as_deref(),
             Some("Why did the cancelled ask stop?")
+        );
+        assert_eq!(
+            failed_question_after_completion(
+                Some("Why did cancellation fail?"),
+                PanelAskSource::FailedQuestion,
+                "Why did cancellation fail?",
+                true,
+                false,
+                true,
+            )
+            .as_deref(),
+            Some("Why did cancellation fail?")
         );
     }
 
