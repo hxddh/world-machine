@@ -4,8 +4,8 @@ use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc as SharedArc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc as SharedArc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use world_analyst_client::{
     AnalystTurn, AnalystTurnClientError, AnalystTurnProcess, AnalystTurnProcessConfig,
@@ -85,9 +85,15 @@ impl DesktopAnalystConfig {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DesktopAnalystCancellationOutcome {
+    Signaled,
+    Inactive,
+}
+
 #[derive(Clone)]
 pub struct DesktopAnalystCancellation {
-    active: SharedArc<AtomicBool>,
+    active: SharedArc<Mutex<bool>>,
     signal: SharedArc<dyn Fn() -> Result<(), String> + Send + Sync>,
 }
 
@@ -101,20 +107,31 @@ impl DesktopAnalystCancellation {
         F: Fn() -> Result<(), String> + Send + Sync + 'static,
     {
         Self {
-            active: SharedArc::new(AtomicBool::new(true)),
+            active: SharedArc::new(Mutex::new(true)),
             signal: SharedArc::new(signal),
         }
     }
 
-    pub fn cancel(&self) -> Result<(), DesktopAnalystSessionError> {
-        if !self.active.swap(false, Ordering::SeqCst) {
-            return Ok(());
+    pub fn cancel(&self) -> Result<DesktopAnalystCancellationOutcome, DesktopAnalystSessionError> {
+        let mut active = self
+            .active
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if !*active {
+            return Ok(DesktopAnalystCancellationOutcome::Inactive);
         }
-        (self.signal)().map_err(DesktopAnalystSessionError::Cancel)
+        *active = false;
+        (self.signal)()
+            .map(|()| DesktopAnalystCancellationOutcome::Signaled)
+            .map_err(DesktopAnalystSessionError::Cancel)
     }
 
     fn deactivate(&self) {
-        self.active.store(false, Ordering::SeqCst);
+        let mut active = self
+            .active
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *active = false;
     }
 }
 
@@ -629,15 +646,21 @@ mod tests {
     }
 
     #[test]
-    fn cancellation_handle_is_idempotent_and_can_be_deactivated() {
+    fn cancellation_handle_reports_signal_and_inactive_no_op() {
         let signals = Arc::new(AtomicUsize::new(0));
         let counter = Arc::clone(&signals);
         let cancellation = DesktopAnalystCancellation::new(move || {
             counter.fetch_add(1, Ordering::SeqCst);
             Ok(())
         });
-        cancellation.cancel().unwrap();
-        cancellation.cancel().unwrap();
+        assert_eq!(
+            cancellation.cancel().unwrap(),
+            DesktopAnalystCancellationOutcome::Signaled
+        );
+        assert_eq!(
+            cancellation.cancel().unwrap(),
+            DesktopAnalystCancellationOutcome::Inactive
+        );
         assert_eq!(signals.load(Ordering::SeqCst), 1);
 
         let signals = Arc::new(AtomicUsize::new(0));
@@ -647,8 +670,31 @@ mod tests {
             Ok(())
         });
         cancellation.deactivate();
-        cancellation.cancel().unwrap();
+        assert_eq!(
+            cancellation.cancel().unwrap(),
+            DesktopAnalystCancellationOutcome::Inactive
+        );
         assert_eq!(signals.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn failed_cancellation_signal_deactivates_future_attempts() {
+        let signals = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&signals);
+        let cancellation = DesktopAnalystCancellation::new(move || {
+            counter.fetch_add(1, Ordering::SeqCst);
+            Err("signal failed".into())
+        });
+
+        assert!(matches!(
+            cancellation.cancel(),
+            Err(DesktopAnalystSessionError::Cancel(message)) if message == "signal failed"
+        ));
+        assert_eq!(
+            cancellation.cancel().unwrap(),
+            DesktopAnalystCancellationOutcome::Inactive
+        );
+        assert_eq!(signals.load(Ordering::SeqCst), 1);
     }
 
     #[test]
