@@ -145,11 +145,7 @@ struct AnalystPanelView {
 }
 
 impl AnalystPanelView {
-    fn new(
-        library: Arc<WorldLibrary>,
-        left: WorldDocumentId,
-        cx: &mut Context<Self>,
-    ) -> Self {
+    fn new(library: Arc<WorldLibrary>, left: WorldDocumentId, cx: &mut Context<Self>) -> Self {
         cx.on_release(|this, cx| {
             let session = this.session.take();
             let cancellation = this.cancellation.take();
