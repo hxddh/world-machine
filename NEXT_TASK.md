@@ -1,58 +1,54 @@
-# Next Coding Task — M237 Refresh Saved-World Catalog for a Fresh Analyst Comparison
+# Next Coding Task — M238 Load Initial Analyst Catalog Off the GPUI Path
 
-M214–M236 now provide the installed World Analyst path from immutable saved-World evidence through a restricted long-lived Pi analyst, stable provider-neutral turns, native runtime/model readiness, an in-memory Question → Answer → Evidence transcript, explicit fatal recovery, clean New Comparison lifecycle, explicit cancellation/retry/dismissal of retained failed questions, and evidence-scope protection so a retained question can never be retried against changed archive snapshots.
+M214–M237 now provide the installed World Analyst path from immutable saved-World evidence through a restricted long-lived Pi analyst, stable provider-neutral turns, native runtime/model readiness, an in-memory Question → Answer → Evidence transcript, explicit recovery/new-comparison/cancellation/retry/dismiss flows, retained-question evidence scoping, and background saved-World catalog refresh for fresh Setup transitions.
 
-## M237 — refresh the saved-World catalog before a fresh comparison
+## M238 — make the first analyst catalog load asynchronous too
 
-The analyst panel currently snapshots `WorldLibrary::list()` only when the window first opens. M231 can return the same window to Setup through `New comparison`, and M230 can return to Setup through Fatal recovery, but neither path refreshes `documents`.
+M237 moves `WorldLibrary::list()` off the GPUI update/render path for New Comparison, Fatal recovery, and manual Recheck, but the first click on `Analyze saved Worlds…` still calls `library.list()` synchronously inside `open_panel` before the analyst window is created.
 
-That creates stale native product state after the Library changes elsewhere while the analyst window stays open: newly created/imported Worlds do not appear, deleted Worlds remain selectable, and titles/summaries/timestamps shown in Setup can be stale. Session startup still loads the current archives by id and therefore fails safely, but the selection surface itself is no longer an accurate view of the Library.
+That leaves the initial product entry point inconsistent with every later refresh. A large Library, slow filesystem, or expensive document parsing can still block the document click/update path before the user sees any analyst UI.
 
-Add a narrow background catalog refresh for fresh Setup transitions.
+Make the first catalog load use the same background Setup pipeline as M237.
 
 ### Product behavior
 
-- when `New comparison` closes successfully, reload the saved-World summaries before presenting the next usable comparison selection;
-- when Fatal recovery returns to Setup, reload the saved-World summaries as part of the fresh recovery path;
-- keep the current left document fixed as the analyst anchor;
-- if the currently selected right World still exists and differs from left, preserve it;
-- if the selected right World disappeared, choose the same deterministic `default_right_for` policy used when the panel first opens;
-- if fewer than two saved Worlds remain, stay in Setup with an actionable error and do not start a session;
-- newly created/imported Worlds and updated display metadata become visible without closing the analyst window;
-- no active analyst session may observe its `documents` catalog mutate underneath it.
+- clicking `Analyze saved Worlds…` opens the analyst window immediately without synchronously enumerating or parsing the entire saved-World Library;
+- the current saved document remains the fixed left anchor;
+- the panel enters Setup and shows `Refreshing saved Worlds…` while the initial catalog load runs on the background executor;
+- once the catalog arrives, reconcile the right-hand selection with the same deterministic same-pack-first policy used by M237, then run runtime readiness;
+- if fewer than two saved Worlds exist, keep the window open in safe Setup with the existing actionable error rather than failing the click before a window appears;
+- if the left anchor is no longer present by the time the background load completes, fail closed with the M237 anchor error;
+- initial loading must not clear or invent composer/history/failed-question state;
+- closing the window while the load is in flight must make completion harmless.
 
 ### Concurrency and state rules
 
-- Library listing must run off the GPUI render/update path;
-- the refresh must be single-flight with existing analyst lifecycle work;
-- stale asynchronous refresh completion must not overwrite a later state transition;
-- while catalog refresh is running, Start and World-selection actions are unavailable;
-- runtime readiness refresh and catalog refresh may be sequenced or coordinated, but Setup must not expose a Start action until both current catalog and runtime readiness are usable;
-- refreshing summaries alone must not invalidate a retained failed question when both evidence ids remain the same; M236 fresh-session evidence-scope comparison remains the authority for actual archive-content changes;
-- if refresh must replace a missing selected right World, clear the retained failed question and its evidence scope because the pair id changed, reusing the M235 selection-scope rule.
+- reuse the M237 catalog-refresh state machine instead of creating a second Library enumeration path;
+- initial catalog completion must obey the same generation/phase/session stale-result gate;
+- no runtime readiness check or Start action may become usable before the initial catalog is reconciled;
+- no synchronous `WorldLibrary::list()` remains in the GPUI click/open path;
+- reopening multiple analyst windows remains independent: each window owns its own catalog generation/state and no global cache is introduced.
 
 ### Implementation boundary
 
-Keep Library enumeration and selection reconciliation in the desktop product layer. Do not add analyst protocol fields, provider/model calls, filesystem authority to Pi, new World truth, or Pack-specific UI.
+Keep this entirely in native desktop product state. Do not add a Library daemon/cache, watcher, analyst protocol field, provider/model request, Pi/filesystem authority, persistence record, World truth, or Pack-specific behavior.
 
-Prefer a small pure reconciliation helper over embedding right-selection rules inside async callbacks. Reuse `default_right_for` and the M235 failed-question invalidation semantics where possible.
+Prefer making `AnalystPanelView::new` begin the existing M237 refresh flow with an initially invalid/unselected right-side state, rather than duplicating refresh logic in `open_panel`.
 
 ### Validation
 
 Required gates:
 
-- New Comparison sees Worlds added after the analyst window opened;
-- Fatal recovery sees updated Library summaries;
-- a still-existing selected right World remains selected;
-- a deleted selected right World falls back deterministically and invalidates retained pair-scoped failed intent;
-- fewer than two available Worlds leaves Setup safe and non-startable with a clear error;
-- stale async completion cannot overwrite Active/Fatal/newer refresh state;
-- no active session catalog mutation;
-- M230–M236 recovery/new-comparison/cancel/retry/dismiss/snapshot-scope regressions remain green;
-- existing M219+ protocol/model/runtime/session regressions remain green;
+- `open_panel` performs no synchronous `WorldLibrary::list()`;
+- initial panel creation immediately enters background catalog refresh;
+- initial catalog selects the deterministic default right World after load;
+- fewer than two Worlds and missing-left cases stay safely visible/non-startable with actionable errors;
+- closing/dropping the panel during initial refresh cannot publish stale state or start runtime/session work;
+- New Comparison / Fatal recovery / manual Recheck continue to reuse the same refresh path;
+- M230–M237 recovery/new-comparison/cancel/retry/dismiss/snapshot-scope/catalog regressions remain green;
 - Linux boundary/fmt/Clippy/workspace/Pack conformance remain green;
 - full macOS GPUI/desktop tests and `World Machine.app` build/validate/packaged smoke/archive/upload remain green.
 
 ## Non-goals
 
-No two-sided World selector yet, no automatic pair swapping, no persistent chat history, no automatic retry/backoff, no resumable or paused model turn, no reconnect, no streaming, no concurrent turns, no protocol v2, no provider/model picker, no API-key storage, no new analyst tools, and no mutation authority.
+No global Library watcher/cache, no two-sided World selector yet, no automatic pair swapping, no persistent chat history, no automatic retry/backoff, no resumable model turn, no reconnect, no streaming, no concurrent turns, no protocol v2, no provider/model picker, no API-key storage, no new analyst tools, and no mutation authority.
