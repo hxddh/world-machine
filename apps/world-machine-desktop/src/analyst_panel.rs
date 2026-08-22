@@ -38,7 +38,7 @@ struct PanelTurn {
     runtime_errors: Vec<String>,
 }
 
-#[derive(Clone, Debug, Eq,PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct PanelToolCall {
     tool: String,
     input: String,
