@@ -919,7 +919,10 @@ impl AnalystPanelView {
             && !self.settings_busy
             && !self.catalog_refreshing
             && self.session.is_none()
-            && self.documents.iter().any(|document| document.id == self.left);
+            && self
+                .documents
+                .iter()
+                .any(|document| document.id == self.left);
         let mut worlds = div()
             .id("analyst-world-list")
             .w_full()
