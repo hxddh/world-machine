@@ -67,9 +67,7 @@ pub(super) fn document_action(
         .child("Analyze saved Worlds…")
         .on_click(cx.listener(move |this, _, _, cx| {
             this.status = Some(match open_panel(&document, cx) {
-                Ok(count) => {
-                    DocumentStatus::success(format!("Opened World analyst · {count} saved Worlds"))
-                }
+                Ok(()) => DocumentStatus::success("Opened World analyst · loading saved Worlds"),
                 Err(error) => {
                     DocumentStatus::error(format!("Could not open World analyst: {error}"))
                 }
@@ -81,7 +79,7 @@ pub(super) fn document_action(
 fn open_panel(
     document: &SharedDocument,
     cx: &mut Context<WorldDocumentView>,
-) -> Result<usize, String> {
+) -> Result<(), String> {
     analyst_input::bind_keys(cx);
     let (left, library) = {
         let document = document.borrow();
@@ -92,13 +90,6 @@ fn open_panel(
             .ok_or_else(|| "Only saved Library Worlds can be analyzed".to_string())?;
         (left, Arc::clone(&document.library))
     };
-    let documents = library.list().map_err(|error| error.to_string())?;
-    if documents.len() < 2 {
-        return Err("World analyst needs at least two saved Worlds".into());
-    }
-    let right = default_right_for(&left, &documents)
-        .ok_or_else(|| "World analyst could not find another saved World".to_string())?;
-    let count = documents.len();
     let bounds = Bounds::centered(None, size(px(920.0), px(820.0)), cx);
 
     cx.open_window(
@@ -106,10 +97,10 @@ fn open_panel(
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             ..Default::default()
         },
-        move |_, cx| cx.new(|cx| AnalystPanelView::new(library, documents, left, right, cx)),
+        move |_, cx| cx.new(|cx| AnalystPanelView::new(library, left, cx)),
     )
     .map_err(|error| error.to_string())?;
-    Ok(count)
+    Ok(())
 }
 
 fn default_right_for(
@@ -154,13 +145,7 @@ struct AnalystPanelView {
 }
 
 impl AnalystPanelView {
-    fn new(
-        library: Arc<WorldLibrary>,
-        documents: Vec<WorldDocumentSummary>,
-        left: WorldDocumentId,
-        right: WorldDocumentId,
-        cx: &mut Context<Self>,
-    ) -> Self {
+    fn new(library: Arc<WorldLibrary>, left: WorldDocumentId, cx: &mut Context<Self>) -> Self {
         cx.on_release(|this, cx| {
             let session = this.session.take();
             let cancellation = this.cancellation.take();
@@ -180,9 +165,10 @@ impl AnalystPanelView {
         })
         .detach();
         let question = cx.new(|cx| AnalystTextInput::new("Ask why these Worlds differ…", cx));
+        let right = left.clone();
         let mut view = Self {
             library,
-            documents,
+            documents: Vec::new(),
             left,
             right,
             runtime: None,
@@ -201,7 +187,7 @@ impl AnalystPanelView {
             failed_question_scope: None,
             last_error: None,
         };
-        view.refresh_runtime(cx);
+        view.refresh_saved_world_catalog(cx);
         view
     }
 
@@ -1819,6 +1805,34 @@ mod tests {
 
         let only_left = vec![summary("left", "tiny", Some("Left"))];
         assert!(refreshed_right_for(&left, &right, &only_left).is_none());
+    }
+
+    #[test]
+    fn initial_catalog_selects_default_right_from_left_sentinel() {
+        let left = WorldDocumentId::new("left").unwrap();
+        let documents = vec![
+            summary("left", "tiny", Some("Left")),
+            summary("other-pack", "pocket", Some("Pocket")),
+            summary("same-pack", "tiny", Some("Sibling")),
+        ];
+
+        let right = refreshed_right_for(&left, &left, &documents).unwrap();
+        assert_eq!(right.as_str(), "same-pack");
+        assert!(catalog_pair_is_available(&left, &right, &documents));
+    }
+
+    #[test]
+    fn open_panel_does_not_enumerate_library_synchronously() {
+        let source = include_str!("analyst_panel.rs");
+        let open_panel = source
+            .split_once("fn open_panel(")
+            .unwrap()
+            .1
+            .split_once("fn default_right_for(")
+            .unwrap()
+            .0;
+        assert!(!open_panel.contains(".list("));
+        assert!(open_panel.contains("AnalystPanelView::new"));
     }
 
     #[test]
