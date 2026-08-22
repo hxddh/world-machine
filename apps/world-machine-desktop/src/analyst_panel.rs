@@ -650,12 +650,7 @@ impl AnalystPanelView {
         if self.busy || self.settings_busy || self.session.is_some() {
             return;
         }
-        if !update_pending_right(
-            &self.left,
-            &mut self.right,
-            &mut self.failed_question,
-            id,
-        ) {
+        if !update_pending_right(&self.left, &mut self.right, &mut self.failed_question, id) {
             return;
         }
         self.last_error = None;
