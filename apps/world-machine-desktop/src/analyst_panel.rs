@@ -647,10 +647,17 @@ impl AnalystPanelView {
     }
 
     fn choose_right(&mut self, id: WorldDocumentId, cx: &mut Context<Self>) {
-        if self.busy || self.settings_busy || self.session.is_some() || id == self.left {
+        if self.busy || self.settings_busy || self.session.is_some() {
             return;
         }
-        self.right = id;
+        if !update_pending_right(
+            &self.left,
+            &mut self.right,
+            &mut self.failed_question,
+            id,
+        ) {
+            return;
+        }
         self.last_error = None;
         cx.notify();
     }
@@ -1262,6 +1269,20 @@ fn document_title(document: &WorldDocumentSummary) -> String {
         .unwrap_or_else(|| document.id.to_string())
 }
 
+fn update_pending_right(
+    left: &WorldDocumentId,
+    right: &mut WorldDocumentId,
+    failed_question: &mut Option<String>,
+    id: WorldDocumentId,
+) -> bool {
+    if id == *left || id == *right {
+        return false;
+    }
+    *right = id;
+    *failed_question = None;
+    true
+}
+
 fn can_cancel_analysis(
     phase: &PanelPhase,
     busy: bool,
@@ -1543,6 +1564,40 @@ mod tests {
             document_title(&summary("world-1", "tiny", Some("  "))),
             "world-1"
         );
+    }
+
+    #[test]
+    fn pending_right_selection_invalidates_failed_question_only_when_pair_changes() {
+        let left = WorldDocumentId::new("left").unwrap();
+        let mut right = WorldDocumentId::new("right").unwrap();
+        let mut failed_question = Some("Why did A and B diverge?".to_string());
+
+        assert!(!update_pending_right(
+            &left,
+            &mut right,
+            &mut failed_question,
+            WorldDocumentId::new("right").unwrap(),
+        ));
+        assert_eq!(right.as_str(), "right");
+        assert_eq!(failed_question.as_deref(), Some("Why did A and B diverge?"));
+
+        assert!(!update_pending_right(
+            &left,
+            &mut right,
+            &mut failed_question,
+            WorldDocumentId::new("left").unwrap(),
+        ));
+        assert_eq!(right.as_str(), "right");
+        assert_eq!(failed_question.as_deref(), Some("Why did A and B diverge?"));
+
+        assert!(update_pending_right(
+            &left,
+            &mut right,
+            &mut failed_question,
+            WorldDocumentId::new("replacement").unwrap(),
+        ));
+        assert_eq!(right.as_str(), "replacement");
+        assert_eq!(failed_question, None);
     }
 
     #[test]
