@@ -915,8 +915,11 @@ impl AnalystPanelView {
     }
 
     fn render_setup(&self, cx: &mut Context<Self>) -> Div {
-        let can_choose_world =
-            !self.busy && !self.settings_busy && !self.catalog_refreshing && self.session.is_none();
+        let can_choose_world = !self.busy
+            && !self.settings_busy
+            && !self.catalog_refreshing
+            && self.session.is_none()
+            && self.documents.iter().any(|document| document.id == self.left);
         let mut worlds = div()
             .id("analyst-world-list")
             .w_full()
