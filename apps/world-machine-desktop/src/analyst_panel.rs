@@ -1263,9 +1263,7 @@ fn failed_question_after_completion(
     cancel_requested: bool,
     forced_fatal: bool,
 ) -> Option<String> {
-    if !succeeded
-        || cancel_requested
-        || (forced_fatal && source == PanelAskSource::FailedQuestion)
+    if !succeeded || cancel_requested || (forced_fatal && source == PanelAskSource::FailedQuestion)
     {
         return Some(submitted.to_owned());
     }
