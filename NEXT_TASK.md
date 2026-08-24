@@ -22,7 +22,7 @@ Add one lightweight native Setup filter over the already-refreshed in-memory cat
 ### Lifecycle and eligibility
 
 - the filter is a Setup-only navigation control; Active/Fatal surfaces remain unchanged;
-- while catalog/runtime/settings/session work makes pair selection unavailable, the filter may remain editable because it does not mutate product/session state; if GPUI focus/event constraints make that unsafe, disable it under the same existing Setup busy gates rather than inventing new concurrency state;
+- filter edits are local presentation state and do not acquire or change the analyst busy/runtime/settings/catalog/session gates;
 - New Comparison/Fatal recovery keep their existing catalog-refresh behavior; the current filter may be preserved across the transition if the same analyst window remains open, but it must not affect reconciliation;
 - closing/reopening the analyst window starts with an empty filter;
 - no automatic Start, selection, swap, refresh, retry, or runtime check is triggered by filter edits.
@@ -36,7 +36,7 @@ Prefer a small pure matcher such as `document_matches_filter(document, query)` a
 Required invariants:
 
 - filtering changes presentation only;
-- `documents`, `left`, `right`, `runtime`, `failed_question`, `failed_question_scope`, `last_error`, session/process/cancellation state and catalog generation are not inputs to a mutating filter transition;
+- `documents`, `left`, `right`, `runtime`, `failed_question`, `failed_question_scope`, `last_error`, session/process/cancellation state and catalog generation are not mutated by filter edits;
 - selected/opposite IDs remain visible when present in `documents`, even when the query does not match them;
 - M241 same/opposite selector no-op rules and M242 explicit-swap-only rule remain unchanged;
 - Start continues to validate against the complete current catalog, not the filtered view;
