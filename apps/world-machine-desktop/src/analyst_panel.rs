@@ -30,6 +30,12 @@ enum PanelAskSource {
     FailedQuestion,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PanelPairSide {
+    Left,
+    Right,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct PanelTurn {
     question: String,
@@ -260,10 +266,20 @@ impl AnalystPanelView {
                 this.busy = false;
                 match result {
                     Ok(documents) => {
+                        if documents.len() < 2 {
+                            this.documents = documents;
+                            this.last_error = Some(
+                                "World analyst needs at least two saved Worlds. Create or import another saved World, then Recheck."
+                                    .into(),
+                            );
+                            cx.notify();
+                            return;
+                        }
+
                         if !documents.iter().any(|document| document.id == this.left) {
                             this.documents = documents;
                             this.last_error = Some(
-                                "The current analyst anchor World is no longer saved. Close this analyst window and reopen it from a saved World."
+                                "The selected left World is no longer saved. Choose another saved World for Left to continue."
                                     .into(),
                             );
                             cx.notify();
@@ -275,7 +291,7 @@ impl AnalystPanelView {
                         else {
                             this.documents = documents;
                             this.last_error = Some(
-                                "World analyst needs at least two saved Worlds. Create or import another saved World, then Recheck."
+                                "World analyst needs at least two distinct saved Worlds. Choose a different World for Right."
                                     .into(),
                             );
                             cx.notify();
@@ -283,8 +299,9 @@ impl AnalystPanelView {
                         };
 
                         if next_right != this.right {
-                            let changed = update_pending_right(
-                                &this.left,
+                            let changed = update_pending_pair_selection(
+                                PanelPairSide::Right,
+                                &mut this.left,
                                 &mut this.right,
                                 &mut this.failed_question,
                                 &mut this.failed_question_scope,
@@ -782,12 +799,33 @@ impl AnalystPanelView {
         self.refresh_saved_world_catalog(cx);
     }
 
-    fn choose_right(&mut self, id: WorldDocumentId, cx: &mut Context<Self>) {
-        if self.busy || self.settings_busy || self.catalog_refreshing || self.session.is_some() {
+    fn choose_world(
+        &mut self,
+        side: PanelPairSide,
+        id: WorldDocumentId,
+        cx: &mut Context<Self>,
+    ) {
+        if self.busy
+            || self.settings_busy
+            || self.runtime_checking
+            || self.catalog_refreshing
+            || self.session.is_some()
+            || !matches!(self.phase, PanelPhase::Setup)
+            || !self.documents.iter().any(|document| document.id == id)
+        {
             return;
         }
-        if !update_pending_right(
-            &self.left,
+        if side == PanelPairSide::Right
+            && !self
+                .documents
+                .iter()
+                .any(|document| document.id == self.left)
+        {
+            return;
+        }
+        if !update_pending_pair_selection(
+            side,
+            &mut self.left,
             &mut self.right,
             &mut self.failed_question,
             &mut self.failed_question_scope,
@@ -918,29 +956,37 @@ impl AnalystPanelView {
             .child(actions)
     }
 
-    fn render_setup(&self, cx: &mut Context<Self>) -> Div {
-        let can_choose_world = !self.busy
+    fn render_world_selector(&self, side: PanelPairSide, cx: &mut Context<Self>) -> Div {
+        let (label, selected, opposite) = match side {
+            PanelPairSide::Left => ("Left", &self.left, &self.right),
+            PanelPairSide::Right => ("Right", &self.right, &self.left),
+        };
+        let left_available = self
+            .documents
+            .iter()
+            .any(|document| document.id == self.left);
+        let selector_enabled = matches!(self.phase, PanelPhase::Setup)
+            && !self.busy
             && !self.settings_busy
+            && !self.runtime_checking
             && !self.catalog_refreshing
             && self.session.is_none()
-            && self
-                .documents
-                .iter()
-                .any(|document| document.id == self.left);
+            && self.documents.len() >= 2
+            && (side == PanelPairSide::Left || left_available);
+        let slug = pair_side_slug(side);
         let mut worlds = div()
-            .id("analyst-world-list")
+            .id(SharedString::from(format!("analyst-{slug}-world-list")))
             .w_full()
-            .max_h(px(400.0))
+            .max_h(px(260.0))
             .overflow_y_scroll()
             .flex()
             .flex_col()
             .gap_2();
+
         for document in &self.documents {
-            if document.id == self.left {
-                continue;
-            }
             let id = document.id.clone();
-            let selected = id == self.right;
+            let is_selected = id == *selected;
+            let is_opposite = id == *opposite;
             let title = document_title(document);
             let summary = document
                 .display_summary
@@ -949,8 +995,8 @@ impl AnalystPanelView {
                 .filter(|value| !value.is_empty())
                 .unwrap_or("Saved World");
             let mut card = div()
-                .id(SharedString::from(format!("analyst-world-{id}")))
-                .p_3()
+                .id(SharedString::from(format!("analyst-{slug}-world-{id}")))
+                .p_2()
                 .rounded_md()
                 .border_1()
                 .flex()
@@ -961,19 +1007,45 @@ impl AnalystPanelView {
                     "{} · t={} · {} events",
                     summary, document.world_time, document.event_count
                 )));
-            card = if selected {
+            card = if is_selected {
                 card.border_color(rgb(0x6684c4)).bg(rgb(0xf2f6ff))
+            } else if is_opposite {
+                card.border_color(rgb(0xe0e0db))
+                    .bg(rgb(0xf7f7f3))
+                    .text_color(rgb(0x999990))
             } else {
                 card.border_color(rgb(0xd8d8d2)).bg(rgb(0xffffff))
             };
-            if can_choose_world {
+            if selector_enabled && !is_selected && !is_opposite {
                 worlds = worlds.child(card.cursor_pointer().on_click(
-                    cx.listener(move |this, _, _, cx| this.choose_right(id.clone(), cx)),
+                    cx.listener(move |this, _, _, cx| this.choose_world(side, id.clone(), cx)),
                 ));
             } else {
                 worlds = worlds.child(card);
             }
         }
+
+        div()
+            .flex_1()
+            .min_w(px(0.0))
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(
+                div()
+                    .text_sm()
+                    .child(format!("{label} · {}", self.label_for(selected))),
+            )
+            .child(worlds)
+    }
+
+    fn render_setup(&self, cx: &mut Context<Self>) -> Div {
+        let selectors = div()
+            .w_full()
+            .flex()
+            .gap_3()
+            .child(self.render_world_selector(PanelPairSide::Left, cx))
+            .child(self.render_world_selector(PanelPairSide::Right, cx));
 
         let recheck_enabled = !self.busy
             && !self.settings_busy
@@ -1104,15 +1176,10 @@ impl AnalystPanelView {
             .child(
                 div()
                     .text_sm()
-                    .child(format!("Left · {}", self.label_for(&self.left))),
-            )
-            .child(
-                div()
-                    .text_sm()
                     .text_color(rgb(0x666660))
-                    .child("Choose the saved World to compare with the current World."),
+                    .child("Choose two distinct saved Worlds to compare."),
             )
-            .child(worlds)
+            .child(selectors)
             .child(runtime_status)
             .child(runtime_controls)
             .child(start)
@@ -1429,6 +1496,13 @@ fn runtime_program_source_label(source: DesktopAnalystProgramSource) -> &'static
     }
 }
 
+fn pair_side_slug(side: PanelPairSide) -> &'static str {
+    match side {
+        PanelPairSide::Left => "left",
+        PanelPairSide::Right => "right",
+    }
+}
+
 fn document_title(document: &WorldDocumentSummary) -> String {
     document
         .display_title
@@ -1505,17 +1579,31 @@ fn startup_error_requires_runtime_refresh(error: &DesktopAnalystSessionError) ->
     }
 }
 
-fn update_pending_right<T>(
-    left: &WorldDocumentId,
+fn update_pending_pair_selection<T>(
+    side: PanelPairSide,
+    left: &mut WorldDocumentId,
     right: &mut WorldDocumentId,
     failed_question: &mut Option<String>,
     failed_question_scope: &mut Option<T>,
     id: WorldDocumentId,
 ) -> bool {
-    if id == *left || id == *right {
-        return false;
-    }
-    *right = id;
+    let changed = match side {
+        PanelPairSide::Left => {
+            if id == *left || id == *right {
+                return false;
+            }
+            *left = id;
+            true
+        }
+        PanelPairSide::Right => {
+            if id == *right || id == *left {
+                return false;
+            }
+            *right = id;
+            true
+        }
+    };
+    debug_assert!(changed);
     *failed_question = None;
     *failed_question_scope = None;
     true
@@ -2034,7 +2122,7 @@ mod tests {
             .split_once("fn startup_error_requires_runtime_refresh(")
             .unwrap()
             .1
-            .split_once("fn update_pending_right")
+            .split_once("fn update_pending_pair_selection")
             .unwrap()
             .0;
         assert!(classifier.contains("DesktopAnalystSessionError::Client(_)"));
@@ -2053,42 +2141,75 @@ mod tests {
     }
 
     #[test]
-    fn pending_right_selection_invalidates_failed_question_only_when_pair_changes() {
-        let left = WorldDocumentId::new("left").unwrap();
+    fn pending_pair_selection_changes_either_side_without_swapping() {
+        let mut left = WorldDocumentId::new("left").unwrap();
         let mut right = WorldDocumentId::new("right").unwrap();
         let mut failed_question = Some("Why did A and B diverge?".to_string());
         let mut failed_question_scope = Some("scope-a-b".to_string());
 
-        assert!(!update_pending_right(
-            &left,
-            &mut right,
-            &mut failed_question,
-            &mut failed_question_scope,
-            WorldDocumentId::new("right").unwrap(),
-        ));
-        assert_eq!(right.as_str(), "right");
-        assert_eq!(failed_question.as_deref(), Some("Why did A and B diverge?"));
-        assert_eq!(failed_question_scope.as_deref(), Some("scope-a-b"));
-
-        assert!(!update_pending_right(
-            &left,
+        assert!(!update_pending_pair_selection(
+            PanelPairSide::Left,
+            &mut left,
             &mut right,
             &mut failed_question,
             &mut failed_question_scope,
             WorldDocumentId::new("left").unwrap(),
         ));
-        assert_eq!(right.as_str(), "right");
-        assert_eq!(failed_question.as_deref(), Some("Why did A and B diverge?"));
-        assert_eq!(failed_question_scope.as_deref(), Some("scope-a-b"));
-
-        assert!(update_pending_right(
-            &left,
+        assert!(!update_pending_pair_selection(
+            PanelPairSide::Left,
+            &mut left,
             &mut right,
             &mut failed_question,
             &mut failed_question_scope,
-            WorldDocumentId::new("replacement").unwrap(),
+            WorldDocumentId::new("right").unwrap(),
         ));
-        assert_eq!(right.as_str(), "replacement");
+        assert_eq!(failed_question.as_deref(), Some("Why did A and B diverge?"));
+        assert_eq!(failed_question_scope.as_deref(), Some("scope-a-b"));
+
+        assert!(update_pending_pair_selection(
+            PanelPairSide::Left,
+            &mut left,
+            &mut right,
+            &mut failed_question,
+            &mut failed_question_scope,
+            WorldDocumentId::new("replacement-left").unwrap(),
+        ));
+        assert_eq!(left.as_str(), "replacement-left");
+        assert_eq!(right.as_str(), "right");
+        assert_eq!(failed_question, None);
+        assert_eq!(failed_question_scope, None);
+
+        failed_question = Some("Why now?".into());
+        failed_question_scope = Some("new-scope".into());
+        assert!(!update_pending_pair_selection(
+            PanelPairSide::Right,
+            &mut left,
+            &mut right,
+            &mut failed_question,
+            &mut failed_question_scope,
+            WorldDocumentId::new("right").unwrap(),
+        ));
+        assert!(!update_pending_pair_selection(
+            PanelPairSide::Right,
+            &mut left,
+            &mut right,
+            &mut failed_question,
+            &mut failed_question_scope,
+            WorldDocumentId::new("replacement-left").unwrap(),
+        ));
+        assert_eq!(failed_question.as_deref(), Some("Why now?"));
+        assert_eq!(failed_question_scope.as_deref(), Some("new-scope"));
+
+        assert!(update_pending_pair_selection(
+            PanelPairSide::Right,
+            &mut left,
+            &mut right,
+            &mut failed_question,
+            &mut failed_question_scope,
+            WorldDocumentId::new("replacement-right").unwrap(),
+        ));
+        assert_eq!(left.as_str(), "replacement-left");
+        assert_eq!(right.as_str(), "replacement-right");
         assert_eq!(failed_question, None);
         assert_eq!(failed_question_scope, None);
     }
