@@ -140,6 +140,7 @@ struct AnalystPanelView {
     settings_busy: bool,
     session: Option<DesktopAnalystSession>,
     cancellation: Option<DesktopAnalystCancellation>,
+    filter: Entity<AnalystTextInput>,
     question: Entity<AnalystTextInput>,
     phase: PanelPhase,
     busy: bool,
@@ -170,6 +171,8 @@ impl AnalystPanelView {
             }
         })
         .detach();
+        let filter = cx.new(|cx| AnalystTextInput::new("Filter saved Worlds…", cx));
+        cx.observe(&filter, |_, _, cx| cx.notify()).detach();
         let question = cx.new(|cx| AnalystTextInput::new("Ask why these Worlds differ…", cx));
         let right = left.clone();
         let mut view = Self {
@@ -184,6 +187,7 @@ impl AnalystPanelView {
             settings_busy: false,
             session: None,
             cancellation: None,
+            filter,
             question,
             phase: PanelPhase::Setup,
             busy: false,
@@ -974,7 +978,12 @@ impl AnalystPanelView {
             .child(actions)
     }
 
-    fn render_world_selector(&self, side: PanelPairSide, cx: &mut Context<Self>) -> Div {
+    fn render_world_selector(
+        &self,
+        side: PanelPairSide,
+        filter_query: &str,
+        cx: &mut Context<Self>,
+    ) -> Div {
         let (label, selected, opposite) = match side {
             PanelPairSide::Left => ("Left", &self.left, &self.right),
             PanelPairSide::Right => ("Right", &self.right, &self.left),
@@ -1005,6 +1014,9 @@ impl AnalystPanelView {
             let id = document.id.clone();
             let is_selected = id == *selected;
             let is_opposite = id == *opposite;
+            if !document_visible_for_filter(document, selected, opposite, filter_query) {
+                continue;
+            }
             let title = document_title(document);
             let summary = document
                 .display_summary
@@ -1058,6 +1070,27 @@ impl AnalystPanelView {
     }
 
     fn render_setup(&self, cx: &mut Context<Self>) -> Div {
+        let filter_query = normalize_filter_query(self.filter.read(cx).text());
+        let has_other_match = self.documents.iter().any(|document| {
+            document.id != self.left
+                && document.id != self.right
+                && document_matches_filter(document, &filter_query)
+        });
+        let mut filter_control = div()
+            .w_full()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(self.filter.clone());
+        if !filter_query.is_empty() && !has_other_match {
+            filter_control = filter_control.child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0x777770))
+                    .child("No other saved Worlds match this filter"),
+            );
+        }
+
         let can_swap = can_swap_pending_pair(
             &self.phase,
             self.busy,
@@ -1103,8 +1136,8 @@ impl AnalystPanelView {
             .w_full()
             .flex()
             .gap_3()
-            .child(self.render_world_selector(PanelPairSide::Left, cx))
-            .child(self.render_world_selector(PanelPairSide::Right, cx));
+            .child(self.render_world_selector(PanelPairSide::Left, &filter_query, cx))
+            .child(self.render_world_selector(PanelPairSide::Right, &filter_query, cx));
 
         let recheck_enabled = !self.busy
             && !self.settings_busy
@@ -1233,6 +1266,7 @@ impl AnalystPanelView {
             .flex_col()
             .gap_3()
             .child(pair_header)
+            .child(filter_control)
             .child(selectors)
             .child(runtime_status)
             .child(runtime_controls)
@@ -1565,6 +1599,42 @@ fn document_title(document: &WorldDocumentSummary) -> String {
         .filter(|title| !title.is_empty())
         .map(str::to_owned)
         .unwrap_or_else(|| document.id.to_string())
+}
+
+fn normalize_filter_query(query: &str) -> String {
+    query.trim().to_lowercase()
+}
+
+fn document_matches_filter(document: &WorldDocumentSummary, filter_query: &str) -> bool {
+    if filter_query.is_empty() {
+        return true;
+    }
+
+    document_title(document)
+        .to_lowercase()
+        .contains(filter_query)
+        || document
+            .id
+            .to_string()
+            .to_lowercase()
+            .contains(filter_query)
+        || document
+            .display_summary
+            .as_deref()
+            .map(str::trim)
+            .filter(|summary| !summary.is_empty())
+            .is_some_and(|summary| summary.to_lowercase().contains(filter_query))
+}
+
+fn document_visible_for_filter(
+    document: &WorldDocumentSummary,
+    selected: &WorldDocumentId,
+    opposite: &WorldDocumentId,
+    filter_query: &str,
+) -> bool {
+    document.id == *selected
+        || document.id == *opposite
+        || document_matches_filter(document, filter_query)
 }
 
 fn catalog_pair_is_available(
@@ -2227,6 +2297,66 @@ mod tests {
             document_title(&summary("world-1", "tiny", Some("  "))),
             "world-1"
         );
+    }
+
+    #[test]
+    fn saved_world_filter_matches_title_id_and_summary_case_insensitively() {
+        let mut document = summary("maple-42", "tiny", Some("Maple Street"));
+        document.display_summary = Some("Flooded market district".into());
+
+        assert!(document_matches_filter(
+            &document,
+            &normalize_filter_query("  MAPLE "),
+        ));
+        assert!(document_matches_filter(
+            &document,
+            &normalize_filter_query("  -42 "),
+        ));
+        assert!(document_matches_filter(
+            &document,
+            &normalize_filter_query(" MARKET "),
+        ));
+        assert!(document_matches_filter(
+            &document,
+            &normalize_filter_query("   "),
+        ));
+        assert!(!document_matches_filter(
+            &document,
+            &normalize_filter_query("harbor"),
+        ));
+    }
+
+    #[test]
+    fn saved_world_filter_keeps_pair_context_without_resurrecting_missing_ids() {
+        let left = WorldDocumentId::new("left").unwrap();
+        let right = WorldDocumentId::new("right").unwrap();
+        let missing = WorldDocumentId::new("missing").unwrap();
+        let left_document = summary("left", "tiny", Some("Left"));
+        let right_document = summary("right", "tiny", Some("Right"));
+        let other_document = summary("other", "tiny", Some("Other"));
+        let filter = normalize_filter_query("no-match");
+
+        assert!(document_visible_for_filter(
+            &left_document,
+            &left,
+            &right,
+            &filter,
+        ));
+        assert!(document_visible_for_filter(
+            &right_document,
+            &left,
+            &right,
+            &filter,
+        ));
+        assert!(!document_visible_for_filter(
+            &other_document,
+            &left,
+            &right,
+            &filter,
+        ));
+
+        let documents = vec![left_document, right_document, other_document];
+        assert!(!catalog_pair_is_available(&missing, &right, &documents));
     }
 
     #[test]
