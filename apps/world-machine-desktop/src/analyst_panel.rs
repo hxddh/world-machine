@@ -1613,7 +1613,11 @@ fn document_matches_filter(document: &WorldDocumentSummary, filter_query: &str) 
     document_title(document)
         .to_lowercase()
         .contains(filter_query)
-        || document.id.to_string().to_lowercase().contains(filter_query)
+        || document
+            .id
+            .to_string()
+            .to_lowercase()
+            .contains(filter_query)
         || document
             .display_summary
             .as_deref()
