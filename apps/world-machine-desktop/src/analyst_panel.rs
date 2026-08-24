@@ -12,7 +12,7 @@ use world_library::{WorldDocumentId, WorldDocumentSummary, WorldLibrary};
 use world_machine_desktop::analyst_readiness::DesktopAnalystRuntimeReadiness;
 use world_machine_desktop::analyst_session::{
     DesktopAnalystCancellation, DesktopAnalystCancellationOutcome, DesktopAnalystEvidenceScope,
-    DesktopAnalystSession, DesktopAnalystState,
+    DesktopAnalystSession, DesktopAnalystSessionError, DesktopAnalystState,
 };
 use world_machine_desktop::analyst_settings::DesktopAnalystProgramSource;
 
@@ -447,17 +447,24 @@ impl AnalystPanelView {
 
         let task = cx.background_executor().spawn(async move {
             DesktopAnalystSession::start(library.as_ref(), left, right, config)
-                .map_err(|error| error.to_string())
         });
         let background = cx.background_executor().clone();
         cx.spawn(async move |this, cx| {
             let mut result = Some(task.await);
             let update = this.update(cx, |this, cx| {
+                if !can_apply_session_start_completion(
+                    &this.phase,
+                    this.busy,
+                    this.session.is_some(),
+                ) {
+                    return;
+                }
                 let result = result
                     .take()
                     .expect("analyst startup result should be consumed once");
                 this.busy = false;
                 this.cancel_requested = false;
+                let mut refresh_catalog = false;
                 match result {
                     Ok(session) => {
                         if this.failed_question.is_some()
@@ -479,10 +486,15 @@ impl AnalystPanelView {
                         this.cancellation = None;
                         this.runtime = None;
                         this.phase = PanelPhase::Setup;
-                        this.last_error = Some(error);
+                        refresh_catalog = startup_error_requires_catalog_refresh(&error);
+                        this.last_error = Some(error.to_string());
                     }
                 }
-                cx.notify();
+                if refresh_catalog {
+                    this.refresh_saved_world_catalog(cx);
+                } else {
+                    cx.notify();
+                }
             });
             if update.is_err() {
                 if let Some(Ok(mut session)) = result.take() {
@@ -1459,6 +1471,22 @@ fn can_apply_catalog_refresh_completion(
         && !has_session
 }
 
+fn can_apply_session_start_completion(
+    phase: &PanelPhase,
+    busy: bool,
+    has_session: bool,
+) -> bool {
+    matches!(phase, PanelPhase::Starting) && busy && !has_session
+}
+
+fn startup_error_requires_catalog_refresh(error: &DesktopAnalystSessionError) -> bool {
+    matches!(
+        error,
+        DesktopAnalystSessionError::MissingWorld { .. }
+            | DesktopAnalystSessionError::LoadWorld { .. }
+    )
+}
+
 fn update_pending_right<T>(
     left: &WorldDocumentId,
     right: &mut WorldDocumentId,
@@ -1884,6 +1912,61 @@ mod tests {
             7,
             7,
             true,
+        ));
+    }
+
+    #[test]
+    fn session_start_completion_requires_the_current_starting_state() {
+        assert!(can_apply_session_start_completion(
+            &PanelPhase::Starting,
+            true,
+            false,
+        ));
+        assert!(!can_apply_session_start_completion(
+            &PanelPhase::Setup,
+            true,
+            false,
+        ));
+        assert!(!can_apply_session_start_completion(
+            &PanelPhase::Starting,
+            false,
+            false,
+        ));
+        assert!(!can_apply_session_start_completion(
+            &PanelPhase::Starting,
+            true,
+            true,
+        ));
+    }
+
+    #[test]
+    fn only_world_dependent_startup_errors_trigger_catalog_refresh() {
+        let id = WorldDocumentId::new("missing").unwrap();
+        assert!(startup_error_requires_catalog_refresh(
+            &DesktopAnalystSessionError::MissingWorld {
+                side: "right",
+                id: id.clone(),
+            }
+        ));
+        assert!(startup_error_requires_catalog_refresh(
+            &DesktopAnalystSessionError::LoadWorld {
+                side: "left",
+                id: id.clone(),
+                source: world_library::LibraryError::Io(std::io::Error::other("unreadable")),
+            }
+        ));
+        assert!(!startup_error_requires_catalog_refresh(
+            &DesktopAnalystSessionError::SameWorld(id.clone())
+        ));
+        assert!(!startup_error_requires_catalog_refresh(
+            &DesktopAnalystSessionError::SerializeArchive {
+                side: "right",
+                id,
+                message: "serialization failed".into(),
+            }
+        ));
+        assert!(!startup_error_requires_catalog_refresh(
+            &DesktopAnalystSessionError::Spawn("runtime unavailable".into())
         ));
     }
 
