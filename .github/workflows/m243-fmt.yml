@@ -1,0 +1,37 @@
+name: M243 one-shot rustfmt fix
+
+on:
+  push:
+    branches:
+      - agent/m243-analyst-saved-world-filter
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/m243-analyst-saved-world-filter
+      - name: Apply rustfmt-only correction
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('apps/world-machine-desktop/src/analyst_panel.rs')
+          text = path.read_text()
+          old = '''        || document.id.to_string().to_lowercase().contains(filter_query)\n'''
+          new = '''        || document\n            .id\n            .to_string()\n            .to_lowercase()\n            .contains(filter_query)\n'''
+          if text.count(old) != 1:
+              raise SystemExit(f'expected one rustfmt target, found {text.count(old)}')
+          path.write_text(text.replace(old, new, 1))
+          PY
+          git rm .github/workflows/m243-fmt.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add apps/world-machine-desktop/src/analyst_panel.rs
+          git commit -m "M243: format saved-World filter matcher"
+          git push origin HEAD:agent/m243-analyst-saved-world-filter
