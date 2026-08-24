@@ -799,12 +799,7 @@ impl AnalystPanelView {
         self.refresh_saved_world_catalog(cx);
     }
 
-    fn choose_world(
-        &mut self,
-        side: PanelPairSide,
-        id: WorldDocumentId,
-        cx: &mut Context<Self>,
-    ) {
+    fn choose_world(&mut self, side: PanelPairSide, id: WorldDocumentId, cx: &mut Context<Self>) {
         if self.busy
             || self.settings_busy
             || self.runtime_checking
