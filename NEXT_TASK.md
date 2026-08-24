@@ -1,53 +1,63 @@
-# Next Coding Task — M239 Reconcile Analyst Catalog After Pair Startup Drift
+# Next Coding Task — M240 Recheck Analyst Runtime After Spawn Drift
 
-M214–M238 now provide the installed World Analyst path from immutable saved-World evidence through a restricted long-lived Pi analyst, provider-neutral turns, native runtime/model readiness, an in-memory Question → Answer → Evidence transcript, explicit recovery/new-comparison/cancellation/retry/dismiss flows, retained-question evidence scoping, background saved-World catalog refresh for fresh Setup transitions, and a first-open path that creates the analyst window before any Library enumeration.
+M214–M239 now provide the installed World Analyst path from immutable saved-World evidence through a restricted long-lived Pi analyst, provider-neutral turns, native runtime/model readiness, an in-memory Question → Answer → Evidence transcript, explicit recovery/new-comparison/cancellation/retry/dismiss flows, retained-question evidence scoping, background saved-World catalog refresh, asynchronous first-open catalog loading, and automatic catalog reconciliation when a selected World disappears or becomes unreadable between Setup and immutable snapshot capture.
 
-## M239 — refresh a stale pair after World-dependent session startup failure
+## M240 — refresh stale runtime readiness after process spawn drift
 
-M238 removes the last synchronous `WorldLibrary::list()` from the analyst click/open path. One race remains between a successful catalog reconciliation and `DesktopAnalystSession::start`: the selected left/right World can be deleted or become unreadable after Setup declared the pair usable but before startup captures its immutable archive snapshots.
+M239 closes the saved-World side of the Setup → Start race while deliberately leaving runtime/process failures distinct. A symmetric runtime race remains: Setup may hold `DesktopAnalystRuntimeReadiness::Ready` with resolved Node/Pi/turn-host/tool-host paths, then one of those executable/runtime files can disappear, lose executable/read permissions, or otherwise become unlaunchable before `DesktopAnalystSession::start` spawns the analyst process.
 
-Today that startup error returns the panel to Setup while leaving the previously reconciled `documents` snapshot intact. The UI can therefore continue to display and select a pair that startup has just proven is no longer loadable until the user manually presses Recheck.
+Today a `DesktopAnalystSessionError::Spawn` returns the panel to Setup with `runtime = None` and the startup error visible, but the user must manually press Recheck before the panel reconstructs current runtime readiness and actionable path controls.
 
-Make World-dependent startup drift feed back into the existing catalog refresh pipeline automatically, while keeping runtime/process startup failures distinct.
+Make spawn-time runtime drift automatically flow into the existing runtime-readiness pipeline once, without retrying Start and without conflating probe/protocol/model failures with filesystem/executable readiness.
 
 ### Product behavior
 
-- keep the typed `DesktopAnalystSessionError` through the background startup task until the GPUI completion handler decides recovery behavior;
-- when startup fails because a selected World is missing or cannot be loaded from the Library, return to safe Setup and immediately run the existing background saved-World catalog refresh before selection or Start becomes usable again;
-- if the refreshed catalog still contains a valid pair, reconcile the right selection with the existing deterministic M237 policy and then rerun runtime readiness;
-- if the selected right disappeared, fall back deterministically and apply the existing M235 failed-question pair-change invalidation semantics;
-- if the fixed left anchor disappeared, preserve the existing actionable close/reopen anchor error;
-- if fewer than two usable saved Worlds remain, preserve the existing actionable insufficient-catalog error;
-- if catalog refresh itself fails, preserve the M237 fail-closed catalog-error behavior with no stale selectable cards;
-- runtime/process/probe/snapshot-write/serialization failures must continue to surface as startup errors and must not trigger an unrelated catalog refresh loop.
+- keep using the typed `DesktopAnalystSessionError` preserved by M239;
+- when startup fails specifically with `DesktopAnalystSessionError::Spawn`, return fully to safe idle Setup and immediately rerun the existing asynchronous runtime discovery/readiness check;
+- while that check runs, Start and runtime path controls remain unavailable through the existing `runtime_checking` gate;
+- if readiness now reports a missing/unexecutable Node, Pi, analyst tool host, launcher dependency, or runtime resource, show the existing actionable `DesktopAnalystRuntimeIssue` and existing path controls;
+- if readiness is still Ready, leave the panel ready for a later explicit Start; do not automatically retry session startup;
+- do not refresh the saved-World catalog for a Spawn error; M239 owns Library drift independently.
+
+### Error classification boundary
+
+Do **not** broaden automatic runtime recheck to every startup failure.
+
+- `MissingWorld` / `LoadWorld` remain M239 catalog-refresh cases;
+- `SameWorld`, archive serialization, snapshot-directory/snapshot-write failures remain visible startup errors;
+- `DesktopAnalystSessionError::Client` must remain visible and must **not** be reclassified as simple runtime readiness. Startup probe/client failures can represent selected-model rejection, protocol/correlation contamination, malformed responses, or transport failures that the current filesystem/executable readiness check does not diagnose;
+- shutdown/cancel/closed/fatal-session errors remain outside this Setup spawn-drift recovery path.
+
+Do not parse error display strings. Match the typed `Spawn` variant only.
 
 ### State and concurrency rules
 
-- reuse `refresh_saved_world_catalog`; do not introduce a second Library reconciliation path;
-- the failed startup must fully relinquish `Starting`/busy state before beginning the refresh so the M237 generation/phase/session gate remains authoritative;
-- no stale startup completion may overwrite Active/Fatal/newer state;
-- catalog-triggering startup errors must not leave a partially started analyst process/session or cancellation handle behind;
-- the automatic refresh is one recovery transition, not retry/backoff: a later startup is still an explicit user Start action;
-- preserve M236 evidence-scope authority for successfully captured sessions; this task only handles failure before a live immutable pair exists.
+- reuse `refresh_runtime`; do not create a second runtime discovery implementation;
+- the failed startup must relinquish `Starting` and `busy`, clear cancellation/session state, and enter Setup before `refresh_runtime` begins so its existing single-flight guards remain authoritative;
+- preserve the M239 startup-completion stale-result gate; an obsolete completion must not start a runtime check or overwrite newer panel state;
+- no process/session/cancellation handle may survive the failed startup transition;
+- the automatic runtime check is a single reconciliation transition, never retry/backoff and never automatic Start;
+- catalog and runtime refreshes must remain mutually exclusive through the existing busy/runtime/catalog gates.
 
 ### Implementation boundary
 
-Keep the change in native desktop/session error plumbing. `DesktopAnalystSessionError` is already public; prefer matching its World-dependent variants in the panel instead of parsing display strings or broadening the analyst protocol.
+Keep the change in native desktop product state. Do not change analyst protocol v1, provider/model selection, Pi authority, persistence, World truth, Pack behavior, settings format, or introduce a runtime daemon/watcher/global cache.
 
-Do not add provider/model behavior, Pi/filesystem authority, persistence, World mutation, Pack-specific logic, global Library watchers/caches, or automatic model-turn retries.
+Prefer a small typed helper such as `startup_error_requires_runtime_refresh` beside M239's catalog classifier, with tests proving the two classifiers are mutually exclusive for all relevant startup variants.
 
 ### Validation
 
 Required gates:
 
-- missing-right and missing-left startup failures route through catalog refresh rather than leaving the stale catalog interactive;
-- non-Library startup failures remain visible and do not trigger catalog refresh;
-- refresh reconciliation preserves an existing valid right, falls back deterministically when the right disappeared, and fails closed when the left/alternate set is unusable;
-- no process/session/cancellation handle leaks across startup failure recovery;
-- M230–M238 recovery/new-comparison/cancel/retry/dismiss/evidence-scope/catalog/initial-open regressions remain green;
+- `Spawn` startup failure triggers the existing asynchronous runtime readiness check after Setup is restored;
+- MissingWorld/LoadWorld continue to trigger catalog refresh and not runtime refresh;
+- Client/probe, snapshot, serialization, SameWorld and other non-Spawn failures remain visible and do not trigger runtime refresh;
+- no automatic session retry occurs after readiness becomes Ready again;
+- stale startup completion cannot trigger a runtime refresh;
+- M230–M239 recovery/new-comparison/cancel/retry/dismiss/evidence-scope/catalog/initial-open/startup-drift regressions remain green;
 - Linux boundary/fmt/Clippy/workspace/Pack conformance remain green;
 - full macOS GPUI/desktop tests and `World Machine.app` build/validate/packaged smoke/archive/upload remain green.
 
 ## Non-goals
 
-No global Library watcher/cache, no two-sided World selector yet, no automatic pair swapping, no persistent chat history, no automatic startup retry/backoff, no resumable model turn, no reconnect, no streaming, no concurrent turns, no protocol v2, no provider/model picker, no API-key storage, no new analyst tools, and no mutation authority.
+No global Library/runtime watcher or cache, no two-sided World selector yet, no automatic pair swapping, no persistent chat history, no automatic startup retry/backoff, no resumable model turn, no reconnect, no streaming, no concurrent turns, no protocol v2, no provider/model picker, no API-key storage, no new analyst tools, and no mutation authority.
