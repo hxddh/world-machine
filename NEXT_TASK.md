@@ -1,6 +1,6 @@
 # Next Coding Task — M243 Filter Saved Worlds in Analyst Setup
 
-Status: implementation complete; validation in progress on `agent/m243-analyst-saved-world-filter`.
+Status: implementation complete; validation rerun in progress on `agent/m243-analyst-saved-world-filter`.
 
 M214–M242 now provide the installed World Analyst path from immutable saved-World evidence through a restricted long-lived Pi analyst, provider-neutral turns, native runtime/model readiness, in-memory Question → Answer → Evidence history, explicit recovery/new-comparison/cancellation/retry/dismiss flows, retained-question evidence scoping, asynchronous catalog loading/refresh, typed saved-World/runtime drift reconciliation, explicit two-sided pair selection, and an atomic `Swap sides` action for directional comparisons.
 
