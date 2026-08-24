@@ -1,0 +1,68 @@
+name: M244 one-shot edit
+
+on:
+  push:
+    branches:
+      - agent/m244-analyst-pack-identity
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/m244-analyst-pack-identity
+      - name: Apply M244 Pack identity slice
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('apps/world-machine-desktop/src/analyst_panel.rs')
+          text = path.read_text()
+
+          def replace_once(old: str, new: str) -> None:
+              global text
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'expected exactly one occurrence, found {count}: {old[:120]!r}')
+              text = text.replace(old, new, 1)
+
+          replace_once(
+              '''                .gap_1()\n                .child(div().text_sm().child(title))\n                .child(div().text_xs().text_color(rgb(0x777770)).child(format!(\n                    "{} · t={} · {} events",\n                    summary, document.world_time, document.event_count\n                )));\n''',
+              '''                .gap_1()\n                .child(div().text_sm().child(title))\n                .child(\n                    div()\n                        .text_xs()\n                        .text_color(rgb(0x777770))\n                        .child(document_pack_label(document)),\n                )\n                .child(div().text_xs().text_color(rgb(0x777770)).child(format!(\n                    "{} · t={} · {} events",\n                    summary, document.world_time, document.event_count\n                )));\n''',
+          )
+
+          replace_once(
+              '''fn normalize_filter_query(query: &str) -> String {\n    query.trim().to_lowercase()\n}\n''',
+              '''fn document_pack_label(document: &WorldDocumentSummary) -> String {\n    format!("Pack {} · {}", document.pack.id, document.pack.version)\n}\n\nfn normalize_filter_query(query: &str) -> String {\n    query.trim().to_lowercase()\n}\n''',
+          )
+
+          replace_once(
+              '''        || document\n            .display_summary\n            .as_deref()\n            .map(str::trim)\n            .filter(|summary| !summary.is_empty())\n            .is_some_and(|summary| summary.to_lowercase().contains(filter_query))\n}\n''',
+              '''        || document.pack.id.to_lowercase().contains(filter_query)\n        || document.pack.version.to_lowercase().contains(filter_query)\n        || document\n            .display_summary\n            .as_deref()\n            .map(str::trim)\n            .filter(|summary| !summary.is_empty())\n            .is_some_and(|summary| summary.to_lowercase().contains(filter_query))\n}\n''',
+          )
+
+          replace_once(
+              '''    #[test]\n    fn saved_world_filter_matches_title_id_and_summary_case_insensitively() {\n        let mut document = summary("maple-42", "tiny", Some("Maple Street"));\n        document.display_summary = Some("Flooded market district".into());\n''',
+              '''    #[test]\n    fn document_pack_label_preserves_generic_id_and_opaque_version() {\n        let mut document = summary("world-1", "tiny", Some("World"));\n        document.pack = WorldPackRef::new("pocket-universe", "release-Candidate");\n        assert_eq!(\n            document_pack_label(&document),\n            "Pack pocket-universe · release-Candidate"\n        );\n    }\n\n    #[test]\n    fn saved_world_filter_matches_title_id_summary_and_pack_case_insensitively() {\n        let mut document = summary("maple-42", "tiny", Some("Maple Street"));\n        document.display_summary = Some("Flooded market district".into());\n        document.pack = WorldPackRef::new("Pocket-Universe", "RC-2026");\n''',
+          )
+
+          replace_once(
+              '''        assert!(document_matches_filter(\n            &document,\n            &normalize_filter_query(" MARKET "),\n        ));\n        assert!(document_matches_filter(\n            &document,\n            &normalize_filter_query("   "),\n        ));\n''',
+              '''        assert!(document_matches_filter(\n            &document,\n            &normalize_filter_query(" MARKET "),\n        ));\n        assert!(document_matches_filter(\n            &document,\n            &normalize_filter_query(" pocket-universe "),\n        ));\n        assert!(document_matches_filter(\n            &document,\n            &normalize_filter_query(" rc-2026 "),\n        ));\n        assert!(document_matches_filter(\n            &document,\n            &normalize_filter_query("   "),\n        ));\n''',
+          )
+
+          path.write_text(text)
+          PY
+
+          git rm .github/workflows/m244-edit.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add apps/world-machine-desktop/src/analyst_panel.rs
+          git commit -m "M244: surface World Pack identity in analyst setup"
+          git push origin HEAD:agent/m244-analyst-pack-identity
