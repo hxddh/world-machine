@@ -465,6 +465,7 @@ impl AnalystPanelView {
                 this.busy = false;
                 this.cancel_requested = false;
                 let mut refresh_catalog = false;
+                let mut refresh_runtime = false;
                 match result {
                     Ok(session) => {
                         if this.failed_question.is_some()
@@ -487,11 +488,15 @@ impl AnalystPanelView {
                         this.runtime = None;
                         this.phase = PanelPhase::Setup;
                         refresh_catalog = startup_error_requires_catalog_refresh(&error);
+                        refresh_runtime = startup_error_requires_runtime_refresh(&error);
+                        debug_assert!(!(refresh_catalog && refresh_runtime));
                         this.last_error = Some(error.to_string());
                     }
                 }
                 if refresh_catalog {
                     this.refresh_saved_world_catalog(cx);
+                } else if refresh_runtime {
+                    this.refresh_runtime(cx);
                 } else {
                     cx.notify();
                 }
@@ -1483,6 +1488,23 @@ fn startup_error_requires_catalog_refresh(error: &DesktopAnalystSessionError) ->
     )
 }
 
+fn startup_error_requires_runtime_refresh(error: &DesktopAnalystSessionError) -> bool {
+    match error {
+        DesktopAnalystSessionError::Spawn(_) => true,
+        DesktopAnalystSessionError::SameWorld(_)
+        | DesktopAnalystSessionError::MissingWorld { .. }
+        | DesktopAnalystSessionError::LoadWorld { .. }
+        | DesktopAnalystSessionError::SerializeArchive { .. }
+        | DesktopAnalystSessionError::CreateSnapshotDir { .. }
+        | DesktopAnalystSessionError::WriteSnapshot { .. }
+        | DesktopAnalystSessionError::Client(_)
+        | DesktopAnalystSessionError::FatalSession(_)
+        | DesktopAnalystSessionError::Closed
+        | DesktopAnalystSessionError::Cancel(_)
+        | DesktopAnalystSessionError::Shutdown(_) => false,
+    }
+}
+
 fn update_pending_right<T>(
     left: &WorldDocumentId,
     right: &mut WorldDocumentId,
@@ -1964,6 +1986,58 @@ mod tests {
         assert!(!startup_error_requires_catalog_refresh(
             &DesktopAnalystSessionError::Spawn("runtime unavailable".into())
         ));
+    }
+
+    #[test]
+    fn only_spawn_startup_errors_trigger_runtime_refresh() {
+        let id = WorldDocumentId::new("world").unwrap();
+        let spawn = DesktopAnalystSessionError::Spawn("runtime unavailable".into());
+        assert!(startup_error_requires_runtime_refresh(&spawn));
+        assert!(!startup_error_requires_catalog_refresh(&spawn));
+
+        let non_runtime_errors = vec![
+            DesktopAnalystSessionError::SameWorld(id.clone()),
+            DesktopAnalystSessionError::MissingWorld {
+                side: "right",
+                id: id.clone(),
+            },
+            DesktopAnalystSessionError::LoadWorld {
+                side: "left",
+                id: id.clone(),
+                source: world_library::LibraryError::Io(std::io::Error::other("unreadable")),
+            },
+            DesktopAnalystSessionError::SerializeArchive {
+                side: "right",
+                id: id.clone(),
+                message: "serialization failed".into(),
+            },
+            DesktopAnalystSessionError::CreateSnapshotDir {
+                path: std::path::PathBuf::from("snapshots"),
+                source: std::io::Error::other("create failed"),
+            },
+            DesktopAnalystSessionError::WriteSnapshot {
+                side: "left",
+                path: std::path::PathBuf::from("left.snapshot"),
+                source: std::io::Error::other("write failed"),
+            },
+            DesktopAnalystSessionError::FatalSession("fatal".into()),
+            DesktopAnalystSessionError::Closed,
+            DesktopAnalystSessionError::Cancel("cancel failed".into()),
+            DesktopAnalystSessionError::Shutdown("shutdown failed".into()),
+        ];
+        for error in non_runtime_errors {
+            assert!(!startup_error_requires_runtime_refresh(&error));
+        }
+
+        let source = include_str!("analyst_panel.rs");
+        let classifier = source
+            .split_once("fn startup_error_requires_runtime_refresh(")
+            .unwrap()
+            .1
+            .split_once("fn update_pending_right")
+            .unwrap()
+            .0;
+        assert!(classifier.contains("DesktopAnalystSessionError::Client(_)"));
     }
 
     #[test]
