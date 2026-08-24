@@ -1,64 +1,58 @@
-# Next Coding Task — M243 Filter Saved Worlds in Analyst Setup
+# Next Coding Task — M244 Surface World Pack Identity in Analyst Setup
 
-Status: implementation complete; validation rerun in progress on `agent/m243-analyst-saved-world-filter`.
+M214–M243 now provide the installed World Analyst path from immutable saved-World evidence through a restricted long-lived Pi analyst, provider-neutral turns, native runtime/model readiness, in-memory Question → Answer → Evidence history, explicit recovery/new-comparison/cancellation/retry/dismiss flows, retained-question evidence scoping, asynchronous catalog loading/refresh, typed saved-World/runtime drift reconciliation, explicit two-sided pair selection, atomic directional pair swapping, and one shared local Setup filter over the already-refreshed saved-World catalog.
 
-M214–M242 now provide the installed World Analyst path from immutable saved-World evidence through a restricted long-lived Pi analyst, provider-neutral turns, native runtime/model readiness, in-memory Question → Answer → Evidence history, explicit recovery/new-comparison/cancellation/retry/dismiss flows, retained-question evidence scoping, asynchronous catalog loading/refresh, typed saved-World/runtime drift reconciliation, explicit two-sided pair selection, and an atomic `Swap sides` action for directional comparisons.
+## M244 — make Pack identity visible and searchable
 
-## M243 — locally filter the saved-World selectors
+The saved-World Library already has a deterministic browsing order: `WorldLibrary::list()` returns the most recently persisted documents first and uses stable document ID only as the tie-breaker. Do not add a second sorting policy in the analyst.
 
-M241 makes both sides independently selectable and M242 makes the ordered pair reversible, but Setup still renders the entire refreshed saved-World catalog in both scrollable columns. That is acceptable for a handful of Worlds and increasingly inefficient as a Library grows: users must visually scan/scroll two duplicated full lists to find a candidate.
+The remaining Setup information gap is Pack identity. `WorldDocumentSummary` already carries a generic `WorldPackRef`, and the analyst's existing initial/right fallback intentionally prefers another World from the same Pack. The current selector cards, however, show title/summary/time/event count but hide the Pack entirely. With multiple World Packs in one Library, users therefore cannot see the criterion behind a same-Pack default/fallback and M243 cannot find a World by Pack identity.
 
-Add one lightweight native Setup filter over the already-refreshed in-memory catalog. This is a view/navigation improvement only; it must not become another Library query path or alter pair/session semantics.
+Surface that existing generic identity in the native Setup cards and include it in the local filter.
 
 ### Product behavior
 
-- render one `Filter saved Worlds…` text field in Setup above the Left/Right selectors;
-- matching is local, immediate, case-insensitive substring matching over user-visible saved-World identity: semantic title, document ID, and non-empty display summary;
-- trim leading/trailing whitespace from the filter; an empty/whitespace-only filter shows the normal complete catalog;
-- apply the same filter to both Left and Right columns so the user searches one catalog rather than maintaining divergent side filters;
-- always keep each column's current selected World and the opposite-side World visible even when they do not match the filter, so orientation and the M241 no-implicit-swap state remain obvious;
-- matching cards retain their existing selected/opposite/eligible styling and click semantics;
-- if there are no additional matches, show a small local `No other saved Worlds match this filter` message rather than treating it as a catalog failure;
-- clearing/editing the filter must never change Left/Right IDs, failed-question/evidence scope, runtime readiness, catalog generation, settings, composer draft, errors, or session state.
-
-### Lifecycle and eligibility
-
-- the filter is a Setup-only navigation control; Active/Fatal surfaces remain unchanged;
-- filter edits are local presentation state and do not acquire or change the analyst busy/runtime/settings/catalog/session gates;
-- New Comparison/Fatal recovery keep their existing catalog-refresh behavior; the current filter may be preserved across the transition if the same analyst window remains open, but it must not affect reconciliation;
-- closing/reopening the analyst window starts with an empty filter;
-- no automatic Start, selection, swap, refresh, retry, or runtime check is triggered by filter edits.
+- every saved-World card in both Left and Right Setup selectors shows the document's generic Pack identity as secondary metadata;
+- display both `WorldPackRef.id` and `WorldPackRef.version` without Pack-specific naming or assumptions about version syntax;
+- keep semantic title as the primary identity and preserve the existing summary, World time, and event-count information;
+- extend M243's one shared local filter to match Pack ID and Pack version case-insensitively in addition to title, document ID, and display summary;
+- an empty/whitespace-only filter still exposes the complete current catalog;
+- selected/opposite cards remain visible under non-matching filters exactly as in M243;
+- the existing same-Pack-first initial/right fallback remains unchanged; M244 only makes the already-existing Pack fact legible/searchable;
+- preserve `WorldLibrary::list()` order exactly. Filtering may hide cards, but M244 must not sort, regroup, or rank the authoritative list or the filtered result;
+- no Pack identity is copied into analyst protocol/session state merely for display.
 
 ### State / implementation boundary
 
-Keep filtering entirely above `WorldLibrary` and analyst session/runtime layers.
+Keep the slice entirely in native desktop presentation over `WorldDocumentSummary`.
 
-Prefer a small pure matcher such as `document_matches_filter(document, query)` and a rendering helper that decides whether a card is visible. The authoritative `documents` vector remains the complete latest catalog; never replace it with a filtered subset.
+A small pure helper such as `pack_label(&WorldPackRef) -> String` is acceptable if it keeps card rendering and tests explicit. The version string is opaque product data: do not automatically prefix it with `v`, parse it as semver, or special-case known Packs.
+
+Extend the existing M243 `document_matches_filter` helper rather than adding a second filtering path. The authoritative `documents` vector remains unchanged and complete.
 
 Required invariants:
 
-- filtering changes presentation only;
-- `documents`, `left`, `right`, `runtime`, `failed_question`, `failed_question_scope`, `last_error`, session/process/cancellation state and catalog generation are not mutated by filter edits;
-- selected/opposite IDs remain visible when present in `documents`, even when the query does not match them;
-- M241 same/opposite selector no-op rules and M242 explicit-swap-only rule remain unchanged;
-- Start continues to validate against the complete current catalog, not the filtered view;
-- catalog refresh reconciliation continues to operate on the complete returned list and cannot be influenced by filter text.
+- Pack display/filtering never mutates `documents`, `left`, `right`, runtime/readiness, failed-question/evidence scope, catalog generation, settings, composer, errors, or session/process/cancellation state;
+- `default_right_for` / `refreshed_right_for` same-Pack-first semantics remain byte-for-byte or behaviorally unchanged;
+- M241 side selection, M242 explicit swap, and M243 selected/opposite visibility semantics remain unchanged;
+- Start and Swap eligibility continue to use the complete current catalog and remain independent of filter text;
+- catalog refresh/reconciliation remains the sole owner of current summaries and selection fallback;
+- no Pack-specific UI branches or Pack-specific comparison semantics are introduced.
 
 ### Validation
 
 Required gates:
 
-- title, ID and display-summary matching are case-insensitive and whitespace-normalized;
-- empty filter exposes the full catalog;
-- selected and opposite cards remain visible under a non-matching filter;
-- a non-matching filter cannot make an invalid/missing selected ID appear valid;
-- selecting a visible matching candidate follows M241 exactly and clears retained failed-question/evidence scope only on a real pair change;
-- `Swap sides` remains available according to M242 pair/catalog/busy eligibility and is not gated by whether the two selected cards match the filter;
-- Start eligibility and immutable ordered session binding are unaffected by filter text;
-- catalog refresh, missing-left recovery, deterministic right fallback, runtime drift recovery, stale completion gates and all M230–M242 regressions remain green;
-- Linux boundary/fmt/Clippy/workspace/Pack gates remain green;
-- full macOS GPUI/desktop tests plus `World Machine.app` build/validate/packaged smoke/archive/upload remain green.
+- generic card metadata exposes both Pack ID and Pack version;
+- Pack ID matching is case-insensitive;
+- Pack version matching is case-insensitive/string-based and makes no semver assumptions;
+- unrelated Pack queries do not match unless another existing title/ID/summary field matches;
+- existing title, document-ID, summary, whitespace, selected/opposite, and missing-ID M243 filter regressions stay green;
+- existing same-Pack-first right-selection tests remain green and no sorting/reordering is added;
+- M230–M243 recovery/new-comparison/cancel/retry/dismiss/evidence-scope/catalog/initial-load/startup-drift/runtime-drift/two-sided-selection/swap/filter regressions remain green;
+- Linux boundary/Pi/fmt/Clippy/workspace/Pack gates remain green;
+- full macOS Library/Packs/GPUI/desktop tests plus `World Machine.app` build/validate/packaged smoke/archive/upload remain green.
 
 ## Non-goals
 
-No server-side/Library search API, no indexing, fuzzy/semantic search, ranking, pagination, sorting redesign, per-side divergent filters, persistent filter state, global Library watcher/cache, protocol/provider/model changes, new analyst tools, persistence changes, or World mutation authority.
+No sorting change, Pack grouping/faceting, per-Pack picker, fuzzy/semantic ranking, server-side/Library search API, indexing, pagination, persistent filter state, global Library watcher/cache, protocol/provider/model changes, Pack loading/mutation, persistence changes, or World mutation authority.
