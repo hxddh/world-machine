@@ -641,7 +641,7 @@ impl AnalystPanelView {
                 }
                 let succeeded = result.is_ok();
                 if source == PanelAskSource::Composer {
-                    let current_question = self.question.read(cx).text().to_owned();
+                    let current_question = this.question.read(cx).text().to_owned();
                     if should_clear_completed_prompt(
                         source,
                         &current_question,
@@ -649,7 +649,7 @@ impl AnalystPanelView {
                         succeeded,
                         cancel_requested,
                     ) {
-                        self.question.update(cx, |input, cx| input.clear(cx));
+                        this.question.update(cx, |input, cx| input.clear(cx));
                     }
                 }
                 let next_failed_question = failed_question_after_completion(
