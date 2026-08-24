@@ -277,11 +277,12 @@ impl AnalystPanelView {
                         }
 
                         if !documents.iter().any(|document| document.id == this.left) {
+                            let error = "The selected left World is no longer saved. Choose another saved World for Left to continue."
+                                .to_string();
                             this.documents = documents;
-                            this.last_error = Some(
-                                "The selected left World is no longer saved. Choose another saved World for Left to continue."
-                                    .into(),
-                            );
+                            this.last_error = Some(error.clone());
+                            this.refresh_runtime(cx);
+                            this.last_error = Some(error);
                             cx.notify();
                             return;
                         }
@@ -640,7 +641,7 @@ impl AnalystPanelView {
                 }
                 let succeeded = result.is_ok();
                 if source == PanelAskSource::Composer {
-                    let current_question = this.question.read(cx).text().to_owned();
+                    let current_question = self.question.read(cx).text().to_owned();
                     if should_clear_completed_prompt(
                         source,
                         &current_question,
@@ -648,7 +649,7 @@ impl AnalystPanelView {
                         succeeded,
                         cancel_requested,
                     ) {
-                        this.question.update(cx, |input, cx| input.clear(cx));
+                        self.question.update(cx, |input, cx| input.clear(cx));
                     }
                 }
                 let next_failed_question = failed_question_after_completion(
