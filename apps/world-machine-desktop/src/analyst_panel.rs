@@ -833,6 +833,28 @@ impl AnalystPanelView {
         cx.notify();
     }
 
+    fn swap_worlds(&mut self, cx: &mut Context<Self>) {
+        if !can_swap_pending_pair(
+            &self.phase,
+            self.busy,
+            self.settings_busy,
+            self.runtime_checking,
+            self.catalog_refreshing,
+            self.session.is_some(),
+            &self.left,
+            &self.right,
+            &self.documents,
+        ) || !swap_pending_pair_selection(
+            &mut self.left,
+            &mut self.right,
+            &mut self.failed_question,
+            &mut self.failed_question_scope,
+        ) {
+            return;
+        }
+        cx.notify();
+    }
+
     fn render_program_row(
         &self,
         program: analyst_runtime::AnalystRuntimeProgram,
@@ -1036,6 +1058,47 @@ impl AnalystPanelView {
     }
 
     fn render_setup(&self, cx: &mut Context<Self>) -> Div {
+        let can_swap = can_swap_pending_pair(
+            &self.phase,
+            self.busy,
+            self.settings_busy,
+            self.runtime_checking,
+            self.catalog_refreshing,
+            self.session.is_some(),
+            &self.left,
+            &self.right,
+            &self.documents,
+        );
+        let mut swap = div()
+            .id("swap-world-analyst-pair")
+            .px_3()
+            .p_1()
+            .rounded_md()
+            .border_1()
+            .border_color(rgb(0xb8b2a8))
+            .bg(rgb(0xffffff))
+            .text_xs()
+            .child("Swap sides");
+        if can_swap {
+            swap = swap
+                .cursor_pointer()
+                .on_click(cx.listener(|this, _, _, cx| this.swap_worlds(cx)));
+        } else {
+            swap = swap.text_color(rgb(0x999990));
+        }
+        let pair_header = div()
+            .w_full()
+            .flex()
+            .items_center()
+            .justify_between()
+            .gap_3()
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(rgb(0x666660))
+                    .child("Choose two distinct saved Worlds to compare."),
+            )
+            .child(swap);
         let selectors = div()
             .w_full()
             .flex()
@@ -1169,12 +1232,7 @@ impl AnalystPanelView {
             .flex()
             .flex_col()
             .gap_3()
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(rgb(0x666660))
-                    .child("Choose two distinct saved Worlds to compare."),
-            )
+            .child(pair_header)
             .child(selectors)
             .child(runtime_status)
             .child(runtime_controls)
@@ -1519,6 +1577,26 @@ fn catalog_pair_is_available(
         && documents.iter().any(|document| document.id == *right)
 }
 
+fn can_swap_pending_pair(
+    phase: &PanelPhase,
+    busy: bool,
+    settings_busy: bool,
+    runtime_checking: bool,
+    catalog_refreshing: bool,
+    has_session: bool,
+    left: &WorldDocumentId,
+    right: &WorldDocumentId,
+    documents: &[WorldDocumentSummary],
+) -> bool {
+    matches!(phase, PanelPhase::Setup)
+        && !busy
+        && !settings_busy
+        && !runtime_checking
+        && !catalog_refreshing
+        && !has_session
+        && catalog_pair_is_available(left, right, documents)
+}
+
 fn refreshed_right_for(
     left: &WorldDocumentId,
     current_right: &WorldDocumentId,
@@ -1600,6 +1678,21 @@ fn update_pending_pair_selection<T>(
         }
     };
     debug_assert!(changed);
+    *failed_question = None;
+    *failed_question_scope = None;
+    true
+}
+
+fn swap_pending_pair_selection<T>(
+    left: &mut WorldDocumentId,
+    right: &mut WorldDocumentId,
+    failed_question: &mut Option<String>,
+    failed_question_scope: &mut Option<T>,
+) -> bool {
+    if *left == *right {
+        return false;
+    }
+    std::mem::swap(left, right);
     *failed_question = None;
     *failed_question_scope = None;
     true
@@ -2208,6 +2301,178 @@ mod tests {
         assert_eq!(right.as_str(), "replacement-right");
         assert_eq!(failed_question, None);
         assert_eq!(failed_question_scope, None);
+    }
+
+    #[test]
+    fn pending_pair_swap_is_atomic_and_invalidates_retained_intent() {
+        let mut left = WorldDocumentId::new("left").unwrap();
+        let mut right = WorldDocumentId::new("right").unwrap();
+        let mut failed_question = Some("Why did left and right diverge?".to_string());
+        let mut failed_question_scope = Some("scope-left-right".to_string());
+
+        assert!(swap_pending_pair_selection(
+            &mut left,
+            &mut right,
+            &mut failed_question,
+            &mut failed_question_scope,
+        ));
+        assert_eq!(left.as_str(), "right");
+        assert_eq!(right.as_str(), "left");
+        assert_eq!(failed_question, None);
+        assert_eq!(failed_question_scope, None);
+
+        let same = WorldDocumentId::new("same").unwrap();
+        left = same.clone();
+        right = same;
+        failed_question = Some("Keep me".into());
+        failed_question_scope = Some("same-scope".into());
+        assert!(!swap_pending_pair_selection(
+            &mut left,
+            &mut right,
+            &mut failed_question,
+            &mut failed_question_scope,
+        ));
+        assert_eq!(left, right);
+        assert_eq!(failed_question.as_deref(), Some("Keep me"));
+        assert_eq!(failed_question_scope.as_deref(), Some("same-scope"));
+    }
+
+    #[test]
+    fn swap_control_requires_idle_setup_with_a_current_distinct_catalog_pair() {
+        let left = WorldDocumentId::new("left").unwrap();
+        let right = WorldDocumentId::new("right").unwrap();
+        let documents = vec![
+            summary("left", "tiny", Some("Left")),
+            summary("right", "tiny", Some("Right")),
+        ];
+
+        assert!(can_swap_pending_pair(
+            &PanelPhase::Setup,
+            false,
+            false,
+            false,
+            false,
+            false,
+            &left,
+            &right,
+            &documents,
+        ));
+        assert!(!can_swap_pending_pair(
+            &PanelPhase::Starting,
+            false,
+            false,
+            false,
+            false,
+            false,
+            &left,
+            &right,
+            &documents,
+        ));
+        assert!(!can_swap_pending_pair(
+            &PanelPhase::Active,
+            false,
+            false,
+            false,
+            false,
+            false,
+            &left,
+            &right,
+            &documents,
+        ));
+        assert!(!can_swap_pending_pair(
+            &PanelPhase::Setup,
+            true,
+            false,
+            false,
+            false,
+            false,
+            &left,
+            &right,
+            &documents,
+        ));
+        assert!(!can_swap_pending_pair(
+            &PanelPhase::Setup,
+            false,
+            true,
+            false,
+            false,
+            false,
+            &left,
+            &right,
+            &documents,
+        ));
+        assert!(!can_swap_pending_pair(
+            &PanelPhase::Setup,
+            false,
+            false,
+            true,
+            false,
+            false,
+            &left,
+            &right,
+            &documents,
+        ));
+        assert!(!can_swap_pending_pair(
+            &PanelPhase::Setup,
+            false,
+            false,
+            false,
+            true,
+            false,
+            &left,
+            &right,
+            &documents,
+        ));
+        assert!(!can_swap_pending_pair(
+            &PanelPhase::Setup,
+            false,
+            false,
+            false,
+            false,
+            true,
+            &left,
+            &right,
+            &documents,
+        ));
+        assert!(!can_swap_pending_pair(
+            &PanelPhase::Setup,
+            false,
+            false,
+            false,
+            false,
+            false,
+            &left,
+            &left,
+            &documents,
+        ));
+
+        let missing_left = vec![
+            summary("right", "tiny", Some("Right")),
+            summary("other", "tiny", Some("Other")),
+        ];
+        assert!(!can_swap_pending_pair(
+            &PanelPhase::Setup,
+            false,
+            false,
+            false,
+            false,
+            false,
+            &left,
+            &right,
+            &missing_left,
+        ));
+        let only_left = vec![summary("left", "tiny", Some("Left"))];
+        assert!(!can_swap_pending_pair(
+            &PanelPhase::Setup,
+            false,
+            false,
+            false,
+            false,
+            false,
+            &left,
+            &right,
+            &only_left,
+        ));
     }
 
     #[test]

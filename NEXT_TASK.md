@@ -1,88 +1,62 @@
-# Next Coding Task — M242 Explicitly Swap Pending Analyst Pair Sides
+# Next Coding Task — M243 Filter Saved Worlds in Analyst Setup
 
-M214–M241 now provide the installed World Analyst path from immutable saved-World evidence through a restricted long-lived Pi analyst, provider-neutral turns, native runtime/model readiness, in-memory Question → Answer → Evidence history, explicit recovery/new-comparison/cancellation/retry/dismiss flows, retained-question evidence scoping, asynchronous catalog loading/refresh, typed reconciliation for saved-World and runtime drift, and an idle Setup surface where either side of the pending saved-World pair can be selected explicitly.
+M214–M242 now provide the installed World Analyst path from immutable saved-World evidence through a restricted long-lived Pi analyst, provider-neutral turns, native runtime/model readiness, in-memory Question → Answer → Evidence history, explicit recovery/new-comparison/cancellation/retry/dismiss flows, retained-question evidence scoping, asynchronous catalog loading/refresh, typed saved-World/runtime drift reconciliation, explicit two-sided pair selection, and an atomic `Swap sides` action for directional comparisons.
 
-## M242 — add an explicit directional pair swap
+## M243 — locally filter the saved-World selectors
 
-M241 deliberately makes selecting the World already chosen on the opposite side a strict no-op. That avoids a surprising implicit swap, but it leaves one real usability and semantics gap: with exactly two saved Worlds, a valid `Left=A / Right=B` comparison cannot be reversed to `Left=B / Right=A` at all without a third temporary selection.
+M241 makes both sides independently selectable and M242 makes the ordered pair reversible, but Setup still renders the entire refreshed saved-World catalog in both scrollable columns. That is acceptable for a handful of Worlds and increasingly inefficient as a Library grows: users must visually scan/scroll two duplicated full lists to find a candidate.
 
-The analyst pair is directional, not just a set. `DesktopAnalystEvidenceScope` records left/right document IDs and archive fingerprints separately, the immutable session binds ordered left/right snapshots, and analyst questions or evidence may refer to that orientation. Reversing the pair therefore needs one explicit atomic product transition rather than two selector mutations or an implicit opposite-side click.
-
-Add an explicit `Swap sides` action for the pending pair in idle Setup.
+Add one lightweight native Setup filter over the already-refreshed in-memory catalog. This is a view/navigation improvement only; it must not become another Library query path or alter pair/session semantics.
 
 ### Product behavior
 
-- render a clear `Swap sides` action alongside the Left/Right Setup selectors when the pending pair is currently usable;
-- invoking it atomically changes `Left=A / Right=B` to `Left=B / Right=A` with no intermediate same-World or missing-side state;
-- the action is explicit only: M241 same-side/opposite-side selector clicks remain strict no-ops and never auto-swap;
-- a successful swap invalidates retained `failed_question` and its M236 evidence scope exactly once because the ordered immutable comparison changed;
-- preserve the composer draft, current refreshed catalog, runtime readiness, runtime path/settings state, and unrelated Setup state;
-- do not trigger a catalog refresh, runtime recheck, session Start, retry, or model request merely because the pair was swapped;
-- Start after a swap must bind immutable snapshots in the new left/right order and the resulting evidence scope must reflect that order;
-- Active/Fatal sessions remain immutable and never expose the swap action.
+- render one `Filter saved Worlds…` text field in Setup above the Left/Right selectors;
+- matching is local, immediate, case-insensitive substring matching over user-visible saved-World identity: semantic title, document ID, and non-empty display summary;
+- trim leading/trailing whitespace from the filter; an empty/whitespace-only filter shows the normal complete catalog;
+- apply the same filter to both Left and Right columns so the user searches one catalog rather than maintaining divergent side filters;
+- always keep each column's current selected World and the opposite-side World visible even when they do not match the filter, so orientation and the M241 no-implicit-swap state remain obvious;
+- matching cards retain their existing selected/opposite/eligible styling and click semantics;
+- if there are no additional matches, show a small local `No other saved Worlds match this filter` message rather than treating it as a catalog failure;
+- clearing/editing the filter must never change Left/Right IDs, failed-question/evidence scope, runtime readiness, catalog generation, settings, composer draft, errors, or session state.
 
-### Eligibility and fail-closed behavior
+### Lifecycle and eligibility
 
-Swap is available only when all of the following are true:
+- the filter is a Setup-only navigation control; Active/Fatal surfaces remain unchanged;
+- filter edits are local presentation state and do not acquire or change the analyst busy/runtime/settings/catalog/session gates;
+- New Comparison/Fatal recovery keep their existing catalog-refresh behavior; the current filter may be preserved across the transition if the same analyst window remains open, but it must not affect reconciliation;
+- closing/reopening the analyst window starts with an empty filter;
+- no automatic Start, selection, swap, refresh, retry, or runtime check is triggered by filter edits.
 
-- phase is idle `Setup`;
-- no catalog refresh, runtime check, settings/path operation, session startup, Ask, cancellation settlement, New Comparison close, or other existing busy work is in progress;
-- there is no live analyst session;
-- both selected IDs exist in the current refreshed `documents` catalog;
-- the two IDs are distinct.
+### State / implementation boundary
 
-If either selected World is missing, the pair is sentinel/invalid, fewer than two saved Worlds remain, or the catalog has failed/been discarded, Swap stays disabled. In particular:
+Keep filtering entirely above `WorldLibrary` and analyst session/runtime layers.
 
-- a missing left remains explicitly replaceable through the M241 Left selector; Swap must not silently move or repair it;
-- a missing right remains owned by the existing deterministic catalog fallback/reconciliation rules;
-- first-open `right == left` sentinel state cannot be swapped;
-- catalog refresh never performs an implicit swap.
-
-### State-transition boundary
-
-Prefer a small pure transition such as `swap_pending_pair_selection` beside M241's `update_pending_pair_selection`.
+Prefer a small pure matcher such as `document_matches_filter(document, query)` and a rendering helper that decides whether a card is visible. The authoritative `documents` vector remains the complete latest catalog; never replace it with a filtered subset.
 
 Required invariants:
 
-- valid distinct `A/B` => exactly `B/A`;
-- the two IDs change atomically as one product transition;
-- retained failed-question text and evidence scope clear together on a real swap;
-- invalid/same-ID input => strict no-op with retained intent preserved;
-- composer, runtime, documents, settings, history, session/process/cancellation state are outside the helper and cannot be mutated by it;
-- no pair-selection helper may call runtime/catalog/session code.
-
-Do not implement Swap by calling the one-side M241 selector transition twice: the opposite-side no-op invariant is intentional, and a two-step mutation would introduce an invalid intermediate pair and could clear retained intent more than once.
-
-### Concurrency and recovery rules
-
-- reuse the existing Setup eligibility gates; do not create a parallel busy model;
-- swapping does not increment catalog refresh generation and does not invalidate pair-independent runtime readiness;
-- stale M237 catalog or M239 startup completions retain their existing generation/phase/session gates and may not overwrite a later user transition;
-- M239 MissingWorld/LoadWorld startup drift and M240 Spawn drift recovery remain unchanged;
-- Fatal recovery and New Comparison return to Setup with their existing selection/refresh semantics; they do not auto-swap;
-- no automatic session Start/retry occurs after Swap.
-
-### Implementation boundary
-
-Keep this entirely in native desktop product state. Do not change analyst protocol v1, provider/model selection, Pi/filesystem authority, persistence, World truth, Pack behavior, runtime settings, `DesktopAnalystEvidenceScope` representation, or add a global Library/runtime watcher/cache.
-
-The existing directional evidence scope is already sufficient; M242 only ensures the native pending-pair state can express the reverse orientation safely.
+- filtering changes presentation only;
+- `documents`, `left`, `right`, `runtime`, `failed_question`, `failed_question_scope`, `last_error`, session/process/cancellation state and catalog generation are not mutated by filter edits;
+- selected/opposite IDs remain visible when present in `documents`, even when the query does not match them;
+- M241 same/opposite selector no-op rules and M242 explicit-swap-only rule remain unchanged;
+- Start continues to validate against the complete current catalog, not the filtered view;
+- catalog refresh reconciliation continues to operate on the complete returned list and cannot be influenced by filter text.
 
 ### Validation
 
 Required gates:
 
-- exactly two saved Worlds can be reversed from `A/B` to `B/A` through one explicit action;
-- selector clicks on the opposite side remain M241 strict no-ops and never swap automatically;
-- a successful swap clears failed-question text and evidence scope in lockstep while preserving composer and runtime readiness;
-- invalid/sentinel/missing-side pair states cannot swap and preserve retained intent;
-- Swap stays disabled outside idle usable Setup and during every existing busy/runtime/settings/catalog/session state;
-- Start after Swap binds the new left/right order and M236 directional evidence-scope matching continues to fail closed for stale retained intent;
-- catalog refresh right fallback and missing-left explicit-replacement behavior remain unchanged;
-- M230–M241 recovery/new-comparison/cancel/retry/dismiss/evidence-scope/catalog/initial-open/startup-drift/runtime-drift/two-sided-selection regressions remain green;
-- Linux boundary/fmt/Clippy/workspace/Pack conformance remain green;
-- full macOS GPUI/desktop tests and `World Machine.app` build/validate/packaged smoke/archive/upload remain green.
+- title, ID and display-summary matching are case-insensitive and whitespace-normalized;
+- empty filter exposes the full catalog;
+- selected and opposite cards remain visible under a non-matching filter;
+- a non-matching filter cannot make an invalid/missing selected ID appear valid;
+- selecting a visible matching candidate follows M241 exactly and clears retained failed-question/evidence scope only on a real pair change;
+- `Swap sides` remains available according to M242 pair/catalog/busy eligibility and is not gated by whether the two selected cards match the filter;
+- Start eligibility and immutable ordered session binding are unaffected by filter text;
+- catalog refresh, missing-left recovery, deterministic right fallback, runtime drift recovery, stale completion gates and all M230–M242 regressions remain green;
+- Linux boundary/fmt/Clippy/workspace/Pack gates remain green;
+- full macOS GPUI/desktop tests plus `World Machine.app` build/validate/packaged smoke/archive/upload remain green.
 
 ## Non-goals
 
-No implicit selector-driven swap, no automatic pair repair, no automatic left fallback, no global Library/runtime watcher or cache, no persistent chat history, no automatic startup retry/backoff, no resumable model turn, no reconnect, no streaming, no concurrent turns, no protocol v2, no provider/model picker, no API-key storage, no new analyst tools, and no mutation authority.
+No server-side/Library search API, no indexing, fuzzy/semantic search, ranking, pagination, sorting redesign, per-side divergent filters, persistent filter state, global Library watcher/cache, protocol/provider/model changes, new analyst tools, persistence changes, or World mutation authority.
