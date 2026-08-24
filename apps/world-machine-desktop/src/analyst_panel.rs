@@ -1471,11 +1471,7 @@ fn can_apply_catalog_refresh_completion(
         && !has_session
 }
 
-fn can_apply_session_start_completion(
-    phase: &PanelPhase,
-    busy: bool,
-    has_session: bool,
-) -> bool {
+fn can_apply_session_start_completion(phase: &PanelPhase, busy: bool, has_session: bool) -> bool {
     matches!(phase, PanelPhase::Starting) && busy && !has_session
 }
 
