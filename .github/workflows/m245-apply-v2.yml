@@ -1,0 +1,124 @@
+name: M245 one-shot stable document identity v2
+
+on:
+  push:
+    branches:
+      - agent/m245-analyst-document-identity
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/m245-analyst-document-identity
+      - name: Apply M245 and remove one-shot workflows
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('apps/world-machine-desktop/src/analyst_panel.rs')
+          text = path.read_text()
+
+          def replace_once(old: str, new: str, label: str) -> None:
+              global text
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'expected one {label}, found {count}')
+              text = text.replace(old, new, 1)
+
+          replace_once(
+              '            let title = document_title(document);\n'
+              '            let summary = document\n',
+              '            let title = document_title(document);\n'
+              '            let document_id_label = document_id_label(document);\n'
+              '            let summary = document\n',
+              'title anchor',
+          )
+
+          replace_once(
+              '                .gap_1()\n'
+              '                .child(div().text_sm().child(title))\n'
+              '                .child(\n'
+              '                    div()\n'
+              '                        .text_xs()\n'
+              '                        .text_color(rgb(0x777770))\n'
+              '                        .child(document_pack_label(document)),\n'
+              '                )\n',
+              '                .gap_1()\n'
+              '                .child(div().text_sm().child(title));\n'
+              '            if let Some(document_id_label) = document_id_label {\n'
+              '                card = card.child(\n'
+              '                    div()\n'
+              '                        .text_xs()\n'
+              '                        .text_color(rgb(0x777770))\n'
+              '                        .child(document_id_label),\n'
+              '                );\n'
+              '            }\n'
+              '            card = card.child(\n'
+              '                div()\n'
+              '                    .text_xs()\n'
+              '                    .text_color(rgb(0x777770))\n'
+              '                    .child(document_pack_label(document)),\n'
+              '            )\n',
+              'card metadata chain',
+          )
+
+          replace_once(
+              'fn document_pack_label(document: &WorldDocumentSummary) -> String {\n',
+              'fn document_id_label(document: &WorldDocumentSummary) -> Option<String> {\n'
+              '    let id = document.id.to_string();\n'
+              '    (document_title(document) != id).then(|| format!("ID {id}"))\n'
+              '}\n\n'
+              'fn document_pack_label(document: &WorldDocumentSummary) -> String {\n',
+              'pack helper anchor',
+          )
+
+          replace_once(
+              '    #[test]\n'
+              '    fn document_pack_label_preserves_generic_id_and_opaque_version() {\n',
+              '    #[test]\n'
+              '    fn document_id_label_exposes_stable_id_only_when_primary_title_hides_it() {\n'
+              '        assert_eq!(\n'
+              '            document_id_label(&summary(\n'
+              '                "World_1.release-2",\n'
+              '                "tiny",\n'
+              '                Some("Maple Street")\n'
+              '            )),\n'
+              '            Some("ID World_1.release-2".into())\n'
+              '        );\n'
+              '        assert_eq!(\n'
+              '            document_id_label(&summary("world-1", "tiny", Some("world-1"))),\n'
+              '            None\n'
+              '        );\n'
+              '        assert_eq!(\n'
+              '            document_id_label(&summary("world-1", "tiny", Some("   "))),\n'
+              '            None\n'
+              '        );\n'
+              '        assert_eq!(document_id_label(&summary("world-1", "tiny", None)), None);\n'
+              '    }\n\n'
+              '    #[test]\n'
+              '    fn document_pack_label_preserves_generic_id_and_opaque_version() {\n',
+              'pack test anchor',
+          )
+
+          path.write_text(text)
+          PY
+          cargo fmt --all
+          unexpected="$(git diff --name-only | grep -v '^apps/world-machine-desktop/src/analyst_panel.rs$' || true)"
+          if [[ -n "$unexpected" ]]; then
+            echo "unexpected formatted files:" >&2
+            echo "$unexpected" >&2
+            exit 1
+          fi
+          git rm .github/workflows/m245-apply.yml .github/workflows/m245-apply-v2.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add apps/world-machine-desktop/src/analyst_panel.rs
+          git commit -m "M245: surface stable saved-World document identity"
+          git push origin HEAD:agent/m245-analyst-document-identity
