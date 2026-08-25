@@ -1,0 +1,92 @@
+name: M247 one-shot robust containment regression
+
+on:
+  push:
+    branches:
+      - agent/m247-analyst-setup-selected-identity
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/m247-analyst-setup-selected-identity
+      - name: Refine containment regression and self-delete
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('apps/world-machine-desktop/src/analyst_panel.rs')
+          text = path.read_text()
+          old = '''    #[test]
+    fn setup_identity_surfaces_keep_horizontal_overflow_containment() {
+        let source = include_str!("analyst_panel.rs");
+        let selector = source
+            .split_once("fn render_world_selector(")
+            .unwrap()
+            .1
+            .split_once("fn render_setup(")
+            .unwrap()
+            .0;
+
+        assert!(selector.contains("analyst-{slug}-world-{id}-title"));
+        assert!(selector.contains("analyst-{slug}-world-{id}-stable-id"));
+        assert!(selector.contains("analyst-{slug}-selected-world-identity"));
+        assert_eq!(selector.matches(".overflow_x_scroll()").count(), 3);
+    }
+'''
+          new = '''    #[test]
+    fn setup_identity_surfaces_keep_horizontal_overflow_containment() {
+        let source = include_str!("analyst_panel.rs");
+        let selector = source
+            .split_once("fn render_world_selector(")
+            .unwrap()
+            .1
+            .split_once("fn render_setup(")
+            .unwrap()
+            .0;
+
+        for marker in [
+            "analyst-{slug}-world-{id}-title",
+            "analyst-{slug}-world-{id}-stable-id",
+            "analyst-{slug}-selected-world-identity",
+        ] {
+            let after_marker = selector
+                .split_once(marker)
+                .unwrap_or_else(|| panic!("missing Setup identity surface {marker}"))
+                .1;
+            let surface_style = after_marker
+                .split_once(".child(")
+                .map(|(style, _)| style)
+                .unwrap_or(after_marker);
+            assert!(
+                surface_style.contains(".overflow_x_scroll()"),
+                "Setup identity surface {marker} must keep horizontal overflow containment"
+            );
+        }
+    }
+'''
+          count = text.count(old)
+          if count != 1:
+              raise SystemExit(f'expected one containment regression, found {count}')
+          path.write_text(text.replace(old, new, 1))
+          PY
+          cargo fmt --all
+          git diff --check
+          unexpected="$(git diff --name-only | grep -v '^apps/world-machine-desktop/src/analyst_panel.rs$' | grep -v '^.github/workflows/m247-refine-test.yml$' || true)"
+          if [[ -n "$unexpected" ]]; then
+            echo "unexpected changed files:" >&2
+            echo "$unexpected" >&2
+            exit 1
+          fi
+          git rm .github/workflows/m247-refine-test.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add apps/world-machine-desktop/src/analyst_panel.rs
+          git commit -m "M247: make containment regression local to each surface"
+          git push origin HEAD:agent/m247-analyst-setup-selected-identity
