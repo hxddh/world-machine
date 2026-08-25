@@ -1,6 +1,6 @@
 # Next Coding Task — M244 Surface World Pack Identity in Analyst Setup
 
-Status: implementation in progress on `agent/m244-analyst-pack-identity`.
+Status: implementation complete; validation in progress on `agent/m244-analyst-pack-identity`.
 
 M214–M243 now provide the installed World Analyst path from immutable saved-World evidence through a restricted long-lived Pi analyst, provider-neutral turns, native runtime/model readiness, in-memory Question → Answer → Evidence history, explicit recovery/new-comparison/cancellation/retry/dismiss flows, retained-question evidence scoping, asynchronous catalog loading/refresh, typed saved-World/runtime drift reconciliation, explicit two-sided pair selection, atomic directional pair swapping, and one shared local Setup filter over the already-refreshed saved-World catalog.
 
