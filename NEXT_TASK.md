@@ -1,72 +1,69 @@
-# Next Coding Task — M247 Keep Stable Selected Identity Visible in Setup
+# Next Coding Task — M248 Bound Analyst Evidence Previews
 
-M214–M246 now provide the installed World Analyst path from immutable saved-World evidence through a restricted long-lived Pi analyst, provider-neutral turns, native runtime/model readiness, in-memory Question → Answer → Evidence history, explicit recovery/new-comparison/cancellation/retry/dismiss flows, retained-question evidence scoping, asynchronous catalog loading/refresh, typed saved-World/runtime drift reconciliation, explicit two-sided pair selection, atomic directional pair swapping, one shared local Setup filter, visible/searchable generic World Pack identity, stable saved-World document IDs on selector cards, and stable ordered pair identity throughout Active/Fatal analysis. M246 also keeps maximum-length exact IDs reachable by separating the Active identity from snapshot actions and allowing horizontal identity scrolling.
+M214–M247 now provide the installed World Analyst path from immutable saved-World evidence through a restricted long-lived Pi analyst, provider-neutral turns, native runtime/model readiness, in-memory Question → Answer → Evidence history, explicit recovery/new-comparison/cancellation/retry/dismiss flows, retained-question evidence scoping, asynchronous catalog loading/refresh, typed saved-World/runtime drift reconciliation, two-sided selection/Swap, local filtering, Pack/document identity, and stable selected/pair identity across Setup and Active/Fatal UI.
 
-## M247 — keep the selected identity visible above each scrollable Setup list
+M247 closes the remaining Setup identity ambiguity and keeps maximum-length saved-World IDs reachable without changing selection semantics.
 
-The M245 selector cards make a saved World's durable `WorldDocumentId` legible when a semantic title would otherwise hide it. However each Left/Right saved-World list is capped at `260px` and vertically scrollable, while the fixed heading above that list still renders:
+## M248 — bound tool input/output copies in the UI history projection
 
-`Left · <semantic title>` / `Right · <semantic title>`
+`world-analyst-client::AnalystToolCall` intentionally carries arbitrary `serde_json::Value` input/output and the turn protocol does not impose a UI-sized payload limit. Today `snapshot_history()` converts every tool input and output with `.to_string()` and stores those complete strings in `PanelTurn`; `render_turn()` then lays the complete copies out in the GPUI history.
 
-through the older `label_for()` path. A selected card can therefore scroll out of view, leaving the always-visible column heading ambiguous for two legitimate Worlds that share the same semantic title.
-
-Close the Setup side of the same identity problem without changing selection semantics.
+That is a presentation-layer scaling bug. A legitimate evidence tool may return a large object/array, causing the desktop panel to allocate another full serialized copy and then build an unbounded text layout for it. The authoritative turn already remains in `DesktopAnalystSession`; the panel does not need another unbounded copy merely to render history.
 
 ### Product behavior
 
-- the fixed heading above each Left/Right selector list identifies the currently selected saved World using semantic title plus the exact stable document ID whenever the title would otherwise hide it;
-- preserve M245's non-duplication rule: if the rendered title already equals the document ID because the title is missing/blank or exactly equal to the ID, show the ID only once;
-- if the selected ID no longer has a matching in-memory `WorldDocumentSummary`, the fixed heading falls back to the exact selected `WorldDocumentId` rather than inventing a label or failing to render;
-- keep the side label explicit and directional (`Left` / `Right`); no sorting, grouping, ranking, or automatic side changes;
-- a maximum-length uninterrupted valid ID must remain reachable without widening or overlapping the two-column Setup layout: constrain the fixed identity heading to its column and allow horizontal scrolling when needed;
-- containment must cover **every selector-card surface that can carry the stable ID**: when a semantic title exists, the secondary `ID <document-id>` line must be width-constrained/horizontally reachable; when the semantic title is missing/blank/equal to the ID and the exact ID becomes the primary card title, that primary title line must receive the same containment rather than overflowing the card/column;
-- it is acceptable to apply the primary-title containment unconditionally so long semantic titles are also contained; do not truncate, abbreviate, normalize, hash, or mutate the rendered title/ID string;
-- preserve M244 `Pack <id> · <version>` metadata, summary / World time / event count, selected/opposite styling, and M243 filter behavior;
-- do not add Pack metadata to the fixed heading in this slice; M247 is only the durable saved-World identity closure.
+- keep Question and Analyst answer rendering unchanged in this slice;
+- keep each evidence call's tool name, `ok` / `error` status and call ordering unchanged;
+- replace the UI snapshot's unbounded tool `input` and `output` strings with bounded previews;
+- use a fixed **4096-byte UTF-8 payload preview limit per input and per output**;
+- a payload whose serialized JSON is at or below the limit renders exactly as today and is not marked truncated;
+- a payload whose serialized JSON exceeds the limit renders only a valid UTF-8 prefix no larger than 4096 bytes and is explicitly marked as a truncated preview in the UI;
+- do not append an ellipsis inside the JSON prefix or otherwise make the prefix look like valid complete JSON; truncation state belongs in adjacent UI metadata/labeling;
+- input and output truncation are independent: one may be complete while the other is truncated;
+- runtime errors remain unchanged and are not part of this payload-preview slice;
+- do not add a full-payload expansion/copy action in M248. The goal is to bound the history projection, not move the same unbounded allocation behind a button.
 
-### State / implementation boundary
+### Allocation / implementation boundary
 
-Keep the slice entirely in `apps/world-machine-desktop/src/analyst_panel.rs` presentation.
+Keep the product slice in `apps/world-machine-desktop/src/analyst_panel.rs`. Do not change `AnalystTurn`, `AnalystToolCall`, `DesktopAnalystExchange`, `DesktopAnalystSession`, the turn protocol, Pi tools, provider/model logic or saved-World evidence.
 
-Prefer extracting the single-document identity lookup already implicit inside M246's `pair_identity_header`, for example:
+Do **not** implement this as `value.to_string()` followed by `truncate()`: that still creates the complete large temporary JSON string before cutting it down, and a truncated `String` may retain oversized capacity.
 
-- `document_identity_label(id: &WorldDocumentId, documents: &[WorldDocumentSummary]) -> String`
+Prefer a small local formatter that implements `std::fmt::Write` and accepts serialized `Display` fragments from `serde_json::Value` into a `String::with_capacity(4096)` buffer:
 
-It should reuse `document_title()` and M245's `document_id_label()` and fall back to the exact requested ID when the summary is absent. Then:
+- copy at most the remaining byte budget;
+- if a fragment crosses the remaining byte budget, back up to a valid UTF-8 character boundary before copying;
+- once the limit is reached, discard later fragments while continuing to return `fmt::Result::Ok(())`, and remember `truncated = true`;
+- return a freshly bounded `String` plus truncation metadata, so the UI projection does not retain a capacity proportional to the original payload;
+- if the exact serialized payload ends exactly at 4096 bytes, it is complete and must not be marked truncated; truncation is true only when additional serialized bytes exist beyond the retained prefix.
 
-- M246 `pair_identity_header()` composes the Left/Right pair from that helper, preserving existing Active/Fatal output;
-- each Setup selector heading uses the same helper for its selected side;
-- the selector-card primary title line and optional secondary ID line each receive stable element IDs plus `min_w(0)` / horizontal overflow containment (or an equivalent exact-string-preserving containment) so both ID-rendering paths remain reachable;
-- `document_id_label()`'s returned string and its semantic decision remain unchanged.
+A compact representation is sufficient, for example a local `PanelPayloadPreview { text: String, truncated: bool }`, with `PanelToolCall` holding one preview for input and one for output.
 
-Required invariants:
+### State / correctness invariants
 
-- M247 never mutates `documents`, `left`, `right`, `session`, `history`, failed-question/evidence scope, runtime/readiness, catalog generation, settings, composer, error, cancellation, process, or filter state;
-- M243 `document_matches_filter` / `document_visible_for_filter` remain unchanged;
-- selected/opposite cards remain visible under non-matching filters exactly as before;
-- M244 Pack display/filtering remains unchanged;
-- M245 card identity semantics remain unchanged apart from overflow containment on both primary and secondary identity-bearing lines;
-- M246 Active/Fatal pair identity output and responsive two-row layout remain unchanged;
-- `default_right_for` / `refreshed_right_for` same-Pack-first fallback remains unchanged;
-- M241 side selection, M242 explicit Swap, Start eligibility and complete authoritative catalog semantics remain unchanged;
-- no Library query, refresh, recheck, persistence, protocol, provider, Pi, Pack, World, or model boundary changes are introduced.
+- `DesktopAnalystSession` continues to retain the complete authoritative `AnalystTurn` / `AnalystToolCall` values exactly as before;
+- `snapshot_history()` remains a one-way UI projection and must not mutate the session, evidence scope, process, archives or turn values;
+- call order, tool name, `is_error`, Question/Answer content and runtime-error content remain unchanged;
+- no provider, model, Pi, protocol, timeout, cancellation, retry, Fatal, New comparison or evidence-scope behavior changes;
+- no Library/catalog/filter/pair/Swap/Start/identity behavior changes;
+- no persistence, Pack or World authority changes;
+- do not introduce filesystem spill, cache files, database persistence or hidden secondary storage for large tool payloads.
 
 ### Validation
 
 Required regressions:
 
-- a selected summary `Maple Street` / `world-1` produces a fixed Setup identity containing both `Maple Street` and exact `ID world-1`;
-- missing/blank/equal-to-ID semantic titles emit the ID only once;
-- a missing summary falls back to the exact selected `WorldDocumentId`;
-- two same-title summaries with different IDs remain distinguishable in both fixed Setup headings and the existing M246 Active/Fatal pair header;
-- Left/Right directional order remains unchanged;
-- an accepted 128-character uninterrupted ID is preserved exactly by the shared identity helper when rendered as a secondary `ID <document-id>` identity;
-- an accepted 128-character uninterrupted ID is also preserved exactly when missing/blank title makes that ID the **primary card title**;
-- fixed Setup heading, primary card title, and secondary card ID regions are width-constrained/horizontally reachable rather than truncating or forcing column expansion;
-- M246 active identity tests, M245 card-ID tests, M244 Pack tests, M243 filter tests, same-Pack fallback, recency ordering, selected/opposite visibility, two-sided selection, Swap, Start eligibility, evidence-scope invalidation and catalog/runtime drift regressions remain green;
+- short ASCII input/output serialize exactly, remain byte-for-byte unchanged in the preview and report `truncated == false`;
+- payload serialized to exactly 4096 bytes is preserved exactly and is **not** marked truncated;
+- payload exceeding 4096 bytes produces `text.len() <= 4096`, reports `truncated == true`, and the stored preview is a fresh bounded allocation rather than a full source string subsequently truncated;
+- a multi-byte UTF-8 payload that crosses the byte limit never produces invalid UTF-8 and never exceeds 4096 bytes;
+- when only input exceeds the limit, only input is marked truncated; same for output;
+- tool call ordering, tool/status fields and runtime errors survive `snapshot_history()` unchanged;
+- the UI labels complete vs truncated input/output unambiguously without pretending a truncated JSON prefix is complete JSON;
+- existing analyst session/history/retry/cancel/evidence-scope/catalog/identity regressions remain green;
 - Linux boundary/Pi/fmt/Clippy/workspace/Pack gates remain green;
 - full macOS Library/Packs/GPUI/desktop tests plus `World Machine.app` build/validate/packaged smoke/archive/upload remain green.
 
 ## Non-goals
 
-No title/ID editing, title uniqueness enforcement, copy-to-clipboard action, Pack metadata in fixed headings, lineage display/integration, selector sorting/grouping/faceting, new filtering semantics, automatic scrolling to the selected card, persisted selector/filter state, session/evidence identity changes, protocol/provider/model changes, persistence format changes, Pack behavior changes, or World mutation authority.
+No protocol payload-size limit, no tool-result truncation before the model sees it, no mutation of authoritative evidence, no answer truncation, no runtime-error truncation, no history virtualization/incremental projection yet, no full-payload viewer/export/copy action, no persistence of analyst history, no provider/model changes, no new Pi tools, no selector/catalog changes, and no Pack/World behavior changes.
