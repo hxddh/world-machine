@@ -1409,13 +1409,23 @@ impl AnalystPanelView {
             .gap_3()
             .child(
                 div()
+                    .w_full()
                     .flex()
-                    .justify_between()
-                    .child(div().text_sm().child(pair_identity_header(
-                        &self.left,
-                        &self.right,
-                        &self.documents,
-                    )))
+                    .flex_col()
+                    .gap_2()
+                    .child(
+                        div()
+                            .id("analyst-active-pair-identity")
+                            .w_full()
+                            .min_w(px(0.0))
+                            .overflow_x_scroll()
+                            .text_sm()
+                            .child(pair_identity_header(
+                                &self.left,
+                                &self.right,
+                                &self.documents,
+                            )),
+                    )
                     .child(snapshot_status),
             )
             .child(history)
