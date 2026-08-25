@@ -1,5 +1,7 @@
 # Next Coding Task — M248 Bound Analyst Evidence Previews
 
+Status: implementation complete; validation in progress on `agent/m248-analyst-bounded-evidence-preview`.
+
 M214–M247 now provide the installed World Analyst path from immutable saved-World evidence through a restricted long-lived Pi analyst, provider-neutral turns, native runtime/model readiness, in-memory Question → Answer → Evidence history, explicit recovery/new-comparison/cancellation/retry/dismiss flows, retained-question evidence scoping, asynchronous catalog loading/refresh, typed saved-World/runtime drift reconciliation, two-sided selection/Swap, local filtering, Pack/document identity, and stable selected/pair identity across Setup and Active/Fatal UI.
 
 M247 closes the remaining Setup identity ambiguity and keeps maximum-length saved-World IDs reachable without changing selection semantics.
