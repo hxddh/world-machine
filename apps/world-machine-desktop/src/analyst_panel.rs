@@ -2399,6 +2399,23 @@ mod tests {
     }
 
     #[test]
+    fn setup_identity_surfaces_keep_horizontal_overflow_containment() {
+        let source = include_str!("analyst_panel.rs");
+        let selector = source
+            .split_once("fn render_world_selector(")
+            .unwrap()
+            .1
+            .split_once("fn render_setup(")
+            .unwrap()
+            .0;
+
+        assert!(selector.contains("analyst-{slug}-world-{id}-title"));
+        assert!(selector.contains("analyst-{slug}-world-{id}-stable-id"));
+        assert!(selector.contains("analyst-{slug}-selected-world-identity"));
+        assert_eq!(selector.matches(".overflow_x_scroll()").count(), 3);
+    }
+
+    #[test]
     fn selected_identity_label_preserves_exact_max_length_id_in_both_title_paths() {
         let max_id = "x".repeat(128);
         let titled = summary(&max_id, "tiny", Some("Maple Street"));
