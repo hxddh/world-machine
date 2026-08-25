@@ -2409,10 +2409,24 @@ mod tests {
             .unwrap()
             .0;
 
-        assert!(selector.contains("analyst-{slug}-world-{id}-title"));
-        assert!(selector.contains("analyst-{slug}-world-{id}-stable-id"));
-        assert!(selector.contains("analyst-{slug}-selected-world-identity"));
-        assert_eq!(selector.matches(".overflow_x_scroll()").count(), 3);
+        for marker in [
+            "analyst-{slug}-world-{id}-title",
+            "analyst-{slug}-world-{id}-stable-id",
+            "analyst-{slug}-selected-world-identity",
+        ] {
+            let after_marker = selector
+                .split_once(marker)
+                .unwrap_or_else(|| panic!("missing Setup identity surface {marker}"))
+                .1;
+            let surface_style = after_marker
+                .split_once(".child(")
+                .map(|(style, _)| style)
+                .unwrap_or(after_marker);
+            assert!(
+                surface_style.contains(".overflow_x_scroll()"),
+                "Setup identity surface {marker} must keep horizontal overflow containment"
+            );
+        }
     }
 
     #[test]
