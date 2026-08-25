@@ -2038,12 +2038,17 @@ fn panel_payload_preview(value: &impl std::fmt::Display) -> PanelPayloadPreview 
     writer.finish()
 }
 
-fn panel_tool_call(call: &world_analyst_client::AnalystToolCall) -> PanelToolCall {
+fn panel_tool_call(
+    tool: &str,
+    input: &impl std::fmt::Display,
+    output: &impl std::fmt::Display,
+    is_error: bool,
+) -> PanelToolCall {
     PanelToolCall {
-        tool: call.tool.clone(),
-        input: panel_payload_preview(&call.input),
-        output: panel_payload_preview(&call.output),
-        is_error: call.is_error,
+        tool: tool.to_owned(),
+        input: panel_payload_preview(input),
+        output: panel_payload_preview(output),
+        is_error,
     }
 }
 
@@ -2070,7 +2075,13 @@ fn snapshot_history(session: &DesktopAnalystSession) -> Vec<PanelTurn> {
                     .filter(|text| !text.is_empty())
                     .unwrap_or("The analyst returned no text answer.")
                     .to_owned(),
-                tool_calls: turn.tool_calls.iter().map(panel_tool_call).collect(),
+                tool_calls: turn
+                    .tool_calls
+                    .iter()
+                    .map(|call| {
+                        panel_tool_call(&call.tool, &call.input, &call.output, call.is_error)
+                    })
+                    .collect(),
                 runtime_errors: turn
                     .runtime_errors
                     .iter()
@@ -2240,30 +2251,20 @@ mod tests {
 
     #[test]
     fn panel_tool_projection_bounds_input_and_output_independently() {
-        let call = world_analyst_client::AnalystToolCall {
-            call_id: "call-1".into(),
-            tool: "inspect_world".into(),
-            input: serde_json::Value::String("x".repeat(4095)),
-            output: serde_json::json!({"ok": true}),
-            is_error: true,
-        };
-        let projected = panel_tool_call(&call);
+        let large_input = serde_json::Value::String("x".repeat(4095));
+        let small_output = serde_json::json!({"ok": true});
+        let projected = panel_tool_call("inspect_world", &large_input, &small_output, true);
         assert_eq!(projected.tool, "inspect_world");
         assert!(projected.is_error);
         assert!(projected.input.truncated);
         assert!(!projected.output.truncated);
-        assert_eq!(projected.output.text, call.output.to_string());
+        assert_eq!(projected.output.text, small_output.to_string());
         assert!(payload_preview_label("input", true).contains("truncated"));
         assert_eq!(payload_preview_label("output", false), "output");
 
-        let output_heavy = world_analyst_client::AnalystToolCall {
-            call_id: "call-2".into(),
-            tool: "inspect_world".into(),
-            input: serde_json::json!({"small": true}),
-            output: serde_json::Value::String("y".repeat(4095)),
-            is_error: false,
-        };
-        let output_projected = panel_tool_call(&output_heavy);
+        let small_input = serde_json::json!({"small": true});
+        let large_output = serde_json::Value::String("y".repeat(4095));
+        let output_projected = panel_tool_call("inspect_world", &small_input, &large_output, false);
         assert!(!output_projected.input.truncated);
         assert!(output_projected.output.truncated);
 
