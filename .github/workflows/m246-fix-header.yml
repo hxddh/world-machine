@@ -1,0 +1,78 @@
+name: M246 one-shot responsive identity header
+
+on:
+  push:
+    branches:
+      - agent/m246-analyst-active-pair-identity
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/m246-analyst-active-pair-identity
+      - name: Apply responsive header fix and self-delete
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('apps/world-machine-desktop/src/analyst_panel.rs')
+          text = path.read_text()
+          old = '''            .child(
+                div()
+                    .flex()
+                    .justify_between()
+                    .child(div().text_sm().child(pair_identity_header(
+                        &self.left,
+                        &self.right,
+                        &self.documents,
+                    )))
+                    .child(snapshot_status),
+            )
+'''
+          new = '''            .child(
+                div()
+                    .w_full()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .child(
+                        div()
+                            .id("analyst-active-pair-identity")
+                            .w_full()
+                            .min_w(px(0.0))
+                            .overflow_x_scroll()
+                            .text_sm()
+                            .child(pair_identity_header(
+                                &self.left,
+                                &self.right,
+                                &self.documents,
+                            )),
+                    )
+                    .child(snapshot_status),
+            )
+'''
+          count = text.count(old)
+          if count != 1:
+              raise SystemExit(f'expected one active header block, found {count}')
+          path.write_text(text.replace(old, new, 1))
+          PY
+          cargo fmt --all
+          unexpected="$(git diff --name-only | grep -v '^apps/world-machine-desktop/src/analyst_panel.rs$' || true)"
+          if [[ -n "$unexpected" ]]; then
+            echo "unexpected formatted files:" >&2
+            echo "$unexpected" >&2
+            exit 1
+          fi
+          git rm .github/workflows/m246-fix-header.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add apps/world-machine-desktop/src/analyst_panel.rs
+          git commit -m "M246: keep long pair identities readable"
+          git push origin HEAD:agent/m246-analyst-active-pair-identity
