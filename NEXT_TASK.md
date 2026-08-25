@@ -1,5 +1,7 @@
 # Next Coding Task — M246 Keep Stable Pair Identity Visible During Analysis
 
+Status: implementation complete; P2 responsive-header fix applied; validation in progress on `agent/m246-analyst-active-pair-identity`.
+
 M214–M245 now provide the installed World Analyst path from immutable saved-World evidence through a restricted long-lived Pi analyst, provider-neutral turns, native runtime/model readiness, in-memory Question → Answer → Evidence history, explicit recovery/new-comparison/cancellation/retry/dismiss flows, retained-question evidence scoping, asynchronous catalog loading/refresh, typed saved-World/runtime drift reconciliation, explicit two-sided pair selection, atomic directional pair swapping, one shared local Setup filter, visible/searchable generic World Pack identity, and stable saved-World document IDs on Setup selector cards when semantic titles would otherwise hide them.
 
 ## M246 — preserve that stable identity after Start
@@ -20,6 +22,7 @@ Carry the M245 identity rule into the read-only Active/Fatal pair header without
 - if a side no longer has a matching in-memory `WorldDocumentSummary`, fall back to its exact `WorldDocumentId` rather than inventing a title or failing to render;
 - Fatal state uses the same `render_active()` surface and must retain the same pair identity while recovery is offered;
 - preserve the existing `Read-only · fixed snapshot pair` status and `New comparison` behavior;
+- long exact IDs must not overlap or be clipped by the status/actions: the identity occupies its own full-width horizontally scrollable row, with snapshot status/actions on a separate row;
 - do not add Pack metadata to the Active header in this slice; M246 is specifically the stable evidence-source identity closure from M245, not a redesign of the active header;
 - do not change Setup selector headings/cards, filtering, Library order, or pair selection.
 
@@ -54,6 +57,7 @@ Required regressions:
 - a summary whose semantic title exactly equals its ID emits only the ID once;
 - a missing summary falls back to the exact requested `WorldDocumentId`;
 - Left/Right ordering is preserved by the rendered pair label;
+- the identity region is full-width and horizontally scrollable independently of the snapshot status/actions so an uninterrupted maximum-length ID remains reachable without overlap/clipping;
 - the same identity helper is usable in Active and Fatal rendering without state mutation;
 - M245 Setup ID-label tests, M244 Pack tests, M243 filter tests, same-Pack fallback, recency ordering, selected/opposite visibility, two-sided selection, swap, Start eligibility, evidence-scope invalidation and catalog/runtime drift regressions remain green;
 - Linux boundary/Pi/fmt/Clippy/workspace/Pack gates remain green;
