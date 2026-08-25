@@ -1027,16 +1027,34 @@ impl AnalystPanelView {
                 .unwrap_or("Saved World");
             let mut card = div()
                 .id(SharedString::from(format!("analyst-{slug}-world-{id}")))
+                .w_full()
+                .min_w(px(0.0))
                 .p_2()
                 .rounded_md()
                 .border_1()
                 .flex()
                 .flex_col()
                 .gap_1()
-                .child(div().text_sm().child(title));
+                .child(
+                    div()
+                        .id(SharedString::from(format!(
+                            "analyst-{slug}-world-{id}-title"
+                        )))
+                        .w_full()
+                        .min_w(px(0.0))
+                        .overflow_x_scroll()
+                        .text_sm()
+                        .child(title),
+                );
             if let Some(document_id_label) = document_id_label {
                 card = card.child(
                     div()
+                        .id(SharedString::from(format!(
+                            "analyst-{slug}-world-{id}-stable-id"
+                        )))
+                        .w_full()
+                        .min_w(px(0.0))
+                        .overflow_x_scroll()
                         .text_xs()
                         .text_color(rgb(0x777770))
                         .child(document_id_label),
@@ -1079,8 +1097,17 @@ impl AnalystPanelView {
             .gap_2()
             .child(
                 div()
+                    .id(SharedString::from(format!(
+                        "analyst-{slug}-selected-world-identity"
+                    )))
+                    .w_full()
+                    .min_w(px(0.0))
+                    .overflow_x_scroll()
                     .text_sm()
-                    .child(format!("{label} · {}", self.label_for(selected))),
+                    .child(format!(
+                        "{label} · {}",
+                        document_identity_label(selected, &self.documents)
+                    )),
             )
             .child(worlds)
     }
@@ -1467,14 +1494,6 @@ impl AnalystPanelView {
         }
         body
     }
-
-    fn label_for(&self, id: &WorldDocumentId) -> String {
-        self.documents
-            .iter()
-            .find(|document| document.id == *id)
-            .map(document_title)
-            .unwrap_or_else(|| id.to_string())
-    }
 }
 
 impl Render for AnalystPanelView {
@@ -1632,25 +1651,30 @@ fn document_id_label(document: &WorldDocumentSummary) -> Option<String> {
     (document_title(document) != id).then(|| format!("ID {id}"))
 }
 
+fn document_identity_label(id: &WorldDocumentId, documents: &[WorldDocumentSummary]) -> String {
+    documents
+        .iter()
+        .find(|document| document.id == *id)
+        .map(|document| {
+            let title = document_title(document);
+            match document_id_label(document) {
+                Some(id_label) => format!("{title} · {id_label}"),
+                None => title,
+            }
+        })
+        .unwrap_or_else(|| id.to_string())
+}
+
 fn pair_identity_header(
     left: &WorldDocumentId,
     right: &WorldDocumentId,
     documents: &[WorldDocumentSummary],
 ) -> String {
-    let label_for = |id: &WorldDocumentId| {
-        documents
-            .iter()
-            .find(|document| document.id == *id)
-            .map(|document| {
-                let title = document_title(document);
-                match document_id_label(document) {
-                    Some(id_label) => format!("{title} · {id_label}"),
-                    None => title,
-                }
-            })
-            .unwrap_or_else(|| id.to_string())
-    };
-    format!("{} ↔ {}", label_for(left), label_for(right))
+    format!(
+        "{} ↔ {}",
+        document_identity_label(left, documents),
+        document_identity_label(right, documents)
+    )
 }
 
 fn document_pack_label(document: &WorldDocumentSummary) -> String {
@@ -2372,6 +2396,24 @@ mod tests {
             None
         );
         assert_eq!(document_id_label(&summary("world-1", "tiny", None)), None);
+    }
+
+    #[test]
+    fn selected_identity_label_preserves_exact_max_length_id_in_both_title_paths() {
+        let max_id = "x".repeat(128);
+        let titled = summary(&max_id, "tiny", Some("Maple Street"));
+        let titled_id = titled.id.clone();
+        assert_eq!(
+            document_identity_label(&titled_id, &[titled]),
+            format!("Maple Street · ID {max_id}")
+        );
+
+        let untitled = summary(&max_id, "tiny", None);
+        let untitled_id = untitled.id.clone();
+        assert_eq!(document_identity_label(&untitled_id, &[untitled]), max_id);
+
+        let missing = WorldDocumentId::new("missing-world").unwrap();
+        assert_eq!(document_identity_label(&missing, &[]), "missing-world");
     }
 
     #[test]
