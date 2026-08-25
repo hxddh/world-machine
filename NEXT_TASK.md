@@ -1,63 +1,64 @@
-# Next Coding Task — M245 Surface Stable Saved-World Identity in Analyst Setup
+# Next Coding Task — M246 Keep Stable Pair Identity Visible During Analysis
 
-Status: implementation complete; validation in progress on `agent/m245-analyst-document-identity`.
+M214–M245 now provide the installed World Analyst path from immutable saved-World evidence through a restricted long-lived Pi analyst, provider-neutral turns, native runtime/model readiness, in-memory Question → Answer → Evidence history, explicit recovery/new-comparison/cancellation/retry/dismiss flows, retained-question evidence scoping, asynchronous catalog loading/refresh, typed saved-World/runtime drift reconciliation, explicit two-sided pair selection, atomic directional pair swapping, one shared local Setup filter, visible/searchable generic World Pack identity, and stable saved-World document IDs on Setup selector cards when semantic titles would otherwise hide them.
 
-M214–M244 now provide the installed World Analyst path from immutable saved-World evidence through a restricted long-lived Pi analyst, provider-neutral turns, native runtime/model readiness, in-memory Question → Answer → Evidence history, explicit recovery/new-comparison/cancellation/retry/dismiss flows, retained-question evidence scoping, asynchronous catalog loading/refresh, typed saved-World/runtime drift reconciliation, explicit two-sided pair selection, atomic directional pair swapping, one shared local Setup filter, and visible/searchable generic World Pack identity.
+## M246 — preserve that stable identity after Start
 
-## M245 — make the stable saved-World document ID legible
+M245 closes an important Setup ambiguity: `display_title` is free-form and non-unique, while `WorldDocumentId` is the durable identity used by pair selection and `DesktopAnalystEvidenceScope`. However the Active/Fatal analyst surface still renders the fixed snapshot pair as:
 
-`WorldDocumentMetadata.display_title` is optional free-form metadata, not a unique Library identity. Multiple saved Worlds may therefore legally have the same semantic title. The analyst already uses `WorldDocumentId` as the durable Left/Right identity: selection helpers operate on it, the local filter can match it, and `DesktopAnalystEvidenceScope` binds retained evidence to the ordered left/right document IDs plus archive fingerprints.
+`<left semantic title> ↔ <right semantic title>`
 
-Today `document_title()` intentionally prefers a semantic display title and only falls back to the document ID. As a result, whenever a World has a non-empty semantic title, its stable Library identity is hidden from the selector card. Two Worlds with the same title and Pack can therefore be difficult to distinguish precisely even though the analyst internally treats them as distinct evidence sources.
+through `label_for()`, which prefers `document_title()` and therefore hides the document ID again whenever a semantic title exists. Two legitimate saved Worlds with the same title can be distinguishable during Setup and then become ambiguous immediately after Start, even though the running analyst remains bound to two distinct ordered document IDs and archive fingerprints.
 
-Surface the existing `WorldDocumentId` in the native selector presentation without changing selection or evidence semantics.
+Carry the M245 identity rule into the read-only Active/Fatal pair header without changing the fixed evidence pair or session behavior.
 
 ### Product behavior
 
-- when a saved World has a non-empty semantic display title that differs from its document ID, show its exact stable document ID as secondary metadata on both Left and Right selector cards;
-- use a compact generic label such as `ID <document-id>`; preserve the exact ID string and do not normalize, parse, abbreviate, hash, or derive another identity;
-- when the semantic title is missing/blank and the primary card title already falls back to the document ID, do not add a duplicate secondary ID line;
-- likewise, if the semantic display title is exactly the same string as the document ID, avoid rendering a redundant duplicate ID line;
-- preserve M244's visible `Pack <id> · <version>` metadata and the existing summary / World time / event-count information;
-- preserve the current Library recency order and M243 filtering behavior exactly; the filter already matches document IDs and M245 does not add another matcher or ranking path;
-- selected/opposite cards remain visible under non-matching filters exactly as before;
-- no document ID is copied into new analyst protocol/session state merely for display — use the existing `WorldDocumentSummary.id`.
+- the Active analyst header identifies both sides using semantic title as the primary human-readable label plus the exact stable document ID when the title would otherwise hide it;
+- use the same non-duplication rule as M245: if a side's rendered primary title already equals its document ID because the title is missing/blank or exactly equal to the ID, do not repeat the ID;
+- a suitable compact form is `Maple Street · ID world-1 ↔ Maple Street · ID world-2`; exact visual punctuation may follow the current native style, but Left/Right order must remain explicit and unchanged;
+- if a side no longer has a matching in-memory `WorldDocumentSummary`, fall back to its exact `WorldDocumentId` rather than inventing a title or failing to render;
+- Fatal state uses the same `render_active()` surface and must retain the same pair identity while recovery is offered;
+- preserve the existing `Read-only · fixed snapshot pair` status and `New comparison` behavior;
+- do not add Pack metadata to the Active header in this slice; M246 is specifically the stable evidence-source identity closure from M245, not a redesign of the active header;
+- do not change Setup selector headings/cards, filtering, Library order, or pair selection.
 
 ### State / implementation boundary
 
-Keep the slice entirely in `apps/world-machine-desktop/src/analyst_panel.rs` presentation over `WorldDocumentSummary`.
+Keep the slice entirely in `apps/world-machine-desktop/src/analyst_panel.rs` presentation.
 
-A small pure helper is preferred, for example:
+Prefer a small pure helper over changing `label_for()` globally, because `label_for()` is also used by Setup selector headings and M246 should not silently broaden their formatting. For example:
 
-- `document_id_label(document: &WorldDocumentSummary) -> Option<String>`
+- `document_identity_label(document: &WorldDocumentSummary) -> String`, reusing `document_title()` and M245's `document_id_label()`; and/or
+- `pair_identity_label(id: &WorldDocumentId, documents: &[WorldDocumentSummary]) -> String`, falling back to the exact ID when the summary is absent.
 
-The helper should return a label only when the primary semantic title would otherwise hide the stable ID. It may compare the already-defined semantic `document_title(document)` with `document.id.to_string()` so the rule remains aligned with the actual rendered primary title.
+Then use that helper only in `render_active()` for the Left/Right fixed snapshot pair.
 
 Required invariants:
 
-- M245 does not mutate `documents`, `left`, `right`, failed-question/evidence scope, runtime/readiness, catalog generation, settings, composer, errors, or session/process/cancellation state;
-- M243 `document_matches_filter` / `document_visible_for_filter` behavior remains unchanged;
-- M244 Pack label/filter behavior remains unchanged;
-- `default_right_for` / `refreshed_right_for` same-Pack-first fallback remains unchanged;
+- Left/Right ordering remains directional and exactly matches the running `DesktopAnalystSession` evidence scope;
+- M246 never changes `left`, `right`, `documents`, `session`, `history`, failed-question/evidence scope, runtime/readiness, catalog generation, settings, composer, error, cancellation, or process state;
+- no catalog refresh, runtime recheck, session restart, model request, retry, or close operation is caused by rendering identity labels;
+- M245 Setup `document_id_label` behavior remains unchanged;
+- M244 Pack display/filtering and M243 filtering remain unchanged;
 - M241 side selection and M242 explicit swap semantics remain unchanged;
-- Start and Swap eligibility continue to use the complete authoritative catalog;
-- no sorting, grouping, ranking, Library query, persistence, protocol, provider, Pi, World, or Pack mutation boundary changes are introduced.
+- `New comparison` and fatal recovery state transitions remain unchanged;
+- no protocol/provider/Pi/persistence/World/Pack mutation or new identity authority is introduced.
 
 ### Validation
 
 Required regressions:
 
-- a document with semantic title `Maple Street` and ID `world-1` exposes secondary label `ID world-1`;
-- a document with missing semantic title uses `world-1` as its primary title and emits no duplicate secondary ID label;
-- a blank/whitespace semantic title likewise emits no duplicate secondary ID label;
-- a semantic title exactly equal to `world-1` emits no duplicate secondary ID label;
-- the ID string is preserved exactly as accepted by `WorldDocumentId`;
-- M243 ID filtering remains green without code changes to the matcher;
-- M244 Pack ID/version display and filtering remain green;
-- same-Pack-first fallback, recency ordering, selected/opposite visibility, two-sided selection, swap, Start eligibility, evidence-scope invalidation and catalog/runtime drift regressions remain green;
+- two summaries with the same semantic title and IDs `world-1` / `world-2` produce distinct active identity labels containing the exact respective IDs;
+- a summary whose primary title already falls back to its ID emits only the ID once;
+- a summary whose semantic title exactly equals its ID emits only the ID once;
+- a missing summary falls back to the exact requested `WorldDocumentId`;
+- Left/Right ordering is preserved by the rendered pair label;
+- the same identity helper is usable in Active and Fatal rendering without state mutation;
+- M245 Setup ID-label tests, M244 Pack tests, M243 filter tests, same-Pack fallback, recency ordering, selected/opposite visibility, two-sided selection, swap, Start eligibility, evidence-scope invalidation and catalog/runtime drift regressions remain green;
 - Linux boundary/Pi/fmt/Clippy/workspace/Pack gates remain green;
 - full macOS Library/Packs/GPUI/desktop tests plus `World Machine.app` build/validate/packaged smoke/archive/upload remain green.
 
 ## Non-goals
 
-No renaming/editing document IDs, title uniqueness enforcement, automatic title generation, copy-to-clipboard action, tooltip/popover, sorting/grouping/faceting, new filtering semantics, Library search/indexing, persistent selector state, protocol/session identity changes, persistence format changes, provider/model changes, Pack behavior changes, or World mutation authority.
+No Active-header Pack display, lineage display, editable titles/IDs, copy-to-clipboard action, selector redesign, sorting/grouping/faceting, filter changes, persisted UI state, session/evidence identity changes, analyst protocol changes, provider/model changes, persistence format changes, Pack behavior changes, or World mutation authority.
