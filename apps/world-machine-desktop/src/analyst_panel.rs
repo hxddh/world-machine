@@ -1033,6 +1033,12 @@ impl AnalystPanelView {
                 .flex_col()
                 .gap_1()
                 .child(div().text_sm().child(title))
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(rgb(0x777770))
+                        .child(document_pack_label(document)),
+                )
                 .child(div().text_xs().text_color(rgb(0x777770)).child(format!(
                     "{} · t={} · {} events",
                     summary, document.world_time, document.event_count
@@ -1601,6 +1607,10 @@ fn document_title(document: &WorldDocumentSummary) -> String {
         .unwrap_or_else(|| document.id.to_string())
 }
 
+fn document_pack_label(document: &WorldDocumentSummary) -> String {
+    format!("Pack {} · {}", document.pack.id, document.pack.version)
+}
+
 fn normalize_filter_query(query: &str) -> String {
     query.trim().to_lowercase()
 }
@@ -1618,6 +1628,8 @@ fn document_matches_filter(document: &WorldDocumentSummary, filter_query: &str) 
             .to_string()
             .to_lowercase()
             .contains(filter_query)
+        || document.pack.id.to_lowercase().contains(filter_query)
+        || document.pack.version.to_lowercase().contains(filter_query)
         || document
             .display_summary
             .as_deref()
@@ -2300,9 +2312,20 @@ mod tests {
     }
 
     #[test]
-    fn saved_world_filter_matches_title_id_and_summary_case_insensitively() {
+    fn document_pack_label_preserves_generic_id_and_opaque_version() {
+        let mut document = summary("world-1", "tiny", Some("World"));
+        document.pack = WorldPackRef::new("pocket-universe", "release-Candidate");
+        assert_eq!(
+            document_pack_label(&document),
+            "Pack pocket-universe · release-Candidate"
+        );
+    }
+
+    #[test]
+    fn saved_world_filter_matches_title_id_summary_and_pack_case_insensitively() {
         let mut document = summary("maple-42", "tiny", Some("Maple Street"));
         document.display_summary = Some("Flooded market district".into());
+        document.pack = WorldPackRef::new("Pocket-Universe", "RC-2026");
 
         assert!(document_matches_filter(
             &document,
@@ -2315,6 +2338,14 @@ mod tests {
         assert!(document_matches_filter(
             &document,
             &normalize_filter_query(" MARKET "),
+        ));
+        assert!(document_matches_filter(
+            &document,
+            &normalize_filter_query(" pocket-universe "),
+        ));
+        assert!(document_matches_filter(
+            &document,
+            &normalize_filter_query(" rc-2026 "),
         ));
         assert!(document_matches_filter(
             &document,
