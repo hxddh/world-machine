@@ -1,5 +1,7 @@
 # Next Coding Task — M245 Surface Stable Saved-World Identity in Analyst Setup
 
+Status: implementation complete; validation in progress on `agent/m245-analyst-document-identity`.
+
 M214–M244 now provide the installed World Analyst path from immutable saved-World evidence through a restricted long-lived Pi analyst, provider-neutral turns, native runtime/model readiness, in-memory Question → Answer → Evidence history, explicit recovery/new-comparison/cancellation/retry/dismiss flows, retained-question evidence scoping, asynchronous catalog loading/refresh, typed saved-World/runtime drift reconciliation, explicit two-sided pair selection, atomic directional pair swapping, one shared local Setup filter, and visible/searchable generic World Pack identity.
 
 ## M245 — make the stable saved-World document ID legible
