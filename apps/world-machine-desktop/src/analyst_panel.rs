@@ -1409,13 +1409,23 @@ impl AnalystPanelView {
             .gap_3()
             .child(
                 div()
+                    .w_full()
                     .flex()
-                    .justify_between()
-                    .child(div().text_sm().child(format!(
-                        "{} ↔ {}",
-                        self.label_for(&self.left),
-                        self.label_for(&self.right)
-                    )))
+                    .flex_col()
+                    .gap_2()
+                    .child(
+                        div()
+                            .id("analyst-active-pair-identity")
+                            .w_full()
+                            .min_w(px(0.0))
+                            .overflow_x_scroll()
+                            .text_sm()
+                            .child(pair_identity_header(
+                                &self.left,
+                                &self.right,
+                                &self.documents,
+                            )),
+                    )
                     .child(snapshot_status),
             )
             .child(history)
@@ -1620,6 +1630,27 @@ fn document_title(document: &WorldDocumentSummary) -> String {
 fn document_id_label(document: &WorldDocumentSummary) -> Option<String> {
     let id = document.id.to_string();
     (document_title(document) != id).then(|| format!("ID {id}"))
+}
+
+fn pair_identity_header(
+    left: &WorldDocumentId,
+    right: &WorldDocumentId,
+    documents: &[WorldDocumentSummary],
+) -> String {
+    let label_for = |id: &WorldDocumentId| {
+        documents
+            .iter()
+            .find(|document| document.id == *id)
+            .map(|document| {
+                let title = document_title(document);
+                match document_id_label(document) {
+                    Some(id_label) => format!("{title} · {id_label}"),
+                    None => title,
+                }
+            })
+            .unwrap_or_else(|| id.to_string())
+    };
+    format!("{} ↔ {}", label_for(left), label_for(right))
 }
 
 fn document_pack_label(document: &WorldDocumentSummary) -> String {
@@ -2341,6 +2372,43 @@ mod tests {
             None
         );
         assert_eq!(document_id_label(&summary("world-1", "tiny", None)), None);
+    }
+
+    #[test]
+    fn active_pair_identity_header_preserves_order_and_stable_ids() {
+        let left = summary("world-1", "tiny", Some("Maple Street"));
+        let right = summary("world-2", "tiny", Some("Maple Street"));
+        let left_id = left.id.clone();
+        let right_id = right.id.clone();
+        let documents = vec![right, left];
+
+        assert_eq!(
+            pair_identity_header(&left_id, &right_id, &documents),
+            "Maple Street · ID world-1 ↔ Maple Street · ID world-2"
+        );
+        assert_eq!(
+            pair_identity_header(&right_id, &left_id, &documents),
+            "Maple Street · ID world-2 ↔ Maple Street · ID world-1"
+        );
+    }
+
+    #[test]
+    fn active_pair_identity_header_avoids_duplicates_and_falls_back_to_id() {
+        let left = summary("world-1", "tiny", Some("   "));
+        let right = summary("world-2", "tiny", Some("world-2"));
+        let left_id = left.id.clone();
+        let right_id = right.id.clone();
+        let missing = WorldDocumentId::new("missing-world").unwrap();
+        let documents = vec![left, right];
+
+        assert_eq!(
+            pair_identity_header(&left_id, &right_id, &documents),
+            "world-1 ↔ world-2"
+        );
+        assert_eq!(
+            pair_identity_header(&left_id, &missing, &documents),
+            "world-1 ↔ missing-world"
+        );
     }
 
     #[test]
