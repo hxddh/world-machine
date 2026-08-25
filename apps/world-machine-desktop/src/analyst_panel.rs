@@ -2049,7 +2049,7 @@ fn panel_tool_call(call: &world_analyst_client::AnalystToolCall) -> PanelToolCal
 
 fn payload_preview_label(kind: &str, truncated: bool) -> String {
     if truncated {
-        format!("{kind} preview · truncated at {ANALYST_TOOL_PAYLOAD_PREVIEW_BYTES} bytes")
+        format!("{kind} preview · truncated ({ANALYST_TOOL_PAYLOAD_PREVIEW_BYTES}-byte limit)")
     } else {
         kind.to_owned()
     }
@@ -2255,6 +2255,17 @@ mod tests {
         assert_eq!(projected.output.text, call.output.to_string());
         assert!(payload_preview_label("input", true).contains("truncated"));
         assert_eq!(payload_preview_label("output", false), "output");
+
+        let output_heavy = world_analyst_client::AnalystToolCall {
+            call_id: "call-2".into(),
+            tool: "inspect_world".into(),
+            input: serde_json::json!({"small": true}),
+            output: serde_json::Value::String("y".repeat(4095)),
+            is_error: false,
+        };
+        let output_projected = panel_tool_call(&output_heavy);
+        assert!(!output_projected.input.truncated);
+        assert!(output_projected.output.truncated);
 
         let source = include_str!("analyst_panel.rs");
         let snapshot = source
