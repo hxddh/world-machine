@@ -19,7 +19,8 @@ Close the Setup side of the same identity problem without changing selection sem
 - if the selected ID no longer has a matching in-memory `WorldDocumentSummary`, the fixed heading falls back to the exact selected `WorldDocumentId` rather than inventing a label or failing to render;
 - keep the side label explicit and directional (`Left` / `Right`); no sorting, grouping, ranking, or automatic side changes;
 - a maximum-length uninterrupted valid ID must remain reachable without widening or overlapping the two-column Setup layout: constrain the fixed identity heading to its column and allow horizontal scrolling when needed;
-- apply the same containment rule to M245's secondary `ID <document-id>` card line so exact long IDs remain reachable inside selector cards rather than overflowing the card/column;
+- containment must cover **every selector-card surface that can carry the stable ID**: when a semantic title exists, the secondary `ID <document-id>` line must be width-constrained/horizontally reachable; when the semantic title is missing/blank/equal to the ID and the exact ID becomes the primary card title, that primary title line must receive the same containment rather than overflowing the card/column;
+- it is acceptable to apply the primary-title containment unconditionally so long semantic titles are also contained; do not truncate, abbreviate, normalize, hash, or mutate the rendered title/ID string;
 - preserve M244 `Pack <id> · <version>` metadata, summary / World time / event count, selected/opposite styling, and M243 filter behavior;
 - do not add Pack metadata to the fixed heading in this slice; M247 is only the durable saved-World identity closure.
 
@@ -35,7 +36,8 @@ It should reuse `document_title()` and M245's `document_id_label()` and fall bac
 
 - M246 `pair_identity_header()` composes the Left/Right pair from that helper, preserving existing Active/Fatal output;
 - each Setup selector heading uses the same helper for its selected side;
-- card ID containment remains presentation-only and does not alter `document_id_label()`'s returned string.
+- the selector-card primary title line and optional secondary ID line each receive stable element IDs plus `min_w(0)` / horizontal overflow containment (or an equivalent exact-string-preserving containment) so both ID-rendering paths remain reachable;
+- `document_id_label()`'s returned string and its semantic decision remain unchanged.
 
 Required invariants:
 
@@ -43,7 +45,7 @@ Required invariants:
 - M243 `document_matches_filter` / `document_visible_for_filter` remain unchanged;
 - selected/opposite cards remain visible under non-matching filters exactly as before;
 - M244 Pack display/filtering remains unchanged;
-- M245 card identity semantics remain unchanged apart from overflow containment;
+- M245 card identity semantics remain unchanged apart from overflow containment on both primary and secondary identity-bearing lines;
 - M246 Active/Fatal pair identity output and responsive two-row layout remain unchanged;
 - `default_right_for` / `refreshed_right_for` same-Pack-first fallback remains unchanged;
 - M241 side selection, M242 explicit Swap, Start eligibility and complete authoritative catalog semantics remain unchanged;
@@ -58,8 +60,9 @@ Required regressions:
 - a missing summary falls back to the exact selected `WorldDocumentId`;
 - two same-title summaries with different IDs remain distinguishable in both fixed Setup headings and the existing M246 Active/Fatal pair header;
 - Left/Right directional order remains unchanged;
-- an accepted maximum-length uninterrupted ID is preserved exactly by the shared identity helper;
-- fixed Setup heading and card ID regions are width-constrained/horizontally scrollable rather than truncating or forcing column expansion;
+- an accepted 128-character uninterrupted ID is preserved exactly by the shared identity helper when rendered as a secondary `ID <document-id>` identity;
+- an accepted 128-character uninterrupted ID is also preserved exactly when missing/blank title makes that ID the **primary card title**;
+- fixed Setup heading, primary card title, and secondary card ID regions are width-constrained/horizontally reachable rather than truncating or forcing column expansion;
 - M246 active identity tests, M245 card-ID tests, M244 Pack tests, M243 filter tests, same-Pack fallback, recency ordering, selected/opposite visibility, two-sided selection, Swap, Start eligibility, evidence-scope invalidation and catalog/runtime drift regressions remain green;
 - Linux boundary/Pi/fmt/Clippy/workspace/Pack gates remain green;
 - full macOS Library/Packs/GPUI/desktop tests plus `World Machine.app` build/validate/packaged smoke/archive/upload remain green.
