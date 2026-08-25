@@ -1018,6 +1018,7 @@ impl AnalystPanelView {
                 continue;
             }
             let title = document_title(document);
+            let document_id_label = document_id_label(document);
             let summary = document
                 .display_summary
                 .as_deref()
@@ -1032,7 +1033,16 @@ impl AnalystPanelView {
                 .flex()
                 .flex_col()
                 .gap_1()
-                .child(div().text_sm().child(title))
+                .child(div().text_sm().child(title));
+            if let Some(document_id_label) = document_id_label {
+                card = card.child(
+                    div()
+                        .text_xs()
+                        .text_color(rgb(0x777770))
+                        .child(document_id_label),
+                );
+            }
+            card = card
                 .child(
                     div()
                         .text_xs()
@@ -1605,6 +1615,11 @@ fn document_title(document: &WorldDocumentSummary) -> String {
         .filter(|title| !title.is_empty())
         .map(str::to_owned)
         .unwrap_or_else(|| document.id.to_string())
+}
+
+fn document_id_label(document: &WorldDocumentSummary) -> Option<String> {
+    let id = document.id.to_string();
+    (document_title(document) != id).then(|| format!("ID {id}"))
 }
 
 fn document_pack_label(document: &WorldDocumentSummary) -> String {
@@ -2309,6 +2324,23 @@ mod tests {
             document_title(&summary("world-1", "tiny", Some("  "))),
             "world-1"
         );
+    }
+
+    #[test]
+    fn document_id_label_exposes_stable_id_only_when_primary_title_hides_it() {
+        assert_eq!(
+            document_id_label(&summary("World_1.release-2", "tiny", Some("Maple Street"))),
+            Some("ID World_1.release-2".into())
+        );
+        assert_eq!(
+            document_id_label(&summary("world-1", "tiny", Some("world-1"))),
+            None
+        );
+        assert_eq!(
+            document_id_label(&summary("world-1", "tiny", Some("   "))),
+            None
+        );
+        assert_eq!(document_id_label(&summary("world-1", "tiny", None)), None);
     }
 
     #[test]
