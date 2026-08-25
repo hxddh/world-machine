@@ -1,6 +1,6 @@
 # Next Coding Task — M247 Keep Stable Selected Identity Visible in Setup
 
-Status: implementation complete; validation in progress on `agent/m247-analyst-setup-selected-identity`.
+Status: implementation complete; exact validation restarted after locking the three Setup identity-containment surfaces.
 
 M214–M246 now provide the installed World Analyst path from immutable saved-World evidence through a restricted long-lived Pi analyst, provider-neutral turns, native runtime/model readiness, in-memory Question → Answer → Evidence history, explicit recovery/new-comparison/cancellation/retry/dismiss flows, retained-question evidence scoping, asynchronous catalog loading/refresh, typed saved-World/runtime drift reconciliation, explicit two-sided pair selection, atomic directional pair swapping, one shared local Setup filter, visible/searchable generic World Pack identity, stable saved-World document IDs on selector cards, and stable ordered pair identity throughout Active/Fatal analysis. M246 also keeps maximum-length exact IDs reachable by separating the Active identity from snapshot actions and allowing horizontal identity scrolling.
 
