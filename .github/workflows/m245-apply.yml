@@ -1,0 +1,158 @@
+name: M245 one-shot stable document identity
+
+on:
+  push:
+    branches:
+      - agent/m245-analyst-document-identity
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/m245-analyst-document-identity
+      - name: Apply M245 and self-delete
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('apps/world-machine-desktop/src/analyst_panel.rs')
+          text = path.read_text()
+
+          old_card = '''            let title = document_title(document);
+            let summary = document
+                .display_summary
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or("Saved World");
+            let mut card = div()
+                .id(SharedString::from(format!("analyst-{slug}-world-{id}")))
+                .p_2()
+                .rounded_md()
+                .border_1()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .child(div().text_sm().child(title))
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(rgb(0x777770))
+                        .child(document_pack_label(document)),
+                )
+                .child(div().text_xs().text_color(rgb(0x777770)).child(format!(
+                    "{} · t={} · {} events",
+                    summary, document.world_time, document.event_count
+                )));
+'''
+          new_card = '''            let title = document_title(document);
+            let document_id_label = document_id_label(document);
+            let summary = document
+                .display_summary
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or("Saved World");
+            let mut card = div()
+                .id(SharedString::from(format!("analyst-{slug}-world-{id}")))
+                .p_2()
+                .rounded_md()
+                .border_1()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .child(div().text_sm().child(title));
+            if let Some(document_id_label) = document_id_label {
+                card = card.child(
+                    div()
+                        .text_xs()
+                        .text_color(rgb(0x777770))
+                        .child(document_id_label),
+                );
+            }
+            card = card
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(rgb(0x777770))
+                        .child(document_pack_label(document)),
+                )
+                .child(div().text_xs().text_color(rgb(0x777770)).child(format!(
+                    "{} · t={} · {} events",
+                    summary, document.world_time, document.event_count
+                )));
+'''
+          if text.count(old_card) != 1:
+              raise SystemExit(f'expected one card block, found {text.count(old_card)}')
+          text = text.replace(old_card, new_card, 1)
+
+          old_helper = '''fn document_pack_label(document: &WorldDocumentSummary) -> String {
+    format!("Pack {} · {}", document.pack.id, document.pack.version)
+}
+'''
+          new_helper = '''fn document_id_label(document: &WorldDocumentSummary) -> Option<String> {
+    let id = document.id.to_string();
+    (document_title(document) != id).then(|| format!("ID {id}"))
+}
+
+fn document_pack_label(document: &WorldDocumentSummary) -> String {
+    format!("Pack {} · {}", document.pack.id, document.pack.version)
+}
+'''
+          if text.count(old_helper) != 1:
+              raise SystemExit(f'expected one helper anchor, found {text.count(old_helper)}')
+          text = text.replace(old_helper, new_helper, 1)
+
+          old_test = '''    #[test]
+    fn document_pack_label_preserves_generic_id_and_opaque_version() {
+'''
+          new_test = '''    #[test]
+    fn document_id_label_exposes_stable_id_only_when_primary_title_hides_it() {
+        assert_eq!(
+            document_id_label(&summary(
+                "World_1.release-2",
+                "tiny",
+                Some("Maple Street")
+            )),
+            Some("ID World_1.release-2".into())
+        );
+        assert_eq!(
+            document_id_label(&summary("world-1", "tiny", Some("world-1"))),
+            None
+        );
+        assert_eq!(
+            document_id_label(&summary("world-1", "tiny", Some("   "))),
+            None
+        );
+        assert_eq!(document_id_label(&summary("world-1", "tiny", None)), None);
+    }
+
+    #[test]
+    fn document_pack_label_preserves_generic_id_and_opaque_version() {
+'''
+          if text.count(old_test) != 1:
+              raise SystemExit(f'expected one test anchor, found {text.count(old_test)}')
+          text = text.replace(old_test, new_test, 1)
+
+          path.write_text(text)
+          PY
+          cargo fmt --all
+          unexpected="$(git diff --name-only | grep -v '^apps/world-machine-desktop/src/analyst_panel.rs$' || true)"
+          if [[ -n "$unexpected" ]]; then
+            echo "unexpected formatted files:" >&2
+            echo "$unexpected" >&2
+            exit 1
+          fi
+          git rm .github/workflows/m245-apply.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add apps/world-machine-desktop/src/analyst_panel.rs
+          git commit -m "M245: surface stable saved-World document identity"
+          git push origin HEAD:agent/m245-analyst-document-identity
