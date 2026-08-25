@@ -1,0 +1,46 @@
+name: M247 one-shot containment regression
+
+on:
+  push:
+    branches:
+      - agent/m247-analyst-setup-selected-identity
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/m247-analyst-setup-selected-identity
+      - name: Add containment regression and self-delete
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('apps/world-machine-desktop/src/analyst_panel.rs')
+          text = path.read_text()
+          marker = '''    #[test]\n    fn selected_identity_label_preserves_exact_max_length_id_in_both_title_paths() {\n'''
+          inserted = '''    #[test]\n    fn setup_identity_surfaces_keep_horizontal_overflow_containment() {\n        let source = include_str!("analyst_panel.rs");\n        let selector = source\n            .split_once("fn render_world_selector(")\n            .unwrap()\n            .1\n            .split_once("fn render_setup(")\n            .unwrap()\n            .0;\n\n        assert!(selector.contains("analyst-{slug}-world-{id}-title"));\n        assert!(selector.contains("analyst-{slug}-world-{id}-stable-id"));\n        assert!(selector.contains("analyst-{slug}-selected-world-identity"));\n        assert_eq!(selector.matches(".overflow_x_scroll()").count(), 3);\n    }\n\n    #[test]\n    fn selected_identity_label_preserves_exact_max_length_id_in_both_title_paths() {\n'''
+          count = text.count(marker)
+          if count != 1:
+              raise SystemExit(f'expected one max-length test marker, found {count}')
+          path.write_text(text.replace(marker, inserted, 1))
+          PY
+          cargo fmt --all
+          git diff --check
+          unexpected="$(git diff --name-only | grep -v '^apps/world-machine-desktop/src/analyst_panel.rs$' | grep -v '^.github/workflows/m247-containment-test.yml$' || true)"
+          if [[ -n "$unexpected" ]]; then
+            echo "unexpected changed files:" >&2
+            echo "$unexpected" >&2
+            exit 1
+          fi
+          git rm .github/workflows/m247-containment-test.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add apps/world-machine-desktop/src/analyst_panel.rs
+          git commit -m "M247: lock Setup identity containment"
+          git push origin HEAD:agent/m247-analyst-setup-selected-identity
