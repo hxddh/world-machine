@@ -1,60 +1,61 @@
-# Next Coding Task — M244 Surface World Pack Identity in Analyst Setup
+# Next Coding Task — M245 Surface Stable Saved-World Identity in Analyst Setup
 
-Status: implementation complete; validation in progress on `agent/m244-analyst-pack-identity`.
+M214–M244 now provide the installed World Analyst path from immutable saved-World evidence through a restricted long-lived Pi analyst, provider-neutral turns, native runtime/model readiness, in-memory Question → Answer → Evidence history, explicit recovery/new-comparison/cancellation/retry/dismiss flows, retained-question evidence scoping, asynchronous catalog loading/refresh, typed saved-World/runtime drift reconciliation, explicit two-sided pair selection, atomic directional pair swapping, one shared local Setup filter, and visible/searchable generic World Pack identity.
 
-M214–M243 now provide the installed World Analyst path from immutable saved-World evidence through a restricted long-lived Pi analyst, provider-neutral turns, native runtime/model readiness, in-memory Question → Answer → Evidence history, explicit recovery/new-comparison/cancellation/retry/dismiss flows, retained-question evidence scoping, asynchronous catalog loading/refresh, typed saved-World/runtime drift reconciliation, explicit two-sided pair selection, atomic directional pair swapping, and one shared local Setup filter over the already-refreshed saved-World catalog.
+## M245 — make the stable saved-World document ID legible
 
-## M244 — make Pack identity visible and searchable
+`WorldDocumentMetadata.display_title` is optional free-form metadata, not a unique Library identity. Multiple saved Worlds may therefore legally have the same semantic title. The analyst already uses `WorldDocumentId` as the durable Left/Right identity: selection helpers operate on it, the local filter can match it, and `DesktopAnalystEvidenceScope` binds retained evidence to the ordered left/right document IDs plus archive fingerprints.
 
-The saved-World Library already has a deterministic browsing order: `WorldLibrary::list()` returns the most recently persisted documents first and uses stable document ID only as the tie-breaker. Do not add a second sorting policy in the analyst.
+Today `document_title()` intentionally prefers a semantic display title and only falls back to the document ID. As a result, whenever a World has a non-empty semantic title, its stable Library identity is hidden from the selector card. Two Worlds with the same title and Pack can therefore be difficult to distinguish precisely even though the analyst internally treats them as distinct evidence sources.
 
-The remaining Setup information gap is Pack identity. `WorldDocumentSummary` already carries a generic `WorldPackRef`, and the analyst's existing initial/right fallback intentionally prefers another World from the same Pack. The current selector cards, however, show title/summary/time/event count but hide the Pack entirely. With multiple World Packs in one Library, users therefore cannot see the criterion behind a same-Pack default/fallback and M243 cannot find a World by Pack identity.
-
-Surface that existing generic identity in the native Setup cards and include it in the local filter.
+Surface the existing `WorldDocumentId` in the native selector presentation without changing selection or evidence semantics.
 
 ### Product behavior
 
-- every saved-World card in both Left and Right Setup selectors shows the document's generic Pack identity as secondary metadata;
-- display both `WorldPackRef.id` and `WorldPackRef.version` without Pack-specific naming or assumptions about version syntax;
-- keep semantic title as the primary identity and preserve the existing summary, World time, and event-count information;
-- extend M243's one shared local filter to match Pack ID and Pack version case-insensitively in addition to title, document ID, and display summary;
-- an empty/whitespace-only filter still exposes the complete current catalog;
-- selected/opposite cards remain visible under non-matching filters exactly as in M243;
-- the existing same-Pack-first initial/right fallback remains unchanged; M244 only makes the already-existing Pack fact legible/searchable;
-- preserve `WorldLibrary::list()` order exactly. Filtering may hide cards, but M244 must not sort, regroup, or rank the authoritative list or the filtered result;
-- no Pack identity is copied into analyst protocol/session state merely for display.
+- when a saved World has a non-empty semantic display title that differs from its document ID, show its exact stable document ID as secondary metadata on both Left and Right selector cards;
+- use a compact generic label such as `ID <document-id>`; preserve the exact ID string and do not normalize, parse, abbreviate, hash, or derive another identity;
+- when the semantic title is missing/blank and the primary card title already falls back to the document ID, do not add a duplicate secondary ID line;
+- likewise, if the semantic display title is exactly the same string as the document ID, avoid rendering a redundant duplicate ID line;
+- preserve M244's visible `Pack <id> · <version>` metadata and the existing summary / World time / event-count information;
+- preserve the current Library recency order and M243 filtering behavior exactly; the filter already matches document IDs and M245 does not add another matcher or ranking path;
+- selected/opposite cards remain visible under non-matching filters exactly as before;
+- no document ID is copied into new analyst protocol/session state merely for display — use the existing `WorldDocumentSummary.id`.
 
 ### State / implementation boundary
 
-Keep the slice entirely in native desktop presentation over `WorldDocumentSummary`.
+Keep the slice entirely in `apps/world-machine-desktop/src/analyst_panel.rs` presentation over `WorldDocumentSummary`.
 
-A small pure helper such as `pack_label(&WorldPackRef) -> String` is acceptable if it keeps card rendering and tests explicit. The version string is opaque product data: do not automatically prefix it with `v`, parse it as semver, or special-case known Packs.
+A small pure helper is preferred, for example:
 
-Extend the existing M243 `document_matches_filter` helper rather than adding a second filtering path. The authoritative `documents` vector remains unchanged and complete.
+- `document_id_label(document: &WorldDocumentSummary) -> Option<String>`
+
+The helper should return a label only when the primary semantic title would otherwise hide the stable ID. It may compare the already-defined semantic `document_title(document)` with `document.id.to_string()` so the rule remains aligned with the actual rendered primary title.
 
 Required invariants:
 
-- Pack display/filtering never mutates `documents`, `left`, `right`, runtime/readiness, failed-question/evidence scope, catalog generation, settings, composer, errors, or session/process/cancellation state;
-- `default_right_for` / `refreshed_right_for` same-Pack-first semantics remain byte-for-byte or behaviorally unchanged;
-- M241 side selection, M242 explicit swap, and M243 selected/opposite visibility semantics remain unchanged;
-- Start and Swap eligibility continue to use the complete current catalog and remain independent of filter text;
-- catalog refresh/reconciliation remains the sole owner of current summaries and selection fallback;
-- no Pack-specific UI branches or Pack-specific comparison semantics are introduced.
+- M245 does not mutate `documents`, `left`, `right`, failed-question/evidence scope, runtime/readiness, catalog generation, settings, composer, errors, or session/process/cancellation state;
+- M243 `document_matches_filter` / `document_visible_for_filter` behavior remains unchanged;
+- M244 Pack label/filter behavior remains unchanged;
+- `default_right_for` / `refreshed_right_for` same-Pack-first fallback remains unchanged;
+- M241 side selection and M242 explicit swap semantics remain unchanged;
+- Start and Swap eligibility continue to use the complete authoritative catalog;
+- no sorting, grouping, ranking, Library query, persistence, protocol, provider, Pi, World, or Pack mutation boundary changes are introduced.
 
 ### Validation
 
-Required gates:
+Required regressions:
 
-- generic card metadata exposes both Pack ID and Pack version;
-- Pack ID matching is case-insensitive;
-- Pack version matching is case-insensitive/string-based and makes no semver assumptions;
-- unrelated Pack queries do not match unless another existing title/ID/summary field matches;
-- existing title, document-ID, summary, whitespace, selected/opposite, and missing-ID M243 filter regressions stay green;
-- existing same-Pack-first right-selection tests remain green and no sorting/reordering is added;
-- M230–M243 recovery/new-comparison/cancel/retry/dismiss/evidence-scope/catalog/initial-load/startup-drift/runtime-drift/two-sided-selection/swap/filter regressions remain green;
+- a document with semantic title `Maple Street` and ID `world-1` exposes secondary label `ID world-1`;
+- a document with missing semantic title uses `world-1` as its primary title and emits no duplicate secondary ID label;
+- a blank/whitespace semantic title likewise emits no duplicate secondary ID label;
+- a semantic title exactly equal to `world-1` emits no duplicate secondary ID label;
+- the ID string is preserved exactly as accepted by `WorldDocumentId`;
+- M243 ID filtering remains green without code changes to the matcher;
+- M244 Pack ID/version display and filtering remain green;
+- same-Pack-first fallback, recency ordering, selected/opposite visibility, two-sided selection, swap, Start eligibility, evidence-scope invalidation and catalog/runtime drift regressions remain green;
 - Linux boundary/Pi/fmt/Clippy/workspace/Pack gates remain green;
 - full macOS Library/Packs/GPUI/desktop tests plus `World Machine.app` build/validate/packaged smoke/archive/upload remain green.
 
 ## Non-goals
 
-No sorting change, Pack grouping/faceting, per-Pack picker, fuzzy/semantic ranking, server-side/Library search API, indexing, pagination, persistent filter state, global Library watcher/cache, protocol/provider/model changes, Pack loading/mutation, persistence changes, or World mutation authority.
+No renaming/editing document IDs, title uniqueness enforcement, automatic title generation, copy-to-clipboard action, tooltip/popover, sorting/grouping/faceting, new filtering semantics, Library search/indexing, persistent selector state, protocol/session identity changes, persistence format changes, provider/model changes, Pack behavior changes, or World mutation authority.
