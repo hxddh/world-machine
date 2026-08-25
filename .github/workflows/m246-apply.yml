@@ -1,0 +1,130 @@
+name: M246 one-shot active pair identity
+
+on:
+  push:
+    branches:
+      - agent/m246-analyst-active-pair-identity
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/m246-analyst-active-pair-identity
+      - name: Apply M246 and self-delete
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('apps/world-machine-desktop/src/analyst_panel.rs')
+          text = path.read_text()
+
+          def replace_once(old: str, new: str, label: str) -> None:
+              global text
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'expected one {label}, found {count}')
+              text = text.replace(old, new, 1)
+
+          replace_once(
+              '                    .child(div().text_sm().child(format!(\n'
+              '                        "{} ↔ {}",\n'
+              '                        self.label_for(&self.left),\n'
+              '                        self.label_for(&self.right)\n'
+              '                    )))\n',
+              '                    .child(div().text_sm().child(pair_identity_header(\n'
+              '                        &self.left,\n'
+              '                        &self.right,\n'
+              '                        &self.documents,\n'
+              '                    )))\n',
+              'active pair header',
+          )
+
+          replace_once(
+              'fn document_pack_label(document: &WorldDocumentSummary) -> String {\n',
+              'fn pair_identity_header(\n'
+              '    left: &WorldDocumentId,\n'
+              '    right: &WorldDocumentId,\n'
+              '    documents: &[WorldDocumentSummary],\n'
+              ') -> String {\n'
+              '    let label_for = |id: &WorldDocumentId| {\n'
+              '        documents\n'
+              '            .iter()\n'
+              '            .find(|document| document.id == *id)\n'
+              '            .map(|document| {\n'
+              '                let title = document_title(document);\n'
+              '                match document_id_label(document) {\n'
+              '                    Some(id_label) => format!("{title} · {id_label}"),\n'
+              '                    None => title,\n'
+              '                }\n'
+              '            })\n'
+              '            .unwrap_or_else(|| id.to_string())\n'
+              '    };\n'
+              '    format!("{} ↔ {}", label_for(left), label_for(right))\n'
+              '}\n\n'
+              'fn document_pack_label(document: &WorldDocumentSummary) -> String {\n',
+              'pack helper anchor',
+          )
+
+          replace_once(
+              '    #[test]\n'
+              '    fn document_pack_label_preserves_generic_id_and_opaque_version() {\n',
+              '    #[test]\n'
+              '    fn active_pair_identity_header_preserves_order_and_stable_ids() {\n'
+              '        let left = summary("world-1", "tiny", Some("Maple Street"));\n'
+              '        let right = summary("world-2", "tiny", Some("Maple Street"));\n'
+              '        let left_id = left.id.clone();\n'
+              '        let right_id = right.id.clone();\n'
+              '        let documents = vec![right, left];\n\n'
+              '        assert_eq!(\n'
+              '            pair_identity_header(&left_id, &right_id, &documents),\n'
+              '            "Maple Street · ID world-1 ↔ Maple Street · ID world-2"\n'
+              '        );\n'
+              '        assert_eq!(\n'
+              '            pair_identity_header(&right_id, &left_id, &documents),\n'
+              '            "Maple Street · ID world-2 ↔ Maple Street · ID world-1"\n'
+              '        );\n'
+              '    }\n\n'
+              '    #[test]\n'
+              '    fn active_pair_identity_header_avoids_duplicates_and_falls_back_to_id() {\n'
+              '        let left = summary("world-1", "tiny", Some("   "));\n'
+              '        let right = summary("world-2", "tiny", Some("world-2"));\n'
+              '        let left_id = left.id.clone();\n'
+              '        let right_id = right.id.clone();\n'
+              '        let missing = WorldDocumentId::new("missing-world").unwrap();\n'
+              '        let documents = vec![left, right];\n\n'
+              '        assert_eq!(\n'
+              '            pair_identity_header(&left_id, &right_id, &documents),\n'
+              '            "world-1 ↔ world-2"\n'
+              '        );\n'
+              '        assert_eq!(\n'
+              '            pair_identity_header(&left_id, &missing, &documents),\n'
+              '            "world-1 ↔ missing-world"\n'
+              '        );\n'
+              '    }\n\n'
+              '    #[test]\n'
+              '    fn document_pack_label_preserves_generic_id_and_opaque_version() {\n',
+              'pack test anchor',
+          )
+
+          path.write_text(text)
+          PY
+          cargo fmt --all
+          unexpected="$(git diff --name-only | grep -v '^apps/world-machine-desktop/src/analyst_panel.rs$' || true)"
+          if [[ -n "$unexpected" ]]; then
+            echo "unexpected formatted files:" >&2
+            echo "$unexpected" >&2
+            exit 1
+          fi
+          git rm .github/workflows/m246-apply.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add apps/world-machine-desktop/src/analyst_panel.rs
+          git commit -m "M246: keep stable pair identity visible during analysis"
+          git push origin HEAD:agent/m246-analyst-active-pair-identity
