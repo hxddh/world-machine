@@ -1,0 +1,63 @@
+name: M249 Fix Projection Regression
+
+on:
+  push:
+    branches:
+      - agent/m249-incremental-analyst-history-projection
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/m249-incremental-analyst-history-projection
+      - name: Update projection regression
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("apps/world-machine-desktop/src/analyst_panel.rs")
+          source = path.read_text()
+          old = "\n".join([
+              "        let source = include_str!(\"analyst_panel.rs\");",
+              "        let snapshot = source",
+              "            .split_once(\"fn snapshot_history(\")",
+              "            .unwrap()",
+              "            .1",
+              "            .split_once(\"fn render_turn(\")",
+              "            .unwrap()",
+              "            .0;",
+              "        assert!(!snapshot.contains(\"call.input.to_string()\"));",
+              "        assert!(!snapshot.contains(\"call.output.to_string()\"));",
+              "        assert!(snapshot.contains(\"panel_tool_call\"));",
+          ])
+          new = "\n".join([
+              "        let source = include_str!(\"analyst_panel.rs\");",
+              "        let projection = source",
+              "            .split_once(\"fn panel_turn_from_exchange(\")",
+              "            .unwrap()",
+              "            .1",
+              "            .split_once(\"fn render_turn(\")",
+              "            .unwrap()",
+              "            .0;",
+              "        assert!(!projection.contains(\"call.input.to_string()\"));",
+              "        assert!(!projection.contains(\"call.output.to_string()\"));",
+              "        assert!(projection.contains(\"panel_tool_call\"));",
+              "        assert!(projection.contains(\".map(panel_turn_from_exchange)\"));",
+          ])
+          if source.count(old) != 1:
+              raise SystemExit(f"expected one M248 projection regression block, found {source.count(old)}")
+          path.write_text(source.replace(old, new, 1))
+          PY
+          cargo fmt --all
+          git rm .github/workflows/m249-fix-projection-regression.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/world-machine-desktop/src/analyst_panel.rs
+          git commit -m "M249: keep bounded projection regression aligned"
+          git push origin HEAD:agent/m249-incremental-analyst-history-projection
