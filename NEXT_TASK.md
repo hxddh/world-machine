@@ -1,6 +1,6 @@
 # Next Coding Task — M249 Incremental Analyst History Projection
 
-Status: implementation complete; exact validation in progress on `agent/m249-incremental-analyst-history-projection`.
+Status: implementation complete; M248 bounded-projection regression aligned after helper extraction; exact validation restarted on `agent/m249-incremental-analyst-history-projection`.
 
 M214–M248 now provide the installed World Analyst path from immutable saved-World evidence through a restricted long-lived Pi analyst, provider-neutral turns, native runtime/model readiness, in-memory Question → Answer → Evidence history, explicit recovery/new-comparison/cancellation/retry/dismiss flows, retained-question evidence scoping, asynchronous catalog loading/refresh, typed saved-World/runtime drift reconciliation, two-sided selection/Swap, local filtering, Pack/document identity, stable selected/pair identity, and bounded 4096-byte UTF-8-safe UI previews for evidence-tool input/output.
 
