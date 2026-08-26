@@ -12,7 +12,7 @@ use world_library::{WorldDocumentId, WorldDocumentSummary, WorldLibrary};
 use world_machine_desktop::analyst_readiness::DesktopAnalystRuntimeReadiness;
 use world_machine_desktop::analyst_session::{
     DesktopAnalystCancellation, DesktopAnalystCancellationOutcome, DesktopAnalystEvidenceScope,
-    DesktopAnalystSession, DesktopAnalystSessionError, DesktopAnalystState,
+    DesktopAnalystExchange, DesktopAnalystSession, DesktopAnalystSessionError, DesktopAnalystState,
 };
 use world_machine_desktop::analyst_settings::DesktopAnalystProgramSource;
 
@@ -34,6 +34,13 @@ enum PanelAskSource {
 enum PanelPairSide {
     Left,
     Right,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum HistoryProjectionPlan {
+    Noop,
+    AppendFrom(usize),
+    Rebuild,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -633,7 +640,7 @@ impl AnalystPanelView {
                 if cancel_requested {
                     this.phase = PanelPhase::Fatal("Analysis cancelled by user".into());
                 } else {
-                    this.history = snapshot_history(&session);
+                    sync_history_projection(&mut this.history, &session);
                     if !forced_fatal {
                         match session.state() {
                             DesktopAnalystState::FatalError { message } => {
@@ -2060,36 +2067,98 @@ fn payload_preview_label(kind: &str, truncated: bool) -> String {
     }
 }
 
+fn panel_turn_from_exchange(exchange: &DesktopAnalystExchange) -> PanelTurn {
+    let turn = exchange.turn();
+    PanelTurn {
+        question: exchange.prompt().to_owned(),
+        answer: turn
+            .text
+            .as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .unwrap_or("The analyst returned no text answer.")
+            .to_owned(),
+        tool_calls: turn
+            .tool_calls
+            .iter()
+            .map(|call| panel_tool_call(&call.tool, &call.input, &call.output, call.is_error))
+            .collect(),
+        runtime_errors: turn
+            .runtime_errors
+            .iter()
+            .map(|error| error.message.clone())
+            .collect(),
+    }
+}
+
 fn snapshot_history(session: &DesktopAnalystSession) -> Vec<PanelTurn> {
     session
         .exchanges()
         .iter()
-        .map(|exchange| {
-            let turn = exchange.turn();
-            PanelTurn {
-                question: exchange.prompt().to_owned(),
-                answer: turn
-                    .text
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|text| !text.is_empty())
-                    .unwrap_or("The analyst returned no text answer.")
-                    .to_owned(),
-                tool_calls: turn
-                    .tool_calls
-                    .iter()
-                    .map(|call| {
-                        panel_tool_call(&call.tool, &call.input, &call.output, call.is_error)
-                    })
-                    .collect(),
-                runtime_errors: turn
-                    .runtime_errors
-                    .iter()
-                    .map(|error| error.message.clone())
-                    .collect(),
-            }
-        })
+        .map(panel_turn_from_exchange)
         .collect()
+}
+
+fn history_projection_plan(
+    history_len: usize,
+    exchange_len: usize,
+    projected_tail_question: Option<&str>,
+    exchange_tail_prompt: Option<&str>,
+) -> HistoryProjectionPlan {
+    if history_len > exchange_len {
+        return HistoryProjectionPlan::Rebuild;
+    }
+    if history_len == 0 {
+        return if exchange_len == 0 {
+            HistoryProjectionPlan::Noop
+        } else {
+            HistoryProjectionPlan::AppendFrom(0)
+        };
+    }
+    if projected_tail_question != exchange_tail_prompt {
+        return HistoryProjectionPlan::Rebuild;
+    }
+    if history_len == exchange_len {
+        HistoryProjectionPlan::Noop
+    } else {
+        HistoryProjectionPlan::AppendFrom(history_len)
+    }
+}
+
+fn apply_history_projection_plan<T, F>(
+    history: &mut Vec<PanelTurn>,
+    exchanges: &[T],
+    plan: HistoryProjectionPlan,
+    project: F,
+) where
+    F: FnMut(&T) -> PanelTurn,
+{
+    match plan {
+        HistoryProjectionPlan::Noop => {}
+        HistoryProjectionPlan::AppendFrom(start) => {
+            history.extend(exchanges[start..].iter().map(project));
+        }
+        HistoryProjectionPlan::Rebuild => {
+            *history = exchanges.iter().map(project).collect();
+        }
+    }
+}
+
+fn sync_history_projection(history: &mut Vec<PanelTurn>, session: &DesktopAnalystSession) {
+    let exchanges = session.exchanges();
+    let history_len = history.len();
+    let projected_tail_question = history.last().map(|turn| turn.question.as_str());
+    let exchange_tail_prompt = history_len
+        .checked_sub(1)
+        .and_then(|index| exchanges.get(index))
+        .map(DesktopAnalystExchange::prompt);
+    let plan = history_projection_plan(
+        history_len,
+        exchanges.len(),
+        projected_tail_question,
+        exchange_tail_prompt,
+    );
+    apply_history_projection_plan(history, exchanges, plan, panel_turn_from_exchange);
 }
 
 fn render_turn(index: usize, turn: &PanelTurn) -> impl IntoElement {
@@ -2281,6 +2350,96 @@ mod tests {
         assert!(snapshot.contains("panel_tool_call"));
     }
 
+    #[test]
+    fn history_projection_plan_covers_append_noop_and_rebuild() {
+        assert_eq!(
+            history_projection_plan(0, 0, None, None),
+            HistoryProjectionPlan::Noop
+        );
+        assert_eq!(
+            history_projection_plan(0, 1, None, None),
+            HistoryProjectionPlan::AppendFrom(0)
+        );
+        assert_eq!(
+            history_projection_plan(1, 2, Some("q1"), Some("q1")),
+            HistoryProjectionPlan::AppendFrom(1)
+        );
+        assert_eq!(
+            history_projection_plan(2, 2, Some("q2"), Some("q2")),
+            HistoryProjectionPlan::Noop
+        );
+        assert_eq!(
+            history_projection_plan(3, 2, Some("q3"), Some("q2")),
+            HistoryProjectionPlan::Rebuild
+        );
+        assert_eq!(
+            history_projection_plan(1, 2, Some("stale"), Some("q1")),
+            HistoryProjectionPlan::Rebuild
+        );
+    }
+
+    #[test]
+    fn history_projection_apply_bounds_work_and_preserves_existing_prefix() {
+        let exchanges = ["q1", "q2", "q3"];
+        let mut history = vec![panel_turn("q1", "sentinel")];
+        let mut projected = 0;
+        apply_history_projection_plan(
+            &mut history,
+            &exchanges,
+            HistoryProjectionPlan::AppendFrom(1),
+            |question| {
+                projected += 1;
+                panel_turn(*question, "projected")
+            },
+        );
+        assert_eq!(projected, 2);
+        assert_eq!(history.len(), 3);
+        assert_eq!(history[0].answer, "sentinel");
+        assert_eq!(history[1].question, "q2");
+        assert_eq!(history[2].question, "q3");
+
+        let before_noop = history.clone();
+        let mut noop_projections = 0;
+        apply_history_projection_plan(
+            &mut history,
+            &exchanges,
+            HistoryProjectionPlan::Noop,
+            |question| {
+                noop_projections += 1;
+                panel_turn(*question, "unexpected")
+            },
+        );
+        assert_eq!(noop_projections, 0);
+        assert_eq!(history, before_noop);
+
+        let fresh = ["fresh-1", "fresh-2"];
+        apply_history_projection_plan(
+            &mut history,
+            &fresh,
+            HistoryProjectionPlan::Rebuild,
+            |question| panel_turn(*question, "fresh"),
+        );
+        assert_eq!(history.len(), 2);
+        assert_eq!(history[0].question, "fresh-1");
+        assert_eq!(history[1].question, "fresh-2");
+    }
+
+    #[test]
+    fn ask_completion_keeps_cancel_history_skip_and_uses_incremental_sync() {
+        let source = include_str!("analyst_panel.rs");
+        let start_ask = source
+            .split_once("fn start_ask(")
+            .unwrap()
+            .1
+            .split_once("fn cancel_analysis(")
+            .unwrap()
+            .0;
+        let after_cancel = start_ask.split_once("if cancel_requested {").unwrap().1;
+        let (cancelled, non_cancelled) = after_cancel.split_once("} else {").unwrap();
+        assert!(!cancelled.contains("sync_history_projection"));
+        assert!(non_cancelled.contains("sync_history_projection(&mut this.history, &session);"));
+        assert!(!non_cancelled.contains("this.history = snapshot_history(&session);"));
+    }
     #[test]
     fn default_right_prefers_same_pack_then_any_other_world() {
         let documents = vec![
