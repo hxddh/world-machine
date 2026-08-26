@@ -2338,16 +2338,17 @@ mod tests {
         assert!(output_projected.output.truncated);
 
         let source = include_str!("analyst_panel.rs");
-        let snapshot = source
-            .split_once("fn snapshot_history(")
+        let projection = source
+            .split_once("fn panel_turn_from_exchange(")
             .unwrap()
             .1
             .split_once("fn render_turn(")
             .unwrap()
             .0;
-        assert!(!snapshot.contains("call.input.to_string()"));
-        assert!(!snapshot.contains("call.output.to_string()"));
-        assert!(snapshot.contains("panel_tool_call"));
+        assert!(!projection.contains("call.input.to_string()"));
+        assert!(!projection.contains("call.output.to_string()"));
+        assert!(projection.contains("panel_tool_call"));
+        assert!(projection.contains(".map(panel_turn_from_exchange)"));
     }
 
     #[test]
