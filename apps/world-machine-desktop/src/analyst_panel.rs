@@ -44,11 +44,19 @@ struct PanelTurn {
     runtime_errors: Vec<String>,
 }
 
+const ANALYST_TOOL_PAYLOAD_PREVIEW_BYTES: usize = 4096;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct PanelPayloadPreview {
+    text: String,
+    truncated: bool,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct PanelToolCall {
     tool: String,
-    input: String,
-    output: String,
+    input: PanelPayloadPreview,
+    output: PanelPayloadPreview,
     is_error: bool,
 }
 
@@ -1980,6 +1988,78 @@ fn reset_fatal_recovery_state<T>(
     true
 }
 
+struct PanelPayloadPreviewWriter {
+    text: String,
+    truncated: bool,
+}
+
+impl PanelPayloadPreviewWriter {
+    fn new() -> Self {
+        Self {
+            text: String::with_capacity(ANALYST_TOOL_PAYLOAD_PREVIEW_BYTES),
+            truncated: false,
+        }
+    }
+
+    fn finish(self) -> PanelPayloadPreview {
+        PanelPayloadPreview {
+            text: self.text,
+            truncated: self.truncated,
+        }
+    }
+}
+
+impl std::fmt::Write for PanelPayloadPreviewWriter {
+    fn write_str(&mut self, value: &str) -> std::fmt::Result {
+        if value.is_empty() || self.truncated {
+            return Ok(());
+        }
+
+        let remaining = ANALYST_TOOL_PAYLOAD_PREVIEW_BYTES.saturating_sub(self.text.len());
+        if value.len() <= remaining {
+            self.text.push_str(value);
+            return Ok(());
+        }
+
+        let mut end = remaining.min(value.len());
+        while end > 0 && !value.is_char_boundary(end) {
+            end -= 1;
+        }
+        self.text.push_str(&value[..end]);
+        self.truncated = true;
+        Ok(())
+    }
+}
+
+fn panel_payload_preview(value: &impl std::fmt::Display) -> PanelPayloadPreview {
+    let mut writer = PanelPayloadPreviewWriter::new();
+    std::fmt::write(&mut writer, format_args!("{value}"))
+        .expect("bounded analyst payload preview formatting should not fail");
+    writer.finish()
+}
+
+fn panel_tool_call(
+    tool: &str,
+    input: &impl std::fmt::Display,
+    output: &impl std::fmt::Display,
+    is_error: bool,
+) -> PanelToolCall {
+    PanelToolCall {
+        tool: tool.to_owned(),
+        input: panel_payload_preview(input),
+        output: panel_payload_preview(output),
+        is_error,
+    }
+}
+
+fn payload_preview_label(kind: &str, truncated: bool) -> String {
+    if truncated {
+        format!("{kind} preview · truncated ({ANALYST_TOOL_PAYLOAD_PREVIEW_BYTES}-byte limit)")
+    } else {
+        kind.to_owned()
+    }
+}
+
 fn snapshot_history(session: &DesktopAnalystSession) -> Vec<PanelTurn> {
     session
         .exchanges()
@@ -1998,11 +2078,8 @@ fn snapshot_history(session: &DesktopAnalystSession) -> Vec<PanelTurn> {
                 tool_calls: turn
                     .tool_calls
                     .iter()
-                    .map(|call| PanelToolCall {
-                        tool: call.tool.clone(),
-                        input: call.input.to_string(),
-                        output: call.output.to_string(),
-                        is_error: call.is_error,
+                    .map(|call| {
+                        panel_tool_call(&call.tool, &call.input, &call.output, call.is_error)
                     })
                     .collect(),
                 runtime_errors: turn
@@ -2056,6 +2133,8 @@ fn render_turn(index: usize, turn: &PanelTurn) -> impl IntoElement {
         );
         for call in &turn.tool_calls {
             let status = if call.is_error { "error" } else { "ok" };
+            let input_label = payload_preview_label("input", call.input.truncated);
+            let output_label = payload_preview_label("output", call.output.truncated);
             tools = tools.child(
                 div()
                     .p_2()
@@ -2069,13 +2148,13 @@ fn render_turn(index: usize, turn: &PanelTurn) -> impl IntoElement {
                         div()
                             .text_xs()
                             .text_color(rgb(0x777770))
-                            .child(format!("input  {}", call.input)),
+                            .child(format!("{input_label}  {}", call.input.text)),
                     )
                     .child(
                         div()
                             .text_xs()
                             .text_color(rgb(0x555550))
-                            .child(format!("output {}", call.output)),
+                            .child(format!("{output_label} {}", call.output.text)),
                     ),
             );
         }
@@ -2120,6 +2199,86 @@ mod tests {
             tool_calls: Vec::new(),
             runtime_errors: Vec::new(),
         }
+    }
+
+    struct DisplayParts<'a>(&'a [&'a str]);
+
+    impl std::fmt::Display for DisplayParts<'_> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            for part in self.0 {
+                std::fmt::Write::write_str(f, part)?;
+            }
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn payload_preview_preserves_short_and_exact_limit_values() {
+        let short = serde_json::json!({"name": "Maple Street", "count": 3});
+        let short_preview = panel_payload_preview(&short);
+        assert_eq!(short_preview.text, short.to_string());
+        assert!(!short_preview.truncated);
+
+        let exact = serde_json::Value::String("x".repeat(4094));
+        let exact_preview = panel_payload_preview(&exact);
+        assert_eq!(exact.to_string().len(), ANALYST_TOOL_PAYLOAD_PREVIEW_BYTES);
+        assert_eq!(exact_preview.text, exact.to_string());
+        assert!(!exact_preview.truncated);
+    }
+
+    #[test]
+    fn payload_preview_bounds_large_and_utf8_values() {
+        let large = serde_json::Value::String("x".repeat(4095));
+        let large_preview = panel_payload_preview(&large);
+        assert!(large_preview.truncated);
+        assert_eq!(large_preview.text.len(), ANALYST_TOOL_PAYLOAD_PREVIEW_BYTES);
+
+        let utf8 = serde_json::Value::String(format!("{}é", "x".repeat(4094)));
+        let utf8_preview = panel_payload_preview(&utf8);
+        assert!(utf8_preview.truncated);
+        assert!(utf8_preview.text.len() <= ANALYST_TOOL_PAYLOAD_PREVIEW_BYTES);
+        assert!(std::str::from_utf8(utf8_preview.text.as_bytes()).is_ok());
+    }
+
+    #[test]
+    fn payload_preview_marks_bytes_after_an_exact_full_fragment() {
+        let full = "x".repeat(ANALYST_TOOL_PAYLOAD_PREVIEW_BYTES);
+        let parts = [full.as_str(), "tail"];
+        let preview = panel_payload_preview(&DisplayParts(&parts));
+        assert_eq!(preview.text, full);
+        assert!(preview.truncated);
+    }
+
+    #[test]
+    fn panel_tool_projection_bounds_input_and_output_independently() {
+        let large_input = serde_json::Value::String("x".repeat(4095));
+        let small_output = serde_json::json!({"ok": true});
+        let projected = panel_tool_call("inspect_world", &large_input, &small_output, true);
+        assert_eq!(projected.tool, "inspect_world");
+        assert!(projected.is_error);
+        assert!(projected.input.truncated);
+        assert!(!projected.output.truncated);
+        assert_eq!(projected.output.text, small_output.to_string());
+        assert!(payload_preview_label("input", true).contains("truncated"));
+        assert_eq!(payload_preview_label("output", false), "output");
+
+        let small_input = serde_json::json!({"small": true});
+        let large_output = serde_json::Value::String("y".repeat(4095));
+        let output_projected = panel_tool_call("inspect_world", &small_input, &large_output, false);
+        assert!(!output_projected.input.truncated);
+        assert!(output_projected.output.truncated);
+
+        let source = include_str!("analyst_panel.rs");
+        let snapshot = source
+            .split_once("fn snapshot_history(")
+            .unwrap()
+            .1
+            .split_once("fn render_turn(")
+            .unwrap()
+            .0;
+        assert!(!snapshot.contains("call.input.to_string()"));
+        assert!(!snapshot.contains("call.output.to_string()"));
+        assert!(snapshot.contains("panel_tool_call"));
     }
 
     #[test]
