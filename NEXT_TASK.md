@@ -6,7 +6,7 @@ M248 keeps the complete authoritative `AnalystTurn` / tool evidence in `DesktopA
 
 ## M249 — append newly completed exchanges instead of rebuilding every prior PanelTurn
 
-After every non-cancelled ask completion, `AnalystPanelView::ask_with_prompt()` currently executes:
+After every non-cancelled ask completion, `AnalystPanelView::start_ask()` currently executes:
 
 `this.history = snapshot_history(&session);`
 
