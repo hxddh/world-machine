@@ -419,7 +419,7 @@ fn read_bounded_response_line<R: BufRead>(
 ) -> Result<Option<Vec<u8>>, AnalystTurnClientError> {
     let read_limit = max_bytes.saturating_add(1);
     let mut line = Vec::new();
-    let mut limited = (&mut *reader).take(read_limit as u64);
+    let mut limited = std::io::Read::take(reader, read_limit as u64);
     let read = limited
         .read_until(b'\n', &mut line)
         .map_err(AnalystTurnClientError::ReadResponse)?;
@@ -914,7 +914,7 @@ mod tests {
             .split_once("fn validate_timeout")
             .unwrap()
             .0;
-        assert!(helper.contains("(&mut *reader).take(read_limit as u64)"));
+        assert!(helper.contains("std::io::Read::take(reader, read_limit as u64)"));
         assert!(helper.contains("read_until(b'\\n'"));
     }
 
