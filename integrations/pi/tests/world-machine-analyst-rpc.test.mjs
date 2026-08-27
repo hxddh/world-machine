@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
 import test from "node:test";
 import {
   PiAnalystRpcCommandError,
@@ -8,11 +10,58 @@ import {
   PiAnalystRpcTransportError,
 } from "../world-machine-analyst-rpc.mjs";
 
-function fakeSession(script) {
+function fakeSession(script, options = {}) {
   const child = spawn(process.execPath, ["-e", script], {
     stdio: ["pipe", "pipe", "pipe"],
   });
-  return new PiAnalystRpcSession(child);
+  return new PiAnalystRpcSession(child, options);
+}
+
+function controlledSession(onRequest, options = {}, control = {}) {
+  const child = new EventEmitter();
+  child.stdin = new PassThrough();
+  child.stdout = new PassThrough();
+  child.exitCode = null;
+  child.signalCode = null;
+  const killSignals = [];
+  child.kill = (signal = "SIGTERM") => {
+    if (child.exitCode !== null || child.signalCode !== null) return false;
+    killSignals.push(signal);
+    if (signal === "SIGTERM" && control.ignoreSigterm === true) return true;
+    child.signalCode = signal;
+    queueMicrotask(() => child.emit("exit", null, signal));
+    return true;
+  };
+  child.stdin.on("finish", () => child.kill("SIGTERM"));
+
+  let buffer = "";
+  child.stdin.setEncoding("utf8");
+  child.stdin.on("data", (chunk) => {
+    buffer += chunk;
+    while (true) {
+      const newline = buffer.indexOf("\n");
+      if (newline < 0) return;
+      const line = buffer.slice(0, newline);
+      buffer = buffer.slice(newline + 1);
+      if (line.length === 0) continue;
+      onRequest(JSON.parse(line), child.stdout);
+    }
+  });
+
+  return { session: new PiAnalystRpcSession(child, options), child, killSignals };
+}
+
+function promptAck(id) {
+  return JSON.stringify({ type: "response", id, command: "prompt", success: true });
+}
+
+function exactSizedSettledRecord(byteLength) {
+  const empty = JSON.stringify({ type: "agent_settled", padding: "" });
+  const fillerBytes = byteLength - Buffer.byteLength(empty);
+  assert.ok(fillerBytes >= 0, "test limit must fit the settled envelope");
+  const record = JSON.stringify({ type: "agent_settled", padding: "x".repeat(fillerBytes) });
+  assert.equal(Buffer.byteLength(record), byteLength);
+  return record;
 }
 
 const REUSABLE_SERVER = String.raw`
@@ -345,4 +394,166 @@ test("extension errors are retained as structured analyst telemetry", async () =
   } finally {
     await session.shutdown();
   }
+});
+
+
+test("Pi RPC framing accepts an exact-limit LF record", async () => {
+  const maxRecordBytes = 160;
+  const settled = exactSizedSettledRecord(maxRecordBytes);
+  const { session } = controlledSession((request, stdout) => {
+    stdout.write(`${promptAck(request.id)}\n`);
+    stdout.write(`${settled}\n`);
+  }, { maxRecordBytes });
+
+  try {
+    const result = await session.prompt("question", { timeoutMs: 2000 });
+    assert.equal(result.requestId, "world-analyst-1");
+    assert.deepEqual(result.events, ["agent_settled"]);
+  } finally {
+    await session.shutdown();
+  }
+});
+
+test("Pi RPC framing accepts an exact-limit CRLF record", async () => {
+  const maxRecordBytes = 160;
+  const settled = exactSizedSettledRecord(maxRecordBytes);
+  const { session } = controlledSession((request, stdout) => {
+    stdout.write(`${promptAck(request.id)}\n`);
+    stdout.write(`${settled}\r\n`);
+  }, { maxRecordBytes });
+
+  try {
+    const result = await session.prompt("question", { timeoutMs: 2000 });
+    assert.deepEqual(result.events, ["agent_settled"]);
+  } finally {
+    await session.shutdown();
+  }
+});
+
+test("Pi RPC framing accepts records split across one-byte stdout chunks", async () => {
+  const maxRecordBytes = 160;
+  const { session } = controlledSession((request, stdout) => {
+    const bytes = Buffer.from(`${promptAck(request.id)}\n${JSON.stringify({ type: "agent_settled" })}\n`);
+    for (const byte of bytes) stdout.write(Buffer.from([byte]));
+  }, { maxRecordBytes });
+
+  try {
+    const result = await session.prompt("question", { timeoutMs: 2000 });
+    assert.deepEqual(result.events, ["agent_settled"]);
+  } finally {
+    await session.shutdown();
+  }
+});
+
+test("Pi RPC framing preserves multiple records delivered in one stdout chunk", async () => {
+  const maxRecordBytes = 160;
+  const { session } = controlledSession((request, stdout) => {
+    const records = [
+      promptAck(request.id),
+      JSON.stringify({
+        type: "message_end",
+        message: { role: "assistant", content: "batched" },
+      }),
+      JSON.stringify({ type: "agent_settled" }),
+    ];
+    stdout.write(`${records.join("\n")}\n`);
+  }, { maxRecordBytes });
+
+  try {
+    const result = await session.prompt("question", { timeoutMs: 2000 });
+    assert.equal(result.text, "batched");
+    assert.deepEqual(result.events, ["message_end", "agent_settled"]);
+  } finally {
+    await session.shutdown();
+  }
+});
+
+test("Pi RPC framing rejects a newline-terminated oversized record before JSON parsing", async () => {
+  const maxRecordBytes = 160;
+  const { session, child } = controlledSession((request, stdout) => {
+    stdout.write(`${promptAck(request.id)}\n`);
+    stdout.write(`${"x".repeat(maxRecordBytes + 1)}\n`);
+  }, { maxRecordBytes });
+
+  await assert.rejects(
+    session.prompt("question", { timeoutMs: 2000 }),
+    (error) =>
+      error instanceof PiAnalystRpcProtocolError &&
+      /record exceeded/.test(error.message) &&
+      !/invalid Pi analyst RPC JSON/.test(error.message),
+  );
+  assert.equal(child.signalCode, "SIGTERM");
+  await assert.rejects(
+    session.prompt("another question", { timeoutMs: 2000 }),
+    (error) => error instanceof PiAnalystRpcProtocolError && /record exceeded/.test(error.message),
+  );
+});
+
+test("Pi RPC framing rejects an oversized no-newline stream promptly and kills the child", async () => {
+  const maxRecordBytes = 160;
+  const { session, child } = controlledSession((request, stdout) => {
+    stdout.write(`${promptAck(request.id)}\n`);
+    stdout.write(Buffer.alloc(maxRecordBytes + 2, 0x78));
+  }, { maxRecordBytes });
+
+  const started = Date.now();
+  await assert.rejects(
+    session.prompt("question", { timeoutMs: 2000 }),
+    (error) => error instanceof PiAnalystRpcProtocolError && /record exceeded/.test(error.message),
+  );
+  assert.ok(Date.now() - started < 500, "framing overflow should fail before prompt timeout");
+  assert.equal(child.signalCode, "SIGTERM");
+});
+
+test("Pi RPC framing rejects the active turn when a later same-chunk record overflows", async () => {
+  const maxRecordBytes = 160;
+  const { session, child } = controlledSession((request, stdout) => {
+    stdout.write(
+      `${promptAck(request.id)}\n${JSON.stringify({ type: "agent_settled" })}\n${"x".repeat(maxRecordBytes + 2)}\n`,
+    );
+  }, { maxRecordBytes });
+
+  await assert.rejects(
+    session.prompt("question", { timeoutMs: 2000 }),
+    (error) => error instanceof PiAnalystRpcProtocolError && /record exceeded/.test(error.message),
+  );
+  assert.equal(child.signalCode, "SIGTERM");
+});
+
+test("Pi RPC framing escalates idle overflow termination to SIGKILL", async () => {
+  const maxRecordBytes = 32;
+  const { session, child, killSignals } = controlledSession(
+    () => {},
+    { maxRecordBytes },
+    { ignoreSigterm: true },
+  );
+
+  child.stdout.write(Buffer.alloc(maxRecordBytes + 2, 0x78));
+  await assert.rejects(
+    session.prompt("after idle overflow", { timeoutMs: 2000 }),
+    (error) => error instanceof PiAnalystRpcProtocolError && /record exceeded/.test(error.message),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 1100));
+  assert.deepEqual(killSignals, ["SIGTERM", "SIGKILL"]);
+  assert.equal(child.signalCode, "SIGKILL");
+});
+
+test("Pi RPC framing never recovers from an oversized prefix in the same chunk", async () => {
+  const maxRecordBytes = 160;
+  const { session, child } = controlledSession((request, stdout) => {
+    const validAfterOverflow = JSON.stringify({ type: "agent_settled" });
+    stdout.write(
+      `${promptAck(request.id)}\n${"x".repeat(maxRecordBytes + 1)}\n${validAfterOverflow}\n`,
+    );
+  }, { maxRecordBytes });
+
+  await assert.rejects(
+    session.prompt("question", { timeoutMs: 2000 }),
+    (error) => error instanceof PiAnalystRpcProtocolError && /record exceeded/.test(error.message),
+  );
+  assert.equal(child.signalCode, "SIGTERM");
+  await assert.rejects(
+    session.prompt("another question", { timeoutMs: 2000 }),
+    (error) => error instanceof PiAnalystRpcProtocolError && /record exceeded/.test(error.message),
+  );
 });
