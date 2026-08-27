@@ -1,0 +1,243 @@
+name: M251 Apply
+on:
+  push:
+    branches:
+      - agent/m251-retain-analyst-turn-without-clone
+permissions:
+  contents: write
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/m251-retain-analyst-turn-without-clone
+      - name: Apply M251 product patch
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def block(lines):
+              return '\n'.join(lines)
+
+          def replace_once(text, old_lines, new_lines, label):
+              old = block(old_lines)
+              new = block(new_lines)
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected one match, found {count}')
+              return text.replace(old, new, 1)
+
+          session_path = Path('apps/world-machine-desktop/src/analyst_session.rs')
+          s = session_path.read_text()
+
+          s = replace_once(s, [
+              '    fn ask(&mut self, prompt: &str) -> Result<AnalystTurn, DesktopAnalystSessionError> {',
+          ], [
+              '    fn ask_retained(&mut self, prompt: &str) -> Result<usize, DesktopAnalystSessionError> {',
+          ], 'rename core ask to retained primitive')
+
+          s = replace_once(s, [
+              '            Ok(turn) => {',
+              '                self.exchanges.push(DesktopAnalystExchange {',
+              '                    prompt: prompt.to_owned(),',
+              '                    turn: turn.clone(),',
+              '                });',
+              '                self.state = DesktopAnalystState::Answer {',
+              '                    turn_index: self.exchanges.len() - 1,',
+              '                };',
+              '                Ok(turn)',
+              '            }',
+          ], [
+              '            Ok(turn) => {',
+              '                let turn_index = self.exchanges.len();',
+              '                self.exchanges.push(DesktopAnalystExchange {',
+              '                    prompt: prompt.to_owned(),',
+              '                    turn,',
+              '                });',
+              '                self.state = DesktopAnalystState::Answer { turn_index };',
+              '                Ok(turn_index)',
+              '            }',
+          ], 'move successful turn into exchange')
+
+          s = replace_once(s, [
+              '    fn close(&mut self) -> Result<(), DesktopAnalystSessionError> {',
+          ], [
+              '    fn ask(&mut self, prompt: &str) -> Result<AnalystTurn, DesktopAnalystSessionError> {',
+              '        let turn_index = self.ask_retained(prompt)?;',
+              '        Ok(self.exchanges[turn_index].turn.clone())',
+              '    }',
+              '',
+              '    fn close(&mut self) -> Result<(), DesktopAnalystSessionError> {',
+          ], 'compatibility core ask wrapper')
+
+          s = replace_once(s, [
+              '    pub fn ask(&mut self, prompt: &str) -> Result<AnalystTurn, DesktopAnalystSessionError> {',
+              '        self.inner.ask(prompt)',
+              '    }',
+          ], [
+              '    pub fn ask_retained(',
+              '        &mut self,',
+              '        prompt: &str,',
+              '    ) -> Result<usize, DesktopAnalystSessionError> {',
+              '        self.inner.ask_retained(prompt)',
+              '    }',
+              '',
+              '    pub fn ask(&mut self, prompt: &str) -> Result<AnalystTurn, DesktopAnalystSessionError> {',
+              '        self.inner.ask(prompt)',
+              '    }',
+          ], 'public retained ask')
+
+          s = replace_once(s, [
+              '    #[test]',
+              '    fn successful_asks_retain_exchanges_and_advance_answer_state() {',
+          ], [
+              '    #[test]',
+              '    fn retained_asks_move_turns_into_exchanges_and_advance_answer_state() {',
+              '        let fixture = Fixture::new("retained-answers");',
+              '        let shutdowns = Arc::new(AtomicUsize::new(0));',
+              '        let mut session = fixture.session_with(',
+              '            vec![Ok(turn("one")), Ok(turn("two"))],',
+              '            Arc::clone(&shutdowns),',
+              '        );',
+              '',
+              '        assert_eq!(session.ask_retained("first").unwrap(), 0);',
+              '        assert_eq!(session.state, DesktopAnalystState::Answer { turn_index: 0 });',
+              '        assert_eq!(session.exchanges.len(), 1);',
+              '        assert_eq!(session.exchanges[0].prompt(), "first");',
+              '        assert_eq!(session.exchanges[0].turn().text.as_deref(), Some("one"));',
+              '',
+              '        assert_eq!(session.ask_retained("second").unwrap(), 1);',
+              '        assert_eq!(session.state, DesktopAnalystState::Answer { turn_index: 1 });',
+              '        assert_eq!(session.exchanges.len(), 2);',
+              '        assert_eq!(session.exchanges[1].prompt(), "second");',
+              '        assert_eq!(session.exchanges[1].turn().text.as_deref(), Some("two"));',
+              '        assert_eq!(shutdowns.load(Ordering::SeqCst), 0);',
+              '    }',
+              '',
+              '    #[test]',
+              '    fn retained_failures_do_not_append_fake_exchanges() {',
+              '        let fixture = Fixture::new("retained-errors");',
+              '        let shutdowns = Arc::new(AtomicUsize::new(0));',
+              '        let mut session = fixture.session_with(',
+              '            vec![Err(remote_command("busy")), Err(remote_fatal("transport ended"))],',
+              '            Arc::clone(&shutdowns),',
+              '        );',
+              '',
+              '        assert!(matches!(',
+              '            session.ask_retained("first"),',
+              '            Err(DesktopAnalystSessionError::Client(',
+              '                AnalystTurnClientError::RemoteCommand(_)',
+              '            ))',
+              '        ));',
+              '        assert!(matches!(',
+              '            session.state,',
+              '            DesktopAnalystState::RecoverableError { .. }',
+              '        ));',
+              '        assert!(session.exchanges.is_empty());',
+              '        assert_eq!(shutdowns.load(Ordering::SeqCst), 0);',
+              '',
+              '        assert!(matches!(',
+              '            session.ask_retained("second"),',
+              '            Err(DesktopAnalystSessionError::Client(',
+              '                AnalystTurnClientError::RemoteFatal(_)',
+              '            ))',
+              '        ));',
+              '        assert!(matches!(',
+              '            session.state,',
+              '            DesktopAnalystState::FatalError { .. }',
+              '        ));',
+              '        assert!(session.exchanges.is_empty());',
+              '        assert_eq!(shutdowns.load(Ordering::SeqCst), 1);',
+              '    }',
+              '',
+              '    #[test]',
+              '    fn retained_storage_moves_turn_and_owned_compatibility_clones_after_retention() {',
+              '        let source = include_str!("analyst_session.rs");',
+              '        let retained = source',
+              '            .split_once("fn ask_retained(")',
+              '            .unwrap()',
+              '            .1',
+              '            .split_once("fn ask(&mut self, prompt: &str)")',
+              '            .unwrap()',
+              '            .0;',
+              '        assert!(retained.contains("turn,"));',
+              '        assert!(!retained.contains("turn.clone()"));',
+              '',
+              '        let compatibility = source',
+              '            .split_once("fn ask(&mut self, prompt: &str)")',
+              '            .unwrap()',
+              '            .1',
+              '            .split_once("fn close(&mut self)")',
+              '            .unwrap()',
+              '            .0;',
+              '        assert!(compatibility.contains("self.ask_retained(prompt)?"));',
+              '        assert!(compatibility.contains(".turn.clone()"));',
+              '    }',
+              '',
+              '    #[test]',
+              '    fn owned_ask_compatibility_returns_exact_retained_turn() {',
+              '        let fixture = Fixture::new("owned-compatibility");',
+              '        let shutdowns = Arc::new(AtomicUsize::new(0));',
+              '        let expected = AnalystTurn {',
+              '            request_id: "owned-turn".into(),',
+              '            text: Some("complete answer".into()),',
+              '            tool_calls: vec![world_analyst_client::AnalystToolCall {',
+              '                call_id: "call-1".into(),',
+              '                tool: "inspect_world".into(),',
+              '                input: serde_json::json!({"side": "left", "items": [1, 2, 3]}),',
+              '                output: serde_json::json!({"ok": true, "evidence": "raw"}),',
+              '                is_error: false,',
+              '            }],',
+              '            runtime_errors: vec![world_analyst_client::AnalystRuntimeError {',
+              '                kind: world_analyst_client::AnalystRuntimeErrorKind::Extension,',
+              '                source: Some("test-extension".into()),',
+              '                message: "diagnostic".into(),',
+              '            }],',
+              '        };',
+              '        let mut session = fixture.session_with(',
+              '            vec![Ok(expected.clone())],',
+              '            Arc::clone(&shutdowns),',
+              '        );',
+              '',
+              '        let returned = session.ask("question").unwrap();',
+              '        assert_eq!(returned, expected);',
+              '        assert_eq!(session.exchanges.len(), 1);',
+              '        assert_eq!(session.exchanges[0].prompt(), "question");',
+              '        assert_eq!(session.exchanges[0].turn(), &expected);',
+              '    }',
+              '',
+              '    #[test]',
+              '    fn successful_asks_retain_exchanges_and_advance_answer_state() {',
+          ], 'retained ask regressions')
+
+          session_path.write_text(s)
+
+          panel_path = Path('apps/world-machine-desktop/src/analyst_panel.rs')
+          p = panel_path.read_text()
+          p = replace_once(p, [
+              '            let result = session.ask(&prompt).map_err(|error| error.to_string());',
+          ], [
+              '            let result = session',
+              '                .ask_retained(&prompt)',
+              '                .map_err(|error| error.to_string());',
+          ], 'panel retained ask call')
+
+          p = replace_once(p, [
+              '        let after_cancel = start_ask.split_once("if cancel_requested {").unwrap().1;',
+          ], [
+              '        assert!(start_ask.contains("session\\n                .ask_retained(&prompt)"));',
+              '        assert!(!start_ask.contains("session.ask(&prompt)"));',
+              '        let after_cancel = start_ask.split_once("if cancel_requested {").unwrap().1;',
+          ], 'panel retained ask source guard')
+          panel_path.write_text(p)
+          PY
+          cargo fmt --all
+          git rm .github/workflows/m251-apply.yml
+          git add apps/world-machine-desktop/src/analyst_session.rs apps/world-machine-desktop/src/analyst_panel.rs
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m 'M251: retain analyst turns without panel clone'
+          git push origin HEAD:agent/m251-retain-analyst-turn-without-clone
