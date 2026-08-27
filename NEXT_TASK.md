@@ -1,44 +1,62 @@
-# Next Coding Task — M255 Bound Analyst Tool-Host JSONL Framing
+# Next Coding Task — M256 Bound Analyst Turn-Host Stdin Framing
 
-M254 bounds Pi RPC child stdout records. The next independent unbounded boundary is `AnalystJsonlClient.#acceptChunk()` in `integrations/pi/world-machine-analyst-client.mjs`, which consumes the restricted read-only Analyst tool-host stdout inside the Pi extension.
+M254 bounds long-lived Pi RPC child stdout and M255 bounds the restricted read-only tool-host stdout consumed by `AnalystJsonlClient`. The remaining unbounded JSONL boundary in the installed Analyst path is `jsonLines(stdin)` in `integrations/pi/world-machine-analyst-turn-host.mjs`, which receives Rust `world-analyst-client` requests.
 
-## M255
+## M256
 
-Today that client starts each receive with `Buffer.concat([this.buffer, chunk])` and only afterwards searches for `\n`. A very large or no-newline tool-host record can therefore grow/copy memory before JSON, protocol, or correlation validation. M254 cannot protect this separate child stream.
+Today `jsonLines()` repeatedly does `Buffer.concat([buffer, Buffer.from(chunk)])` before looking for `\n`. An oversized or indefinitely unterminated stdin record can therefore grow/copy an unbounded buffer before request JSON/shape validation.
 
-Required behavior:
+Add a production **64 MiB payload-byte ceiling per turn-host input record** with these semantics:
 
-- bound one tool-host response record to **64 MiB payload bytes**;
-- newline framing is outside the payload budget; preserve optional trailing CR handling;
 - count bytes, not JavaScript characters;
-- do not preallocate 64 MiB and do not concatenate the whole incoming chunk before locating newline boundaries;
-- preserve arbitrary chunk splits, multiple records in one chunk, ordering, and existing empty-line behavior;
-- oversized input must fail before `JSON.parse`, never be truncated, poison `AnalystJsonlClient`, terminate the child, clear queued/pending record storage, and prevent later `listTools()` / `invoke()` reuse;
-- framing contamination discovered later in the same synchronous stdout chunk must win over an earlier response line from that chunk: the active request must fail rather than return success and defer the fatal error to the next request;
-- contaminated-child termination must be idempotent and must escalate from SIGTERM to SIGKILL after the existing shutdown grace period when the child ignores SIGTERM, including overflow while the client is idle;
-- preserve current single-flight, catalog, invoke, remote-error, correlation, abort, shutdown, protocol-version, and provider-neutral behavior. In particular, normal remote tool errors remain recoverable and must not be confused with fatal framing contamination.
+- LF is framing and does not consume payload budget;
+- preserve the existing optional trailing CR behavior, including max-size payload + CRLF;
+- do not preallocate 64 MiB and do not concatenate the complete incoming chunk before finding newline boundaries;
+- preserve arbitrary chunk splits, multiple records in order, and ignored empty lines;
+- preserve the existing EOF-tail compatibility: a final non-empty record without a trailing LF is still accepted when its payload is within the limit, with optional final CR stripped;
+- an oversized newline-terminated record, oversized no-newline stream, or oversized EOF tail must fail before `JSON.parse` / `host.handle` for that record; never truncate and parse;
+- framing overflow is a fatal **turn-host input** failure. Do not fabricate a correlated protocol response because the oversized request may not contain a complete/trustworthy id. Let `runAnalystTurnHost()` unwind through its existing `finally` so the restricted Pi session is shut down and the process exits non-zero;
+- release bounded accumulator references on failure/end.
 
-Use a constructor-injected small limit for tests while `spawn()` keeps the production default. Keep this change local to `world-machine-analyst-client.mjs` and `integrations/pi/tests/world-machine-analyst-client.test.mjs`; do not introduce a broad shared JSONL abstraction yet.
+The Rust producer has been audited: `AnalystTurnClient::transact_with_response_limit()` serializes each request, writes the encoded bytes, then explicitly writes `\n` and flushes. Production requests are therefore newline-terminated, but the parser's existing EOF-tail compatibility must still be preserved as parser behavior.
 
-Required regressions:
+### Important semantic distinction from M254/M255
 
-1. exact-limit valid JSON + LF;
-2. exact-limit valid JSON + CRLF;
-3. a valid record split across many chunks;
-4. multiple records in one chunk preserve order;
-5. newline-terminated oversized payload fails before parsing;
-6. no-newline oversized stream fails promptly;
-7. oversize poisons/terminates the client and later requests cannot recover;
-8. valid-looking bytes following an oversized prefix are ignored as contaminated-stream data;
-9. a valid awaited response followed by an oversized record in the same stdout chunk still rejects the active request;
-10. idle overflow against a child that ignores SIGTERM escalates to SIGKILL;
-11. existing recoverable remote tool errors still allow subsequent requests on the same session;
-12. all existing Analyst client tests remain green.
+Do **not** retroactively invalidate a previously complete request only because a later, separate request in the same Node stdin chunk is oversized. JSONL request records are independent commands. A complete record may be yielded/handled; framing contamination becomes fatal when the oversized record itself is reached. Avoid making behavior depend on whether the OS happened to coalesce two independent requests into one `data` chunk.
 
-Validation: focused Node tests, `bash ./scripts/check-pi-analyst.sh`, fmt, authoritative Linux boundary/Clippy/workspace/Pack gates, and the full macOS packaged Analyst `.app` gate because `integrations/pi/**` ships with the desktop path.
+This differs from M254/M255 response-side races, where a later framing failure in the same synchronous receive chunk had to prevent an in-flight caller from returning a success before the fatal session state was visible.
 
-Known later boundary: `jsonLines(stdin)` in `world-machine-analyst-turn-host.mjs` is still unbounded for Rust-client → turn-host input. Keep it separate after M255. The `world-cli` machine-query stdin `read_to_string` is another later bounded-input candidate.
+### Implementation shape
+
+Keep the change primarily in `world-machine-analyst-turn-host.mjs` and its tests. A private/test-injectable limit for `jsonLines()` or `runAnalystTurnHost()` is appropriate; the installed CLI path must keep the production default and must not gain a new user-facing limit option. Do not introduce a broad shared JSONL utility merely to deduplicate M254–M256.
+
+Use bounded record accumulation similar in byte/framing rules to M254/M255, adapted for an async iterable input and EOF-tail completion. Do not queue an entire input chunk worth of parsed lines before yielding: retain streaming behavior and bounded per-record state.
+
+### Required regressions
+
+1. exact-limit request + LF is accepted;
+2. exact-limit request + CRLF is accepted;
+3. exact-limit request at EOF without LF is accepted;
+4. a request split across many input chunks is accepted;
+5. multiple complete requests from one chunk remain ordered;
+6. empty lines retain current ignore behavior;
+7. newline-terminated oversized input fails before JSON parsing/handling that record;
+8. no-newline stream fails as soon as it can no longer become a valid record, without waiting for EOF;
+9. oversized EOF tail fails;
+10. a valid first request followed by an oversized second request may complete the first request, then fatally stops before dispatching the oversized second request;
+11. framing failure runs turn-host cleanup so the restricted Pi child/session does not survive;
+12. existing probe, two-ask Pi reuse, command-error recovery, strict request shape, and SIGTERM termination tests remain green.
+
+Tests must inject a small limit rather than allocate tens of MiB.
+
+### Validation
+
+Run focused turn-host Node tests, `bash ./scripts/check-pi-analyst.sh`, fmt, authoritative Linux boundary/Clippy/workspace/Pack gates, and the full macOS Library/Packs/GPUI/desktop/`World Machine.app` build + packaged Analyst smoke/archive/upload path.
+
+## Later audit candidates
+
+After M256, audit the Rust request writer for an optional **pre-write request-size ceiling** so an oversized prompt can be rejected before crossing the pipe, rather than relying only on the receiving Node boundary. Keep that separate from M256 so receiver framing correctness lands first. The `world-cli` machine-query stdin `read_to_string` boundary is another later bounded-input candidate.
 
 ## Non-goals
 
-No protocol/schema/provider/model changes, no accepted tool-output truncation, no UI/history/World/Pack/query/archive changes, no cumulative turn-evidence budget, and no turn-host stdin change in M255.
+No Analyst protocol/schema/provider/model changes, no prompt/tool-output truncation, no cumulative turn budget, no Rust request-size preflight in M256, no UI/history/World/Pack/query/archive changes, and no broad JSONL framework refactor.
