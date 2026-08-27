@@ -17,14 +17,17 @@ function fakeSession(script, options = {}) {
   return new PiAnalystRpcSession(child, options);
 }
 
-function controlledSession(onRequest, options = {}) {
+function controlledSession(onRequest, options = {}, control = {}) {
   const child = new EventEmitter();
   child.stdin = new PassThrough();
   child.stdout = new PassThrough();
   child.exitCode = null;
   child.signalCode = null;
+  const killSignals = [];
   child.kill = (signal = "SIGTERM") => {
     if (child.exitCode !== null || child.signalCode !== null) return false;
+    killSignals.push(signal);
+    if (signal === "SIGTERM" && control.ignoreSigterm === true) return true;
     child.signalCode = signal;
     queueMicrotask(() => child.emit("exit", null, signal));
     return true;
@@ -45,7 +48,7 @@ function controlledSession(onRequest, options = {}) {
     }
   });
 
-  return { session: new PiAnalystRpcSession(child, options), child };
+  return { session: new PiAnalystRpcSession(child, options), child, killSignals };
 }
 
 function promptAck(id) {
@@ -500,6 +503,39 @@ test("Pi RPC framing rejects an oversized no-newline stream promptly and kills t
   );
   assert.ok(Date.now() - started < 500, "framing overflow should fail before prompt timeout");
   assert.equal(child.signalCode, "SIGTERM");
+});
+
+test("Pi RPC framing rejects the active turn when a later same-chunk record overflows", async () => {
+  const maxRecordBytes = 160;
+  const { session, child } = controlledSession((request, stdout) => {
+    stdout.write(
+      `${promptAck(request.id)}\n${JSON.stringify({ type: "agent_settled" })}\n${"x".repeat(maxRecordBytes + 2)}\n`,
+    );
+  }, { maxRecordBytes });
+
+  await assert.rejects(
+    session.prompt("question", { timeoutMs: 2000 }),
+    (error) => error instanceof PiAnalystRpcProtocolError && /record exceeded/.test(error.message),
+  );
+  assert.equal(child.signalCode, "SIGTERM");
+});
+
+test("Pi RPC framing escalates idle overflow termination to SIGKILL", async () => {
+  const maxRecordBytes = 32;
+  const { session, child, killSignals } = controlledSession(
+    () => {},
+    { maxRecordBytes },
+    { ignoreSigterm: true },
+  );
+
+  child.stdout.write(Buffer.alloc(maxRecordBytes + 2, 0x78));
+  await assert.rejects(
+    session.prompt("after idle overflow", { timeoutMs: 2000 }),
+    (error) => error instanceof PiAnalystRpcProtocolError && /record exceeded/.test(error.message),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 1100));
+  assert.deepEqual(killSignals, ["SIGTERM", "SIGKILL"]);
+  assert.equal(child.signalCode, "SIGKILL");
 });
 
 test("Pi RPC framing never recovers from an oversized prefix in the same chunk", async () => {

@@ -96,6 +96,7 @@ export class PiAnalystRpcSession {
     this.waiters = [];
     this.closedError = null;
     this.closed = false;
+    this.terminationPromise = null;
     this.busy = false;
     this.nextRequestNumber = 1;
     this.nextProbeNumber = 1;
@@ -397,7 +398,9 @@ export class PiAnalystRpcSession {
     }
 
     try {
-      return await Promise.race(races);
+      const record = await Promise.race(races);
+      if (this.closedError) throw this.closedError;
+      return record;
     } catch (error) {
       recordPromise.catch(() => {});
       throw error;
@@ -537,8 +540,7 @@ export class PiAnalystRpcSession {
       { maxRecordBytes: this.maxRecordBytes },
     );
     this.records.length = 0;
-    this.#finish(error);
-    this.kill();
+    void this.#terminateAfterBrokenTurn(error);
   }
 
   #finish(error) {
@@ -550,17 +552,21 @@ export class PiAnalystRpcSession {
     for (const waiter of waiters) waiter.reject(error);
   }
 
-  async #terminateAfterBrokenTurn(error) {
+  #terminateAfterBrokenTurn(error) {
+    if (this.terminationPromise) return this.terminationPromise;
     this.closed = true;
     this.#finish(error);
-    if (this.child.exitCode !== null || this.child.signalCode !== null) return;
+    this.terminationPromise = (async () => {
+      if (this.child.exitCode !== null || this.child.signalCode !== null) return;
 
-    const exited = once(this.child, "exit");
-    this.child.kill("SIGTERM");
-    await settledBefore(exited, DEFAULT_SHUTDOWN_TIMEOUT_MS);
-    if (this.child.exitCode === null && this.child.signalCode === null) {
-      this.child.kill("SIGKILL");
-    }
+      const exited = once(this.child, "exit");
+      this.child.kill("SIGTERM");
+      await settledBefore(exited, DEFAULT_SHUTDOWN_TIMEOUT_MS);
+      if (this.child.exitCode === null && this.child.signalCode === null) {
+        this.child.kill("SIGKILL");
+      }
+    })().catch(() => {});
+    return this.terminationPromise;
   }
 }
 
