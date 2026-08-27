@@ -1,10 +1,69 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
 import test from "node:test";
 import worldMachineAnalyst from "../world-machine-analyst.mjs";
-import { AnalystBridgeError, AnalystJsonlClient, providerSafeToolName } from "../world-machine-analyst-client.mjs";
+import {
+  AnalystBridgeError,
+  AnalystJsonlClient,
+  providerSafeToolName,
+} from "../world-machine-analyst-client.mjs";
 
 function fakeServer(script) {
   return AnalystJsonlClient.spawn(process.execPath, ["-e", script], { stderr: "pipe" });
+}
+
+function controlledClient(onRequest = () => {}, options = {}, control = {}) {
+  const child = new EventEmitter();
+  child.stdin = new PassThrough();
+  child.stdout = new PassThrough();
+  child.exitCode = null;
+  child.signalCode = null;
+  const killSignals = [];
+  child.kill = (signal = "SIGTERM") => {
+    if (child.exitCode !== null || child.signalCode !== null) return false;
+    killSignals.push(signal);
+    if (signal === "SIGTERM" && control.ignoreSigterm === true) return true;
+    child.signalCode = signal;
+    queueMicrotask(() => child.emit("exit", null, signal));
+    return true;
+  };
+  child.stdin.on("finish", () => child.kill("SIGTERM"));
+
+  let buffer = "";
+  child.stdin.setEncoding("utf8");
+  child.stdin.on("data", (chunk) => {
+    buffer += chunk;
+    while (true) {
+      const newline = buffer.indexOf("\n");
+      if (newline < 0) return;
+      const line = buffer.slice(0, newline);
+      buffer = buffer.slice(newline + 1);
+      if (line.length === 0) continue;
+      onRequest(JSON.parse(line), child.stdout);
+    }
+  });
+
+  return { client: new AnalystJsonlClient(child, options), child, killSignals };
+}
+
+function catalogRecord(toolName = null, extra = {}) {
+  return JSON.stringify({
+    protocol: "world-machine-readonly-tools",
+    version: 1,
+    type: "catalog",
+    tools: toolName === null ? [] : [{ name: toolName }],
+    ...extra,
+  });
+}
+
+function exactSizedCatalogRecord(byteLength) {
+  const empty = catalogRecord(null, { padding: "" });
+  const fillerBytes = byteLength - Buffer.byteLength(empty);
+  assert.ok(fillerBytes >= 0, "test limit must fit the catalog envelope");
+  const record = catalogRecord(null, { padding: "x".repeat(fillerBytes) });
+  assert.equal(Buffer.byteLength(record), byteLength);
+  return record;
 }
 
 const SERVER = String.raw`
@@ -187,6 +246,159 @@ test("abort terminates the bound analyst child", async () => {
   controller.abort();
   await assert.rejects(pending, /aborted/);
   await client.shutdown();
+});
+
+test("Analyst JSONL framing accepts an exact-limit LF record", async () => {
+  const maxRecordBytes = 192;
+  const record = exactSizedCatalogRecord(maxRecordBytes);
+  const { client } = controlledClient((request, stdout) => {
+    assert.equal(request.op, "list-tools");
+    stdout.write(`${record}\n`);
+  }, { maxRecordBytes });
+
+  try {
+    assert.deepEqual(await client.listTools(), []);
+  } finally {
+    await client.shutdown();
+  }
+});
+
+test("Analyst JSONL framing accepts an exact-limit CRLF record", async () => {
+  const maxRecordBytes = 192;
+  const record = exactSizedCatalogRecord(maxRecordBytes);
+  const { client } = controlledClient((request, stdout) => {
+    assert.equal(request.op, "list-tools");
+    stdout.write(`${record}\r\n`);
+  }, { maxRecordBytes });
+
+  try {
+    assert.deepEqual(await client.listTools(), []);
+  } finally {
+    await client.shutdown();
+  }
+});
+
+test("Analyst JSONL framing accepts a response split across one-byte chunks", async () => {
+  const maxRecordBytes = 256;
+  const record = `${catalogRecord("world.split")}\n`;
+  const { client } = controlledClient((request, stdout) => {
+    assert.equal(request.op, "list-tools");
+    for (const byte of Buffer.from(record)) stdout.write(Buffer.from([byte]));
+  }, { maxRecordBytes });
+
+  try {
+    const tools = await client.listTools();
+    assert.equal(tools[0].name, "world.split");
+  } finally {
+    await client.shutdown();
+  }
+});
+
+test("Analyst JSONL framing preserves multiple records from one stdout chunk", async () => {
+  let requests = 0;
+  const { client } = controlledClient((request, stdout) => {
+    requests += 1;
+    if (requests === 1) {
+      assert.equal(request.op, "list-tools");
+      stdout.write(`${catalogRecord("world.first")}\n${catalogRecord("world.second")}\n`);
+    }
+  }, { maxRecordBytes: 256 });
+
+  try {
+    const first = await client.listTools();
+    const second = await client.listTools();
+    assert.equal(first[0].name, "world.first");
+    assert.equal(second[0].name, "world.second");
+    assert.equal(requests, 2);
+  } finally {
+    await client.shutdown();
+  }
+});
+
+test("Analyst JSONL framing rejects newline-terminated overflow before JSON parsing", async () => {
+  const maxRecordBytes = 64;
+  const { client, child } = controlledClient((_request, stdout) => {
+    stdout.write(`${"x".repeat(maxRecordBytes + 1)}\n`);
+  }, { maxRecordBytes });
+
+  await assert.rejects(
+    client.listTools(),
+    (error) =>
+      error instanceof AnalystBridgeError &&
+      /record exceeded/.test(error.message) &&
+      !/invalid analyst response JSON/.test(error.message),
+  );
+  assert.equal(child.signalCode, "SIGTERM");
+});
+
+test("Analyst JSONL framing rejects a no-newline overflow promptly", async () => {
+  const maxRecordBytes = 64;
+  const { client, child } = controlledClient((_request, stdout) => {
+    stdout.write(Buffer.alloc(maxRecordBytes + 2, 0x78));
+  }, { maxRecordBytes });
+
+  const started = Date.now();
+  await assert.rejects(
+    client.listTools(),
+    (error) => error instanceof AnalystBridgeError && /record exceeded/.test(error.message),
+  );
+  assert.ok(Date.now() - started < 500, "framing overflow should fail without waiting for EOF");
+  assert.equal(child.signalCode, "SIGTERM");
+});
+
+test("Analyst JSONL framing poisons the client and prevents later reuse", async () => {
+  const maxRecordBytes = 64;
+  let requests = 0;
+  const { client } = controlledClient((_request, stdout) => {
+    requests += 1;
+    stdout.write(`${"x".repeat(maxRecordBytes + 1)}\n`);
+  }, { maxRecordBytes });
+
+  await assert.rejects(client.listTools(), /record exceeded/);
+  await assert.rejects(client.listTools(), /record exceeded/);
+  assert.equal(requests, 1);
+});
+
+test("Analyst JSONL framing ignores valid-looking bytes after an oversized prefix", async () => {
+  const maxRecordBytes = 64;
+  const { client } = controlledClient((_request, stdout) => {
+    stdout.write(
+      `${"x".repeat(maxRecordBytes + 1)}\n${catalogRecord("world.must-not-recover")}\n`,
+    );
+  }, { maxRecordBytes });
+
+  await assert.rejects(client.listTools(), /record exceeded/);
+  await assert.rejects(client.listTools(), /record exceeded/);
+});
+
+test("Analyst JSONL framing makes same-chunk contamination win the active request", async () => {
+  const maxRecordBytes = 128;
+  const { client, child } = controlledClient((_request, stdout) => {
+    stdout.write(
+      `${catalogRecord("world.apparently-valid")}\n${"x".repeat(maxRecordBytes + 1)}\n`,
+    );
+  }, { maxRecordBytes });
+
+  await assert.rejects(
+    client.listTools(),
+    (error) => error instanceof AnalystBridgeError && /record exceeded/.test(error.message),
+  );
+  assert.equal(child.signalCode, "SIGTERM");
+});
+
+test("Analyst JSONL framing escalates idle overflow cleanup when SIGTERM is ignored", async () => {
+  const maxRecordBytes = 32;
+  const { client, child, killSignals } = controlledClient(
+    () => {},
+    { maxRecordBytes },
+    { ignoreSigterm: true },
+  );
+
+  child.stdout.write(Buffer.alloc(maxRecordBytes + 2, 0x78));
+  await assert.rejects(client.listTools(), /record exceeded/);
+  await new Promise((resolve) => setTimeout(resolve, 700));
+  assert.deepEqual(killSignals, ["SIGTERM", "SIGKILL"]);
+  assert.equal(child.signalCode, "SIGKILL");
 });
 
 test("provider tool names are deterministic and constrained", () => {
