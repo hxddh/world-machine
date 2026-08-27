@@ -23,6 +23,7 @@ jobs:
               - 'crates/world-gpui/**'
               - 'crates/world-strategy-gpui/**'
               - 'crates/world-lineage-gpui/**'
+              - 'crates/world-analyst-client/**'
               - 'crates/world-pack-protocol/**'
               - 'crates/world-pack-bundle/**'
               - 'crates/world-pack-process/**'
