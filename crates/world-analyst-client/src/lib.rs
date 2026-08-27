@@ -9,6 +9,7 @@ use std::process::{Child, ChildStdin, ChildStdout, Command, ExitStatus, Stdio};
 pub const ANALYST_TURN_PROTOCOL: &str = "world-machine-analyst-turns";
 pub const ANALYST_TURN_PROTOCOL_VERSION: u64 = 1;
 pub const ANALYST_TURN_MAX_TIMEOUT_MS: u64 = 9_007_199_254_740_991;
+pub const ANALYST_TURN_MAX_RESPONSE_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "kebab-case")]
@@ -132,6 +133,7 @@ pub enum AnalystTurnClientError {
     WriteRequest(io::Error),
     ReadResponse(io::Error),
     UnexpectedEof,
+    ResponseTooLarge { max_bytes: usize },
     InvalidResponseJson(serde_json::Error),
     InvalidResponseShape(String),
     ProtocolMismatch { actual: String },
@@ -161,6 +163,10 @@ impl fmt::Display for AnalystTurnClientError {
             Self::WriteRequest(error) => write!(f, "failed to write analyst turn request: {error}"),
             Self::ReadResponse(error) => write!(f, "failed to read analyst turn response: {error}"),
             Self::UnexpectedEof => write!(f, "analyst turn host closed before responding"),
+            Self::ResponseTooLarge { max_bytes } => write!(
+                f,
+                "analyst turn response exceeded the {max_bytes}-byte transport limit"
+            ),
             Self::InvalidResponseJson(error) => {
                 write!(f, "invalid analyst turn response JSON: {error}")
             }
@@ -199,6 +205,7 @@ impl Error for AnalystTurnClientError {
             Self::WriteRequest(error) | Self::ReadResponse(error) => Some(error),
             Self::InvalidRequest(_)
             | Self::UnexpectedEof
+            | Self::ResponseTooLarge { .. }
             | Self::InvalidResponseShape(_)
             | Self::ProtocolMismatch { .. }
             | Self::VersionMismatch { .. }
@@ -300,6 +307,15 @@ where
         request: &AnalystTurnRequest,
         expected_id: &str,
     ) -> Result<AnalystTurnResponse, AnalystTurnClientError> {
+        self.transact_with_response_limit(request, expected_id, ANALYST_TURN_MAX_RESPONSE_BYTES)
+    }
+
+    fn transact_with_response_limit(
+        &mut self,
+        request: &AnalystTurnRequest,
+        expected_id: &str,
+        max_response_bytes: usize,
+    ) -> Result<AnalystTurnResponse, AnalystTurnClientError> {
         let encoded =
             serde_json::to_vec(request).map_err(AnalystTurnClientError::SerializeRequest)?;
         if let Err(error) = self.writer.write_all(&encoded) {
@@ -315,20 +331,19 @@ where
             return Err(AnalystTurnClientError::WriteRequest(error));
         }
 
-        let mut line = String::new();
-        let read = match self.reader.read_line(&mut line) {
-            Ok(read) => read,
+        let line = match read_bounded_response_line(&mut self.reader, max_response_bytes) {
+            Ok(Some(line)) => line,
+            Ok(None) => {
+                self.poisoned = true;
+                return Err(AnalystTurnClientError::UnexpectedEof);
+            }
             Err(error) => {
                 self.poisoned = true;
-                return Err(AnalystTurnClientError::ReadResponse(error));
+                return Err(error);
             }
         };
-        if read == 0 {
-            self.poisoned = true;
-            return Err(AnalystTurnClientError::UnexpectedEof);
-        }
 
-        let value: Value = match serde_json::from_str(&line) {
+        let value: Value = match serde_json::from_slice(&line) {
             Ok(value) => value,
             Err(error) => {
                 self.poisoned = true;
@@ -370,7 +385,6 @@ where
         }
         Ok(envelope.response)
     }
-
     fn remote_error<T>(&mut self, error: AnalystRemoteError) -> Result<T, AnalystTurnClientError> {
         match (error.kind, error.fatal) {
             (AnalystRemoteErrorKind::Command, false) => {
@@ -397,6 +411,29 @@ where
         self.poisoned = true;
         Err(AnalystTurnClientError::InvalidResponseShape(message.into()))
     }
+}
+
+fn read_bounded_response_line<R: BufRead>(
+    reader: &mut R,
+    max_bytes: usize,
+) -> Result<Option<Vec<u8>>, AnalystTurnClientError> {
+    let read_limit = max_bytes.saturating_add(1);
+    let mut line = Vec::new();
+    let mut limited = std::io::Read::take(reader, read_limit as u64);
+    let read = limited
+        .read_until(b'\n', &mut line)
+        .map_err(AnalystTurnClientError::ReadResponse)?;
+    if read == 0 {
+        return Ok(None);
+    }
+
+    if line.last() == Some(&b'\n') {
+        line.pop();
+    }
+    if line.len() > max_bytes {
+        return Err(AnalystTurnClientError::ResponseTooLarge { max_bytes });
+    }
+    Ok(Some(line))
 }
 
 fn validate_timeout(timeout_ms: Option<u64>) -> Result<(), AnalystTurnClientError> {
@@ -794,6 +831,93 @@ mod tests {
             AnalystTurnClientError::InvalidResponseShape(_)
         ));
     }
+    #[test]
+    fn bounded_response_framing_accepts_below_limit_and_exact_boundaries() {
+        for bytes in [
+            b"abc\n".as_slice(),
+            b"abcd\n".as_slice(),
+            b"abcd".as_slice(),
+        ] {
+            let mut reader = Cursor::new(bytes.to_vec());
+            let line = read_bounded_response_line(&mut reader, 4).unwrap().unwrap();
+            assert_eq!(line, bytes.strip_suffix(b"\n").unwrap_or(bytes));
+        }
+    }
+
+    #[test]
+    fn bounded_response_framing_rejects_limit_plus_one_without_overreading() {
+        let mut reader = Cursor::new(b"abcde-and-more\n".to_vec());
+        let error = read_bounded_response_line(&mut reader, 4).unwrap_err();
+        assert!(matches!(
+            error,
+            AnalystTurnClientError::ResponseTooLarge { max_bytes: 4 }
+        ));
+        assert_eq!(reader.position(), 5);
+    }
+
+    #[test]
+    fn bounded_response_framing_stops_at_newline_and_preserves_next_frame() {
+        let mut reader = Cursor::new(b"one\ntwo\n".to_vec());
+        assert_eq!(
+            read_bounded_response_line(&mut reader, 8).unwrap(),
+            Some(b"one".to_vec())
+        );
+        assert_eq!(
+            read_bounded_response_line(&mut reader, 8).unwrap(),
+            Some(b"two".to_vec())
+        );
+    }
+
+    #[test]
+    fn oversized_transaction_poison_client_before_json_validation() {
+        let mut client =
+            AnalystTurnClient::new(Cursor::new(b"{\"oversized\":true}\n".to_vec()), Vec::new());
+        let request = AnalystTurnRequest::Ask {
+            id: "world-rust-analyst-1".into(),
+            prompt: "question".into(),
+            timeout_ms: None,
+        };
+        let error = client
+            .transact_with_response_limit(&request, "world-rust-analyst-1", 8)
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            AnalystTurnClientError::ResponseTooLarge { max_bytes: 8 }
+        ));
+        assert!(client.is_poisoned());
+        assert!(error.is_session_fatal());
+        assert!(matches!(
+            client.ask("again", None).unwrap_err(),
+            AnalystTurnClientError::Poisoned
+        ));
+    }
+
+    #[test]
+    fn analyst_response_framing_source_is_bounded_and_byte_based() {
+        let source = include_str!("lib.rs");
+        let transact = source
+            .split_once("fn transact_with_response_limit(")
+            .unwrap()
+            .1
+            .split_once("fn remote_error")
+            .unwrap()
+            .0;
+        assert!(transact.contains("read_bounded_response_line"));
+        assert!(transact.contains("serde_json::from_slice(&line)"));
+        assert!(!transact.contains("read_line(&mut"));
+        assert!(!transact.contains("serde_json::from_str(&line)"));
+
+        let helper = source
+            .split_once("fn read_bounded_response_line")
+            .unwrap()
+            .1
+            .split_once("fn validate_timeout")
+            .unwrap()
+            .0;
+        assert!(helper.contains("std::io::Read::take(reader, read_limit as u64)"));
+        assert!(helper.contains("read_until(b'\\n'"));
+    }
+
     #[cfg(unix)]
     #[test]
     fn process_returns_poisoned_after_fatal_probe_teardown() {
