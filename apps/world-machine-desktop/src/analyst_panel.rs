@@ -637,7 +637,9 @@ impl AnalystPanelView {
         cx.notify();
 
         let task = cx.background_executor().spawn(async move {
-            let result = session.ask(&prompt).map_err(|error| error.to_string());
+            let result = session
+                .ask_retained(&prompt)
+                .map_err(|error| error.to_string());
             (session, result, submitted_question, source)
         });
         let background = cx.background_executor().clone();
@@ -2582,6 +2584,8 @@ mod tests {
             .split_once("fn cancel_analysis(")
             .unwrap()
             .0;
+        assert!(start_ask.contains("session\n                .ask_retained(&prompt)"));
+        assert!(!start_ask.contains("session.ask(&prompt)"));
         let after_cancel = start_ask.split_once("if cancel_requested {").unwrap().1;
         let (cancelled, non_cancelled) = after_cancel.split_once("} else {").unwrap();
         assert!(!cancelled.contains("sync_history_projection"));
