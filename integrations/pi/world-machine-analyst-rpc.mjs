@@ -466,10 +466,10 @@ export class PiAnalystRpcSession {
     if (totalBytes === maxRawBytes) {
       const lastByte =
         fragment.length > 0
-? fragment[fragment.length - 1]
-: this.recordBytes > 0
-  ? this.recordBuffer[this.recordBytes - 1]
-  : null;
+          ? fragment[fragment.length - 1]
+          : this.recordBytes > 0
+            ? this.recordBuffer[this.recordBytes - 1]
+            : null;
       if (lastByte !== 0x0d) {
         this.#failOversizedRecord();
         return false;
@@ -519,7 +519,7 @@ export class PiAnalystRpcSession {
     } catch (error) {
       this.#finish(
         new PiAnalystRpcProtocolError(`invalid Pi analyst RPC JSON: ${error.message}`, {
-line,
+          line,
         }),
       );
       return false;
