@@ -2,6 +2,7 @@ use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use world_query::{
     EvidenceComparisonRequest, EvidenceComparisonResult, EvidenceQueryRequest,
@@ -311,13 +312,33 @@ fn world_fixture() -> (PathBuf, String) {
     panic!("a built-in Pack should expose a visible selection")
 }
 
+static TEMP_WORLD_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
 fn temp_world_path() -> PathBuf {
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
+    temp_world_path_with_nonce(nonce)
+}
+
+fn temp_world_path_with_nonce(nonce: u128) -> PathBuf {
+    let sequence = TEMP_WORLD_SEQUENCE.fetch_add(1, Ordering::Relaxed);
     std::env::temp_dir().join(format!(
-        "world-machine-m188-{}-{nonce}.world",
+        "world-machine-m188-{}-{nonce}-{sequence}.world",
         std::process::id()
     ))
+}
+
+#[test]
+fn temp_world_paths_are_unique_for_equal_nonce_across_threads() {
+    let nonce = 42;
+    let handles = (0..64)
+        .map(|_| std::thread::spawn(move || temp_world_path_with_nonce(nonce)))
+        .collect::<Vec<_>>();
+    let paths = handles
+        .into_iter()
+        .map(|handle| handle.join().unwrap())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(paths.len(), 64);
 }

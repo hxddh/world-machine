@@ -3,6 +3,7 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use world_projection::SelectionId;
 
@@ -137,13 +138,38 @@ fn divergent_world_fixture() -> (PathBuf, PathBuf, String) {
     panic!("a built-in Pack should expose at least one timeline-visible causal edge")
 }
 
+static TEMP_WORLD_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
 fn temp_world_path(label: &str) -> PathBuf {
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
+    temp_world_path_with_nonce(label, nonce)
+}
+
+fn temp_world_path_with_nonce(label: &str, nonce: u128) -> PathBuf {
+    let sequence = TEMP_WORLD_SEQUENCE.fetch_add(1, Ordering::Relaxed);
     std::env::temp_dir().join(format!(
-        "world-machine-m210-{}-{nonce}-{label}.world",
+        "world-machine-m210-{}-{nonce}-{sequence}-{label}.world",
         std::process::id()
     ))
+}
+
+#[test]
+fn temp_world_paths_are_unique_for_equal_nonce_across_threads() {
+    let nonce = 42;
+    let handles = (0..64)
+        .map(|index| {
+            std::thread::spawn(move || {
+                let label = if index % 2 == 0 { "left" } else { "right" };
+                temp_world_path_with_nonce(label, nonce)
+            })
+        })
+        .collect::<Vec<_>>();
+    let paths = handles
+        .into_iter()
+        .map(|handle| handle.join().unwrap())
+        .collect::<BTreeSet<_>>();
+    assert_eq!(paths.len(), 64);
 }
