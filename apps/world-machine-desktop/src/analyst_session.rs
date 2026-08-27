@@ -398,7 +398,7 @@ impl<P: AnalystSessionProcess> SessionCore<P> {
         })
     }
 
-    fn ask(&mut self, prompt: &str) -> Result<AnalystTurn, DesktopAnalystSessionError> {
+    fn ask_retained(&mut self, prompt: &str) -> Result<usize, DesktopAnalystSessionError> {
         match &self.state {
             DesktopAnalystState::FatalError { message } => {
                 return Err(DesktopAnalystSessionError::FatalSession(message.clone()));
@@ -415,14 +415,13 @@ impl<P: AnalystSessionProcess> SessionCore<P> {
             .ok_or(DesktopAnalystSessionError::Closed)?;
         match process.ask(prompt, self.timeout_ms) {
             Ok(turn) => {
+                let turn_index = self.exchanges.len();
                 self.exchanges.push(DesktopAnalystExchange {
                     prompt: prompt.to_owned(),
-                    turn: turn.clone(),
+                    turn,
                 });
-                self.state = DesktopAnalystState::Answer {
-                    turn_index: self.exchanges.len() - 1,
-                };
-                Ok(turn)
+                self.state = DesktopAnalystState::Answer { turn_index };
+                Ok(turn_index)
             }
             Err(error) if error.is_session_fatal() => {
                 let message = error.to_string();
@@ -440,6 +439,11 @@ impl<P: AnalystSessionProcess> SessionCore<P> {
                 Err(DesktopAnalystSessionError::Client(error))
             }
         }
+    }
+
+    fn ask(&mut self, prompt: &str) -> Result<AnalystTurn, DesktopAnalystSessionError> {
+        let turn_index = self.ask_retained(prompt)?;
+        Ok(self.exchanges[turn_index].turn.clone())
     }
 
     fn close(&mut self) -> Result<(), DesktopAnalystSessionError> {
@@ -521,6 +525,10 @@ impl DesktopAnalystSession {
 
     pub fn cancellation_handle(&self) -> Option<DesktopAnalystCancellation> {
         self.inner.cancellation.clone()
+    }
+
+    pub fn ask_retained(&mut self, prompt: &str) -> Result<usize, DesktopAnalystSessionError> {
+        self.inner.ask_retained(prompt)
     }
 
     pub fn ask(&mut self, prompt: &str) -> Result<AnalystTurn, DesktopAnalystSessionError> {
@@ -949,6 +957,121 @@ mod tests {
             Err(DesktopAnalystSessionError::MissingWorld { side: "right", .. })
         ));
         assert_eq!(missing_spawned.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn retained_asks_move_turns_into_exchanges_and_advance_answer_state() {
+        let fixture = Fixture::new("retained-answers");
+        let shutdowns = Arc::new(AtomicUsize::new(0));
+        let mut session = fixture.session_with(
+            vec![Ok(turn("one")), Ok(turn("two"))],
+            Arc::clone(&shutdowns),
+        );
+
+        assert_eq!(session.ask_retained("first").unwrap(), 0);
+        assert_eq!(session.state, DesktopAnalystState::Answer { turn_index: 0 });
+        assert_eq!(session.exchanges.len(), 1);
+        assert_eq!(session.exchanges[0].prompt(), "first");
+        assert_eq!(session.exchanges[0].turn().text.as_deref(), Some("one"));
+
+        assert_eq!(session.ask_retained("second").unwrap(), 1);
+        assert_eq!(session.state, DesktopAnalystState::Answer { turn_index: 1 });
+        assert_eq!(session.exchanges.len(), 2);
+        assert_eq!(session.exchanges[1].prompt(), "second");
+        assert_eq!(session.exchanges[1].turn().text.as_deref(), Some("two"));
+        assert_eq!(shutdowns.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn retained_failures_do_not_append_fake_exchanges() {
+        let fixture = Fixture::new("retained-errors");
+        let shutdowns = Arc::new(AtomicUsize::new(0));
+        let mut session = fixture.session_with(
+            vec![
+                Err(remote_command("busy")),
+                Err(remote_fatal("transport ended")),
+            ],
+            Arc::clone(&shutdowns),
+        );
+
+        assert!(matches!(
+            session.ask_retained("first"),
+            Err(DesktopAnalystSessionError::Client(
+                AnalystTurnClientError::RemoteCommand(_)
+            ))
+        ));
+        assert!(matches!(
+            session.state,
+            DesktopAnalystState::RecoverableError { .. }
+        ));
+        assert!(session.exchanges.is_empty());
+        assert_eq!(shutdowns.load(Ordering::SeqCst), 0);
+
+        assert!(matches!(
+            session.ask_retained("second"),
+            Err(DesktopAnalystSessionError::Client(
+                AnalystTurnClientError::RemoteFatal(_)
+            ))
+        ));
+        assert!(matches!(
+            session.state,
+            DesktopAnalystState::FatalError { .. }
+        ));
+        assert!(session.exchanges.is_empty());
+        assert_eq!(shutdowns.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn retained_storage_moves_turn_and_owned_compatibility_clones_after_retention() {
+        let source = include_str!("analyst_session.rs");
+        let retained = source
+            .split_once("fn ask_retained(")
+            .unwrap()
+            .1
+            .split_once("fn ask(&mut self, prompt: &str)")
+            .unwrap()
+            .0;
+        assert!(retained.contains("turn,"));
+        assert!(!retained.contains("turn.clone()"));
+
+        let compatibility = source
+            .split_once("fn ask(&mut self, prompt: &str)")
+            .unwrap()
+            .1
+            .split_once("fn close(&mut self)")
+            .unwrap()
+            .0;
+        assert!(compatibility.contains("self.ask_retained(prompt)?"));
+        assert!(compatibility.contains(".turn.clone()"));
+    }
+
+    #[test]
+    fn owned_ask_compatibility_returns_exact_retained_turn() {
+        let fixture = Fixture::new("owned-compatibility");
+        let shutdowns = Arc::new(AtomicUsize::new(0));
+        let expected = AnalystTurn {
+            request_id: "owned-turn".into(),
+            text: Some("complete answer".into()),
+            tool_calls: vec![world_analyst_client::AnalystToolCall {
+                call_id: "call-1".into(),
+                tool: "inspect_world".into(),
+                input: serde_json::json!({"side": "left", "items": [1, 2, 3]}),
+                output: serde_json::json!({"ok": true, "evidence": "raw"}),
+                is_error: false,
+            }],
+            runtime_errors: vec![world_analyst_client::AnalystRuntimeError {
+                kind: world_analyst_client::AnalystRuntimeErrorKind::Extension,
+                source: Some("test-extension".into()),
+                message: "diagnostic".into(),
+            }],
+        };
+        let mut session = fixture.session_with(vec![Ok(expected.clone())], Arc::clone(&shutdowns));
+
+        let returned = session.ask("question").unwrap();
+        assert_eq!(returned, expected);
+        assert_eq!(session.exchanges.len(), 1);
+        assert_eq!(session.exchanges[0].prompt(), "question");
+        assert_eq!(session.exchanges[0].turn(), &expected);
     }
 
     #[test]
