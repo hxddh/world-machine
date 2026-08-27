@@ -14,7 +14,9 @@ Required behavior:
 - do not preallocate 64 MiB and do not concatenate the whole incoming chunk before locating newline boundaries;
 - preserve arbitrary chunk splits, multiple records in one chunk, ordering, and existing empty-line behavior;
 - oversized input must fail before `JSON.parse`, never be truncated, poison `AnalystJsonlClient`, terminate the child, clear queued/pending record storage, and prevent later `listTools()` / `invoke()` reuse;
-- preserve current single-flight, catalog, invoke, remote-error, correlation, abort, shutdown, protocol-version, and provider-neutral behavior.
+- framing contamination discovered later in the same synchronous stdout chunk must win over an earlier response line from that chunk: the active request must fail rather than return success and defer the fatal error to the next request;
+- contaminated-child termination must be idempotent and must escalate from SIGTERM to SIGKILL after the existing shutdown grace period when the child ignores SIGTERM, including overflow while the client is idle;
+- preserve current single-flight, catalog, invoke, remote-error, correlation, abort, shutdown, protocol-version, and provider-neutral behavior. In particular, normal remote tool errors remain recoverable and must not be confused with fatal framing contamination.
 
 Use a constructor-injected small limit for tests while `spawn()` keeps the production default. Keep this change local to `world-machine-analyst-client.mjs` and `integrations/pi/tests/world-machine-analyst-client.test.mjs`; do not introduce a broad shared JSONL abstraction yet.
 
@@ -28,7 +30,10 @@ Required regressions:
 6. no-newline oversized stream fails promptly;
 7. oversize poisons/terminates the client and later requests cannot recover;
 8. valid-looking bytes following an oversized prefix are ignored as contaminated-stream data;
-9. all existing Analyst client tests remain green.
+9. a valid awaited response followed by an oversized record in the same stdout chunk still rejects the active request;
+10. idle overflow against a child that ignores SIGTERM escalates to SIGKILL;
+11. existing recoverable remote tool errors still allow subsequent requests on the same session;
+12. all existing Analyst client tests remain green.
 
 Validation: focused Node tests, `bash ./scripts/check-pi-analyst.sh`, fmt, authoritative Linux boundary/Clippy/workspace/Pack gates, and the full macOS packaged Analyst `.app` gate because `integrations/pi/**` ships with the desktop path.
 
