@@ -1,107 +1,119 @@
-# Next Coding Task — M250 Virtualize Analyst History Rendering
+# Next Coding Task — M251 Avoid Duplicate Full Analyst Turn on Ask Completion
 
-M214–M249 now provide the installed World Analyst path from immutable saved-World evidence through a restricted long-lived Pi analyst, provider-neutral turns, native runtime/model readiness, in-memory Question → Answer → Evidence history, explicit recovery/new-comparison/cancellation/retry/dismiss flows, retained-question evidence scoping, asynchronous catalog loading/refresh, typed saved-World/runtime drift reconciliation, two-sided selection/Swap, local filtering, Pack/document identity, stable selected/pair identity, bounded 4096-byte UTF-8-safe evidence previews, and incremental session-exchange → `PanelTurn` projection.
+M214–M250 now provide the installed World Analyst path from immutable saved-World evidence through a restricted long-lived Pi analyst, provider-neutral turns, native runtime/model readiness, complete in-memory Question → Answer → Evidence history, explicit recovery/new-comparison/cancellation/retry/dismiss flows, retained-question evidence scoping, asynchronous catalog loading/refresh, typed drift reconciliation, two-sided selection/Swap, local filtering, stable Pack/document/pair identity, bounded 4096-byte UTF-8-safe UI evidence previews, incremental session-exchange → `PanelTurn` projection, and variable-height virtualized GPUI history rendering.
 
-M249 removes repeated re-projection of all prior turns after each ask. The remaining long-history scaling cost is now in rendering rather than data projection.
+M248 bounds only the panel's UI copy of tool input/output. The authoritative `DesktopAnalystSession` intentionally retains complete raw `AnalystTurn` evidence. There is still one avoidable full-payload duplication on every successful ask before that retained turn reaches the panel.
 
-## M250 — virtualize the variable-height Analyst history without truncating it
+## M251 — move successful turns into retained exchanges without cloning them for the panel path
 
-`AnalystPanelView::render_active()` currently builds the complete history tree on every render:
+`SessionCore::ask()` currently receives one owned `AnalystTurn` from the process and then clones the complete value into session history before returning the original:
 
 ```rust
-for (index, turn) in self.history.iter().enumerate() {
-    history = history.child(render_turn(index, turn));
+Ok(turn) => {
+    self.exchanges.push(DesktopAnalystExchange {
+        prompt: prompt.to_owned(),
+        turn: turn.clone(),
+    });
+    self.state = DesktopAnalystState::Answer {
+        turn_index: self.exchanges.len() - 1,
+    };
+    Ok(turn)
 }
 ```
 
-Every `PanelTurn` can have a different height because answer length, evidence-call count, bounded input/output preview length and runtime-error count vary. As history grows, every unrelated panel notification still recreates every turn card even when most are far outside the scroll viewport.
+`AnalystTurn` includes arbitrary `serde_json::Value` tool input/output payloads. The protocol has no small payload bound, so `turn.clone()` can duplicate a large evidence tree.
 
-The exact GPUI revision already pinned by `world-machine-desktop` (`zed` rev `4e8057d74db3570b3bd419ff296eb84c35b3a5a3`) provides `gpui::list` + `ListState` specifically for efficiently rendering large numbers of differently sized elements. Its state is stored on the owning view, supports `splice` / `reset`, and supports `FollowMode::Tail` so appended chat-like content follows the end only while the user is already following it.
+The native Analyst panel does not consume the successful owned return value. `AnalystPanelView::start_ask()` currently does:
 
-Do not use `uniform_list`: Analyst turn heights are not uniform.
+```rust
+let result = session.ask(&prompt).map_err(|error| error.to_string());
+```
+
+and completion only checks `result.is_ok()` / `result.err()` before projecting authoritative `session.exchanges()`. On the normal panel path, the returned successful `AnalystTurn` is therefore an unnecessary second full raw copy until the background result is consumed.
 
 ### Product behavior
 
-- retain **all** `PanelTurn` values in `history`; M250 is rendering virtualization, not a visible-history limit;
-- keep exact Question → Answer → Evidence ordering and all existing turn-card content/labels;
-- render only the variable-height history items needed for the viewport plus GPUI overdraw;
-- new successful turns should remain visible automatically while the history is following the tail;
-- if the user scrolls upward, later appends must not yank the viewport back to the bottom; GPUI Tail follow should resume naturally when the user returns to the end;
-- keep the current empty-history guidance, composer, pair identity, status, Fatal recovery and New comparison UI unchanged;
-- do not add pagination, “load older”, collapse/expand, maximum turn count or transcript persistence.
+- keep exactly one complete authoritative raw `AnalystTurn` per successful exchange in `DesktopAnalystSession`;
+- the panel's successful ask path must not request or retain a second owned full turn that it never reads;
+- preserve the public owned-return `DesktopAnalystSession::ask()` behavior for callers/tests that actually need the returned `AnalystTurn`;
+- preserve exact exchange prompt/turn ordering, `DesktopAnalystState::Answer { turn_index }`, recoverable/fatal behavior and process reuse/shutdown semantics;
+- preserve M248 bounded UI projections, M249 incremental projection and M250 virtualized rendering unchanged.
 
 ### Implementation boundary
 
-Keep M250 in `apps/world-machine-desktop/src/analyst_panel.rs`. Do not modify GPUI itself or change the pinned dependency revision.
+Keep protocol/client behavior unchanged. Do not remove `Clone` from `world_analyst_client::AnalystTurn` and do not change its serialized schema.
 
-Add a persistent history-list state to `AnalystPanelView`, for example:
-
-```rust
-history_list: ListState
-```
-
-Initialize it with the current history count `0`, `ListAlignment::Top`, a modest pixel overdraw, then enable `FollowMode::Tail`. The exact overdraw value is presentation tuning only; avoid `measure_all()` because the purpose is to avoid measuring/rendering the complete long history up front.
-
-Render history with the pinned variable-height API and the standard GPUI view-state pattern:
+Refactor `SessionCore` so its primary successful storage path **moves** the owned process result directly into `DesktopAnalystExchange` instead of cloning it. A narrow private primitive is preferred, for example:
 
 ```rust
-list(
-    self.history_list.clone(),
-    cx.processor(|this, index, _window, _cx| this.render_history_entry(index)),
-)
+fn ask_and_retain(
+    &mut self,
+    prompt: &str,
+) -> Result<usize, DesktopAnalystSessionError>
 ```
 
-The item processor must read the indexed `PanelTurn` from view state. **Do not clone the entire `history` vector into the `'static` list renderer**, because that would reintroduce O(total history) copying on every panel render.
+On success:
 
-Keep `render_turn(index, turn)` as the single card renderer. A small row wrapper is fine for spacing, but use spacing whose height does not depend on whether the row is currently last; appending a new item must not silently change the previously measured old-tail item's height.
+1. compute the new exchange index;
+2. push `DesktopAnalystExchange { prompt: prompt.to_owned(), turn }` by move;
+3. set `DesktopAnalystState::Answer { turn_index }`;
+4. return the cheap index.
 
-### Keep `ListState` count synchronized with M249 projection
+Recoverable/fatal branches should remain the same as today and must not manufacture an exchange.
 
-The list state's item count must track `history.len()` on every history lifecycle path.
+Expose a product-level no-copy method on `DesktopAnalystSession` for orchestration code that only needs successful retention, for example:
 
-- panel construction: list count is `0`;
-- successful session startup/full `snapshot_history`: `reset(history.len())` and start/follow the tail;
-- M249 `HistoryProjectionPlan::Noop`: no list mutation when counts already match;
-- `AppendFrom(start)`: when list count matches the old history prefix, `splice(start..start, newly_added_count)` rather than resetting all measured rows;
-- `Rebuild`: reset to the rebuilt history length;
-- if list count and the expected M249 prefix are detectably inconsistent, defensively `reset(history.len())` instead of applying an invalid splice;
-- New comparison and Fatal recovery: after the existing history clear, reset list count to `0`;
-- cancellation completion still skips history synchronization and therefore must not manufacture a list mutation.
+```rust
+pub fn ask_retained(
+    &mut self,
+    prompt: &str,
+) -> Result<usize, DesktopAnalystSessionError>
+```
 
-It is acceptable to make `sync_history_projection()` return its existing `HistoryProjectionPlan`, or to introduce a small pure helper that derives the required `ListState` mutation from the projection plan and before/after lengths. Keep data projection and list-cache synchronization explicit rather than coupling `ListState` into session/core code.
+The exact name may differ, but it must communicate that the successful turn is retained in `exchanges()` rather than returned as another owned payload.
+
+Preserve the existing compatibility API:
+
+```rust
+pub fn ask(&mut self, prompt: &str) -> Result<AnalystTurn, DesktopAnalystSessionError>
+```
+
+It may call the retained primitive and clone the stored turn **only because that caller explicitly requested an owned `AnalystTurn`**. The avoidable clone must disappear from the retained/panel path, not necessarily from the compatibility API.
+
+Update `AnalystPanelView::start_ask()` to use the retained/no-copy product method and carry only cheap success/error information through the background task. The panel must remain above raw client/process/Pi layers.
 
 ### State / correctness invariants
 
-- `DesktopAnalystSession::exchanges()` and `history` remain the complete authoritative session/UI projection respectively;
-- M249 fast-path projection semantics and fallback rebuild semantics remain unchanged;
-- M248 4096-byte input/output previews and truncation labels remain unchanged;
-- user scroll position is owned by GPUI `ListState`; appending while the user has scrolled up must preserve that position;
-- no Question/Answer/tool/runtime-error content changes;
-- no retry/cancel/failed-question/evidence-scope/Fatal/New comparison behavior changes;
-- no protocol/provider/model/Pi/process/runtime/readiness changes;
-- no Library/catalog/filter/pair/Swap/Start/identity changes;
-- no persistence, Pack or World authority changes;
-- keep `analyst_panel.rs` above raw client/process/Pi layers.
+- `DesktopAnalystSession::exchanges()` remains authoritative and stores the complete raw evidence exactly once per successful retained ask;
+- successful exchange ordering and prompt association are unchanged;
+- `DesktopAnalystState::Answer { turn_index }` still points at the exchange just retained;
+- recoverable errors retain the live process and append no exchange;
+- fatal errors shut down the process, clean snapshots and append no exchange exactly as today;
+- public `DesktopAnalystSession::ask()` continues returning an owned turn with the same content;
+- cancellation handle/state behavior is unchanged;
+- no Analyst turn protocol/schema/provider/model/timeout changes;
+- no evidence truncation or raw-payload dropping in session truth;
+- M248 4096-byte panel previews remain the only UI payload bound;
+- M249 projection plans/list synchronization and M250 virtual list behavior remain unchanged;
+- no Library/catalog/filter/pair/Swap/identity/persistence/Pack/World changes.
 
 ### Validation
 
 Required regressions:
 
-- source/render regression proves `render_active()` no longer eagerly loops through every `self.history` turn and instead uses GPUI `list` with the persistent `history_list` state;
-- the list item renderer indexes the live view history rather than cloning the complete history into the renderer;
-- empty history still renders the existing guidance instead of an empty list;
-- list-state mutation planning covers no-op, single append, multiple append, rebuild, and stale-count fallback;
-- normal append uses `splice` and does not reset already measured prefix rows;
-- startup/full rebuild synchronizes list count with `history.len()`;
-- New comparison and Fatal recovery clear both history and list item count;
-- cancellation path still performs no history/list append;
-- Tail follow is enabled; no manual unconditional `scroll_to_end()` is performed on every append that would override a user who scrolled upward;
-- M249 incremental projection regressions remain green;
-- M248 bounded-preview regressions remain green;
-- existing analyst session/retry/cancel/evidence-scope/catalog/pair/identity regressions remain green;
+- a retained successful ask appends exactly one exchange and reports the matching exchange index;
+- two retained successful asks preserve exact order and advance `Answer { turn_index }` from 0 to 1;
+- retained recoverable/fatal failures append no fake exchanges and preserve existing shutdown/reuse behavior;
+- the compatibility `DesktopAnalystSession::ask()` still returns an owned `AnalystTurn` with exact answer/tool/runtime-error content;
+- source regression proves the retained storage primitive moves `turn` into `DesktopAnalystExchange` rather than calling `turn.clone()` there;
+- any clone used to implement the owned-return compatibility API occurs only after successful retained storage and is not used by the panel path;
+- `AnalystPanelView::start_ask()` uses the retained/no-copy session API rather than `session.ask()` and still bases completion on success/error only;
+- cancellation completion behavior is unchanged;
+- M248 bounded-preview, M249 incremental-projection and M250 virtualized-history regressions remain green;
+- existing analyst session success/recoverable/fatal/archive/cancellation tests remain green;
 - Linux boundary/Pi/fmt/Clippy/workspace/Pack gates remain green;
 - full macOS Library/Packs/GPUI/desktop tests plus `World Machine.app` build/validate/packaged smoke/archive/upload remain green.
 
 ## Non-goals
 
-No history truncation or pagination, no maximum turn count, no persisted analyst history, no per-turn editing/deletion/reordering, no transcript export, no full tool-payload expansion, no change to M248 preview size, no protocol/session mutation, no GPUI fork or revision bump, no provider/model changes, no new Pi tools, no selector/catalog changes, and no Pack/World behavior changes.
+No history truncation or persistence, no payload-size change, no protocol/client response redesign, no removal of `AnalystTurn: Clone`, no provider/model changes, no new Pi tools, no concurrent asks, no reconnect/resume, no selector/catalog changes, no GPUI changes, and no Pack/World behavior changes.
