@@ -1,5 +1,7 @@
 # Next Coding Task — M251 Avoid Duplicate Full Analyst Turn on Ask Completion
 
+Status: implementation complete; exact validation in progress on `agent/m251-retain-analyst-turn-without-clone`.
+
 M214–M250 now provide the installed World Analyst path from immutable saved-World evidence through a restricted long-lived Pi analyst, provider-neutral turns, native runtime/model readiness, complete in-memory Question → Answer → Evidence history, explicit recovery/new-comparison/cancellation/retry/dismiss flows, retained-question evidence scoping, asynchronous catalog loading/refresh, typed drift reconciliation, two-sided selection/Swap, local filtering, stable Pack/document/pair identity, bounded 4096-byte UTF-8-safe UI evidence previews, incremental session-exchange → `PanelTurn` projection, and variable-height virtualized GPUI history rendering.
 
 M248 bounds only the panel's UI copy of tool input/output. The authoritative `DesktopAnalystSession` intentionally retains complete raw `AnalystTurn` evidence. There is still one avoidable full-payload duplication on every successful ask before that retained turn reaches the panel.
