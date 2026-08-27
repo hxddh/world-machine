@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 1000;
 const DEFAULT_PROBE_TIMEOUT_MS = 10000;
 const DEFAULT_PROMPT_TIMEOUT_MS = 120000;
+const DEFAULT_MAX_RPC_RECORD_BYTES = 64 * 1024 * 1024;
 const ANALYST_READY_COMMAND = "world-machine-analyst-ready";
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const RESTRICTED_LAUNCHER = resolve(REPO_ROOT, "scripts/run-pi-analyst.sh");
@@ -73,13 +74,24 @@ export class PiAnalystRpcSession {
     return new PiAnalystRpcSession(child);
   }
 
-  constructor(child) {
+  constructor(child, { maxRecordBytes = DEFAULT_MAX_RPC_RECORD_BYTES } = {}) {
     if (!child.stdin || !child.stdout) {
       throw new PiAnalystRpcTransportError("Pi analyst RPC child must expose piped stdin/stdout");
     }
+    if (
+      !Number.isSafeInteger(maxRecordBytes) ||
+      maxRecordBytes <= 0 ||
+      maxRecordBytes >= Number.MAX_SAFE_INTEGER
+    ) {
+      throw new PiAnalystRpcProtocolError(
+        "Pi analyst RPC max record bytes must be a positive safe integer with framing headroom",
+      );
+    }
 
     this.child = child;
-    this.buffer = Buffer.alloc(0);
+    this.maxRecordBytes = maxRecordBytes;
+    this.recordBuffer = Buffer.alloc(0);
+    this.recordBytes = 0;
     this.records = [];
     this.waiters = [];
     this.closedError = null;
@@ -424,35 +436,115 @@ export class PiAnalystRpcSession {
   }
 
   #acceptChunk(chunk) {
-    this.buffer = Buffer.concat([this.buffer, chunk]);
-    while (true) {
-      const newline = this.buffer.indexOf(0x0a);
-      if (newline < 0) return;
-      const raw = this.buffer.subarray(0, newline);
-      this.buffer = this.buffer.subarray(newline + 1);
-      const line = raw.toString("utf8").replace(/\r$/, "");
-      if (line.length === 0) continue;
+    if (this.closedError) return;
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    let offset = 0;
 
-      let record;
-      try {
-        record = JSON.parse(line);
-      } catch (error) {
-        this.#finish(
-          new PiAnalystRpcProtocolError(`invalid Pi analyst RPC JSON: ${error.message}`, {
-            line,
-          }),
-        );
+    while (offset < bytes.length) {
+      const newline = bytes.indexOf(0x0a, offset);
+      if (newline < 0) {
+        this.#appendRecordFragment(bytes.subarray(offset));
         return;
       }
 
-      const waiter = this.waiters.shift();
-      if (waiter) waiter.resolve(record);
-      else this.records.push(record);
+      if (!this.#appendRecordFragment(bytes.subarray(offset, newline))) return;
+      const payload = this.#takeRecordPayload();
+      if (payload === null) return;
+      if (payload.length > 0 && !this.#acceptRecordPayload(payload)) return;
+      offset = newline + 1;
     }
+  }
+
+  #appendRecordFragment(fragment) {
+    const maxRawBytes = this.maxRecordBytes + 1;
+    const totalBytes = this.recordBytes + fragment.length;
+    if (totalBytes > maxRawBytes) {
+      this.#failOversizedRecord();
+      return false;
+    }
+
+    if (totalBytes === maxRawBytes) {
+      const lastByte =
+        fragment.length > 0
+? fragment[fragment.length - 1]
+: this.recordBytes > 0
+  ? this.recordBuffer[this.recordBytes - 1]
+  : null;
+      if (lastByte !== 0x0d) {
+        this.#failOversizedRecord();
+        return false;
+      }
+    }
+
+    if (fragment.length === 0) return true;
+    this.#ensureRecordCapacity(totalBytes);
+    fragment.copy(this.recordBuffer, this.recordBytes);
+    this.recordBytes = totalBytes;
+    return true;
+  }
+
+  #ensureRecordCapacity(requiredBytes) {
+    if (this.recordBuffer.length >= requiredBytes) return;
+    const maxRawBytes = this.maxRecordBytes + 1;
+    let nextCapacity =
+      this.recordBuffer.length === 0 ? Math.min(4096, maxRawBytes) : this.recordBuffer.length;
+    while (nextCapacity < requiredBytes) {
+      nextCapacity = Math.min(maxRawBytes, Math.max(requiredBytes, nextCapacity * 2));
+    }
+
+    const next = Buffer.allocUnsafe(nextCapacity);
+    if (this.recordBytes > 0) {
+      this.recordBuffer.copy(next, 0, 0, this.recordBytes);
+    }
+    this.recordBuffer = next;
+  }
+
+  #takeRecordPayload() {
+    const raw = this.recordBuffer.subarray(0, this.recordBytes);
+    this.recordBuffer = Buffer.alloc(0);
+    this.recordBytes = 0;
+    const payload = raw.length > 0 && raw[raw.length - 1] === 0x0d ? raw.subarray(0, -1) : raw;
+    if (payload.length > this.maxRecordBytes) {
+      this.#failOversizedRecord();
+      return null;
+    }
+    return payload;
+  }
+
+  #acceptRecordPayload(payload) {
+    const line = payload.toString("utf8");
+    let record;
+    try {
+      record = JSON.parse(line);
+    } catch (error) {
+      this.#finish(
+        new PiAnalystRpcProtocolError(`invalid Pi analyst RPC JSON: ${error.message}`, {
+line,
+        }),
+      );
+      return false;
+    }
+
+    const waiter = this.waiters.shift();
+    if (waiter) waiter.resolve(record);
+    else this.records.push(record);
+    return true;
+  }
+
+  #failOversizedRecord() {
+    const error = new PiAnalystRpcProtocolError(
+      `Pi analyst RPC record exceeded the ${this.maxRecordBytes}-byte transport limit`,
+      { maxRecordBytes: this.maxRecordBytes },
+    );
+    this.records.length = 0;
+    this.#finish(error);
+    this.kill();
   }
 
   #finish(error) {
     if (this.closedError) return;
+    this.recordBuffer = Buffer.alloc(0);
+    this.recordBytes = 0;
     this.closedError = error;
     const waiters = this.waiters.splice(0);
     for (const waiter of waiters) waiter.reject(error);
