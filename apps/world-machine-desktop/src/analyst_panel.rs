@@ -4,8 +4,9 @@ use super::{
 };
 use crate::{DocumentStatus, SharedDocument, WorldDocumentView};
 use gpui::{
-    div, prelude::*, px, rgb, size, AppContext, Bounds, Context, Div, Entity, IntoElement,
-    PathPromptOptions, Render, SharedString, Styled, Window, WindowBounds, WindowOptions,
+    div, list, prelude::*, px, rgb, size, AnyElement, AppContext, Bounds, Context, Div, Entity,
+    FollowMode, IntoElement, ListAlignment, ListState, PathPromptOptions, Render, SharedString,
+    Styled, Window, WindowBounds, WindowOptions,
 };
 use std::sync::Arc;
 use world_library::{WorldDocumentId, WorldDocumentSummary, WorldLibrary};
@@ -41,6 +42,13 @@ enum HistoryProjectionPlan {
     Noop,
     AppendFrom(usize),
     Rebuild,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum HistoryListMutation {
+    Noop,
+    Splice { start: usize, count: usize },
+    Reset { count: usize },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -161,6 +169,7 @@ struct AnalystPanelView {
     busy: bool,
     cancel_requested: bool,
     history: Vec<PanelTurn>,
+    history_list: ListState,
     failed_question: Option<String>,
     failed_question_scope: Option<DesktopAnalystEvidenceScope>,
     last_error: Option<String>,
@@ -190,6 +199,8 @@ impl AnalystPanelView {
         cx.observe(&filter, |_, _, cx| cx.notify()).detach();
         let question = cx.new(|cx| AnalystTextInput::new("Ask why these Worlds differ…", cx));
         let right = left.clone();
+        let history_list = ListState::new(0, ListAlignment::Top, px(600.0));
+        history_list.set_follow_mode(FollowMode::Tail);
         let mut view = Self {
             library,
             documents: Vec::new(),
@@ -208,6 +219,7 @@ impl AnalystPanelView {
             busy: false,
             cancel_requested: false,
             history: Vec::new(),
+            history_list,
             failed_question: None,
             failed_question_scope: None,
             last_error: None,
@@ -515,6 +527,8 @@ impl AnalystPanelView {
                             this.failed_question_scope = None;
                         }
                         this.history = snapshot_history(&session);
+                        this.history_list.reset(this.history.len());
+                        this.history_list.set_follow_mode(FollowMode::Tail);
                         this.cancellation = session.cancellation_handle();
                         this.session = Some(session);
                         this.phase = PanelPhase::Active;
@@ -640,7 +654,14 @@ impl AnalystPanelView {
                 if cancel_requested {
                     this.phase = PanelPhase::Fatal("Analysis cancelled by user".into());
                 } else {
-                    sync_history_projection(&mut this.history, &session);
+                    let history_len_before = this.history.len();
+                    let plan = sync_history_projection(&mut this.history, &session);
+                    sync_history_list_state(
+                        &this.history_list,
+                        plan,
+                        history_len_before,
+                        this.history.len(),
+                    );
                     if !forced_fatal {
                         match session.state() {
                             DesktopAnalystState::FatalError { message } => {
@@ -784,6 +805,7 @@ impl AnalystPanelView {
                             &mut this.last_error,
                         );
                         debug_assert!(transitioned);
+                        this.history_list.reset(0);
                         this.runtime_checking = false;
                         this.refresh_saved_world_catalog(cx);
                     }
@@ -812,6 +834,7 @@ impl AnalystPanelView {
             return;
         }
 
+        self.history_list.reset(0);
         self.session.take();
         self.cancellation.take();
         self.cancel_requested = false;
@@ -1331,32 +1354,48 @@ impl AnalystPanelView {
             .child(start)
     }
 
-    fn render_active(&self, cx: &mut Context<Self>) -> Div {
-        let mut history = div()
-            .id("analyst-history")
-            .w_full()
-            .flex_1()
-            .overflow_y_scroll()
-            .flex()
-            .flex_col()
-            .gap_3();
-        if self.history.is_empty() {
-            history = history.child(
-                div()
-                    .p_4()
-                    .rounded_md()
-                    .border_1()
-                    .border_color(rgb(0xe0e0db))
-                    .bg(rgb(0xfafaf8))
-                    .text_sm()
-                    .text_color(rgb(0x666660))
-                    .child("Ask a question about what changed, why the Worlds diverged, or which evidence explains the difference."),
-            );
-        } else {
-            for (index, turn) in self.history.iter().enumerate() {
-                history = history.child(render_turn(index, turn));
-            }
+    fn render_history_entry(&self, index: usize) -> AnyElement {
+        match self.history.get(index) {
+            Some(turn) => div()
+                .w_full()
+                .pb(px(12.0))
+                .child(render_turn(index, turn))
+                .into_any_element(),
+            None => div().into_any_element(),
         }
+    }
+
+    fn render_active(&self, cx: &mut Context<Self>) -> Div {
+        let history = if self.history.is_empty() {
+            div()
+                .id("analyst-history")
+                .w_full()
+                .flex_1()
+                .child(
+                    div()
+                        .p_4()
+                        .rounded_md()
+                        .border_1()
+                        .border_color(rgb(0xe0e0db))
+                        .bg(rgb(0xfafaf8))
+                        .text_sm()
+                        .text_color(rgb(0x666660))
+                        .child("Ask a question about what changed, why the Worlds diverged, or which evidence explains the difference."),
+                )
+        } else {
+            div()
+                .id("analyst-history")
+                .w_full()
+                .flex_1()
+                .overflow_hidden()
+                .child(
+                    list(
+                        self.history_list.clone(),
+                        cx.processor(|this, index, _window, _cx| this.render_history_entry(index)),
+                    )
+                    .size_full(),
+                )
+        };
 
         let can_ask = !self.busy && matches!(self.phase, PanelPhase::Active);
         let mut ask = div()
@@ -2144,7 +2183,10 @@ fn apply_history_projection_plan<T, F>(
     }
 }
 
-fn sync_history_projection(history: &mut Vec<PanelTurn>, session: &DesktopAnalystSession) {
+fn sync_history_projection(
+    history: &mut Vec<PanelTurn>,
+    session: &DesktopAnalystSession,
+) -> HistoryProjectionPlan {
     let exchanges = session.exchanges();
     let history_len = history.len();
     let projected_tail_question = history.last().map(|turn| turn.question.as_str());
@@ -2159,6 +2201,70 @@ fn sync_history_projection(history: &mut Vec<PanelTurn>, session: &DesktopAnalys
         exchange_tail_prompt,
     );
     apply_history_projection_plan(history, exchanges, plan, panel_turn_from_exchange);
+    plan
+}
+
+fn history_list_mutation(
+    plan: HistoryProjectionPlan,
+    list_count: usize,
+    history_len_before: usize,
+    history_len_after: usize,
+) -> HistoryListMutation {
+    match plan {
+        HistoryProjectionPlan::Noop => {
+            if list_count == history_len_after {
+                HistoryListMutation::Noop
+            } else {
+                HistoryListMutation::Reset {
+                    count: history_len_after,
+                }
+            }
+        }
+        HistoryProjectionPlan::AppendFrom(start) => {
+            if start != history_len_before
+                || list_count != history_len_before
+                || history_len_after < history_len_before
+            {
+                return HistoryListMutation::Reset {
+                    count: history_len_after,
+                };
+            }
+            let count = history_len_after - history_len_before;
+            if count == 0 {
+                HistoryListMutation::Noop
+            } else {
+                HistoryListMutation::Splice { start, count }
+            }
+        }
+        HistoryProjectionPlan::Rebuild => HistoryListMutation::Reset {
+            count: history_len_after,
+        },
+    }
+}
+
+fn apply_history_list_mutation(list_state: &ListState, mutation: HistoryListMutation) {
+    match mutation {
+        HistoryListMutation::Noop => {}
+        HistoryListMutation::Splice { start, count } => {
+            list_state.splice(start..start, count);
+        }
+        HistoryListMutation::Reset { count } => list_state.reset(count),
+    }
+}
+
+fn sync_history_list_state(
+    list_state: &ListState,
+    plan: HistoryProjectionPlan,
+    history_len_before: usize,
+    history_len_after: usize,
+) {
+    let mutation = history_list_mutation(
+        plan,
+        list_state.item_count(),
+        history_len_before,
+        history_len_after,
+    );
+    apply_history_list_mutation(list_state, mutation);
 }
 
 fn render_turn(index: usize, turn: &PanelTurn) -> impl IntoElement {
@@ -2380,6 +2486,47 @@ mod tests {
     }
 
     #[test]
+    fn history_list_mutation_plans_append_noop_rebuild_and_stale_fallback() {
+        assert_eq!(
+            history_list_mutation(HistoryProjectionPlan::Noop, 2, 2, 2),
+            HistoryListMutation::Noop
+        );
+        assert_eq!(
+            history_list_mutation(HistoryProjectionPlan::Noop, 1, 2, 2),
+            HistoryListMutation::Reset { count: 2 }
+        );
+        assert_eq!(
+            history_list_mutation(HistoryProjectionPlan::AppendFrom(2), 2, 2, 3),
+            HistoryListMutation::Splice { start: 2, count: 1 }
+        );
+        assert_eq!(
+            history_list_mutation(HistoryProjectionPlan::AppendFrom(1), 1, 1, 4),
+            HistoryListMutation::Splice { start: 1, count: 3 }
+        );
+        assert_eq!(
+            history_list_mutation(HistoryProjectionPlan::AppendFrom(2), 1, 2, 3),
+            HistoryListMutation::Reset { count: 3 }
+        );
+        assert_eq!(
+            history_list_mutation(HistoryProjectionPlan::Rebuild, 2, 2, 2),
+            HistoryListMutation::Reset { count: 2 }
+        );
+    }
+
+    #[test]
+    fn history_list_mutations_update_only_the_required_cache_range() {
+        let list_state = ListState::new(1, ListAlignment::Top, px(0.0));
+        list_state.set_follow_mode(FollowMode::Tail);
+        apply_history_list_mutation(
+            &list_state,
+            HistoryListMutation::Splice { start: 1, count: 2 },
+        );
+        assert_eq!(list_state.item_count(), 3);
+        apply_history_list_mutation(&list_state, HistoryListMutation::Reset { count: 1 });
+        assert_eq!(list_state.item_count(), 1);
+    }
+
+    #[test]
     fn history_projection_apply_bounds_work_and_preserves_existing_prefix() {
         let exchanges = ["q1", "q2", "q3"];
         let mut history = vec![panel_turn("q1", "sentinel")];
@@ -2438,9 +2585,86 @@ mod tests {
         let after_cancel = start_ask.split_once("if cancel_requested {").unwrap().1;
         let (cancelled, non_cancelled) = after_cancel.split_once("} else {").unwrap();
         assert!(!cancelled.contains("sync_history_projection"));
+        assert!(!cancelled.contains("sync_history_list_state"));
         assert!(non_cancelled.contains("sync_history_projection(&mut this.history, &session);"));
+        assert!(non_cancelled.contains("sync_history_list_state("));
         assert!(!non_cancelled.contains("this.history = snapshot_history(&session);"));
     }
+
+    #[test]
+    fn active_history_uses_variable_height_list_without_eager_history_copy() {
+        let source = include_str!("analyst_panel.rs");
+        let render_active = source
+            .split_once("fn render_active(")
+            .unwrap()
+            .1
+            .split_once("impl Render for AnalystPanelView")
+            .unwrap()
+            .0;
+        assert!(render_active.contains("list("));
+        assert!(render_active.contains("self.history_list.clone()"));
+        assert!(render_active.contains("cx.processor("));
+        assert!(render_active.contains("this.render_history_entry(index)"));
+        assert!(render_active.contains("if self.history.is_empty()"));
+        assert!(render_active.contains("Ask a question about what changed"));
+        assert!(!render_active.contains("for (index, turn) in self.history.iter().enumerate()"));
+        assert!(!render_active.contains("self.history.clone()"));
+        assert!(!render_active.contains("uniform_list"));
+        assert!(!render_active.contains("scroll_to_end"));
+
+        let entry = source
+            .split_once("fn render_history_entry(")
+            .unwrap()
+            .1
+            .split_once("fn render_active(")
+            .unwrap()
+            .0;
+        assert!(entry.contains("self.history.get(index)"));
+        assert!(entry.contains("render_turn(index, turn)"));
+    }
+
+    #[test]
+    fn history_list_lifecycle_tracks_startup_append_and_reset_paths() {
+        let source = include_str!("analyst_panel.rs");
+        let constructor = source
+            .split_once("fn new(")
+            .unwrap()
+            .1
+            .split_once("fn refresh_runtime(")
+            .unwrap()
+            .0;
+        assert!(constructor.contains("ListState::new(0, ListAlignment::Top"));
+        assert!(constructor.contains("set_follow_mode(FollowMode::Tail)"));
+
+        let startup = source
+            .split_once("fn start_session(")
+            .unwrap()
+            .1
+            .split_once("fn ask(")
+            .unwrap()
+            .0;
+        assert!(startup.contains("this.history_list.reset(this.history.len())"));
+        assert!(startup.contains("this.history_list.set_follow_mode(FollowMode::Tail)"));
+
+        let new_comparison = source
+            .split_once("fn start_new_comparison(")
+            .unwrap()
+            .1
+            .split_once("fn recover_from_fatal(")
+            .unwrap()
+            .0;
+        assert!(new_comparison.contains("this.history_list.reset(0)"));
+
+        let recovery = source
+            .split_once("fn recover_from_fatal(")
+            .unwrap()
+            .1
+            .split_once("fn choose_world(")
+            .unwrap()
+            .0;
+        assert!(recovery.contains("self.history_list.reset(0)"));
+    }
+
     #[test]
     fn default_right_prefers_same_pack_then_any_other_world() {
         let documents = vec![
