@@ -1,143 +1,88 @@
-# Next Coding Task — M252 Bound Analyst Turn Response Framing
+# Next Coding Task — M253 Collision-Proof world-cli Integration Test Fixtures
 
-M214–M251 now provide the installed World Analyst path from immutable saved-World evidence through a restricted long-lived Pi analyst, provider-neutral turns, native runtime/model readiness, complete authoritative in-memory Question → Answer → Evidence exchanges, explicit recovery/new-comparison/cancellation/retry/dismiss flows, retained-question evidence scoping, asynchronous catalog loading/refresh, typed drift reconciliation, two-sided selection/Swap, local filtering, stable Pack/document/pair identity, bounded 4096-byte UTF-8-safe UI evidence previews, incremental panel history projection, variable-height virtualized GPUI history rendering, and a retained/no-copy panel ask path that moves each successful raw `AnalystTurn` directly into session exchanges.
+M214–M252 now provide the installed World Analyst path through immutable saved-World evidence, restricted long-lived Pi execution, provider-neutral turns, complete retained session evidence, bounded 4096-byte UI previews, incremental panel projection, variable-height virtualized history, retained/no-copy successful turns, and a bounded 64 MiB Analyst transport response frame before JSON/protocol validation.
 
-M248 intentionally bounds only the panel's display copy. M251 intentionally keeps one complete accepted raw `AnalystTurn` per successful exchange. The remaining unbounded memory path is earlier, at the NDJSON transport framing boundary before any protocol or JSON validation happens.
+While validating M251, the authoritative Linux workspace gate exposed a separate test-infrastructure reliability problem in `crates/world-cli/tests/machine_query_transport.rs`. The first run failed one integration test with `ENOENT`; rerunning the exact same commit passed the entire workspace and Pack conformance gate. This should be fixed separately rather than treated as acceptable CI noise.
 
-## M252 — cap one Analyst transport response before JSON/protocol validation
+## M253 — make temporary World archive paths collision-proof within the test process
 
-`crates/world-analyst-client/src/lib.rs` currently reads a complete host response with an unbounded `String`:
+The observed failure was:
 
-```rust
-let mut line = String::new();
-let read = match self.reader.read_line(&mut line) {
-    Ok(read) => read,
-    Err(error) => {
-        self.poisoned = true;
-        return Err(AnalystTurnClientError::ReadResponse(error));
-    }
-};
-if read == 0 {
-    self.poisoned = true;
-    return Err(AnalystTurnClientError::UnexpectedEof);
-}
+- test: `stdin_neighborhood_and_shortest_path_queries_emit_typed_json`;
+- the first neighborhood invocation using the fixture path succeeded;
+- the immediately following shortest-path invocation using the same `path` returned a CLI error whose stderr was `Os { code: 2, kind: NotFound, message: "No such file or directory" }`;
+- a same-head rerun passed without any code change.
 
-let value: Value = serde_json::from_str(&line)?;
-```
-
-A malformed, buggy, or compromised turn host can therefore emit an arbitrarily large line and force the Rust client to keep allocating until newline/EOF **before** response shape, protocol version, correlation ID, or JSON validity is checked.
-
-This is a transport-framing safety problem, not a UI preview problem. Accepted responses must remain complete; oversized transport frames should be rejected rather than truncated into a fake valid turn.
-
-### Product behavior
-
-- impose a generous **64 MiB maximum JSON payload size per Analyst response frame**;
-- the size limit excludes the optional trailing `\n` delimiter, so exactly 64 MiB of JSON plus one newline is valid;
-- preserve current support for a valid EOF-terminated JSON response that has no final newline, as long as it is within the limit;
-- a response whose JSON payload exceeds the ceiling fails closed with a dedicated client error and poisons the Analyst client/session;
-- do **not** truncate an oversized response and attempt to parse it;
-- accepted responses below/equal to the ceiling continue through the exact existing JSON shape, protocol/version, correlation, and remote-error validation;
-- accepted `AnalystTurn` values remain complete raw evidence and continue to be retained exactly once by M251;
-- no protocol version bump and no turn schema changes.
-
-Define a public transport constant alongside the existing protocol constants, for example:
+The fixture helper currently builds names only from process ID plus the current wall-clock nanosecond value:
 
 ```rust
-pub const ANALYST_TURN_MAX_RESPONSE_BYTES: usize = 64 * 1024 * 1024;
-```
-
-The 64 MiB ceiling is deliberately far above normal response sizes and far above the 4096-byte M248 UI preview. It is a runaway-frame guard, not an intended evidence-size target.
-
-### Bounded framing implementation
-
-Do not call `BufRead::read_line` into an unbounded `String`.
-
-Extract a small private helper whose limit is parameterized for unit tests, for example:
-
-```rust
-fn read_bounded_response_line<R: BufRead>(
-    reader: &mut R,
-    max_bytes: usize,
-) -> Result<Option<Vec<u8>>, AnalystTurnClientError>
-```
-
-Recommended semantics:
-
-- read at most `max_bytes + 1` bytes from the underlying `BufRead` using a limited reader and `read_until(b'\n', ...)`;
-- if nothing is read, return `Ok(None)` so the existing transaction path maps that to `UnexpectedEof`;
-- if the collected bytes end in `\n`, treat that delimiter as framing and exclude it from the payload-byte count;
-- therefore `max_bytes` JSON bytes + `\n` is allowed;
-- if there is no newline because the underlying reader reached EOF, a payload of exactly `max_bytes` is also allowed;
-- if `max_bytes + 1` payload bytes are observed before newline/EOF, return the dedicated oversized-frame error;
-- after an oversized frame, the client is poisoned, so there is no need to drain the remainder of the hostile frame;
-- the helper's collected buffer length must be bounded by `max_bytes + 1`; do not preallocate the full 64 MiB on every normal response.
-
-`std::io::Take<&mut R>` supports the required bounded read while preserving bytes after a normal newline for the next transaction. Keep the normal multi-request long-lived session behavior intact.
-
-After framing, parse directly from bytes with `serde_json::from_slice(&line)` rather than first constructing another UTF-8 `String`. JSON parsing still validates UTF-8 and should map malformed content to the existing `InvalidResponseJson` path.
-
-It is fine to split the transaction function so production always uses `ANALYST_TURN_MAX_RESPONSE_BYTES` while unit tests can exercise a tiny limit without allocating tens of MiB, for example:
-
-```rust
-fn transact(...) -> Result<AnalystTurnResponse, AnalystTurnClientError> {
-    self.transact_with_response_limit(
-        request,
-        expected_id,
-        ANALYST_TURN_MAX_RESPONSE_BYTES,
-    )
+fn temp_world_path() -> PathBuf {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    std::env::temp_dir().join(format!(
+        "world-machine-m188-{}-{nonce}.world",
+        std::process::id()
+    ))
 }
 ```
 
-Do not expose a runtime/user setting for this slice.
+Rust integration tests in this binary can execute concurrently in the same process. Every test also removes its fixture path when finished. If two fixture calls observe the same clock value, they produce the same filename; one test can then delete the archive while another still intends to reuse it. The exact M251 failure is consistent with that mechanism: the archive existed for the first CLI invocation and was gone before the second invocation in the same test.
 
-### Error semantics
+### Product / test behavior
 
-Add a distinct error such as:
+This milestone is test-infrastructure only:
+
+- every call to `temp_world_path()` within one test process must produce a distinct path, even if multiple calls observe the exact same wall-clock timestamp;
+- preserve the existing temp-directory location and `.world` archive shape;
+- keep cleanup behavior best-effort and local to the tests;
+- do not serialize the entire test suite as a workaround;
+- do not add sleeps, retries around missing files, or ignore the failure;
+- do not change `world-cli`, World archive semantics, query behavior, Pack behavior, or production code.
+
+### Recommended implementation
+
+Keep the change local to `crates/world-cli/tests/machine_query_transport.rs` and add a process-local atomic sequence to the filename, for example:
 
 ```rust
-ResponseTooLarge { max_bytes: usize }
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static TEMP_WORLD_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+fn temp_world_path() -> PathBuf {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let sequence = TEMP_WORLD_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    std::env::temp_dir().join(format!(
+        "world-machine-m188-{}-{nonce}-{sequence}.world",
+        std::process::id()
+    ))
+}
 ```
 
-Requirements:
+`Relaxed` ordering is sufficient because the atomic is only an identity allocator; no memory synchronization depends on it. Keeping PID + timestamp + sequence also protects reasonably against stale files from prior processes while guaranteeing uniqueness for concurrent calls in the current process.
 
-- `Display` clearly states that the Analyst turn response exceeded the transport limit;
-- `Error::source()` returns `None` for it;
-- it is session-fatal under the existing `is_session_fatal()` classification;
-- the client sets `poisoned = true` before returning it;
-- `AnalystTurnProcess` should therefore continue using its existing poisoned-client teardown path without new process policy.
-
-Do not turn an oversized response into `RemoteCommand`, because the frame could not be trusted/decoded enough to classify it as a provider-neutral command rejection.
-
-### State / correctness invariants
-
-- protocol remains `world-machine-analyst-turns` version 1;
-- `AnalystTurn`, `AnalystToolCall`, runtime errors and remote errors keep their exact wire schema;
-- strict top-level response shape validation remains after bounded framing;
-- protocol version and request/response correlation remain strict and unchanged;
-- nonfatal correlated command errors remain reusable/non-poisoning;
-- malformed JSON, invalid shape, protocol/version/correlation failures remain poisoning/fatal exactly as today;
-- accepted full raw evidence is not truncated or summarized;
-- M251 retained/no-copy ownership remains unchanged;
-- M248 panel 4096-byte previews remain the only presentation-size bound;
-- no desktop/session/Library/Pack/World behavior changes should be required.
+Do not introduce a new dependency solely for this fix unless the existing workspace already has an intentionally shared temp-file abstraction that is clearly preferable.
 
 ### Validation
 
-Required regressions in `world-analyst-client`:
+Required regressions:
 
-- bounded framing accepts a payload below the supplied test limit;
-- exactly `limit` payload bytes followed by newline is accepted;
-- exactly `limit` payload bytes followed by EOF is accepted, preserving current EOF-terminated response behavior;
-- `limit + 1` payload bytes are rejected as oversized;
-- the oversized helper path reads/collects no more than `limit + 1` bytes, so tests prove bounded framing without constructing a 64 MiB fixture;
-- a normal newline stops the first bounded read and leaves a second response frame available for the next read/transaction;
-- an oversized transaction returns the dedicated error, poisons the client, and the next ask/probe returns `Poisoned`;
-- a valid provider-neutral result under the limit decodes exactly as today;
-- malformed JSON, unknown fields, protocol/version/correlation, remote command/fatal, invalid-request, process teardown and reusable-session regressions remain green;
-- M251 desktop retained/no-copy tests remain green;
+- add a deterministic or source-level regression proving a process-local monotonic discriminator participates in the path, so equal timestamps cannot alias;
+- preferably add a focused uniqueness test that generates many fixture paths concurrently and proves there are no duplicates without creating/removing archive contents;
+- `stdin_neighborhood_and_shortest_path_queries_emit_typed_json` remains green and continues reusing its own one fixture path for both CLI requests;
+- all other `machine_query_transport` tests remain green;
+- run the affected integration test repeatedly or otherwise exercise parallel test execution enough to make the original cross-test deletion mechanism observable if it regresses;
 - Linux boundary/Pi/fmt/Clippy/workspace/Pack gates remain green;
 - full macOS Library/Packs/GPUI/desktop tests plus `World Machine.app` build/validate/packaged smoke/archive/upload remain green.
 
+### Scope audit
+
+Before editing, inspect the rest of `crates/world-cli/tests` for another helper with the same PID + wall-clock-only naming pattern. If an identical local pattern exists, either share the same narrow test helper or fix the directly equivalent collision in the same milestone. Do not expand into a repository-wide test utility refactor without concrete evidence.
+
 ## Non-goals
 
-No UI history limit, no evidence truncation, no 4096-byte preview change, no provider/model changes, no response compression, no streaming partial `AnalystTurn`, no protocol v2, no runtime-configurable frame limit, no request-size redesign, no new Pi tools, no reconnect/resume, no session concurrency changes, no selector/catalog changes, and no Pack/World behavior changes.
+No production temp-file behavior changes, no CLI query redesign, no World archive changes, no test-suite global mutex, no disabling parallel tests, no retries/sleeps, no ignored failures, no Analyst protocol/session/UI changes, no provider/model/Pi changes, and no Pack/World product behavior changes.
