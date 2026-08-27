@@ -1,15 +1,13 @@
-name: M252 bounded framing patch
-
+name: M252 Apply
 on:
   push:
     branches:
       - agent/m252-bound-analyst-response-framing
-
 permissions:
   contents: write
-
 jobs:
-  patch:
+  apply:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,341 +19,282 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
 
-          path = Path('crates/world-analyst-client/src/lib.rs')
-          source = path.read_text()
+          def block(lines):
+              return '\n'.join(lines)
 
-          def replace_once(old: str, new: str) -> None:
-              global source
-              count = source.count(old)
+          def replace_once(text, old_lines, new_lines, label):
+              old = block(old_lines)
+              new = block(new_lines)
+              count = text.count(old)
               if count != 1:
-                  raise SystemExit(f'expected one match, found {count}: {old[:80]!r}')
-              source = source.replace(old, new, 1)
+                  raise SystemExit(f'{label}: expected one match, found {count}')
+              return text.replace(old, new, 1)
 
-          replace_once(
-              'use std::io::{self, BufRead, BufReader, BufWriter, Write};',
-              'use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};',
-          )
+          path = Path('crates/world-analyst-client/src/lib.rs')
+          s = path.read_text()
 
-          replace_once(
-              'pub const ANALYST_TURN_MAX_TIMEOUT_MS: u64 = 9_007_199_254_740_991;\n',
-              'pub const ANALYST_TURN_MAX_TIMEOUT_MS: u64 = 9_007_199_254_740_991;\n'
-              'pub const ANALYST_TURN_MAX_RESPONSE_BYTES: usize = 64 * 1024 * 1024;\n',
-          )
+          s = replace_once(s, [
+              'pub const ANALYST_TURN_MAX_TIMEOUT_MS: u64 = 9_007_199_254_740_991;',
+          ], [
+              'pub const ANALYST_TURN_MAX_TIMEOUT_MS: u64 = 9_007_199_254_740_991;',
+              'pub const ANALYST_TURN_MAX_RESPONSE_BYTES: usize = 64 * 1024 * 1024;',
+          ], 'response size constant')
 
-          replace_once(
-              '    UnexpectedEof,\n    InvalidResponseJson(serde_json::Error),',
-              '    UnexpectedEof,\n    ResponseTooLarge { max_bytes: usize },\n    InvalidResponseJson(serde_json::Error),',
-          )
+          s = replace_once(s, [
+              '    UnexpectedEof,',
+              '    InvalidResponseJson(serde_json::Error),',
+          ], [
+              '    UnexpectedEof,',
+              '    ResponseTooLarge { max_bytes: usize },',
+              '    InvalidResponseJson(serde_json::Error),',
+          ], 'oversized response error')
 
-          replace_once(
-              '            Self::UnexpectedEof => write!(f, "analyst turn host closed before responding"),\n'
+          s = replace_once(s, [
+              '            Self::UnexpectedEof => write!(f, "analyst turn host closed before responding"),',
               '            Self::InvalidResponseJson(error) => {',
-              '            Self::UnexpectedEof => write!(f, "analyst turn host closed before responding"),\n'
-              '            Self::ResponseTooLarge { max_bytes } => write!(\n'
-              '                f,\n'
-              '                "analyst turn response exceeded the {max_bytes}-byte transport limit"\n'
-              '            ),\n'
+          ], [
+              '            Self::UnexpectedEof => write!(f, "analyst turn host closed before responding"),',
+              '            Self::ResponseTooLarge { max_bytes } => write!(',
+              '                f,',
+              '                "analyst turn response exceeded the {max_bytes}-byte transport limit"',
+              '            ),',
               '            Self::InvalidResponseJson(error) => {',
-          )
+          ], 'oversized response display')
 
-          replace_once(
-              '            | Self::UnexpectedEof\n            | Self::InvalidResponseShape(_)',
-              '            | Self::UnexpectedEof\n            | Self::ResponseTooLarge { .. }\n            | Self::InvalidResponseShape(_)',
-          )
+          s = replace_once(s, [
+              '            | Self::UnexpectedEof',
+              '            | Self::InvalidResponseShape(_)',
+          ], [
+              '            | Self::UnexpectedEof',
+              '            | Self::ResponseTooLarge { .. }',
+              '            | Self::InvalidResponseShape(_)',
+          ], 'oversized response source')
 
-          old_transact = '''    fn transact(
-        &mut self,
-        request: &AnalystTurnRequest,
-        expected_id: &str,
-    ) -> Result<AnalystTurnResponse, AnalystTurnClientError> {
-        let encoded =
-            serde_json::to_vec(request).map_err(AnalystTurnClientError::SerializeRequest)?;
-        if let Err(error) = self.writer.write_all(&encoded) {
-            self.poisoned = true;
-            return Err(AnalystTurnClientError::WriteRequest(error));
-        }
-        if let Err(error) = self.writer.write_all(b"\\n") {
-            self.poisoned = true;
-            return Err(AnalystTurnClientError::WriteRequest(error));
-        }
-        if let Err(error) = self.writer.flush() {
-            self.poisoned = true;
-            return Err(AnalystTurnClientError::WriteRequest(error));
-        }
+          transact_start = s.index('    fn transact(\n')
+          transact_end = s.index('    fn remote_error', transact_start)
+          transact = block([
+              '    fn transact(',
+              '        &mut self,',
+              '        request: &AnalystTurnRequest,',
+              '        expected_id: &str,',
+              '    ) -> Result<AnalystTurnResponse, AnalystTurnClientError> {',
+              '        self.transact_with_response_limit(request, expected_id, ANALYST_TURN_MAX_RESPONSE_BYTES)',
+              '    }',
+              '',
+              '    fn transact_with_response_limit(',
+              '        &mut self,',
+              '        request: &AnalystTurnRequest,',
+              '        expected_id: &str,',
+              '        max_response_bytes: usize,',
+              '    ) -> Result<AnalystTurnResponse, AnalystTurnClientError> {',
+              '        let encoded =',
+              '            serde_json::to_vec(request).map_err(AnalystTurnClientError::SerializeRequest)?;',
+              '        if let Err(error) = self.writer.write_all(&encoded) {',
+              '            self.poisoned = true;',
+              '            return Err(AnalystTurnClientError::WriteRequest(error));',
+              '        }',
+              '        if let Err(error) = self.writer.write_all(b"\\n") {',
+              '            self.poisoned = true;',
+              '            return Err(AnalystTurnClientError::WriteRequest(error));',
+              '        }',
+              '        if let Err(error) = self.writer.flush() {',
+              '            self.poisoned = true;',
+              '            return Err(AnalystTurnClientError::WriteRequest(error));',
+              '        }',
+              '',
+              '        let line = match read_bounded_response_line(&mut self.reader, max_response_bytes) {',
+              '            Ok(Some(line)) => line,',
+              '            Ok(None) => {',
+              '                self.poisoned = true;',
+              '                return Err(AnalystTurnClientError::UnexpectedEof);',
+              '            }',
+              '            Err(error) => {',
+              '                self.poisoned = true;',
+              '                return Err(error);',
+              '            }',
+              '        };',
+              '',
+              '        let value: Value = match serde_json::from_slice(&line) {',
+              '            Ok(value) => value,',
+              '            Err(error) => {',
+              '                self.poisoned = true;',
+              '                return Err(AnalystTurnClientError::InvalidResponseJson(error));',
+              '            }',
+              '        };',
+              '        if let Err(error) = validate_response_shape(&value) {',
+              '            self.poisoned = true;',
+              '            return Err(error);',
+              '        }',
+              '        let envelope: AnalystTurnEnvelope = match serde_json::from_value(value) {',
+              '            Ok(envelope) => envelope,',
+              '            Err(error) => {',
+              '                self.poisoned = true;',
+              '                return Err(AnalystTurnClientError::InvalidResponseJson(error));',
+              '            }',
+              '        };',
+              '',
+              '        if envelope.protocol != ANALYST_TURN_PROTOCOL {',
+              '            self.poisoned = true;',
+              '            return Err(AnalystTurnClientError::ProtocolMismatch {',
+              '                actual: envelope.protocol,',
+              '            });',
+              '        }',
+              '        if envelope.version != ANALYST_TURN_PROTOCOL_VERSION {',
+              '            self.poisoned = true;',
+              '            return Err(AnalystTurnClientError::VersionMismatch {',
+              '                actual: envelope.version,',
+              '            });',
+              '        }',
+              '',
+              '        let actual_id = response_id(&envelope.response).to_owned();',
+              '        if actual_id != expected_id {',
+              '            self.poisoned = true;',
+              '            return Err(AnalystTurnClientError::CorrelationMismatch {',
+              '                expected: expected_id.to_owned(),',
+              '                actual: actual_id,',
+              '            });',
+              '        }',
+              '        Ok(envelope.response)',
+              '    }',
+              '',
+          ])
+          s = s[:transact_start] + transact + s[transact_end:]
 
-        let mut line = String::new();
-        let read = match self.reader.read_line(&mut line) {
-            Ok(read) => read,
-            Err(error) => {
-                self.poisoned = true;
-                return Err(AnalystTurnClientError::ReadResponse(error));
-            }
-        };
-        if read == 0 {
-            self.poisoned = true;
-            return Err(AnalystTurnClientError::UnexpectedEof);
-        }
+          helper_marker = 'fn validate_timeout(timeout_ms: Option<u64>) -> Result<(), AnalystTurnClientError> {'
+          helper = block([
+              'fn read_bounded_response_line<R: BufRead>(',
+              '    reader: &mut R,',
+              '    max_bytes: usize,',
+              ') -> Result<Option<Vec<u8>>, AnalystTurnClientError> {',
+              '    let read_limit = max_bytes.saturating_add(1);',
+              '    let mut line = Vec::new();',
+              '    let mut limited = reader.take(read_limit as u64);',
+              '    let read = limited',
+              "        .read_until(b'\\n', &mut line)",
+              '        .map_err(AnalystTurnClientError::ReadResponse)?;',
+              '    if read == 0 {',
+              '        return Ok(None);',
+              '    }',
+              '',
+              "    if line.last() == Some(&b'\\n') {",
+              '        line.pop();',
+              '    }',
+              '    if line.len() > max_bytes {',
+              '        return Err(AnalystTurnClientError::ResponseTooLarge { max_bytes });',
+              '    }',
+              '    Ok(Some(line))',
+              '}',
+              '',
+              '',
+          ])
+          if s.count(helper_marker) != 1:
+              raise SystemExit('validate timeout marker not unique')
+          s = s.replace(helper_marker, helper + helper_marker, 1)
 
-        let value: Value = match serde_json::from_str(&line) {
-            Ok(value) => value,
-            Err(error) => {
-                self.poisoned = true;
-                return Err(AnalystTurnClientError::InvalidResponseJson(error));
-            }
-        };
-        if let Err(error) = validate_response_shape(&value) {
-            self.poisoned = true;
-            return Err(error);
-        }
-        let envelope: AnalystTurnEnvelope = match serde_json::from_value(value) {
-            Ok(envelope) => envelope,
-            Err(error) => {
-                self.poisoned = true;
-                return Err(AnalystTurnClientError::InvalidResponseJson(error));
-            }
-        };
+          test_marker = block([
+              '    #[cfg(unix)]',
+              '    #[test]',
+              '    fn process_returns_poisoned_after_fatal_probe_teardown() {',
+          ])
+          tests = block([
+              '    #[test]',
+              '    fn bounded_response_framing_accepts_below_limit_and_exact_boundaries() {',
+              '        for bytes in [b"abc\\n".as_slice(), b"abcd\\n".as_slice(), b"abcd".as_slice()] {',
+              '            let mut reader = Cursor::new(bytes.to_vec());',
+              '            let line = read_bounded_response_line(&mut reader, 4).unwrap().unwrap();',
+              '            assert_eq!(line, bytes.strip_suffix(b"\\n").unwrap_or(bytes));',
+              '        }',
+              '    }',
+              '',
+              '    #[test]',
+              '    fn bounded_response_framing_rejects_limit_plus_one_without_overreading() {',
+              '        let mut reader = Cursor::new(b"abcde-and-more\\n".to_vec());',
+              '        let error = read_bounded_response_line(&mut reader, 4).unwrap_err();',
+              '        assert!(matches!(',
+              '            error,',
+              '            AnalystTurnClientError::ResponseTooLarge { max_bytes: 4 }',
+              '        ));',
+              '        assert_eq!(reader.position(), 5);',
+              '    }',
+              '',
+              '    #[test]',
+              '    fn bounded_response_framing_stops_at_newline_and_preserves_next_frame() {',
+              '        let mut reader = Cursor::new(b"one\\ntwo\\n".to_vec());',
+              '        assert_eq!(',
+              '            read_bounded_response_line(&mut reader, 8).unwrap(),',
+              '            Some(b"one".to_vec())',
+              '        );',
+              '        assert_eq!(',
+              '            read_bounded_response_line(&mut reader, 8).unwrap(),',
+              '            Some(b"two".to_vec())',
+              '        );',
+              '    }',
+              '',
+              '    #[test]',
+              '    fn oversized_transaction_poison_client_before_json_validation() {',
+              '        let mut client = AnalystTurnClient::new(',
+              '            Cursor::new(b"{\\\"oversized\\\":true}\\n".to_vec()),',
+              '            Vec::new(),',
+              '        );',
+              '        let request = AnalystTurnRequest::Ask {',
+              '            id: "world-rust-analyst-1".into(),',
+              '            prompt: "question".into(),',
+              '            timeout_ms: None,',
+              '        };',
+              '        let error = client',
+              '            .transact_with_response_limit(&request, "world-rust-analyst-1", 8)',
+              '            .unwrap_err();',
+              '        assert!(matches!(',
+              '            error,',
+              '            AnalystTurnClientError::ResponseTooLarge { max_bytes: 8 }',
+              '        ));',
+              '        assert!(client.is_poisoned());',
+              '        assert!(error.is_session_fatal());',
+              '        assert!(matches!(',
+              '            client.ask("again", None).unwrap_err(),',
+              '            AnalystTurnClientError::Poisoned',
+              '        ));',
+              '    }',
+              '',
+              '    #[test]',
+              '    fn analyst_response_framing_source_is_bounded_and_byte_based() {',
+              '        let source = include_str!("lib.rs");',
+              '        let transact = source',
+              '            .split_once("fn transact_with_response_limit(")',
+              '            .unwrap()',
+              '            .1',
+              '            .split_once("fn remote_error")',
+              '            .unwrap()',
+              '            .0;',
+              '        assert!(transact.contains("read_bounded_response_line"));',
+              '        assert!(transact.contains("serde_json::from_slice(&line)"));',
+              '        assert!(!transact.contains("read_line(&mut"));',
+              '        assert!(!transact.contains("serde_json::from_str(&line)"));',
+              '',
+              '        let helper = source',
+              '            .split_once("fn read_bounded_response_line")',
+              '            .unwrap()',
+              '            .1',
+              '            .split_once("fn validate_timeout")',
+              '            .unwrap()',
+              '            .0;',
+              '        assert!(helper.contains("take(read_limit as u64)"));',
+              '        assert!(helper.contains("read_until(b\'\\\\n\'"));',
+              '    }',
+              '',
+              '',
+          ])
+          if s.count(test_marker) != 1:
+              raise SystemExit(f'test marker expected once, found {s.count(test_marker)}')
+          s = s.replace(test_marker, tests + test_marker, 1)
 
-        if envelope.protocol != ANALYST_TURN_PROTOCOL {
-            self.poisoned = true;
-            return Err(AnalystTurnClientError::ProtocolMismatch {
-                actual: envelope.protocol,
-            });
-        }
-        if envelope.version != ANALYST_TURN_PROTOCOL_VERSION {
-            self.poisoned = true;
-            return Err(AnalystTurnClientError::VersionMismatch {
-                actual: envelope.version,
-            });
-        }
-
-        let actual_id = response_id(&envelope.response).to_owned();
-        if actual_id != expected_id {
-            self.poisoned = true;
-            return Err(AnalystTurnClientError::CorrelationMismatch {
-                expected: expected_id.to_owned(),
-                actual: actual_id,
-            });
-        }
-        Ok(envelope.response)
-    }
-'''
-          new_transact = '''    fn transact(
-        &mut self,
-        request: &AnalystTurnRequest,
-        expected_id: &str,
-    ) -> Result<AnalystTurnResponse, AnalystTurnClientError> {
-        self.transact_with_response_limit(request, expected_id, ANALYST_TURN_MAX_RESPONSE_BYTES)
-    }
-
-    fn transact_with_response_limit(
-        &mut self,
-        request: &AnalystTurnRequest,
-        expected_id: &str,
-        max_response_bytes: usize,
-    ) -> Result<AnalystTurnResponse, AnalystTurnClientError> {
-        let encoded =
-            serde_json::to_vec(request).map_err(AnalystTurnClientError::SerializeRequest)?;
-        if let Err(error) = self.writer.write_all(&encoded) {
-            self.poisoned = true;
-            return Err(AnalystTurnClientError::WriteRequest(error));
-        }
-        if let Err(error) = self.writer.write_all(b"\\n") {
-            self.poisoned = true;
-            return Err(AnalystTurnClientError::WriteRequest(error));
-        }
-        if let Err(error) = self.writer.flush() {
-            self.poisoned = true;
-            return Err(AnalystTurnClientError::WriteRequest(error));
-        }
-
-        let line = match read_bounded_response_line(&mut self.reader, max_response_bytes) {
-            Ok(Some(line)) => line,
-            Ok(None) => {
-                self.poisoned = true;
-                return Err(AnalystTurnClientError::UnexpectedEof);
-            }
-            Err(error) => {
-                self.poisoned = true;
-                return Err(error);
-            }
-        };
-
-        let value: Value = match serde_json::from_slice(&line) {
-            Ok(value) => value,
-            Err(error) => {
-                self.poisoned = true;
-                return Err(AnalystTurnClientError::InvalidResponseJson(error));
-            }
-        };
-        if let Err(error) = validate_response_shape(&value) {
-            self.poisoned = true;
-            return Err(error);
-        }
-        let envelope: AnalystTurnEnvelope = match serde_json::from_value(value) {
-            Ok(envelope) => envelope,
-            Err(error) => {
-                self.poisoned = true;
-                return Err(AnalystTurnClientError::InvalidResponseJson(error));
-            }
-        };
-
-        if envelope.protocol != ANALYST_TURN_PROTOCOL {
-            self.poisoned = true;
-            return Err(AnalystTurnClientError::ProtocolMismatch {
-                actual: envelope.protocol,
-            });
-        }
-        if envelope.version != ANALYST_TURN_PROTOCOL_VERSION {
-            self.poisoned = true;
-            return Err(AnalystTurnClientError::VersionMismatch {
-                actual: envelope.version,
-            });
-        }
-
-        let actual_id = response_id(&envelope.response).to_owned();
-        if actual_id != expected_id {
-            self.poisoned = true;
-            return Err(AnalystTurnClientError::CorrelationMismatch {
-                expected: expected_id.to_owned(),
-                actual: actual_id,
-            });
-        }
-        Ok(envelope.response)
-    }
-'''
-          replace_once(old_transact, new_transact)
-
-          marker = 'fn validate_timeout(timeout_ms: Option<u64>) -> Result<(), AnalystTurnClientError> {'
-          helper = '''fn read_bounded_response_line<R: BufRead>(
-    reader: &mut R,
-    max_bytes: usize,
-) -> Result<Option<Vec<u8>>, AnalystTurnClientError> {
-    let read_limit = max_bytes.saturating_add(1);
-    let mut line = Vec::new();
-    let read = reader
-        .take(read_limit as u64)
-        .read_until(b'\\n', &mut line)
-        .map_err(AnalystTurnClientError::ReadResponse)?;
-    if read == 0 {
-        return Ok(None);
-    }
-
-    if line.last() == Some(&b'\\n') {
-        line.pop();
-    }
-    if line.len() > max_bytes {
-        return Err(AnalystTurnClientError::ResponseTooLarge { max_bytes });
-    }
-    Ok(Some(line))
-}
-
-'''
-          replace_once(marker, helper + marker)
-
-          test_marker = '''    #[cfg(unix)]
-    #[test]
-    fn process_returns_poisoned_after_fatal_probe_teardown() {'''
-          tests = '''    #[test]
-    fn bounded_response_framing_accepts_below_limit_and_exact_boundaries() {
-        for bytes in [b"abc\\n".as_slice(), b"abcd\\n".as_slice(), b"abcd".as_slice()] {
-            let mut reader = Cursor::new(bytes.to_vec());
-            let line = read_bounded_response_line(&mut reader, 4).unwrap().unwrap();
-            assert_eq!(line, bytes.strip_suffix(b"\\n").unwrap_or(bytes));
-        }
-    }
-
-    #[test]
-    fn bounded_response_framing_rejects_limit_plus_one_without_overreading() {
-        let mut reader = Cursor::new(b"abcde-and-more\\n".to_vec());
-        let error = read_bounded_response_line(&mut reader, 4).unwrap_err();
-        assert!(matches!(
-            error,
-            AnalystTurnClientError::ResponseTooLarge { max_bytes: 4 }
-        ));
-        assert_eq!(reader.position(), 5);
-    }
-
-    #[test]
-    fn bounded_response_framing_stops_at_newline_and_preserves_next_frame() {
-        let mut reader = Cursor::new(b"one\\ntwo\\n".to_vec());
-        assert_eq!(
-            read_bounded_response_line(&mut reader, 8).unwrap(),
-            Some(b"one".to_vec())
-        );
-        assert_eq!(
-            read_bounded_response_line(&mut reader, 8).unwrap(),
-            Some(b"two".to_vec())
-        );
-    }
-
-    #[test]
-    fn oversized_transaction_poison_client_before_json_validation() {
-        let mut client = AnalystTurnClient::new(
-            Cursor::new(b"{\\\"oversized\\\":true}\\n".to_vec()),
-            Vec::new(),
-        );
-        let request = AnalystTurnRequest::Ask {
-            id: "world-rust-analyst-1".into(),
-            prompt: "question".into(),
-            timeout_ms: None,
-        };
-        let error = client
-            .transact_with_response_limit(&request, "world-rust-analyst-1", 8)
-            .unwrap_err();
-        assert!(matches!(
-            error,
-            AnalystTurnClientError::ResponseTooLarge { max_bytes: 8 }
-        ));
-        assert!(client.is_poisoned());
-        assert!(error.is_session_fatal());
-        assert!(matches!(
-            client.ask("again", None).unwrap_err(),
-            AnalystTurnClientError::Poisoned
-        ));
-    }
-
-    #[test]
-    fn analyst_response_framing_source_is_bounded_and_byte_based() {
-        let source = include_str!("lib.rs");
-        let transact = source
-            .split_once("fn transact_with_response_limit(")
-            .unwrap()
-            .1
-            .split_once("fn remote_error")
-            .unwrap()
-            .0;
-        assert!(transact.contains("read_bounded_response_line"));
-        assert!(transact.contains("serde_json::from_slice(&line)"));
-        assert!(!transact.contains("read_line(&mut"));
-        assert!(!transact.contains("serde_json::from_str(&line)"));
-
-        let helper = source
-            .split_once("fn read_bounded_response_line")
-            .unwrap()
-            .1
-            .split_once("fn validate_timeout")
-            .unwrap()
-            .0;
-        assert!(helper.contains("take(read_limit as u64)"));
-        assert!(helper.contains("read_until(b'\\\\n'"));
-    }
-
-'''
-          replace_once(test_marker, tests + test_marker)
-
-          path.write_text(source)
+          path.write_text(s)
           PY
-      - name: Format and test client
-        shell: bash
-        run: |
           cargo fmt --all
           cargo test -p world-analyst-client
-      - name: Commit product patch and remove staging workflow
-        shell: bash
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git rm .github/workflows/m252-patch.yml
           git add crates/world-analyst-client/src/lib.rs
-          git commit -m "M252: bound analyst response framing"
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m 'M252: bound analyst response framing'
           git push origin HEAD:agent/m252-bound-analyst-response-framing
