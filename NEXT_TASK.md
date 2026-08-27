@@ -1,5 +1,7 @@
 # Next Coding Task — M250 Virtualize Analyst History Rendering
 
+Status: implementation complete; exact validation in progress on `agent/m250-virtualize-analyst-history`.
+
 M214–M249 now provide the installed World Analyst path from immutable saved-World evidence through a restricted long-lived Pi analyst, provider-neutral turns, native runtime/model readiness, in-memory Question → Answer → Evidence history, explicit recovery/new-comparison/cancellation/retry/dismiss flows, retained-question evidence scoping, asynchronous catalog loading/refresh, typed saved-World/runtime drift reconciliation, two-sided selection/Swap, local filtering, Pack/document identity, stable selected/pair identity, bounded 4096-byte UTF-8-safe evidence previews, and incremental session-exchange → `PanelTurn` projection.
 
 M249 removes repeated re-projection of all prior turns after each ask. The remaining long-history scaling cost is now in rendering rather than data projection.
