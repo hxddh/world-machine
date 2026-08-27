@@ -153,7 +153,13 @@ export class AnalystJsonlClient {
     this.busy = true;
     try {
       const responsePromise = this.#nextLine();
-      await this.#writeLine(request);
+      try {
+        await this.#writeLine(request);
+      } catch (error) {
+        responsePromise.catch(() => {});
+        if (this.framingError) throw this.framingError;
+        throw error;
+      }
       const line = await this.#withAbort(responsePromise, signal);
       if (this.framingError) throw this.framingError;
 
@@ -366,7 +372,7 @@ async function settledBefore(promise, timeoutMs) {
   let timer;
   try {
     return await Promise.race([
-      promise.then(() => true),
+      promise.then(() => true, () => false),
       new Promise((resolve) => {
         timer = setTimeout(() => resolve(false), timeoutMs);
         timer.unref?.();

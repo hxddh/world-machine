@@ -401,6 +401,43 @@ test("Analyst JSONL framing escalates idle overflow cleanup when SIGTERM is igno
   assert.equal(child.signalCode, "SIGKILL");
 });
 
+test("Analyst JSONL framing observes the pending response when request writing fails", async () => {
+  const maxRecordBytes = 32;
+  const { client, child } = controlledClient(() => {}, { maxRecordBytes });
+  const originalWrite = child.stdin.write.bind(child.stdin);
+  child.stdin.write = (chunk, encoding, callback) => {
+    child.stdout.write(Buffer.alloc(maxRecordBytes + 2, 0x78));
+    queueMicrotask(() => callback(new Error("simulated EPIPE")));
+    return true;
+  };
+
+  try {
+    await assert.rejects(
+      client.listTools(),
+      (error) => error instanceof AnalystBridgeError && /record exceeded/.test(error.message),
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+  } finally {
+    child.stdin.write = originalWrite;
+  }
+});
+
+test("Analyst JSONL framing still escalates when the exit wait rejects on child error", async () => {
+  const maxRecordBytes = 32;
+  const { client, child, killSignals } = controlledClient(
+    () => {},
+    { maxRecordBytes },
+    { ignoreSigterm: true },
+  );
+
+  child.stdout.write(Buffer.alloc(maxRecordBytes + 2, 0x78));
+  child.emit("error", new Error("simulated child error during termination"));
+  await assert.rejects(client.listTools(), /record exceeded/);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(killSignals, ["SIGTERM", "SIGKILL"]);
+  assert.equal(child.signalCode, "SIGKILL");
+});
+
 test("provider tool names are deterministic and constrained", () => {
   assert.equal(providerSafeToolName("world.first-divergence"), "world_first_divergence");
   assert.equal(providerSafeToolName("7.bad tool"), "world_7_bad_tool");
