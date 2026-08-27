@@ -146,6 +146,9 @@ export class AnalystJsonlClient {
     if (signal?.aborted) {
       throw new AnalystBridgeError("analyst tool call aborted before dispatch");
     }
+    if (this.closedError) {
+      throw this.closedError;
+    }
 
     this.busy = true;
     try {
