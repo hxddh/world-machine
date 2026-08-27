@@ -11,6 +11,7 @@ The observed failure was:
 - test: `stdin_neighborhood_and_shortest_path_queries_emit_typed_json`;
 - the first neighborhood invocation using the fixture path succeeded;
 - the immediately following shortest-path invocation using the same `path` returned a CLI error whose stderr was `Os { code: 2, kind: NotFound, message: "No such file or directory" }`;
+- specifically, the failure was the second `assert!(output.status.success(), ...)` after `run_query` for `ShortestPath`, so the CLI binary had started successfully and the same archive path had already worked for the first query;
 - a same-head rerun passed without any code change.
 
 The fixture helper currently builds names only from process ID plus the current wall-clock nanosecond value:
