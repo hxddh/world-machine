@@ -1,0 +1,66 @@
+name: M253 Temp
+on:
+  push:
+    branches:
+      - agent/m253-collision-proof-world-cli-fixtures
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/m253-collision-proof-world-cli-fixtures
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Apply and validate M253
+        shell: bash
+        run: |
+          cat > /tmp/m253.py <<'PY'
+          from pathlib import Path
+
+          def replace(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              if old not in text:
+                  raise SystemExit(f"pattern not found in {path}")
+              p.write_text(text.replace(old, new, 1))
+
+          transport = "crates/world-cli/tests/machine_query_transport.rs"
+          replace(
+              transport,
+              "use std::process::{Command, Output, Stdio};\nuse std::time::{SystemTime, UNIX_EPOCH};",
+              "use std::process::{Command, Output, Stdio};\nuse std::sync::atomic::{AtomicU64, Ordering};\nuse std::time::{SystemTime, UNIX_EPOCH};",
+          )
+          replace(
+              transport,
+              "fn temp_world_path() -> PathBuf {\n    let nonce = SystemTime::now()\n        .duration_since(UNIX_EPOCH)\n        .unwrap()\n        .as_nanos();\n    std::env::temp_dir().join(format!(\n        \"world-machine-m188-{}-{nonce}.world\",\n        std::process::id()\n    ))\n}",
+              "static TEMP_WORLD_SEQUENCE: AtomicU64 = AtomicU64::new(0);\n\nfn temp_world_path() -> PathBuf {\n    let nonce = SystemTime::now()\n        .duration_since(UNIX_EPOCH)\n        .unwrap()\n        .as_nanos();\n    temp_world_path_with_nonce(nonce)\n}\n\nfn temp_world_path_with_nonce(nonce: u128) -> PathBuf {\n    let sequence = TEMP_WORLD_SEQUENCE.fetch_add(1, Ordering::Relaxed);\n    std::env::temp_dir().join(format!(\n        \"world-machine-m188-{}-{nonce}-{sequence}.world\",\n        std::process::id()\n    ))\n}\n\n#[test]\nfn temp_world_paths_are_unique_for_equal_nonce_across_threads() {\n    let nonce = 42;\n    let handles = (0..64)\n        .map(|_| std::thread::spawn(move || temp_world_path_with_nonce(nonce)))\n        .collect::<Vec<_>>();\n    let paths = handles\n        .into_iter()\n        .map(|handle| handle.join().unwrap())\n        .collect::<std::collections::BTreeSet<_>>();\n    assert_eq!(paths.len(), 64);\n}",
+          )
+
+          investigation = "crates/world-cli/tests/machine_investigation_first_divergence.rs"
+          replace(
+              investigation,
+              "use std::process::{Command, Output, Stdio};\nuse std::time::{SystemTime, UNIX_EPOCH};",
+              "use std::process::{Command, Output, Stdio};\nuse std::sync::atomic::{AtomicU64, Ordering};\nuse std::time::{SystemTime, UNIX_EPOCH};",
+          )
+          replace(
+              investigation,
+              "fn temp_world_path(label: &str) -> PathBuf {\n    let nonce = SystemTime::now()\n        .duration_since(UNIX_EPOCH)\n        .unwrap()\n        .as_nanos();\n    std::env::temp_dir().join(format!(\n        \"world-machine-m210-{}-{nonce}-{label}.world\",\n        std::process::id()\n    ))\n}",
+              "static TEMP_WORLD_SEQUENCE: AtomicU64 = AtomicU64::new(0);\n\nfn temp_world_path(label: &str) -> PathBuf {\n    let nonce = SystemTime::now()\n        .duration_since(UNIX_EPOCH)\n        .unwrap()\n        .as_nanos();\n    temp_world_path_with_nonce(label, nonce)\n}\n\nfn temp_world_path_with_nonce(label: &str, nonce: u128) -> PathBuf {\n    let sequence = TEMP_WORLD_SEQUENCE.fetch_add(1, Ordering::Relaxed);\n    std::env::temp_dir().join(format!(\n        \"world-machine-m210-{}-{nonce}-{sequence}-{label}.world\",\n        std::process::id()\n    ))\n}\n\n#[test]\nfn temp_world_paths_are_unique_for_equal_nonce_across_threads() {\n    let nonce = 42;\n    let handles = (0..64)\n        .map(|index| {\n            std::thread::spawn(move || {\n                let label = if index % 2 == 0 { \"left\" } else { \"right\" };\n                temp_world_path_with_nonce(label, nonce)\n            })\n        })\n        .collect::<Vec<_>>();\n    let paths = handles\n        .into_iter()\n        .map(|handle| handle.join().unwrap())\n        .collect::<BTreeSet<_>>();\n    assert_eq!(paths.len(), 64);\n}",
+          )
+          PY
+          python /tmp/m253.py
+          cargo fmt --all
+          cargo fmt --all -- --check
+          cargo clippy -p world-cli --all-targets -- -D warnings
+          cargo test -p world-cli --test machine_query_transport
+          cargo test -p world-cli --test machine_investigation_first_divergence
+          git rm .github/workflows/m253-temp.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add crates/world-cli/tests/machine_query_transport.rs crates/world-cli/tests/machine_investigation_first_divergence.rs
+          git commit -m 'M253: make world-cli test fixtures collision-proof'
+          git push origin HEAD:agent/m253-collision-proof-world-cli-fixtures
