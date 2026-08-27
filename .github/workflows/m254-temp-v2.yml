@@ -27,6 +27,10 @@ jobs:
           end = source.index(end_marker, start)
           lines = source[start:end].splitlines()
           recovered = '\n'.join(line[10:] if line.startswith('          ') else line for line in lines) + '\n'
+          recovered = recovered.replace(
+              'raise SystemExit(f"pattern not found in {path}")',
+              'raise SystemExit(f"pattern not found in {path}: {old[:160]!r}")',
+          )
           Path('/tmp/m254.py').write_text(recovered)
           PY
           python /tmp/m254.py
