@@ -27,8 +27,8 @@ jobs:
           end = source.index(end_marker, start)
           lines = source[start:end].splitlines()
           recovered = '\n'.join(line[10:] if line.startswith('          ') else line for line in lines) + '\n'
-          needle = "              text = p.read_text()\n              if old not in text:\n"
-          replacement = """              text = p.read_text()\n              if (\n                  old not in text\n                  and path.endswith(\"world-machine-analyst-rpc.mjs\")\n                  and old.startswith(\"  #acceptChunk(chunk) {\")\n              ):\n                  start = text.index(\"  #acceptChunk(chunk) {\")\n                  finish = text.index(\"  #finish(error) {\", start)\n                  end_marker = \"    for (const waiter of waiters) waiter.reject(error);\\n  }\\n\"\n                  end = text.index(end_marker, finish) + len(end_marker)\n                  p.write_text(text[:start] + new + text[end:])\n                  return\n              if old not in text:\n"""
+          needle = "    text = p.read_text()\n    if old not in text:\n"
+          replacement = """    text = p.read_text()\n    if (\n        old not in text\n        and path.endswith(\"world-machine-analyst-rpc.mjs\")\n        and old.startswith(\"  #acceptChunk(chunk) {\")\n    ):\n        start = text.index(\"  #acceptChunk(chunk) {\")\n        finish = text.index(\"  #finish(error) {\", start)\n        end_marker = \"    for (const waiter of waiters) waiter.reject(error);\\n  }\\n\"\n        end = text.index(end_marker, finish) + len(end_marker)\n        p.write_text(text[:start] + new + text[end:])\n        return\n    if old not in text:\n"""
           if needle not in recovered:
               raise SystemExit('could not inject structured M254 replacement fallback')
           recovered = recovered.replace(needle, replacement, 1)
