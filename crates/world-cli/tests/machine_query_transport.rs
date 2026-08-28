@@ -1,9 +1,9 @@
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use world_query::{
     EvidenceComparisonRequest, EvidenceComparisonResult, EvidenceQueryRequest,
     EvidenceQueryResponse, QueryError,
@@ -169,6 +169,70 @@ fn stdin_semantic_error_is_json_and_exits_zero() {
     let _ = fs::remove_file(path);
 }
 
+#[test]
+fn oversized_stdin_fails_before_eof_and_before_query_execution() {
+    const MAX_STDIN_BYTES: usize = 64 * 1024 * 1024;
+    const CHUNK_BYTES: usize = 64 * 1024;
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_world-cli"))
+        .args(["evidence-query", "definitely-missing-m258.world", "-"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    let chunk = vec![b'x'; CHUNK_BYTES];
+    let mut remaining = MAX_STDIN_BYTES + 1;
+    while remaining > 0 {
+        let count = remaining.min(chunk.len());
+        match child
+            .stdin
+            .as_mut()
+            .expect("stdin should remain open during overflow")
+            .write_all(&chunk[..count])
+        {
+            Ok(()) => remaining -= count,
+            Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => break,
+            Err(error) => panic!("failed to stream oversized stdin: {error}"),
+        }
+    }
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "world-cli waited for EOF after stdin was already oversized"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    };
+
+    assert!(!status.success());
+    let mut stdout = Vec::new();
+    child
+        .stdout
+        .take()
+        .unwrap()
+        .read_to_end(&mut stdout)
+        .unwrap();
+    assert!(
+        stdout.is_empty(),
+        "oversized stdin must not emit a query envelope"
+    );
+    let mut stderr_bytes = Vec::new();
+    child
+        .stderr
+        .take()
+        .unwrap()
+        .read_to_end(&mut stderr_bytes)
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&stderr_bytes);
+    assert!(stderr.contains("machine query stdin exceeded the 67108864-byte transport limit"));
+    assert!(!stderr.contains("definitely-missing-m258.world"));
+}
 #[test]
 fn malformed_stdin_json_is_a_transport_failure() {
     let (path, _) = world_fixture();
