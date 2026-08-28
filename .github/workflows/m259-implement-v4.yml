@@ -1,0 +1,56 @@
+name: M259 Implement V4
+
+on:
+  push:
+    branches:
+      - agent/m259-bound-tool-host-stdin-jsonl
+
+permissions:
+  contents: write
+
+jobs:
+  implement:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/m259-bound-tool-host-stdin-jsonl
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Apply M259 patch and validate
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          workflow = Path('.github/workflows/m259-implement.yml').read_text()
+          start = workflow.index("          python3 - <<'PY'\n") + len("          python3 - <<'PY'\n")
+          end = workflow.index("          PY\n", start)
+          script = workflow[start:end]
+          script = '\n'.join(line[10:] if line.startswith('          ') else line for line in script.splitlines())
+          exec(compile(script, 'm259-original-patch', 'exec'))
+
+          p = Path('crates/world-agent-tool-stdio/src/main.rs')
+          s = p.read_text()
+          needle = '        let source = include_str!("main.rs");\n'
+          if needle not in s:
+              raise SystemExit('source regression anchor not found')
+          s = s.replace(needle, needle + '        let production = source.split("#[cfg(test)]").next().unwrap();\n', 1)
+          s = s.replace('assert!(source.contains("MAX_TOOL_REQUEST_BYTES"));', 'assert!(production.contains("MAX_TOOL_REQUEST_BYTES"));', 1)
+          s = s.replace('assert!(source.contains(', 'assert!(production.contains(', 1)
+          s = s.replace('assert!(!source.contains("reader.lines().enumerate()"));', 'assert!(!production.contains("reader.lines().enumerate()"));', 1)
+          s = s.replace("input.extend_from_slice(&vec![b'x'; 65]);", "input.extend_from_slice(&[b'x'; 65]);", 1)
+          p.write_text(s)
+          PY
+          cargo fmt --all
+          cargo test -p world-agent-tool-stdio
+          cargo clippy -p world-agent-tool-stdio --all-targets -- -D warnings
+          bash ./scripts/check-boundaries.sh
+          bash ./scripts/check-pi-analyst.sh
+          cargo fmt --all -- --check
+          git rm .github/workflows/m259-implement.yml .github/workflows/m259-implement-v2.yml .github/workflows/m259-implement-v3.yml .github/workflows/m259-implement-v4.yml
+          git add crates/world-agent-tool-stdio/src/main.rs
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m 'M259: bound tool-host stdin JSONL framing'
+          git push origin HEAD:agent/m259-bound-tool-host-stdin-jsonl
