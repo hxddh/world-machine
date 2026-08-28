@@ -20,6 +20,7 @@ use world_persistence::{WorldArchive, WorldPackRef};
 use world_projection::{ProjectionIntent, ProjectionSnapshot};
 
 pub const PACK_MANIFEST_SUFFIX: &str = ".world-pack.json";
+pub const DEFAULT_MAX_REQUEST_BYTES: usize = 16 * 1024 * 1024;
 pub const DEFAULT_MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 pub const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -583,6 +584,35 @@ fn response_kind(response: &PackResponse) -> &'static str {
     }
 }
 
+fn prepare_request_frame(
+    protocol_version: u32,
+    request_id: u64,
+    request: PackRequest,
+    max_request_bytes: usize,
+) -> Result<Vec<u8>, HostError> {
+    if max_request_bytes == 0 || max_request_bytes > DEFAULT_MAX_REQUEST_BYTES {
+        return Err(HostError::session(format!(
+            "external Pack max request bytes must be between 1 and the {DEFAULT_MAX_REQUEST_BYTES}-byte production ceiling"
+        )));
+    }
+    let envelope = PackRequestEnvelope::for_version(protocol_version, request_id, request)
+        .map_err(|error| HostError::session(format!("invalid Pack protocol version: {error}")))?;
+    let encoded = encode_request(&envelope)
+        .map_err(|error| HostError::session(format!("could not encode Pack request: {error}")))?;
+    let frame_bytes = encoded
+        .len()
+        .checked_add(1)
+        .ok_or_else(|| HostError::session("external Pack request frame length overflow"))?;
+    if frame_bytes > max_request_bytes {
+        return Err(HostError::session(format!(
+            "external Pack request frame exceeds the {max_request_bytes}-byte protocol limit"
+        )));
+    }
+    let mut frame = encoded.into_bytes();
+    frame.push(b'\n');
+    Ok(frame)
+}
+
 struct ProcessClient {
     child: Child,
     stdin: Option<BufWriter<ChildStdin>>,
@@ -590,6 +620,7 @@ struct ProcessClient {
     protocol_version: u32,
     next_request_id: u64,
     request_timeout: Duration,
+    max_request_bytes: usize,
     launch_cleanup: Option<PathBuf>,
 }
 
@@ -634,35 +665,30 @@ impl ProcessClient {
             protocol_version: pack.protocol_version,
             next_request_id: 1,
             request_timeout: DEFAULT_REQUEST_TIMEOUT,
+            max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
             launch_cleanup,
         })
     }
 
     fn request(&mut self, request: PackRequest) -> Result<PackResponse, HostError> {
         let request_id = self.next_request_id;
-        self.next_request_id = self
-            .next_request_id
+        let frame = prepare_request_frame(
+            self.protocol_version,
+            request_id,
+            request,
+            self.max_request_bytes,
+        )?;
+        let next_request_id = request_id
             .checked_add(1)
             .ok_or_else(|| HostError::session("external Pack request id overflow"))?;
-        let envelope = PackRequestEnvelope::for_version(self.protocol_version, request_id, request)
-            .map_err(|error| {
-                HostError::session(format!("invalid Pack protocol version: {error}"))
-            })?;
-        let encoded = encode_request(&envelope).map_err(|error| {
-            HostError::session(format!("could not encode Pack request: {error}"))
-        })?;
+        self.next_request_id = next_request_id;
         let send_result = self
             .stdin
             .as_mut()
             .ok_or_else(|| {
                 io::Error::new(io::ErrorKind::BrokenPipe, "external Pack stdin is closed")
             })
-            .and_then(|stdin| {
-                stdin
-                    .write_all(encoded.as_bytes())
-                    .and_then(|_| stdin.write_all(b"\n"))
-                    .and_then(|_| stdin.flush())
-            });
+            .and_then(|stdin| stdin.write_all(&frame).and_then(|_| stdin.flush()));
         if let Err(error) = send_result {
             self.terminate();
             return Err(HostError::session(format!(
@@ -734,17 +760,17 @@ impl ProcessClient {
 
     fn send_shutdown(&mut self) {
         let request_id = self.next_request_id;
-        let Ok(envelope) = PackRequestEnvelope::for_version(
+        let Ok(frame) = prepare_request_frame(
             self.protocol_version,
             request_id,
             PackRequest::Shutdown,
+            self.max_request_bytes,
         ) else {
             self.stdin.take();
             return;
         };
-        if let (Ok(encoded), Some(stdin)) = (encode_request(&envelope), self.stdin.as_mut()) {
-            let _ = stdin.write_all(encoded.as_bytes());
-            let _ = stdin.write_all(b"\n");
+        if let Some(stdin) = self.stdin.as_mut() {
+            let _ = stdin.write_all(&frame);
             let _ = stdin.flush();
         }
         self.stdin.take();

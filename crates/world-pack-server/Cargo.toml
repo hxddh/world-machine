@@ -12,4 +12,5 @@ world-pack-protocol = { path = "../world-pack-protocol" }
 world-persistence = { path = "../world-persistence" }
 
 [dev-dependencies]
+world-pack-process = { path = "../world-pack-process" }
 world-projection = { path = "../world-projection" }
