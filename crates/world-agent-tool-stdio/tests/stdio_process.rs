@@ -165,7 +165,7 @@ fn oversized_record_fails_before_eof_and_before_host_dispatch() {
         .stdin
         .as_mut()
         .expect("stdin should remain open for the overflow byte")
-        .write_all(&[b'x'])
+        .write_all(b"x")
         .expect("the limit + 1 byte must reach the tool host before it rejects the record");
 
     let deadline = Instant::now() + Duration::from_secs(10);
