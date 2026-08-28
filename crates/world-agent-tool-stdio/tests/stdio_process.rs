@@ -1,14 +1,16 @@
 use std::collections::BTreeSet;
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use world_agent_tool_stdio::ReadOnlyJsonToolStdioProcess;
 use world_projection::SelectionId;
 
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+const PROCESS_RECORD_LIMIT_BYTES: usize = 64 * 1024 * 1024;
+const PROCESS_STREAM_CHUNK_BYTES: usize = 64 * 1024;
 
 #[test]
 fn stdio_process_lists_tools_and_invokes_first_divergence_in_one_session() {
@@ -133,6 +135,118 @@ fn malformed_json_line_is_a_process_level_failure() {
     assert!(stderr(&output).contains("invalid JSON on stdin line 1"));
     assert!(output.stdout.is_empty());
     cleanup(left, right);
+}
+
+#[test]
+fn exact_limit_record_is_accepted_by_real_process() {
+    let (left, right, _) = divergent_world_fixture();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_world-agent-tool-stdio"))
+        .args([left.to_str().unwrap(), right.to_str().unwrap()])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    write_exact_limit_list_tools_payload(child.stdin.as_mut().expect("stdin should be available"));
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(b"\n")
+        .expect("LF framing outside the payload budget must be accepted");
+    drop(child.stdin.take());
+
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(stderr(&output).is_empty());
+    let lines = stdout_values(&output);
+    assert_eq!(lines.len(), 1);
+    assert_eq!(lines[0]["type"], "catalog");
+    assert_eq!(lines[0]["protocol"], "world-machine-readonly-tools");
+    cleanup(left, right);
+}
+
+#[test]
+fn oversized_record_fails_before_eof_and_before_host_dispatch() {
+    let (left, right, _) = divergent_world_fixture();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_world-agent-tool-stdio"))
+        .args([left.to_str().unwrap(), right.to_str().unwrap()])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    write_exact_limit_list_tools_payload(
+        child
+            .stdin
+            .as_mut()
+            .expect("stdin should remain open through the exact payload limit"),
+    );
+    child
+        .stdin
+        .as_mut()
+        .expect("stdin should remain open for the overflow byte")
+        .write_all(b"x")
+        .expect("the limit + 1 byte must reach the tool-host pipe before rejection");
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "tool host waited for EOF after stdin record was already oversized"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    };
+
+    assert!(!status.success());
+    let mut stdout = Vec::new();
+    child
+        .stdout
+        .take()
+        .unwrap()
+        .read_to_end(&mut stdout)
+        .unwrap();
+    assert!(
+        stdout.is_empty(),
+        "oversized request must not fabricate a tool response"
+    );
+    let mut stderr_bytes = Vec::new();
+    child
+        .stderr
+        .take()
+        .unwrap()
+        .read_to_end(&mut stderr_bytes)
+        .unwrap();
+    let stderr = String::from_utf8(stderr_bytes).expect("overflow diagnostic must be valid UTF-8");
+    assert_eq!(
+        stderr,
+        "stdin JSON record on line 1 exceeded the 67108864-byte transport limit\n"
+    );
+
+    cleanup(left, right);
+}
+
+fn write_exact_limit_list_tools_payload(writer: &mut impl Write) {
+    const REQUEST_PREFIX: &[u8] = b"{\"op\":\"list-tools\"}";
+    assert!(REQUEST_PREFIX.len() < PROCESS_RECORD_LIMIT_BYTES);
+    writer
+        .write_all(REQUEST_PREFIX)
+        .expect("exact-limit request prefix should be accepted");
+
+    let chunk = vec![b' '; PROCESS_STREAM_CHUNK_BYTES];
+    let mut remaining = PROCESS_RECORD_LIMIT_BYTES - REQUEST_PREFIX.len();
+    while remaining > 0 {
+        let count = remaining.min(chunk.len());
+        writer
+            .write_all(&chunk[..count])
+            .expect("tool host must accept the complete exact-limit payload");
+        remaining -= count;
+    }
 }
 
 fn run_process(left: &Path, right: &Path, stdin: &str) -> Output {
