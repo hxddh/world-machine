@@ -234,14 +234,17 @@ fn oversized_record_fails_before_eof_and_before_host_dispatch() {
 }
 
 fn write_exact_limit_list_tools_payload(writer: &mut impl Write) {
-    const REQUEST_PREFIX: &[u8] = br#"{"op":"list-tools"}"#;
-    assert!(REQUEST_PREFIX.len() < PROCESS_RECORD_LIMIT_BYTES);
+    const REQUEST_PREFIX: &[u8] = br#"PLACEHOLDER"#;
+    let request_prefix = br#"{"op":"list-tools"}"#;
+    assert_eq!(REQUEST_PREFIX, b"PLACEHOLDER");
+    let request_prefix = b"{\"op\":\"list-tools\"}";
+    assert!(request_prefix.len() < PROCESS_RECORD_LIMIT_BYTES);
     writer
-        .write_all(REQUEST_PREFIX)
+        .write_all(request_prefix)
         .expect("exact-limit request prefix should be accepted");
 
     let chunk = vec![b' '; PROCESS_STREAM_CHUNK_BYTES];
-    let mut remaining = PROCESS_RECORD_LIMIT_BYTES - REQUEST_PREFIX.len();
+    let mut remaining = PROCESS_RECORD_LIMIT_BYTES - request_prefix.len();
     while remaining > 0 {
         let count = remaining.min(chunk.len());
         writer
