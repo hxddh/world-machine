@@ -1,116 +1,123 @@
-# Next Coding Task — M258 Bound world-cli Machine-Query Stdin
+# Next Coding Task — M259 Bound Read-Only Tool-Host Stdin JSONL Framing
 
-M254–M257 close the unbounded JSONL transport edges in the shipped Analyst path: Pi RPC child stdout, restricted tool-host stdout, Node turn-host stdin, and finally Rust sender pre-write request sizing. The next confirmed whole-input boundary is separate from Analyst transport: `crates/world-cli/src/main.rs::read_query_request()`.
-
-Today all three machine-query commands accept `-` as the request argument and then do:
+M255 bounded the read-only tool-host **stdout** consumed by `integrations/pi/world-machine-analyst-client.mjs`, but the other direction of the same process boundary remains unbounded. `crates/world-agent-tool-stdio/src/main.rs::serve_json_lines()` currently uses:
 
 ```rust
-let mut json = String::new();
-io::stdin().read_to_string(&mut json)?;
-Ok(json)
+for (index, line) in reader.lines().enumerate() {
+    let line_number = index + 1;
+    let line = line.map_err(StdioAdapterError::Read)?;
+    ...
+}
 ```
 
-That means an oversized or indefinitely unterminated stdin document can grow an unbounded `String` before UTF-8/JSON/request-shape validation.
+`BufRead::lines()` internally accumulates one complete line before returning it, so a buggy/malicious producer can send an oversized or indefinitely unterminated request and make the long-lived tool host grow memory without a production cap before UTF-8/JSON/host-request validation.
 
-## M258
+The installed producer has been audited. `AnalystJsonlClient.#writeLine()` serializes requests as `JSON.stringify(value) + "\n"`, so normal production requests are LF-terminated. The receiver's existing compatibility semantics must nevertheless remain stable for direct/test callers.
 
-Add a fixed **64 MiB stdin request-document byte ceiling** for the `-` path used by:
+## M259
 
-- `world-cli evidence-query <file.world> -`
-- `world-cli evidence-compare-query <left.world> <right.world> -`
-- `world-cli evidence-investigate-compare <left.world> <right.world> -`
+Add a fixed **64 MiB JSON payload-byte ceiling per stdin request record** in `world-agent-tool-stdio` before UTF-8/JSON parsing.
 
-This is a transport/runaway-memory guard, not a new semantic query-size recommendation. Keep direct JSON supplied as a normal command-line argument unchanged; M258 only bounds bytes read from stdin when the request argument is exactly `-`.
+This is receiver-side framing hardening only. Keep the protocol `world-machine-readonly-tools` v1 and all tool request/response schemas unchanged.
 
-### Required semantics
+### Preserve current `BufRead::lines()` semantics
 
-- Count raw stdin bytes before UTF-8/JSON parsing.
-- Maximum payload is exactly 64 MiB; there is no JSONL delimiter or framing byte to exclude because this input is one EOF-terminated JSON document.
-- Exactly the configured limit at EOF is accepted.
-- Limit + 1 bytes must fail as soon as that byte is observed; do not keep reading until EOF merely to report overflow.
-- Never truncate an oversized document and parse the prefix.
-- Do not preallocate 64 MiB for normal requests.
-- Preserve current EOF behavior: stdin is one complete document and normal execution still waits for EOF when the document stays within the limit.
-- Preserve UTF-8 validation before JSON decoding. Invalid UTF-8 within the size ceiling remains an input error rather than lossy conversion.
-- Preserve the existing JSON request schemas, query execution, status envelopes, archive semantics, and exit behavior for valid requests.
-- Ensure overflow is rejected before JSON deserialization and before any query execution that could depend on the supplied request.
+The replacement bounded reader must preserve the meaningful behavior of Rust `BufRead::lines()`:
 
-A private constant such as:
+- count bytes, not Rust/Unicode characters;
+- LF is framing and does not consume the JSON payload budget;
+- for CRLF records, the single `\r` immediately before LF is framing compatibility and is removed just as `lines()` does, so **exact 64 MiB JSON payload + CRLF is allowed**;
+- a final non-empty EOF-tail without LF remains accepted when within the payload limit;
+- importantly, a lone trailing `\r` at EOF is **not** CRLF framing and must remain part of the payload, matching `lines()`; do not silently strip it;
+- preserve arbitrary underlying `BufRead` chunk splits;
+- preserve multiple records in order;
+- preserve current blank-line behavior: physical lines still advance line numbering, and records where `line.trim().is_empty()` are ignored;
+- invalid UTF-8 remains a fatal stdin read/input failure; do not use lossy conversion.
 
-```rust
-const MAX_MACHINE_QUERY_STDIN_BYTES: usize = 64 * 1024 * 1024;
-```
+### Overflow semantics
 
-is sufficient. Do not add a CLI flag, environment variable, or user/runtime option to raise the production ceiling.
+- never truncate and parse an oversized record;
+- reject before `serde_json::from_str()` and before `host.handle_json()` for that record;
+- a newline-terminated payload larger than the limit must fail;
+- an EOF-tail larger than the limit must fail;
+- an unterminated stream must fail once it can no longer become a valid record rather than waiting indefinitely for EOF;
+- preserve one byte of conditional CR headroom: at `max + 1` raw bytes without LF, if the last byte is not `\r`, overflow is already certain and should fail immediately; if it is `\r`, one more byte may be needed to distinguish a valid exact-limit `payload + CRLF` from an oversized EOF/continued record;
+- bounded accumulation should retain at most the payload ceiling plus the minimal CR framing headroom; do not preallocate 64 MiB for normal requests.
+
+Framing overflow is a fatal stdio-adapter input failure. Do **not** fabricate a correlated protocol response because a partial/oversized record may not contain a trustworthy `call_id` or request shape. Let `serve_json_lines()` return an error so the binary exits non-zero through the existing top-level error path.
+
+A previously complete independent request remains complete: if request 1 has already been parsed, handled, written and flushed, and request 2 is oversized, request 1's response must remain emitted before the process fatally stops on request 2. Behavior must not depend on whether the OS happened to coalesce both requests into one underlying read buffer.
 
 ### Suggested implementation shape
 
-Refactor the stdin-specific reading into a small testable helper that accepts a generic `Read`, for example:
+Keep the implementation local to `crates/world-agent-tool-stdio/src/main.rs`; do not introduce a broad shared JSONL framework.
+
+Add a fixed production constant such as:
 
 ```rust
-fn read_bounded_query_request<R: Read>(
-    reader: &mut R,
-    max_bytes: usize,
-) -> Result<String, Box<dyn Error>>
+const MAX_TOOL_REQUEST_BYTES: usize = 64 * 1024 * 1024;
 ```
 
-or an equivalent private typed-error shape.
+Replace `reader.lines()` with a small private bounded record reader over `BufRead`. A `fill_buf()` / `consume()` loop is appropriate because it can:
 
-A simple bounded strategy is appropriate:
+- scan for LF before copying arbitrary amounts;
+- enforce the precise `max + optional CR` headroom rule;
+- stop promptly on an unterminated overflow;
+- preserve bytes until strict UTF-8 conversion;
+- avoid consuming bytes belonging to the next record.
 
-1. wrap the reader in `Read::take(max_bytes + 1)`;
-2. `read_to_end` into a `Vec<u8>` without large preallocation;
-3. if `len > max_bytes`, return a clear local CLI/input error immediately;
-4. otherwise convert with `String::from_utf8` (or equivalent strict UTF-8 conversion) and return the full document.
+A test-only/helper `max_bytes` parameter may lower the limit for deterministic tests. The production `serve_json_lines()` path must always use the fixed 64 MiB constant; do not add CLI/env/runtime configuration that can raise or alter it.
 
-Using `take(max + 1)` means an endless producer fails once the first impossible byte arrives instead of requiring EOF. Avoid `read_to_string` on an unbounded reader and avoid reading the full input only to check length afterward.
-
-Production `read_query_request()` should call the helper only when `request == "-"`; non-stdin request strings must remain untouched.
+Preserve physical line numbers. If the bounded helper returns one physical record at a time, increment the line counter before blank-line filtering just as the existing `enumerate()` does. A dedicated `RecordTooLarge { line, max_bytes }` adapter error is reasonable; invalid UTF-8 may continue to map through `StdioAdapterError::Read` with `io::ErrorKind::InvalidData` or an equivalent clear fatal input error.
 
 ### Required regressions
 
-Use a small injected helper limit for deterministic unit tests; do not allocate tens of MiB.
+Use a small helper limit; do not allocate tens of MiB.
 
-1. below-limit EOF input is returned unchanged;
-2. exact-limit EOF input is accepted;
-3. limit + 1 bytes are rejected and the underlying reader is not consumed beyond `max + 1` bytes;
-4. a reader that can continue indefinitely is rejected once overflow becomes certain rather than waiting for EOF;
-5. invalid UTF-8 within the limit is rejected, not lossily converted;
-6. valid multibyte UTF-8 is counted by bytes and returned intact;
-7. direct `request-json` argument behavior is unchanged and does not go through the stdin ceiling helper;
-8. stdin `evidence-query` still emits the same typed JSON status envelope for a valid request;
-9. stdin `evidence-compare-query` still works for existing legacy/tagged causal comparison requests;
-10. stdin `evidence-investigate-compare` still works for first-divergence investigation requests;
-11. oversized stdin fails before request JSON deserialization/query execution and emits no successful machine-query envelope;
-12. all existing machine-query transport/causal/investigation integration tests remain green.
+1. below-limit request + LF is accepted;
+2. exact-limit payload + LF is accepted;
+3. exact-limit payload + CRLF is accepted and the framing CR is removed;
+4. exact-limit payload at EOF without LF is accepted;
+5. an EOF-tail ending in a lone `\r` preserves that `\r` as payload rather than stripping it;
+6. a request split across many underlying chunks is reconstructed exactly;
+7. multiple requests from one buffer remain ordered;
+8. blank/whitespace-only lines remain ignored while still preserving physical line numbers for later errors;
+9. newline-terminated limit + 1 payload bytes fail before JSON/host dispatch;
+10. no-newline overflow fails promptly once impossible, without requiring EOF;
+11. exact-limit payload followed by a pending `\r` can wait for the next byte and succeeds if that byte is LF;
+12. oversized EOF tail fails;
+13. invalid UTF-8 within the size limit is rejected rather than lossily decoded;
+14. a valid first request followed by an oversized second request emits/flushed the first response, then fails before dispatching the second;
+15. existing list-tools/invoke protocol behavior and blank-line framing test remain green.
 
-Where practical, add the helper-level boundary tests inside `main.rs` and add one CLI integration regression in `crates/world-cli/tests/machine_query_transport.rs` proving the `-` path is actually wired to the bounded helper.
-
-Current `machine_query_transport.rs` already protects temporary fixture paths with an `AtomicU64` sequence and has a cross-thread uniqueness regression. Preserve that existing fix; it is not part of M258.
+Add source/regression coverage showing production `serve_json_lines()` no longer calls `reader.lines()` for request framing and uses the fixed production ceiling.
 
 ### Validation
 
 Run:
 
 - `cargo fmt --all -- --check`;
-- `cargo test -p world-cli` including `machine_query_transport` and causal/investigation suites;
-- workspace Clippy/tests and Pack conformance;
-- existing boundary and Pi checks to ensure the unrelated Analyst path remains untouched;
-- full macOS Library/Packs/GPUI/desktop/`World Machine.app` build, packaged Analyst smoke, archive and artifact upload because repository merge policy requires the full gate even though M258 is CLI-only.
+- `cargo test -p world-agent-tool-stdio`;
+- package Clippy with `-D warnings`;
+- `bash ./scripts/check-boundaries.sh`;
+- `bash ./scripts/check-pi-analyst.sh`, because the installed Analyst path launches this tool host;
+- full workspace Linux tests + Pack conformance;
+- full macOS Library/Packs/GPUI/desktop/`World Machine.app` build, packaged Analyst smoke, archive and artifact upload.
 
-## M257 invariants to preserve
+Because `crates/world-agent-tool-stdio/**` is already included in CI's `gpui` path filter, normal M259 PR CI should automatically exercise the full macOS packaged gate.
 
-Do not mix Analyst transport changes into M258:
+## M258 invariants to preserve
 
-- Rust `AnalystTurnClient` retains its fixed 64 MiB serialized request pre-write ceiling;
-- oversized Analyst requests remain local/non-fatal, write zero bytes, do not poison or consume request ids, and do not stop `AnalystTurnProcess`;
-- M256 Node turn-host stdin remains independently bounded to 64 MiB JSON payload bytes;
-- M254/M255 response-side framing and poisoning behavior remain unchanged.
+Do not mix machine-query CLI changes into M259:
 
-## Later audit candidates
+- `world-cli` stdin `-` requests remain bounded to 64 MiB raw EOF-document bytes via the M258 helper;
+- direct inline world-cli request JSON remains unchanged;
+- query protocols/schemas and archive behavior remain unchanged.
 
-After M258, continue a repository-wide audit for whole-input or line-oriented external/process boundaries that can accumulate without a production cap. Treat each independently according to its protocol semantics rather than introducing a broad shared framing abstraction.
+## Later adjacent audit
+
+After M259, audit the **producer side** of this same tool boundary separately. `AnalystJsonlClient.#writeLine()` currently does `JSON.stringify(value) + "\n"` with no pre-write request-size ceiling. Once the Rust receiver ceiling is authoritative, a later milestone can decide whether to reject oversized tool requests locally before crossing the pipe, preserving client/session semantics. Do not bundle that sender change into M259.
 
 ## Non-goals
 
-No query protocol/version/schema changes, no archive input-size policy change, no direct argv JSON limit, no output truncation, no World/Pack/query algorithm changes, no Analyst transport changes, no UI changes, and no broad shared I/O framework refactor.
+No protocol/version/schema changes, no tool-input truncation, no tool-output changes, no Node sender preflight in M259, no query/World/Pack/UI changes, no broad shared JSONL abstraction, and no unrelated refactors.
