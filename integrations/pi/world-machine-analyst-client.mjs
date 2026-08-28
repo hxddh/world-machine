@@ -3,6 +3,7 @@ import { once } from "node:events";
 
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 500;
 const DEFAULT_MAX_ANALYST_RECORD_BYTES = 64 * 1024 * 1024;
+const DEFAULT_MAX_ANALYST_REQUEST_BYTES = 64 * 1024 * 1024;
 
 export const ANALYST_PROTOCOL = "world-machine-readonly-tools";
 export const ANALYST_PROTOCOL_VERSION = 1;
@@ -25,7 +26,13 @@ export class AnalystJsonlClient {
     return new AnalystJsonlClient(child);
   }
 
-  constructor(child, { maxRecordBytes = DEFAULT_MAX_ANALYST_RECORD_BYTES } = {}) {
+  constructor(
+    child,
+    {
+      maxRecordBytes = DEFAULT_MAX_ANALYST_RECORD_BYTES,
+      maxRequestBytes = DEFAULT_MAX_ANALYST_REQUEST_BYTES,
+    } = {},
+  ) {
     if (!child.stdin || !child.stdout) {
       throw new AnalystBridgeError("analyst child must expose piped stdin/stdout");
     }
@@ -38,9 +45,19 @@ export class AnalystJsonlClient {
         "analyst JSONL max record bytes must be a positive safe integer with framing headroom",
       );
     }
+    if (
+      !Number.isSafeInteger(maxRequestBytes) ||
+      maxRequestBytes <= 0 ||
+      maxRequestBytes > DEFAULT_MAX_ANALYST_REQUEST_BYTES
+    ) {
+      throw new AnalystBridgeError(
+        `analyst JSONL max request bytes must be a positive safe integer at or below the ${DEFAULT_MAX_ANALYST_REQUEST_BYTES}-byte production ceiling`,
+      );
+    }
 
     this.child = child;
     this.maxRecordBytes = maxRecordBytes;
+    this.maxRequestBytes = maxRequestBytes;
     this.recordBuffer = Buffer.alloc(0);
     this.recordBytes = 0;
     this.lines = [];
@@ -150,11 +167,16 @@ export class AnalystJsonlClient {
       throw this.closedError;
     }
 
+    // Everything that can fail without touching the child must happen before a
+    // response waiter exists. Otherwise a BigInt/circular input or a locally
+    // oversized request leaves a waiter that can steal the next valid response.
+    const frame = this.#encodeBoundedRequest(request);
+
     this.busy = true;
     try {
       const responsePromise = this.#nextLine();
       try {
-        await this.#writeLine(request);
+        await this.#writeFrame(frame);
       } catch (error) {
         responsePromise.catch(() => {});
         if (this.framingError) throw this.framingError;
@@ -187,13 +209,51 @@ export class AnalystJsonlClient {
     }
   }
 
-  async #writeLine(value) {
+  #encodeBoundedRequest(value) {
+    let serialized;
+    try {
+      serialized = JSON.stringify(value);
+    } catch (error) {
+      throw new AnalystBridgeError(`failed to serialize analyst request: ${error.message}`, {
+        kind: "request-serialization",
+        cause: error,
+      });
+    }
+    if (serialized === undefined) {
+      throw new AnalystBridgeError("failed to serialize analyst request: no JSON payload produced", {
+        kind: "request-serialization",
+      });
+    }
+
+    const payload = Buffer.from(serialized, "utf8");
+    if (payload.length > this.maxRequestBytes) {
+      throw new AnalystBridgeError(
+        `analyst request payload exceeded the ${this.maxRequestBytes}-byte transport limit`,
+        {
+          kind: "request-overflow",
+          maxRequestBytes: this.maxRequestBytes,
+          payloadBytes: payload.length,
+        },
+      );
+    }
+
+    // The receiver's M259 contract counts JSON payload bytes only. Append exactly
+    // one LF after validation and send one frame so a separate framing write
+    // cannot fail after a successful payload write and leave partial JSON behind.
+    const frame = Buffer.allocUnsafe(payload.length + 1);
+    payload.copy(frame);
+    frame[payload.length] = 0x0a;
+    return frame;
+  }
+
+  async #writeFrame(frame) {
     if (this.closedError || !this.child.stdin.writable) {
       throw this.closedError ?? new AnalystBridgeError("analyst process stdin is not writable");
     }
-    const line = `${JSON.stringify(value)}\n`;
     await new Promise((resolve, reject) => {
-      this.child.stdin.write(line, "utf8", (error) => {
+      // Keep the three-argument Writable.write shape used by the M255 transport
+      // failure regression. `encoding` is ignored for Buffer chunks.
+      this.child.stdin.write(frame, undefined, (error) => {
         if (error) {
           reject(
             new AnalystBridgeError(`failed to write analyst request: ${error.message}`, {
