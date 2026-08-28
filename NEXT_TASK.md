@@ -111,6 +111,7 @@ Because `crates/world-agent-tool-stdio/**` is already included in CI's `gpui` pa
 Do not mix machine-query CLI changes into M259:
 
 - `world-cli` stdin `-` requests remain bounded to 64 MiB raw EOF-document bytes via the M258 helper;
+- M258 has a process-level regression that streams the production 64 MiB + 1 boundary with parent stdin still open and requires the child to fail before EOF, emit no success envelope, and fail before archive/query execution; preserve that coverage;
 - direct inline world-cli request JSON remains unchanged;
 - query protocols/schemas and archive behavior remain unchanged.
 
