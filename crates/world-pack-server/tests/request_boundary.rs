@@ -74,7 +74,10 @@ fn exact_physical_request_ceiling_including_lf_is_accepted() {
         .collect::<Vec<_>>();
     assert_eq!(responses.len(), 1);
     assert_eq!(responses[0].request_id, 1);
-    assert!(matches!(responses[0].response, PackResponse::Descriptor { .. }));
+    assert!(matches!(
+        responses[0].response,
+        PackResponse::Descriptor { .. }
+    ));
 }
 
 #[test]
@@ -84,7 +87,9 @@ fn physical_request_ceiling_plus_one_is_fatal_before_dispatch() {
 
     let error = serve_jsonl(registration(), Cursor::new(input), &mut output).unwrap_err();
 
-    assert!(matches!(error, PackServerError::Protocol(message) if message.contains("Pack request exceeds")));
+    assert!(
+        matches!(error, PackServerError::Protocol(message) if message.contains("Pack request exceeds"))
+    );
     assert!(
         output.is_empty(),
         "an oversized request must fail before a correlated Pack response is fabricated"
