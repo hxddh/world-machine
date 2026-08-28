@@ -7,9 +7,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use world_host::{WorldPackSource, WorldRegistry};
 use world_pack_process::{ProcessPack, ProcessPackSource, DEFAULT_MAX_REQUEST_BYTES};
 use world_pack_protocol::{
-    encode_request, encode_response, PackDescriptor, PackManifest, PackRequest, PackRequestEnvelope,
-    PackResponse, PackResponseEnvelope, ProjectionCapabilitiesWire, ProjectionIntentWire,
-    ProjectionSnapshotWire,
+    encode_request, encode_response, PackDescriptor, PackManifest, PackRequest,
+    PackRequestEnvelope, PackResponse, PackResponseEnvelope, ProjectionCapabilitiesWire,
+    ProjectionIntentWire, ProjectionSnapshotWire,
 };
 use world_persistence::WorldPackRef;
 use world_projection::ProjectionIntent;
