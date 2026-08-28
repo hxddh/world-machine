@@ -1,0 +1,390 @@
+name: M256 Implement
+on:
+  push:
+    branches:
+      - agent/m256-bound-analyst-turn-host-stdin-framing
+permissions:
+  contents: write
+jobs:
+  implement:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/m256-bound-analyst-turn-host-stdin-framing
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Implement bounded turn-host stdin framing
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('integrations/pi/world-machine-analyst-turn-host.mjs')
+          text = p.read_text()
+          old = 'export const ANALYST_TURN_PROTOCOL_VERSION = 1;\n'
+          new = 'export const ANALYST_TURN_PROTOCOL_VERSION = 1;\n\nconst DEFAULT_MAX_ANALYST_TURN_INPUT_RECORD_BYTES = 64 * 1024 * 1024;\n'
+          if old not in text:
+              raise SystemExit('protocol constant marker not found')
+          text = text.replace(old, new, 1)
+
+          old = "\n".join([
+              'export async function runAnalystTurnHost({',
+              '  stdin = process.stdin,',
+              '  stdout = process.stdout,',
+              '  argv = process.argv.slice(2),',
+              '  env = process.env,',
+              '  signalSource = process,',
+              '} = {}) {',
+              '  const config = parseProcessArgs(argv);',
+              '  const session = PiAnalystRpcSession.spawnRestricted({',
+              '    leftArchive: config.leftArchive,',
+              '    rightArchive: config.rightArchive,',
+              '    provider: config.provider,',
+              '    model: config.model,',
+              '    thinking: config.thinking,',
+              '    env,',
+              '  });',
+          ])
+          new = "\n".join([
+              'export async function runAnalystTurnHost({',
+              '  stdin = process.stdin,',
+              '  stdout = process.stdout,',
+              '  argv = process.argv.slice(2),',
+              '  env = process.env,',
+              '  signalSource = process,',
+              '  maxInputRecordBytes = DEFAULT_MAX_ANALYST_TURN_INPUT_RECORD_BYTES,',
+              '  sessionFactory = spawnRestrictedSession,',
+              '} = {}) {',
+              '  const config = parseProcessArgs(argv);',
+              '  const session = sessionFactory(config, env);',
+          ])
+          if old not in text:
+              raise SystemExit('runAnalystTurnHost setup block not found')
+          text = text.replace(old, new, 1)
+
+          old = '    for await (const line of jsonLines(stdin)) {'
+          new = '    for await (const line of jsonLines(stdin, maxInputRecordBytes)) {'
+          if old not in text:
+              raise SystemExit('jsonLines call not found')
+          text = text.replace(old, new, 1)
+
+          old = "\n".join([
+              'async function* jsonLines(stream) {',
+              '  let buffer = Buffer.alloc(0);',
+              '  for await (const chunk of stream) {',
+              '    buffer = Buffer.concat([buffer, Buffer.from(chunk)]);',
+              '    while (true) {',
+              '      const newline = buffer.indexOf(0x0a);',
+              '      if (newline < 0) break;',
+              '      const raw = buffer.subarray(0, newline);',
+              '      buffer = buffer.subarray(newline + 1);',
+              '      const line = raw.toString("utf8").replace(/\\r$/, "");',
+              '      if (line.length > 0) yield line;',
+              '    }',
+              '  }',
+              '  if (buffer.length > 0) {',
+              '    const line = buffer.toString("utf8").replace(/\\r$/, "");',
+              '    if (line.length > 0) yield line;',
+              '  }',
+              '}',
+          ])
+          new = "\n".join([
+              'function spawnRestrictedSession(config, env) {',
+              '  return PiAnalystRpcSession.spawnRestricted({',
+              '    leftArchive: config.leftArchive,',
+              '    rightArchive: config.rightArchive,',
+              '    provider: config.provider,',
+              '    model: config.model,',
+              '    thinking: config.thinking,',
+              '    env,',
+              '  });',
+              '}',
+              '',
+              'async function* jsonLines(stream, maxRecordBytes) {',
+              '  if (',
+              '    !Number.isSafeInteger(maxRecordBytes) ||',
+              '    maxRecordBytes <= 0 ||',
+              '    maxRecordBytes >= Number.MAX_SAFE_INTEGER',
+              '  ) {',
+              '    throw new AnalystTurnHostInputError(',
+              '      "analyst turn input max record bytes must be a positive safe integer with framing headroom",',
+              '    );',
+              '  }',
+              '',
+              '  const maxRawBytes = maxRecordBytes + 1;',
+              '  let recordBuffer = Buffer.alloc(0);',
+              '  let recordBytes = 0;',
+              '',
+              '  const ensureCapacity = (requiredBytes) => {',
+              '    if (recordBuffer.length >= requiredBytes) return;',
+              '    let nextCapacity =',
+              '      recordBuffer.length === 0 ? Math.min(4096, maxRawBytes) : recordBuffer.length;',
+              '    while (nextCapacity < requiredBytes) {',
+              '      nextCapacity = Math.min(maxRawBytes, Math.max(requiredBytes, nextCapacity * 2));',
+              '    }',
+              '    const next = Buffer.allocUnsafe(nextCapacity);',
+              '    if (recordBytes > 0) recordBuffer.copy(next, 0, 0, recordBytes);',
+              '    recordBuffer = next;',
+              '  };',
+              '',
+              '  const failOversized = () => {',
+              '    throw new AnalystTurnHostInputError(',
+              '      `analyst turn input record exceeded the ${maxRecordBytes}-byte transport limit`,',
+              '    );',
+              '  };',
+              '',
+              '  const appendFragment = (fragment) => {',
+              '    const totalBytes = recordBytes + fragment.length;',
+              '    if (totalBytes > maxRawBytes) failOversized();',
+              '    if (totalBytes === maxRawBytes) {',
+              '      const lastByte =',
+              '        fragment.length > 0',
+              '          ? fragment[fragment.length - 1]',
+              '          : recordBytes > 0',
+              '            ? recordBuffer[recordBytes - 1]',
+              '            : null;',
+              '      if (lastByte !== 0x0d) failOversized();',
+              '    }',
+              '    if (fragment.length === 0) return;',
+              '    ensureCapacity(totalBytes);',
+              '    fragment.copy(recordBuffer, recordBytes);',
+              '    recordBytes = totalBytes;',
+              '  };',
+              '',
+              '  const takePayload = () => {',
+              '    const raw = recordBuffer.subarray(0, recordBytes);',
+              '    recordBuffer = Buffer.alloc(0);',
+              '    recordBytes = 0;',
+              '    const payload = raw.length > 0 && raw[raw.length - 1] === 0x0d ? raw.subarray(0, -1) : raw;',
+              '    if (payload.length > maxRecordBytes) failOversized();',
+              '    return payload;',
+              '  };',
+              '',
+              '  try {',
+              '    for await (const chunk of stream) {',
+              '      const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);',
+              '      let offset = 0;',
+              '      while (offset < bytes.length) {',
+              '        const newline = bytes.indexOf(0x0a, offset);',
+              '        if (newline < 0) {',
+              '          appendFragment(bytes.subarray(offset));',
+              '          break;',
+              '        }',
+              '',
+              '        appendFragment(bytes.subarray(offset, newline));',
+              '        const payload = takePayload();',
+              '        if (payload.length > 0) yield payload.toString("utf8");',
+              '        offset = newline + 1;',
+              '      }',
+              '    }',
+              '',
+              '    if (recordBytes > 0) {',
+              '      const payload = takePayload();',
+              '      if (payload.length > 0) yield payload.toString("utf8");',
+              '    }',
+              '  } finally {',
+              '    recordBuffer = Buffer.alloc(0);',
+              '    recordBytes = 0;',
+              '  }',
+              '}',
+          ])
+          if old not in text:
+              raise SystemExit('jsonLines implementation block not found')
+          text = text.replace(old, new, 1)
+          p.write_text(text)
+          PY
+
+          cat > integrations/pi/tests/world-machine-analyst-turn-host-framing.test.mjs <<'EOF'
+          import assert from "node:assert/strict";
+          import { EventEmitter } from "node:events";
+          import { PassThrough } from "node:stream";
+          import test from "node:test";
+          import {
+            AnalystTurnHostInputError,
+            runAnalystTurnHost,
+          } from "../world-machine-analyst-turn-host.mjs";
+
+          class FramingSession {
+            constructor() {
+              this.prompts = [];
+              this.probes = [];
+              this.shutdownCount = 0;
+            }
+
+            async probe(options) {
+              this.probes.push(options);
+            }
+
+            async prompt(prompt, options) {
+              this.prompts.push({ prompt, options });
+              return {
+                requestId: `turn-${this.prompts.length}`,
+                text: `answer-${this.prompts.length}`,
+                toolCalls: [],
+                extensionErrors: [],
+              };
+            }
+
+            async shutdown() {
+              this.shutdownCount += 1;
+            }
+          }
+
+          function createHarness(maxInputRecordBytes) {
+            const stdin = new PassThrough();
+            const stdout = new PassThrough();
+            const signalSource = new EventEmitter();
+            const session = new FramingSession();
+            let output = "";
+            stdout.setEncoding("utf8");
+            stdout.on("data", (chunk) => {
+              output += chunk;
+            });
+            const promise = runAnalystTurnHost({
+              stdin,
+              stdout,
+              argv: ["left.world", "right.world"],
+              env: {},
+              signalSource,
+              maxInputRecordBytes,
+              sessionFactory: () => session,
+            });
+            return { stdin, promise, session, output: () => output };
+          }
+
+          function exactSizedAskRequest(byteLength, id = "ask-1") {
+            const empty = JSON.stringify({ id, op: "ask", prompt: "" });
+            const fillerBytes = byteLength - Buffer.byteLength(empty);
+            assert.ok(fillerBytes >= 1, "test record limit must fit a non-empty ask request");
+            const record = JSON.stringify({ id, op: "ask", prompt: "x".repeat(fillerBytes) });
+            assert.equal(Buffer.byteLength(record), byteLength);
+            return record;
+          }
+
+          function responses(output) {
+            return output.trim().length === 0
+              ? []
+              : output.trim().split("\n").map((line) => JSON.parse(line));
+          }
+
+          async function writeAndFinish(harness, chunks) {
+            for (const chunk of chunks) harness.stdin.write(chunk);
+            harness.stdin.end();
+            await harness.promise;
+          }
+
+          test("turn-host stdin accepts an exact-limit LF request", async () => {
+            const max = 96;
+            const harness = createHarness(max);
+            await writeAndFinish(harness, [`${exactSizedAskRequest(max)}\n`]);
+            assert.equal(harness.session.prompts.length, 1);
+            assert.equal(responses(harness.output())[0].id, "ask-1");
+            assert.equal(harness.session.shutdownCount, 1);
+          });
+
+          test("turn-host stdin accepts an exact-limit CRLF request", async () => {
+            const max = 96;
+            const harness = createHarness(max);
+            await writeAndFinish(harness, [`${exactSizedAskRequest(max)}\r\n`]);
+            assert.equal(harness.session.prompts.length, 1);
+            assert.equal(responses(harness.output())[0].type, "result");
+          });
+
+          test("turn-host stdin preserves exact-limit EOF-tail compatibility", async () => {
+            const max = 96;
+            const harness = createHarness(max);
+            await writeAndFinish(harness, [exactSizedAskRequest(max)]);
+            assert.equal(harness.session.prompts.length, 1);
+            assert.equal(responses(harness.output())[0].id, "ask-1");
+          });
+
+          test("turn-host stdin accepts a request split across one-byte chunks", async () => {
+            const max = 128;
+            const harness = createHarness(max);
+            const record = Buffer.from(`${JSON.stringify({ id: "probe-1", op: "probe" })}\n`);
+            await writeAndFinish(harness, [...record].map((byte) => Buffer.from([byte])));
+            assert.equal(harness.session.probes.length, 1);
+            assert.equal(responses(harness.output())[0].id, "probe-1");
+          });
+
+          test("turn-host stdin preserves multiple request order from one chunk", async () => {
+            const harness = createHarness(128);
+            const first = JSON.stringify({ id: "probe-1", op: "probe" });
+            const second = JSON.stringify({ id: "probe-2", op: "probe" });
+            await writeAndFinish(harness, [`${first}\n${second}\n`]);
+            assert.equal(harness.session.probes.length, 2);
+            assert.deepEqual(responses(harness.output()).map((response) => response.id), ["probe-1", "probe-2"]);
+          });
+
+          test("turn-host stdin continues to ignore empty lines", async () => {
+            const harness = createHarness(128);
+            const probe = JSON.stringify({ id: "probe-1", op: "probe" });
+            await writeAndFinish(harness, [`\n\r\n${probe}\n\n`]);
+            assert.equal(harness.session.probes.length, 1);
+            assert.equal(responses(harness.output()).length, 1);
+          });
+
+          test("turn-host stdin rejects newline-terminated overflow before parsing or handling", async () => {
+            const max = 32;
+            const harness = createHarness(max);
+            harness.stdin.end(`${"x".repeat(max + 1)}\n`);
+            await assert.rejects(
+              harness.promise,
+              (error) => error instanceof AnalystTurnHostInputError && /record exceeded/.test(error.message),
+            );
+            assert.equal(harness.session.prompts.length, 0);
+            assert.equal(harness.session.probes.length, 0);
+            assert.equal(harness.session.shutdownCount, 1);
+            assert.equal(harness.output(), "");
+          });
+
+          test("turn-host stdin rejects no-newline overflow promptly without waiting for EOF", async () => {
+            const max = 32;
+            const harness = createHarness(max);
+            harness.stdin.write(Buffer.alloc(max + 2, 0x78));
+            try {
+              await Promise.race([
+                assert.rejects(harness.promise, /record exceeded/),
+                new Promise((_, reject) => setTimeout(() => reject(new Error("framing overflow did not fail promptly")), 250)),
+              ]);
+            } finally {
+              harness.stdin.destroy();
+            }
+            assert.equal(harness.session.shutdownCount, 1);
+          });
+
+          test("turn-host stdin rejects an oversized EOF tail", async () => {
+            const max = 32;
+            const harness = createHarness(max);
+            harness.stdin.end(Buffer.alloc(max + 2, 0x78));
+            await assert.rejects(harness.promise, /record exceeded/);
+            assert.equal(harness.session.shutdownCount, 1);
+          });
+
+          test("turn-host stdin keeps a complete first request before a later oversized request in the same chunk", async () => {
+            const max = 48;
+            const harness = createHarness(max);
+            const first = JSON.stringify({ id: "probe-1", op: "probe" });
+            harness.stdin.end(`${first}\n${"x".repeat(max + 1)}\n`);
+            await assert.rejects(harness.promise, /record exceeded/);
+            assert.equal(harness.session.probes.length, 1);
+            assert.equal(harness.session.prompts.length, 0);
+            assert.equal(harness.session.shutdownCount, 1);
+            const output = responses(harness.output());
+            assert.equal(output.length, 1);
+            assert.equal(output[0].id, "probe-1");
+            assert.equal(output[0].type, "ready");
+          });
+          EOF
+
+          node --check integrations/pi/world-machine-analyst-turn-host.mjs
+          node --test integrations/pi/tests/world-machine-analyst-turn-host-framing.test.mjs integrations/pi/tests/world-machine-analyst-turn-host.test.mjs integrations/pi/tests/world-machine-analyst-turn-host-termination.test.mjs
+          bash ./scripts/check-pi-analyst.sh
+          cargo fmt --all -- --check
+          git rm .github/workflows/m256-implement.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add integrations/pi/world-machine-analyst-turn-host.mjs integrations/pi/tests/world-machine-analyst-turn-host-framing.test.mjs
+          git commit -m 'M256: bound analyst turn-host stdin framing'
+          git push origin HEAD:agent/m256-bound-analyst-turn-host-stdin-framing
