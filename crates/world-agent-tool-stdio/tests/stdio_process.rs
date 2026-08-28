@@ -150,20 +150,23 @@ fn oversized_record_fails_before_eof_and_before_host_dispatch() {
         .unwrap();
 
     let chunk = vec![b'x'; CHUNK_BYTES];
-    let mut remaining = MAX_RECORD_BYTES + 1;
+    let mut remaining = MAX_RECORD_BYTES;
     while remaining > 0 {
         let count = remaining.min(chunk.len());
-        match child
+        child
             .stdin
             .as_mut()
-            .expect("stdin should remain open during overflow")
+            .expect("stdin should remain open through the exact payload limit")
             .write_all(&chunk[..count])
-        {
-            Ok(()) => remaining -= count,
-            Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => break,
-            Err(error) => panic!("failed to stream oversized tool-host stdin: {error}"),
-        }
+            .expect("tool host must accept the complete exact-limit payload");
+        remaining -= count;
     }
+    child
+        .stdin
+        .as_mut()
+        .expect("stdin should remain open for the overflow byte")
+        .write_all(&[b'x'])
+        .expect("the limit + 1 byte must reach the tool host before it rejects the record");
 
     let deadline = Instant::now() + Duration::from_secs(10);
     let status = loop {
@@ -196,9 +199,10 @@ fn oversized_record_fails_before_eof_and_before_host_dispatch() {
         .unwrap()
         .read_to_end(&mut stderr_bytes)
         .unwrap();
-    let stderr = String::from_utf8_lossy(&stderr_bytes);
-    assert!(
-        stderr.contains("stdin JSON record on line 1 exceeded the 67108864-byte transport limit")
+    let stderr = String::from_utf8(stderr_bytes).expect("overflow diagnostic must be valid UTF-8");
+    assert_eq!(
+        stderr,
+        "stdin JSON record on line 1 exceeded the 67108864-byte transport limit\n"
     );
 
     cleanup(left, right);
