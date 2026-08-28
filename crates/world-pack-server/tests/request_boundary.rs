@@ -48,7 +48,7 @@ fn registration() -> WorldRegistration {
 fn describe_frame(total_wire_bytes: usize) -> Vec<u8> {
     let encoded = encode_request(&PackRequestEnvelope::new(1, PackRequest::Describe)).unwrap();
     assert!(
-        encoded.len() + 1 <= total_wire_bytes,
+        encoded.len() < total_wire_bytes,
         "requested boundary must fit the Describe envelope and framing LF"
     );
 
