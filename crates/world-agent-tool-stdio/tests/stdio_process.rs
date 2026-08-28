@@ -1,10 +1,10 @@
 use std::collections::BTreeSet;
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use world_agent_tool_stdio::ReadOnlyJsonToolStdioProcess;
 use world_projection::SelectionId;
 
@@ -132,6 +132,75 @@ fn malformed_json_line_is_a_process_level_failure() {
     assert!(!output.status.success());
     assert!(stderr(&output).contains("invalid JSON on stdin line 1"));
     assert!(output.stdout.is_empty());
+    cleanup(left, right);
+}
+
+#[test]
+fn oversized_record_fails_before_eof_and_before_host_dispatch() {
+    const MAX_RECORD_BYTES: usize = 64 * 1024 * 1024;
+    const CHUNK_BYTES: usize = 64 * 1024;
+
+    let (left, right, _) = divergent_world_fixture();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_world-agent-tool-stdio"))
+        .args([left.to_str().unwrap(), right.to_str().unwrap()])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    let chunk = vec![b'x'; CHUNK_BYTES];
+    let mut remaining = MAX_RECORD_BYTES + 1;
+    while remaining > 0 {
+        let count = remaining.min(chunk.len());
+        match child
+            .stdin
+            .as_mut()
+            .expect("stdin should remain open during overflow")
+            .write_all(&chunk[..count])
+        {
+            Ok(()) => remaining -= count,
+            Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => break,
+            Err(error) => panic!("failed to stream oversized tool-host stdin: {error}"),
+        }
+    }
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "tool host waited for EOF after stdin record was already oversized"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    };
+
+    assert!(!status.success());
+    let mut stdout = Vec::new();
+    child
+        .stdout
+        .take()
+        .unwrap()
+        .read_to_end(&mut stdout)
+        .unwrap();
+    assert!(
+        stdout.is_empty(),
+        "oversized request must not fabricate a tool response"
+    );
+    let mut stderr_bytes = Vec::new();
+    child
+        .stderr
+        .take()
+        .unwrap()
+        .read_to_end(&mut stderr_bytes)
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&stderr_bytes);
+    assert!(stderr.contains(
+        "stdin JSON record on line 1 exceeded the 67108864-byte transport limit"
+    ));
+
     cleanup(left, right);
 }
 
