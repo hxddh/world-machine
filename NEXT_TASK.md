@@ -1,137 +1,132 @@
-# Next Coding Task — M260 Bound Analyst Tool Request Writes
+# Next Coding Task — M261 Bound Pack Process Request Writes
 
-M255 bounded the read-only tool-host stdout consumed by `AnalystJsonlClient`, and M259 now bounds the opposite Rust tool-host stdin direction to a fixed **64 MiB JSON payload-byte ceiling per request record**. The installed Node producer still has no sender-side preflight.
+M260 adds sender-side preflight to the installed Analyst tool client. The next transport gap is the older external Pack process path, but its contract is **not identical** to the Analyst JSONL contract and must not be normalized by assumption.
 
-Today `integrations/pi/world-machine-analyst-client.mjs::AnalystJsonlClient.#writeLine()` does:
+The post-M260 audit found:
 
-```js
-const line = `${JSON.stringify(value)}\n`;
-await new Promise((resolve, reject) => {
-  this.child.stdin.write(line, "utf8", ...);
-});
+- `crates/world-pack-process::ProcessClient` already bounds **responses** with `DEFAULT_MAX_RESPONSE_BYTES = 16 MiB`;
+- `crates/world-pack-server` already bounds incoming **requests** with `DEFAULT_MAX_REQUEST_BYTES = 16 MiB`;
+- `ProcessClient::request()` still has **no sender-side request bound**: it `encode_request()`s, then writes the encoded JSON and LF directly to the child;
+- the current Pack server receiver's historical limit is a **physical JSONL record limit**: `read_bounded_line(..., DEFAULT_MAX_REQUEST_BYTES)` counts bytes returned by `read_until(b'\n', ...)`, so a terminating LF is currently inside the 16 MiB ceiling;
+- therefore M261 must align the sender with the existing Pack v1 receiver contract rather than copying M259/M260's Analyst rule where LF is outside the 64 MiB payload budget.
+
+## M261
+
+Add a fixed sender-side bound to `world-pack-process::ProcessClient` so a Pack request that the existing `world-pack-server` receiver will reject is never handed to the child stdin pipe.
+
+The **existing server contract is authoritative for this milestone**:
+
+- production request wire ceiling remains `world_pack_server::DEFAULT_MAX_REQUEST_BYTES` = **16 MiB**;
+- count the UTF-8 bytes of the encoded request **plus the single terminating LF**, because that is what the current Pack receiver bounds;
+- do not change protocol v1, request schemas, Pack authority, or the server's current wire semantics just to resemble Analyst framing;
+- do not truncate/rewrite a request to fit;
+- no CLI/env/runtime setting may raise the production ceiling;
+- use one already-encoded request for both size validation and transport; do not call `encode_request()` a second time after preflight.
+
+If a lower-only test seam is needed, keep it private/test-local and never permit a value above the 16 MiB production ceiling.
+
+### Sender ordering and request-id invariant
+
+Today `ProcessClient::request()` reserves the id before encoding and before any write:
+
+```rust
+let request_id = self.next_request_id;
+self.next_request_id = self.next_request_id.checked_add(1)?;
+let envelope = PackRequestEnvelope::for_version(..., request_id, request)?;
+let encoded = encode_request(&envelope)?;
+write(encoded);
+write(b"\n");
 ```
 
-An oversized tool invocation is therefore serialized and handed to the pipe even though the M259 receiver will reject it. Add a local sender-side ceiling so an invalid request never crosses the process boundary.
+M261 should prepare the envelope/frame and validate its size **before committing sender correlation state or touching stdin** where practical. A request rejected entirely locally should not make the process session look as if a wire request was dispatched.
 
-## M260
+Because the request id itself is part of the serialized bytes, a suitable shape is:
 
-Add a fixed **64 MiB maximum serialized JSON request payload** to `AnalystJsonlClient` before any stdin write.
+1. read the current `next_request_id` without advancing it;
+2. construct and encode the envelope once using that id;
+3. build/measure the exact wire frame (`encoded UTF-8 bytes + one LF`);
+4. reject locally if the complete frame exceeds 16 MiB;
+5. only after successful preflight, advance `next_request_id` and dispatch the prepared frame;
+6. then retain the existing response correlation/timeout behavior.
 
-The M259 receiver contract is authoritative:
+If implementation evidence shows consuming an id on a local encode failure is deliberately required by another invariant, document and test that instead of silently changing it. The default expectation is zero wire dispatch => no committed request id.
 
-- count the UTF-8 bytes of the serialized JSON payload;
-- the trailing LF is framing and is outside the payload budget;
-- do not truncate or rewrite tool input to fit;
-- accepted requests should be serialized once and the same encoded payload should be used for transport rather than stringifying twice;
-- production must not expose a CLI/env/runtime knob that can raise the 64 MiB ceiling.
+### Local failure versus transport contamination
 
-A lower-only test seam is acceptable if needed for deterministic small tests, but it must never permit a limit above the production ceiling. Prefer keeping that seam local to the existing `AnalystJsonlClient` constructor/test harness rather than adding new user-facing configuration.
+An oversized request discovered before dispatch is a **local validation failure**:
 
-### Critical waiter-ordering invariant
+- write zero bytes to child stdin;
+- do not terminate/kill an otherwise healthy Pack process;
+- do not wait for a response that can never arrive;
+- do not consume a response belonging to an earlier completed wire request;
+- the same `ProcessClient` must remain usable for a later valid request;
+- expose a clear local `HostError` that names the Pack request wire limit.
 
-Do **not** implement the size check only inside the current `#writeLine()` after `#roundTrip()` has already called `#nextLine()`.
+By contrast, an I/O failure after a valid frame starts dispatching remains transport contamination. Preserve the existing fail-closed behavior that terminates the Pack process rather than trying to reuse a potentially partial JSONL stream.
 
-Today `#roundTrip()` effectively does:
+### One framed write
 
-```js
-const responsePromise = this.#nextLine();
-try {
-  await this.#writeLine(request);
-} catch (error) {
-  responsePromise.catch(() => {});
-  ...
-}
-```
+Today payload and LF are separate `write_all()` calls. After local preflight, prefer a single prepared `Vec<u8>`/byte frame containing encoded JSON plus exactly one LF and one `write_all()` before `flush()`.
 
-That ordering already has a local-encoding edge case: if `JSON.stringify()` throws before any request is written, the response waiter remains queued even though merely attaching `.catch()` observes its eventual rejection. A later valid response can be delivered to that stale waiter instead of the current call.
+This does **not** make OS writes atomic; `write_all()` can still partially write before an error. It simply avoids treating the LF as a separate logical dispatch phase. Any write/flush error still requires terminating the child, as today.
 
-M260 must prepare/serialize/size-check the request **before registering a response waiter**. Oversized input and other purely local serialization failures must leave `this.waiters`, `this.lines`, the child pipe, and the session correlation state untouched.
+`send_shutdown()` should use the same bounded/prepared frame rule or an equivalently proven path. Shutdown is tiny, but leaving a second unbounded request encoder/writer would make the sender invariant incomplete.
 
-A suitable shape is:
+### Server receiver semantics to lock before relying on them
 
-```js
-const encoded = encodeBoundedRequest(request, maxRequestBytes);
-const responsePromise = this.#nextLine();
-await this.#writeEncodedLine(encoded);
-```
+The Pack server is already bounded, but it lacks explicit exact-boundary regressions for the request side. Add deterministic tests around `read_bounded_line` / `serve_server_jsonl` that lock the existing contract before changing the sender:
 
-where the encoder returns the already-serialized UTF-8 payload (string or Buffer) and transport appends exactly one LF without re-stringifying.
+1. a physical request record whose encoded JSON + LF is exactly the configured test limit is accepted;
+2. the same frame at limit + 1 is rejected before request dispatch;
+3. multibyte JSON content is judged in UTF-8 bytes;
+4. no-newline input is bounded rather than accumulated indefinitely;
+5. a malformed/oversized request remains process/server-fatal rather than producing a fabricated correlated response;
+6. the request limit continues to count the LF inside the current 16 MiB Pack wire ceiling unless a separate protocol milestone explicitly changes that contract.
 
-### Local failure semantics
+Prefer a small helper/test limit for unit tests instead of allocating 16 MiB repeatedly. Do not expose the test seam as production configuration.
 
-An oversized request is a **local validation/serialization failure**, not framing contamination:
+### Process sender regressions
 
-- do not set `closedError` or `framingError`;
-- do not kill/terminate the child;
-- do not create or leave a pending response waiter;
-- do not consume any response already queued for a different completed request;
-- do not write any request bytes;
-- after the rejected request, a valid `listTools()` / `invoke()` on the same client must still succeed;
-- existing remote tool errors stay correlated and recoverable exactly as today.
+Add process/client-level regressions proving:
 
-Likewise, a local `JSON.stringify` failure such as a `BigInt` or circular input must not leave a stale waiter. M260 may fix this adjacent existing ordering bug as part of moving all local request encoding before `#nextLine()`.
-
-Transport write failures **after** a valid encoded request starts dispatching retain the existing M255 safety behavior; do not weaken the pending-promise observation or framing-contamination precedence fixes.
-
-### Encoding / write shape
-
-Avoid a second JSON serialization. One reasonable implementation is:
-
-1. `JSON.stringify(request)` once;
-2. encode that string to UTF-8 bytes (`Buffer.from(...)` or equivalent);
-3. compare byte length with 64 MiB;
-4. only after success, register the response waiter;
-5. write the accepted payload plus one LF.
-
-If payload and LF are written in separate low-level writes, explicitly reason about partial-frame failure: a payload write succeeding while the LF write fails contaminates the child stdin stream and must not be treated like a harmless local validation failure. A single framed write after preflight is simpler if it can be done without another JSON serialization.
-
-### Required regressions
-
-Use a small lower-only test limit; do not allocate tens of MiB in ordinary unit tests.
-
-1. serialized payload below the test limit is dispatched normally;
-2. exact-limit serialized payload is accepted and exactly one LF is written outside the payload budget;
-3. limit + 1 serialized payload is rejected before any child stdin bytes are produced;
-4. multibyte tool input is judged by UTF-8 byte length, not JavaScript string/code-point count;
-5. oversized `invoke()` is local/non-fatal: child is not killed and client is not closed/poisoned;
-6. no request callback/server-side parse occurs for the rejected oversized request;
-7. a valid request immediately after an oversized request succeeds on the same child, proving no stale response waiter remains;
-8. a local `JSON.stringify` failure likewise leaves no stale waiter and the next valid request succeeds;
-9. `listTools()` and `invoke()` both use the same bounded preparation path;
-10. accepted request is serialized once; transport does not call `JSON.stringify` again;
-11. existing remote-tool-error recovery remains reusable;
-12. existing response framing overflow, same-chunk fatal-wins, write-error observation, abort and SIGTERM→SIGKILL regressions remain green.
-
-A source regression is reasonable if needed to lock the ordering: request preparation must appear before `#nextLine()` in the active round-trip path.
+1. a request below the effective wire limit dispatches normally;
+2. an exact-limit frame (encoded JSON + one LF) is accepted;
+3. limit + 1 is rejected before any stdin bytes are produced;
+4. multibyte request content is bounded by UTF-8 bytes, not character count;
+5. local oversize does not kill/close the child and a later valid request succeeds on the same process;
+6. no request handler/server-side mutation occurs for the rejected request;
+7. local rejection does not consume/commit the request id expected by the next dispatched request;
+8. accepted requests are encoded once and the same bytes are transported;
+9. payload + LF is dispatched as one prepared frame;
+10. a transport write/flush failure after dispatch starts still terminates the process;
+11. response timeout, response-size bound, protocol-version correlation, request-id correlation, durable probe, content-pin and Pack conformance regressions remain green;
+12. `send_shutdown()` cannot bypass the production request ceiling/path invariant.
 
 ### Validation
 
-Run:
+Run at minimum:
 
-- `node --test integrations/pi/tests/world-machine-analyst-client.test.mjs`;
-- `bash ./scripts/check-pi-analyst.sh`;
+- focused `world-pack-process` tests;
+- focused `world-pack-server` tests;
+- `bash ./scripts/check-boundaries.sh`;
 - `cargo fmt --all -- --check`;
-- full Linux boundary/Clippy/workspace tests/Pack conformance;
-- full macOS Library/Packs/GPUI/desktop tests, `World Machine.app` build/validate, packaged Analyst smoke, archive and upload.
+- full Linux Clippy/workspace tests/Pack conformance;
+- full macOS Library/Packs/GPUI/desktop tests, `World Machine.app` build/validate, packaged Analyst smoke, archive and upload if the normal path filter selects it.
 
-Because `integrations/pi/**` is in the existing macOS path filter, normal M260 PR CI should automatically execute the packaged-app gate.
+Before merge, require exact-head review to check both sender and receiver together; do not review the new sender bound in isolation from the existing 16 MiB server behavior.
 
-## M259 invariants to preserve
+## M260 invariants to preserve
 
-Do not weaken the Rust receiver while adding sender preflight:
+Do not regress the Analyst transport while working on Pack process framing:
 
-- `world-agent-tool-stdio` keeps its fixed 64 MiB production record ceiling;
-- LF and CRLF framing compatibility remain outside the payload budget as established by M259;
-- EOF-tail/lone-CR compatibility and strict UTF-8 behavior remain unchanged;
-- no-newline overflow remains prompt/fatal without waiting for EOF once impossible;
-- physical line numbers still include ignored blank lines;
-- a valid earlier request stays independently committed/flushed when a later record overflows;
-- M259 retains its real process-level production-boundary regression that writes 64 MiB + 1 while stdin remains open and requires the child to fail before EOF with no fabricated stdout response.
-
-## Later audit
-
-`world-pack-process` already has a bounded **response** reader (`DEFAULT_MAX_RESPONSE_BYTES = 16 MiB`). After M260, separately audit the Pack request sender and Pack server receiver together before choosing another transport-hardening milestone. Do not assume the response-side bound alone covers the opposite direction.
+- `AnalystJsonlClient` keeps its fixed 64 MiB **serialized JSON payload** ceiling;
+- Analyst LF remains outside that payload budget;
+- request serialization/UTF-8 encoding/size validation occurs before response-waiter registration;
+- oversized or local JSON serialization failures write zero bytes, leave queued responses/waiters untouched, do not kill the child, and allow same-session reuse;
+- accepted Analyst requests serialize once and write one prepared payload+LF frame;
+- M255 response framing overflow/write-error/abort/SIGTERM→SIGKILL behavior remains unchanged;
+- M259 Rust tool-host receiver stays fixed at its 64 MiB payload ceiling with its established CRLF/EOF/lone-CR/strict-UTF-8 behavior.
 
 ## Non-goals
 
-No protocol/version/schema changes, no tool-input truncation, no Rust receiver changes, no response ceiling changes, no provider/model behavior changes, no World/Pack/query/UI changes, and no broad JSONL transport abstraction refactor.
+No Pack protocol/version/schema change, no change to the current 16 MiB Pack request or response ceilings, no attempt to unify Pack and Analyst framing semantics, no request truncation, no Pack business behavior change, no World/query/UI changes, and no broad shared JSONL transport abstraction refactor.
