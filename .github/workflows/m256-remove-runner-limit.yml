@@ -51,73 +51,73 @@ jobs:
           from pathlib import Path
           p = Path('integrations/pi/tests/world-machine-analyst-turn-host-framing.test.mjs')
           text = p.read_text()
-          old_start = '          test("turn-host framing failure shuts down the restricted Pi child", async () => {'
-          old_end = '          test("turn-host input limit injection cannot exceed the production ceiling", async () => {'
-          start = text.find(old_start)
-          end = text.find(old_end)
-          if start < 0 or end < 0 or end <= start:
-              raise SystemExit('cleanup/limit test block markers not found')
-          tail_start = text.find('\n          });', end)
-          if tail_start < 0:
-              raise SystemExit('limit test end not found')
-          tail_end = tail_start + len('\n          });')
+          start_marker = 'test("turn-host framing failure shuts down the restricted Pi child", async () => {'
+          end_marker = '\n\nasync function waitForFile'
+          start = text.find(start_marker)
+          end = text.find(end_marker, start)
+          if start < 0 or end < 0:
+              raise SystemExit('cleanup test replacement markers not found')
           replacement = "\n".join([
-              '          test("turn-host framing input failure shuts down the restricted Pi child", async () => {',
-              '            const temp = await mkdtemp(join(tmpdir(), "world-machine-m256-framing-"));',
-              '            const fakePi = join(temp, "fake-pi.mjs");',
-              '            const readyFile = join(temp, "ready.txt");',
-              '            await writeFile(',
-              '              fakePi,',
-              '              [',
-              '                "#!/usr/bin/env node",',
-              '                \'import { writeFileSync } from "node:fs";\',',
-              '                "writeFileSync(process.env.FAKE_PI_READY_FILE, String(process.pid));",',
-              '                "setInterval(() => {}, 1000);",',
-              '                "",',
-              '              ].join("\\n"),',
-              '            );',
-              '            await chmod(fakePi, 0o755);',
+              'test("turn-host framing input failure shuts down the restricted Pi child", async () => {',
+              '  const temp = await mkdtemp(join(tmpdir(), "world-machine-m256-framing-"));',
+              '  const fakePi = join(temp, "fake-pi.mjs");',
+              '  const readyFile = join(temp, "ready.txt");',
+              '  await writeFile(',
+              '    fakePi,',
+              '    [',
+              '      "#!/usr/bin/env node",',
+              '      \'import { writeFileSync } from "node:fs";\',',
+              '      "writeFileSync(process.env.FAKE_PI_READY_FILE, String(process.pid));",',
+              '      "setInterval(() => {}, 1000);",',
+              '      "",',
+              '    ].join("\\n"),',
+              '  );',
+              '  await chmod(fakePi, 0o755);',
               '',
-              '            const stdin = {',
-              '              async *[Symbol.asyncIterator]() {',
-              '                await waitForFile(readyFile);',
-              '                throw new AnalystTurnHostInputError("analyst turn input record exceeded the transport limit");',
-              '              },',
-              '              destroy() {},',
-              '            };',
-              '            const stdout = new PassThrough();',
-              '            const signalSource = new EventEmitter();',
-              '            const run = runAnalystTurnHost({',
-              '              stdin,',
-              '              stdout,',
-              '              argv: ["left.world", "right.world", "--provider", "fake", "--model", "fake"],',
-              '              env: {',
-              '                ...process.env,',
-              '                PI_PROGRAM: fakePi,',
-              '                WORLD_MACHINE_ANALYST_PROGRAM: process.execPath,',
-              '                FAKE_PI_READY_FILE: readyFile,',
-              '              },',
-              '              signalSource,',
-              '            });',
+              '  const stdin = {',
+              '    async *[Symbol.asyncIterator]() {',
+              '      await waitForFile(readyFile);',
+              '      throw new AnalystTurnHostInputError("analyst turn input record exceeded the transport limit");',
+              '    },',
+              '    destroy() {},',
+              '  };',
+              '  const stdout = new PassThrough();',
+              '  const signalSource = new EventEmitter();',
+              '  const run = runAnalystTurnHost({',
+              '    stdin,',
+              '    stdout,',
+              '    argv: ["left.world", "right.world", "--provider", "fake", "--model", "fake"],',
+              '    env: {',
+              '      ...process.env,',
+              '      PI_PROGRAM: fakePi,',
+              '      WORLD_MACHINE_ANALYST_PROGRAM: process.execPath,',
+              '      FAKE_PI_READY_FILE: readyFile,',
+              '    },',
+              '    signalSource,',
+              '  });',
               '',
-              '            try {',
-              '              await assert.rejects(run, /record exceeded/);',
-              '              const piPid = Number(await readFile(readyFile, "utf8"));',
-              '              assert.ok(Number.isInteger(piPid) && piPid > 0);',
-              '              assert.equal(processExists(piPid), false, "restricted Pi child must not survive framing input failure");',
-              '            } finally {',
-              '              await rm(temp, { recursive: true, force: true });',
-              '            }',
-              '          });',
+              '  try {',
+              '    await assert.rejects(run, /record exceeded/);',
+              '    const piPid = Number(await readFile(readyFile, "utf8"));',
+              '    assert.ok(Number.isInteger(piPid) && piPid > 0);',
+              '    assert.equal(',
+              '      processExists(piPid),',
+              '      false,',
+              '      "restricted Pi child must not survive framing input failure",',
+              '    );',
+              '  } finally {',
+              '    await rm(temp, { recursive: true, force: true });',
+              '  }',
+              '});',
               '',
-              '          test("turn-host framing reader limit cannot exceed the production ceiling", async () => {',
-              '            await assert.rejects(',
-              '              collectLines([], 64 * 1024 * 1024 + 1),',
-              '              (error) => error instanceof AnalystTurnHostInputError && /1\\.\\.=67108864/.test(error.message),',
-              '            );',
-              '          });',
+              'test("turn-host framing reader limit cannot exceed the production ceiling", async () => {',
+              '  await assert.rejects(',
+              '    collectLines([], 64 * 1024 * 1024 + 1),',
+              '    (error) => error instanceof AnalystTurnHostInputError && /1\\.\\.=67108864/.test(error.message),',
+              '  );',
+              '});',
           ])
-          p.write_text(text[:start] + replacement + text[tail_end:])
+          p.write_text(text[:start] + replacement + text[end:])
           PY
 
           node --check integrations/pi/world-machine-analyst-turn-host.mjs
