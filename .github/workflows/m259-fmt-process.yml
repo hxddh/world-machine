@@ -1,0 +1,30 @@
+name: M259 Format Process Regression
+
+on:
+  push:
+    branches:
+      - agent/m259-bound-tool-host-stdin-jsonl
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/m259-bound-tool-host-stdin-jsonl
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: |
+          cargo fmt --all
+          cargo fmt --all -- --check
+          git rm .github/workflows/m259-fmt-process.yml
+          git add crates/world-agent-tool-stdio/tests/stdio_process.rs
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m 'test: format M259 process overflow regression'
+          git push origin HEAD:agent/m259-bound-tool-host-stdin-jsonl
