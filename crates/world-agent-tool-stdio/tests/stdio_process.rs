@@ -197,9 +197,9 @@ fn oversized_record_fails_before_eof_and_before_host_dispatch() {
         .read_to_end(&mut stderr_bytes)
         .unwrap();
     let stderr = String::from_utf8_lossy(&stderr_bytes);
-    assert!(stderr.contains(
-        "stdin JSON record on line 1 exceeded the 67108864-byte transport limit"
-    ));
+    assert!(
+        stderr.contains("stdin JSON record on line 1 exceeded the 67108864-byte transport limit")
+    );
 
     cleanup(left, right);
 }
