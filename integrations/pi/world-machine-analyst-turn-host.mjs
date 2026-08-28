@@ -10,6 +10,8 @@ import {
 export const ANALYST_TURN_PROTOCOL = "world-machine-analyst-turns";
 export const ANALYST_TURN_PROTOCOL_VERSION = 1;
 
+const DEFAULT_MAX_ANALYST_TURN_INPUT_RECORD_BYTES = 64 * 1024 * 1024;
+
 export class AnalystTurnHostInputError extends Error {
   constructor(message) {
     super(message);
@@ -60,14 +62,7 @@ export async function runAnalystTurnHost({
   signalSource = process,
 } = {}) {
   const config = parseProcessArgs(argv);
-  const session = PiAnalystRpcSession.spawnRestricted({
-    leftArchive: config.leftArchive,
-    rightArchive: config.rightArchive,
-    provider: config.provider,
-    model: config.model,
-    thinking: config.thinking,
-    env,
-  });
+  const session = spawnRestrictedSession(config, env);
   const host = new AnalystTurnHost(session);
   const abortController = new AbortController();
   const onTerminate = () => {
@@ -77,7 +72,7 @@ export async function runAnalystTurnHost({
   signalSource.on("SIGTERM", onTerminate);
 
   try {
-    for await (const line of jsonLines(stdin)) {
+    for await (const line of readAnalystTurnLines(stdin)) {
       let request;
       try {
         request = JSON.parse(line);
@@ -228,22 +223,108 @@ function envelope(body) {
   };
 }
 
-async function* jsonLines(stream) {
-  let buffer = Buffer.alloc(0);
-  for await (const chunk of stream) {
-    buffer = Buffer.concat([buffer, Buffer.from(chunk)]);
-    while (true) {
-      const newline = buffer.indexOf(0x0a);
-      if (newline < 0) break;
-      const raw = buffer.subarray(0, newline);
-      buffer = buffer.subarray(newline + 1);
-      const line = raw.toString("utf8").replace(/\r$/, "");
-      if (line.length > 0) yield line;
-    }
+function spawnRestrictedSession(config, env) {
+  return PiAnalystRpcSession.spawnRestricted({
+    leftArchive: config.leftArchive,
+    rightArchive: config.rightArchive,
+    provider: config.provider,
+    model: config.model,
+    thinking: config.thinking,
+    env,
+  });
+}
+
+function validateInputRecordLimit(maxRecordBytes) {
+  if (
+    !Number.isSafeInteger(maxRecordBytes) ||
+    maxRecordBytes <= 0 ||
+    maxRecordBytes > DEFAULT_MAX_ANALYST_TURN_INPUT_RECORD_BYTES
+  ) {
+    throw new AnalystTurnHostInputError(
+      `analyst turn input max record bytes must be an integer in 1..=${DEFAULT_MAX_ANALYST_TURN_INPUT_RECORD_BYTES}`,
+    );
   }
-  if (buffer.length > 0) {
-    const line = buffer.toString("utf8").replace(/\r$/, "");
-    if (line.length > 0) yield line;
+}
+
+export async function* readAnalystTurnLines(
+  stream,
+  maxRecordBytes = DEFAULT_MAX_ANALYST_TURN_INPUT_RECORD_BYTES,
+) {
+  validateInputRecordLimit(maxRecordBytes);
+  const maxRawBytes = maxRecordBytes + 1;
+  let recordBuffer = Buffer.alloc(0);
+  let recordBytes = 0;
+
+  const ensureCapacity = (requiredBytes) => {
+    if (recordBuffer.length >= requiredBytes) return;
+    let nextCapacity =
+      recordBuffer.length === 0 ? Math.min(4096, maxRawBytes) : recordBuffer.length;
+    while (nextCapacity < requiredBytes) {
+      nextCapacity = Math.min(maxRawBytes, Math.max(requiredBytes, nextCapacity * 2));
+    }
+    const next = Buffer.allocUnsafe(nextCapacity);
+    if (recordBytes > 0) recordBuffer.copy(next, 0, 0, recordBytes);
+    recordBuffer = next;
+  };
+
+  const failOversized = () => {
+    throw new AnalystTurnHostInputError(
+      `analyst turn input record exceeded the ${maxRecordBytes}-byte transport limit`,
+    );
+  };
+
+  const appendFragment = (fragment) => {
+    const totalBytes = recordBytes + fragment.length;
+    if (totalBytes > maxRawBytes) failOversized();
+    if (totalBytes === maxRawBytes) {
+      const lastByte =
+        fragment.length > 0
+          ? fragment[fragment.length - 1]
+          : recordBytes > 0
+            ? recordBuffer[recordBytes - 1]
+            : null;
+      if (lastByte !== 0x0d) failOversized();
+    }
+    if (fragment.length === 0) return;
+    ensureCapacity(totalBytes);
+    fragment.copy(recordBuffer, recordBytes);
+    recordBytes = totalBytes;
+  };
+
+  const takePayload = () => {
+    const raw = recordBuffer.subarray(0, recordBytes);
+    recordBuffer = Buffer.alloc(0);
+    recordBytes = 0;
+    const payload = raw.length > 0 && raw[raw.length - 1] === 0x0d ? raw.subarray(0, -1) : raw;
+    if (payload.length > maxRecordBytes) failOversized();
+    return payload;
+  };
+
+  try {
+    for await (const chunk of stream) {
+      const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      let offset = 0;
+      while (offset < bytes.length) {
+        const newline = bytes.indexOf(0x0a, offset);
+        if (newline < 0) {
+          appendFragment(bytes.subarray(offset));
+          break;
+        }
+
+        appendFragment(bytes.subarray(offset, newline));
+        const payload = takePayload();
+        if (payload.length > 0) yield payload.toString("utf8");
+        offset = newline + 1;
+      }
+    }
+
+    if (recordBytes > 0) {
+      const payload = takePayload();
+      if (payload.length > 0) yield payload.toString("utf8");
+    }
+  } finally {
+    recordBuffer = Buffer.alloc(0);
+    recordBytes = 0;
   }
 }
 
