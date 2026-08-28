@@ -7,8 +7,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use world_host::{WorldPackSource, WorldRegistry};
 use world_pack_process::{ProcessPack, ProcessPackSource, DEFAULT_MAX_REQUEST_BYTES};
 use world_pack_protocol::{
-    encode_response, PackDescriptor, PackManifest, PackResponse, PackResponseEnvelope,
-    ProjectionCapabilitiesWire, ProjectionSnapshotWire,
+    encode_request, encode_response, PackDescriptor, PackManifest, PackRequest, PackRequestEnvelope,
+    PackResponse, PackResponseEnvelope, ProjectionCapabilitiesWire, ProjectionIntentWire,
+    ProjectionSnapshotWire,
 };
 use world_persistence::WorldPackRef;
 use world_projection::ProjectionIntent;
@@ -47,6 +48,32 @@ fn response_line(request_id: u64, response: PackResponse) -> String {
     encode_response(&PackResponseEnvelope::new(request_id, response)).unwrap()
 }
 
+fn exact_limit_handle_command(request_id: u64) -> String {
+    let empty = encode_request(&PackRequestEnvelope::new(
+        request_id,
+        PackRequest::Handle {
+            intent: ProjectionIntentWire::InvokeCommand {
+                command: String::new(),
+            },
+        },
+    ))
+    .unwrap();
+    let empty_frame_bytes = empty.len() + 1;
+    assert!(empty_frame_bytes < DEFAULT_MAX_REQUEST_BYTES);
+    let command = "x".repeat(DEFAULT_MAX_REQUEST_BYTES - empty_frame_bytes);
+    let exact = encode_request(&PackRequestEnvelope::new(
+        request_id,
+        PackRequest::Handle {
+            intent: ProjectionIntentWire::InvokeCommand {
+                command: command.clone(),
+            },
+        },
+    ))
+    .unwrap();
+    assert_eq!(exact.len() + 1, DEFAULT_MAX_REQUEST_BYTES);
+    command
+}
+
 fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
@@ -64,6 +91,54 @@ fn write_fixture_process(path: &Path, responses: &[String]) {
     let mut permissions = fs::metadata(path).unwrap().permissions();
     permissions.set_mode(0o755);
     fs::set_permissions(path, permissions).unwrap();
+}
+
+#[test]
+fn exact_physical_request_ceiling_is_dispatched_and_correlated() {
+    let root = temp_dir("exact-limit");
+    let runtime = root.join("runtime.sh");
+    write_fixture_process(
+        &runtime,
+        &[
+            response_line(
+                1,
+                PackResponse::Descriptor {
+                    descriptor: descriptor(),
+                },
+            ),
+            response_line(
+                2,
+                PackResponse::Snapshot {
+                    snapshot: snapshot(0, "Created"),
+                },
+            ),
+            response_line(
+                3,
+                PackResponse::Snapshot {
+                    snapshot: snapshot(1, "Handled exact-limit request"),
+                },
+            ),
+        ],
+    );
+    let manifest = PackManifest::process(descriptor(), "runtime.sh", Vec::new());
+    let manifest_path = root.join("fixture.world-pack.json");
+    fs::write(&manifest_path, manifest.to_json_pretty().unwrap()).unwrap();
+
+    let pack = ProcessPack::load(&manifest_path).unwrap();
+    let source = ProcessPackSource::from_packs(vec![pack]);
+    let mut registry = WorldRegistry::new();
+    registry.install_source(&source).unwrap();
+    let mut session = registry.create("fixture.m261.request-bound").unwrap();
+
+    let command = exact_limit_handle_command(3);
+    let handled = session
+        .handle(ProjectionIntent::InvokeCommand(command))
+        .unwrap();
+    assert_eq!(handled.world_time, 1);
+    assert_eq!(handled.title, "Handled exact-limit request");
+
+    drop(session);
+    let _ = fs::remove_dir_all(root);
 }
 
 #[test]
