@@ -148,9 +148,7 @@ fn exact_limit_record_is_accepted_by_real_process() {
         .spawn()
         .unwrap();
 
-    write_exact_limit_list_tools_payload(
-        child.stdin.as_mut().expect("stdin should be available"),
-    );
+    write_exact_limit_list_tools_payload(child.stdin.as_mut().expect("stdin should be available"));
     child
         .stdin
         .as_mut()
