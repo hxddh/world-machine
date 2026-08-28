@@ -1,93 +1,116 @@
-# Next Coding Task — M257 Bound Rust Analyst Turn Request Writes
+# Next Coding Task — M258 Bound world-cli Machine-Query Stdin
 
-M254 bounds the long-lived Pi RPC child stdout, M255 bounds the restricted Analyst tool-host stdout, and M256 bounds the Node turn-host stdin receiver to **64 MiB of JSON payload bytes per request record**. The next adjacent boundary is the Rust sender in `crates/world-analyst-client/src/lib.rs`: `AnalystTurnClient::transact_with_response_limit()` currently serializes an `AnalystTurnRequest` and immediately writes all encoded bytes to the child pipe before any request-size preflight.
+M254–M257 close the unbounded JSONL transport edges in the shipped Analyst path: Pi RPC child stdout, restricted tool-host stdout, Node turn-host stdin, and finally Rust sender pre-write request sizing. The next confirmed whole-input boundary is separate from Analyst transport: `crates/world-cli/src/main.rs::read_query_request()`.
 
-## M257
+Today all three machine-query commands accept `-` as the request argument and then do:
 
-Add a **64 MiB maximum serialized Analyst turn request payload** on the Rust client side so oversized prompts are rejected locally before crossing the pipe.
+```rust
+let mut json = String::new();
+io::stdin().read_to_string(&mut json)?;
+Ok(json)
+```
 
-The receiver ceiling established by M256 is authoritative for the installed path, so the Rust sender must use the same payload-byte definition:
+That means an oversized or indefinitely unterminated stdin document can grow an unbounded `String` before UTF-8/JSON/request-shape validation.
 
-- limit the serialized JSON bytes only;
-- the trailing `\n` written by the transport is framing and is outside the payload budget;
-- count serialized UTF-8 bytes, not Rust `String::len()` assumptions or user-visible character count;
-- never truncate a prompt or request to fit;
-- reject before the first writer `write_all()` / `flush()` call;
-- avoid serializing a large accepted request twice merely to preflight it.
+## M258
 
-### Preserve local-invalid-request semantics
+Add a fixed **64 MiB stdin request-document byte ceiling** for the `-` path used by:
 
-Request-size rejection is a **local request validation failure**, not a transport/session failure.
+- `world-cli evidence-query <file.world> -`
+- `world-cli evidence-compare-query <left.world> <right.world> -`
+- `world-cli evidence-investigate-compare <left.world> <right.world> -`
 
-Existing `invalid_requests_are_rejected_locally_without_consuming_id` behavior is the model:
+This is a transport/runaway-memory guard, not a new semantic query-size recommendation. Keep direct JSON supplied as a normal command-line argument unchanged; M258 only bounds bytes read from stdin when the request argument is exactly `-`.
 
-- the error must be non-fatal according to `is_session_fatal()`;
-- the client must remain unpoisoned;
-- writer bytes must remain untouched;
-- the rejected request must **not consume `next_request_id`**;
-- a subsequent valid request on the same client must still use the same request id that the rejected oversized request would have used and must be able to succeed normally.
+### Required semantics
 
-Do not put the size check only inside the current `transact_with_response_limit()` after `ask()` / `probe()` have incremented `next_request_id`; that would silently violate the existing local-validation id semantics.
+- Count raw stdin bytes before UTF-8/JSON parsing.
+- Maximum payload is exactly 64 MiB; there is no JSONL delimiter or framing byte to exclude because this input is one EOF-terminated JSON document.
+- Exactly the configured limit at EOF is accepted.
+- Limit + 1 bytes must fail as soon as that byte is observed; do not keep reading until EOF merely to report overflow.
+- Never truncate an oversized document and parse the prefix.
+- Do not preallocate 64 MiB for normal requests.
+- Preserve current EOF behavior: stdin is one complete document and normal execution still waits for EOF when the document stays within the limit.
+- Preserve UTF-8 validation before JSON decoding. Invalid UTF-8 within the size ceiling remains an input error rather than lossy conversion.
+- Preserve the existing JSON request schemas, query execution, status envelopes, archive semantics, and exit behavior for valid requests.
+- Ensure overflow is rejected before JSON deserialization and before any query execution that could depend on the supplied request.
+
+A private constant such as:
+
+```rust
+const MAX_MACHINE_QUERY_STDIN_BYTES: usize = 64 * 1024 * 1024;
+```
+
+is sufficient. Do not add a CLI flag, environment variable, or user/runtime option to raise the production ceiling.
 
 ### Suggested implementation shape
 
-Keep the change local to `world-analyst-client`.
-
-Add a production constant such as:
+Refactor the stdin-specific reading into a small testable helper that accepts a generic `Read`, for example:
 
 ```rust
-pub const ANALYST_TURN_MAX_REQUEST_BYTES: usize = 64 * 1024 * 1024;
-```
-
-Give `AnalystTurnClient` a private request-size limit initialized to that constant. A `#[cfg(test)]` constructor/helper may lower it for small deterministic tests, but do not expose a runtime/user configuration knob that can raise or alter the installed production ceiling.
-
-Prepare and encode the candidate request while `next_request_id` is still unchanged. A shape such as this is appropriate:
-
-```rust
-fn encode_bounded_request(
-    request: &AnalystTurnRequest,
+fn read_bounded_query_request<R: Read>(
+    reader: &mut R,
     max_bytes: usize,
-) -> Result<Vec<u8>, AnalystTurnClientError>
+) -> Result<String, Box<dyn Error>>
 ```
 
-The helper should serialize once, compare `encoded.len()` with the ceiling, and return the encoded bytes. Only after successful local validation/encoding should `ask()` or `probe()` advance `next_request_id` and dispatch those already-encoded bytes.
+or an equivalent private typed-error shape.
 
-Split the current transaction path if needed so the transport stage accepts the encoded request bytes rather than calling `serde_json::to_vec()` again. Preserve all existing response framing, protocol/version/correlation checks, remote-error classification, poisoning, and response-size semantics.
+A simple bounded strategy is appropriate:
 
-Use either the existing `InvalidRequest` class with a clear request-size message or a dedicated `RequestTooLarge { max_bytes }` variant, but if a new variant is introduced it must be classified non-fatal and must not poison the client.
+1. wrap the reader in `Read::take(max_bytes + 1)`;
+2. `read_to_end` into a `Vec<u8>` without large preallocation;
+3. if `len > max_bytes`, return a clear local CLI/input error immediately;
+4. otherwise convert with `String::from_utf8` (or equivalent strict UTF-8 conversion) and return the full document.
+
+Using `take(max + 1)` means an endless producer fails once the first impossible byte arrives instead of requiring EOF. Avoid `read_to_string` on an unbounded reader and avoid reading the full input only to check length afterward.
+
+Production `read_query_request()` should call the helper only when `request == "-"`; non-stdin request strings must remain untouched.
 
 ### Required regressions
 
-1. an encoded request whose JSON payload is exactly the configured small test limit is accepted;
-2. the transport still writes exactly one trailing LF outside that payload budget;
-3. payload limit + 1 byte is rejected before any writer byte is produced;
-4. multibyte prompt content is judged by serialized UTF-8 byte length rather than character count;
-5. oversized local request is non-fatal and leaves `is_poisoned() == false`;
-6. oversized local request does not consume the request id; the next valid request uses the same id and succeeds;
-7. accepted request serialization is reused by the transport rather than serialized a second time;
-8. probe continues to use the same bounded request path without changing normal probe behavior;
-9. existing response-too-large, malformed-response, protocol/version/correlation, remote-command recovery, and fatal-response poisoning tests remain unchanged and green;
-10. `AnalystTurnProcess` must not tear down/poison its child merely because the Rust caller attempted a locally oversized request.
+Use a small injected helper limit for deterministic unit tests; do not allocate tens of MiB.
 
-Prefer small injected limits in tests; do not allocate tens of MiB merely to exercise the boundary.
+1. below-limit EOF input is returned unchanged;
+2. exact-limit EOF input is accepted;
+3. limit + 1 bytes are rejected and the underlying reader is not consumed beyond `max + 1` bytes;
+4. a reader that can continue indefinitely is rejected once overflow becomes certain rather than waiting for EOF;
+5. invalid UTF-8 within the limit is rejected, not lossily converted;
+6. valid multibyte UTF-8 is counted by bytes and returned intact;
+7. direct `request-json` argument behavior is unchanged and does not go through the stdin ceiling helper;
+8. stdin `evidence-query` still emits the same typed JSON status envelope for a valid request;
+9. stdin `evidence-compare-query` still works for existing legacy/tagged causal comparison requests;
+10. stdin `evidence-investigate-compare` still works for first-divergence investigation requests;
+11. oversized stdin fails before request JSON deserialization/query execution and emits no successful machine-query envelope;
+12. all existing machine-query transport/causal/investigation integration tests remain green.
+
+Where practical, add the helper-level boundary tests inside `main.rs` and add one CLI integration regression in `crates/world-cli/tests/machine_query_transport.rs` proving the `-` path is actually wired to the bounded helper.
 
 ### Validation
 
-Run `cargo fmt --all -- --check`, focused `cargo test -p world-analyst-client`, Clippy/workspace tests, the Pi integration checks, Pack conformance, and the full macOS desktop / packaged Analyst `World Machine.app` gate because this Rust client participates in the shipped Analyst process path.
+Run:
 
-## M256 invariants to preserve
+- `cargo fmt --all -- --check`;
+- `cargo test -p world-cli` including `machine_query_transport` and causal/investigation suites;
+- workspace Clippy/tests and Pack conformance;
+- existing boundary and Pi checks to ensure the unrelated Analyst path remains untouched;
+- full macOS Library/Packs/GPUI/desktop/`World Machine.app` build, packaged Analyst smoke, archive and artifact upload because repository merge policy requires the full gate even though M258 is CLI-only.
 
-Do not weaken the receiver while adding sender preflight:
+## M257 invariants to preserve
 
-- `runAnalystTurnHost()` retains its existing production runner option surface; there is no input-limit or session-factory runtime option;
-- `PiAnalystRpcSession.spawnRestricted` remains the only production session creation path for the turn host;
-- the Node input reader keeps its fixed 64 MiB production ceiling, exact-limit LF/CRLF behavior, EOF-tail compatibility, streaming split/multi-record behavior, and fatal cleanup on framing overflow;
-- a complete first JSONL request remains independent from a later oversized request even if both arrive in one OS chunk.
+Do not mix Analyst transport changes into M258:
 
-## Later audit candidate
+- Rust `AnalystTurnClient` retains its fixed 64 MiB serialized request pre-write ceiling;
+- oversized Analyst requests remain local/non-fatal, write zero bytes, do not poison or consume request ids, and do not stop `AnalystTurnProcess`;
+- M256 Node turn-host stdin remains independently bounded to 64 MiB JSON payload bytes;
+- M254/M255 response-side framing and poisoning behavior remain unchanged.
 
-After M257, audit `world-cli` machine-query stdin paths that still use whole-input `read_to_string` style accumulation and decide whether they need a separate bounded-input contract. Keep that separate from the Analyst transport milestones.
+## Later audit candidates
+
+After M258, continue a repository-wide audit for whole-input or line-oriented external/process boundaries that can accumulate without a production cap. Treat each independently according to its protocol semantics rather than introducing a broad shared framing abstraction.
+
+The known `crates/world-cli/tests/machine_query_transport.rs::temp_world_path()` wall-clock-derived temporary-path collision is a separate test-quality issue. Do not bundle it into M258 unless it blocks authoritative CI again; if it flakes, rerun the same exact-head failed job and leave the product diff focused.
 
 ## Non-goals
 
-No protocol/schema/provider/model changes, no prompt truncation, no Node turn-host receiver change, no response-size change, no UI/history/World/Pack/query/archive behavior change, and no broad shared transport/framing framework refactor.
+No query protocol/version/schema changes, no archive input-size policy change, no direct argv JSON limit, no output truncation, no World/Pack/query algorithm changes, no Analyst transport changes, no UI changes, and no broad shared I/O framework refactor.
