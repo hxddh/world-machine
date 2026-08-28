@@ -24,6 +24,7 @@ pub const DEFAULT_MAX_REQUEST_BYTES: usize = 16 * 1024 * 1024;
 pub const DEFAULT_MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 pub const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 
+const RESPONSE_QUEUE_CAPACITY: usize = 1;
 static LAUNCH_NONCE: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -830,21 +831,28 @@ fn spawn_response_reader(
     stdout: ChildStdout,
     max_response_bytes: usize,
 ) -> Receiver<io::Result<String>> {
-    let (sender, receiver) = mpsc::channel();
+    let (sender, receiver) = mpsc::sync_channel(RESPONSE_QUEUE_CAPACITY);
     thread::spawn(move || {
-        let mut stdout = BufReader::new(stdout);
-        loop {
-            let line = read_bounded_line(&mut stdout, max_response_bytes);
-            let finished = match &line {
-                Ok(line) => line.is_empty(),
-                Err(_) => true,
-            };
-            if sender.send(line).is_err() || finished {
-                break;
-            }
-        }
+        run_response_reader(BufReader::new(stdout), sender, max_response_bytes);
     });
     receiver
+}
+
+fn run_response_reader<R: BufRead>(
+    mut reader: R,
+    sender: mpsc::SyncSender<io::Result<String>>,
+    max_response_bytes: usize,
+) {
+    loop {
+        let line = read_bounded_line(&mut reader, max_response_bytes);
+        let finished = match &line {
+            Ok(line) => line.is_empty(),
+            Err(_) => true,
+        };
+        if sender.send(line).is_err() || finished {
+            break;
+        }
+    }
 }
 
 fn read_bounded_line(reader: &mut impl BufRead, max_bytes: usize) -> io::Result<String> {
@@ -874,12 +882,59 @@ fn read_bounded_line(reader: &mut impl BufRead, max_bytes: usize) -> io::Result<
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::VecDeque;
     use std::time::{SystemTime, UNIX_EPOCH};
     use world_host::WorldRegistry;
     use world_pack_protocol::{
         encode_response, PackResponseEnvelope, ProjectionCapabilitiesWire, ProjectionSnapshotWire,
     };
     use world_persistence::{ArchivedEvent, WORLD_ARCHIVE_FORMAT, WORLD_ARCHIVE_VERSION};
+
+    struct ObservedRead {
+        chunks: VecDeque<Vec<u8>>,
+        reads: mpsc::Sender<usize>,
+        read_count: usize,
+    }
+
+    impl ObservedRead {
+        fn new(chunks: &[&[u8]], reads: mpsc::Sender<usize>) -> Self {
+            Self {
+                chunks: chunks.iter().map(|chunk| chunk.to_vec()).collect(),
+                reads,
+                read_count: 0,
+            }
+        }
+    }
+
+    impl Read for ObservedRead {
+        fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+            let Some(chunk) = self.chunks.pop_front() else {
+                return Ok(0);
+            };
+            assert!(chunk.len() <= buffer.len());
+            buffer[..chunk.len()].copy_from_slice(&chunk);
+            self.read_count += 1;
+            let _ = self.reads.send(self.read_count);
+            Ok(chunk.len())
+        }
+    }
+
+    fn spawn_observed_response_reader(
+        chunks: &[&[u8]],
+        max_response_bytes: usize,
+    ) -> (
+        Receiver<io::Result<String>>,
+        Receiver<usize>,
+        thread::JoinHandle<()>,
+    ) {
+        let (read_sender, read_receiver) = mpsc::channel();
+        let reader = BufReader::new(ObservedRead::new(chunks, read_sender));
+        let (sender, receiver) = mpsc::sync_channel(RESPONSE_QUEUE_CAPACITY);
+        let handle = thread::spawn(move || {
+            run_response_reader(reader, sender, max_response_bytes);
+        });
+        (receiver, read_receiver, handle)
+    }
 
     fn temp_dir(label: &str) -> PathBuf {
         let nonce = SystemTime::now()
@@ -943,6 +998,55 @@ mod tests {
         let mut reader = BufReader::new("123456\n".as_bytes());
         let error = read_bounded_line(&mut reader, 4).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn response_reader_applies_backpressure_before_consuming_a_third_record() {
+        let (responses, reads, handle) =
+            spawn_observed_response_reader(&[b"one\n", b"two\n", b"three\n"], 64);
+
+        assert_eq!(reads.recv_timeout(Duration::from_secs(1)).unwrap(), 1);
+        assert_eq!(reads.recv_timeout(Duration::from_secs(1)).unwrap(), 2);
+        assert!(matches!(
+            reads.recv_timeout(Duration::from_millis(50)),
+            Err(RecvTimeoutError::Timeout)
+        ));
+
+        assert_eq!(responses.recv().unwrap().unwrap(), "one\n");
+        assert_eq!(reads.recv_timeout(Duration::from_secs(1)).unwrap(), 3);
+        assert_eq!(responses.recv().unwrap().unwrap(), "two\n");
+        assert_eq!(responses.recv().unwrap().unwrap(), "three\n");
+        assert_eq!(responses.recv().unwrap().unwrap(), "");
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn response_reader_exits_when_receiver_is_dropped_while_send_is_blocked() {
+        let (responses, reads, handle) =
+            spawn_observed_response_reader(&[b"one\n", b"two\n", b"three\n"], 64);
+
+        assert_eq!(reads.recv_timeout(Duration::from_secs(1)).unwrap(), 1);
+        assert_eq!(reads.recv_timeout(Duration::from_secs(1)).unwrap(), 2);
+        drop(responses);
+
+        handle.join().unwrap();
+        assert!(matches!(
+            reads.recv_timeout(Duration::from_millis(50)),
+            Err(RecvTimeoutError::Disconnected)
+        ));
+    }
+
+    #[test]
+    fn response_reader_preserves_eof_and_terminal_read_errors() {
+        let (responses, _reads, handle) = spawn_observed_response_reader(&[b"one\n"], 64);
+        assert_eq!(responses.recv().unwrap().unwrap(), "one\n");
+        assert_eq!(responses.recv().unwrap().unwrap(), "");
+        handle.join().unwrap();
+
+        let (responses, _reads, handle) = spawn_observed_response_reader(&[b"123456\n"], 4);
+        let error = responses.recv().unwrap().unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        handle.join().unwrap();
     }
 
     #[test]
