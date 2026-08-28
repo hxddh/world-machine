@@ -319,9 +319,12 @@ fn content_pin_mismatch(
 ) -> HostError {
     HostError::session(format!(
         "external Pack content pin mismatch for {}@{}: expected manifest sha256 {} and executable sha256 {}, found manifest sha256 {} and executable sha256 {}",
-        pack.descriptor.pack.id, pack.descriptor.pack.version,
-        expected.manifest_sha256(), expected.command_sha256(),
-        manifest_sha256, command_sha256,
+        pack.descriptor.pack.id,
+        pack.descriptor.pack.version,
+        expected.manifest_sha256(),
+        expected.command_sha256(),
+        manifest_sha256,
+        command_sha256,
     ))
 }
 
