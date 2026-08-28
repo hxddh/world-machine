@@ -86,6 +86,8 @@ Use a small injected helper limit for deterministic unit tests; do not allocate 
 
 Where practical, add the helper-level boundary tests inside `main.rs` and add one CLI integration regression in `crates/world-cli/tests/machine_query_transport.rs` proving the `-` path is actually wired to the bounded helper.
 
+Current `machine_query_transport.rs` already protects temporary fixture paths with an `AtomicU64` sequence and has a cross-thread uniqueness regression. Preserve that existing fix; it is not part of M258.
+
 ### Validation
 
 Run:
@@ -108,8 +110,6 @@ Do not mix Analyst transport changes into M258:
 ## Later audit candidates
 
 After M258, continue a repository-wide audit for whole-input or line-oriented external/process boundaries that can accumulate without a production cap. Treat each independently according to its protocol semantics rather than introducing a broad shared framing abstraction.
-
-The known `crates/world-cli/tests/machine_query_transport.rs::temp_world_path()` wall-clock-derived temporary-path collision is a separate test-quality issue. Do not bundle it into M258 unless it blocks authoritative CI again; if it flakes, rerun the same exact-head failed job and leave the product diff focused.
 
 ## Non-goals
 
