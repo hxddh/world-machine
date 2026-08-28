@@ -1,5 +1,6 @@
 use std::io::Cursor;
 use world_host::{HostError, WorldDescriptor, WorldRegistration, WorldSession};
+use world_pack_process::DEFAULT_MAX_REQUEST_BYTES as PROCESS_MAX_REQUEST_BYTES;
 use world_pack_protocol::{
     decode_response, encode_request, PackRequest, PackRequestEnvelope, PackResponse,
 };
@@ -58,6 +59,11 @@ fn describe_frame(total_wire_bytes: usize) -> Vec<u8> {
     frame.push(b'\n');
     assert_eq!(frame.len(), total_wire_bytes);
     frame
+}
+
+#[test]
+fn process_sender_and_server_receiver_share_the_same_production_ceiling() {
+    assert_eq!(PROCESS_MAX_REQUEST_BYTES, DEFAULT_MAX_REQUEST_BYTES);
 }
 
 #[test]
