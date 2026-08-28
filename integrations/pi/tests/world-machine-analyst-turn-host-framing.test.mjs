@@ -112,7 +112,7 @@ test("turn-host stdin yields a complete first request before a later oversized r
   await assert.rejects(iterator.next(), /record exceeded/);
 });
 
-test("turn-host framing failure shuts down the restricted Pi child", async () => {
+test("turn-host framing input failure shuts down the restricted Pi child", async () => {
   const temp = await mkdtemp(join(tmpdir(), "world-machine-m256-framing-"));
   const fakePi = join(temp, "fake-pi.mjs");
   const readyFile = join(temp, "ready.txt");
@@ -128,7 +128,13 @@ test("turn-host framing failure shuts down the restricted Pi child", async () =>
   );
   await chmod(fakePi, 0o755);
 
-  const stdin = new PassThrough();
+  const stdin = {
+    async *[Symbol.asyncIterator]() {
+      await waitForFile(readyFile);
+      throw new AnalystTurnHostInputError("analyst turn input record exceeded the transport limit");
+    },
+    destroy() {},
+  };
   const stdout = new PassThrough();
   const signalSource = new EventEmitter();
   const run = runAnalystTurnHost({
@@ -142,32 +148,25 @@ test("turn-host framing failure shuts down the restricted Pi child", async () =>
       FAKE_PI_READY_FILE: readyFile,
     },
     signalSource,
-    maxInputRecordBytes: 32,
   });
 
   try {
-    await waitForFile(readyFile);
+    await assert.rejects(run, /record exceeded/);
     const piPid = Number(await readFile(readyFile, "utf8"));
     assert.ok(Number.isInteger(piPid) && piPid > 0);
-    stdin.end(Buffer.alloc(34, 0x78));
-    await assert.rejects(run, /record exceeded/);
-    assert.equal(processExists(piPid), false, "restricted Pi child must not survive framing failure");
+    assert.equal(
+      processExists(piPid),
+      false,
+      "restricted Pi child must not survive framing input failure",
+    );
   } finally {
-    stdin.destroy();
     await rm(temp, { recursive: true, force: true });
   }
 });
 
-test("turn-host input limit injection cannot exceed the production ceiling", async () => {
-  const stdin = Readable.from([]);
+test("turn-host framing reader limit cannot exceed the production ceiling", async () => {
   await assert.rejects(
-    runAnalystTurnHost({
-      stdin,
-      stdout: new PassThrough(),
-      argv: ["left.world", "right.world"],
-      signalSource: new EventEmitter(),
-      maxInputRecordBytes: 64 * 1024 * 1024 + 1,
-    }),
+    collectLines([], 64 * 1024 * 1024 + 1),
     (error) => error instanceof AnalystTurnHostInputError && /1\.\.=67108864/.test(error.message),
   );
 });

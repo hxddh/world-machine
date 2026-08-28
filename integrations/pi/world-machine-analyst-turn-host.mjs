@@ -60,9 +60,7 @@ export async function runAnalystTurnHost({
   argv = process.argv.slice(2),
   env = process.env,
   signalSource = process,
-  maxInputRecordBytes = DEFAULT_MAX_ANALYST_TURN_INPUT_RECORD_BYTES,
 } = {}) {
-  validateInputRecordLimit(maxInputRecordBytes);
   const config = parseProcessArgs(argv);
   const session = spawnRestrictedSession(config, env);
   const host = new AnalystTurnHost(session);
@@ -74,7 +72,7 @@ export async function runAnalystTurnHost({
   signalSource.on("SIGTERM", onTerminate);
 
   try {
-    for await (const line of readAnalystTurnLines(stdin, maxInputRecordBytes)) {
+    for await (const line of readAnalystTurnLines(stdin)) {
       let request;
       try {
         request = JSON.parse(line);
