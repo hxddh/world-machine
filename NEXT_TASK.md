@@ -1,132 +1,94 @@
-# Next Coding Task — M261 Bound Pack Process Request Writes
+# Next Coding Task — M262 Bound Pack Response Queue
 
-M260 adds sender-side preflight to the installed Analyst tool client. The next transport gap is the older external Pack process path, but its contract is **not identical** to the Analyst JSONL contract and must not be normalized by assumption.
+M261 is merged and now bounds Pack request writes against the existing 16 MiB physical JSONL receiver contract. The next concrete transport gap is on the opposite direction: `world-pack-process` bounds **each response record**, but the background response reader can still queue an unbounded number of individually-valid records in host memory.
 
-The post-M260 audit found:
+The post-M261 audit found:
 
-- `crates/world-pack-process::ProcessClient` already bounds **responses** with `DEFAULT_MAX_RESPONSE_BYTES = 16 MiB`;
-- `crates/world-pack-server` already bounds incoming **requests** with `DEFAULT_MAX_REQUEST_BYTES = 16 MiB`;
-- `ProcessClient::request()` still has **no sender-side request bound**: it `encode_request()`s, then writes the encoded JSON and LF directly to the child;
-- the current Pack server receiver's historical limit is a **physical JSONL record limit**: `read_bounded_line(..., DEFAULT_MAX_REQUEST_BYTES)` counts bytes returned by `read_until(b'\n', ...)`, so a terminating LF is currently inside the 16 MiB ceiling;
-- therefore M261 must align the sender with the existing Pack v1 receiver contract rather than copying M259/M260's Analyst rule where LF is outside the 64 MiB payload budget.
+- `ProcessClient::request(&mut self, ...)` is single-flight: it sends one request and waits for exactly one correlated response before returning;
+- `spawn_response_reader()` runs independently in a background thread and continuously calls `read_bounded_line()`;
+- `read_bounded_line(..., DEFAULT_MAX_RESPONSE_BYTES)` already caps each physical response record at 16 MiB;
+- however `spawn_response_reader()` forwards those records through `mpsc::channel()`, which is unbounded;
+- therefore a malicious or malfunctioning Pack can emit arbitrarily many individually-valid response records and make the host accumulate `N × <=16 MiB` queued strings even though the public client has no legitimate need for an unbounded number of outstanding responses.
 
-## M261
+## M262
 
-Add a fixed sender-side bound to `world-pack-process::ProcessClient` so a Pack request that the existing `world-pack-server` receiver will reject is never handed to the child stdin pipe.
+Replace the unbounded Pack response queue with fixed bounded backpressure while preserving the existing response framing, timeout, decode, and correlation semantics.
 
-The **existing server contract is authoritative for this milestone**:
+### Required production shape
 
-- production request wire ceiling remains `world_pack_server::DEFAULT_MAX_REQUEST_BYTES` = **16 MiB**;
-- count the UTF-8 bytes of the encoded request **plus the single terminating LF**, because that is what the current Pack receiver bounds;
-- do not change protocol v1, request schemas, Pack authority, or the server's current wire semantics just to resemble Analyst framing;
-- do not truncate/rewrite a request to fit;
-- no CLI/env/runtime setting may raise the production ceiling;
-- use one already-encoded request for both size validation and transport; do not call `encode_request()` a second time after preflight.
+Keep this milestone narrow:
 
-If a lower-only test seam is needed, keep it private/test-local and never permit a value above the 16 MiB production ceiling.
+1. retain `DEFAULT_MAX_RESPONSE_BYTES = 16 MiB` and the current physical JSONL record semantics;
+2. use a fixed bounded response queue with a production capacity of **1**;
+3. do not expose queue capacity through CLI, environment, manifest, Pack protocol, or other runtime configuration;
+4. keep `ProcessClient::responses` as the consumer side used by the existing `recv_timeout` path;
+5. preserve response order exactly;
+6. preserve the existing fatal behavior for response I/O errors, oversized records, malformed JSON, protocol-version mismatch, request-id mismatch, timeout, EOF, and disconnected reader;
+7. do not change Pack request framing added in M261.
 
-### Sender ordering and request-id invariant
+A capacity of 1 intentionally permits one complete response to wait for the host while the reader may hold at most the next record it is currently attempting to hand off. This converts unbounded user-space accumulation into constant-bounded memory plus the operating-system pipe buffer without inventing concurrent Pack response semantics that the client does not support.
 
-Today `ProcessClient::request()` reserves the id before encoding and before any write:
+### Private reader helper for deterministic tests
 
-```rust
-let request_id = self.next_request_id;
-self.next_request_id = self.next_request_id.checked_add(1)?;
-let envelope = PackRequestEnvelope::for_version(..., request_id, request)?;
-let encoded = encode_request(&envelope)?;
-write(encoded);
-write(b"\n");
-```
+Refactor only as far as needed to test the backpressure deterministically. A suitable shape is:
 
-M261 should prepare the envelope/frame and validate its size **before committing sender correlation state or touching stdin** where practical. A request rejected entirely locally should not make the process session look as if a wire request was dispatched.
+- production `spawn_response_reader(ChildStdout, max_response_bytes)` wraps stdout in `BufReader`;
+- a private generic/helper reader loop accepts an `impl BufRead + Send + 'static` (or equivalent private seam);
+- the helper creates/uses the fixed-capacity synchronous queue and keeps the existing `read_bounded_line` loop;
+- no helper/test seam may become a public production setting.
 
-Because the request id itself is part of the serialized bytes, a suitable shape is:
+Do **not** introduce a broad shared JSONL transport abstraction in this milestone.
 
-1. read the current `next_request_id` without advancing it;
-2. construct and encode the envelope once using that id;
-3. build/measure the exact wire frame (`encoded UTF-8 bytes + one LF`);
-4. reject locally if the complete frame exceeds 16 MiB;
-5. only after successful preflight, advance `next_request_id` and dispatch the prepared frame;
-6. then retain the existing response correlation/timeout behavior.
+### Test-first regressions
 
-If implementation evidence shows consuming an id on a local encode failure is deliberately required by another invariant, document and test that instead of silently changing it. The default expectation is zero wire dispatch => no committed request id.
+Before changing production code, add a regression that fails on the current `mpsc::channel()` implementation and requires a fixed bounded/synchronous queue.
 
-### Local failure versus transport contamination
+Then add deterministic behavior tests proving:
 
-An oversized request discovered before dispatch is a **local validation failure**:
+1. queue capacity is fixed at 1 and the production reader cannot fall back to `mpsc::channel()`;
+2. with three complete valid response records, the reader may queue the first and may read/hold the second, but it must not consume the third until the host drains capacity;
+3. after the host drains one response, the reader resumes and preserves exact record order;
+4. dropping the receiver while the reader is blocked on a bounded send causes the reader thread to exit rather than retaining an orphaned blocked producer indefinitely;
+5. EOF is still delivered exactly as today;
+6. response read errors/oversize remain terminal for the reader and are surfaced to `ProcessClient` through the existing path;
+7. existing request timeout, protocol-version correlation, request-id correlation, durable probe, content pin, Pack conformance, and M261 request-bound regressions remain green.
 
-- write zero bytes to child stdin;
-- do not terminate/kill an otherwise healthy Pack process;
-- do not wait for a response that can never arrive;
-- do not consume a response belonging to an earlier completed wire request;
-- the same `ProcessClient` must remain usable for a later valid request;
-- expose a clear local `HostError` that names the Pack request wire limit.
+Prefer tiny synthetic records for the queue/backpressure tests. The point is to bound **record count accumulation**, not to repeatedly allocate 16 MiB fixtures.
 
-By contrast, an I/O failure after a valid frame starts dispatching remains transport contamination. Preserve the existing fail-closed behavior that terminates the Pack process rather than trying to reuse a potentially partial JSONL stream.
+### Backpressure boundary / non-goal
 
-### One framed write
+Bounding stdout consumption can make an already-invalid Pack that floods unsolicited responses hit operating-system pipe backpressure earlier. That is intentional: host memory must not be the overflow buffer for an untrusted child.
 
-Today payload and LF are separate `write_all()` calls. After local preflight, prefer a single prepared `Vec<u8>`/byte frame containing encoded JSON plus exactly one LF and one `write_all()` before `flush()`.
+Do not expand M262 into stdin write-timeout redesign. The current transport already cannot guarantee a bounded synchronous `write_all()` if a child stops reading stdin; solving write deadlines/cancellation is a separate milestone requiring a wider process-I/O design review. M262 must not silently change that unrelated contract.
 
-This does **not** make OS writes atomic; `write_all()` can still partially write before an error. It simply avoids treating the LF as a separate logical dispatch phase. Any write/flush error still requires terminating the child, as today.
+## M261 invariants to preserve
 
-`send_shutdown()` should use the same bounded/prepared frame rule or an equivalently proven path. Shutdown is tiny, but leaving a second unbounded request encoder/writer would make the sender invariant incomplete.
+- Pack request production ceiling remains 16 MiB **including the terminating LF**;
+- request encoding and complete-frame size validation happen before request-id commit or stdin write;
+- local request overflow writes zero bytes, does not kill the child, does not consume the request id, and allows same-process reuse;
+- accepted Pack requests are encoded once and dispatched as one prepared frame;
+- `send_shutdown()` uses the same bounded request preparation path;
+- sender/server request ceilings remain equal.
 
-### Server receiver semantics to lock before relying on them
+## M260/M259 invariants to preserve
 
-The Pack server is already bounded, but it lacks explicit exact-boundary regressions for the request side. Add deterministic tests around `read_bounded_line` / `serve_server_jsonl` that lock the existing contract before changing the sender:
+- Analyst client keeps its fixed 64 MiB serialized JSON payload ceiling with LF outside that payload budget;
+- Analyst local serialization/overflow failures remain nonfatal and reusable;
+- Rust tool-host request receiver keeps its established 64 MiB payload framing/UTF-8 behavior;
+- M255 response overflow/write-error/abort/SIGTERM→SIGKILL behavior remains unchanged.
 
-1. a physical request record whose encoded JSON + LF is exactly the configured test limit is accepted;
-2. the same frame at limit + 1 is rejected before request dispatch;
-3. multibyte JSON content is judged in UTF-8 bytes;
-4. no-newline input is bounded rather than accumulated indefinitely;
-5. a malformed/oversized request remains process/server-fatal rather than producing a fabricated correlated response;
-6. the request limit continues to count the LF inside the current 16 MiB Pack wire ceiling unless a separate protocol milestone explicitly changes that contract.
-
-Prefer a small helper/test limit for unit tests instead of allocating 16 MiB repeatedly. Do not expose the test seam as production configuration.
-
-### Process sender regressions
-
-Add process/client-level regressions proving:
-
-1. a request below the effective wire limit dispatches normally;
-2. an exact-limit frame (encoded JSON + one LF) is accepted;
-3. limit + 1 is rejected before any stdin bytes are produced;
-4. multibyte request content is bounded by UTF-8 bytes, not character count;
-5. local oversize does not kill/close the child and a later valid request succeeds on the same process;
-6. no request handler/server-side mutation occurs for the rejected request;
-7. local rejection does not consume/commit the request id expected by the next dispatched request;
-8. accepted requests are encoded once and the same bytes are transported;
-9. payload + LF is dispatched as one prepared frame;
-10. a transport write/flush failure after dispatch starts still terminates the process;
-11. response timeout, response-size bound, protocol-version correlation, request-id correlation, durable probe, content-pin and Pack conformance regressions remain green;
-12. `send_shutdown()` cannot bypass the production request ceiling/path invariant.
-
-### Validation
+## Validation
 
 Run at minimum:
 
-- focused `world-pack-process` tests;
-- focused `world-pack-server` tests;
+- focused `world-pack-process` unit/integration tests;
 - `bash ./scripts/check-boundaries.sh`;
 - `cargo fmt --all -- --check`;
-- full Linux Clippy/workspace tests/Pack conformance;
-- full macOS Library/Packs/GPUI/desktop tests, `World Machine.app` build/validate, packaged Analyst smoke, archive and upload if the normal path filter selects it.
-
-Before merge, require exact-head review to check both sender and receiver together; do not review the new sender bound in isolation from the existing 16 MiB server behavior.
-
-## M260 invariants to preserve
-
-Do not regress the Analyst transport while working on Pack process framing:
-
-- `AnalystJsonlClient` keeps its fixed 64 MiB **serialized JSON payload** ceiling;
-- Analyst LF remains outside that payload budget;
-- request serialization/UTF-8 encoding/size validation occurs before response-waiter registration;
-- oversized or local JSON serialization failures write zero bytes, leave queued responses/waiters untouched, do not kill the child, and allow same-session reuse;
-- accepted Analyst requests serialize once and write one prepared payload+LF frame;
-- M255 response framing overflow/write-error/abort/SIGTERM→SIGKILL behavior remains unchanged;
-- M259 Rust tool-host receiver stays fixed at its 64 MiB payload ceiling with its established CRLF/EOF/lone-CR/strict-UTF-8 behavior.
+- Linux Clippy with `-D warnings` and full non-GPUI workspace tests;
+- external Pack conformance;
+- macOS GPUI/desktop/app packaging + packaged Analyst smoke whenever the normal path filter selects it;
+- exact-head Codex review with zero unresolved threads before merge.
 
 ## Non-goals
 
-No Pack protocol/version/schema change, no change to the current 16 MiB Pack request or response ceilings, no attempt to unify Pack and Analyst framing semantics, no request truncation, no Pack business behavior change, no World/query/UI changes, and no broad shared JSONL transport abstraction refactor.
+No Pack protocol/version/schema change, no change to 16 MiB Pack request/response record ceilings, no response truncation, no Pack business behavior change, no World/query/UI work, no Analyst framing change, no broad transport abstraction, and no stdin write-timeout/cancellation redesign in M262.
