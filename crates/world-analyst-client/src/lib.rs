@@ -10,6 +10,7 @@ pub const ANALYST_TURN_PROTOCOL: &str = "world-machine-analyst-turns";
 pub const ANALYST_TURN_PROTOCOL_VERSION: u64 = 1;
 pub const ANALYST_TURN_MAX_TIMEOUT_MS: u64 = 9_007_199_254_740_991;
 pub const ANALYST_TURN_MAX_RESPONSE_BYTES: usize = 64 * 1024 * 1024;
+pub const ANALYST_TURN_MAX_REQUEST_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "kebab-case")]
@@ -222,6 +223,7 @@ pub struct AnalystTurnClient<R, W> {
     writer: W,
     next_request_id: u64,
     poisoned: bool,
+    max_request_bytes: usize,
 }
 
 impl<R, W> AnalystTurnClient<R, W> {
@@ -231,6 +233,7 @@ impl<R, W> AnalystTurnClient<R, W> {
             writer,
             next_request_id: 1,
             poisoned: false,
+            max_request_bytes: ANALYST_TURN_MAX_REQUEST_BYTES,
         }
     }
 
@@ -255,12 +258,13 @@ where
         validate_timeout(timeout_ms)?;
 
         let id = format!("world-rust-analyst-{}", self.next_request_id);
-        self.next_request_id += 1;
         let request = AnalystTurnRequest::Probe {
             id: id.clone(),
             timeout_ms,
         };
-        match self.transact(&request, &id)? {
+        let encoded = encode_bounded_request(&request, self.max_request_bytes)?;
+        self.next_request_id += 1;
+        match self.transact(&encoded, &id)? {
             AnalystTurnResponse::Ready { .. } => Ok(()),
             AnalystTurnResponse::Result { .. } => {
                 self.unexpected_response("analyst startup probe received a turn result")
@@ -287,13 +291,14 @@ where
         validate_timeout(timeout_ms)?;
 
         let id = format!("world-rust-analyst-{}", self.next_request_id);
-        self.next_request_id += 1;
         let request = AnalystTurnRequest::Ask {
             id: id.clone(),
             prompt,
             timeout_ms,
         };
-        match self.transact(&request, &id)? {
+        let encoded = encode_bounded_request(&request, self.max_request_bytes)?;
+        self.next_request_id += 1;
+        match self.transact(&encoded, &id)? {
             AnalystTurnResponse::Result { turn, .. } => Ok(turn),
             AnalystTurnResponse::Ready { .. } => {
                 self.unexpected_response("analyst ask received a startup-ready response")
@@ -304,21 +309,23 @@ where
 
     fn transact(
         &mut self,
-        request: &AnalystTurnRequest,
+        encoded_request: &[u8],
         expected_id: &str,
     ) -> Result<AnalystTurnResponse, AnalystTurnClientError> {
-        self.transact_with_response_limit(request, expected_id, ANALYST_TURN_MAX_RESPONSE_BYTES)
+        self.transact_with_response_limit(
+            encoded_request,
+            expected_id,
+            ANALYST_TURN_MAX_RESPONSE_BYTES,
+        )
     }
 
     fn transact_with_response_limit(
         &mut self,
-        request: &AnalystTurnRequest,
+        encoded_request: &[u8],
         expected_id: &str,
         max_response_bytes: usize,
     ) -> Result<AnalystTurnResponse, AnalystTurnClientError> {
-        let encoded =
-            serde_json::to_vec(request).map_err(AnalystTurnClientError::SerializeRequest)?;
-        if let Err(error) = self.writer.write_all(&encoded) {
+        if let Err(error) = self.writer.write_all(encoded_request) {
             self.poisoned = true;
             return Err(AnalystTurnClientError::WriteRequest(error));
         }
@@ -413,6 +420,18 @@ where
     }
 }
 
+fn encode_bounded_request(
+    request: &AnalystTurnRequest,
+    max_bytes: usize,
+) -> Result<Vec<u8>, AnalystTurnClientError> {
+    let encoded = serde_json::to_vec(request).map_err(AnalystTurnClientError::SerializeRequest)?;
+    if encoded.len() > max_bytes {
+        return Err(AnalystTurnClientError::InvalidRequest(format!(
+            "serialized request exceeded the {max_bytes}-byte transport limit"
+        )));
+    }
+    Ok(encoded)
+}
 fn read_bounded_response_line<R: BufRead>(
     reader: &mut R,
     max_bytes: usize,
@@ -672,6 +691,76 @@ mod tests {
               })
     }
 
+    fn ask_request_len(prompt: &str) -> usize {
+        serde_json::to_vec(&AnalystTurnRequest::Ask {
+            id: "world-rust-analyst-1".into(),
+            prompt: prompt.into(),
+            timeout_ms: None,
+        })
+        .unwrap()
+        .len()
+    }
+
+    #[test]
+    fn request_payload_exact_limit_is_written_once_with_framing_lf_outside_budget() {
+        let prompt = "fit";
+        let limit = ask_request_len(prompt);
+        let mut client = response_client(success_response("world-rust-analyst-1"));
+        client.max_request_bytes = limit;
+        client.ask(prompt, None).unwrap();
+        let (_, written) = client.into_parts();
+        assert_eq!(written.len(), limit + 1);
+        assert_eq!(written.last(), Some(&b'\n'));
+        assert_eq!(written[..limit].len(), limit);
+    }
+
+    #[test]
+    fn oversized_request_is_local_nonfatal_and_does_not_consume_request_id() {
+        let valid_prompt = "fit";
+        let limit = ask_request_len(valid_prompt);
+        let mut client = response_client(success_response("world-rust-analyst-1"));
+        client.max_request_bytes = limit;
+
+        let error = client.ask("fits", None).unwrap_err();
+        assert!(matches!(error, AnalystTurnClientError::InvalidRequest(_)));
+        assert!(!error.is_session_fatal());
+        assert!(!client.is_poisoned());
+        assert!(client.writer.is_empty());
+
+        let turn = client.ask(valid_prompt, None).unwrap();
+        assert_eq!(turn.text.as_deref(), Some("answer"));
+        let (_, written) = client.into_parts();
+        let request: Value = serde_json::from_slice(&written[..written.len() - 1]).unwrap();
+        assert_eq!(request["id"], "world-rust-analyst-1");
+    }
+
+    #[test]
+    fn request_limit_counts_serialized_utf8_bytes() {
+        let ascii_len = ask_request_len("e");
+        let utf8_len = ask_request_len("é");
+        assert!(utf8_len > ascii_len);
+        let mut client = response_client(success_response("world-rust-analyst-1"));
+        client.max_request_bytes = ascii_len;
+        let error = client.ask("é", None).unwrap_err();
+        assert!(matches!(error, AnalystTurnClientError::InvalidRequest(_)));
+        assert!(client.writer.is_empty());
+        assert!(!client.is_poisoned());
+    }
+
+    #[test]
+    fn probe_uses_same_bounded_request_path() {
+        let request = AnalystTurnRequest::Probe {
+            id: "world-rust-analyst-1".into(),
+            timeout_ms: None,
+        };
+        let exact = serde_json::to_vec(&request).unwrap().len();
+        let mut client = response_client(ready_response("world-rust-analyst-1"));
+        client.max_request_bytes = exact;
+        client.probe(None).unwrap();
+        let (_, written) = client.into_parts();
+        assert_eq!(written.len(), exact + 1);
+        assert_eq!(written.last(), Some(&b'\n'));
+    }
     #[test]
     fn probe_serializes_request_and_accepts_provider_neutral_ready() {
         let mut client = response_client(ready_response("world-rust-analyst-1"));
@@ -877,8 +966,9 @@ mod tests {
             prompt: "question".into(),
             timeout_ms: None,
         };
+        let encoded = serde_json::to_vec(&request).unwrap();
         let error = client
-            .transact_with_response_limit(&request, "world-rust-analyst-1", 8)
+            .transact_with_response_limit(&encoded, "world-rust-analyst-1", 8)
             .unwrap_err();
         assert!(matches!(
             error,
@@ -892,6 +982,29 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn analyst_request_preflight_serializes_before_transport_and_reuses_encoded_bytes() {
+        let source = include_str!("lib.rs");
+        let encoder = source
+            .split_once("fn encode_bounded_request(")
+            .unwrap()
+            .1
+            .split_once("fn read_bounded_response_line")
+            .unwrap()
+            .0;
+        assert!(encoder.contains("serde_json::to_vec(request)"));
+        assert!(encoder.contains("encoded.len() > max_bytes"));
+
+        let transport = source
+            .split_once("fn transact_with_response_limit(")
+            .unwrap()
+            .1
+            .split_once("fn remote_error")
+            .unwrap()
+            .0;
+        assert!(transport.contains("write_all(encoded_request)"));
+        assert!(!transport.contains("serde_json::to_vec"));
+    }
     #[test]
     fn analyst_response_framing_source_is_bounded_and_byte_based() {
         let source = include_str!("lib.rs");
@@ -918,6 +1031,41 @@ mod tests {
         assert!(helper.contains("read_until(b'\\n'"));
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn process_keeps_child_alive_after_locally_oversized_request() {
+        let mut child = Command::new("sh")
+            .arg("-c")
+            .arg("cat >/dev/null")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let stdin = child.stdin.take().unwrap();
+        let stdout = child.stdout.take().unwrap();
+        let mut client = AnalystTurnClient::new(BufReader::new(stdout), BufWriter::new(stdin));
+        client.max_request_bytes = 32;
+        let pid = child.id();
+        let mut process = AnalystTurnProcess {
+            child,
+            client: Some(client),
+        };
+
+        let error = process.ask("oversized", None).unwrap_err();
+        assert!(matches!(error, AnalystTurnClientError::InvalidRequest(_)));
+        assert!(!error.is_session_fatal());
+        assert!(process.client.is_some());
+        let alive = Command::new("/bin/kill")
+            .arg("-0")
+            .arg(pid.to_string())
+            .status()
+            .unwrap();
+        assert!(
+            alive.success(),
+            "local request rejection must not stop the child"
+        );
+        process.shutdown().unwrap();
+    }
     #[cfg(unix)]
     #[test]
     fn process_returns_poisoned_after_fatal_probe_teardown() {
