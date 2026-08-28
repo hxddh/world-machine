@@ -319,12 +319,9 @@ fn content_pin_mismatch(
 ) -> HostError {
     HostError::session(format!(
         "external Pack content pin mismatch for {}@{}: expected manifest sha256 {} and executable sha256 {}, found manifest sha256 {} and executable sha256 {}",
-        pack.descriptor.pack.id,
-        pack.descriptor.pack.version,
-        expected.manifest_sha256(),
-        expected.command_sha256(),
-        manifest_sha256,
-        command_sha256,
+        pack.descriptor.pack.id, pack.descriptor.pack.version,
+        expected.manifest_sha256(), expected.command_sha256(),
+        manifest_sha256, command_sha256,
     ))
 }
 
@@ -1515,10 +1512,7 @@ mod tests {
         assert!(frame.len() > 8 * 1024 * 1024);
 
         let started = Instant::now();
-        let error = client
-            .request(PackRequest::Open { archive })
-            .err()
-            .unwrap();
+        let error = client.request(PackRequest::Open { archive }).err().unwrap();
         assert!(error.to_string().contains("timed out after 50 ms"));
         assert!(
             started.elapsed() < Duration::from_millis(500),
