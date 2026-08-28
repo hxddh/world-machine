@@ -4,7 +4,7 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
-use world_host::{WorldPackSource, WorldRegistry};
+use world_host::WorldRegistry;
 use world_pack_process::{ProcessPack, ProcessPackSource, DEFAULT_MAX_REQUEST_BYTES};
 use world_pack_protocol::{
     encode_request, encode_response, PackDescriptor, PackManifest, PackRequest,
