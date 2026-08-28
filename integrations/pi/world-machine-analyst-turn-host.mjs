@@ -61,10 +61,10 @@ export async function runAnalystTurnHost({
   env = process.env,
   signalSource = process,
   maxInputRecordBytes = DEFAULT_MAX_ANALYST_TURN_INPUT_RECORD_BYTES,
-  sessionFactory = spawnRestrictedSession,
 } = {}) {
+  validateInputRecordLimit(maxInputRecordBytes);
   const config = parseProcessArgs(argv);
-  const session = sessionFactory(config, env);
+  const session = spawnRestrictedSession(config, env);
   const host = new AnalystTurnHost(session);
   const abortController = new AbortController();
   const onTerminate = () => {
@@ -74,7 +74,7 @@ export async function runAnalystTurnHost({
   signalSource.on("SIGTERM", onTerminate);
 
   try {
-    for await (const line of jsonLines(stdin, maxInputRecordBytes)) {
+    for await (const line of readAnalystTurnLines(stdin, maxInputRecordBytes)) {
       let request;
       try {
         request = JSON.parse(line);
@@ -236,17 +236,23 @@ function spawnRestrictedSession(config, env) {
   });
 }
 
-async function* jsonLines(stream, maxRecordBytes) {
+function validateInputRecordLimit(maxRecordBytes) {
   if (
     !Number.isSafeInteger(maxRecordBytes) ||
     maxRecordBytes <= 0 ||
-    maxRecordBytes >= Number.MAX_SAFE_INTEGER
+    maxRecordBytes > DEFAULT_MAX_ANALYST_TURN_INPUT_RECORD_BYTES
   ) {
     throw new AnalystTurnHostInputError(
-      "analyst turn input max record bytes must be a positive safe integer with framing headroom",
+      `analyst turn input max record bytes must be an integer in 1..=${DEFAULT_MAX_ANALYST_TURN_INPUT_RECORD_BYTES}`,
     );
   }
+}
 
+export async function* readAnalystTurnLines(
+  stream,
+  maxRecordBytes = DEFAULT_MAX_ANALYST_TURN_INPUT_RECORD_BYTES,
+) {
+  validateInputRecordLimit(maxRecordBytes);
   const maxRawBytes = maxRecordBytes + 1;
   let recordBuffer = Buffer.alloc(0);
   let recordBytes = 0;
