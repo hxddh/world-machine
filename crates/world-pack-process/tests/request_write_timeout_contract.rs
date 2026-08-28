@@ -8,7 +8,9 @@ fn process_source() -> String {
 
 fn request_body(source: &str) -> &str {
     let start = source
-        .find("    fn request(&mut self, request: PackRequest) -> Result<PackResponse, HostError> {")
+        .find(
+            "    fn request(&mut self, request: PackRequest) -> Result<PackResponse, HostError> {",
+        )
         .expect("ProcessClient::request must exist");
     let tail = &source[start..];
     let end = tail
