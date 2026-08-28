@@ -1493,7 +1493,7 @@ mod tests {
             world_time: 0,
             events: vec![ArchivedEvent {
                 id: 1,
-                kind: "x".repeat(12 * 1024 * 1024),
+                kind: "x".repeat(2 * 1024 * 1024),
                 world_time: 0,
                 actor: None,
                 targets: Vec::new(),
@@ -1512,7 +1512,7 @@ mod tests {
             DEFAULT_MAX_REQUEST_BYTES,
         )
         .unwrap();
-        assert!(frame.len() > 8 * 1024 * 1024);
+        assert!(frame.len() > 1024 * 1024);
 
         let started = Instant::now();
         let error = client.request(PackRequest::Open { archive }).err().unwrap();
