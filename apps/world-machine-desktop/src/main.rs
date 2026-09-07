@@ -154,6 +154,10 @@ struct WorldDocumentView {
     document: SharedDocument,
     projection: Entity<world_gpui::ProjectionView>,
     status: Option<DocumentStatus>,
+    /// Whether the optional World Analyst runtime (Node + Pi) resolved when
+    /// this document opened. The Analyst entry stays hidden otherwise so a
+    /// fresh install never surfaces a feature that needs extra software.
+    analyst_available: bool,
 }
 
 #[cfg(target_os = "macos")]
@@ -174,11 +178,13 @@ impl WorldDocumentView {
             document: Rc::clone(&document),
         };
         let projection = cx.new(|_| world_gpui::ProjectionView::controlled(controller));
+        let analyst_available = world_fork::analyst_available();
         Self {
             document_label,
             document,
             projection,
             status: None,
+            analyst_available,
         }
     }
 
@@ -276,7 +282,11 @@ impl Render for WorldDocumentView {
         let actions = div()
             .flex()
             .gap_2()
-            .child(world_fork::document_action(&self.document, cx))
+            .child(world_fork::document_action(
+                &self.document,
+                self.analyst_available,
+                cx,
+            ))
             .child(strategy_compare::document_actions(&self.document, cx));
 
         let mut chrome = div()

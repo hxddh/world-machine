@@ -66,7 +66,7 @@ Download the new release, verify it the same way, and replace the app in `/Appli
 
 - Not notarized. Every fresh download needs step 3.
 - No automatic updates. Watch the Releases page.
-- The World Analyst panel is experimental and needs Node and the Pi runtime installed separately; it is not required to use Worlds.
+- Nothing beyond the app is needed to create, live in, fork, and compare Worlds. The experimental World Analyst additionally needs Node and the Pi runtime; its entry only appears when both are installed.
 
 ## Something went wrong?
 
