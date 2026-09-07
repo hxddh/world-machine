@@ -12,7 +12,11 @@ concurrency:
 
 jobs:
   macos-screenshots:
-    runs-on: macos-14
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-14, macos-15]
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -38,7 +42,9 @@ jobs:
           system_profiler SPDisplaysDataType | grep -E "Resolution|UI Looks" || true
           # LaunchServices-launched apps read the user session environment.
           launchctl setenv WORLD_MACHINE_LIBRARY_DIR "$WM_LIB"
-          open -a "$APP"
+          launchctl setenv RUST_LOG info
+          launchctl setenv RUST_BACKTRACE 1
+          open -a "$APP" --stdout "$RUNNER_TEMP/app.stdout.log" --stderr "$RUNNER_TEMP/app.stderr.log"
           sleep 8
           screencapture -x shots/00-home-first-launch.png
           # Included Packs are installed and probed in the background on first
@@ -52,14 +58,22 @@ jobs:
           sleep 15
           screencapture -x shots/03-world-fresh.png
           osascript -e 'tell application "World Machine" to quit' || true
+          sleep 2
           launchctl unsetenv WORLD_MACHINE_LIBRARY_DIR || true
+          launchctl unsetenv RUST_LOG || true
+          launchctl unsetenv RUST_BACKTRACE || true
           ls -la shots
           ls -la "$WM_LIB" "$WM_LIB/.world-machine-packs" || true
+          echo "===== app stdout"; cat "$RUNNER_TEMP/app.stdout.log" || true
+          echo "===== app stderr"; cat "$RUNNER_TEMP/app.stderr.log" || true
+          echo "===== fonts"; fc-list 2>/dev/null | wc -l || true; ls /System/Library/Fonts | head -5
+          echo "===== gpu"; system_profiler SPDisplaysDataType || true
+          cp "$RUNNER_TEMP"/app.*.log shots/ || true
 
       - uses: actions/upload-artifact@v4
         with:
-          name: world-machine-screenshots
-          path: shots/*.png
+          name: world-machine-screenshots-${{ matrix.runner }}
+          path: shots/*
           if-no-files-found: error
           retention-days: 14
 
@@ -67,10 +81,10 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          BRANCH="screenshots/run-$GITHUB_RUN_ID"
+          BRANCH="screenshots/run-$GITHUB_RUN_ID-${{ matrix.runner }}"
           git checkout -b "$BRANCH"
           mkdir -p docs/screenshots
-          cp shots/*.png docs/screenshots/
+          cp shots/* docs/screenshots/
           git add docs/screenshots
-          git commit -m "screenshots: capture from run $GITHUB_RUN_ID [skip ci]"
+          git commit -m "screenshots: capture from run $GITHUB_RUN_ID on ${{ matrix.runner }} [skip ci]"
           git push origin "$BRANCH"
