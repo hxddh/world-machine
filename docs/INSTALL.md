@@ -54,6 +54,17 @@ The Control-click → Open shortcut that older macOS versions offered no longer 
 
 If a World fails to start after Option B, run the Option A command once. The bundled Packs are separate executables and may still carry the quarantine flag.
 
+## Alternative: Homebrew
+
+If you use Homebrew, one command replaces steps 1 to 3. `--no-quarantine` is what skips the Gatekeeper block; the cask prints the same reminder.
+
+```bash
+brew tap hxddh/tap
+brew install --cask --no-quarantine world-machine
+```
+
+Every release attaches its cask file (`world-machine.rb`) next to the zip, so the tap always describes the same checksum as the Release page.
+
 ## 4. First run
 
 The app opens on Home and prepares the included Worlds in the background for a few seconds. Then choose **Create Pocket Universe** (or **New World**) to seed your first World. Your Worlds are saved as `.world` files in the World Machine library under `~/Library/Application Support`.
@@ -70,4 +81,6 @@ Download the new release, verify it the same way, and replace the app in `/Appli
 
 ## Something went wrong?
 
-Open an issue with the [bug report template](https://github.com/hxddh/world-machine/issues/new/choose). Include the build label shown in the app (it looks like `Pre-alpha 0.1.0 · build abc123def456 · aarch64`) and your macOS version.
+In the app, choose **Help → Copy Diagnostics**, then **Help → Report a Problem…** and paste the diagnostics into the issue. The diagnostics text contains the build label, your macOS version, the paths the app uses, and the last lines of its log; nothing else. The log itself is at `~/Library/Logs/World Machine/world-machine.log` (**Help → Show Log in Finder**), and **World Machine → About World Machine…** shows the same build label.
+
+If the app does not start at all, open an issue with the [bug report template](https://github.com/hxddh/world-machine/issues/new/choose) and include your macOS version and the release tag you downloaded.

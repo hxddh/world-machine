@@ -265,7 +265,26 @@ The repository moved well past the original M42 target. The main capabilities la
 
 ## Phase VI — 0.2 "Usable" release
 
-Status: next. This phase replaces milestone-by-milestone infrastructure work with acceptance criteria that describe what a user can do.
+Status: in progress. This phase replaces milestone-by-milestone infrastructure work with acceptance criteria that describe what a user can do.
+
+### Progress (updated 2026-09-07)
+
+| Item | State |
+| --- | --- |
+| Stage 0: freeze, stale PRs closed, `pre.1` published | done |
+| Stage 1: automated pre-release, install guide, universal binary | done (`pre.1` to `pre.5`) |
+| Stage 1: log file, About window, Report a Problem, Help menu | done, ships in `pre.6` |
+| Stage 1: Homebrew cask | cask rendered and attached to every release; the `hxddh/homebrew-tap` repository still has to be created and receive `Casks/world-machine.rb` |
+| Stage 1: pipeline ready for a future Developer ID | not started; no certificate in the 0.2 timeframe |
+| Stage 2: included Packs activate on first launch, Analyst hidden without runtime | done |
+| Stage 2: Home hierarchy (Start here / My Worlds / New World / Manage Packs) and first-launch copy in user language | done |
+| Stage 2: usability test with three to five non-developers | needs a real Mac and testers |
+| Stage 3: long-run consequence chains in Pocket Universe | done (chapters two and three) |
+| Stage 3: branch comparison reachable from Home | done ("What if…" on every World card) |
+| Stage 3: three-part briefing shape in every World | Pocket Universe yes; Tiny Society and Micro Company unverified |
+| Stage 4: user-first README, CHANGELOG, known issues, privacy note | done |
+| Stage 4: screenshot in the README | needs a real Mac; the CI runner renders no text |
+| Stage 4: `v0.2.0` | after real-device verification and the usability test |
 
 ### Why this phase exists
 

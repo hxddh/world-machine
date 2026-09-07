@@ -1,0 +1,32 @@
+# Changelog
+
+World Machine is pre-alpha. Versions below are the pre-release tags on the [Releases page](https://github.com/hxddh/world-machine/releases); `0.2.0` is the first release intended to be usable without reading the repository.
+
+## Unreleased
+
+- Diagnostics: a local log under `~/Library/Logs/World Machine`, an About window with the build label and signing status, and Help menu items to copy diagnostics, show the log, open the install guide, and report a problem. Cmd-Q quits.
+- Home: **What if…** on every World card opens the World and Compare Futures in one step.
+- Layout: Home header, World cards, document chrome, and the projection center pane no longer lay out wider than their window.
+- Copy: the first-launch path speaks of Worlds being prepared and ready instead of Packs, probes, and registries.
+- Release: each GitHub Release carries a Homebrew cask (`world-machine.rb`) for `brew install --cask --no-quarantine hxddh/tap/world-machine`.
+- Docs: user-first README, this changelog, known issues, privacy note.
+
+## v0.1.0-pre.5 (2026-09-07)
+
+- Pocket Universe 0.16: chapter three. After a legacy has reinforced itself, a seed-specific pressure rises against the World's anchor, warns, peaks, and can durably cost the anchor; the observer holds or reaches, and a lost anchor can be recovered.
+
+## v0.1.0-pre.4 (2026-09-07)
+
+- Universal build: one zip runs on Apple Silicon and Intel Macs, including the bundled Packs and the analyst host.
+
+## v0.1.0-pre.3 (2026-09-07)
+
+- Included Packs activate on first launch without a review dialog; the review flow remains for user-supplied `.worldpack` files.
+
+## v0.1.0-pre.2 (2026-09-07)
+
+- The experimental World Analyst entry is hidden unless Node and Pi are installed, so a fresh install needs nothing beyond the app.
+
+## v0.1.0-pre.1 (2026-09-07)
+
+- First automated pre-release: a tag or a workflow dispatch builds the app, validates the package, and publishes the zip, SHA-256, manifest, and release notes. Install guide for macOS 14 and 15.

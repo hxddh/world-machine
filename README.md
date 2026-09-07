@@ -1,98 +1,51 @@
 # World Machine
 
-> **Status:** Experimental / pre-alpha. The World IR and public APIs are intentionally unstable.
+Persistent worlds that remember, evolve, and branch. A World keeps living while you are away, tells you what changed when you return, and lets you fork it to try the other choice.
 
-World Machine is an experimental semantic runtime for persistent, inspectable, branchable worlds.
+> **Pre-alpha for macOS.** Builds are ad-hoc signed and not notarized, so the first launch takes two extra steps. Everything stays on your Mac: no account, no telemetry.
 
-The first product target is **Tiny Society**, but Tiny Society is deliberately not part of the kernel architecture. The runtime now also hosts **Pocket Universe** and the unrelated **Micro Company** Pack, so generality is tested by real Worlds rather than guessed framework abstractions.
+## Try it in three steps
 
-## Current runtime
+1. **Download** the latest zip from the [Releases page](https://github.com/hxddh/world-machine/releases) (universal: Apple Silicon and Intel, macOS 14 or newer). Homebrew users: `brew install --cask --no-quarantine hxddh/tap/world-machine`.
+2. **Allow the first launch** by following [docs/INSTALL.md](docs/INSTALL.md); it takes under two minutes and explains why macOS asks.
+3. **Start a World.** Home prepares Pocket Universe on first launch. Seed a place, let it live, come back later, and use **What if…** on any World card to compare two futures side by side.
 
-The repository currently implements:
+<!-- screenshot: docs/screenshots/home.png (captured on a real Mac; the CI runner cannot rasterize text) -->
 
-`Entity / Relation -> Action -> Event -> State -> Scheduler / Behavior / Agent -> Replay -> Projection`
+## What is inside
 
-The renderer boundary is explicit:
+- **Pocket Universe** (start here): a tiny persistent world whose inhabitants act on their own. Three chapters unfold over visits: a relationship forms and you choose whether to steer it, a legacy takes shape, then pressure rises against the World's anchor and you hold or reach beyond it.
+- **Micro Company**: a two-actor product company that can find traction or run out of cash.
+- **Tiny Society**: the original reference world with economic circulation and institutional risk.
+- Every World is a `.world` document in your library. Open, fork, compare, export, and import them; history is replayed from events, never re-run through an AI.
 
-`World -> ProjectionSnapshot -> GPUI`
+## Documentation
 
-- `world-projection` defines headless Collection / Timeline / Inspector / Semantic Canvas read models.
-- World Packs produce their own projection data without introducing domain concepts into the renderer.
-- `world-gpui` consumes only projection models; it does not own World truth and does not depend on `world-core` or a specific Pack.
-- The generic GPUI renderer treats Briefing + Commands as the current focus: the next available continuation/choice appears before Canvas and Inspector, while `Explore the world` keeps the semantic state inspectable underneath.
-- Projection layout uses three independent vertical scroll regions for Collection, Focus/Explore, and Timeline, so long worlds remain inspectable without moving the fixed World header or hiding current actions.
-- Projection selection defaults to semantic Collection entities and preserves explicit user selection across snapshot updates when it remains valid; Timeline events become the fallback or an explicit investigation path rather than an automatic post-command focus.
-- Empty/unseeded Worlds render as a focus-only Briefing/Commands surface: empty Collection, Timeline, Canvas, and Inspector chrome stay hidden until the Pack exposes semantic content.
-- `world-machine-desktop` hosts durable `.world` documents, branching/lineage, external Pack installation, durable activation probing, and generic World creation.
-- Tiny Society, Pocket Universe, and Micro Company exercise the same public Host/Pack boundaries.
-- The macOS app bundle carries Pocket Universe and Micro Company as **included external Packs**. They are not built-ins: on first launch Home installs them through the same content-pin, durable-probe, and activation path as any other Pack, without a review dialog, because the bundle is one code-signed unit. User-supplied `.worldpack` files still require an explicit Review & Install action before any Pack code runs.
-- A fresh packaged Home presents **Pocket Universe** as the primary `Start here` experience (`Seed a place · Let it live · Branch what happens next`) while keeping Micro Company as a secondary World and moving Pack management behind the World/product hierarchy.
-- Pocket Universe 0.10 turns its opening generations into a guided first story: observe the first cycle, notice the central relationship forming, then choose whether to steer it or leave the World alone. Larger interventions are presented as optional branches rather than required progress.
-- Pocket Universe 0.16 adds a third chapter. Once a World's legacy has reinforced itself, a seed-specific pressure rises against the World's anchor (the reclaimer, the arcade lease, the bridge span), warns for two generations, peaks, and after three more generations durably costs the anchor. The observer can hold with what the World has or reach beyond it; the answer is recorded as aligned or strained against the World's direction. A lost anchor can be recovered, at the cost of the legacy's reinforcement cycles.
-- Portable `.worldpack` files are registered as a native macOS file type. Double-clicking a Pack, using Open With, or opening it through the app routes the file into the same static review surface; the open event itself never installs or executes Pack code.
-- After a newly installed Pack passes the durable probe and becomes active, Home offers an explicit `Create <World>` handoff. The probe still does not create a user World automatically; the CTA is ephemeral and only remains valid while that exact Pack version is enabled, active, content-valid, and registered.
-- Pi remains an optional out-of-process `world-pi-rpc` AgentRuntime adapter.
+- [Install guide](docs/INSTALL.md), [known issues](docs/KNOWN_ISSUES.md), [privacy](docs/PRIVACY.md), [changelog](CHANGELOG.md)
+- [Roadmap](docs/ROADMAP.md) and [pre-alpha release process](docs/PRE_ALPHA_RELEASES.md)
+- [Architecture](ARCHITECTURE.md), [runtime overview](docs/RUNTIME.md), [World IR](docs/WORLD_IR_v0.1.md), [checking an external Pack](docs/PACK_CHECK.md), [Pi analyst](docs/PI_ANALYST.md)
 
-## Download
-
-Pre-alpha macOS builds are published on the [Releases page](https://github.com/hxddh/world-machine/releases). They are **ad-hoc signed and not notarized**, so macOS blocks the first launch; [docs/INSTALL.md](docs/INSTALL.md) has the two-minute first-launch steps for macOS 14 and 15 and the checksum verification.
-
-## Run
+## Build from source
 
 ```bash
 cargo test --workspace
-cargo run -p world-cli
 bash ./scripts/check-boundaries.sh
 ```
 
-On macOS, after the GPUI dependencies are available:
+On macOS, run the desktop app or build the distributable bundle with its included World Packs:
 
 ```bash
 cargo run -p world-machine-desktop
-```
-
-Build the distributable app bundle, including the fixed official external `.worldpack` resources:
-
-```bash
 bash apps/world-machine-desktop/macos/build-app.sh
-```
-
-Create a validated pre-alpha package (`.app.zip`, SHA-256, and release manifest):
-
-```bash
 bash apps/world-machine-desktop/macos/package-release.sh
 ```
 
-The current pre-alpha package is **ad-hoc signed and not notarized**. It is an experimental distribution artifact, not a production-signed macOS release. The package manifest records the exact commit, architecture, included external Packs, checksum, signing mode, and notarization status. See [docs/PRE_ALPHA_RELEASES.md](docs/PRE_ALPHA_RELEASES.md).
-
-A source-tree `cargo run` does not invent or scan for included Packs. The packaged app discovers only the fixed `Contents/Resources/World Packs` allowlist (or an explicit development override) and activates those on first launch; any other Pack still requires user review of the exact executable identity and SHA-256.
-
-The packaged macOS app owns both `io.github.hxddh.world-machine.world` (`.world`) and `io.github.hxddh.world-machine.worldpack` (`.worldpack`). `.world` opens as a World document; `.worldpack` opens only as a Pack installation review.
-
-## Check an external Pack
-
-Statically inspect a `.worldpack` or developer manifest without running Pack code:
-
-```bash
-cargo run -p world-pack-catalog --bin world-pack-check -- \
-  --inspect-only path/to/example.worldpack
-```
-
-Run the minimum durable external-Pack contract in an isolated temporary catalog:
-
-```bash
-cargo run -p world-pack-catalog --bin world-pack-check -- \
-  path/to/example.worldpack
-```
-
-The default check verifies `Create -> Archive -> fresh-process Open` and removes its temporary managed copy afterward. See [docs/PACK_CHECK.md](docs/PACK_CHECK.md).
+A source-tree `cargo run` does not scan for Packs. The packaged app discovers only the fixed `Contents/Resources/World Packs` allowlist and activates those on first launch; any other `.worldpack` requires a review of its executable identity and SHA-256 before it runs.
 
 ## Architecture rule
 
-`world-core` owns semantic runtime primitives only. Domain concepts such as Person, Town, Bakery, Job, Evidence, FootballPlayer, Product, Customer, or Company must live in systems/world packs, never in the kernel.
-
-UI state is not World state. Renderers consume projections and may hold ephemeral selection/layout state only.
+`world-core` owns semantic runtime primitives only. Domain concepts such as Person, Town, Bakery, Product, or Company live in World Packs, never in the kernel. UI state is not World state: renderers consume projections and may hold ephemeral selection and layout state only.
 
 ## License
 
-Apache-2.0. See [LICENSE](LICENSE), [docs/LICENSING.md](docs/LICENSING.md), and [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) for dependency-license boundaries.
+Apache-2.0. See [LICENSE](LICENSE), [docs/LICENSING.md](docs/LICENSING.md), and [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
