@@ -2,6 +2,14 @@ name: Pre-alpha Package
 
 on:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: >-
+          Publishable pre-alpha tag to create and release from this commit
+          (v<app-version>-pre.N, N >= 1). Leave empty for a pre.0 dry run
+          that only uploads an Actions artifact.
+        required: false
+        type: string
   push:
     tags:
       - 'v*-pre.*'
@@ -23,8 +31,29 @@ jobs:
         with:
           shared-key: release-macos
 
+      - name: Resolve release tag
+        id: release
+        env:
+          INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+              echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+              echo "publish=true" >> "$GITHUB_OUTPUT"
+              echo "create_tag=false" >> "$GITHUB_OUTPUT"
+          elif [[ -n "${INPUT_RELEASE_TAG:-}" ]]; then
+              echo "tag=$INPUT_RELEASE_TAG" >> "$GITHUB_OUTPUT"
+              echo "publish=true" >> "$GITHUB_OUTPUT"
+              echo "create_tag=true" >> "$GITHUB_OUTPUT"
+          else
+              echo "tag=" >> "$GITHUB_OUTPUT"
+              echo "publish=false" >> "$GITHUB_OUTPUT"
+              echo "create_tag=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Validate release tag
-        if: startsWith(github.ref, 'refs/tags/')
+        if: steps.release.outputs.publish == 'true'
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: |
           VERSION="$(cargo metadata --no-deps --format-version 1 | python3 -c '
           import json, sys
@@ -36,7 +65,7 @@ jobs:
           else:
               raise SystemExit("world-machine-desktop package not found")
           ')"
-          python3 - "$GITHUB_REF_NAME" "$VERSION" <<'PY'
+          python3 - "$RELEASE_TAG" "$VERSION" <<'PY'
           import re
           import sys
 
@@ -59,18 +88,20 @@ jobs:
         run: bash apps/world-machine-desktop/macos/build-app.sh
 
       - name: Package pre-alpha build
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: |
-          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
-              export WORLD_MACHINE_RELEASE_TAG="$GITHUB_REF_NAME"
+          if [[ -n "$RELEASE_TAG" ]]; then
+              export WORLD_MACHINE_RELEASE_TAG="$RELEASE_TAG"
           fi
           bash apps/world-machine-desktop/macos/package-release.sh
 
       - name: Validate publishable tag package
-        if: startsWith(github.ref, 'refs/tags/')
+        if: steps.release.outputs.publish == 'true'
         run: python3 scripts/validate_release_package.py --publishing target/release-package
 
       - name: Render release notes
-        if: startsWith(github.ref, 'refs/tags/')
+        if: steps.release.outputs.publish == 'true'
         run: |
           python3 scripts/render_release_notes.py \
             target/release-package/release-manifest.json \
@@ -78,15 +109,25 @@ jobs:
             > target/RELEASE_NOTES.md
 
       - name: Publish GitHub pre-release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: steps.release.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          CREATE_TAG: ${{ steps.release.outputs.create_tag }}
         run: |
-          gh release create "$GITHUB_REF_NAME" \
+          # A tag push releases the pushed tag and refuses to invent one.
+          # A dispatch with release_tag creates that tag at the dispatched
+          # commit, which is how a release is cut without local tag access.
+          if [[ "$CREATE_TAG" == "true" ]]; then
+              TAG_ARGS=(--target "$GITHUB_SHA")
+          else
+              TAG_ARGS=(--verify-tag)
+          fi
+          gh release create "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --prerelease \
-            --verify-tag \
-            --title "World Machine $GITHUB_REF_NAME" \
+            "${TAG_ARGS[@]}" \
+            --title "World Machine $RELEASE_TAG" \
             --notes-file target/RELEASE_NOTES.md \
             target/release-package/*.zip \
             target/release-package/*.zip.sha256 \

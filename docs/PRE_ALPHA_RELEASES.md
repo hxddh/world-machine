@@ -68,7 +68,8 @@ python3 scripts/validate_release_package.py \
 
 `.github/workflows/release-package.yml` supports two modes:
 
-- **workflow dispatch** — builds a non-publishable `pre.0` package for release dry runs;
+- **workflow dispatch** without `release_tag` — builds a non-publishable `pre.0` package for release dry runs;
+- **workflow dispatch** with `release_tag` set to a publishable `v<app-version>-pre.N` — validates the tag against the app version, builds and packages, then creates that tag at the dispatched commit and publishes the pre-release. Use this when the tag cannot be pushed from a local checkout;
 - **`v*-pre.*` tag push** — requires a publishable tag, reruns release-critical macOS tests, builds the app, creates the package, uploads the validated package as a GitHub Actions artifact, and then publishes a GitHub **pre-release** for the tag with the three package files attached.
 
 The pre-release notes are rendered by `scripts/render_release_notes.py` from `release-manifest.json`. They lead with the not-notarized status and link `docs/INSTALL.md` at the release tag, so the first thing a downloader reads is how to get past Gatekeeper. The repository does not contain Apple Developer ID or notarization credentials, and the release entry must never present an ad-hoc-signed artifact as a normal notarized macOS release.
@@ -80,7 +81,9 @@ git tag v0.1.0-pre.1
 git push origin v0.1.0-pre.1
 ```
 
-The workflow refuses a tag whose version does not match `world-machine-desktop`, and `gh release create --verify-tag` refuses to publish if the tag is missing from the repository. A release that already exists for the tag makes the publish step fail rather than overwrite it; delete the release manually before re-running if that is intended.
+Or, from the Actions tab, run **Pre-alpha Package** on `main` with `release_tag` set to `v0.1.0-pre.1`; the workflow creates the tag itself.
+
+The workflow refuses a tag whose version does not match `world-machine-desktop`. On a tag push, `gh release create --verify-tag` refuses to publish if the tag is missing from the repository; on a dispatch, the tag is created at the dispatched commit. A release that already exists for the tag makes the publish step fail rather than overwrite it; delete the release manually before re-running if that is intended.
 
 ## Verification
 
