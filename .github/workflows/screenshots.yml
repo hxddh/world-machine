@@ -1,0 +1,76 @@
+name: Screenshots
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: screenshots-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos-screenshots:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: gpui-macos
+
+      - name: Build World Machine.app
+        run: bash apps/world-machine-desktop/macos/build-app.sh
+
+      - name: Prepare a demonstration library
+        run: |
+          LIB="$RUNNER_TEMP/world-machine/Worlds"
+          mkdir -p "$LIB"
+          cargo run -p pocket-universe --example demo_world -- "$LIB"
+          echo "WM_LIB=$LIB" >> "$GITHUB_ENV"
+
+      - name: Launch the app and capture the screen
+        run: |
+          set -x
+          APP="$PWD/target/bundle/World Machine.app"
+          mkdir -p shots
+          system_profiler SPDisplaysDataType | grep -E "Resolution|UI Looks" || true
+          # LaunchServices-launched apps read the user session environment.
+          launchctl setenv WORLD_MACHINE_LIBRARY_DIR "$WM_LIB"
+          open -a "$APP"
+          sleep 8
+          screencapture -x shots/00-home-first-launch.png
+          # Included Packs are installed and probed in the background on first
+          # launch; give that time to finish before the settled Home shot.
+          sleep 30
+          screencapture -x shots/01-home.png
+          open -a "$APP" "$WM_LIB/ares-pocket-colony.world"
+          sleep 15
+          screencapture -x shots/02-world-pressure.png
+          open -a "$APP" "$WM_LIB/maple-street-1987.world"
+          sleep 15
+          screencapture -x shots/03-world-fresh.png
+          osascript -e 'tell application "World Machine" to quit' || true
+          launchctl unsetenv WORLD_MACHINE_LIBRARY_DIR || true
+          ls -la shots
+          ls -la "$WM_LIB" "$WM_LIB/.world-machine-packs" || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: world-machine-screenshots
+          path: shots/*.png
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish screenshots to a branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          BRANCH="screenshots/run-$GITHUB_RUN_ID"
+          git checkout -b "$BRANCH"
+          mkdir -p docs/screenshots
+          cp shots/*.png docs/screenshots/
+          git add docs/screenshots
+          git commit -m "screenshots: capture from run $GITHUB_RUN_ID [skip ci]"
+          git push origin "$BRANCH"
