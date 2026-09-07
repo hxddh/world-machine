@@ -26,8 +26,16 @@ struct ForkResult {
     warning: Option<String>,
 }
 
+/// Resolve once whether the optional World Analyst runtime is installed.
+/// Nothing else in the app depends on Node or Pi, so a missing runtime only
+/// hides the Analyst entry instead of surfacing an error to the user.
+pub(crate) fn analyst_available() -> bool {
+    analyst_runtime::discover().is_ready()
+}
+
 pub(crate) fn document_action(
     document: &SharedDocument,
+    analyst_available: bool,
     cx: &mut Context<WorldDocumentView>,
 ) -> impl IntoElement {
     let fork_document = document.clone();
@@ -58,7 +66,11 @@ pub(crate) fn document_action(
         .flex()
         .gap_2()
         .child(fork)
-        .child(analyst_panel::document_action(document, cx))
+        .child(analyst_panel::document_action(
+            document,
+            analyst_available,
+            cx,
+        ))
         .child(saved_compare::document_action(document, cx))
         .child(lineage::document_action(document, cx))
 }
