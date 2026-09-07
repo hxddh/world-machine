@@ -280,14 +280,18 @@ The runtime, persistence, branching, and Pack isolation layers are solid. What i
 
 Accepted when: `main` is green, there are no stale open PRs, and one downloadable `pre.1` package exists.
 
-### Stage 1 — Installable (weeks 2–3)
+### Stage 1 — Installable without notarization (weeks 2–3)
 
-- Developer ID signing and notarization in `release-package.yml`, with `notarized: true` in the manifest.
-- A tag push creates the GitHub Release and attaches the zip, SHA-256, and `release-manifest.json`.
+There is no Apple Developer ID available in the 0.2 timeframe, so the package stays **ad-hoc signed and not notarized**, exactly as `package-release.sh` and `validate_release_package.py` already require. The stage therefore optimizes the unsigned path instead of waiting on a certificate: the audience for 0.2 is technical early adopters who will follow a two-step first-open, and every download surface must say so up front.
+
+- A tag push creates the GitHub Release and attaches the zip, SHA-256, and `release-manifest.json`. The release notes lead with the not-notarized status and link the install guide.
+- `docs/INSTALL.md`: the exact first-open steps for macOS 14 and macOS 15 (open, dismiss the Gatekeeper dialog, System Settings → Privacy & Security → Open Anyway), the `xattr -dr com.apple.quarantine` fallback for a Terminal user, and the verify-the-checksum step. Test it on both macOS versions before publishing; macOS 15 removed the right-click → Open shortcut, so the guide must not rely on it.
+- A Homebrew tap cask (`brew install --cask --no-quarantine hxddh/tap/world-machine`) as the low-friction path for developers; the cask caveats repeat the not-notarized status.
 - Local rolling log file, an About window showing version and commit with a "copy diagnostics" action, and a "Report a problem" menu item pointing at an issue template.
+- Keep `release-package.yml` ready to flip: signing identity and notarization become optional inputs so that a future Developer ID is a secrets change, not a pipeline rewrite. Do not build the notarization step until the certificate exists.
 - Optional: an update check. Full auto-update can wait.
 
-Accepted when: a Mac with no developer tooling downloads the Release, opens it through Gatekeeper, and reaches Home.
+Accepted when: a Mac with no developer tooling downloads the Release, follows `docs/INSTALL.md` without help, and reaches Home within two minutes; the Release page and the app's About window both state that the build is not notarized.
 
 ### Stage 2 — Sixty seconds to a living World (weeks 3–5)
 
@@ -327,16 +331,17 @@ Accepted when: the Release page explains itself to a stranger and at least one e
 
 - **Single maintainer plus coding agents.** Agents generate hardening tasks readily and do not judge "enough". Mitigation: every `NEXT_TASK.md` entry names the user-visible change.
 - **GPUI pinned to a Zed Git revision.** Upgrading is expensive. Mitigation: do not move the pin during 0.2; keep an upgrade checklist.
-- **Notarization needs a paid Apple developer account.** Mitigation: apply in week 1; approval can take days.
+- **No Apple Developer ID in the 0.2 timeframe.** The app cannot be notarized, so Gatekeeper interrupts every first launch. Mitigation: Stage 1 ships the ad-hoc package with a tested install guide and a Homebrew tap, states the status everywhere, and keeps the pipeline ready for a later certificate. Revisit notarization before any release aimed at non-technical users.
 - **Pi license rider.** Mitigation: keep the Analyst out-of-process and optional and never bundle the `pi` binary, which is already the case.
 
 ## After 0.2
 
 Decide the next phase from real usage, not from architectural interest. Candidates, in rough order:
 
-1. Windows or Linux support if download requests justify the GPUI cost.
-2. A second-party Pack authoring guide once first-party content proves retention.
-3. Persistent Pi sessions or direct model API access for the Analyst if the Experimental panel sees use.
-4. Return to transport and scheduler hardening only against reported failures.
+1. Developer ID signing and notarization as soon as a certificate exists; this is the gate for any release aimed beyond technical early adopters.
+2. Windows or Linux support if download requests justify the GPUI cost.
+3. A second-party Pack authoring guide once first-party content proves retention.
+4. Persistent Pi sessions or direct model API access for the Analyst if the Experimental panel sees use.
+5. Return to transport and scheduler hardening only against reported failures.
 
 The project should resist adding infrastructure merely because it is architecturally interesting. New runtime primitives should be justified by a product behavior that at least two different Worlds can use.
