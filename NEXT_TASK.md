@@ -2,7 +2,7 @@
 
 # Next Coding Task — 0.2 close-out
 
-What remains before `v0.2.0`, in order:
+`v0.2.0` shipped on 2026-09-07 at the owner's direction. The items below were not completed before it and remain the next work, in order:
 
 0. **Apple Developer Program.** Enrol, create the Developer ID Application certificate, and add the five secrets in [docs/RELEASE_SIGNING.md](docs/RELEASE_SIGNING.md). The next release is then a normal macOS app: download, open, use. Nothing else on this list removes the first-launch dialog.
 1. **Real-device verification.** Install the latest pre-release on a physical Mac (macOS 14 and 15 if possible), walk `docs/INSTALL.md`, open Home and a World window, and confirm nothing lays out past the window edge. Capture `docs/screenshots/home.png` and `docs/screenshots/world.png` for the README. The CI screenshot job cannot rasterize text inside Apple Virtualization, so this is a manual step.

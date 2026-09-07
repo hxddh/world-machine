@@ -191,7 +191,7 @@ impl Render for AboutView {
                 div()
                     .text_sm()
                     .text_color(rgb(0x9b4a42))
-                    .child("Pre-alpha build · ad-hoc signed, not notarized by Apple."),
+                    .child("Not yet notarized by Apple: the first launch asks once."),
             )
             .child(
                 div()

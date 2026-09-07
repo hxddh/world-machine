@@ -1,8 +1,10 @@
 # Changelog
 
-World Machine is pre-alpha. Versions below are the pre-release tags on the [Releases page](https://github.com/hxddh/world-machine/releases); `0.2.0` is the first release intended to be usable without reading the repository.
+Releases live on the [Releases page](https://github.com/hxddh/world-machine/releases). `0.2.0` is the first release intended to be usable without reading the repository; the `v0.1.0-pre.N` tags below were its pre-releases.
 
-## Unreleased
+## v0.2.0 (2026-09-07)
+
+The "usable" release: install by drag and drop, a World that opens by itself, two buttons to live in it, and a way to report problems. Not yet notarized: the first launch asks once until the Developer ID pipeline in docs/RELEASE_SIGNING.md is switched on.
 
 - Diagnostics: a local log under `~/Library/Logs/World Machine`, an About window with the build label and signing status, and Help menu items to copy diagnostics, show the log, open the install guide, and report a problem. Cmd-Q quits.
 - Home: **What if…** on every World card opens the World and runs the comparison immediately (its first two choices, 20 periods); "Change choices…" in the result window opens the full setup.
