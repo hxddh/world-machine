@@ -87,6 +87,59 @@ jobs:
       - name: Install universal build targets
         run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
+      # Signing and notarization switch on by adding repository secrets; the
+      # pipeline is otherwise identical. See docs/RELEASE_SIGNING.md.
+      #   APPLE_CERTIFICATE_P12       base64 of the Developer ID Application .p12
+      #   APPLE_CERTIFICATE_PASSWORD  password of that .p12
+      #   APPLE_ID                    Apple ID that owns the certificate
+      #   APPLE_TEAM_ID               ten-character Team ID
+      #   APPLE_APP_PASSWORD          app-specific password for notarytool
+      - name: Import Developer ID certificate
+        id: signing
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          if [[ -z "${APPLE_CERTIFICATE_P12:-}" ]]; then
+              echo "No Developer ID certificate configured; building the ad-hoc pre-alpha package."
+              echo "enabled=false" >> "$GITHUB_OUTPUT"
+              exit 0
+          fi
+          KEYCHAIN="$RUNNER_TEMP/world-machine-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
+          CERT_PATH="$RUNNER_TEMP/developer-id.p12"
+          printf '%s' "$APPLE_CERTIFICATE_P12" | base64 --decode > "$CERT_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$CERT_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -A \
+              -t cert -f pkcs12 -k "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+              -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security list-keychain -d user -s "$KEYCHAIN" login.keychain-db
+          rm -f "$CERT_PATH"
+          IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN" \
+              | grep -o '"Developer ID Application: [^"]*"' | head -n 1 | tr -d '"')"
+          if [[ -z "$IDENTITY" ]]; then
+              echo "The certificate did not yield a Developer ID Application identity" >&2
+              exit 1
+          fi
+          echo "WORLD_MACHINE_SIGNING_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+          if [[ -n "${APPLE_ID:-}" && -n "${APPLE_TEAM_ID:-}" && -n "${APPLE_APP_PASSWORD:-}" ]]; then
+              xcrun notarytool store-credentials world-machine \
+                  --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
+                  --password "$APPLE_APP_PASSWORD" --keychain "$KEYCHAIN"
+              echo "WORLD_MACHINE_NOTARIZE=1" >> "$GITHUB_ENV"
+              echo "WORLD_MACHINE_NOTARY_PROFILE=world-machine" >> "$GITHUB_ENV"
+          else
+              echo "Certificate present but notarization secrets missing; a signed, unnotarized package is not publishable." >&2
+              exit 1
+          fi
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+
       - name: Build and validate universal World Machine.app
         env:
           WORLD_MACHINE_UNIVERSAL: "1"
@@ -134,6 +187,8 @@ jobs:
             "${TAG_ARGS[@]}" \
             --title "World Machine $RELEASE_TAG" \
             --notes-file target/RELEASE_NOTES.md \
+            target/release-package/*.dmg \
+            target/release-package/*.dmg.sha256 \
             target/release-package/*.zip \
             target/release-package/*.zip.sha256 \
             target/release-package/release-manifest.json

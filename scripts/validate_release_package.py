@@ -42,8 +42,16 @@ def validate(package_dir: Path, *, publishing: bool) -> dict:
         raise ValueError(f"release manifest is missing fields: {', '.join(missing)}")
     if manifest["schema_version"] != 1:
         raise ValueError(f"unsupported release manifest schema: {manifest['schema_version']}")
-    if manifest["signing"] != "ad-hoc" or manifest["notarized"] is not False:
-        raise ValueError("pre-alpha package must declare ad-hoc signing and notarized=false")
+    signing = manifest["signing"]
+    notarized = manifest["notarized"]
+    if signing == "ad-hoc":
+        if notarized is not False:
+            raise ValueError("an ad-hoc signed package cannot be notarized")
+    elif signing == "developer-id":
+        if notarized is not True:
+            raise ValueError("a Developer ID package must be notarized before it is published")
+    else:
+        raise ValueError(f"unknown signing mode {signing!r}; expected ad-hoc or developer-id")
 
     version = str(manifest["app_version"])
     tag = str(manifest["tag"])
@@ -69,6 +77,21 @@ def validate(package_dir: Path, *, publishing: bool) -> dict:
         )
     if checksum.read_text().strip() != f"{expected_sha}  {artifact.name}":
         raise ValueError(f"checksum file does not match manifest: {checksum}")
+
+    if "dmg" in manifest:
+        dmg = package_dir / str(manifest["dmg"])
+        dmg_checksum = package_dir / f"{dmg.name}.sha256"
+        for path in (dmg, dmg_checksum):
+            if not path.is_file() or path.stat().st_size == 0:
+                raise ValueError(f"release asset is missing or empty: {path}")
+        expected_dmg_sha = str(manifest["dmg_sha256"])
+        actual_dmg_sha = hashlib.sha256(dmg.read_bytes()).hexdigest()
+        if actual_dmg_sha != expected_dmg_sha:
+            raise ValueError(
+                f"dmg SHA-256 mismatch: manifest={expected_dmg_sha} actual={actual_dmg_sha}"
+            )
+        if dmg_checksum.read_text().strip() != f"{expected_dmg_sha}  {dmg.name}":
+            raise ValueError(f"dmg checksum file does not match manifest: {dmg_checksum}")
 
     architectures = manifest["architectures"]
     if not isinstance(architectures, list) or not architectures:

@@ -267,9 +267,9 @@ The repository moved well past the original M42 target. The main capabilities la
 
 Status: in progress. This phase replaces milestone-by-milestone infrastructure work with acceptance criteria that describe what a user can do.
 
-### The one usability problem this phase cannot fix
+### The one usability problem this phase cannot fix by itself
 
-Without an Apple Developer ID the app cannot be notarized, and every install path on macOS then needs a manual "Open Anyway" step. No packaging trick removes it: Homebrew only moves it to a flag, a DMG only decorates it. The Apple Developer Program costs USD 99 per year and turns installation into download-and-open; it is the single highest-leverage item for usability and should be bought before any release aimed at non-technical users. Until then, 0.2 ships one path (the Release zip, with a `Read Me First.txt` next to the app) and states the limitation everywhere.
+A normal macOS app is download, open, use. That requires a Developer ID signature and Apple notarization; without them every install path needs a manual "Open Anyway" step, and no packaging trick removes it. The pipeline is now fully built for the signed path and switches on with five repository secrets ([RELEASE_SIGNING.md](RELEASE_SIGNING.md)); the Apple Developer Program costs USD 99 per year. Until then the release ships a DMG with a `Read Me First.txt` next to the app and states the limitation everywhere.
 
 ### Progress (updated 2026-09-07)
 
@@ -278,8 +278,8 @@ Without an Apple Developer ID the app cannot be notarized, and every install pat
 | Stage 0: freeze, stale PRs closed, `pre.1` published | done |
 | Stage 1: automated pre-release, install guide, universal binary | done (`pre.1` to `pre.5`) |
 | Stage 1: log file, About window, Report a Problem, Help menu | done, ships in `pre.6` |
-| Stage 1: Homebrew cask | dropped: Homebrew is a developer tool and a tap needs a second repository; the only install path is the Release zip, which now carries a Read Me First note |
-| Stage 1: pipeline ready for a future Developer ID | not started; no certificate in the 0.2 timeframe |
+| Stage 1: Homebrew cask | dropped: Homebrew is a developer tool; the install is a DMG with an Applications shortcut, no commands |
+| Stage 1: pipeline ready for a future Developer ID | done: signing, notarization, stapling, DMG, and validation all keyed on secrets; nothing to build once the certificate exists |
 | Stage 2: included Packs activate on first launch, Analyst hidden without runtime | done |
 | Stage 2: Home hierarchy (Start here / My Worlds / New World / Manage Packs) and first-launch copy in user language | done |
 | Stage 2: usability test with three to five non-developers | needs a real Mac and testers |

@@ -30,6 +30,21 @@ else
 fi
 export WORLD_MACHINE_BUILD_COMMIT="$BUILD_COMMIT"
 
+# WORLD_MACHINE_SIGNING_IDENTITY names a "Developer ID Application" identity
+# in the keychain. Without it every executable is ad-hoc signed ("-"), which
+# is what a local build and the unsigned pre-alpha channel use. With it,
+# every Mach-O gets a hardened-runtime, timestamped Developer ID signature,
+# which is what notarization requires; the Pack executables are signed before
+# they are embedded in their .worldpack bundles.
+SIGNING_IDENTITY="${WORLD_MACHINE_SIGNING_IDENTITY:--}"
+sign_executable() {
+    if [[ "$SIGNING_IDENTITY" == "-" ]]; then
+        codesign --force --sign - "$1"
+    else
+        codesign --force --timestamp --options runtime --sign "$SIGNING_IDENTITY" "$1"
+    fi
+}
+
 PACKAGES=(
     -p world-machine-desktop
     -p world-agent-tool-stdio
@@ -107,6 +122,10 @@ for executable in \
         exit 1
     fi
 done
+
+sign_executable "$ANALYST_HOST_BINARY"
+sign_executable "$POCKET_UNIVERSE_BINARY"
+sign_executable "$MICRO_COMPANY_BINARY"
 
 rm -rf "$APP_DIR"
 mkdir -p \
@@ -233,8 +252,12 @@ for relative in expected_runtime_files:
     assert path.is_file() and path.stat().st_size > 0, path
 PY
 
-codesign --force --sign - "$ANALYST_BIN_DIR/world-agent-tool-stdio"
-codesign --force --sign - "$APP_DIR"
+sign_executable "$ANALYST_BIN_DIR/world-agent-tool-stdio"
+sign_executable "$APP_DIR"
 codesign --verify --strict --verbose=2 "$APP_DIR"
+if [[ "$SIGNING_IDENTITY" != "-" ]]; then
+    codesign --display --verbose=2 "$APP_DIR" 2>&1 | grep -E "Authority|Timestamp|flags" || true
+fi
+echo "signing: $([[ "$SIGNING_IDENTITY" == "-" ]] && echo ad-hoc || echo developer-id)"
 
 echo "$APP_DIR"
