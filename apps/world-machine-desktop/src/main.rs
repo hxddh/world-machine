@@ -194,6 +194,28 @@ impl WorldDocumentView {
         }
     }
 
+    /// Opens Compare Futures for this World. Returns the Home status to show
+    /// when the request came from a Home card.
+    fn open_compare(&mut self, cx: &mut Context<Self>) -> Option<HomeStatus> {
+        match strategy_compare::open_setup(&self.document, cx) {
+            Ok(count) => {
+                self.status = Some(DocumentStatus::success(format!(
+                    "Opened Compare Futures · {count} choices"
+                )));
+                cx.notify();
+                None
+            }
+            Err(error) => {
+                self.status = Some(DocumentStatus::info(error.clone()));
+                cx.notify();
+                Some(HomeStatus::info(format!(
+                    "Opened {} · {error}",
+                    self.document_label
+                )))
+            }
+        }
+    }
+
     fn reload(&mut self, cx: &mut Context<Self>) {
         let result = {
             let mut document = self.document.borrow_mut();
@@ -939,8 +961,20 @@ impl WorldMachineHome {
 
     fn open_session(
         &mut self,
+        session: DurableWorldSession,
+        title: String,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_session_with(session, title, false, cx);
+    }
+
+    /// Opens a World window; with `compare_on_open`, also opens Compare
+    /// Futures for it so a Home card can jump straight to "what if".
+    fn open_session_with(
+        &mut self,
         mut session: DurableWorldSession,
         title: String,
+        compare_on_open: bool,
         cx: &mut Context<Self>,
     ) {
         let is_library_world = session.document_id().is_some();
@@ -962,6 +996,14 @@ impl WorldMachineHome {
             move |_, cx| cx.new(|cx| WorldDocumentView::new(session, registry, library, cx)),
         );
 
+        let compare = match (&opened, compare_on_open) {
+            (Ok(handle), true) => handle
+                .update(cx, |view, _, cx| view.open_compare(cx))
+                .ok()
+                .flatten(),
+            _ => None,
+        };
+
         self.status = Some(match opened {
             Ok(_) => match catch_up {
                 Ok(Some(outcome)) => HomeStatus::success(format!(
@@ -978,7 +1020,39 @@ impl WorldMachineHome {
         if let Some(status) = sync_error {
             self.status = Some(status);
         }
+        if let Some(compare) = compare {
+            self.status = Some(compare);
+        }
         cx.notify();
+    }
+
+    fn compare_document(&mut self, document_id: WorldDocumentId, cx: &mut Context<Self>) {
+        let summary = self
+            .documents
+            .iter()
+            .find(|document| document.id == document_id);
+        if let Some(document) = summary {
+            if self.registry.descriptor_for(&document.pack).is_none() {
+                self.status = Some(HomeStatus::error(self.missing_pack_message(&document.pack)));
+                cx.notify();
+                return;
+            }
+        }
+        let title = summary
+            .and_then(|document| self.registry.descriptor_for(&document.pack))
+            .map(|descriptor| descriptor.title.clone())
+            .unwrap_or_else(|| document_id.to_string());
+        let session = match DurableWorldSession::open(document_id, &self.registry, &self.library) {
+            Ok(session) => session,
+            Err(error) => {
+                self.status = Some(HomeStatus::error(format!(
+                    "Could not open {title}: {error}"
+                )));
+                cx.notify();
+                return;
+            }
+        };
+        self.open_session_with(session, title, true, cx);
     }
 
     fn create_world(&mut self, pack_id: String, cx: &mut Context<Self>) {
@@ -1274,6 +1348,7 @@ impl WorldMachineHome {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let open_id = document.id.clone();
+        let compare_id = document.id.clone();
         let export_id = document.id.clone();
         let pack_title = self
             .registry
@@ -1289,6 +1364,8 @@ impl WorldMachineHome {
             .cloned();
 
         let mut details = div()
+            .flex_1()
+            .min_w(px(0.0))
             .flex()
             .flex_col()
             .gap_1()
@@ -1437,7 +1514,10 @@ impl WorldMachineHome {
             .child(details)
             .child(
                 div()
+                    .flex_shrink_0()
                     .flex()
+                    .flex_col()
+                    .items_end()
                     .gap_2()
                     .child(
                         div()
@@ -1446,11 +1526,26 @@ impl WorldMachineHome {
                             .p_2()
                             .rounded_md()
                             .border_1()
-                            .border_color(rgb(0xd9d9d3))
+                            .border_color(rgb(0x657da7))
+                            .bg(rgb(0xf4f7ff))
                             .text_sm()
                             .child("Open")
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.open_document(open_id.clone(), cx)
+                            })),
+                    )
+                    .child(
+                        div()
+                            .id(SharedString::from(format!("compare-{compare_id}")))
+                            .cursor_pointer()
+                            .p_2()
+                            .rounded_md()
+                            .border_1()
+                            .border_color(rgb(0xd9d9d3))
+                            .text_sm()
+                            .child("What if…")
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.compare_document(compare_id.clone(), cx)
                             })),
                     )
                     .child(
