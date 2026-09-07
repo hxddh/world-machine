@@ -38,7 +38,16 @@ MANIFEST_PATH="$OUTPUT_DIR/release-manifest.json"
 rm -rf "$OUTPUT_DIR"
 mkdir -p "$OUTPUT_DIR"
 
-ditto -c -k --keepParent "$APP_DIR" "$ZIP_PATH"
+# The zip unpacks to one folder holding the app and a plain-text first-launch
+# note, so a user who never sees the Release page still learns why macOS
+# blocks the first open and what to do about it.
+STAGE_ROOT="$OUTPUT_DIR/stage"
+STAGE_DIR="$STAGE_ROOT/World Machine $RELEASE_LABEL"
+mkdir -p "$STAGE_DIR"
+ditto "$APP_DIR" "$STAGE_DIR/World Machine.app"
+sed "s|@TAG@|$TAG|g" "$SCRIPT_DIR/READ_ME_FIRST.txt" > "$STAGE_DIR/Read Me First.txt"
+ditto -c -k --keepParent "$STAGE_DIR" "$ZIP_PATH"
+rm -rf "$STAGE_ROOT"
 SHA256="$(shasum -a 256 "$ZIP_PATH" | awk '{print $1}')"
 printf '%s  %s\n' "$SHA256" "$ZIP_NAME" > "$CHECKSUM_PATH"
 

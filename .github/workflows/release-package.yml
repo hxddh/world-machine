@@ -113,13 +113,6 @@ jobs:
             --repository "$GITHUB_REPOSITORY" \
             > target/RELEASE_NOTES.md
 
-      - name: Render Homebrew cask
-        if: steps.release.outputs.publish == 'true'
-        run: |
-          python3 scripts/render_cask.py \
-            target/release-package/release-manifest.json \
-            > target/release-package/world-machine.rb
-
       - name: Publish GitHub pre-release
         if: steps.release.outputs.publish == 'true'
         env:
@@ -143,8 +136,7 @@ jobs:
             --notes-file target/RELEASE_NOTES.md \
             target/release-package/*.zip \
             target/release-package/*.zip.sha256 \
-            target/release-package/release-manifest.json \
-            target/release-package/world-machine.rb
+            target/release-package/release-manifest.json
 
       - uses: actions/upload-artifact@v4
         with:

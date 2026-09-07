@@ -18,7 +18,7 @@ Also open `release-manifest.json` on the release page and confirm the tag, commi
 
 ## 2. Unpack and move to Applications
 
-Double-click the `.zip`. Drag `World Machine.app` into `/Applications`.
+Double-click the `.zip`. It unpacks to a `World Machine <release>` folder with `World Machine.app` and a `Read Me First.txt` that repeats step 3 below. Drag `World Machine.app` into `/Applications`.
 
 Do this before the first launch. macOS runs an unnotarized app that is still in Downloads from a temporary read-only location, which slows the first start and can confuse file dialogs.
 
@@ -53,17 +53,6 @@ The Control-click → Open shortcut that older macOS versions offered no longer 
 2. In the dialog, click **Open**.
 
 If a World fails to start after Option B, run the Option A command once. The bundled Packs are separate executables and may still carry the quarantine flag.
-
-## Alternative: Homebrew
-
-If you use Homebrew, one command replaces steps 1 to 3. `--no-quarantine` is what skips the Gatekeeper block; the cask prints the same reminder.
-
-```bash
-brew tap hxddh/tap
-brew install --cask --no-quarantine world-machine
-```
-
-Every release attaches its cask file (`world-machine.rb`) next to the zip, so the tap always describes the same checksum as the Release page.
 
 ## 4. First run
 

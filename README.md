@@ -6,7 +6,7 @@ Persistent worlds that remember, evolve, and branch. A World keeps living while 
 
 ## Try it in three steps
 
-1. **Download** the latest zip from the [Releases page](https://github.com/hxddh/world-machine/releases) (universal: Apple Silicon and Intel, macOS 14 or newer). Homebrew users: `brew install --cask --no-quarantine hxddh/tap/world-machine`.
+1. **Download** the latest zip from the [Releases page](https://github.com/hxddh/world-machine/releases). One file runs on Apple Silicon and Intel Macs, macOS 14 or newer.
 2. **Allow the first launch** by following [docs/INSTALL.md](docs/INSTALL.md); it takes under two minutes and explains why macOS asks.
 3. **Start a World.** Home prepares Pocket Universe on first launch. Seed a place, let it live, come back later, and use **What if…** on any World card to compare two futures side by side.
 
