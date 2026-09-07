@@ -8,11 +8,11 @@
 
 use gpui::{
     actions, div, prelude::*, px, rgb, size, App, AppContext, Bounds, ClipboardItem, Context,
-    IntoElement, KeyBinding, Menu, MenuItem, Render, Styled, SystemMenuType, Window, WindowBounds,
-    WindowOptions,
+    Entity, IntoElement, KeyBinding, Menu, MenuItem, Render, Styled, SystemMenuType, Window,
+    WindowBounds, WindowOptions,
 };
 
-use crate::{build_info, diagnostics};
+use crate::{build_info, diagnostics, WorldMachineHome};
 
 actions!(
     world_machine,
@@ -22,7 +22,22 @@ actions!(
         CopyDiagnostics,
         OpenLogFolder,
         ReportProblem,
-        InstallGuide
+        InstallGuide,
+        CheckForUpdates,
+        // File menu, handled by Home wherever it is.
+        ImportWorld,
+        InstallPack,
+        RefreshLibrary,
+        // World menu, handled by the frontmost World window and greyed out
+        // elsewhere because the handlers live on that window's root.
+        BranchWorld,
+        WhatIf,
+        SaveWorldAs,
+        ReloadWorld,
+        CompareWithParent,
+        CompareSavedWorlds,
+        ShowLineage,
+        AnalyzeWorlds
     ]
 );
 
@@ -41,6 +56,10 @@ pub fn install(cx: &mut App) {
         cx.open_url(diagnostics::ISSUE_URL);
     });
     cx.on_action(|_: &InstallGuide, cx| cx.open_url(diagnostics::INSTALL_GUIDE_URL));
+    cx.on_action(|_: &CheckForUpdates, cx| {
+        diagnostics::info("opening the releases page");
+        cx.open_url(diagnostics::RELEASES_URL);
+    });
 
     cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
 
@@ -52,7 +71,27 @@ pub fn install(cx: &mut App) {
             MenuItem::separator(),
             MenuItem::action("Quit World Machine", Quit),
         ]),
+        Menu::new("File").items([
+            MenuItem::action("Import World…", ImportWorld),
+            MenuItem::action("Install World Pack…", InstallPack),
+            MenuItem::separator(),
+            MenuItem::action("Refresh My Worlds", RefreshLibrary),
+        ]),
+        Menu::new("World").items([
+            MenuItem::action("Branch This World", BranchWorld),
+            MenuItem::action("What If…", WhatIf),
+            MenuItem::separator(),
+            MenuItem::action("Save As…", SaveWorldAs),
+            MenuItem::action("Reload from Disk", ReloadWorld),
+            MenuItem::separator(),
+            MenuItem::action("Compare with Parent", CompareWithParent),
+            MenuItem::action("Compare Saved Worlds…", CompareSavedWorlds),
+            MenuItem::action("Lineage…", ShowLineage),
+            MenuItem::separator(),
+            MenuItem::action("Analyze Saved Worlds (Experimental)…", AnalyzeWorlds),
+        ]),
         Menu::new("Help").items([
+            MenuItem::action("Check for Updates…", CheckForUpdates),
             MenuItem::action("Install Guide", InstallGuide),
             MenuItem::action("Report a Problem…", ReportProblem),
             MenuItem::separator(),
@@ -60,6 +99,23 @@ pub fn install(cx: &mut App) {
             MenuItem::action("Show Log in Finder", OpenLogFolder),
         ]),
     ]);
+}
+
+/// Routes the File menu to Home. Registered globally so the items work from
+/// any window; Home stays the owner of the library and the Pack catalog.
+pub fn install_home_actions(home: &Entity<WorldMachineHome>, cx: &mut App) {
+    let import = home.clone();
+    cx.on_action(move |_: &ImportWorld, cx| {
+        import.update(cx, |home, cx| home.import_world(cx));
+    });
+    let install = home.clone();
+    cx.on_action(move |_: &InstallPack, cx| {
+        install.update(cx, |home, cx| home.install_pack(cx));
+    });
+    let refresh = home.clone();
+    cx.on_action(move |_: &RefreshLibrary, cx| {
+        refresh.update(cx, |home, cx| home.refresh_from_menu(cx));
+    });
 }
 
 fn copy_diagnostics(cx: &mut App) {

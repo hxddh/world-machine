@@ -30,9 +30,19 @@ def render(manifest: dict, repository: str) -> str:
 
     return f"""# World Machine {tag}
 
-> **Not notarized.** This pre-alpha build is ad-hoc signed. macOS will block the first launch with a "could not verify" message. Follow the [install guide]({install_url}); it takes under two minutes.
+> **Not notarized.** This pre-alpha build is ad-hoc signed, so a browser download is blocked on its first launch. The one-line installer avoids that; the [install guide]({install_url}) has the manual path.
 
-Experimental pre-alpha software. The World IR and public APIs are unstable, and there is no automatic update.
+## Install
+
+Open Terminal, paste, press Return:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hxddh/world-machine/main/scripts/install.sh | sh
+```
+
+Or download the zip below, drag the app to Applications, and allow it once in System Settings → Privacy & Security. Rerun the same line to update later.
+
+Experimental pre-alpha software. The World IR and public APIs are unstable.
 
 ## Build
 
@@ -48,17 +58,15 @@ Included World Packs:
 
 {packs}
 
-## Verify the download
+## Verify the download (optional)
+
+The installer checks this for you. By hand:
 
 ```bash
 shasum -a 256 -c {artifact}.sha256
 ```
 
 Then open `release-manifest.json` and confirm the tag, commit, and checksum above.
-
-## Install
-
-See the [install guide]({install_url}) for macOS 14 and macOS 15 first-launch steps.
 """
 
 

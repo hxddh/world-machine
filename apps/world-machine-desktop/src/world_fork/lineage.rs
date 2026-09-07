@@ -1,6 +1,4 @@
-use super::super::{
-    mark_library_changed, observer, DocumentStatus, SharedDocument, WorldDocumentView,
-};
+use super::super::{mark_library_changed, observer, SharedDocument, WorldDocumentView};
 use gpui::{
     div, prelude::*, px, rgb, size, AppContext, Bounds, Context, IntoElement, Styled, WindowBounds,
     WindowOptions,
@@ -13,85 +11,7 @@ use world_lineage_gpui::{LineageController, LineageExplorerView};
 
 const LINEAGE_BADGE_MAX_CHARS: usize = 34;
 
-pub(super) fn document_action(
-    document: &SharedDocument,
-    cx: &mut Context<WorldDocumentView>,
-) -> impl IntoElement {
-    let (document_id, lineage) = {
-        let document = document.borrow();
-        (
-            document.session.document_id().cloned(),
-            document.session.metadata().lineage.clone(),
-        )
-    };
-
-    let mut actions = div().flex().items_center().gap_2();
-    if let Some(lineage) = lineage.as_ref() {
-        actions = actions.child(lineage_badge(lineage));
-    }
-
-    let Some(_document_id) = document_id else {
-        return actions;
-    };
-
-    if lineage
-        .as_ref()
-        .and_then(|lineage| lineage.parent.document.as_ref())
-        .is_some()
-    {
-        let document = document.clone();
-        actions = actions.child(
-            div()
-                .id("compare-lineage-parent")
-                .cursor_pointer()
-                .p_2()
-                .rounded_md()
-                .border_1()
-                .border_color(rgb(0xa9b7d5))
-                .bg(rgb(0xf3f6fc))
-                .text_sm()
-                .child("↔ Parent")
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.status = Some(match compare_with_parent(&document, cx) {
-                        Ok((parent, current)) => DocumentStatus::success(format!(
-                            "Opened parent comparison · {parent} ↔ {current}"
-                        )),
-                        Err(error) => {
-                            DocumentStatus::error(format!("Could not compare with parent: {error}"))
-                        }
-                    });
-                    cx.notify();
-                })),
-        );
-    }
-
-    let document = document.clone();
-    actions.child(
-        div()
-            .id("open-world-lineage")
-            .cursor_pointer()
-            .p_2()
-            .rounded_md()
-            .border_1()
-            .border_color(rgb(0xb8c8d8))
-            .bg(rgb(0xf4f8fb))
-            .text_sm()
-            .child("Lineage…")
-            .on_click(cx.listener(move |this, _, _, cx| {
-                this.status = Some(match open_lineage(&document, cx) {
-                    Ok(count) => {
-                        DocumentStatus::success(format!("Opened World Lineage · {count} World(s)"))
-                    }
-                    Err(error) => {
-                        DocumentStatus::error(format!("Could not open World Lineage: {error}"))
-                    }
-                });
-                cx.notify();
-            })),
-    )
-}
-
-fn compare_with_parent(
+pub(super) fn compare_with_parent(
     document: &SharedDocument,
     cx: &mut Context<WorldDocumentView>,
 ) -> Result<(String, String), String> {
@@ -134,7 +54,7 @@ fn compare_with_parent(
     )
 }
 
-fn lineage_badge(lineage: &WorldLineage) -> impl IntoElement {
+pub(super) fn lineage_badge(lineage: &WorldLineage) -> impl IntoElement {
     div()
         .w(px(190.0))
         .overflow_hidden()
@@ -196,7 +116,7 @@ fn truncate_for_chrome(label: &str, max_chars: usize) -> String {
     compact
 }
 
-fn open_lineage(
+pub(super) fn open_lineage(
     document: &SharedDocument,
     cx: &mut Context<WorldDocumentView>,
 ) -> Result<usize, String> {

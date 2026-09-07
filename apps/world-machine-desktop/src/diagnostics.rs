@@ -28,6 +28,7 @@ pub const ISSUE_URL: &str =
     "https://github.com/hxddh/world-machine/issues/new?template=bug_report.yml";
 pub const INSTALL_GUIDE_URL: &str =
     "https://github.com/hxddh/world-machine/blob/main/docs/INSTALL.md";
+pub const RELEASES_URL: &str = "https://github.com/hxddh/world-machine/releases";
 
 struct LogSink {
     path: PathBuf,

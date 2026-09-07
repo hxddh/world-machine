@@ -3,8 +3,8 @@ use super::{
     WorldDocumentView,
 };
 use gpui::{
-    div, prelude::*, px, rgb, size, AppContext, Bounds, Context, Div, Entity, IntoElement, Render,
-    SharedString, Styled, Window, WindowBounds, WindowOptions,
+    div, prelude::*, px, rgb, size, App, AppContext, Bounds, Context, Div, Entity, IntoElement,
+    Render, SharedString, Styled, Window, WindowBounds, WindowOptions,
 };
 use std::rc::Rc;
 use std::sync::Arc;
@@ -45,68 +45,28 @@ impl StrategyStatus {
     }
 }
 
-pub(crate) fn document_actions(
-    document: &SharedDocument,
-    cx: &mut Context<WorldDocumentView>,
-) -> Div {
-    let mut actions = div().flex().gap_2();
-    if available_choices(&document.borrow().session).len() >= 2 {
-        actions = actions.child(
-            div()
-                .id("compare-world-choices")
-                .cursor_pointer()
-                .p_2()
-                .rounded_md()
-                .border_1()
-                .border_color(rgb(0x9eb0d6))
-                .bg(rgb(0xf4f7ff))
-                .text_sm()
-                .child("Compare choices…")
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.open_compare(cx);
-                })),
-        );
-    }
+pub(crate) const DEFAULT_HORIZON: u64 = 20;
+const ONE_PATH_MESSAGE: &str =
+    "This World has one path right now. Continue it and try again when it offers a choice.";
 
-    actions
-        .child(
-            div()
-                .id("save-as-world-document")
-                .cursor_pointer()
-                .p_2()
-                .rounded_md()
-                .border_1()
-                .border_color(rgb(0xcacac4))
-                .bg(rgb(0xffffff))
-                .text_sm()
-                .child("Save As…")
-                .on_click(cx.listener(|this, _, _, cx| this.save_as(cx))),
-        )
-        .child(
-            div()
-                .id("reload-world-document")
-                .cursor_pointer()
-                .p_2()
-                .rounded_md()
-                .border_1()
-                .border_color(rgb(0xcacac4))
-                .bg(rgb(0xffffff))
-                .text_sm()
-                .child("Reload from disk")
-                .on_click(cx.listener(|this, _, _, cx| this.reload(cx))),
-        )
+/// Opens the comparison straight away with the World's first two choices over
+/// the default horizon. The result window offers "Change choices…" for anyone
+/// who wants a different pair or horizon.
+pub(crate) fn open_default(
+    document: &SharedDocument,
+    cx: &mut App,
+) -> Result<(String, String), String> {
+    let mut choices = available_choices(&document.borrow().session).into_iter();
+    let (Some(left), Some(right)) = (choices.next(), choices.next()) else {
+        return Err(ONE_PATH_MESSAGE.into());
+    };
+    open_result(document, left, right, DEFAULT_HORIZON, cx)
 }
 
-pub(crate) fn open_setup(
-    document: &SharedDocument,
-    cx: &mut Context<WorldDocumentView>,
-) -> Result<usize, String> {
+pub(crate) fn open_setup(document: &SharedDocument, cx: &mut App) -> Result<usize, String> {
     let choices = available_choices(&document.borrow().session);
     if choices.len() < 2 {
-        return Err(
-            "This World has one path right now. Continue it and try again when it offers a choice."
-                .into(),
-        );
+        return Err(ONE_PATH_MESSAGE.into());
     }
 
     let count = choices.len();
@@ -238,97 +198,111 @@ impl StrategySetupView {
         if left.id == right.id {
             return Err("Choose two different futures".into());
         }
+        open_result(&self.document, left, right, self.horizon, cx)
+    }
+}
 
-        let (evaluation, source_label, source_archive, registry, library) = {
-            let document = self.document.borrow();
-            let source_archive = document
-                .session
-                .current_archive()
-                .map_err(|error| error.to_string())?;
-            let evaluation = evaluate_choices(
-                &document.session,
-                &document.registry,
-                &left.id,
-                &right.id,
-                self.horizon,
-            )
+/// Runs both futures from the World's current archive and opens the result
+/// window. Shared by the default "What if…" path and the setup window.
+fn open_result(
+    document: &SharedDocument,
+    left: StrategyChoice,
+    right: StrategyChoice,
+    horizon: u64,
+    cx: &mut App,
+) -> Result<(String, String), String> {
+    let (evaluation, source_label, source_archive, registry, library) = {
+        let document = document.borrow();
+        let source_archive = document
+            .session
+            .current_archive()
             .map_err(|error| error.to_string())?;
-            (
-                evaluation,
-                document.session.display_name(),
-                source_archive,
-                Arc::clone(&document.registry),
-                Arc::clone(&document.library),
-            )
-        };
-
-        let left_display_title = evaluation
-            .left
-            .outcome()
-            .and_then(|outcome| strategy_future_display_title(&outcome.snapshot.title));
-        let right_display_title = evaluation
-            .right
-            .outcome()
-            .and_then(|outcome| strategy_future_display_title(&outcome.snapshot.title));
-        let left_display_summary = evaluation
-            .left
-            .outcome()
-            .and_then(|outcome| snapshot_display_summary(&outcome.snapshot));
-        let right_display_summary = evaluation
-            .right
-            .outcome()
-            .and_then(|outcome| snapshot_display_summary(&outcome.snapshot));
-        let left_archive = evaluation
-            .left
-            .outcome()
-            .and_then(|outcome| outcome.archive.clone());
-        let right_archive = evaluation
-            .right
-            .outcome()
-            .and_then(|outcome| outcome.archive.clone());
-        let left_lineage = strategy_lineage(&source_label, &source_archive, &left, self.horizon);
-        let right_lineage = strategy_lineage(&source_label, &source_archive, &right, self.horizon);
-        let left_label = left.title;
-        let right_label = right.title;
-        let comparison_left = left_label.clone();
-        let comparison_right = right_label.clone();
-        let comparison =
-            cx.new(|_| StrategyComparisonView::new(evaluation, comparison_left, comparison_right));
-
-        let result_left = left_label.clone();
-        let result_right = right_label.clone();
-        let bounds = Bounds::centered(None, size(px(1240.0), px(980.0)), cx);
-        cx.open_window(
-            WindowOptions {
-                window_bounds: Some(WindowBounds::Windowed(bounds)),
-                ..Default::default()
-            },
-            move |_, cx| {
-                cx.new(|_| StrategyResultView {
-                    comparison,
-                    registry,
-                    library,
-                    source_label,
-                    left_label: result_left,
-                    right_label: result_right,
-                    left_archive,
-                    right_archive,
-                    left_display_title,
-                    right_display_title,
-                    left_display_summary,
-                    right_display_summary,
-                    left_lineage,
-                    right_lineage,
-                    left_saved: None,
-                    right_saved: None,
-                    status: None,
-                })
-            },
+        let evaluation = evaluate_choices(
+            &document.session,
+            &document.registry,
+            &left.id,
+            &right.id,
+            horizon,
         )
         .map_err(|error| error.to_string())?;
+        (
+            evaluation,
+            document.session.display_name(),
+            source_archive,
+            Arc::clone(&document.registry),
+            Arc::clone(&document.library),
+        )
+    };
 
-        Ok((left_label, right_label))
-    }
+    let left_display_title = evaluation
+        .left
+        .outcome()
+        .and_then(|outcome| strategy_future_display_title(&outcome.snapshot.title));
+    let right_display_title = evaluation
+        .right
+        .outcome()
+        .and_then(|outcome| strategy_future_display_title(&outcome.snapshot.title));
+    let left_display_summary = evaluation
+        .left
+        .outcome()
+        .and_then(|outcome| snapshot_display_summary(&outcome.snapshot));
+    let right_display_summary = evaluation
+        .right
+        .outcome()
+        .and_then(|outcome| snapshot_display_summary(&outcome.snapshot));
+    let left_archive = evaluation
+        .left
+        .outcome()
+        .and_then(|outcome| outcome.archive.clone());
+    let right_archive = evaluation
+        .right
+        .outcome()
+        .and_then(|outcome| outcome.archive.clone());
+    let left_lineage = strategy_lineage(&source_label, &source_archive, &left, horizon);
+    let right_lineage = strategy_lineage(&source_label, &source_archive, &right, horizon);
+    let left_label = left.title;
+    let right_label = right.title;
+    let comparison_left = left_label.clone();
+    let comparison_right = right_label.clone();
+    let comparison =
+        cx.new(|_| StrategyComparisonView::new(evaluation, comparison_left, comparison_right));
+
+    let result_left = left_label.clone();
+    let result_right = right_label.clone();
+    let result_document = Rc::clone(document);
+    let bounds = Bounds::centered(None, size(px(1240.0), px(980.0)), cx);
+    cx.open_window(
+        WindowOptions {
+            window_bounds: Some(WindowBounds::Windowed(bounds)),
+            ..Default::default()
+        },
+        move |_, cx| {
+            cx.new(|_| StrategyResultView {
+                document: result_document,
+                horizon,
+                comparison,
+                registry,
+                library,
+                source_label,
+                left_label: result_left,
+                right_label: result_right,
+                left_archive,
+                right_archive,
+                left_display_title,
+                right_display_title,
+                left_display_summary,
+                right_display_summary,
+                left_lineage,
+                right_lineage,
+                left_saved: None,
+                right_saved: None,
+                status: None,
+            })
+        },
+    )
+    .map_err(|error| error.to_string())?;
+
+    Ok((left_label, right_label))
 }
 
 impl Render for StrategySetupView {
@@ -416,6 +390,8 @@ enum FutureSide {
 }
 
 struct StrategyResultView {
+    document: SharedDocument,
+    horizon: u64,
     comparison: Entity<StrategyComparisonView>,
     registry: Arc<WorldRegistry>,
     library: Arc<WorldLibrary>,
@@ -603,8 +579,32 @@ impl Render for StrategyResultView {
         window.set_window_title("Strategy Comparison — World Machine");
 
         let actions = div()
+            .flex_shrink_0()
             .flex()
+            .flex_wrap()
+            .justify_end()
             .gap_2()
+            .child(
+                div()
+                    .id("change-strategy-choices")
+                    .cursor_pointer()
+                    .p_2()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(rgb(0xcacac4))
+                    .bg(rgb(0xffffff))
+                    .text_sm()
+                    .child("Change choices…")
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.status = Some(match open_setup(&this.document, cx) {
+                            Ok(count) => StrategyStatus::success(format!(
+                                "Choose from {count} choices in the setup window"
+                            )),
+                            Err(error) => StrategyStatus::error(error),
+                        });
+                        cx.notify();
+                    })),
+            )
             .child(self.render_save_action(FutureSide::Left, cx))
             .child(self.render_save_action(FutureSide::Right, cx));
 
@@ -620,16 +620,19 @@ impl Render for StrategyResultView {
             .gap_3()
             .child(
                 div()
+                    .flex_1()
+                    .min_w(px(0.0))
                     .flex()
                     .flex_col()
                     .gap_1()
-                    .child(div().text_sm().child("Strategy Comparison"))
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(rgb(0x777770))
-                            .child(format!("Source · {}", self.source_label)),
-                    ),
+                    .child(div().text_sm().child(format!(
+                        "What if · {} vs {}",
+                        self.left_label, self.right_label
+                    )))
+                    .child(div().text_xs().text_color(rgb(0x777770)).child(format!(
+                        "{} · {} periods from now",
+                        self.source_label, self.horizon
+                    ))),
             )
             .child(actions);
 

@@ -4,8 +4,8 @@ Current as of the `Unreleased` section of the [changelog](../CHANGELOG.md). Repo
 
 ## Installation
 
-- **Not notarized.** Every fresh download or update needs the first-launch steps in [INSTALL.md](INSTALL.md). This stays true until a Developer ID certificate exists.
-- **No automatic updates.** Watch the Releases page.
+- **Not notarized.** A browser download needs the one-time "Open Anyway" step in [INSTALL.md](INSTALL.md); the one-line installer avoids it. This stays true until a Developer ID certificate exists.
+- **No automatic updates.** Help → Check for Updates… opens the Releases page; rerunning the installer updates in place.
 - **macOS 14 or newer only.** Older systems are not built or tested.
 
 ## Using Worlds

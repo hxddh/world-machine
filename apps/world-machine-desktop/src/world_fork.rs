@@ -1,10 +1,9 @@
 use super::{
-    mark_library_changed, sanitize_document_base, unique_document_id, DocumentStatus,
-    SharedDocument, WorldDocumentView,
+    mark_library_changed, sanitize_document_base, unique_document_id, SharedDocument,
+    WorldDocumentView,
 };
 use gpui::{
-    div, prelude::*, px, rgb, size, AppContext, Bounds, Context, IntoElement, Styled, WindowBounds,
-    WindowOptions,
+    prelude::*, px, size, AppContext, Bounds, Context, IntoElement, WindowBounds, WindowOptions,
 };
 use std::sync::Arc;
 use world_library::{
@@ -21,9 +20,9 @@ mod lineage;
 #[path = "saved_compare.rs"]
 mod saved_compare;
 
-struct ForkResult {
-    id: WorldDocumentId,
-    warning: Option<String>,
+pub(crate) struct ForkResult {
+    pub(crate) id: WorldDocumentId,
+    pub(crate) warning: Option<String>,
 }
 
 /// Resolve once whether the optional World Analyst runtime is installed.
@@ -33,49 +32,45 @@ pub(crate) fn analyst_available() -> bool {
     analyst_runtime::discover().is_ready()
 }
 
-pub(crate) fn document_action(
+/// Opens the experimental World Analyst for this saved World.
+pub(crate) fn open_analyst(
     document: &SharedDocument,
-    analyst_available: bool,
     cx: &mut Context<WorldDocumentView>,
-) -> impl IntoElement {
-    let fork_document = document.clone();
-    let fork = div()
-        .id("fork-world-document")
-        .cursor_pointer()
-        .p_2()
-        .rounded_md()
-        .border_1()
-        .border_color(rgb(0xb8b2d8))
-        .bg(rgb(0xf7f5ff))
-        .text_sm()
-        .child("Fork World")
-        .on_click(cx.listener(move |this, _, _, cx| {
-            this.status = Some(match fork_world(&fork_document, cx) {
-                Ok(result) => match result.warning {
-                    Some(warning) => {
-                        DocumentStatus::info(format!("Forked as {} · {warning}", result.id))
-                    }
-                    None => DocumentStatus::success(format!("Forked as {}", result.id)),
-                },
-                Err(error) => DocumentStatus::error(format!("Fork failed before saving: {error}")),
-            });
-            cx.notify();
-        }));
-
-    div()
-        .flex()
-        .gap_2()
-        .child(fork)
-        .child(analyst_panel::document_action(
-            document,
-            analyst_available,
-            cx,
-        ))
-        .child(saved_compare::document_action(document, cx))
-        .child(lineage::document_action(document, cx))
+) -> Result<(), String> {
+    analyst_panel::open_panel(document, cx)
 }
 
-fn fork_world(
+/// Opens the saved-World comparison setup for this saved World.
+pub(crate) fn open_saved_compare(
+    document: &SharedDocument,
+    cx: &mut Context<WorldDocumentView>,
+) -> Result<usize, String> {
+    saved_compare::open_setup(document, cx)
+}
+
+/// Opens the lineage explorer rooted at this saved World.
+pub(crate) fn open_lineage(
+    document: &SharedDocument,
+    cx: &mut Context<WorldDocumentView>,
+) -> Result<usize, String> {
+    lineage::open_lineage(document, cx)
+}
+
+/// Compares this branch with the World it was branched from.
+pub(crate) fn compare_with_parent(
+    document: &SharedDocument,
+    cx: &mut Context<WorldDocumentView>,
+) -> Result<(String, String), String> {
+    lineage::compare_with_parent(document, cx)
+}
+
+/// The small "branched from …" badge shown in the document header, if any.
+pub(crate) fn lineage_badge(document: &SharedDocument) -> Option<impl IntoElement> {
+    let lineage = document.borrow().session.metadata().lineage.clone()?;
+    Some(lineage::lineage_badge(&lineage))
+}
+
+pub(crate) fn fork_world(
     document: &SharedDocument,
     cx: &mut Context<WorldDocumentView>,
 ) -> Result<ForkResult, String> {
