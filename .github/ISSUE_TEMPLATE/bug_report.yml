@@ -1,0 +1,53 @@
+name: Bug report
+description: Something in World Machine did not work as expected.
+labels: ["bug"]
+body:
+  - type: input
+    id: build
+    attributes:
+      label: Build label
+      description: Shown in the app. Looks like "Pre-alpha 0.1.0 · build abc123def456 · aarch64".
+      placeholder: Pre-alpha 0.1.0 · build abc123def456 · aarch64
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      placeholder: macOS 15.1 (Sequoia)
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How did you install it?
+      options:
+        - Downloaded the release zip
+        - Built from source
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what you saw instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open Home
+        2. Click Start here
+        3. ...
+  - type: textarea
+    id: world
+    attributes:
+      label: Which World and Pack?
+      description: For example "Pocket Universe, Mars colony seed, after about 20 generations".
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Logs, screenshots, or the .world file if you are comfortable sharing it.

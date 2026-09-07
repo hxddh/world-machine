@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Install guide
+    url: https://github.com/hxddh/world-machine/blob/main/docs/INSTALL.md
+    about: First-launch steps for the unnotarized pre-alpha build on macOS 14 and 15.
