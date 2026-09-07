@@ -197,10 +197,11 @@ impl WorldDocumentView {
     /// Opens Compare Futures for this World. Returns the Home status to show
     /// when the request came from a Home card.
     fn open_compare(&mut self, cx: &mut Context<Self>) -> Option<HomeStatus> {
-        match strategy_compare::open_setup(&self.document, cx) {
-            Ok(count) => {
+        match strategy_compare::open_default(&self.document, cx) {
+            Ok((left, right)) => {
                 self.status = Some(DocumentStatus::success(format!(
-                    "Opened Compare Futures · {count} choices"
+                    "What if · {left} vs {right} · {} periods",
+                    strategy_compare::DEFAULT_HORIZON
                 )));
                 cx.notify();
                 None
@@ -301,24 +302,99 @@ impl WorldDocumentView {
         };
         self.projection = cx.new(|_| world_gpui::ProjectionView::controlled(controller));
     }
+
+    fn branch(&mut self, cx: &mut Context<Self>) {
+        self.status = Some(match world_fork::fork_world(&self.document, cx) {
+            Ok(result) => match result.warning {
+                Some(warning) => {
+                    DocumentStatus::info(format!("Branched as {} · {warning}", result.id))
+                }
+                None => DocumentStatus::success(format!("Branched as {}", result.id)),
+            },
+            Err(error) => DocumentStatus::error(format!("Could not branch: {error}")),
+        });
+        cx.notify();
+    }
+
+    fn compare_with_parent(&mut self, cx: &mut Context<Self>) {
+        self.status = Some(match world_fork::compare_with_parent(&self.document, cx) {
+            Ok((left, right)) => DocumentStatus::success(format!("Comparing {left} with {right}")),
+            Err(error) => DocumentStatus::info(format!("Could not compare with parent: {error}")),
+        });
+        cx.notify();
+    }
+
+    fn open_saved_compare(&mut self, cx: &mut Context<Self>) {
+        self.status = Some(match world_fork::open_saved_compare(&self.document, cx) {
+            Ok(count) => DocumentStatus::success(format!(
+                "Choose another saved World to compare · {count} available"
+            )),
+            Err(error) => DocumentStatus::info(format!("Could not compare saved Worlds: {error}")),
+        });
+        cx.notify();
+    }
+
+    fn open_lineage(&mut self, cx: &mut Context<Self>) {
+        self.status = Some(match world_fork::open_lineage(&self.document, cx) {
+            Ok(count) => DocumentStatus::success(format!("Opened lineage · {count} World(s)")),
+            Err(error) => DocumentStatus::info(format!("Could not open lineage: {error}")),
+        });
+        cx.notify();
+    }
+
+    fn open_analyst(&mut self, cx: &mut Context<Self>) {
+        if !self.analyst_available {
+            self.status = Some(DocumentStatus::info(
+                "The World Analyst needs Node and the Pi runtime installed on this Mac.",
+            ));
+            cx.notify();
+            return;
+        }
+        self.status = Some(match world_fork::open_analyst(&self.document, cx) {
+            Ok(()) => DocumentStatus::success("Opened the World Analyst"),
+            Err(error) => DocumentStatus::error(format!("Could not open the Analyst: {error}")),
+        });
+        cx.notify();
+    }
 }
 
 #[cfg(target_os = "macos")]
 impl Render for WorldDocumentView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         window.set_window_title(&document_window_title(&self.document_label));
-        let actions = div()
-            .flex_shrink_0()
-            .flex()
-            .flex_wrap()
-            .justify_end()
-            .gap_2()
-            .child(world_fork::document_action(
-                &self.document,
-                self.analyst_available,
-                cx,
-            ))
-            .child(strategy_compare::document_actions(&self.document, cx));
+        let mut actions = div().flex_shrink_0().flex().items_center().gap_2();
+        if let Some(badge) = world_fork::lineage_badge(&self.document) {
+            actions = actions.child(badge);
+        }
+        let actions = actions
+            .child(
+                div()
+                    .id("branch-world-document")
+                    .cursor_pointer()
+                    .p_2()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(rgb(0xb8b2d8))
+                    .bg(rgb(0xf7f5ff))
+                    .text_sm()
+                    .child("Branch")
+                    .on_click(cx.listener(|this, _, _, cx| this.branch(cx))),
+            )
+            .child(
+                div()
+                    .id("what-if-world-document")
+                    .cursor_pointer()
+                    .p_2()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(rgb(0x9eb0d6))
+                    .bg(rgb(0xf4f7ff))
+                    .text_sm()
+                    .child("What if…")
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.open_compare(cx);
+                    })),
+            );
 
         let mut chrome = div()
             .h(px(48.0))
@@ -339,7 +415,6 @@ impl Render for WorldDocumentView {
                     .gap_2()
                     .items_center()
                     .overflow_hidden()
-                    .child(div().text_xs().text_color(rgb(0x777770)).child("DOCUMENT"))
                     .child(div().text_sm().child(self.document_label.clone())),
             )
             .child(actions);
@@ -358,14 +433,39 @@ impl Render for WorldDocumentView {
             );
         }
 
-        div().size_full().flex().flex_col().child(chrome).child(
-            div()
-                .flex_1()
-                .min_h(px(0.0))
-                .w_full()
-                .overflow_hidden()
-                .child(self.projection.clone()),
-        )
+        div()
+            .size_full()
+            .flex()
+            .flex_col()
+            // World menu items dispatch to the frontmost window's root, so a
+            // World window answers them and Home greys them out.
+            .on_action(cx.listener(|this, _: &about::BranchWorld, _, cx| this.branch(cx)))
+            .on_action(cx.listener(|this, _: &about::WhatIf, _, cx| {
+                this.open_compare(cx);
+            }))
+            .on_action(cx.listener(|this, _: &about::SaveWorldAs, _, cx| this.save_as(cx)))
+            .on_action(cx.listener(|this, _: &about::ReloadWorld, _, cx| this.reload(cx)))
+            .on_action(
+                cx.listener(|this, _: &about::CompareWithParent, _, cx| {
+                    this.compare_with_parent(cx)
+                }),
+            )
+            .on_action(
+                cx.listener(|this, _: &about::CompareSavedWorlds, _, cx| {
+                    this.open_saved_compare(cx)
+                }),
+            )
+            .on_action(cx.listener(|this, _: &about::ShowLineage, _, cx| this.open_lineage(cx)))
+            .on_action(cx.listener(|this, _: &about::AnalyzeWorlds, _, cx| this.open_analyst(cx)))
+            .child(chrome)
+            .child(
+                div()
+                    .flex_1()
+                    .min_h(px(0.0))
+                    .w_full()
+                    .overflow_hidden()
+                    .child(self.projection.clone()),
+            )
     }
 }
 
@@ -425,6 +525,9 @@ struct WorldMachineHome {
     ready_pack_to_create: Option<WorldPackRef>,
     probing_packs: Vec<WorldPackRef>,
     status: Option<HomeStatus>,
+    /// Installed-Pack management is hidden behind one line on Home until asked
+    /// for; nothing in the ordinary path needs it.
+    show_packs: bool,
 }
 
 #[cfg(target_os = "macos")]
@@ -955,6 +1058,14 @@ impl WorldMachineHome {
         }
     }
 
+    fn refresh_from_menu(&mut self, cx: &mut Context<Self>) {
+        self.status = Some(match self.refresh_documents() {
+            Ok(count) => HomeStatus::success(format!("My Worlds · {count} World(s)")),
+            Err(status) => status,
+        });
+        cx.notify();
+    }
+
     fn sync_documents_after_mutation(&mut self) -> Option<HomeStatus> {
         self.refresh_documents().err()
     }
@@ -984,7 +1095,6 @@ impl WorldMachineHome {
         } else {
             None
         };
-        let document_label = session.display_name();
         let registry = Arc::clone(&self.registry);
         let library = Arc::clone(&self.library);
         let bounds = Bounds::centered(None, size(px(1100.0), px(900.0)), cx);
@@ -1007,12 +1117,12 @@ impl WorldMachineHome {
         self.status = Some(match opened {
             Ok(_) => match catch_up {
                 Ok(Some(outcome)) => HomeStatus::success(format!(
-                    "Opened {title} · {document_label} · Advanced {} background period(s) · World time {}",
-                    outcome.periods, outcome.world_time
+                    "Opened {title} · {} period(s) passed while you were away",
+                    outcome.periods
                 )),
-                Ok(None) => HomeStatus::success(format!("Opened {title} · {document_label}")),
+                Ok(None) => HomeStatus::success(format!("Opened {title}")),
                 Err(error) => HomeStatus::info(format!(
-                    "Opened {title} · {document_label} · Catch-up skipped: {error}"
+                    "Opened {title} · could not advance the time you were away: {error}"
                 )),
             },
             Err(error) => HomeStatus::error(format!("Could not open {title}: {error}")),
@@ -2159,45 +2269,6 @@ impl Render for WorldMachineHome {
             available = available.child(self.new_world_card(descriptor, cx));
         }
 
-        let refresh = div()
-            .id("refresh-world-library")
-            .cursor_pointer()
-            .p_2()
-            .rounded_md()
-            .border_1()
-            .border_color(rgb(0xd9d9d3))
-            .text_sm()
-            .child("Refresh")
-            .on_click(cx.listener(|this, _, _, cx| {
-                this.status = Some(match this.refresh_documents() {
-                    Ok(count) => {
-                        HomeStatus::success(format!("Refreshed My Worlds · {count} World(s)"))
-                    }
-                    Err(status) => status,
-                });
-                cx.notify();
-            }));
-        let install_pack = div()
-            .id("install-world-pack")
-            .cursor_pointer()
-            .p_2()
-            .rounded_md()
-            .border_1()
-            .border_color(rgb(0xd9d9d3))
-            .text_sm()
-            .child("Install Pack…")
-            .on_click(cx.listener(|this, _, _, cx| this.install_pack(cx)));
-        let import = div()
-            .id("import-world-file")
-            .cursor_pointer()
-            .p_2()
-            .rounded_md()
-            .border_1()
-            .border_color(rgb(0xd9d9d3))
-            .text_sm()
-            .child("Import .world…")
-            .on_click(cx.listener(|this, _, _, cx| this.import_world(cx)));
-
         let header = div()
             .id("world-machine-home-chrome")
             .w_full()
@@ -2219,22 +2290,7 @@ impl Render for WorldMachineHome {
                             .text_sm()
                             .text_color(rgb(0x666666))
                             .child("Persistent worlds that remember, evolve, and branch."),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(rgb(0x8a8a82))
-                            .child(build_info::display_label()),
                     ),
-            )
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .flex()
-                    .gap_2()
-                    .child(install_pack)
-                    .child(import)
-                    .child(refresh),
             );
 
         let mut body = div()
@@ -2290,9 +2346,26 @@ impl Render for WorldMachineHome {
             .child(available);
 
         if !installed_packs.is_empty() {
-            body = body
-                .child(div().text_sm().child("Manage Packs"))
-                .child(installed);
+            let packs_title = if self.show_packs {
+                format!("Packs · {} · hide", installed_packs.len())
+            } else {
+                format!("Packs · {} · show", installed_packs.len())
+            };
+            body = body.child(
+                div()
+                    .id("toggle-installed-packs")
+                    .cursor_pointer()
+                    .text_sm()
+                    .text_color(rgb(0x666666))
+                    .child(packs_title)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.show_packs = !this.show_packs;
+                        cx.notify();
+                    })),
+            );
+            if self.show_packs {
+                body = body.child(installed);
+            }
         }
 
         let mut shell = div()
@@ -2903,11 +2976,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ready_pack_to_create: None,
                 probing_packs: Vec::new(),
                 status,
+                show_packs: false,
             };
             home.start_system_open_listener(cx);
             home.activate_included_packs(cx);
             home
         });
+        about::install_home_actions(&home, cx);
         let bounds = Bounds::centered(None, size(px(760.0), px(760.0)), cx);
         cx.open_window(
             WindowOptions {

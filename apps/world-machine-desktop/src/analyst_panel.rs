@@ -2,7 +2,7 @@ use super::{
     analyst_input::{self, AnalystTextInput},
     analyst_runtime,
 };
-use crate::{DocumentStatus, SharedDocument, WorldDocumentView};
+use crate::{SharedDocument, WorldDocumentView};
 use gpui::{
     div, list, prelude::*, px, rgb, size, AnyElement, AppContext, Bounds, Context, Div, Entity,
     FollowMode, IntoElement, ListAlignment, ListState, PathPromptOptions, Render, SharedString,
@@ -75,41 +75,7 @@ struct PanelToolCall {
     is_error: bool,
 }
 
-pub(super) fn document_action(
-    document: &SharedDocument,
-    analyst_available: bool,
-    cx: &mut Context<WorldDocumentView>,
-) -> impl IntoElement {
-    // The Analyst is experimental and needs Node plus the Pi runtime. When
-    // they are not installed the entry is hidden entirely rather than opening
-    // a panel whose only content is a setup error.
-    if !analyst_available || document.borrow().session.document_id().is_none() {
-        return div().id("analyze-saved-worlds-unavailable");
-    }
-
-    let document = document.clone();
-    div()
-        .id("analyze-saved-worlds")
-        .cursor_pointer()
-        .p_2()
-        .rounded_md()
-        .border_1()
-        .border_color(rgb(0x8da6d8))
-        .bg(rgb(0xf2f6ff))
-        .text_sm()
-        .child("Analyze saved Worlds (experimental)…")
-        .on_click(cx.listener(move |this, _, _, cx| {
-            this.status = Some(match open_panel(&document, cx) {
-                Ok(()) => DocumentStatus::success("Opened World analyst · loading saved Worlds"),
-                Err(error) => {
-                    DocumentStatus::error(format!("Could not open World analyst: {error}"))
-                }
-            });
-            cx.notify();
-        }))
-}
-
-fn open_panel(
+pub(super) fn open_panel(
     document: &SharedDocument,
     cx: &mut Context<WorldDocumentView>,
 ) -> Result<(), String> {

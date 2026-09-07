@@ -1,4 +1,4 @@
-use crate::{DocumentStatus, SharedDocument, WorldDocumentView};
+use crate::{SharedDocument, WorldDocumentView};
 use gpui::{
     div, prelude::*, px, rgb, size, AppContext, Bounds, Context, IntoElement, SharedString, Styled,
     WindowBounds, WindowOptions,
@@ -9,39 +9,7 @@ use world_library::{WorldDocumentId, WorldDocumentSummary, WorldLibrary};
 use world_lineage_compare::{compare_saved_worlds, SavedWorldRelation};
 use world_strategy_gpui::{SavedComparisonContext, StrategyComparisonView};
 
-pub(super) fn document_action(
-    document: &SharedDocument,
-    cx: &mut Context<WorldDocumentView>,
-) -> impl IntoElement {
-    if document.borrow().session.document_id().is_none() {
-        return div().id("compare-saved-world-unavailable");
-    }
-
-    let document = document.clone();
-    div()
-        .id("compare-saved-world")
-        .cursor_pointer()
-        .p_2()
-        .rounded_md()
-        .border_1()
-        .border_color(rgb(0x9eb0d6))
-        .bg(rgb(0xf4f7ff))
-        .text_sm()
-        .child("Compare saved Worlds…")
-        .on_click(cx.listener(move |this, _, _, cx| {
-            this.status = Some(match open_setup(&document, cx) {
-                Ok(count) => DocumentStatus::success(format!(
-                    "Opened saved World comparison · {count} Worlds"
-                )),
-                Err(error) => {
-                    DocumentStatus::error(format!("Could not compare saved Worlds: {error}"))
-                }
-            });
-            cx.notify();
-        }))
-}
-
-fn open_setup(
+pub(super) fn open_setup(
     document: &SharedDocument,
     cx: &mut Context<WorldDocumentView>,
 ) -> Result<usize, String> {

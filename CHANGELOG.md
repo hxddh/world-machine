@@ -5,7 +5,8 @@ World Machine is pre-alpha. Versions below are the pre-release tags on the [Rele
 ## Unreleased
 
 - Diagnostics: a local log under `~/Library/Logs/World Machine`, an About window with the build label and signing status, and Help menu items to copy diagnostics, show the log, open the install guide, and report a problem. Cmd-Q quits.
-- Home: **What if…** on every World card opens the World and Compare Futures in one step.
+- Home: **What if…** on every World card opens the World and runs the comparison immediately (its first two choices, 20 periods); "Change choices…" in the result window opens the full setup.
+- Fewer controls: Home's header buttons move to a File menu (Import World, Install World Pack, Refresh); installed-Pack management is folded behind one line; the World window keeps only Branch and What if… as buttons, with Save As, Reload, lineage, comparisons, and the Analyst in a World menu.
 - Layout: Home header, World cards, document chrome, and the projection center pane no longer lay out wider than their window.
 - Copy: the first-launch path speaks of Worlds being prepared and ready instead of Packs, probes, and registries.
 - Tiny Society: every briefing opens with a "Harbor today" state line, so a fresh visit and a return share the same now / changed / can-do shape.
