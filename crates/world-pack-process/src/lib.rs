@@ -1,14 +1,16 @@
+mod deadline_stdin;
+
 use sha2::{Digest, Sha256};
 use std::cell::RefCell;
 use std::env;
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};
+use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{self, Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use world_host::{
     HostError, WorldDescriptor, WorldPackSource, WorldRegistration, WorldRegistry, WorldSession,
 };
@@ -616,7 +618,7 @@ fn prepare_request_frame(
 
 struct ProcessClient {
     child: Child,
-    stdin: Option<BufWriter<ChildStdin>>,
+    stdin: Option<ChildStdin>,
     responses: Receiver<io::Result<String>>,
     protocol_version: u32,
     next_request_id: u64,
@@ -655,13 +657,23 @@ impl ProcessClient {
             .stdin
             .take()
             .ok_or_else(|| HostError::session("external Pack stdin was not piped"))?;
+        if let Err(error) = deadline_stdin::configure(&stdin) {
+            let _ = child.kill();
+            let _ = child.wait();
+            if let Some(path) = launch_cleanup.as_ref() {
+                let _ = fs::remove_file(path);
+            }
+            return Err(HostError::session(format!(
+                "could not configure external Pack stdin: {error}"
+            )));
+        }
         let stdout = child
             .stdout
             .take()
             .ok_or_else(|| HostError::session("external Pack stdout was not piped"))?;
         Ok(Self {
             child,
-            stdin: Some(BufWriter::new(stdin)),
+            stdin: Some(stdin),
             responses: spawn_response_reader(stdout, DEFAULT_MAX_RESPONSE_BYTES),
             protocol_version: pack.protocol_version,
             next_request_id: 1,
@@ -682,22 +694,35 @@ impl ProcessClient {
         let next_request_id = request_id
             .checked_add(1)
             .ok_or_else(|| HostError::session("external Pack request id overflow"))?;
+        let request_timeout = self.request_timeout;
+        let deadline = Instant::now() + request_timeout;
         self.next_request_id = next_request_id;
+
         let send_result = self
             .stdin
             .as_mut()
             .ok_or_else(|| {
                 io::Error::new(io::ErrorKind::BrokenPipe, "external Pack stdin is closed")
             })
-            .and_then(|stdin| stdin.write_all(&frame).and_then(|_| stdin.flush()));
+            .and_then(|stdin| deadline_stdin::write_all_until(stdin, &frame, deadline));
         if let Err(error) = send_result {
             self.terminate();
+            if error.kind() == io::ErrorKind::TimedOut {
+                return Err(request_timeout_error(request_timeout));
+            }
             return Err(HostError::session(format!(
                 "could not send Pack request: {error}"
             )));
         }
 
-        let line = match self.responses.recv_timeout(self.request_timeout) {
+        let response_timeout = match deadline_stdin::remaining(deadline) {
+            Ok(remaining) => remaining,
+            Err(_) => {
+                self.terminate();
+                return Err(request_timeout_error(request_timeout));
+            }
+        };
+        let line = match self.responses.recv_timeout(response_timeout) {
             Ok(Ok(line)) => line,
             Ok(Err(error)) => {
                 self.terminate();
@@ -706,11 +731,8 @@ impl ProcessClient {
                 )));
             }
             Err(RecvTimeoutError::Timeout) => {
-                let timeout_ms = self.request_timeout.as_millis();
                 self.terminate();
-                return Err(HostError::session(format!(
-                    "external Pack timed out after {timeout_ms} ms"
-                )));
+                return Err(request_timeout_error(request_timeout));
             }
             Err(RecvTimeoutError::Disconnected) => {
                 self.terminate();
@@ -771,8 +793,8 @@ impl ProcessClient {
             return;
         };
         if let Some(stdin) = self.stdin.as_mut() {
-            let _ = stdin.write_all(&frame);
-            let _ = stdin.flush();
+            let deadline = Instant::now() + self.request_timeout;
+            let _ = deadline_stdin::write_all_until(stdin, &frame, deadline);
         }
         self.stdin.take();
     }
@@ -808,6 +830,11 @@ impl Drop for ProcessClient {
         }
         self.terminate();
     }
+}
+
+fn request_timeout_error(timeout: Duration) -> HostError {
+    let timeout_ms = timeout.as_millis();
+    HostError::session(format!("external Pack timed out after {timeout_ms} ms"))
 }
 
 const EXECUTABLE_BUSY_RETRIES: usize = 3;
@@ -1437,6 +1464,64 @@ mod tests {
 
         let error = client.request(PackRequest::Describe).err().unwrap();
         assert!(error.to_string().contains("timed out"));
+        assert!(client.child.try_wait().unwrap().is_some());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn no_read_pack_request_write_is_timed_out_and_direct_child_is_reaped() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = temp_dir("write-timeout");
+        let runtime = root.join("runtime.sh");
+        fs::write(&runtime, "#!/bin/sh\nsleep 2\n").unwrap();
+        let mut permissions = fs::metadata(&runtime).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&runtime, permissions).unwrap();
+
+        let manifest = PackManifest::process(descriptor(), "runtime.sh", Vec::new());
+        let manifest_path = root.join("fixture.world-pack.json");
+        fs::write(&manifest_path, manifest.to_json_pretty().unwrap()).unwrap();
+        let pack = ProcessPack::load(manifest_path).unwrap();
+        let mut client = ProcessClient::spawn(&pack).unwrap();
+        client.request_timeout = Duration::from_millis(50);
+
+        let archive = WorldArchive {
+            format: WORLD_ARCHIVE_FORMAT.into(),
+            format_version: WORLD_ARCHIVE_VERSION,
+            pack: descriptor().pack,
+            world_time: 0,
+            events: vec![ArchivedEvent {
+                id: 1,
+                kind: "x".repeat(2 * 1024 * 1024),
+                world_time: 0,
+                actor: None,
+                targets: Vec::new(),
+                caused_by: Vec::new(),
+                payload: Default::default(),
+                changes: Vec::new(),
+            }],
+            pending: Vec::new(),
+        };
+        let frame = prepare_request_frame(
+            pack.protocol_version,
+            1,
+            PackRequest::Open {
+                archive: archive.clone(),
+            },
+            DEFAULT_MAX_REQUEST_BYTES,
+        )
+        .unwrap();
+        assert!(frame.len() > 1024 * 1024);
+
+        let started = Instant::now();
+        let error = client.request(PackRequest::Open { archive }).err().unwrap();
+        assert!(error.to_string().contains("timed out after 50 ms"));
+        assert!(
+            started.elapsed() < Duration::from_millis(500),
+            "request write deadline did not return promptly: {:?}",
+            started.elapsed()
+        );
         assert!(client.child.try_wait().unwrap().is_some());
     }
 

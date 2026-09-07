@@ -23,8 +23,8 @@ fn pack_request_preflight_precedes_request_id_commit_and_dispatch() {
         .find("self.next_request_id =")
         .expect("request must commit the next request id only after preflight");
     let dispatch = request_body
-        .find("write_all(&frame)")
-        .expect("request must dispatch the already-prepared frame in one logical write");
+        .find("write_all_until(stdin, &frame, deadline)")
+        .expect("request must dispatch the already-prepared frame through the deadline writer");
 
     assert!(
         prepare < commit,
@@ -56,8 +56,8 @@ fn pack_shutdown_uses_the_same_bounded_frame_preparation_path() {
         "shutdown must not retain a second unbounded request encoder/writer"
     );
     assert!(
-        shutdown_body.contains("write_all(&frame)"),
-        "shutdown must dispatch the same prepared payload+LF frame shape"
+        shutdown_body.contains("write_all_until(stdin, &frame, deadline)"),
+        "shutdown must dispatch the same prepared payload+LF frame through the deadline writer"
     );
     assert!(
         !shutdown_body.contains("write_all(encoded.as_bytes())"),
