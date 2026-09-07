@@ -249,63 +249,94 @@ From the same durable Bakery closure:
 
 This is an important product threshold: a fork now changes the World’s operating structure, not just one Event.
 
-## Phase V — Strategy as a First-Class World Primitive
+## Phase V — Strategy, Lineage, External Packs, and the Analyst
 
-### M42 — Branch Strategy Comparison
+Status: implemented across M42 through M262.
 
-Status: next.
+The repository moved well past the original M42 target. The main capabilities landed since then:
 
-Goal: make divergent World histories understandable side by side without Pack-specific comparison code.
+- **Strategy comparison** (`world-compare`, `world-strategy`, `world-strategy-gpui`): deterministic side-by-side comparison of two branches from the same archive, with a generic comparison surface and saved comparisons.
+- **Lineage** (`world-lineage`, `world-lineage-compare`, `world-lineage-gpui`): explicit branch identity, parent/child lineage index, and a lineage explorer.
+- **External World Packs** (`world-pack-protocol`, `world-pack-bundle`, `world-pack-process`, `world-pack-catalog`, `world-pack-server`): out-of-process Packs distributed as `.worldpack`, static review before any code runs, quarantine, durable probe, activation, and a `world-pack-check` conformance command. Request and response records are bounded at 16 MiB in both directions.
+- **Pocket Universe and Micro Company** as included external Packs; Pocket Universe is the packaged `Start here` experience.
+- **Evidence query and investigation** (`world-query`, `world-investigation`, `world-investigation-local`, `world-cli`): machine-readable evidence, first-divergence investigation, and bounded stdin/stdout framing.
+- **Read-only Analyst** (`world-agent-tools`, `world-agent-tool-host`, `world-agent-tool-stdio`, `world-analyst-client`, `integrations/pi`): an out-of-process Pi session with only catalog-derived read-only tools, a World Machine-owned analyst-turn protocol, and a desktop Analyst panel with readiness probing, virtualized history, and bounded framing on every hop.
+- **Pre-alpha packaging**: repeatable `World Machine.app` build, ad-hoc signed and not notarized, with a validated package manifest.
 
-#### M42A — Headless generic comparison
+## Phase VI — 0.2 "Usable" release
 
-Compare two `ProjectionSnapshot`s/history views deterministically using stable semantic identifiers:
+Status: next. This phase replaces milestone-by-milestone infrastructure work with acceptance criteria that describe what a user can do.
 
-- World time
-- visible Entity/Inspector state differences
-- left-only/right-only Events
-- command differences
-- added/removed/changed visible entities
+### Why this phase exists
 
-No AgentRuntime, wall clock, filesystem mutation, GPUI, or Pack-specific semantics in the comparison engine.
+The runtime, persistence, branching, and Pack isolation layers are solid. What is missing is the path from "downloaded the app" to "kept a World alive for a week": there is no signed download, no first-run flow that avoids Pack review dialogs, not enough content to make returning worthwhile, and no feedback channel. M247 through M263 were all transport hardening and did not change anything a user sees. That class of work is **frozen** for 0.2 unless a real user-reported bug reopens it.
 
-#### M42B — Host strategy harness
+### Stage 0 — Close out and freeze (week 1)
 
-From the same checked archive:
+- Merge M263 once its rustfmt diff is fixed; then freeze further transport-hardening milestones.
+- Close or explicitly re-scope stale PRs (#50, #51, #200, #213).
+- Tag `v0.1.0-pre.1` from the current pipeline as the baseline artifact.
+- Keep `NEXT_TASK.md` pointing at this phase; every task must state what a user will see change.
 
-- open two independent sessions;
-- apply independent ProjectionIntent strategies;
-- advance both by the same explicit background periods;
-- compare the outcomes;
-- failure on one branch must not mutate the other or the source archive.
+Accepted when: `main` is green, there are no stale open PRs, and one downloadable `pre.1` package exists.
 
-Tiny Society acceptance case:
+### Stage 1 — Installable (weeks 2–3)
 
-- source: same long-run Bakery closure;
-- left: traditional reopen;
-- right: lean owner-run reopen;
-- advance both 20 periods;
-- generic comparison must expose closed-vs-open Bakery outcome, Mara state difference, cash/state changes, and divergent Event history.
+- Developer ID signing and notarization in `release-package.yml`, with `notarized: true` in the manifest.
+- A tag push creates the GitHub Release and attaches the zip, SHA-256, and `release-manifest.json`.
+- Local rolling log file, an About window showing version and commit with a "copy diagnostics" action, and a "Report a problem" menu item pointing at an issue template.
+- Optional: an update check. Full auto-update can wait.
 
-#### M42C — Strategy comparison product surface
+Accepted when: a Mac with no developer tooling downloads the Release, opens it through Gatekeeper, and reaches Home.
 
-Only after M42A/B semantic CI is green:
+### Stage 2 — Sixty seconds to a living World (weeks 3–5)
 
-- side-by-side outcome summary
-- changed state before raw history
-- ordinary Inspector / Why navigation on either side
-- no Tiny Society-specific GPUI View
-- no duplicated World truth in UI state
+- First-party included Packs are verified at build time and activated on first launch; the Review & Install flow remains only for user-supplied `.worldpack` files.
+- Home shows two entries: Pocket Universe (`Start here`) and Tiny Society. Micro Company and Pack management move to a secondary level.
+- Empty states and first-World copy use user language: no `Pack`, `probe`, `activation`, or `SHA-256` in the primary path.
+- The Analyst panel is labeled Experimental and hidden when no runtime is detected.
+- Run a five-minute usability test with three to five non-developers and record where they stall.
 
-## After M42
+Accepted when: testers reach a progressing World within sixty seconds without prompting and nobody is blocked by a dialog.
 
-The next decisions should be driven by whether the comparison primitive remains generic across a second materially different World.
+### Stage 3 — Worth coming back to (weeks 5–7)
 
-Likely directions:
+- Pocket Universe gains two or three long-run consequence chains that span multiple visits so `While you were away` has substance.
+- Branch comparison is reachable from Home: "try the other choice" on the same World, then compare the outcomes side by side. This productizes existing `world-compare` and strategy capabilities without new kernel work.
+- Every World's briefing follows the same three-part shape: what is happening now, what changed, what you can do.
 
-1. apply strategy comparison to Future Archaeologist or a small new canary World;
-2. strengthen branch identity/lineage only where the product needs it;
-3. expose Builder/World Pack composition after the runtime can create, live in, fork, and compare multiple Worlds cleanly;
-4. return to richer AgentRuntime integration only where cognition adds value that deterministic World systems cannot provide.
+Accepted when: a returning tester can say what changed in their World and opens a branch unprompted.
+
+### Stage 4 — Docs and release (weeks 7–8)
+
+- README rewritten for users: one screenshot, three steps, a download link. Architecture material moves under `docs/`.
+- `CHANGELOG.md`, a known-issues list, and a privacy note (local files, no telemetry, where data goes when the Analyst is used).
+- Ship `v0.2.0` with release notes that explain the replay-never-reruns-AI guarantee.
+
+Accepted when: the Release page explains itself to a stranger and at least one external issue arrives within a week.
+
+### Explicitly out of scope for 0.2
+
+- Windows and Linux desktop builds.
+- A Pack marketplace, third-party Pack ecosystem, or Builder.
+- In-process Pi, persistent RPC sessions, or dynamic World Action tool injection.
+- The stdin write-deadline redesign that M263 defers, and any further audit-driven transport hardening.
+- Remote telemetry or accounts.
+
+### Risks
+
+- **Single maintainer plus coding agents.** Agents generate hardening tasks readily and do not judge "enough". Mitigation: every `NEXT_TASK.md` entry names the user-visible change.
+- **GPUI pinned to a Zed Git revision.** Upgrading is expensive. Mitigation: do not move the pin during 0.2; keep an upgrade checklist.
+- **Notarization needs a paid Apple developer account.** Mitigation: apply in week 1; approval can take days.
+- **Pi license rider.** Mitigation: keep the Analyst out-of-process and optional and never bundle the `pi` binary, which is already the case.
+
+## After 0.2
+
+Decide the next phase from real usage, not from architectural interest. Candidates, in rough order:
+
+1. Windows or Linux support if download requests justify the GPUI cost.
+2. A second-party Pack authoring guide once first-party content proves retention.
+3. Persistent Pi sessions or direct model API access for the Analyst if the Experimental panel sees use.
+4. Return to transport and scheduler hardening only against reported failures.
 
 The project should resist adding infrastructure merely because it is architecturally interesting. New runtime primitives should be justified by a product behavior that at least two different Worlds can use.

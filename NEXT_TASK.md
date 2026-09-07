@@ -1,3 +1,5 @@
+> **Status (2026-09-07):** M262 is merged and M263 (#266) is the last transport-hardening milestone; it only needs its `rustfmt` diff fixed before merge. After that, audit-driven hardening is **frozen** for the 0.2 release. The active plan is Phase VI in [docs/ROADMAP.md](docs/ROADMAP.md): Stage 0 (close out and freeze) is next. Every new task added here must state what a user will see change.
+
 # Next Coding Task — M262 Bound Pack Response Queue
 
 M261 is merged and now bounds Pack request writes against the existing 16 MiB physical JSONL receiver contract. The next concrete transport gap is on the opposite direction: `world-pack-process` bounds **each response record**, but the background response reader can still queue an unbounded number of individually-valid records in host memory.
