@@ -1,4 +1,5 @@
 mod legacy;
+mod pressure;
 mod projection;
 
 use std::error::Error;
@@ -16,7 +17,7 @@ use world_persistence::{PersistenceError, WorldArchive, WorldPackRef};
 use world_projection::{ProjectionIntent, ProjectionSnapshot};
 
 pub const POCKET_UNIVERSE_PACK_ID: &str = "world-machine.pocket-universe";
-pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.15.0";
+pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.16.0";
 
 pub const SEED_MARS_COLONY_COMMAND: &str = "pocket-universe.seed-mars-colony";
 pub const SEED_1980S_TOWN_COMMAND: &str = "pocket-universe.seed-1980s-town";
@@ -28,6 +29,9 @@ pub const SHARED_PROJECT_COMMAND: &str = "pocket-universe.relationship-shared-pr
 pub const RIVALRY_COMMAND: &str = "pocket-universe.relationship-rivalry";
 pub const OUTWARD_POSTURE_COMMAND: &str = "pocket-universe.posture-outward";
 pub const ROOTED_POSTURE_COMMAND: &str = "pocket-universe.posture-rooted";
+pub const HOLD_PRESSURE_COMMAND: &str = "pocket-universe.pressure-hold";
+pub const REACH_PRESSURE_COMMAND: &str = "pocket-universe.pressure-reach";
+pub const RECOVER_ANCHOR_COMMAND: &str = "pocket-universe.pressure-recover";
 
 pub(crate) const UNIVERSE: EntityId = EntityId::new(1);
 pub(crate) const SLOT_A: EntityId = EntityId::new(10);
@@ -268,6 +272,9 @@ where
             RIVALRY_COMMAND => "steer_rivalry",
             OUTWARD_POSTURE_COMMAND => "choose_outward_posture",
             ROOTED_POSTURE_COMMAND => "choose_rooted_posture",
+            HOLD_PRESSURE_COMMAND => "hold_through_pressure",
+            REACH_PRESSURE_COMMAND => "reach_beyond_pressure",
+            RECOVER_ANCHOR_COMMAND => "recover_anchor",
             _ => {
                 return Err(std::io::Error::other(format!(
                     "unknown projection command: {command_id}"
@@ -567,6 +574,7 @@ fn build_action_registry() -> Result<ActionRegistry, ActionError> {
     actions.register(UpdateRelationship)?;
     actions.register(ResolveSocialArc)?;
     legacy::register_actions(&mut actions)?;
+    pressure::register_actions(&mut actions)?;
     actions.register(SteerSharedProject)?;
     actions.register(SteerRivalry)?;
     Ok(actions)
@@ -1576,6 +1584,21 @@ fn seed_draft(
             entity: UNIVERSE,
             key: LEGACY_CYCLES.into(),
             value: 0_i64.into(),
+        },
+        StateChange::SetComponent {
+            entity: UNIVERSE,
+            key: pressure::PRESSURE.into(),
+            value: "none".into(),
+        },
+        StateChange::SetComponent {
+            entity: UNIVERSE,
+            key: pressure::PRESSURE_GENERATION.into(),
+            value: 0_i64.into(),
+        },
+        StateChange::SetComponent {
+            entity: UNIVERSE,
+            key: pressure::PRESSURE_OUTCOME.into(),
+            value: "none".into(),
         },
         StateChange::SetComponent {
             entity: UNIVERSE,
@@ -3223,5 +3246,372 @@ mod tests {
         assert_eq!(forked.title, "Pocket Universe · Empty World");
         assert!(forked.collection.items.is_empty());
         assert_eq!(forked.commands.len(), 3);
+    }
+
+    fn advance_until(
+        universe: &mut PocketUniverse,
+        done: impl Fn(&PocketUniverse) -> bool,
+        max_periods: usize,
+    ) {
+        for _ in 0..max_periods {
+            if done(universe) {
+                return;
+            }
+            universe.advance_periods(1).unwrap();
+        }
+        assert!(
+            done(universe),
+            "condition not reached within {max_periods} periods"
+        );
+    }
+
+    fn pressure_of(universe: &PocketUniverse) -> String {
+        pressure::pressure_id_from_state(universe.world().state())
+    }
+
+    fn pressure_outcome_of(universe: &PocketUniverse) -> String {
+        text_component_from_state(
+            universe.world().state(),
+            UNIVERSE,
+            pressure::PRESSURE_OUTCOME,
+        )
+        .unwrap()
+    }
+
+    fn anchor_status(universe: &PocketUniverse) -> String {
+        text_component_from_state(universe.world().state(), SLOT_A, "status").unwrap()
+    }
+
+    fn legacy_cycles(universe: &PocketUniverse) -> i64 {
+        integer_component(universe.world().state(), UNIVERSE, LEGACY_CYCLES).unwrap()
+    }
+
+    fn has_event(universe: &PocketUniverse, kind: &str) -> bool {
+        universe
+            .world()
+            .events()
+            .iter()
+            .any(|event| event.kind == kind)
+    }
+
+    fn command_ids(universe: &PocketUniverse) -> Vec<String> {
+        universe
+            .projection_snapshot()
+            .commands
+            .iter()
+            .map(|command| command.id.clone())
+            .collect()
+    }
+
+    fn legacy_world(posture_command: &str) -> PocketUniverse {
+        let mut universe = second_arc_world(SHARED_PROJECT_COMMAND);
+        universe.invoke_projection_command(posture_command).unwrap();
+        advance_until(
+            &mut universe,
+            |universe| legacy::legacy_id_from_state(universe.world().state()).unwrap() != "forming",
+            8,
+        );
+        universe
+    }
+
+    fn rising_pressure_world(posture_command: &str) -> PocketUniverse {
+        let mut universe = legacy_world(posture_command);
+        advance_until(
+            &mut universe,
+            |universe| pressure_of(universe) == "warning",
+            6,
+        );
+        universe
+    }
+
+    fn lost_anchor_world() -> PocketUniverse {
+        let mut universe = rising_pressure_world(ROOTED_POSTURE_COMMAND);
+        advance_until(&mut universe, |universe| pressure_of(universe) == "lost", 8);
+        universe
+    }
+
+    #[test]
+    fn pressure_rises_only_after_the_legacy_reinforces_twice() {
+        let mut universe = legacy_world(ROOTED_POSTURE_COMMAND);
+        assert_eq!(pressure_of(&universe), "none");
+        assert!(!has_event(&universe, "pressure_rising"));
+
+        advance_until(
+            &mut universe,
+            |universe| pressure_of(universe) == "warning",
+            6,
+        );
+
+        assert!(has_event(&universe, "pressure_rising"));
+        assert!(legacy_cycles(&universe) >= 2);
+        assert_eq!(anchor_status(&universe), "reclaimer faltering");
+        let snapshot = universe.projection_snapshot();
+        let ids = command_ids(&universe);
+        assert!(ids.iter().any(|id| id == HOLD_PRESSURE_COMMAND));
+        assert!(ids.iter().any(|id| id == REACH_PRESSURE_COMMAND));
+        assert!(!ids.iter().any(|id| id == RECOVER_ANCHOR_COMMAND));
+        let briefing = snapshot.briefing.as_ref().unwrap();
+        assert_eq!(briefing.title, "Pressure is rising");
+        assert!(briefing
+            .items
+            .iter()
+            .any(|item| item.title == "Your turn · Hold or reach"));
+        assert!(briefing
+            .items
+            .iter()
+            .any(|item| item.title == "World pressure · Rising"));
+        let nudge = snapshot
+            .commands
+            .iter()
+            .find(|command| command.id == NUDGE_COMMAND)
+            .unwrap();
+        assert_eq!(nudge.title, "Watch the pressure build");
+    }
+
+    #[test]
+    fn ignored_pressure_peaks_and_then_loses_the_anchor() {
+        let mut universe = rising_pressure_world(ROOTED_POSTURE_COMMAND);
+
+        advance_until(
+            &mut universe,
+            |universe| pressure_of(universe) == "crisis",
+            4,
+        );
+        assert!(has_event(&universe, "pressure_peaked"));
+        assert_eq!(anchor_status(&universe), "rationing water");
+        assert_eq!(
+            universe.projection_snapshot().briefing.unwrap().title,
+            "Ares Habitat is in crisis"
+        );
+        assert!(command_ids(&universe)
+            .iter()
+            .any(|id| id == HOLD_PRESSURE_COMMAND));
+
+        advance_until(&mut universe, |universe| pressure_of(universe) == "lost", 5);
+        assert!(has_event(&universe, "anchor_lost"));
+        assert_eq!(anchor_status(&universe), "lower ring sealed");
+        assert_eq!(pressure_outcome_of(&universe), "lost");
+        let ids = command_ids(&universe);
+        assert!(ids.iter().any(|id| id == RECOVER_ANCHOR_COMMAND));
+        assert!(!ids.iter().any(|id| id == HOLD_PRESSURE_COMMAND));
+        assert!(!ids.iter().any(|id| id == REACH_PRESSURE_COMMAND));
+        let briefing = universe.projection_snapshot().briefing.unwrap();
+        assert_eq!(briefing.title, "Something was lost");
+        assert!(briefing
+            .items
+            .iter()
+            .any(|item| item.title == "World pressure · Lost"));
+
+        // The loss is durable: further cycles neither undo it nor re-raise it.
+        let events_before = universe.world().events().len();
+        universe.advance_periods(2).unwrap();
+        assert_eq!(pressure_of(&universe), "lost");
+        assert_eq!(anchor_status(&universe), "lower ring sealed");
+        assert!(!universe.world().events()[events_before..]
+            .iter()
+            .any(|event| event.kind.starts_with("pressure_") || event.kind == "anchor_lost"));
+    }
+
+    #[test]
+    fn holding_or_reaching_records_alignment_with_the_world_direction() {
+        for (posture, command, kind, outcome, status) in [
+            (
+                ROOTED_POSTURE_COMMAND,
+                HOLD_PRESSURE_COMMAND,
+                "pressure_held",
+                "aligned",
+                "reclaimer rebuilt",
+            ),
+            (
+                ROOTED_POSTURE_COMMAND,
+                REACH_PRESSURE_COMMAND,
+                "pressure_reached",
+                "strained",
+                "resupplied from the ridge",
+            ),
+            (
+                OUTWARD_POSTURE_COMMAND,
+                REACH_PRESSURE_COMMAND,
+                "pressure_reached",
+                "aligned",
+                "resupplied from the ridge",
+            ),
+            (
+                OUTWARD_POSTURE_COMMAND,
+                HOLD_PRESSURE_COMMAND,
+                "pressure_held",
+                "strained",
+                "reclaimer rebuilt",
+            ),
+        ] {
+            let mut universe = rising_pressure_world(posture);
+            let cycles_before = legacy_cycles(&universe);
+            universe.invoke_projection_command(command).unwrap();
+
+            assert!(has_event(&universe, kind), "{posture} + {command}");
+            assert_eq!(
+                pressure_outcome_of(&universe),
+                outcome,
+                "{posture} + {command}"
+            );
+            assert_eq!(anchor_status(&universe), status);
+            let ids = command_ids(&universe);
+            assert!(!ids.iter().any(|id| id == HOLD_PRESSURE_COMMAND));
+            assert!(!ids.iter().any(|id| id == REACH_PRESSURE_COMMAND));
+            let error = universe.invoke_projection_command(command).unwrap_err();
+            assert!(error.to_string().contains("no open pressure"));
+            let briefing = universe.projection_snapshot().briefing.unwrap();
+            assert!(briefing.items.iter().any(|item| {
+                item.title.starts_with("Choice evidence ·") && item.detail.contains(outcome)
+            }));
+
+            // An answered pressure never escalates, and the legacy keeps living.
+            universe.advance_periods(4).unwrap();
+            assert!(!has_event(&universe, "pressure_peaked"));
+            assert!(!has_event(&universe, "anchor_lost"));
+            assert!(legacy_cycles(&universe) > cycles_before);
+        }
+    }
+
+    #[test]
+    fn recovering_the_anchor_costs_the_legacy_its_cycles() {
+        let mut universe = lost_anchor_world();
+        assert!(legacy_cycles(&universe) >= 2);
+
+        universe
+            .invoke_projection_command(RECOVER_ANCHOR_COMMAND)
+            .unwrap();
+
+        assert!(has_event(&universe, "anchor_recovered"));
+        assert_eq!(pressure_of(&universe), "recovered");
+        assert_eq!(pressure_outcome_of(&universe), "recovered");
+        assert_eq!(anchor_status(&universe), "ring reopened");
+        assert_eq!(legacy_cycles(&universe), 0);
+        assert!(!command_ids(&universe)
+            .iter()
+            .any(|id| id == RECOVER_ANCHOR_COMMAND));
+        let error = universe
+            .invoke_projection_command(RECOVER_ANCHOR_COMMAND)
+            .unwrap_err();
+        assert!(error.to_string().contains("nothing to recover"));
+
+        universe.advance_periods(1).unwrap();
+        assert_eq!(legacy_cycles(&universe), 1);
+        assert_eq!(pressure_of(&universe), "recovered");
+    }
+
+    #[test]
+    fn pressure_answers_are_rejected_before_pressure_exists() {
+        let mut universe = PocketUniverse::new().unwrap();
+        universe
+            .invoke_projection_command(SEED_MARS_COLONY_COMMAND)
+            .unwrap();
+        for command in [HOLD_PRESSURE_COMMAND, REACH_PRESSURE_COMMAND] {
+            let error = universe.invoke_projection_command(command).unwrap_err();
+            assert!(error.to_string().contains("no open pressure"), "{command}");
+        }
+        let error = universe
+            .invoke_projection_command(RECOVER_ANCHOR_COMMAND)
+            .unwrap_err();
+        assert!(error.to_string().contains("nothing to recover"));
+        assert_eq!(pressure_of(&universe), "none");
+    }
+
+    #[test]
+    fn pressure_survives_archive_round_trip_and_keeps_its_clock() {
+        let mut universe = rising_pressure_world(OUTWARD_POSTURE_COMMAND);
+        let snapshot = universe.projection_snapshot();
+        let archive = universe.archive().unwrap();
+
+        let mut reopened = PocketUniverse::resume_archive(&archive).unwrap();
+        assert_eq!(reopened.projection_snapshot(), snapshot);
+        assert_eq!(pressure_of(&reopened), "warning");
+
+        universe.advance_periods(2).unwrap();
+        reopened.advance_periods(2).unwrap();
+        assert_eq!(pressure_of(&reopened), pressure_of(&universe));
+        assert_eq!(
+            reopened.projection_snapshot(),
+            universe.projection_snapshot()
+        );
+    }
+
+    #[test]
+    fn every_seed_reaches_pressure_with_its_own_anchor_status() {
+        for (seed, warning_status) in [
+            (SEED_MARS_COLONY_COMMAND, "reclaimer faltering"),
+            (SEED_1980S_TOWN_COMMAND, "rent rising"),
+            (SEED_PENGUIN_CIVILIZATION_COMMAND, "span cracked"),
+        ] {
+            let mut universe = PocketUniverse::new().unwrap();
+            universe.invoke_projection_command(seed).unwrap();
+            universe.advance_periods(3).unwrap();
+            universe
+                .invoke_projection_command(CAREFUL_PATH_COMMAND)
+                .unwrap();
+            universe
+                .invoke_projection_command(SHARED_PROJECT_COMMAND)
+                .unwrap();
+            universe.advance_periods(3).unwrap();
+            universe
+                .invoke_projection_command(ROOTED_POSTURE_COMMAND)
+                .unwrap();
+            advance_until(
+                &mut universe,
+                |universe| pressure_of(universe) == "warning",
+                14,
+            );
+            assert_eq!(anchor_status(&universe), warning_status, "{seed}");
+        }
+    }
+
+    #[test]
+    fn return_briefing_reports_rising_pressure() {
+        let registry = registry();
+        let mut session = registry.create(POCKET_UNIVERSE_PACK_ID).unwrap();
+        session
+            .handle(ProjectionIntent::InvokeCommand(
+                SEED_MARS_COLONY_COMMAND.into(),
+            ))
+            .unwrap();
+        session.advance_background(3).unwrap();
+        session
+            .handle(ProjectionIntent::InvokeCommand(BOLD_PATH_COMMAND.into()))
+            .unwrap();
+        session
+            .handle(ProjectionIntent::InvokeCommand(
+                SHARED_PROJECT_COMMAND.into(),
+            ))
+            .unwrap();
+        session.advance_background(3).unwrap();
+        session
+            .handle(ProjectionIntent::InvokeCommand(
+                ROOTED_POSTURE_COMMAND.into(),
+            ))
+            .unwrap();
+
+        let mut returned = None;
+        for _ in 0..14 {
+            let snapshot = session.advance_background(1).unwrap();
+            let briefing = snapshot.briefing.clone().unwrap();
+            if briefing
+                .items
+                .iter()
+                .any(|item| item.title == "Pressure is rising")
+            {
+                returned = Some(briefing);
+                break;
+            }
+        }
+        let briefing = returned.expect("background living raises pressure");
+        assert_eq!(briefing.title, "While you were away");
+        assert!(briefing
+            .items
+            .iter()
+            .any(|item| item.title == "Your turn · Hold or reach"));
+        let commands = session.snapshot().commands;
+        assert!(commands
+            .iter()
+            .any(|command| command.id == HOLD_PRESSURE_COMMAND));
     }
 }

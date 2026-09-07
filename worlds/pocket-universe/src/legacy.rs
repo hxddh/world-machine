@@ -51,7 +51,7 @@ pub(crate) fn resolve_period_consequences(
         }
         tail = world.execute(actions, &request)?.id;
     }
-    Ok(tail)
+    pressure::resolve_period_pressure(world, actions, tail)
 }
 
 pub(crate) fn legacy_id_from_state(state: &WorldState) -> Result<String, ActionError> {
