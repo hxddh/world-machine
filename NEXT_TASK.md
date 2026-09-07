@@ -1,3 +1,5 @@
+> **Status (2026-09-07):** M263 (#266) is the last transport-hardening milestone. With it merged, audit-driven hardening is **frozen** for the 0.2 release. The active plan is Phase VI in [docs/ROADMAP.md](docs/ROADMAP.md): Stage 0 (close out and freeze) is next. Every new task added here must state what a user will see change.
+
 # Next Coding Task — M263 Bound Pack Request Write Deadline
 
 M262 is merged and bounds the Pack response queue to fixed capacity 1. The remaining transport hang is on the request write itself: `ProcessClient::request()` prepares a bounded frame, then performs synchronous `ChildStdin::write_all(&frame)` + `flush()` before `recv_timeout(self.request_timeout)` starts.
