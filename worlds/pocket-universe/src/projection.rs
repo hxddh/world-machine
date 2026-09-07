@@ -1,10 +1,12 @@
+use crate::pressure::{self, PRESSURE_OUTCOME};
 use crate::{
-    seed_id, BOLD_PATH_COMMAND, CAREFUL_PATH_COMMAND, DECISION, GENERATION, LAST_CHANGE, LEGACY,
-    LEGACY_CYCLES, LEGACY_SUMMARY, NUDGE_COMMAND, OUTWARD_POSTURE_COMMAND, POSTURE,
-    POSTURE_GENERATION, RELATIONSHIP, RELATIONSHIP_DIRECTION, RELATIONSHIP_LAST_DYNAMIC,
-    RELATIONSHIP_SOCIAL_ARC, RELATIONSHIP_TENSION, RELATIONSHIP_TRUST, RIVALRY_COMMAND,
-    ROOTED_POSTURE_COMMAND, SEED_1980S_TOWN_COMMAND, SEED_MARS_COLONY_COMMAND,
-    SEED_PENGUIN_CIVILIZATION_COMMAND, SHARED_PROJECT_COMMAND, UNIVERSE,
+    seed_id, BOLD_PATH_COMMAND, CAREFUL_PATH_COMMAND, DECISION, GENERATION, HOLD_PRESSURE_COMMAND,
+    LAST_CHANGE, LEGACY, LEGACY_CYCLES, LEGACY_SUMMARY, NUDGE_COMMAND, OUTWARD_POSTURE_COMMAND,
+    POSTURE, POSTURE_GENERATION, REACH_PRESSURE_COMMAND, RECOVER_ANCHOR_COMMAND, RELATIONSHIP,
+    RELATIONSHIP_DIRECTION, RELATIONSHIP_LAST_DYNAMIC, RELATIONSHIP_SOCIAL_ARC,
+    RELATIONSHIP_TENSION, RELATIONSHIP_TRUST, RIVALRY_COMMAND, ROOTED_POSTURE_COMMAND,
+    SEED_1980S_TOWN_COMMAND, SEED_MARS_COLONY_COMMAND, SEED_PENGUIN_CIVILIZATION_COMMAND,
+    SHARED_PROJECT_COMMAND, SLOT_A, UNIVERSE,
 };
 use world_core::{Entity, EntityId, Event, StateChange, Value, World};
 use world_projection::{
@@ -73,7 +75,10 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
         choice_state(world, generation);
     let posture_choice_available = posture_choice_state(world, generation);
     let legacy = text_component(world.state().entity(UNIVERSE), LEGACY, "forming");
-    let (nudge_title, nudge_detail) = if posture_choice_available {
+    let pressure_stage = pressure::pressure_id_from_state(world.state());
+    let (nudge_title, nudge_detail) = if let Some(copy) = pressure_nudge_copy(&pressure_stage) {
+        copy
+    } else if posture_choice_available {
         (
             "Let the next chapter wait",
             "Keep watching before deciding whether this World reaches outward or roots itself more deeply.",
@@ -142,7 +147,44 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             detail: command_detail_with_signal(world, ROOTED_POSTURE_COMMAND, rooted_detail),
         });
     }
+    let copy = pressure::copy_for_seed(seed_id(world));
+    if pressure::window_open(&pressure_stage) {
+        commands.push(ProjectionCommand {
+            id: HOLD_PRESSURE_COMMAND.into(),
+            title: copy.hold_title.into(),
+            detail: command_detail_with_signal(world, HOLD_PRESSURE_COMMAND, copy.hold_detail),
+        });
+        commands.push(ProjectionCommand {
+            id: REACH_PRESSURE_COMMAND.into(),
+            title: copy.reach_title.into(),
+            detail: command_detail_with_signal(world, REACH_PRESSURE_COMMAND, copy.reach_detail),
+        });
+    } else if pressure_stage == "lost" {
+        commands.push(ProjectionCommand {
+            id: RECOVER_ANCHOR_COMMAND.into(),
+            title: copy.recover_title.into(),
+            detail: command_detail_with_signal(world, RECOVER_ANCHOR_COMMAND, copy.recover_detail),
+        });
+    }
     commands
+}
+
+fn pressure_nudge_copy(pressure: &str) -> Option<(&'static str, &'static str)> {
+    match pressure {
+        "warning" => Some((
+            "Watch the pressure build",
+            "Let one more cycle pass without answering. The World will not wait forever.",
+        )),
+        "crisis" => Some((
+            "Risk one more cycle",
+            "Let one more cycle pass in crisis. If the window closes, what this World depends on is lost.",
+        )),
+        "lost" => Some((
+            "Let the loss settle",
+            "Let the World live with what it lost before deciding whether to recover it.",
+        )),
+        _ => None,
+    }
 }
 
 fn command_detail_with_signal(world: &World, command_id: &str, detail: &str) -> String {
@@ -185,6 +227,34 @@ fn command_choice_signal(world: &World, command_id: &str) -> Option<String> {
             "sets durable World direction to Rooted; later growth and legacy formation read the rooted posture"
                 .into(),
         ),
+        HOLD_PRESSURE_COMMAND | REACH_PRESSURE_COMMAND => {
+            let posture = text_component(world.state().entity(UNIVERSE), POSTURE, "none");
+            let aligned = matches!(
+                (command_id, posture.as_str()),
+                (HOLD_PRESSURE_COMMAND, "rooted") | (REACH_PRESSURE_COMMAND, "outward")
+            );
+            let copy = pressure::copy_for_seed(seed_id(world));
+            let status = if command_id == HOLD_PRESSURE_COMMAND {
+                copy.hold_status
+            } else {
+                copy.reach_status
+            };
+            let fit = if aligned {
+                "this answer fits the World's durable direction; the outcome is recorded as aligned"
+            } else {
+                "this answer runs against the World's durable direction; the outcome is recorded as strained"
+            };
+            Some(format!(
+                "closes the pressure window now; the anchor's durable status becomes {status}; {fit}"
+            ))
+        }
+        RECOVER_ANCHOR_COMMAND => {
+            let copy = pressure::copy_for_seed(seed_id(world));
+            Some(format!(
+                "the anchor's durable status becomes {}; legacy cycles reset to 0 and the legacy must reinforce itself again",
+                copy.recover_status
+            ))
+        }
         _ => None,
     }
 }
@@ -294,6 +364,112 @@ fn second_arc_stage_copy(seed: &str) -> (String, Option<(&'static str, &'static 
         "A second chapter is ready".into(),
         Some(("Your turn · World direction", detail)),
     )
+}
+
+fn pressure_stage_copy(
+    seed: &str,
+    pressure: &str,
+) -> Option<(String, Option<(&'static str, &'static str)>)> {
+    let anchor = match seed {
+        "mars-colony" => "Ares Habitat",
+        "1980s-town" => "Maple Arcade",
+        "penguin-civilization" => "The ice bridge",
+        _ => "What this World depends on",
+    };
+    match pressure {
+        "warning" => Some((
+            "Pressure is rising".into(),
+            Some((
+                "Your turn · Hold or reach",
+                match seed {
+                    "mars-colony" => "The water reclaimer is failing. Rebuild it from what Ares has, send Kestrel for a replacement, or wait and see how far it slips.",
+                    "1980s-town" => "The rent is rising past what the arcade earns. Fund it from the neighborhood, put its story on the air, or wait and see.",
+                    "penguin-civilization" => "The third span is cracking. Rebuild it through the dark season, send for the outer builders, or wait and see.",
+                    _ => "Something the World depends on is failing. Hold with what the World has, reach beyond it, or wait and see.",
+                },
+            )),
+        )),
+        "crisis" => Some((
+            format!("{anchor} is in crisis"),
+            Some((
+                "Your turn · Decide before it is lost",
+                "The window is closing. Hold or reach now; a few more cycles of waiting and this loss becomes durable.",
+            )),
+        )),
+        "lost" => Some((
+            "Something was lost".into(),
+            Some((
+                "Your turn · Recover",
+                "The World lives with the loss now. Recovering is possible, but it costs the routines and legacy the World had built.",
+            )),
+        )),
+        _ => None,
+    }
+}
+
+fn pressure_consequence_item(world: &World) -> Option<BriefingItem> {
+    let pressure = pressure::pressure_id_from_state(world.state());
+    if pressure == "none" {
+        return None;
+    }
+    let event = world.events().iter().rev().find(|event| {
+        matches!(
+            event.kind.as_str(),
+            "pressure_rising"
+                | "pressure_peaked"
+                | "anchor_lost"
+                | "pressure_held"
+                | "pressure_reached"
+                | "anchor_recovered"
+        )
+    })?;
+    let summary = payload_text(event, "summary").unwrap_or("").to_string();
+    let label = match pressure.as_str() {
+        "warning" => "Rising",
+        "crisis" => "Crisis",
+        "lost" => "Lost",
+        "held" => "Held",
+        "reached" => "Reached",
+        "recovered" => "Recovered",
+        other => other,
+    };
+    Some(BriefingItem {
+        selection: Some(SelectionId::Event(event.id)),
+        title: format!("World pressure · {label}"),
+        detail: summary,
+    })
+}
+
+fn pressure_choice_evidence(world: &World, event: &Event) -> Option<BriefingItem> {
+    let status = event_text_component(event, SLOT_A, "status")?;
+    let outcome = event_text_component(event, UNIVERSE, PRESSURE_OUTCOME)?;
+    let anchor = world
+        .state()
+        .entity(SLOT_A)
+        .map(entity_title)
+        .unwrap_or_else(|| "The anchor".into());
+    let (label, follow_on) = match event.kind.as_str() {
+        "pressure_held" => (
+            "Held",
+            "The pressure window is closed. Later growth reads this durable answer.",
+        ),
+        "pressure_reached" => (
+            "Reached",
+            "The pressure window is closed. Later growth reads this durable answer.",
+        ),
+        "anchor_recovered" => (
+            "Recovered",
+            "Legacy cycles were reset to 0; the legacy must reinforce itself again.",
+        ),
+        _ => return None,
+    };
+    Some(BriefingItem {
+        selection: Some(SelectionId::Event(event.id)),
+        title: format!("Choice evidence · {label}"),
+        detail: format!(
+            "Verified by this Event: {anchor} · status = {status}; outcome = {outcome}. {follow_on}"
+        ),
+    })
 }
 
 fn legacy_nudge_copy(seed: &str, legacy: &str) -> (&'static str, &'static str) {
@@ -461,7 +637,11 @@ fn briefing(world: &World, seeded: bool, since_event_count: Option<usize>) -> Br
     let (relationship_choice_available, intervention_choice_available) =
         choice_state(world, generation);
     let posture_choice_available = posture_choice_state(world, generation);
-    let (title, guidance) = if posture_choice_available {
+    let pressure_stage = pressure::pressure_id_from_state(world.state());
+    let (title, guidance) = if let Some(copy) = pressure_stage_copy(seed_id(world), &pressure_stage)
+    {
+        copy
+    } else if posture_choice_available {
         second_arc_stage_copy(seed_id(world))
     } else {
         live_stage_copy(
@@ -584,6 +764,9 @@ fn persistent_consequence_items(world: &World) -> Vec<BriefingItem> {
     if let Some(item) = legacy_consequence_item(world) {
         items.push(item);
     }
+    if let Some(item) = pressure_consequence_item(world) {
+        items.push(item);
+    }
     items
 }
 
@@ -591,7 +774,12 @@ fn choice_evidence_item(world: &World) -> Option<BriefingItem> {
     let event_index = world.events().iter().rposition(|event| {
         matches!(
             event.kind.as_str(),
-            "relationship_steered" | "universe_intervened" | "world_posture_chosen"
+            "relationship_steered"
+                | "universe_intervened"
+                | "world_posture_chosen"
+                | "pressure_held"
+                | "pressure_reached"
+                | "anchor_recovered"
         )
     })?;
     let event = &world.events()[event_index];
@@ -599,6 +787,9 @@ fn choice_evidence_item(world: &World) -> Option<BriefingItem> {
         "relationship_steered" => relationship_choice_evidence(world, event, event_index),
         "universe_intervened" => intervention_choice_evidence(world, event),
         "world_posture_chosen" => posture_choice_evidence(event),
+        "pressure_held" | "pressure_reached" | "anchor_recovered" => {
+            pressure_choice_evidence(world, event)
+        }
         _ => None,
     }
 }
@@ -969,7 +1160,12 @@ fn return_compass_item(world: &World) -> BriefingItem {
         .filter(|command| command.id != NUDGE_COMMAND)
         .collect::<Vec<_>>();
 
-    let title = if posture_choice_available {
+    let pressure_stage = pressure::pressure_id_from_state(world.state());
+    let title = if pressure::window_open(&pressure_stage) {
+        "Your turn · Hold or reach"
+    } else if pressure_stage == "lost" {
+        "Your turn · Recover"
+    } else if posture_choice_available {
         "Your turn · World direction"
     } else if relationship_choice_available && intervention_choice_available {
         "Your turn · Shape the world"
@@ -1031,6 +1227,10 @@ fn return_compass_context(
     posture_choice_available: bool,
     legacy: &str,
 ) -> String {
+    let pressure_stage = pressure::pressure_id_from_state(world.state());
+    if pressure::window_open(&pressure_stage) || pressure_stage == "lost" {
+        return pressure_return_context(world, &pressure_stage);
+    }
     if posture_choice_available {
         return posture_return_context(world);
     }
@@ -1057,6 +1257,21 @@ fn return_compass_context(
         "The world is quiet.",
     );
     format!("Generation {generation} is still carrying its current thread: {last_change}")
+}
+
+fn pressure_return_context(world: &World, pressure: &str) -> String {
+    let last_change = text_component(
+        world.state().entity(UNIVERSE),
+        LAST_CHANGE,
+        "The world is quiet.",
+    );
+    match pressure {
+        "warning" => format!("Pressure is rising and the window to answer is open. {last_change}"),
+        "crisis" => format!("The pressure has peaked and the window is closing. {last_change}"),
+        _ => format!(
+            "The World has lost what it depended on; recovery is possible at a cost. {last_change}"
+        ),
+    }
 }
 
 fn relationship_return_context(world: &World) -> String {
@@ -1176,7 +1391,13 @@ fn return_digest_priority(kind: &str) -> u8 {
         | "relationship_steered"
         | "partnership_formed"
         | "relationship_fractured"
-        | "world_legacy_formed" => 0,
+        | "world_legacy_formed"
+        | "pressure_rising"
+        | "pressure_peaked"
+        | "anchor_lost"
+        | "pressure_held"
+        | "pressure_reached"
+        | "anchor_recovered" => 0,
         _ => 1,
     }
 }
@@ -1219,6 +1440,12 @@ fn return_item(event: &Event, occurrences: usize) -> BriefingItem {
         "relationship_fractured" => "Their relationship fractured".into(),
         "world_legacy_formed" => "A world legacy formed".into(),
         "legacy_reinforced" => "A legacy reinforced itself".into(),
+        "pressure_rising" => "Pressure is rising".into(),
+        "pressure_peaked" => "The pressure peaked".into(),
+        "anchor_lost" => "Something was lost".into(),
+        "pressure_held" => "You held through the pressure".into(),
+        "pressure_reached" => "You reached beyond the pressure".into(),
+        "anchor_recovered" => "You recovered what was lost".into(),
         _ => event.kind.replace('_', " "),
     };
     let title = if occurrences <= 1 {
