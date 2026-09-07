@@ -1,72 +1,58 @@
 # Install World Machine on macOS
 
-World Machine ships as a **pre-alpha, ad-hoc signed, not notarized** macOS app. That means macOS will stop the first launch with a message that it "could not verify" the app. This is expected for an unnotarized build, not a sign that the download is damaged. The steps below take under two minutes.
+Requirements: a Mac with Apple Silicon or Intel running macOS 14 or newer. Nothing else is needed.
 
-Requirements: an Apple Silicon or Intel Mac running macOS 14 (Sonoma) or macOS 15 (Sequoia). Release packages are universal binaries from `v0.1.0-pre.4` on; `release-manifest.json` lists the architectures a package contains.
+World Machine is pre-alpha and **not yet notarized by Apple**, so a copy downloaded with a browser is blocked on its first launch. The one-line installer avoids that entirely; the manual path needs one extra step.
 
-## 1. Download and verify
+## One line in Terminal (recommended)
 
-From the [Releases page](https://github.com/hxddh/world-machine/releases), download the `.zip` and its `.zip.sha256` for the version you want. Then, in Terminal, from the download folder:
+Open Terminal (Spotlight: type "Terminal"), paste this line, press Return:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hxddh/world-machine/main/scripts/install.sh | sh
+```
+
+It downloads the latest release, checks the checksum, puts World Machine in Applications, clears the first-launch block, and opens the app. About a minute. Run the same line again later to update; your Worlds are kept.
+
+The script is [scripts/install.sh](../scripts/install.sh) if you want to read it first. It talks only to github.com and installs only the app.
+
+## Or by hand
+
+1. Download the `.zip` from the [Releases page](https://github.com/hxddh/world-machine/releases) and open it. You get a folder with `World Machine.app` and `Read Me First.txt`.
+2. Drag `World Machine.app` into Applications.
+3. Double-click it once. macOS says it could not verify the app; click **Done**. Open **System Settings → Privacy & Security**, scroll to the **Security** section, click **Open Anyway**, and confirm. From then on it opens normally.
+
+   On macOS 14 you can instead Control-click the app and choose **Open**. On macOS 15 that shortcut no longer works.
+
+   If a World fails to start after this, the Packs inside the app still carry the download flag. This one Terminal line clears it for the whole app:
+
+   ```bash
+   xattr -dr com.apple.quarantine "/Applications/World Machine.app"
+   ```
+
+## First run
+
+The app opens straight into your first World: Pocket Universe, prepared during the few seconds after launch. Pick a place to seed and let it live. Home lists your Worlds; **What if…** on any of them tries the other choice side by side. Everything is saved under `~/Library/Application Support/World Machine`.
+
+## Updating
+
+Run the one-line installer again, or download the new release and replace the app in Applications (then repeat step 3 once). Your saved Worlds are not inside the app and are kept.
+
+## Verifying a download (optional)
+
+Every release publishes a `.zip.sha256` and a `release-manifest.json`. In Terminal, from the download folder:
 
 ```bash
 shasum -a 256 -c World-Machine-*.zip.sha256
 ```
 
-The output must end with `OK`. If it does not, delete the file and download again.
-
-Also open `release-manifest.json` on the release page and confirm the tag, commit, and architecture match what you expect. Every manifest for this release line says `"notarized": false`; that is the current status, not an error.
-
-## 2. Unpack and move to Applications
-
-Double-click the `.zip`. It unpacks to a `World Machine <release>` folder with `World Machine.app` and a `Read Me First.txt` that repeats step 3 below. Drag `World Machine.app` into `/Applications`.
-
-Do this before the first launch. macOS runs an unnotarized app that is still in Downloads from a temporary read-only location, which slows the first start and can confuse file dialogs.
-
-## 3. Allow the first launch
-
-Pick one of the two options. Option A is the reliable path and also covers the World Packs bundled inside the app. Option B uses only System Settings.
-
-### Option A: Terminal (recommended)
-
-```bash
-xattr -dr com.apple.quarantine "/Applications/World Machine.app"
-```
-
-Then open the app normally. This removes the download quarantine flag from the app and everything inside it, including the bundled World Packs and the analyst tool host, which the app launches as separate processes.
-
-### Option B: System Settings
-
-The exact steps depend on your macOS version.
-
-**macOS 15 Sequoia**
-
-1. Double-click `World Machine.app`. A dialog says the app was not opened because Apple could not verify it. Click **Done**.
-2. Open **System Settings → Privacy & Security** and scroll down to the **Security** section.
-3. You will see a line saying World Machine was blocked to protect your Mac. Click **Open Anyway**.
-4. Authenticate, then click **Open Anyway** again in the confirmation dialog.
-
-The Control-click → Open shortcut that older macOS versions offered no longer bypasses Gatekeeper on macOS 15, so do not rely on it.
-
-**macOS 14 Sonoma**
-
-1. In Finder, Control-click `World Machine.app` and choose **Open**.
-2. In the dialog, click **Open**.
-
-If a World fails to start after Option B, run the Option A command once. The bundled Packs are separate executables and may still carry the quarantine flag.
-
-## 4. First run
-
-The app opens on Home and prepares the included Worlds in the background for a few seconds. Then choose **Create Pocket Universe** (or **New World**) to seed your first World. Your Worlds are saved as `.world` files in the World Machine library under `~/Library/Application Support`.
-
-## Updating
-
-Download the new release, verify it the same way, and replace the app in `/Applications`. Repeat step 3 for the new copy: the quarantine flag is set on every download. Your saved Worlds are not inside the app bundle and are kept.
+The output must end with `OK`. The manifest lists the exact commit, architectures, and `"notarized": false`, which is the current status, not an error. The one-line installer performs this check for you.
 
 ## Known limits of the pre-alpha build
 
-- Not notarized. Every fresh download needs step 3.
-- No automatic updates. Watch the Releases page.
-- Nothing beyond the app is needed to create, live in, fork, and compare Worlds. The experimental World Analyst additionally needs Node and the Pi runtime; its entry only appears when both are installed.
+- Not notarized. A browser download needs the one-time step 3 above.
+- No automatic updates. Use **Help → Check for Updates…** or rerun the installer.
+- The experimental World Analyst additionally needs Node and the Pi runtime; its menu entry says so when they are missing.
 
 ## Something went wrong?
 

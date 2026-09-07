@@ -23,6 +23,7 @@ actions!(
         OpenLogFolder,
         ReportProblem,
         InstallGuide,
+        CheckForUpdates,
         // File menu, handled by Home wherever it is.
         ImportWorld,
         InstallPack,
@@ -55,6 +56,10 @@ pub fn install(cx: &mut App) {
         cx.open_url(diagnostics::ISSUE_URL);
     });
     cx.on_action(|_: &InstallGuide, cx| cx.open_url(diagnostics::INSTALL_GUIDE_URL));
+    cx.on_action(|_: &CheckForUpdates, cx| {
+        diagnostics::info("opening the releases page");
+        cx.open_url(diagnostics::RELEASES_URL);
+    });
 
     cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
 
@@ -86,6 +91,7 @@ pub fn install(cx: &mut App) {
             MenuItem::action("Analyze Saved Worlds (Experimental)…", AnalyzeWorlds),
         ]),
         Menu::new("Help").items([
+            MenuItem::action("Check for Updates…", CheckForUpdates),
             MenuItem::action("Install Guide", InstallGuide),
             MenuItem::action("Report a Problem…", ReportProblem),
             MenuItem::separator(),

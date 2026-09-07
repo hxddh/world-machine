@@ -691,7 +691,17 @@ impl WorldMachineHome {
             }
             match catalog.install_reviewed_pending_probe(&preview) {
                 Ok(installed) => {
-                    self.start_pack_probe(installed.pack, true, false, pack.featured, cx);
+                    // A fresh install (no saved Worlds yet) opens straight
+                    // into its first World once the featured Pack is ready;
+                    // otherwise Home offers the Create handoff.
+                    let create_now = pack.featured && self.documents.is_empty();
+                    self.start_pack_probe(
+                        installed.pack,
+                        true,
+                        create_now,
+                        pack.featured && !create_now,
+                        cx,
+                    );
                     self.status = Some(HomeStatus::info(format!(
                         "Preparing {} for its first launch…",
                         pack.title
