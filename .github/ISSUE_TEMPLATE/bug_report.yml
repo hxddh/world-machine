@@ -23,7 +23,6 @@ body:
       label: How did you install it?
       options:
         - Downloaded the release zip
-        - Homebrew cask
         - Built from source
     validations:
       required: true

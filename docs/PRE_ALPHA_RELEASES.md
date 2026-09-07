@@ -12,7 +12,7 @@ A pre-alpha package contains three files:
 - the matching `.zip.sha256` — SHA-256 for the archive.
 - `release-manifest.json` — machine-readable build identity and distribution status.
 
-The published GitHub Release additionally carries `world-machine.rb`, a Homebrew cask rendered from the manifest by `scripts/render_cask.py`. It pins the same version, URL, and SHA-256; the `hxddh/homebrew-tap` repository copies that file into `Casks/world-machine.rb` after each release so `brew install --cask --no-quarantine hxddh/tap/world-machine` installs exactly what the Release page offers.
+The archive unpacks to a `World Machine <release>` folder holding `World Machine.app` and `Read Me First.txt`, the first-launch note rendered from `apps/world-machine-desktop/macos/READ_ME_FIRST.txt`.
 
 The manifest records:
 

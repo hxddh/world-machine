@@ -267,6 +267,10 @@ The repository moved well past the original M42 target. The main capabilities la
 
 Status: in progress. This phase replaces milestone-by-milestone infrastructure work with acceptance criteria that describe what a user can do.
 
+### The one usability problem this phase cannot fix
+
+Without an Apple Developer ID the app cannot be notarized, and every install path on macOS then needs a manual "Open Anyway" step. No packaging trick removes it: Homebrew only moves it to a flag, a DMG only decorates it. The Apple Developer Program costs USD 99 per year and turns installation into download-and-open; it is the single highest-leverage item for usability and should be bought before any release aimed at non-technical users. Until then, 0.2 ships one path (the Release zip, with a `Read Me First.txt` next to the app) and states the limitation everywhere.
+
 ### Progress (updated 2026-09-07)
 
 | Item | State |
@@ -274,7 +278,7 @@ Status: in progress. This phase replaces milestone-by-milestone infrastructure w
 | Stage 0: freeze, stale PRs closed, `pre.1` published | done |
 | Stage 1: automated pre-release, install guide, universal binary | done (`pre.1` to `pre.5`) |
 | Stage 1: log file, About window, Report a Problem, Help menu | done, ships in `pre.6` |
-| Stage 1: Homebrew cask | cask rendered and attached to every release; the `hxddh/homebrew-tap` repository still has to be created and receive `Casks/world-machine.rb` |
+| Stage 1: Homebrew cask | dropped: Homebrew is a developer tool and a tap needs a second repository; the only install path is the Release zip, which now carries a Read Me First note |
 | Stage 1: pipeline ready for a future Developer ID | not started; no certificate in the 0.2 timeframe |
 | Stage 2: included Packs activate on first launch, Analyst hidden without runtime | done |
 | Stage 2: Home hierarchy (Start here / My Worlds / New World / Manage Packs) and first-launch copy in user language | done |
@@ -305,7 +309,6 @@ There is no Apple Developer ID available in the 0.2 timeframe, so the package st
 
 - A tag push creates the GitHub Release and attaches the zip, SHA-256, and `release-manifest.json`. The release notes lead with the not-notarized status and link the install guide.
 - `docs/INSTALL.md`: the exact first-open steps for macOS 14 and macOS 15 (open, dismiss the Gatekeeper dialog, System Settings → Privacy & Security → Open Anyway), the `xattr -dr com.apple.quarantine` fallback for a Terminal user, and the verify-the-checksum step. Test it on both macOS versions before publishing; macOS 15 removed the right-click → Open shortcut, so the guide must not rely on it.
-- A Homebrew tap cask (`brew install --cask --no-quarantine hxddh/tap/world-machine`) as the low-friction path for developers; the cask caveats repeat the not-notarized status.
 - Local rolling log file, an About window showing version and commit with a "copy diagnostics" action, and a "Report a problem" menu item pointing at an issue template.
 - Keep `release-package.yml` ready to flip: signing identity and notarization become optional inputs so that a future Developer ID is a secrets change, not a pipeline rewrite. Do not build the notarization step until the certificate exists.
 - Optional: an update check. Full auto-update can wait.

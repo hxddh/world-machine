@@ -5,7 +5,7 @@ Current as of the `Unreleased` section of the [changelog](../CHANGELOG.md). Repo
 ## Installation
 
 - **Not notarized.** Every fresh download or update needs the first-launch steps in [INSTALL.md](INSTALL.md). This stays true until a Developer ID certificate exists.
-- **No automatic updates.** Watch the Releases page or use the Homebrew cask and `brew upgrade`.
+- **No automatic updates.** Watch the Releases page.
 - **macOS 14 or newer only.** Older systems are not built or tested.
 
 ## Using Worlds
