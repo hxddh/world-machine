@@ -56,7 +56,7 @@ If a World fails to start after Option B, run the Option A command once. The bun
 
 ## 4. First run
 
-The app opens on Home. Choose **Start here** to seed a Pocket Universe World. Your Worlds are saved as `.world` files in the World Machine library under `~/Library/Application Support`.
+The app opens on Home and prepares the included Worlds in the background for a few seconds. Then choose **Create Pocket Universe** (or **New World**) to seed your first World. Your Worlds are saved as `.world` files in the World Machine library under `~/Library/Application Support`.
 
 ## Updating
 

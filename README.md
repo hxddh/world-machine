@@ -25,7 +25,7 @@ The renderer boundary is explicit:
 - Empty/unseeded Worlds render as a focus-only Briefing/Commands surface: empty Collection, Timeline, Canvas, and Inspector chrome stay hidden until the Pack exposes semantic content.
 - `world-machine-desktop` hosts durable `.world` documents, branching/lineage, external Pack installation, durable activation probing, and generic World creation.
 - Tiny Society, Pocket Universe, and Micro Company exercise the same public Host/Pack boundaries.
-- The macOS app bundle carries Pocket Universe and Micro Company as **included external Packs**. They are not built-ins and are not executed at startup; Home requires an explicit Review & Install action before the existing content-review, quarantine, durable-probe, and activation path runs.
+- The macOS app bundle carries Pocket Universe and Micro Company as **included external Packs**. They are not built-ins: on first launch Home installs them through the same content-pin, durable-probe, and activation path as any other Pack, without a review dialog, because the bundle is one code-signed unit. User-supplied `.worldpack` files still require an explicit Review & Install action before any Pack code runs.
 - A fresh packaged Home presents **Pocket Universe** as the primary `Start here` experience (`Seed a place · Let it live · Branch what happens next`) while keeping Micro Company as a secondary World and moving Pack management behind the World/product hierarchy.
 - Pocket Universe 0.10 turns its opening generations into a guided first story: observe the first cycle, notice the central relationship forming, then choose whether to steer it or leave the World alone. Larger interventions are presented as optional branches rather than required progress.
 - Portable `.worldpack` files are registered as a native macOS file type. Double-clicking a Pack, using Open With, or opening it through the app routes the file into the same static review surface; the open event itself never installs or executes Pack code.
@@ -64,7 +64,7 @@ bash apps/world-machine-desktop/macos/package-release.sh
 
 The current pre-alpha package is **ad-hoc signed and not notarized**. It is an experimental distribution artifact, not a production-signed macOS release. The package manifest records the exact commit, architecture, included external Packs, checksum, signing mode, and notarization status. See [docs/PRE_ALPHA_RELEASES.md](docs/PRE_ALPHA_RELEASES.md).
 
-A source-tree `cargo run` does not invent or scan for included Packs. The packaged app discovers only the fixed `Contents/Resources/World Packs` allowlist (or an explicit development override), and installation still requires user review of the exact executable identity and SHA-256.
+A source-tree `cargo run` does not invent or scan for included Packs. The packaged app discovers only the fixed `Contents/Resources/World Packs` allowlist (or an explicit development override) and activates those on first launch; any other Pack still requires user review of the exact executable identity and SHA-256.
 
 The packaged macOS app owns both `io.github.hxddh.world-machine.world` (`.world`) and `io.github.hxddh.world-machine.worldpack` (`.worldpack`). `.world` opens as a World document; `.worldpack` opens only as a Pack installation review.
 
