@@ -15,9 +15,7 @@ pub(crate) fn write_all_until(
         use std::os::fd::AsRawFd;
 
         let fd = stdin.as_raw_fd();
-        write_all_with_wait_until(stdin, bytes, deadline, || {
-            wait_writable_fd(fd, deadline)
-        })
+        write_all_with_wait_until(stdin, bytes, deadline, || wait_writable_fd(fd, deadline))
     }
 
     #[cfg(not(unix))]
