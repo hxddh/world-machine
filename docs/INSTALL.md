@@ -2,7 +2,7 @@
 
 World Machine ships as a **pre-alpha, ad-hoc signed, not notarized** macOS app. That means macOS will stop the first launch with a message that it "could not verify" the app. This is expected for an unnotarized build, not a sign that the download is damaged. The steps below take under two minutes.
 
-Requirements: an Apple Silicon or Intel Mac running macOS 14 (Sonoma) or macOS 15 (Sequoia). Check the release manifest for the architecture of the build you downloaded.
+Requirements: an Apple Silicon or Intel Mac running macOS 14 (Sonoma) or macOS 15 (Sequoia). Release packages are universal binaries from `v0.1.0-pre.4` on; `release-manifest.json` lists the architectures a package contains.
 
 ## 1. Download and verify
 

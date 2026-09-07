@@ -84,7 +84,12 @@ jobs:
           cargo test -p micro-company-pack
           cargo test -p world-machine-desktop
 
-      - name: Build and validate World Machine.app
+      - name: Install universal build targets
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - name: Build and validate universal World Machine.app
+        env:
+          WORLD_MACHINE_UNIVERSAL: "1"
         run: bash apps/world-machine-desktop/macos/build-app.sh
 
       - name: Package pre-alpha build
