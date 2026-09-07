@@ -511,6 +511,62 @@ impl WorldMachineHome {
         self.review_pack_path(pack.path, Some(pack.pack), start_after_install, cx);
     }
 
+    /// Install, probe, and activate the World Packs shipped inside this app
+    /// bundle so a fresh install reaches a living World without a review
+    /// dialog. The bundle is one code-signed unit, so these Packs carry the
+    /// same trust as the app binary; the catalog still pins their exact
+    /// content on install and the durable probe still runs before activation.
+    /// User-supplied `.worldpack` files keep the explicit review flow.
+    /// Packs that are already in the catalog, enabled or not, are left alone.
+    fn activate_included_packs(&mut self, cx: &mut Context<Self>) {
+        let packs = self.included_packs.clone();
+        for pack in packs {
+            if self.included_pack_is_installed(&pack.pack) {
+                continue;
+            }
+            let Some(catalog) = self.pack_catalog.as_mut() else {
+                return;
+            };
+            let preview = match catalog.inspect_install(&pack.path) {
+                Ok(preview) => preview,
+                Err(error) => {
+                    self.status = Some(HomeStatus::error(format!(
+                        "Could not prepare {}: {error}",
+                        pack.title
+                    )));
+                    continue;
+                }
+            };
+            if preview.pack() != &pack.pack {
+                self.status = Some(HomeStatus::error(format!(
+                    "Could not prepare {}: bundle contains {} @ {}, expected {} @ {}",
+                    pack.title,
+                    preview.pack().id,
+                    preview.pack().version,
+                    pack.pack.id,
+                    pack.pack.version
+                )));
+                continue;
+            }
+            match catalog.install_reviewed_pending_probe(&preview) {
+                Ok(installed) => {
+                    self.start_pack_probe(installed.pack, true, false, pack.featured, cx);
+                    self.status = Some(HomeStatus::info(format!(
+                        "Preparing {} for its first launch…",
+                        pack.title
+                    )));
+                }
+                Err(error) => {
+                    self.status = Some(HomeStatus::error(format!(
+                        "Could not prepare {}: {error}",
+                        pack.title
+                    )));
+                }
+            }
+        }
+        cx.notify();
+    }
+
     fn install_pack(&mut self, cx: &mut Context<Self>) {
         let picker = cx.prompt_for_paths(PathPromptOptions {
             files: true,
@@ -566,7 +622,7 @@ impl WorldMachineHome {
         self.ready_pack_to_create = None;
         match result {
             Ok(installed) => {
-                self.start_pack_probe(installed.pack, true, start_after_install, cx);
+                self.start_pack_probe(installed.pack, true, start_after_install, true, cx);
             }
             Err(error) => {
                 self.status = Some(HomeStatus::error(format!(
@@ -586,6 +642,7 @@ impl WorldMachineHome {
         pack: WorldPackRef,
         activate_on_success: bool,
         create_on_success: bool,
+        offer_create_on_success: bool,
         cx: &mut Context<Self>,
     ) {
         if self.is_pack_probing(&pack) {
@@ -636,7 +693,7 @@ impl WorldMachineHome {
                                         this.create_world(pack.id.clone(), cx);
                                         return;
                                     }
-                                    if activate_on_success {
+                                    if activate_on_success && offer_create_on_success {
                                         this.ready_pack_to_create = Some(pack.clone());
                                     }
                                     this.status = Some(HomeStatus::success(format!(
@@ -1753,7 +1810,7 @@ impl WorldMachineHome {
                     .text_sm()
                     .child("Test & Enable")
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        this.start_pack_probe(test_pack.clone(), false, false, cx)
+                        this.start_pack_probe(test_pack.clone(), false, false, false, cx)
                     })),
             );
         }
@@ -2691,6 +2748,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 status,
             };
             home.start_system_open_listener(cx);
+            home.activate_included_packs(cx);
             home
         });
         let bounds = Bounds::centered(None, size(px(760.0), px(760.0)), cx);
