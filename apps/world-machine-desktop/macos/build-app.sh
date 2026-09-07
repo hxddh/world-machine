@@ -30,22 +30,25 @@ else
 fi
 export WORLD_MACHINE_BUILD_COMMIT="$BUILD_COMMIT"
 
+PACKAGES=(
+    -p world-machine-desktop
+    -p world-agent-tool-stdio
+    -p pocket-universe-pack
+    -p micro-company-pack
+)
+BINARIES=(
+    world-machine-desktop
+    world-agent-tool-stdio
+    pocket-universe-pack
+    micro-company-pack
+)
 case "$PROFILE" in
     release)
-        cargo build \
-            -p world-machine-desktop \
-            -p world-agent-tool-stdio \
-            -p pocket-universe-pack \
-            -p micro-company-pack \
-            --release
+        PROFILE_FLAGS=(--release)
         PROFILE_DIR="release"
         ;;
     debug)
-        cargo build \
-            -p world-machine-desktop \
-            -p world-agent-tool-stdio \
-            -p pocket-universe-pack \
-            -p micro-company-pack
+        PROFILE_FLAGS=()
         PROFILE_DIR="debug"
         ;;
     *)
@@ -53,6 +56,31 @@ case "$PROFILE" in
         exit 2
         ;;
 esac
+
+# WORLD_MACHINE_UNIVERSAL=1 builds every bundled executable for both Apple
+# Silicon and Intel and merges them with lipo, so one package serves both.
+# Both targets must be installed (rustup target add x86_64-apple-darwin
+# aarch64-apple-darwin). The default host-only build is unchanged.
+UNIVERSAL_TARGETS=(aarch64-apple-darwin x86_64-apple-darwin)
+if [[ "${WORLD_MACHINE_UNIVERSAL:-0}" == "1" ]]; then
+    for target in "${UNIVERSAL_TARGETS[@]}"; do
+        cargo build "${PACKAGES[@]}" --target "$target" ${PROFILE_FLAGS[@]+"${PROFILE_FLAGS[@]}"}
+    done
+    BIN_DIR="$TARGET_DIR/universal/$PROFILE_DIR"
+    rm -rf "$BIN_DIR"
+    mkdir -p "$BIN_DIR"
+    for binary in "${BINARIES[@]}"; do
+        inputs=()
+        for target in "${UNIVERSAL_TARGETS[@]}"; do
+            inputs+=("$TARGET_DIR/$target/$PROFILE_DIR/$binary")
+        done
+        lipo -create -output "$BIN_DIR/$binary" "${inputs[@]}"
+        echo "universal $binary: $(lipo -archs "$BIN_DIR/$binary")"
+    done
+else
+    cargo build "${PACKAGES[@]}" ${PROFILE_FLAGS[@]+"${PROFILE_FLAGS[@]}"}
+    BIN_DIR="$TARGET_DIR/$PROFILE_DIR"
+fi
 
 VERSION="$(cargo metadata --no-deps --format-version 1 | python3 -c '
 import json, sys
@@ -65,10 +93,10 @@ else:
     raise SystemExit("world-machine-desktop package not found")
 ')"
 
-BINARY_PATH="$TARGET_DIR/$PROFILE_DIR/$BINARY_NAME"
-ANALYST_HOST_BINARY="$TARGET_DIR/$PROFILE_DIR/world-agent-tool-stdio"
-POCKET_UNIVERSE_BINARY="$TARGET_DIR/$PROFILE_DIR/pocket-universe-pack"
-MICRO_COMPANY_BINARY="$TARGET_DIR/$PROFILE_DIR/micro-company-pack"
+BINARY_PATH="$BIN_DIR/$BINARY_NAME"
+ANALYST_HOST_BINARY="$BIN_DIR/world-agent-tool-stdio"
+POCKET_UNIVERSE_BINARY="$BIN_DIR/pocket-universe-pack"
+MICRO_COMPANY_BINARY="$BIN_DIR/micro-company-pack"
 for executable in \
     "$BINARY_PATH" \
     "$ANALYST_HOST_BINARY" \

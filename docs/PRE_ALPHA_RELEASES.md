@@ -24,7 +24,7 @@ The manifest records:
 - `signing: ad-hoc`;
 - `notarized: false`.
 
-The archive is never labeled universal unless the built executable actually contains multiple architectures.
+The archive is never labeled universal unless the built executable actually contains multiple architectures. The release workflow builds with `WORLD_MACHINE_UNIVERSAL=1`, which compiles every bundled executable for `aarch64-apple-darwin` and `x86_64-apple-darwin` and merges them with `lipo`; a local `build-app.sh` without that variable stays a host-only build.
 
 ## Tag contract
 
