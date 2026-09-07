@@ -32,6 +32,10 @@ The renderer boundary is explicit:
 - After a newly installed Pack passes the durable probe and becomes active, Home offers an explicit `Create <World>` handoff. The probe still does not create a user World automatically; the CTA is ephemeral and only remains valid while that exact Pack version is enabled, active, content-valid, and registered.
 - Pi remains an optional out-of-process `world-pi-rpc` AgentRuntime adapter.
 
+## Download
+
+Pre-alpha macOS builds are published on the [Releases page](https://github.com/hxddh/world-machine/releases). They are **ad-hoc signed and not notarized**, so macOS blocks the first launch; [docs/INSTALL.md](docs/INSTALL.md) has the two-minute first-launch steps for macOS 14 and 15 and the checksum verification.
+
 ## Run
 
 ```bash

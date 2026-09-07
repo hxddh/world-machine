@@ -69,9 +69,18 @@ python3 scripts/validate_release_package.py \
 `.github/workflows/release-package.yml` supports two modes:
 
 - **workflow dispatch** — builds a non-publishable `pre.0` package for release dry runs;
-- **`v*-pre.*` tag push** — requires a publishable tag, reruns release-critical macOS tests, builds the app, creates the package, and uploads the validated package as a GitHub Actions artifact.
+- **`v*-pre.*` tag push** — requires a publishable tag, reruns release-critical macOS tests, builds the app, creates the package, uploads the validated package as a GitHub Actions artifact, and then publishes a GitHub **pre-release** for the tag with the three package files attached.
 
-Creating the public GitHub Release entry and attaching these assets is intentionally a separate/manual step for now. The repository does not contain Apple Developer ID or notarization credentials, and the current automation must not imply that an ad-hoc-signed artifact is a normal notarized macOS release.
+The pre-release notes are rendered by `scripts/render_release_notes.py` from `release-manifest.json`. They lead with the not-notarized status and link `docs/INSTALL.md` at the release tag, so the first thing a downloader reads is how to get past Gatekeeper. The repository does not contain Apple Developer ID or notarization credentials, and the release entry must never present an ad-hoc-signed artifact as a normal notarized macOS release.
+
+## Publishing a pre-alpha
+
+```bash
+git tag v0.1.0-pre.1
+git push origin v0.1.0-pre.1
+```
+
+The workflow refuses a tag whose version does not match `world-machine-desktop`, and `gh release create --verify-tag` refuses to publish if the tag is missing from the repository. A release that already exists for the tag makes the publish step fail rather than overwrite it; delete the release manually before re-running if that is intended.
 
 ## Verification
 
@@ -82,3 +91,5 @@ shasum -a 256 -c World-Machine-*.zip.sha256
 ```
 
 Also inspect `release-manifest.json` before using a pre-alpha build. In particular, confirm the expected tag, commit, architecture, SHA-256, and the current `notarized: false` status.
+
+First-launch steps for the unnotarized app on macOS 14 and 15 are in [INSTALL.md](INSTALL.md).
