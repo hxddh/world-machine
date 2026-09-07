@@ -3872,6 +3872,7 @@ dependencies = [
  "world-compare",
  "world-core",
  "world-host",
+ "world-library",
  "world-persistence",
  "world-projection",
 ]
