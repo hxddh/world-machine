@@ -4,8 +4,8 @@ Current as of the `Unreleased` section of the [changelog](../CHANGELOG.md). Repo
 
 ## Installation
 
-- **Not notarized.** A browser download needs the one-time "Open Anyway" step in [INSTALL.md](INSTALL.md); the one-line installer avoids it. This stays true until a Developer ID certificate exists.
-- **No automatic updates.** Help → Check for Updates… opens the Releases page; rerunning the installer updates in place.
+- **Not notarized.** The first launch of a pre-alpha build needs the one-time "Open Anyway" step in [INSTALL.md](INSTALL.md). The pipeline is ready to sign and notarize; [RELEASE_SIGNING.md](RELEASE_SIGNING.md) lists the five secrets that switch it on.
+- **No automatic updates.** Help → Check for Updates… opens the Releases page; drag the new download onto Applications.
 - **macOS 14 or newer only.** Older systems are not built or tested.
 
 ## Using Worlds

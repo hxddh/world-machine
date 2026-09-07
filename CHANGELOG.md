@@ -10,7 +10,7 @@ World Machine is pre-alpha. Versions below are the pre-release tags on the [Rele
 - Layout: Home header, World cards, document chrome, and the projection center pane no longer lay out wider than their window.
 - Copy: the first-launch path speaks of Worlds being prepared and ready instead of Packs, probes, and registries.
 - Tiny Society: every briefing opens with a "Harbor today" state line, so a fresh visit and a return share the same now / changed / can-do shape.
-- Install: a one-line installer (`curl … install.sh | sh`) downloads, verifies, installs, clears the first-launch block, and opens the app; rerun to update. Help → Check for Updates… opens the Releases page.
+- Install: releases now ship a DMG with an Applications shortcut; no Terminal in the install path. The pipeline signs with a Developer ID, notarizes, and staples as soon as the five secrets in docs/RELEASE_SIGNING.md exist. Help → Check for Updates… opens the Releases page. A one-line Terminal installer remains as an optional extra.
 - First launch on a fresh install opens straight into the first Pocket Universe World instead of stopping at a Create card.
 - Release: the zip unpacks to a folder with the app and a `Read Me First.txt` explaining the one-time "Open Anyway" step.
 - Docs: user-first README, this changelog, known issues, privacy note.

@@ -2,17 +2,11 @@
 
 Persistent worlds that remember, evolve, and branch. A World keeps living while you are away, tells you what changed when you return, and lets you fork it to try the other choice.
 
-> **Pre-alpha for macOS.** Builds are ad-hoc signed and not notarized, so the first launch takes two extra steps. Everything stays on your Mac: no account, no telemetry.
+> **Pre-alpha for macOS.** Everything stays on your Mac: no account, no telemetry. Builds are not yet notarized, so the first launch asks once; see [docs/RELEASE_SIGNING.md](docs/RELEASE_SIGNING.md) for what makes that go away.
 
 ## Try it in three steps
 
-1. **Install** with one line in Terminal (macOS 14 or newer, Apple Silicon or Intel):
-
-   ```bash
-   curl -fsSL https://raw.githubusercontent.com/hxddh/world-machine/main/scripts/install.sh | sh
-   ```
-
-   Or download the zip from the [Releases page](https://github.com/hxddh/world-machine/releases) and follow [docs/INSTALL.md](docs/INSTALL.md).
+1. **Download** the `.dmg` from the [Releases page](https://github.com/hxddh/world-machine/releases), open it, and drag World Machine onto Applications. macOS 14 or newer, Apple Silicon or Intel. Until the app is notarized, the first launch asks once; [docs/INSTALL.md](docs/INSTALL.md) shows the one step.
 2. **Your first World opens by itself.** Pick a place to seed and let it live.
 3. **Come back later.** The World kept going; the briefing says what changed. Use **What if…** on any World to compare two futures side by side.
 

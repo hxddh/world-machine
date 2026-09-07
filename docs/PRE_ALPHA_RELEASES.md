@@ -6,13 +6,16 @@ That distinction is intentional. A package produced by this pipeline must not be
 
 ## Package contents
 
-A pre-alpha package contains three files:
+A package contains five files:
 
-- `World-Machine-<release>-macOS-<architecture>.zip` — the app bundle archive.
-- the matching `.zip.sha256` — SHA-256 for the archive.
+- `World-Machine-<release>-macOS-<architecture>.dmg` — the download for people: the app and an Applications shortcut.
+- `World-Machine-<release>-macOS-<architecture>.zip` — the app bundle archive, for scripts and checksums.
+- a `.sha256` for each of the two.
 - `release-manifest.json` — machine-readable build identity and distribution status.
 
-The archive unpacks to a `World Machine <release>` folder holding `World Machine.app` and `Read Me First.txt`, the first-launch note rendered from `apps/world-machine-desktop/macos/READ_ME_FIRST.txt`.
+The manifest's `signing` is `ad-hoc` or `developer-id` and `notarized` is `false` or `true`; the validator accepts exactly those two combinations. With the secrets in [RELEASE_SIGNING.md](RELEASE_SIGNING.md) the same workflow produces the signed, notarized package.
+
+The archive unpacks to a `World Machine <release>` folder holding `World Machine.app` and, for unnotarized builds only, `Read Me First.txt`, the first-launch note rendered from `apps/world-machine-desktop/macos/READ_ME_FIRST.txt`.
 
 The manifest records:
 

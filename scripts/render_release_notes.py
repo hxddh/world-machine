@@ -20,29 +20,58 @@ def parse_args() -> argparse.Namespace:
 
 def render(manifest: dict, repository: str) -> str:
     tag = str(manifest["tag"])
-    if manifest.get("notarized") is not False or manifest.get("signing") != "ad-hoc":
-        raise ValueError("release notes template only describes ad-hoc, unnotarized builds")
+    signing = manifest.get("signing")
+    notarized = manifest.get("notarized")
+    if signing == "ad-hoc" and notarized is False:
+        gatekeeper = "blocked"
+    elif signing == "developer-id" and notarized is True:
+        gatekeeper = "clear"
+    else:
+        raise ValueError(
+            "release notes describe either an ad-hoc unnotarized build or a "
+            "Developer ID notarized build"
+        )
 
     install_url = f"https://github.com/{repository}/blob/{tag}/docs/INSTALL.md"
     architectures = ", ".join(manifest["architectures"])
     packs = "\n".join(f"- `{pack}`" for pack in manifest["included_packs"])
     artifact = manifest["artifact"]
+    dmg = manifest.get("dmg")
+    download = f"`{dmg}`" if dmg else f"`{artifact}`"
+
+    if gatekeeper == "clear":
+        status_line = (
+            "Signed with a Developer ID and notarized by Apple. Download, open, drag "
+            "the app to Applications, and it runs."
+        )
+        install = f"""## Install
+
+1. Download {download} below and open it.
+2. Drag **World Machine** onto the **Applications** shortcut.
+3. Open World Machine from Applications. Your first World opens by itself.
+"""
+        signing_cell = "Developer ID, notarized"
+    else:
+        status_line = (
+            "> **Pre-alpha, not yet notarized by Apple.** macOS asks once before the "
+            "first launch; the steps below take a minute and happen only once."
+        )
+        install = f"""## Install
+
+1. Download {download} below and open it.
+2. Drag **World Machine** onto the **Applications** shortcut.
+3. Open World Machine from Applications. macOS says it could not verify the app; click **Done**, then open **System Settings → Privacy & Security**, scroll to **Security**, click **Open Anyway**, and confirm. From then on it opens normally, and your first World opens by itself.
+
+The [install guide]({install_url}) has the same steps with more detail.
+"""
+        signing_cell = "ad-hoc, not notarized"
 
     return f"""# World Machine {tag}
 
-> **Not notarized.** This pre-alpha build is ad-hoc signed, so a browser download is blocked on its first launch. The one-line installer avoids that; the [install guide]({install_url}) has the manual path.
+{status_line}
 
-## Install
-
-Open Terminal, paste, press Return:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/hxddh/world-machine/main/scripts/install.sh | sh
-```
-
-Or download the zip below, drag the app to Applications, and allow it once in System Settings → Privacy & Security. Rerun the same line to update later.
-
-Experimental pre-alpha software. The World IR and public APIs are unstable.
+{install}
+Experimental pre-alpha software: everything stays on your Mac, and the World format may still change between releases.
 
 ## Build
 
@@ -51,16 +80,14 @@ Experimental pre-alpha software. The World IR and public APIs are unstable.
 | App version | {manifest["app_version"]} |
 | Commit | `{manifest["commit"]}` |
 | Architecture | {architectures} |
-| Signing | ad-hoc, not notarized |
-| SHA-256 | `{manifest["sha256"]}` |
+| Signing | {signing_cell} |
+| SHA-256 (zip) | `{manifest["sha256"]}` |
 
 Included World Packs:
 
 {packs}
 
 ## Verify the download (optional)
-
-The installer checks this for you. By hand:
 
 ```bash
 shasum -a 256 -c {artifact}.sha256
