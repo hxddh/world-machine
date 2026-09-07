@@ -9,6 +9,7 @@ World Machine is pre-alpha. Versions below are the pre-release tags on the [Rele
 - Layout: Home header, World cards, document chrome, and the projection center pane no longer lay out wider than their window.
 - Copy: the first-launch path speaks of Worlds being prepared and ready instead of Packs, probes, and registries.
 - Release: each GitHub Release carries a Homebrew cask (`world-machine.rb`) for `brew install --cask --no-quarantine hxddh/tap/world-machine`.
+- Tiny Society: every briefing opens with a "Harbor today" state line, so a fresh visit and a return share the same now / changed / can-do shape.
 - Docs: user-first README, this changelog, known issues, privacy note.
 
 ## v0.1.0-pre.5 (2026-09-07)

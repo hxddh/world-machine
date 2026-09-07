@@ -7,8 +7,7 @@ What remains before `v0.2.0`, in order:
 1. **Real-device verification.** Install the latest pre-release on a physical Mac (macOS 14 and 15 if possible), walk `docs/INSTALL.md`, open Home and a World window, and confirm nothing lays out past the window edge. Capture `docs/screenshots/home.png` and `docs/screenshots/world.png` for the README. The CI screenshot job cannot rasterize text inside Apple Virtualization, so this is a manual step.
 2. **Usability test.** Three to five non-developers, five minutes each, from download to a progressing World. Record where each person stalls; each stall becomes a task here with the user-visible change it fixes.
 3. **Homebrew tap.** Create `hxddh/homebrew-tap` and copy the `world-machine.rb` attached to the latest release into `Casks/`. The cask is regenerated on every release.
-4. **Briefing shape.** Confirm Tiny Society and Micro Company briefings follow "what is happening now, what changed, what you can do"; adjust the Pack projections where they do not.
-5. **Tag `v0.2.0`** once 1 and 2 are done, with release notes that explain the replay-never-reruns-AI guarantee.
+4. **Tag `v0.2.0`** once 1 and 2 are done, with release notes that explain the replay-never-reruns-AI guarantee.
 
 The previous milestone text is kept below for reference.
 

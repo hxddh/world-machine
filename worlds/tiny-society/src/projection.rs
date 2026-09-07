@@ -202,7 +202,9 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
         }
     }
 
-    if since_event_count.is_some() && items.is_empty() {
+    items.insert(0, harbor_today(world));
+
+    if since_event_count.is_some() && items.len() == 1 {
         let (title, detail) = if relevant_events.is_empty() {
             (
                 "No new events",
@@ -232,6 +234,34 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
             "Life happened while you were away".into()
         },
         items,
+    }
+}
+
+/// The "what is happening now" line every briefing opens with, so a return
+/// digest and a fresh visit share the same shape: state first, then changes,
+/// then the commands underneath.
+fn harbor_today(world: &World) -> BriefingItem {
+    let bakery = match component_text(world, BAKERY, OPERATING_STATUS).as_deref() {
+        Some("open") => "Harbor Bakery is open".to_string(),
+        Some("closed") => "Harbor Bakery is closed".to_string(),
+        _ => "Harbor Bakery".to_string(),
+    };
+    let bakery_cash = component_integer(world, BAKERY, CASH)
+        .map(|cash| format!(" · till {cash}"))
+        .unwrap_or_default();
+    let jonas = component_text(world, JONAS, JOB)
+        .map(|job| format!("Jonas: {job}"))
+        .unwrap_or_else(|| "Jonas".to_string());
+    let jonas_cash = component_integer(world, JONAS, CASH)
+        .map(|cash| format!(", cash {cash}"))
+        .unwrap_or_default();
+    BriefingItem {
+        selection: Some(SelectionId::Entity(BAKERY)),
+        title: "Harbor today".into(),
+        detail: format!(
+            "{bakery}{bakery_cash} · {jonas}{jonas_cash} · World time {}",
+            world.world_time()
+        ),
     }
 }
 
@@ -462,5 +492,21 @@ mod tests {
             .items
             .iter()
             .any(|item| item.title == "Emma's School income was disrupted"));
+    }
+
+    #[test]
+    fn every_briefing_opens_with_the_harbor_state() {
+        let mut society = TinySociety::new().unwrap();
+        society.run_story().unwrap();
+        let fresh = snapshot(society.world());
+        let first = &fresh.briefing.expect("briefing").items[0];
+        assert_eq!(first.title, "Harbor today");
+        assert!(first.detail.starts_with("Harbor Bakery"));
+        assert!(first.detail.contains("Jonas"));
+
+        let quiet = snapshot_since(society.world(), Some(society.world().events().len()));
+        let items = quiet.briefing.expect("briefing").items;
+        assert_eq!(items[0].title, "Harbor today");
+        assert_eq!(items[1].title, "No new events");
     }
 }

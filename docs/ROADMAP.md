@@ -281,7 +281,7 @@ Status: in progress. This phase replaces milestone-by-milestone infrastructure w
 | Stage 2: usability test with three to five non-developers | needs a real Mac and testers |
 | Stage 3: long-run consequence chains in Pocket Universe | done (chapters two and three) |
 | Stage 3: branch comparison reachable from Home | done ("What if…" on every World card) |
-| Stage 3: three-part briefing shape in every World | Pocket Universe yes; Tiny Society and Micro Company unverified |
+| Stage 3: three-part briefing shape in every World | done: the briefing carries "now" and "what changed", the command panel underneath is "what you can do"; Tiny Society now opens with a Harbor today state line |
 | Stage 4: user-first README, CHANGELOG, known issues, privacy note | done |
 | Stage 4: screenshot in the README | needs a real Mac; the CI runner renders no text |
 | Stage 4: `v0.2.0` | after real-device verification and the usability test |
