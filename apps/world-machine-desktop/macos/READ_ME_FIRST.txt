@@ -1,4 +1,4 @@
-World Machine @TAG@ (pre-alpha)
+World Machine @TAG@
 
 Thank you for trying World Machine. This build is not yet notarized by
 Apple, so macOS asks once before the first launch. One minute, once.

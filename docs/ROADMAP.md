@@ -288,7 +288,7 @@ A normal macOS app is download, open, use. That requires a Developer ID signatur
 | Stage 3: three-part briefing shape in every World | done: the briefing carries "now" and "what changed", the command panel underneath is "what you can do"; Tiny Society now opens with a Harbor today state line |
 | Stage 4: user-first README, CHANGELOG, known issues, privacy note | done |
 | Stage 4: screenshot in the README | needs a real Mac; the CI runner renders no text |
-| Stage 4: `v0.2.0` | after real-device verification and the usability test |
+| Stage 4: `v0.2.0` | shipped 2026-09-07 at the owner's direction, before real-device verification and the usability test; both stay open below |
 
 ### Why this phase exists
 

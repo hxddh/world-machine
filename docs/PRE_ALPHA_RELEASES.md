@@ -1,6 +1,6 @@
-# Pre-alpha macOS packages
+# Release packages
 
-World Machine is experimental pre-alpha software. The repository can build a repeatable macOS release package, but the current bundle is **ad-hoc signed and not notarized**.
+The repository builds a repeatable macOS release package. Until the Developer ID secrets in [RELEASE_SIGNING.md](RELEASE_SIGNING.md) exist, the bundle is **ad-hoc signed and not notarized**.
 
 That distinction is intentional. A package produced by this pipeline must not be presented as a normal production-signed macOS distribution.
 
@@ -33,7 +33,7 @@ The archive is never labeled universal unless the built executable actually cont
 
 ## Tag contract
 
-Publishable pre-alpha tags use:
+Publishable tags are either a stable `v<app-version>` or a pre-release:
 
 ```text
 v<app-version>-pre.<N>
@@ -79,14 +79,14 @@ python3 scripts/validate_release_package.py \
 
 The pre-release notes are rendered by `scripts/render_release_notes.py` from `release-manifest.json`. They lead with the not-notarized status and link `docs/INSTALL.md` at the release tag, so the first thing a downloader reads is how to get past Gatekeeper. The repository does not contain Apple Developer ID or notarization credentials, and the release entry must never present an ad-hoc-signed artifact as a normal notarized macOS release.
 
-## Publishing a pre-alpha
+## Publishing a release
 
 ```bash
 git tag v0.1.0-pre.1
 git push origin v0.1.0-pre.1
 ```
 
-Or, from the Actions tab, run **Pre-alpha Package** on `main` with `release_tag` set to `v0.1.0-pre.1`; the workflow creates the tag itself.
+Or, from the Actions tab, run **Release Package** on `main` with `release_tag` set to `v0.2.0` (stable, marked latest) or `v0.2.0-pre.1` (pre-release); the workflow creates the tag itself.
 
 The workflow refuses a tag whose version does not match `world-machine-desktop`. On a tag push, `gh release create --verify-tag` refuses to publish if the tag is missing from the repository; on a dispatch, the tag is created at the dispatched commit. A release that already exists for the tag makes the publish step fail rather than overwrite it; delete the release manually before re-running if that is intended.
 

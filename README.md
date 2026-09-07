@@ -2,7 +2,7 @@
 
 Persistent worlds that remember, evolve, and branch. A World keeps living while you are away, tells you what changed when you return, and lets you fork it to try the other choice.
 
-> **Pre-alpha for macOS.** Everything stays on your Mac: no account, no telemetry. Builds are not yet notarized, so the first launch asks once; see [docs/RELEASE_SIGNING.md](docs/RELEASE_SIGNING.md) for what makes that go away.
+> **Early release for macOS.** Everything stays on your Mac: no account, no telemetry. Builds are not yet notarized, so the first launch asks once; see [docs/RELEASE_SIGNING.md](docs/RELEASE_SIGNING.md) for what makes that go away.
 
 ## Try it in three steps
 

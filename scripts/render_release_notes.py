@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Render pre-alpha release notes.")
+    parser = argparse.ArgumentParser(description="Render release notes from a release manifest.")
     parser.add_argument("manifest", type=Path)
     parser.add_argument(
         "--repository",
@@ -32,6 +32,7 @@ def render(manifest: dict, repository: str) -> str:
             "Developer ID notarized build"
         )
 
+    prerelease = "-pre." in tag
     install_url = f"https://github.com/{repository}/blob/{tag}/docs/INSTALL.md"
     architectures = ", ".join(manifest["architectures"])
     packs = "\n".join(f"- `{pack}`" for pack in manifest["included_packs"])
@@ -53,8 +54,8 @@ def render(manifest: dict, repository: str) -> str:
         signing_cell = "Developer ID, notarized"
     else:
         status_line = (
-            "> **Pre-alpha, not yet notarized by Apple.** macOS asks once before the "
-            "first launch; the steps below take a minute and happen only once."
+            "> **Not yet notarized by Apple.** macOS asks once before the first "
+            "launch; the steps below take a minute and happen only once."
         )
         install = f"""## Install
 
@@ -71,7 +72,7 @@ The [install guide]({install_url}) has the same steps with more detail.
 {status_line}
 
 {install}
-Experimental pre-alpha software: everything stays on your Mac, and the World format may still change between releases.
+{"Pre-release build." if prerelease else "Early release."} Everything stays on your Mac: no account, no telemetry. The World file format may still change between releases; see the [changelog](https://github.com/{repository}/blob/{tag}/CHANGELOG.md).
 
 ## Build
 

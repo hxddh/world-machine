@@ -8,7 +8,7 @@ Requirements: a Mac with Apple Silicon or Intel running macOS 14 or newer. Nothi
 
 ## Until the app is notarized
 
-World Machine is pre-alpha and not yet notarized by Apple, so the first launch of a pre-alpha build adds one step, once:
+World Machine is not yet notarized by Apple, so the first launch adds one step, once:
 
 - macOS says it could not verify the app. Click **Done**.
 - Open **System Settings → Privacy & Security**, scroll to the **Security** section, click **Open Anyway**, and confirm.

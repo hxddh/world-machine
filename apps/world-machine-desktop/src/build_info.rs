@@ -12,7 +12,7 @@ pub fn display_label() -> String {
 fn format_build_identity(version: &str, commit: &str, architecture: &str) -> String {
     let commit = commit.trim();
     let commit = if commit.is_empty() { "dev" } else { commit };
-    format!("Pre-alpha {version} · build {commit} · {architecture}")
+    format!("World Machine {version} · build {commit} · {architecture}")
 }
 
 #[cfg(test)]
@@ -23,7 +23,7 @@ mod tests {
     fn build_identity_keeps_version_commit_and_architecture_explicit() {
         assert_eq!(
             format_build_identity("0.1.0", "abc123def456", "aarch64"),
-            "Pre-alpha 0.1.0 · build abc123def456 · aarch64"
+            "World Machine 0.1.0 · build abc123def456 · aarch64"
         );
     }
 
@@ -31,7 +31,7 @@ mod tests {
     fn blank_build_commit_is_a_development_build() {
         assert_eq!(
             format_build_identity("0.1.0", "   ", "x86_64"),
-            "Pre-alpha 0.1.0 · build dev · x86_64"
+            "World Machine 0.1.0 · build dev · x86_64"
         );
     }
 

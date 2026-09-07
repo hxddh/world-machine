@@ -10,12 +10,12 @@ from pathlib import Path
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Validate a World Machine pre-alpha package.")
+    parser = argparse.ArgumentParser(description="Validate a World Machine release package.")
     parser.add_argument("package_dir", type=Path)
     parser.add_argument(
         "--publishing",
         action="store_true",
-        help="Require a publishable pre-alpha number (pre.1 or newer).",
+        help="Require a publishable tag: a stable v<version> or pre.1 or newer.",
     )
     return parser.parse_args()
 
@@ -55,13 +55,13 @@ def validate(package_dir: Path, *, publishing: bool) -> dict:
 
     version = str(manifest["app_version"])
     tag = str(manifest["tag"])
-    match = re.fullmatch(rf"v{re.escape(version)}-pre\.(\d+)", tag)
+    match = re.fullmatch(rf"v{re.escape(version)}(?:-pre\.(\d+))?", tag)
     if not match:
         raise ValueError(
-            f"tag {tag!r} must match app version {version!r} as v{version}-pre.N"
+            f"tag {tag!r} must match app version {version!r} as v{version} or v{version}-pre.N"
         )
-    if publishing and int(match.group(1)) < 1:
-        raise ValueError("published pre-alpha numbers start at 1; pre.0 is CI-only")
+    if publishing and match.group(1) is not None and int(match.group(1)) < 1:
+        raise ValueError("published pre-release numbers start at 1; pre.0 is CI-only")
 
     artifact = package_dir / str(manifest["artifact"])
     checksum = package_dir / f"{artifact.name}.sha256"

@@ -1,18 +1,19 @@
-name: Pre-alpha Package
+name: Release Package
 
 on:
   workflow_dispatch:
     inputs:
       release_tag:
         description: >-
-          Publishable pre-alpha tag to create and release from this commit
-          (v<app-version>-pre.N, N >= 1). Leave empty for a pre.0 dry run
-          that only uploads an Actions artifact.
+          Tag to create and release from this commit: v<app-version> for a
+          stable release or v<app-version>-pre.N (N >= 1) for a pre-release.
+          Leave empty for a pre.0 dry run that only uploads an Actions artifact.
         required: false
         type: string
   push:
     tags:
       - 'v*-pre.*'
+      - 'v[0-9]+.[0-9]+.[0-9]+'
 
 permissions:
   contents: write
@@ -22,7 +23,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  macos-prealpha:
+  macos-release:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
@@ -70,10 +71,10 @@ jobs:
           import sys
 
           tag, version = sys.argv[1:]
-          if not re.fullmatch(rf"v{re.escape(version)}-pre\.([1-9][0-9]*)", tag):
+          if not re.fullmatch(rf"v{re.escape(version)}(-pre\.([1-9][0-9]*))?", tag):
               raise SystemExit(
                   f"release tag {tag!r} must match app version {version!r} as "
-                  f"v{version}-pre.N with N >= 1"
+                  f"v{version} or v{version}-pre.N with N >= 1"
               )
           PY
 
@@ -104,7 +105,7 @@ jobs:
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: |
           if [[ -z "${APPLE_CERTIFICATE_P12:-}" ]]; then
-              echo "No Developer ID certificate configured; building the ad-hoc pre-alpha package."
+              echo "No Developer ID certificate configured; building the ad-hoc package."
               echo "enabled=false" >> "$GITHUB_OUTPUT"
               exit 0
           fi
@@ -145,7 +146,7 @@ jobs:
           WORLD_MACHINE_UNIVERSAL: "1"
         run: bash apps/world-machine-desktop/macos/build-app.sh
 
-      - name: Package pre-alpha build
+      - name: Package release build
         env:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: |
@@ -166,7 +167,7 @@ jobs:
             --repository "$GITHUB_REPOSITORY" \
             > target/RELEASE_NOTES.md
 
-      - name: Publish GitHub pre-release
+      - name: Publish GitHub release
         if: steps.release.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -181,9 +182,16 @@ jobs:
           else
               TAG_ARGS=(--verify-tag)
           fi
+          # A -pre.N tag is a pre-release; a bare v<version> tag is the
+          # stable release and becomes the "latest" release.
+          if [[ "$RELEASE_TAG" == *-pre.* ]]; then
+              KIND_ARGS=(--prerelease)
+          else
+              KIND_ARGS=(--latest)
+          fi
           gh release create "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
-            --prerelease \
+            "${KIND_ARGS[@]}" \
             "${TAG_ARGS[@]}" \
             --title "World Machine $RELEASE_TAG" \
             --notes-file target/RELEASE_NOTES.md \
@@ -195,7 +203,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: world-machine-prealpha-package
+          name: world-machine-release-package
           path: target/release-package/*
           if-no-files-found: error
           retention-days: 14

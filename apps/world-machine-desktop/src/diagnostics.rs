@@ -428,13 +428,13 @@ mod tests {
             included_packs: vec!["pocket-universe 0.16.0".into()],
         };
         let report = render_report(
-            "Pre-alpha 0.1.0 · build abc · aarch64",
+            "World Machine 0.1.0 · build abc · aarch64",
             "macOS 15.1 (24B83) · aarch64",
             &environment,
             Some(&log),
             &log_tail(&log, 3),
         );
-        assert!(report.contains("Build: Pre-alpha 0.1.0 · build abc · aarch64"));
+        assert!(report.contains("Build: World Machine 0.1.0 · build abc · aarch64"));
         assert!(report.contains("Signing: ad-hoc, not notarized"));
         assert!(report.contains("Worlds: /tmp/Worlds"));
         assert!(report.contains("Included Packs: pocket-universe 0.16.0"));
