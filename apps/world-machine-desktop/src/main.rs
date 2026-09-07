@@ -1,5 +1,9 @@
 #[cfg(target_os = "macos")]
+mod about;
+#[cfg(target_os = "macos")]
 mod build_info;
+#[cfg(target_os = "macos")]
+mod diagnostics;
 #[cfg(target_os = "macos")]
 mod included_packs;
 #[cfg(target_os = "macos")]
@@ -141,8 +145,10 @@ impl DocumentStatus {
     }
 
     fn error(message: impl Into<String>) -> Self {
+        let message = message.into();
+        diagnostics::error(format!("document: {message}"));
         Self {
-            message: message.into(),
+            message,
             tone: DocumentStatusTone::Error,
         }
     }
@@ -185,6 +191,28 @@ impl WorldDocumentView {
             projection,
             status: None,
             analyst_available,
+        }
+    }
+
+    /// Opens Compare Futures for this World. Returns the Home status to show
+    /// when the request came from a Home card.
+    fn open_compare(&mut self, cx: &mut Context<Self>) -> Option<HomeStatus> {
+        match strategy_compare::open_setup(&self.document, cx) {
+            Ok(count) => {
+                self.status = Some(DocumentStatus::success(format!(
+                    "Opened Compare Futures · {count} choices"
+                )));
+                cx.notify();
+                None
+            }
+            Err(error) => {
+                self.status = Some(DocumentStatus::info(error.clone()));
+                cx.notify();
+                Some(HomeStatus::info(format!(
+                    "Opened {} · {error}",
+                    self.document_label
+                )))
+            }
         }
     }
 
@@ -280,7 +308,10 @@ impl Render for WorldDocumentView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         window.set_window_title(&document_window_title(&self.document_label));
         let actions = div()
+            .flex_shrink_0()
             .flex()
+            .flex_wrap()
+            .justify_end()
             .gap_2()
             .child(world_fork::document_action(
                 &self.document,
@@ -296,14 +327,18 @@ impl Render for WorldDocumentView {
             .items_center()
             .justify_between()
             .px_4()
+            .gap_3()
             .border_b_1()
             .border_color(rgb(0xd9d9d3))
             .bg(rgb(0xf7f7f3))
             .child(
                 div()
+                    .flex_1()
+                    .min_w(px(0.0))
                     .flex()
                     .gap_2()
                     .items_center()
+                    .overflow_hidden()
                     .child(div().text_xs().text_color(rgb(0x777770)).child("DOCUMENT"))
                     .child(div().text_sm().child(self.document_label.clone())),
             )
@@ -326,6 +361,7 @@ impl Render for WorldDocumentView {
         div().size_full().flex().flex_col().child(chrome).child(
             div()
                 .flex_1()
+                .min_h(px(0.0))
                 .w_full()
                 .overflow_hidden()
                 .child(self.projection.clone()),
@@ -365,8 +401,10 @@ impl HomeStatus {
     }
 
     fn error(message: impl Into<String>) -> Self {
+        let message = message.into();
+        diagnostics::error(format!("home: {message}"));
         Self {
-            message: message.into(),
+            message,
             tone: HomeStatusTone::Error,
         }
     }
@@ -654,6 +692,8 @@ impl WorldMachineHome {
         self.probing_packs.push(pack.clone());
         self.status = Some(HomeStatus::info(if create_on_success {
             "Testing this World before first launch…".into()
+        } else if let Some(title) = self.included_pack_title(&pack) {
+            format!("Preparing {title} for its first launch…")
         } else {
             format!(
                 "Testing trusted Pack {} @ {} · Create → Archive → fresh-process Open…",
@@ -696,13 +736,25 @@ impl WorldMachineHome {
                                     if activate_on_success && offer_create_on_success {
                                         this.ready_pack_to_create = Some(pack.clone());
                                     }
-                                    this.status = Some(HomeStatus::success(format!(
-                                        "Trusted and tested {} @ {} · durable Create/Archive/Open succeeded · World time {} → {}",
+                                    diagnostics::info(format!(
+                                        "pack {} @ {} passed its durable probe · World time {} → {}",
                                         pack.id,
                                         pack.version,
                                         probe.created_world_time,
                                         probe.reopened_world_time
-                                    )));
+                                    ));
+                                    this.status = Some(HomeStatus::success(
+                                        match this.included_pack_title(&pack) {
+                                            Some(title) => format!("{title} is ready to start."),
+                                            None => format!(
+                                                "Trusted and tested {} @ {} · durable Create/Archive/Open succeeded · World time {} → {}",
+                                                pack.id,
+                                                pack.version,
+                                                probe.created_world_time,
+                                                probe.reopened_world_time
+                                            ),
+                                        },
+                                    ));
                                 }
                                 Err(error) => {
                                     this.status = Some(HomeStatus::error(format!(
@@ -734,6 +786,13 @@ impl WorldMachineHome {
             });
         })
         .detach();
+    }
+
+    fn included_pack_title(&self, pack: &WorldPackRef) -> Option<&'static str> {
+        self.included_packs
+            .iter()
+            .find(|included| &included.pack == pack)
+            .map(|included| included.title)
     }
 
     fn ready_pack_descriptor(&self) -> Option<world_host::WorldDescriptor> {
@@ -902,8 +961,20 @@ impl WorldMachineHome {
 
     fn open_session(
         &mut self,
+        session: DurableWorldSession,
+        title: String,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_session_with(session, title, false, cx);
+    }
+
+    /// Opens a World window; with `compare_on_open`, also opens Compare
+    /// Futures for it so a Home card can jump straight to "what if".
+    fn open_session_with(
+        &mut self,
         mut session: DurableWorldSession,
         title: String,
+        compare_on_open: bool,
         cx: &mut Context<Self>,
     ) {
         let is_library_world = session.document_id().is_some();
@@ -925,6 +996,14 @@ impl WorldMachineHome {
             move |_, cx| cx.new(|cx| WorldDocumentView::new(session, registry, library, cx)),
         );
 
+        let compare = match (&opened, compare_on_open) {
+            (Ok(handle), true) => handle
+                .update(cx, |view, _, cx| view.open_compare(cx))
+                .ok()
+                .flatten(),
+            _ => None,
+        };
+
         self.status = Some(match opened {
             Ok(_) => match catch_up {
                 Ok(Some(outcome)) => HomeStatus::success(format!(
@@ -941,7 +1020,39 @@ impl WorldMachineHome {
         if let Some(status) = sync_error {
             self.status = Some(status);
         }
+        if let Some(compare) = compare {
+            self.status = Some(compare);
+        }
         cx.notify();
+    }
+
+    fn compare_document(&mut self, document_id: WorldDocumentId, cx: &mut Context<Self>) {
+        let summary = self
+            .documents
+            .iter()
+            .find(|document| document.id == document_id);
+        if let Some(document) = summary {
+            if self.registry.descriptor_for(&document.pack).is_none() {
+                self.status = Some(HomeStatus::error(self.missing_pack_message(&document.pack)));
+                cx.notify();
+                return;
+            }
+        }
+        let title = summary
+            .and_then(|document| self.registry.descriptor_for(&document.pack))
+            .map(|descriptor| descriptor.title.clone())
+            .unwrap_or_else(|| document_id.to_string());
+        let session = match DurableWorldSession::open(document_id, &self.registry, &self.library) {
+            Ok(session) => session,
+            Err(error) => {
+                self.status = Some(HomeStatus::error(format!(
+                    "Could not open {title}: {error}"
+                )));
+                cx.notify();
+                return;
+            }
+        };
+        self.open_session_with(session, title, true, cx);
     }
 
     fn create_world(&mut self, pack_id: String, cx: &mut Context<Self>) {
@@ -1237,6 +1348,7 @@ impl WorldMachineHome {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let open_id = document.id.clone();
+        let compare_id = document.id.clone();
         let export_id = document.id.clone();
         let pack_title = self
             .registry
@@ -1252,6 +1364,8 @@ impl WorldMachineHome {
             .cloned();
 
         let mut details = div()
+            .flex_1()
+            .min_w(px(0.0))
             .flex()
             .flex_col()
             .gap_1()
@@ -1400,7 +1514,10 @@ impl WorldMachineHome {
             .child(details)
             .child(
                 div()
+                    .flex_shrink_0()
                     .flex()
+                    .flex_col()
+                    .items_end()
                     .gap_2()
                     .child(
                         div()
@@ -1409,11 +1526,26 @@ impl WorldMachineHome {
                             .p_2()
                             .rounded_md()
                             .border_1()
-                            .border_color(rgb(0xd9d9d3))
+                            .border_color(rgb(0x657da7))
+                            .bg(rgb(0xf4f7ff))
                             .text_sm()
                             .child("Open")
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.open_document(open_id.clone(), cx)
+                            })),
+                    )
+                    .child(
+                        div()
+                            .id(SharedString::from(format!("compare-{compare_id}")))
+                            .cursor_pointer()
+                            .p_2()
+                            .rounded_md()
+                            .border_1()
+                            .border_color(rgb(0xd9d9d3))
+                            .text_sm()
+                            .child("What if…")
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.compare_document(compare_id.clone(), cx)
                             })),
                     )
                     .child(
@@ -1594,14 +1726,12 @@ impl WorldMachineHome {
                     .flex_col()
                     .gap_1()
                     .child(div().text_lg().child(format!("{title} is ready")))
-                    .child(
-                        div().text_sm().text_color(rgb(0x52604d)).child(
-                            "The Pack passed its durable probe and is active for new Worlds.",
-                        ),
-                    )
+                    .child(div().text_sm().text_color(rgb(0x52604d)).child(
+                        "Start your first World. It keeps living between visits, and you can always create another.",
+                    ))
                     .child(div().text_xs().text_color(rgb(0x75806f)).child(format!(
-                        "{} @ {} · no World has been created yet",
-                        descriptor.pack.id, descriptor.pack.version
+                        "Version {} · no World created yet",
+                        descriptor.pack.version
                     ))),
             )
             .child(
@@ -1872,10 +2002,12 @@ impl WorldMachineHome {
                     .text_color(rgb(0x666666))
                     .child(descriptor.description),
             )
-            .child(div().text_xs().text_color(rgb(0x8a8a82)).child(format!(
-                "{} @ {}",
-                descriptor.pack.id, descriptor.pack.version
-            )))
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0x8a8a82))
+                    .child(format!("Version {}", descriptor.pack.version)),
+            )
             .on_click(cx.listener(move |this, _, _, cx| this.create_world(pack_id.clone(), cx)))
     }
 }
@@ -1927,7 +2059,7 @@ impl Render for WorldMachineHome {
                     .border_color(rgb(0xe1e1dc))
                     .text_sm()
                     .text_color(rgb(0x777770))
-                    .child("No saved Worlds yet. Create or import one below."),
+                    .child("No Worlds yet. Start one below; it keeps living while you are away."),
             );
         } else if visible_documents.is_empty() {
             saved = saved.child(
@@ -2073,8 +2205,11 @@ impl Render for WorldMachineHome {
             .flex()
             .justify_between()
             .items_center()
+            .gap_3()
             .child(
                 div()
+                    .flex_1()
+                    .min_w(px(0.0))
                     .flex()
                     .flex_col()
                     .gap_1()
@@ -2094,6 +2229,7 @@ impl Render for WorldMachineHome {
             )
             .child(
                 div()
+                    .flex_shrink_0()
                     .flex()
                     .gap_2()
                     .child(install_pack)
@@ -2682,8 +2818,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let application = application();
     system_open::install(&application);
+    diagnostics::init();
     let library = Arc::new(discover_library()?);
     let pack_catalog_path = discover_pack_catalog_path(library.as_ref());
+    diagnostics::info(format!(
+        "worlds at {} · packs catalog at {}",
+        library.root().display(),
+        pack_catalog_path.display()
+    ));
     let (pack_catalog, registry, pack_status) = match PackCatalog::open(&pack_catalog_path) {
         Ok(catalog) => match build_registry(Some(&catalog)) {
             Ok(registry) => (Some(catalog), Arc::new(registry), None),
@@ -2725,12 +2867,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ),
     };
 
+    diagnostics::record_environment(diagnostics::Environment {
+        library_dir: Some(library.root().to_path_buf()),
+        pack_catalog_path: Some(pack_catalog_path.clone()),
+        included_packs: included_packs
+            .iter()
+            .map(|pack| format!("{} {}", pack.pack.id, pack.pack.version))
+            .collect(),
+    });
+    diagnostics::info(format!(
+        "{} saved World(s) · {} included Pack(s)",
+        documents.len(),
+        included_packs.len()
+    ));
+
     let status = pack_status
         .or(library_status)
         .or(included_status)
         .map(HomeStatus::error);
 
     application.run(move |cx: &mut App| {
+        about::install(cx);
         let home = cx.new(|cx| {
             let mut home = WorldMachineHome {
                 registry,

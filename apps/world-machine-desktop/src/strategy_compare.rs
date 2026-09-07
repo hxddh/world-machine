@@ -1,6 +1,6 @@
 use super::{
-    mark_library_changed, sanitize_document_base, unique_document_id, DocumentStatus,
-    SharedDocument, WorldDocumentView,
+    mark_library_changed, sanitize_document_base, unique_document_id, SharedDocument,
+    WorldDocumentView,
 };
 use gpui::{
     div, prelude::*, px, rgb, size, AppContext, Bounds, Context, Div, Entity, IntoElement, Render,
@@ -63,13 +63,7 @@ pub(crate) fn document_actions(
                 .text_sm()
                 .child("Compare choices…")
                 .on_click(cx.listener(|this, _, _, cx| {
-                    this.status = Some(match open_setup(&this.document, cx) {
-                        Ok(count) => DocumentStatus::success(format!(
-                            "Opened Compare Futures · {count} choices"
-                        )),
-                        Err(error) => DocumentStatus::error(format!("Compare failed: {error}")),
-                    });
-                    cx.notify();
+                    this.open_compare(cx);
                 })),
         );
     }
@@ -103,13 +97,16 @@ pub(crate) fn document_actions(
         )
 }
 
-fn open_setup(
+pub(crate) fn open_setup(
     document: &SharedDocument,
     cx: &mut Context<WorldDocumentView>,
 ) -> Result<usize, String> {
     let choices = available_choices(&document.borrow().session);
     if choices.len() < 2 {
-        return Err("This World needs at least two choices to compare".into());
+        return Err(
+            "This World has one path right now. Continue it and try again when it offers a choice."
+                .into(),
+        );
     }
 
     let count = choices.len();

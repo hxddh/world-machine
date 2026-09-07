@@ -23,6 +23,7 @@ body:
       label: How did you install it?
       options:
         - Downloaded the release zip
+        - Homebrew cask
         - Built from source
     validations:
       required: true
@@ -47,7 +48,13 @@ body:
       label: Which World and Pack?
       description: For example "Pocket Universe, Mars colony seed, after about 20 generations".
   - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: In the app, choose Help → Copy Diagnostics and paste the result here. It contains the build, macOS version, paths, and the last log lines; nothing else.
+      render: text
+  - type: textarea
     id: extra
     attributes:
       label: Anything else
-      description: Logs, screenshots, or the .world file if you are comfortable sharing it.
+      description: Screenshots, or the .world file if you are comfortable sharing it.

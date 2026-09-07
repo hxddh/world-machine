@@ -86,8 +86,9 @@ fn visit_cursor_reports_when_nothing_changed() {
     let briefing = snapshot.briefing.as_ref().unwrap();
 
     assert_eq!(briefing.title, "While you were away");
-    assert_eq!(briefing.items.len(), 1);
-    assert_eq!(briefing.items[0].title, "No new events");
+    assert_eq!(briefing.items.len(), 2);
+    assert_eq!(briefing.items[0].title, "Harbor today");
+    assert_eq!(briefing.items[1].title, "No new events");
 }
 
 #[test]
