@@ -79,9 +79,13 @@ fn shell_quote(value: &str) -> String {
 }
 
 fn write_fixture_process(path: &Path, responses: &[String]) {
+    // The host is single-flight: the next request frame is never written
+    // until this response has been read, so `head -n 1` consumes exactly one
+    // frame. A shell `read -r` reads a 16 MiB line one byte per syscall and
+    // alone spends most of the 5 s request budget on slower CI runners.
     let mut script = String::from("#!/bin/sh\n");
     for response in responses {
-        script.push_str("IFS= read -r _line || exit 1\n");
+        script.push_str("head -n 1 >/dev/null || exit 1\n");
         script.push_str("printf '%s\\n' ");
         script.push_str(&shell_quote(response));
         script.push('\n');
