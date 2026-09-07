@@ -20,11 +20,11 @@ pub(crate) fn write_all_until(
 
     #[cfg(not(unix))]
     {
-        write_all_with_wait_until(stdin, bytes, deadline, || {
-            let remaining = remaining(deadline)?;
-            std::thread::sleep(remaining.min(Duration::from_millis(1)));
-            Ok(())
-        })
+        // A blocking pipe never reports `WouldBlock`, so the deadline loop
+        // could not bound a stalled write here. `configure` already refuses
+        // such hosts; fail closed rather than pretend the deadline holds.
+        let _ = (stdin, bytes, deadline);
+        Err(unsupported_host_error())
     }
 }
 
@@ -162,7 +162,15 @@ fn poll_timeout_millis(deadline: Instant) -> io::Result<std::ffi::c_int> {
 
 #[cfg(not(unix))]
 fn configure_nonblocking(_stdin: &std::process::ChildStdin) -> io::Result<()> {
-    Ok(())
+    Err(unsupported_host_error())
+}
+
+#[cfg(not(unix))]
+fn unsupported_host_error() -> io::Error {
+    io::Error::new(
+        io::ErrorKind::Unsupported,
+        "external Pack request write deadlines require a Unix host with non-blocking pipes",
+    )
 }
 
 #[cfg(test)]
