@@ -113,6 +113,7 @@ impl ProjectionView {
         div()
             .id("projection-collection-scroll")
             .w(px(220.0))
+            .flex_shrink_0()
             .h_full()
             .overflow_y_scroll()
             .flex()
@@ -1049,6 +1050,7 @@ impl Render for ProjectionView {
         let mut center = div()
             .id("projection-center-scroll")
             .flex_1()
+            .min_w(px(0.0))
             .h_full()
             .overflow_y_scroll()
             .flex()
@@ -1083,7 +1085,13 @@ impl Render for ProjectionView {
             }
         }
 
-        let mut workspace = div().flex_1().w_full().flex();
+        let mut workspace = div()
+            .flex_1()
+            .min_h(px(0.0))
+            .w_full()
+            .min_w(px(0.0))
+            .overflow_hidden()
+            .flex();
         if has_collection_panel(&self.snapshot) {
             workspace = workspace.child(self.render_collection(cx));
         }

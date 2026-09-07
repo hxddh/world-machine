@@ -1,0 +1,207 @@
+//! The About window and the application menu.
+//!
+//! Both exist so a user can tell which build they run, find the log, and
+//! report a problem without a Terminal: About shows the build identity, the
+//! not-notarized status, and the paths in use; the Help menu and the About
+//! buttons copy a diagnostics report, reveal the log folder, and open the
+//! issue template or the install guide.
+
+use gpui::{
+    actions, div, prelude::*, px, rgb, size, App, AppContext, Bounds, ClipboardItem, Context,
+    IntoElement, KeyBinding, Menu, MenuItem, Render, Styled, SystemMenuType, Window, WindowBounds,
+    WindowOptions,
+};
+
+use crate::{build_info, diagnostics};
+
+actions!(
+    world_machine,
+    [
+        About,
+        Quit,
+        CopyDiagnostics,
+        OpenLogFolder,
+        ReportProblem,
+        InstallGuide
+    ]
+);
+
+/// Registers the global actions, the menu bar, and Cmd-Q. Call once after the
+/// application starts and before the first window opens.
+pub fn install(cx: &mut App) {
+    cx.on_action(|_: &About, cx| open_about_window(cx));
+    cx.on_action(|_: &Quit, cx| {
+        diagnostics::info("quit requested from the menu");
+        cx.quit();
+    });
+    cx.on_action(|_: &CopyDiagnostics, cx| copy_diagnostics(cx));
+    cx.on_action(|_: &OpenLogFolder, cx| open_log_folder(cx));
+    cx.on_action(|_: &ReportProblem, cx| {
+        diagnostics::info("opening the issue template");
+        cx.open_url(diagnostics::ISSUE_URL);
+    });
+    cx.on_action(|_: &InstallGuide, cx| cx.open_url(diagnostics::INSTALL_GUIDE_URL));
+
+    cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
+
+    cx.set_menus([
+        Menu::new("World Machine").items([
+            MenuItem::action("About World Machine…", About),
+            MenuItem::separator(),
+            MenuItem::os_submenu("Services", SystemMenuType::Services),
+            MenuItem::separator(),
+            MenuItem::action("Quit World Machine", Quit),
+        ]),
+        Menu::new("Help").items([
+            MenuItem::action("Install Guide", InstallGuide),
+            MenuItem::action("Report a Problem…", ReportProblem),
+            MenuItem::separator(),
+            MenuItem::action("Copy Diagnostics", CopyDiagnostics),
+            MenuItem::action("Show Log in Finder", OpenLogFolder),
+        ]),
+    ]);
+}
+
+fn copy_diagnostics(cx: &mut App) {
+    let report = diagnostics::report();
+    cx.write_to_clipboard(ClipboardItem::new_string(report));
+    diagnostics::info("diagnostics report copied to the clipboard");
+}
+
+fn open_log_folder(cx: &mut App) {
+    match diagnostics::log_path() {
+        Some(path) => cx.reveal_path(path),
+        None => {
+            if let Some(dir) = diagnostics::log_dir() {
+                cx.reveal_path(&dir);
+            }
+        }
+    }
+}
+
+fn open_about_window(cx: &mut App) {
+    let bounds = Bounds::centered(None, size(px(520.0), px(420.0)), cx);
+    let opened = cx.open_window(
+        WindowOptions {
+            window_bounds: Some(WindowBounds::Windowed(bounds)),
+            ..Default::default()
+        },
+        |_, cx| cx.new(|_| AboutView { copied: false }),
+    );
+    if let Err(error) = opened {
+        diagnostics::error(format!("could not open the About window: {error}"));
+    }
+}
+
+struct AboutView {
+    copied: bool,
+}
+
+impl Render for AboutView {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        window.set_window_title("About World Machine");
+        let environment = diagnostics::environment();
+        let library = environment
+            .library_dir
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| "unknown".to_string());
+        let log = diagnostics::log_path()
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| "unavailable".to_string());
+
+        let copy_label = if self.copied {
+            "Copied"
+        } else {
+            "Copy Diagnostics"
+        };
+
+        div()
+            .size_full()
+            .bg(rgb(0xfcfcfa))
+            .text_color(rgb(0x202020))
+            .flex()
+            .flex_col()
+            .gap_3()
+            .p_5()
+            .child(div().text_xl().child("World Machine"))
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(rgb(0x666666))
+                    .child("Persistent worlds that remember, evolve, and branch."),
+            )
+            .child(div().text_sm().child(build_info::display_label()))
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(rgb(0x9b4a42))
+                    .child("Pre-alpha build · ad-hoc signed, not notarized by Apple."),
+            )
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0x666666))
+                    .child(diagnostics::host_description()),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .text_xs()
+                    .text_color(rgb(0x666666))
+                    .child(format!("Worlds: {library}"))
+                    .child(format!("Log: {log}")),
+            )
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(0x8a8a82))
+                    .child("Everything stays on this Mac. World Machine sends no telemetry."),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_wrap()
+                    .gap_2()
+                    .pt_2()
+                    .child(about_button("about-copy-diagnostics", copy_label).on_click(
+                        cx.listener(|this, _, _, cx| {
+                            copy_diagnostics(cx);
+                            this.copied = true;
+                            cx.notify();
+                        }),
+                    ))
+                    .child(
+                        about_button("about-show-log", "Show Log in Finder")
+                            .on_click(cx.listener(|_, _, _, cx| open_log_folder(cx))),
+                    )
+                    .child(
+                        about_button("about-report-problem", "Report a Problem…").on_click(
+                            cx.listener(|_, _, _, cx| {
+                                diagnostics::info("opening the issue template");
+                                cx.open_url(diagnostics::ISSUE_URL);
+                            }),
+                        ),
+                    )
+                    .child(
+                        about_button("about-install-guide", "Install Guide").on_click(
+                            cx.listener(|_, _, _, cx| cx.open_url(diagnostics::INSTALL_GUIDE_URL)),
+                        ),
+                    ),
+            )
+    }
+}
+
+fn about_button(id: &'static str, label: &'static str) -> gpui::Stateful<gpui::Div> {
+    div()
+        .id(id)
+        .cursor_pointer()
+        .p_2()
+        .rounded_md()
+        .border_1()
+        .border_color(rgb(0xd9d9d3))
+        .bg(rgb(0xffffff))
+        .text_sm()
+        .child(label)
+}
