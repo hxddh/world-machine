@@ -14,7 +14,7 @@ use world_persistence::{PersistenceError, WorldArchive, WorldPackRef};
 use world_projection::ProjectionSnapshot;
 
 pub const TINY_SOCIETY_PACK_ID: &str = "world-machine.tiny-society";
-pub const TINY_SOCIETY_PACK_VERSION: &str = "0.1.0";
+pub const TINY_SOCIETY_PACK_VERSION: &str = "0.2.0";
 
 const WORLD_DAY_TICKS: u64 = 10;
 const MORNING_OFFSET_TICKS: u64 = 5;

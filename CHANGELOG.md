@@ -4,6 +4,10 @@ Releases live on the [Releases page](https://github.com/hxddh/world-machine/rele
 
 ## Unreleased
 
+**Worlds created before this release will not open.** Pocket Universe moves to `0.17` and Tiny Society to `0.2` because both change the rules their Worlds run under, and a `.world` file records the exact Pack version it was created with. This release ships only the new versions, so a Pocket Universe or Tiny Society World saved by `v0.2.2` or earlier reports that it needs a Pack version this build does not have. Export anything you want to keep before updating; Micro Company Worlds are unaffected.
+
+- Pocket Universe 0.17: chapter four. Once the pressure has resolved, two generations later someone who did not live through the World's beginning steps forward. This chapter has no deadline — the successor waits as long as you leave them waiting, but every generation of waiting deepens habits of their own, so the briefing moves from "New hands" through "Own habits" to "Already theirs". Entrust the legacy unchanged or release it to be rewritten; the answer is durable, and releasing resets the legacy's reinforcement cycles the way recovering a lost anchor does. The same choice reads differently depending on how chapter three ended.
+- Tiny Society: a second consequence chain. Reopening the bakery lean leaves Mara working the counter alone. Only the demand that came back — Jonas buying bread again, which is the end of the first chain — is counted, and once the counter has carried that trade and the till holds a wage in reserve, Mara takes Mia on and the job the closure cost the island comes back. A World whose harbour never recovered keeps a one-person bakery for good.
 - My Worlds: once you have six or more Worlds, the list gains **Find a World** and an **Order** switch — most recently played, or A to Z. Typing matches a World's name, its World Pack's title, or its file id, and the heading says how many of your Worlds are showing.
 - Windows open where you left them. Home and World windows remember their size and position between launches; a window saved on a display you no longer have opens centred instead of off-screen.
 

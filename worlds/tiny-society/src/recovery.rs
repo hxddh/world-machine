@@ -1,4 +1,5 @@
 use crate::model::{MARA_BAKERY_JOB, OPERATING_STATUS};
+use crate::staffing::{COUNTER_SALES, STAFFING_STATUS};
 use crate::{actions::text_component, build_action_registry, TinySocietyBranch, BAKERY, MARA};
 use society_basic::{integer_component, CASH, JOB};
 use std::error::Error;
@@ -93,6 +94,19 @@ impl Action for ReopenBakeryLean {
                 entity: MARA,
                 key: JOB.into(),
                 value: "bakery_owner_operator".into(),
+            },
+            // Reopening lean *is* opening an owner-run counter, so the counter
+            // its second chain reads starts in the same Event rather than in a
+            // follow-on the behavior runtime would have to be running to fire.
+            StateChange::SetComponent {
+                entity: BAKERY,
+                key: STAFFING_STATUS.into(),
+                value: "lean".into(),
+            },
+            StateChange::SetComponent {
+                entity: BAKERY,
+                key: COUNTER_SALES.into(),
+                value: 0_i64.into(),
             },
         ];
         Ok(draft)

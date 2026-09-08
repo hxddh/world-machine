@@ -26,6 +26,7 @@ pub(crate) const LEO_PUB_JOB: RelationId = RelationId::new(702);
 pub(crate) const EMMA_SCHOOL_JOB: RelationId = RelationId::new(703);
 pub(crate) const JONAS_HARBOR_JOB: RelationId = RelationId::new(704);
 pub(crate) const TEMP_BAKERY_JOB: RelationId = RelationId::new(705);
+pub(crate) const MIA_BAKERY_JOB: RelationId = RelationId::new(706);
 
 pub(crate) const CONDITION: &str = "condition";
 pub(crate) const INCOME_STATUS: &str = "income_status";
