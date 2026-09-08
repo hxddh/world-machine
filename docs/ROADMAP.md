@@ -291,6 +291,7 @@ A normal macOS app is download, open, use. That requires a Developer ID signatur
 | Stage 4: `v0.2.0` | shipped 2026-09-07 at the owner's direction, before real-device verification and the usability test; both stay open below |
 | Stage 4: `v0.2.1` | shipped 2026-09-08: update banner, prefilled problem report, dark mode, standard window and app menu behaviour |
 | `v0.2.2` | shipped 2026-09-08: naming and removing Worlds, a World window that carries the name, and a Library that survives one damaged file |
+| `v0.3.0` | shipped 2026-09-08: find and order My Worlds, windows that reopen where they were left, Pocket Universe chapter four, and a second Tiny Society consequence chain. Both Pack versions moved, which closes Worlds saved by earlier releases |
 
 ### Why this phase exists
 
@@ -364,9 +365,10 @@ Decide the next phase from real usage, not from architectural interest. Candidat
 
 1. Developer ID signing and notarization as soon as a certificate exists; this is the gate for any release aimed beyond technical early adopters.
 2. Real-device verification, README screenshots, and the usability test. These need a physical Mac and testers; the CI screenshot runner rasterizes no text and cannot substitute. Findings from them outrank the rest of this list, and [NEXT_TASK.md](../NEXT_TASK.md) carries the ordered plan while none exist yet.
-3. Windows or Linux support if download requests justify the GPUI cost.
-4. A second-party Pack authoring guide once first-party content proves retention.
-5. Persistent Pi sessions or direct model API access for the Analyst if the Experimental panel sees use.
-6. Return to transport and scheduler hardening only against reported failures.
+3. Carrying a World across a Pack version change. `v0.3.0` closed every Pocket Universe and Tiny Society World saved before it; the catalog already supports several versions of one Pack at once, so shipping the previous version alongside the new one would let old Worlds keep their old rules.
+4. Windows or Linux support if download requests justify the GPUI cost.
+5. A second-party Pack authoring guide once first-party content proves retention.
+6. Persistent Pi sessions or direct model API access for the Analyst if the Experimental panel sees use.
+7. Return to transport and scheduler hardening only against reported failures.
 
 The project should resist adding infrastructure merely because it is architecturally interesting. New runtime primitives should be justified by a product behavior that at least two different Worlds can use.
