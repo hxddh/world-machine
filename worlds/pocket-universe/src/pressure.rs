@@ -49,7 +49,8 @@ pub(crate) fn resolve_period_pressure(
     } else if loss_candidate(state)?.is_some() {
         "lose_anchor"
     } else {
-        return Ok(tail);
+        // Nothing left for this chapter; chapter four reads the outcome.
+        return succession::resolve_period_succession(world, actions, tail);
     };
     let mut request = ActionRequest::new(action).caused_by(tail);
     for cause in pressure_causes(world) {
@@ -57,7 +58,8 @@ pub(crate) fn resolve_period_pressure(
             request = request.caused_by(cause);
         }
     }
-    Ok(world.execute(actions, &request)?.id)
+    let advanced = world.execute(actions, &request)?.id;
+    succession::resolve_period_succession(world, actions, advanced)
 }
 
 pub(crate) fn pressure_id_from_state(state: &WorldState) -> String {
@@ -70,7 +72,7 @@ pub(crate) fn pressure_id_from_state(state: &WorldState) -> String {
     }
 }
 
-fn pressure_generation_from_state(state: &WorldState) -> i64 {
+pub(crate) fn pressure_generation_from_state(state: &WorldState) -> i64 {
     match state
         .entity(UNIVERSE)
         .and_then(|entity| entity.component(PRESSURE_GENERATION))

@@ -1,6 +1,7 @@
 mod legacy;
 mod pressure;
 mod projection;
+mod succession;
 
 use std::error::Error;
 use std::sync::Arc;
@@ -17,7 +18,7 @@ use world_persistence::{PersistenceError, WorldArchive, WorldPackRef};
 use world_projection::{ProjectionIntent, ProjectionSnapshot};
 
 pub const POCKET_UNIVERSE_PACK_ID: &str = "world-machine.pocket-universe";
-pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.16.0";
+pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.17.0";
 
 pub const SEED_MARS_COLONY_COMMAND: &str = "pocket-universe.seed-mars-colony";
 pub const SEED_1980S_TOWN_COMMAND: &str = "pocket-universe.seed-1980s-town";
@@ -32,6 +33,8 @@ pub const ROOTED_POSTURE_COMMAND: &str = "pocket-universe.posture-rooted";
 pub const HOLD_PRESSURE_COMMAND: &str = "pocket-universe.pressure-hold";
 pub const REACH_PRESSURE_COMMAND: &str = "pocket-universe.pressure-reach";
 pub const RECOVER_ANCHOR_COMMAND: &str = "pocket-universe.pressure-recover";
+pub const ENTRUST_LEGACY_COMMAND: &str = "pocket-universe.succession-entrust";
+pub const RELEASE_LEGACY_COMMAND: &str = "pocket-universe.succession-release";
 
 pub(crate) const UNIVERSE: EntityId = EntityId::new(1);
 pub(crate) const SLOT_A: EntityId = EntityId::new(10);
@@ -275,6 +278,8 @@ where
             HOLD_PRESSURE_COMMAND => "hold_through_pressure",
             REACH_PRESSURE_COMMAND => "reach_beyond_pressure",
             RECOVER_ANCHOR_COMMAND => "recover_anchor",
+            ENTRUST_LEGACY_COMMAND => "entrust_legacy",
+            RELEASE_LEGACY_COMMAND => "release_legacy",
             _ => {
                 return Err(std::io::Error::other(format!(
                     "unknown projection command: {command_id}"
@@ -575,6 +580,7 @@ fn build_action_registry() -> Result<ActionRegistry, ActionError> {
     actions.register(ResolveSocialArc)?;
     legacy::register_actions(&mut actions)?;
     pressure::register_actions(&mut actions)?;
+    succession::register_actions(&mut actions)?;
     actions.register(SteerSharedProject)?;
     actions.register(SteerRivalry)?;
     Ok(actions)
@@ -3248,6 +3254,23 @@ mod tests {
         assert_eq!(forked.commands.len(), 3);
     }
 
+    fn succession_of(universe: &PocketUniverse) -> String {
+        succession::succession_id_from_state(universe.world().state())
+    }
+
+    fn succession_outcome_of(universe: &PocketUniverse) -> String {
+        text_component_from_state(
+            universe.world().state(),
+            UNIVERSE,
+            succession::SUCCESSION_OUTCOME,
+        )
+        .unwrap()
+    }
+
+    fn succession_patience_of(universe: &PocketUniverse) -> i64 {
+        succession::succession_patience_from_state(universe.world().state())
+    }
+
     fn advance_until(
         universe: &mut PocketUniverse,
         done: impl Fn(&PocketUniverse) -> bool,
@@ -3410,6 +3433,103 @@ mod tests {
         assert!(!universe.world().events()[events_before..]
             .iter()
             .any(|event| event.kind.starts_with("pressure_") || event.kind == "anchor_lost"));
+    }
+
+    #[test]
+    fn a_successor_inherits_the_world_and_waits_until_the_observer_decides() {
+        let mut universe = rising_pressure_world(ROOTED_POSTURE_COMMAND);
+        universe
+            .invoke_projection_command(HOLD_PRESSURE_COMMAND)
+            .unwrap();
+        assert_eq!(pressure_of(&universe), "held");
+        assert_eq!(succession_of(&universe), "none");
+
+        // Nobody inherits the moment the pressure resolves.
+        advance_until(
+            &mut universe,
+            |universe| succession_of(universe) == "emerging",
+            6,
+        );
+        assert!(has_event(&universe, "successor_emerged"));
+        let ids = command_ids(&universe);
+        assert!(ids.iter().any(|id| id == ENTRUST_LEGACY_COMMAND));
+        assert!(ids.iter().any(|id| id == RELEASE_LEGACY_COMMAND));
+        let briefing = universe.projection_snapshot().briefing.unwrap();
+        assert!(briefing
+            .items
+            .iter()
+            .any(|item| item.title == "Succession · New hands"));
+
+        // Waiting is not neutral: the successor's own habits deepen, and the
+        // World keeps saying so on every return.
+        let patience_before = succession_patience_of(&universe);
+        universe.advance_periods(4).unwrap();
+        assert_eq!(succession_of(&universe), "emerging");
+        assert!(succession_patience_of(&universe) > patience_before);
+        assert!(universe
+            .projection_snapshot()
+            .briefing
+            .unwrap()
+            .items
+            .iter()
+            .any(|item| item.title == "Succession · Already theirs"));
+
+        // The choice is still there however long it waited.
+        universe
+            .invoke_projection_command(ENTRUST_LEGACY_COMMAND)
+            .unwrap();
+        assert_eq!(succession_of(&universe), "settled");
+        assert_eq!(succession_outcome_of(&universe), "continued");
+        let ids = command_ids(&universe);
+        assert!(!ids.iter().any(|id| id == ENTRUST_LEGACY_COMMAND));
+        assert!(!ids.iter().any(|id| id == RELEASE_LEGACY_COMMAND));
+
+        // Settled is durable: later cycles neither reopen nor re-raise it.
+        let events_before = universe.world().events().len();
+        universe.advance_periods(3).unwrap();
+        assert_eq!(succession_of(&universe), "settled");
+        assert!(!universe.world().events()[events_before..]
+            .iter()
+            .any(|event| event.kind.starts_with("successor_")));
+    }
+
+    #[test]
+    fn releasing_the_legacy_resets_its_cycles_and_keeps_a_lost_anchor_lost() {
+        let mut universe = lost_anchor_world();
+        assert_eq!(anchor_status(&universe), "lower ring sealed");
+
+        advance_until(
+            &mut universe,
+            |universe| succession_of(universe) == "emerging",
+            6,
+        );
+        // Chapter four never overwrites the anchor's status: a World that lost
+        // its anchor keeps saying so after somebody inherits it.
+        assert_eq!(anchor_status(&universe), "lower ring sealed");
+        assert_eq!(pressure_outcome_of(&universe), "lost");
+
+        universe
+            .invoke_projection_command(RELEASE_LEGACY_COMMAND)
+            .unwrap();
+        assert_eq!(succession_outcome_of(&universe), "renewed");
+        assert_eq!(anchor_status(&universe), "lower ring sealed");
+        assert_eq!(
+            integer_component(universe.world().state(), UNIVERSE, LEGACY_CYCLES).unwrap(),
+            0,
+            "releasing resets the legacy's cycles, as chapter three's recovery does"
+        );
+    }
+
+    #[test]
+    fn nobody_can_inherit_a_world_whose_pressure_has_not_resolved() {
+        let mut universe = rising_pressure_world(ROOTED_POSTURE_COMMAND);
+        assert_eq!(succession_of(&universe), "none");
+        let ids = command_ids(&universe);
+        assert!(!ids.iter().any(|id| id == ENTRUST_LEGACY_COMMAND));
+        assert!(!ids.iter().any(|id| id == RELEASE_LEGACY_COMMAND));
+        assert!(universe
+            .invoke_projection_command(ENTRUST_LEGACY_COMMAND)
+            .is_err());
     }
 
     #[test]

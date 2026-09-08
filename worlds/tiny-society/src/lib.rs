@@ -12,6 +12,7 @@ mod reciprocity;
 mod recovery;
 mod seed;
 mod social;
+mod staffing;
 
 use std::error::Error;
 use world_agent::{
@@ -338,6 +339,7 @@ fn build_action_registry() -> Result<ActionRegistry, Box<dyn Error>> {
     reciprocity::register_actions(&mut actions)?;
     recovery::register_actions(&mut actions)?;
     social::register_actions(&mut actions)?;
+    staffing::register_actions(&mut actions)?;
     Ok(actions)
 }
 

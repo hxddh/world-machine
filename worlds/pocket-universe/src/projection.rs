@@ -1,12 +1,13 @@
 use crate::pressure::{self, PRESSURE_OUTCOME};
+use crate::succession::{self, SuccessorStanding, SUCCESSION, SUCCESSION_OUTCOME};
 use crate::{
-    seed_id, BOLD_PATH_COMMAND, CAREFUL_PATH_COMMAND, DECISION, GENERATION, HOLD_PRESSURE_COMMAND,
-    LAST_CHANGE, LEGACY, LEGACY_CYCLES, LEGACY_SUMMARY, NUDGE_COMMAND, OUTWARD_POSTURE_COMMAND,
-    POSTURE, POSTURE_GENERATION, REACH_PRESSURE_COMMAND, RECOVER_ANCHOR_COMMAND, RELATIONSHIP,
-    RELATIONSHIP_DIRECTION, RELATIONSHIP_LAST_DYNAMIC, RELATIONSHIP_SOCIAL_ARC,
-    RELATIONSHIP_TENSION, RELATIONSHIP_TRUST, RIVALRY_COMMAND, ROOTED_POSTURE_COMMAND,
-    SEED_1980S_TOWN_COMMAND, SEED_MARS_COLONY_COMMAND, SEED_PENGUIN_CIVILIZATION_COMMAND,
-    SHARED_PROJECT_COMMAND, SLOT_A, UNIVERSE,
+    seed_id, BOLD_PATH_COMMAND, CAREFUL_PATH_COMMAND, DECISION, ENTRUST_LEGACY_COMMAND, GENERATION,
+    HOLD_PRESSURE_COMMAND, LAST_CHANGE, LEGACY, LEGACY_CYCLES, LEGACY_SUMMARY, NUDGE_COMMAND,
+    OUTWARD_POSTURE_COMMAND, POSTURE, POSTURE_GENERATION, REACH_PRESSURE_COMMAND,
+    RECOVER_ANCHOR_COMMAND, RELATIONSHIP, RELATIONSHIP_DIRECTION, RELATIONSHIP_LAST_DYNAMIC,
+    RELATIONSHIP_SOCIAL_ARC, RELATIONSHIP_TENSION, RELATIONSHIP_TRUST, RELEASE_LEGACY_COMMAND,
+    RIVALRY_COMMAND, ROOTED_POSTURE_COMMAND, SEED_1980S_TOWN_COMMAND, SEED_MARS_COLONY_COMMAND,
+    SEED_PENGUIN_CIVILIZATION_COMMAND, SHARED_PROJECT_COMMAND, SLOT_A, UNIVERSE,
 };
 use world_core::{Entity, EntityId, Event, StateChange, Value, World};
 use world_projection::{
@@ -76,7 +77,10 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
     let posture_choice_available = posture_choice_state(world, generation);
     let legacy = text_component(world.state().entity(UNIVERSE), LEGACY, "forming");
     let pressure_stage = pressure::pressure_id_from_state(world.state());
-    let (nudge_title, nudge_detail) = if let Some(copy) = pressure_nudge_copy(&pressure_stage) {
+    let succession_nudge = succession_nudge_copy(world);
+    let (nudge_title, nudge_detail) = if let Some(copy) = succession_nudge {
+        copy
+    } else if let Some(copy) = pressure_nudge_copy(&pressure_stage) {
         copy
     } else if posture_choice_available {
         (
@@ -166,7 +170,108 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             detail: command_detail_with_signal(world, RECOVER_ANCHOR_COMMAND, copy.recover_detail),
         });
     }
+    let succession_stage = succession::succession_id_from_state(world.state());
+    if succession::choice_open(&succession_stage) {
+        let succession_copy = succession::copy_for_seed(seed_id(world));
+        commands.push(ProjectionCommand {
+            id: ENTRUST_LEGACY_COMMAND.into(),
+            title: succession_copy.entrust_title.into(),
+            detail: command_detail_with_signal(
+                world,
+                ENTRUST_LEGACY_COMMAND,
+                succession_copy.entrust_detail,
+            ),
+        });
+        commands.push(ProjectionCommand {
+            id: RELEASE_LEGACY_COMMAND.into(),
+            title: succession_copy.release_title.into(),
+            detail: command_detail_with_signal(
+                world,
+                RELEASE_LEGACY_COMMAND,
+                succession_copy.release_detail,
+            ),
+        });
+    }
     commands
+}
+
+/// While a successor is waiting, letting a cycle pass is itself a decision:
+/// the copy says what waiting is costing.
+fn succession_nudge_copy(world: &World) -> Option<(&'static str, &'static str)> {
+    let stage = succession::succession_id_from_state(world.state());
+    if !succession::choice_open(&stage) {
+        return None;
+    }
+    let patience = succession::succession_patience_from_state(world.state());
+    Some(match succession::standing_for_patience(patience) {
+        SuccessorStanding::NewHands => (
+            "Let the successor keep learning",
+            "Nothing is decided yet. Every cycle you wait, they do more of the work their own way.",
+        ),
+        SuccessorStanding::OwnHabits => (
+            "Let their habits settle further",
+            "They have started doing the work their own way. Waiting longer makes handing it on unchanged harder to mean.",
+        ),
+        SuccessorStanding::AlreadyTheirs => (
+            "Leave it as it already is",
+            "The work is theirs in all but name. Entrusting now would be a formality; releasing would only say so out loud.",
+        ),
+    })
+}
+
+fn succession_consequence_item(world: &World) -> Option<BriefingItem> {
+    let succession = succession::succession_id_from_state(world.state());
+    if succession == "none" {
+        return None;
+    }
+    let event = world.events().iter().rev().find(|event| {
+        matches!(
+            event.kind.as_str(),
+            "successor_emerged" | "successor_waited" | "legacy_entrusted" | "legacy_released"
+        )
+    })?;
+    let summary = payload_text(event, "summary").unwrap_or("").to_string();
+    let label = match event.kind.as_str() {
+        "legacy_entrusted" => "Handed on".to_string(),
+        "legacy_released" => "Rewritten".to_string(),
+        _ => {
+            let patience = succession::succession_patience_from_state(world.state());
+            match succession::standing_for_patience(patience) {
+                SuccessorStanding::NewHands => "New hands".to_string(),
+                SuccessorStanding::OwnHabits => "Own habits".to_string(),
+                SuccessorStanding::AlreadyTheirs => "Already theirs".to_string(),
+            }
+        }
+    };
+    Some(BriefingItem {
+        selection: Some(SelectionId::Event(event.id)),
+        title: format!("Succession · {label}"),
+        detail: summary,
+    })
+}
+
+fn succession_choice_evidence(event: &Event) -> Option<BriefingItem> {
+    let stage = event_text_component(event, UNIVERSE, SUCCESSION)?;
+    let outcome = event_text_component(event, UNIVERSE, SUCCESSION_OUTCOME)?;
+    let inheritance = payload_text(event, "inheritance").unwrap_or("");
+    let (label, follow_on) = match event.kind.as_str() {
+        "legacy_entrusted" => (
+            "Handed on",
+            "The succession is settled. Later growth reads this durable answer.",
+        ),
+        "legacy_released" => (
+            "Rewritten",
+            "Legacy cycles were reset to 0; the successor's version has to earn its own.",
+        ),
+        _ => return None,
+    };
+    Some(BriefingItem {
+        selection: Some(SelectionId::Event(event.id)),
+        title: format!("Choice evidence · {label}"),
+        detail: format!(
+            "Verified by this Event: succession = {stage}; outcome = {outcome}. {inheritance} {follow_on}"
+        ),
+    })
 }
 
 fn pressure_nudge_copy(pressure: &str) -> Option<(&'static str, &'static str)> {
@@ -227,6 +332,18 @@ fn command_choice_signal(world: &World, command_id: &str) -> Option<String> {
             "sets durable World direction to Rooted; later growth and legacy formation read the rooted posture"
                 .into(),
         ),
+        ENTRUST_LEGACY_COMMAND | RELEASE_LEGACY_COMMAND => {
+            let continued = command_id == ENTRUST_LEGACY_COMMAND;
+            let outcome = if continued { "continued" } else { "renewed" };
+            let cost = if continued {
+                "legacy cycles keep accumulating"
+            } else {
+                "legacy cycles reset to 0 and the successor's version starts earning its own"
+            };
+            Some(format!(
+                "settles the succession now; the durable outcome becomes {outcome}; {cost}"
+            ))
+        }
         HOLD_PRESSURE_COMMAND | REACH_PRESSURE_COMMAND => {
             let posture = text_component(world.state().entity(UNIVERSE), POSTURE, "none");
             let aligned = matches!(
@@ -767,6 +884,9 @@ fn persistent_consequence_items(world: &World) -> Vec<BriefingItem> {
     if let Some(item) = pressure_consequence_item(world) {
         items.push(item);
     }
+    if let Some(item) = succession_consequence_item(world) {
+        items.push(item);
+    }
     items
 }
 
@@ -780,6 +900,8 @@ fn choice_evidence_item(world: &World) -> Option<BriefingItem> {
                 | "pressure_held"
                 | "pressure_reached"
                 | "anchor_recovered"
+                | "legacy_entrusted"
+                | "legacy_released"
         )
     })?;
     let event = &world.events()[event_index];
@@ -790,6 +912,7 @@ fn choice_evidence_item(world: &World) -> Option<BriefingItem> {
         "pressure_held" | "pressure_reached" | "anchor_recovered" => {
             pressure_choice_evidence(world, event)
         }
+        "legacy_entrusted" | "legacy_released" => succession_choice_evidence(event),
         _ => None,
     }
 }

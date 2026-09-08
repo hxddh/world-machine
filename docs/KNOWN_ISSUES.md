@@ -10,6 +10,8 @@ Current as of the `Unreleased` section of the [changelog](../CHANGELOG.md). Repo
 
 ## Using Worlds
 
+- **A Pack version change closes older Worlds.** A `.world` file records the exact World Pack version it was created with, and the app ships one version of each included Pack. When a Pack's rules change its version moves, and Worlds pinned to the older version report that they need a Pack this build does not have. The `Unreleased` section of the [changelog](../CHANGELOG.md) says which Packs moved in this release. Export a World you want to keep before updating; nothing is deleted, and the file still holds its whole history.
+
 - **Renaming or removing a World that is open in a window.** Both write the World's file, so the open window is a step behind: after a rename choose **World → Reload** in that window, and after a removal close the window rather than saving from it, or the save writes the World back into the Library.
 - **Removed Worlds are not deleted.** **Remove** moves the file into a `Removed` folder inside `~/Library/Application Support/World Machine/Worlds`. Emptying that folder is a Finder step; the app never deletes World files.
 - **Compare Futures needs a choice.** **What if…** opens the comparison only when the World currently offers at least two choices; otherwise it opens the World with a note saying so.

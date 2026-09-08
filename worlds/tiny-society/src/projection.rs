@@ -180,6 +180,7 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
                 "temporary_work_assigned" => "Jonas took temporary work at the bakery",
                 "loan_requested" => "Jonas asked Leo for a loan",
                 "storm_started" => "A storm reached the harbor",
+                "counter_help_hired" => "Mara took Mia on at the bakery counter",
                 _ => return None,
             };
             Some(BriefingItem {
@@ -249,6 +250,13 @@ fn harbor_today(world: &World) -> BriefingItem {
     let bakery_cash = component_integer(world, BAKERY, CASH)
         .map(|cash| format!(" · till {cash}"))
         .unwrap_or_default();
+    // After a lean reopening the bakery is one pair of hands until recovered
+    // demand earns a second, so the state line says which it is.
+    let counter = match component_text(world, BAKERY, crate::staffing::STAFFING_STATUS).as_deref() {
+        Some("lean") => " · counter run alone".to_string(),
+        Some("staffed") => " · counter shared with Mia".to_string(),
+        _ => String::new(),
+    };
     let jonas = component_text(world, JONAS, JOB)
         .map(|job| format!("Jonas: {job}"))
         .unwrap_or_else(|| "Jonas".to_string());
@@ -259,7 +267,7 @@ fn harbor_today(world: &World) -> BriefingItem {
         selection: Some(SelectionId::Entity(BAKERY)),
         title: "Harbor today".into(),
         detail: format!(
-            "{bakery}{bakery_cash} · {jonas}{jonas_cash} · World time {}",
+            "{bakery}{bakery_cash}{counter} · {jonas}{jonas_cash} · World time {}",
             world.world_time()
         ),
     }

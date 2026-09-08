@@ -466,7 +466,7 @@ mod tests {
         let environment = Environment {
             library_dir: Some(PathBuf::from("/tmp/Worlds")),
             pack_catalog_path: Some(PathBuf::from("/tmp/Packs/catalog.json")),
-            included_packs: vec!["pocket-universe 0.16.0".into()],
+            included_packs: vec!["pocket-universe 0.17.0".into()],
         };
         let report = render_report(
             "World Machine 0.1.0 · build abc · aarch64",
@@ -478,7 +478,7 @@ mod tests {
         assert!(report.contains("Build: World Machine 0.1.0 · build abc · aarch64"));
         assert!(report.contains("Signing: ad-hoc, not notarized"));
         assert!(report.contains("Worlds: /tmp/Worlds"));
-        assert!(report.contains("Included Packs: pocket-universe 0.16.0"));
+        assert!(report.contains("Included Packs: pocket-universe 0.17.0"));
         assert!(report.ends_with("line 97\nline 98\nline 99\n"));
         assert!(!report.contains("line 96\n"));
 
