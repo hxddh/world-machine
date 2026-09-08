@@ -6,6 +6,7 @@ Releases live on the [Releases page](https://github.com/hxddh/world-machine/rele
 
 - My Worlds: **Rename** on any World card gives it the name you type, and clearing the name lists it under its World Pack's title again. Branches no longer all read "Pocket Universe" with only a file id to tell them apart.
 - My Worlds: **Remove** takes a World off Home after a second click on the card. Its file moves to a `Removed` folder inside your Worlds folder, so a removal by mistake is a drag back in the Finder.
+- A World window is titled by the World's name, and its header shows the name with the file id beside it. A World named on Home is called by that name in its own window, in its save and reload lines, and in the file name Save As suggests.
 - One damaged or foreign file in the Worlds folder no longer hides every other World. The Worlds that can be read are listed as usual, and Home names the files it could not read.
 
 ## v0.2.1 (2026-09-08)
