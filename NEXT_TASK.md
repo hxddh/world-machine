@@ -1,13 +1,38 @@
-> **Status (2026-09-07):** Audit-driven transport hardening is **frozen** for the 0.2 release; M263 (#266) was the last such milestone. The active plan is Phase VI in [docs/ROADMAP.md](docs/ROADMAP.md), whose progress table lists what is done and what remains. Every new task added here must state what a user will see change.
+> **Status (2026-09-08):** Audit-driven transport hardening stays **frozen**; M263 (#266) was the last such milestone. The active plan is Phase VI in [docs/ROADMAP.md](docs/ROADMAP.md), whose progress table lists what is done and what remains. Every entry below states what a user will see change.
 
-# Next Coding Task — 0.2 close-out
+# Next Coding Task — after v0.2.1
 
-`v0.2.0` shipped on 2026-09-07 at the owner's direction. The items below were not completed before it and remain the next work, in order:
+`v0.2.1` shipped on 2026-09-08. The list below is ordered by what it changes for somebody using the app, and each entry says whether it can be finished from CI alone.
 
-0. **Apple Developer Program.** Enrol, create the Developer ID Application certificate, and add the five secrets in [docs/RELEASE_SIGNING.md](docs/RELEASE_SIGNING.md). The next release is then a normal macOS app: download, open, use. Nothing else on this list removes the first-launch dialog.
-1. **Real-device verification.** Install the latest pre-release on a physical Mac (macOS 14 and 15 if possible), walk `docs/INSTALL.md`, open Home and a World window, and confirm nothing lays out past the window edge. Capture `docs/screenshots/home.png` and `docs/screenshots/world.png` for the README. The CI screenshot job cannot rasterize text inside Apple Virtualization, so this is a manual step.
-2. **Usability test.** Three to five non-developers, five minutes each, from download to a progressing World. Record where each person stalls; each stall becomes a task here with the user-visible change it fixes.
-3. **Tag `v0.2.0`** once 1 and 2 are done, with release notes that explain the replay-never-reruns-AI guarantee.
+## Only the owner can do these
+
+0. **Apple Developer Program.** Enrol, create the Developer ID Application certificate, and add the five secrets in [docs/RELEASE_SIGNING.md](docs/RELEASE_SIGNING.md). The next release is then a normal macOS app: download, open, use. Nothing else on this list removes the first-launch dialog, and no packaging trick substitutes for it.
+   *User-visible change:* the "Open Anyway" detour disappears from the first launch.
+1. **Real-device verification and screenshots.** Install `v0.2.1` on a physical Mac (macOS 14 and 15 if possible), walk [docs/INSTALL.md](docs/INSTALL.md), open Home and a World window in light and dark, and confirm nothing lays out past the window edge. Capture `docs/screenshots/home.png` and `docs/screenshots/world.png`. The CI screenshot job draws layout but rasterizes no text inside Apple Virtualization, so this cannot be automated — do not spend more time on `screenshots.yml`.
+   *User-visible change:* the README stops describing the app and shows it.
+2. **Usability test.** Three to five non-developers, five minutes each, from download to a progressing World. Every stall becomes an entry here with the user-visible change it fixes.
+   *User-visible change:* none directly; it is what turns the rest of this list from guesses into findings.
+
+Anything the owner reports from 1 or 2 outranks everything below.
+
+## Can be finished without a Mac in hand
+
+3. **Name and remove Worlds from Home.** *(done, this branch)* Branching produces Worlds quickly, and until now every one of them was listed under its World Pack's title with only a file id to tell them apart, with no way to remove one except in the Finder. Every World card now carries **Rename** and **Remove**; removal moves the file into a `Removed` folder rather than deleting it. One unreadable file in the Worlds folder no longer hides every other World.
+   *User-visible change:* My Worlds becomes a list of named Worlds the owner can prune.
+4. **A World window that says which World it is.** The window title and its status line still use the durable file id (`pocket-universe-3`), so a World named on Home is unnamed in its own window. Carry the name into the window title, the save/reload status lines, and the suggested export file name, keeping the file id visible where identity matters.
+   *User-visible change:* the renamed World is called by its name everywhere it appears.
+5. **Sort and find in My Worlds.** Beyond roughly a dozen Worlds the pack filter is not enough. Order by last played or by name, and filter by typed text.
+   *User-visible change:* a long list of Worlds stays usable.
+6. **A fourth Pocket Universe chapter, and a second Tiny Society consequence chain.** Retention is the point of the product, and Stage 3 shipped three chapters. This is the largest item here and the only one that makes returning to a week-old World more interesting.
+   *User-visible change:* `While you were away` keeps having something to say on the fifth visit.
+7. **Window size and position remembered between launches.** Home and World windows currently open centred at a fixed size every time.
+   *User-visible change:* the app opens where it was left.
+
+## Deliberately not doing
+
+- Further transport, scheduler, or Pack-protocol hardening without a reported failure (see the Phase VI freeze).
+- Any new runtime primitive that no two Worlds would use (see the end of [docs/ROADMAP.md](docs/ROADMAP.md)).
+- Homebrew, `curl | sh`, or other install routes around notarization; the owner has ruled these out and none of them removes the Gatekeeper step.
 
 The previous milestone text is kept below for reference.
 

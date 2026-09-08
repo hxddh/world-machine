@@ -271,7 +271,7 @@ Status: in progress. This phase replaces milestone-by-milestone infrastructure w
 
 A normal macOS app is download, open, use. That requires a Developer ID signature and Apple notarization; without them every install path needs a manual "Open Anyway" step, and no packaging trick removes it. The pipeline is now fully built for the signed path and switches on with five repository secrets ([RELEASE_SIGNING.md](RELEASE_SIGNING.md)); the Apple Developer Program costs USD 99 per year. Until then the release ships a DMG with a `Read Me First.txt` next to the app and states the limitation everywhere.
 
-### Progress (updated 2026-09-07)
+### Progress (updated 2026-09-08)
 
 | Item | State |
 | --- | --- |
@@ -289,6 +289,8 @@ A normal macOS app is download, open, use. That requires a Developer ID signatur
 | Stage 4: user-first README, CHANGELOG, known issues, privacy note | done |
 | Stage 4: screenshot in the README | needs a real Mac; the CI runner renders no text |
 | Stage 4: `v0.2.0` | shipped 2026-09-07 at the owner's direction, before real-device verification and the usability test; both stay open below |
+| Stage 4: `v0.2.1` | shipped 2026-09-08: update banner, prefilled problem report, dark mode, standard window and app menu behaviour |
+| After 0.2.1: naming and removing Worlds, and a Library that survives one damaged file | done |
 
 ### Why this phase exists
 
@@ -361,9 +363,10 @@ Accepted when: the Release page explains itself to a stranger and at least one e
 Decide the next phase from real usage, not from architectural interest. Candidates, in rough order:
 
 1. Developer ID signing and notarization as soon as a certificate exists; this is the gate for any release aimed beyond technical early adopters.
-2. Windows or Linux support if download requests justify the GPUI cost.
-3. A second-party Pack authoring guide once first-party content proves retention.
-4. Persistent Pi sessions or direct model API access for the Analyst if the Experimental panel sees use.
-5. Return to transport and scheduler hardening only against reported failures.
+2. Real-device verification, README screenshots, and the usability test. These need a physical Mac and testers; the CI screenshot runner rasterizes no text and cannot substitute. Findings from them outrank the rest of this list, and [NEXT_TASK.md](../NEXT_TASK.md) carries the ordered plan while none exist yet.
+3. Windows or Linux support if download requests justify the GPUI cost.
+4. A second-party Pack authoring guide once first-party content proves retention.
+5. Persistent Pi sessions or direct model API access for the Analyst if the Experimental panel sees use.
+6. Return to transport and scheduler hardening only against reported failures.
 
 The project should resist adding infrastructure merely because it is architecturally interesting. New runtime primitives should be justified by a product behavior that at least two different Worlds can use.

@@ -10,8 +10,10 @@ use world_library::{
     DurableWorldSession, WorldDocumentId, LEGACY_WORLD_DOCUMENT_SUFFIX, WORLD_DOCUMENT_SUFFIX,
 };
 
+/// The app's single-line text field. It grew up inside the Analyst, and Home
+/// now uses the same field to name a World.
 #[path = "analyst_input.rs"]
-mod analyst_input;
+pub(crate) mod analyst_input;
 #[path = "analyst_panel.rs"]
 mod analyst_panel;
 #[path = "analyst_runtime.rs"]

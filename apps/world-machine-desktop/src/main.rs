@@ -56,9 +56,11 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 #[cfg(target_os = "macos")]
 use world_document::WorldBranchCause;
 #[cfg(target_os = "macos")]
+use world_fork::analyst_input::{self, AnalystTextInput};
+#[cfg(target_os = "macos")]
 use world_library::{
-    DurableWorldSession, LibraryError, WorldDocumentId, WorldDocumentSummary, WorldLibrary,
-    LEGACY_WORLD_DOCUMENT_SUFFIX, WORLD_DOCUMENT_SUFFIX,
+    DurableWorldSession, LibraryError, UnreadableWorldFile, WorldDocumentId, WorldDocumentSummary,
+    WorldLibrary, LEGACY_WORLD_DOCUMENT_SUFFIX, WORLD_DOCUMENT_SUFFIX,
 };
 #[cfg(target_os = "macos")]
 use world_lineage::LineageIndex;
@@ -551,6 +553,21 @@ struct WorldMachineHome {
     /// A newer stable release found at launch, shown as a banner until
     /// dismissed or downloaded.
     available_update: Option<updates::AvailableUpdate>,
+    /// Files in the Worlds folder that name themselves Worlds but cannot be
+    /// read. They are named on Home instead of hiding every other World.
+    unreadable_documents: Vec<UnreadableWorldFile>,
+    /// The World whose name is being typed, if any.
+    renaming: Option<RenameDraft>,
+    /// The World whose removal is waiting for a second click.
+    pending_removal: Option<WorldDocumentId>,
+}
+
+/// A World name being typed on Home. Only one World is renamed at a time, so
+/// the field lives here rather than one per card.
+#[cfg(target_os = "macos")]
+struct RenameDraft {
+    document: WorldDocumentId,
+    input: Entity<AnalystTextInput>,
 }
 
 #[cfg(target_os = "macos")]
@@ -1152,12 +1169,32 @@ impl WorldMachineHome {
     }
 
     fn refresh_documents(&mut self) -> Result<usize, HomeStatus> {
-        let documents = self
+        let listing = self
             .library
-            .list()
+            .listing()
             .map_err(|error| HomeStatus::error(format!("Could not read World Library: {error}")))?;
-        let count = documents.len();
-        self.documents = documents;
+        let count = listing.documents.len();
+        self.documents = listing.documents;
+        self.unreadable_documents = listing.unreadable;
+        report_unreadable_documents(&self.unreadable_documents);
+        // A World that is gone from the Library cannot still be mid-rename or
+        // mid-removal on a card.
+        let documents = &self.documents;
+        let renaming_is_gone = self.renaming.as_ref().is_some_and(|draft| {
+            !documents
+                .iter()
+                .any(|document| document.id == draft.document)
+        });
+        let removal_is_gone = self
+            .pending_removal
+            .as_ref()
+            .is_some_and(|pending| !documents.iter().any(|document| &document.id == pending));
+        if renaming_is_gone {
+            self.renaming = None;
+        }
+        if removal_is_gone {
+            self.pending_removal = None;
+        }
         if !world_pack_filter_is_available(&self.documents, self.selected_world_pack.as_deref()) {
             self.selected_world_pack = None;
         }
@@ -1563,6 +1600,113 @@ impl WorldMachineHome {
             .unwrap_or_else(|| pack_id.to_owned())
     }
 
+    fn document_pack_title(&self, document_id: &WorldDocumentId) -> String {
+        self.documents
+            .iter()
+            .find(|document| &document.id == document_id)
+            .map(|document| {
+                self.registry
+                    .descriptor_for(&document.pack)
+                    .map(|descriptor| descriptor.title.clone())
+                    .unwrap_or_else(|| document.pack.id.clone())
+            })
+            .unwrap_or_else(|| document_id.to_string())
+    }
+
+    /// Open the name field on a World card. A World that already has a name
+    /// opens on that name; an unnamed one opens empty and shows its World
+    /// Pack's title as the placeholder.
+    fn begin_rename(&mut self, document_id: WorldDocumentId, cx: &mut Context<Self>) {
+        analyst_input::bind_keys(cx);
+        let current = self
+            .documents
+            .iter()
+            .find(|document| document.id == document_id)
+            .and_then(|document| document.display_title.clone())
+            .unwrap_or_default();
+        let placeholder = rename_placeholder(&self.document_pack_title(&document_id));
+        let input = cx.new(|cx| AnalystTextInput::new(placeholder, cx).with_text(current));
+        self.pending_removal = None;
+        self.renaming = Some(RenameDraft {
+            document: document_id,
+            input,
+        });
+        cx.notify();
+    }
+
+    fn cancel_rename(&mut self, cx: &mut Context<Self>) {
+        self.renaming = None;
+        cx.notify();
+    }
+
+    fn commit_rename(&mut self, cx: &mut Context<Self>) {
+        let Some(draft) = self.renaming.take() else {
+            return;
+        };
+        let typed = draft.input.read(cx).text().trim().to_owned();
+        let title = (!typed.is_empty()).then_some(typed);
+        let pack_title = self.document_pack_title(&draft.document);
+        // The Library borrow ends here, before the arms take `&mut self`.
+        let renamed = self
+            .library
+            .set_display_title(&draft.document, title.as_deref());
+        match renamed {
+            Ok(summary) => {
+                mark_library_changed();
+                let message = rename_result_message(summary.display_title.as_deref(), &pack_title);
+                self.status = Some(match self.sync_documents_after_mutation() {
+                    Some(error) => error,
+                    None => HomeStatus::success(message),
+                });
+            }
+            Err(error) => {
+                self.status = Some(HomeStatus::error(format!(
+                    "Could not rename this World: {error}"
+                )));
+            }
+        }
+        cx.notify();
+    }
+
+    /// Removing a World is one click to ask and one to confirm; the card
+    /// itself carries the question, so nothing is removed by a stray click.
+    fn request_removal(&mut self, document_id: WorldDocumentId, cx: &mut Context<Self>) {
+        self.renaming = None;
+        self.pending_removal = Some(document_id);
+        cx.notify();
+    }
+
+    fn cancel_removal(&mut self, cx: &mut Context<Self>) {
+        self.pending_removal = None;
+        cx.notify();
+    }
+
+    fn confirm_removal(&mut self, cx: &mut Context<Self>) {
+        let Some(document_id) = self.pending_removal.take() else {
+            return;
+        };
+        let title = self
+            .document_title_for_id(&document_id)
+            .unwrap_or_else(|| document_id.to_string());
+        let removed = self.library.remove(&document_id);
+        match removed {
+            Ok(path) => {
+                mark_library_changed();
+                diagnostics::info(format!("removed World {document_id} to {}", path.display()));
+                self.status = Some(match self.sync_documents_after_mutation() {
+                    Some(error) => error,
+                    None => HomeStatus::success(removal_result_message(&title)),
+                });
+            }
+            Err(error) => {
+                self.status = Some(HomeStatus::error(format!(
+                    "Could not remove this World: {error}"
+                )));
+            }
+        }
+        cx.notify();
+    }
+
     fn document_title_for_id(&self, document_id: &WorldDocumentId) -> Option<String> {
         self.documents
             .iter()
@@ -1585,6 +1729,8 @@ impl WorldMachineHome {
         let open_id = document.id.clone();
         let compare_id = document.id.clone();
         let export_id = document.id.clone();
+        let rename_id = document.id.clone();
+        let remove_id = document.id.clone();
         let pack_title = self
             .registry
             .descriptor_for(&document.pack)
@@ -1636,6 +1782,142 @@ impl WorldMachineHome {
                     .text_color(crate::theme_rgb(0x8a8a82))
                     .child(document_label.clone()),
             );
+
+        let renaming_this_world = self
+            .renaming
+            .as_ref()
+            .is_some_and(|draft| draft.document == document.id);
+        let removing_this_world = self.pending_removal.as_ref() == Some(&document.id);
+        if renaming_this_world {
+            let input = self
+                .renaming
+                .as_ref()
+                .expect("renaming_this_world implies a draft")
+                .input
+                .clone();
+            details = details.child(
+                div().w_full().flex().flex_col().gap_2().child(input).child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            div()
+                                .id(SharedString::from(format!("save-name-{document_label}")))
+                                .cursor_pointer()
+                                .p_2()
+                                .rounded_md()
+                                .border_1()
+                                .border_color(crate::theme_rgb(0x657da7))
+                                .bg(crate::theme_rgb(0xf4f7ff))
+                                .text_sm()
+                                .child("Save name")
+                                .on_click(cx.listener(|this, _, _, cx| this.commit_rename(cx))),
+                        )
+                        .child(
+                            div()
+                                .id(SharedString::from(format!("cancel-name-{document_label}")))
+                                .cursor_pointer()
+                                .p_2()
+                                .rounded_md()
+                                .border_1()
+                                .border_color(crate::theme_rgb(0xd9d9d3))
+                                .text_sm()
+                                .child("Cancel")
+                                .on_click(cx.listener(|this, _, _, cx| this.cancel_rename(cx))),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w(px(0.0))
+                                .text_xs()
+                                .text_color(crate::theme_rgb(0x777770))
+                                .child("An empty name lists this World under its own title again."),
+                        ),
+                ),
+            );
+        } else if removing_this_world {
+            details = details.child(
+                div()
+                    .w_full()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(crate::theme_rgb(0x9b4a42))
+                            .child(format!(
+                                "Remove {title}? Its file moves to the {} folder inside your Worlds folder, so you can put it back.",
+                                world_library::REMOVED_DIRECTORY
+                            )),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .id(SharedString::from(format!(
+                                        "confirm-remove-{document_label}"
+                                    )))
+                                    .cursor_pointer()
+                                    .p_2()
+                                    .rounded_md()
+                                    .border_1()
+                                    .border_color(crate::theme_rgb(0xb4736c))
+                                    .bg(crate::theme_rgb(0xfbf0ee))
+                                    .text_color(crate::theme_rgb(0x9b4a42))
+                                    .text_sm()
+                                    .child("Remove")
+                                    .on_click(
+                                        cx.listener(|this, _, _, cx| this.confirm_removal(cx)),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .id(SharedString::from(format!(
+                                        "keep-{document_label}"
+                                    )))
+                                    .cursor_pointer()
+                                    .p_2()
+                                    .rounded_md()
+                                    .border_1()
+                                    .border_color(crate::theme_rgb(0xd9d9d3))
+                                    .text_sm()
+                                    .child("Keep")
+                                    .on_click(cx.listener(|this, _, _, cx| this.cancel_removal(cx))),
+                            ),
+                    ),
+            );
+        } else {
+            details = details.child(
+                div()
+                    .flex()
+                    .gap_3()
+                    .text_xs()
+                    .child(
+                        div()
+                            .id(SharedString::from(format!("rename-{document_label}")))
+                            .cursor_pointer()
+                            .text_color(crate::theme_rgb(0x4e6fb3))
+                            .child("Rename")
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.begin_rename(rename_id.clone(), cx)
+                            })),
+                    )
+                    .child(
+                        div()
+                            .id(SharedString::from(format!("remove-{document_label}")))
+                            .cursor_pointer()
+                            .text_color(crate::theme_rgb(0x4e6fb3))
+                            .child("Remove")
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.request_removal(remove_id.clone(), cx)
+                            })),
+                    ),
+            );
+        }
 
         if let Some(node) = lineage_node {
             if let Some(parent) = node.parent.as_ref() {
@@ -2495,6 +2777,20 @@ impl Render for WorldMachineHome {
                 format!("My Worlds · {}", documents.len())
             };
             body = body.child(div().text_sm().child(worlds_title));
+            if let Some(note) = unreadable_documents_note(&self.unreadable_documents) {
+                body = body.child(
+                    div()
+                        .w_full()
+                        .p_3()
+                        .rounded_md()
+                        .border_1()
+                        .border_color(crate::theme_rgb(0xe3d2ce))
+                        .bg(crate::theme_rgb(0xfbf0ee))
+                        .text_xs()
+                        .text_color(crate::theme_rgb(0x9b4a42))
+                        .child(note),
+                );
+            }
             if pack_filters.len() > 1 {
                 body = body.child(world_filters);
             }
@@ -2585,6 +2881,77 @@ impl Render for WorldMachineHome {
         }
 
         shell.child(body)
+    }
+}
+
+/// The placeholder in the name field: an unnamed World shows the World Pack's
+/// own title, which is exactly what the card falls back to.
+#[cfg(target_os = "macos")]
+fn rename_placeholder(pack_title: &str) -> String {
+    format!("{pack_title} — name this World")
+}
+
+#[cfg(target_os = "macos")]
+fn rename_result_message(display_title: Option<&str>, pack_title: &str) -> String {
+    // The name is written into the World's own file, so a window already open
+    // on that World is one save behind until it reloads. Say so rather than
+    // letting it surface later as a changed-on-disk refusal.
+    let reload = "If this World is open in a window, choose World → Reload there.";
+    match display_title {
+        Some(title) => format!("Renamed to {title}. {reload}"),
+        None => format!("Name cleared; this World is listed as {pack_title} again. {reload}"),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn removal_result_message(title: &str) -> String {
+    format!(
+        "Removed {title}. Its file moved to the {} folder inside your Worlds folder.",
+        world_library::REMOVED_DIRECTORY
+    )
+}
+
+#[cfg(target_os = "macos")]
+const UNREADABLE_DOCUMENT_NAME_LIMIT: usize = 3;
+
+/// Name the files that could not be read, without letting a folder full of
+/// them push every World off the screen.
+#[cfg(target_os = "macos")]
+fn unreadable_documents_note(unreadable: &[UnreadableWorldFile]) -> Option<String> {
+    if unreadable.is_empty() {
+        return None;
+    }
+    let named = unreadable
+        .iter()
+        .take(UNREADABLE_DOCUMENT_NAME_LIMIT)
+        .map(|file| file.file_name.clone())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let hidden = unreadable
+        .len()
+        .saturating_sub(UNREADABLE_DOCUMENT_NAME_LIMIT);
+    let names = if hidden > 0 {
+        format!("{named}, and {hidden} more")
+    } else {
+        named
+    };
+    Some(if unreadable.len() == 1 {
+        format!("One file in your Worlds folder could not be read and is not listed: {names}.")
+    } else {
+        format!(
+            "{} files in your Worlds folder could not be read and are not listed: {names}.",
+            unreadable.len()
+        )
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn report_unreadable_documents(unreadable: &[UnreadableWorldFile]) {
+    for file in unreadable {
+        diagnostics::error(format!(
+            "could not read {} in the Worlds folder: {}",
+            file.file_name, file.reason
+        ));
     }
 }
 
@@ -2994,6 +3361,60 @@ mod file_type_tests {
     }
 
     #[test]
+    fn renaming_reports_the_name_or_the_pack_title_it_fell_back_to() {
+        let named = rename_result_message(Some("Maple Street"), "Pocket Universe");
+        assert!(named.starts_with("Renamed to Maple Street."));
+        assert!(named.contains("World → Reload"));
+        let cleared = rename_result_message(None, "Pocket Universe");
+        assert!(cleared.starts_with("Name cleared; this World is listed as Pocket Universe again."));
+        assert!(cleared.contains("World → Reload"));
+        assert_eq!(
+            rename_placeholder("Pocket Universe"),
+            "Pocket Universe — name this World"
+        );
+    }
+
+    #[test]
+    fn removal_says_where_the_file_went() {
+        let message = removal_result_message("Maple Street");
+        assert!(message.starts_with("Removed Maple Street."));
+        assert!(message.contains(world_library::REMOVED_DIRECTORY));
+    }
+
+    #[test]
+    fn unreadable_files_are_named_without_crowding_out_the_worlds() {
+        let file = |name: &str| UnreadableWorldFile {
+            file_name: name.into(),
+            reason: "unexpected end of input".into(),
+        };
+
+        assert_eq!(unreadable_documents_note(&[]), None);
+        assert_eq!(
+            unreadable_documents_note(&[file("truncated.world")]).as_deref(),
+            Some(
+                "One file in your Worlds folder could not be read and is not listed: truncated.world."
+            )
+        );
+        assert_eq!(
+            unreadable_documents_note(&[file("a.world"), file("b.world")]).as_deref(),
+            Some("2 files in your Worlds folder could not be read and are not listed: a.world, b.world.")
+        );
+        assert_eq!(
+            unreadable_documents_note(&[
+                file("a.world"),
+                file("b.world"),
+                file("c.world"),
+                file("d.world"),
+                file("e.world"),
+            ])
+            .as_deref(),
+            Some(
+                "5 files in your Worlds folder could not be read and are not listed: a.world, b.world, c.world, and 2 more."
+            )
+        );
+    }
+
+    #[test]
     fn suggested_world_file_name_prefers_semantic_unicode_title() {
         assert_eq!(
             suggested_world_file_name("  Maple Street · 1987  ", "pocket-universe-42"),
@@ -3094,21 +3515,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Some(format!("Could not locate included World Packs: {error}")),
         ),
     };
-    let (documents, lineage, library_status) = match library.list() {
-        Ok(documents) => match LineageIndex::from_library(library.as_ref()) {
-            Ok(lineage) => (documents, Some(lineage), None),
+    let (documents, unreadable_documents, lineage, library_status) = match library.listing() {
+        Ok(listing) => match LineageIndex::from_library(library.as_ref()) {
+            Ok(lineage) => (listing.documents, listing.unreadable, Some(lineage), None),
             Err(error) => (
-                documents,
+                listing.documents,
+                listing.unreadable,
                 None,
                 Some(format!("Could not build World lineage: {error}")),
             ),
         },
         Err(error) => (
             Vec::new(),
+            Vec::new(),
             None,
             Some(format!("Could not read World Library: {error}")),
         ),
     };
+    report_unreadable_documents(&unreadable_documents);
 
     diagnostics::record_environment(diagnostics::Environment {
         library_dir: Some(library.root().to_path_buf()),
@@ -3158,6 +3582,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 status,
                 show_packs: false,
                 available_update: None,
+                unreadable_documents,
+                renaming: None,
+                pending_removal: None,
             };
             home.start_system_open_listener(cx);
             home.activate_included_packs(cx);
