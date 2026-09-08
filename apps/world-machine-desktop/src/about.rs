@@ -53,7 +53,7 @@ pub fn install(cx: &mut App) {
     cx.on_action(|_: &OpenLogFolder, cx| open_log_folder(cx));
     cx.on_action(|_: &ReportProblem, cx| {
         diagnostics::info("opening the issue template");
-        cx.open_url(diagnostics::ISSUE_URL);
+        cx.open_url(&diagnostics::issue_url());
     });
     cx.on_action(|_: &InstallGuide, cx| cx.open_url(diagnostics::INSTALL_GUIDE_URL));
     cx.on_action(|_: &CheckForUpdates, cx| {
@@ -236,7 +236,7 @@ impl Render for AboutView {
                         about_button("about-report-problem", "Report a Problem…").on_click(
                             cx.listener(|_, _, _, cx| {
                                 diagnostics::info("opening the issue template");
-                                cx.open_url(diagnostics::ISSUE_URL);
+                                cx.open_url(&diagnostics::issue_url());
                             }),
                         ),
                     )

@@ -42,6 +42,7 @@ jobs:
           system_profiler SPDisplaysDataType | grep -E "Resolution|UI Looks" || true
           # LaunchServices-launched apps read the user session environment.
           launchctl setenv WORLD_MACHINE_LIBRARY_DIR "$WM_LIB"
+          launchctl setenv WORLD_MACHINE_NO_UPDATE_CHECK 1
           launchctl setenv RUST_LOG info
           launchctl setenv RUST_BACKTRACE 1
           open -a "$APP" --stdout "$RUNNER_TEMP/app.stdout.log" --stderr "$RUNNER_TEMP/app.stderr.log"
@@ -60,6 +61,7 @@ jobs:
           osascript -e 'tell application "World Machine" to quit' || true
           sleep 2
           launchctl unsetenv WORLD_MACHINE_LIBRARY_DIR || true
+          launchctl unsetenv WORLD_MACHINE_NO_UPDATE_CHECK || true
           launchctl unsetenv RUST_LOG || true
           launchctl unsetenv RUST_BACKTRACE || true
           ls -la shots
