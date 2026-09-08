@@ -1,6 +1,4 @@
-use gpui::{
-    div, prelude::*, px, rgb, Context, Div, IntoElement, Render, SharedString, Styled, Window,
-};
+use gpui::{div, prelude::*, px, Context, Div, IntoElement, Render, SharedString, Styled, Window};
 use world_document::WorldBranchCause;
 use world_lineage::{LineageIndex, LineageNode};
 
@@ -177,21 +175,28 @@ impl LineageExplorerView {
                             div()
                                 .px_2()
                                 .rounded_md()
-                                .bg(rgb(0xe9eefc))
+                                .bg(crate::theme_rgb(0xe9eefc))
                                 .text_xs()
-                                .text_color(rgb(0x4c65a7))
+                                .text_color(crate::theme_rgb(0x4c65a7))
                                 .child("A"),
                         )
                     }),
             )
-            .child(div().text_xs().text_color(rgb(0x777777)).child(format!(
-                "t={} · {} events · {branch}",
-                node.world_time, node.event_count
-            )));
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(crate::theme_rgb(0x777777))
+                    .child(format!(
+                        "t={} · {} events · {branch}",
+                        node.world_time, node.event_count
+                    )),
+            );
         card = if selected {
-            card.border_color(rgb(0x6f7fb8)).bg(rgb(0xf0f4ff))
+            card.border_color(crate::theme_rgb(0x6f7fb8))
+                .bg(crate::theme_rgb(0xf0f4ff))
         } else {
-            card.border_color(rgb(0xd8d8d2)).bg(rgb(0xffffff))
+            card.border_color(crate::theme_rgb(0xd8d8d2))
+                .bg(crate::theme_rgb(0xffffff))
         };
 
         let mut tree = div()
@@ -264,8 +269,8 @@ impl LineageExplorerView {
                         .p_2()
                         .rounded_md()
                         .border_1()
-                        .border_color(rgb(0x9aa6cc))
-                        .bg(rgb(0xf4f6ff))
+                        .border_color(crate::theme_rgb(0x9aa6cc))
+                        .bg(crate::theme_rgb(0xf4f6ff))
                         .text_sm()
                         .child("Mark as comparison A")
                         .on_click(cx.listener(|this, _, _, cx| {
@@ -286,8 +291,8 @@ impl LineageExplorerView {
                                 .p_2()
                                 .rounded_md()
                                 .border_1()
-                                .border_color(rgb(0x7a8dbb))
-                                .bg(rgb(0xeef3ff))
+                                .border_color(crate::theme_rgb(0x7a8dbb))
+                                .bg(crate::theme_rgb(0xeef3ff))
                                 .text_sm()
                                 .child(format!("Compare {left} ↔ {label}"))
                                 .on_click(cx.listener(|this, _, _, cx| {
@@ -311,8 +316,8 @@ impl LineageExplorerView {
                     .p_2()
                     .rounded_md()
                     .border_1()
-                    .border_color(rgb(0x6684c4))
-                    .bg(rgb(0xf2f6ff))
+                    .border_color(crate::theme_rgb(0x6684c4))
+                    .bg(crate::theme_rgb(0xf2f6ff))
                     .text_sm()
                     .child("Open World")
                     .on_click(cx.listener(|this, _, _, cx| {
@@ -332,7 +337,7 @@ impl LineageExplorerView {
                 div()
                     .p_2()
                     .rounded_md()
-                    .bg(rgb(0xeef2ea))
+                    .bg(crate::theme_rgb(0xeef2ea))
                     .text_sm()
                     .child(status.clone()),
             );
@@ -343,6 +348,10 @@ impl LineageExplorerView {
 
 impl Render for LineageExplorerView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        world_theme::set_dark(matches!(
+            window.appearance(),
+            gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark
+        ));
         window.set_window_title("World Lineage — World Machine");
 
         let mut roots = div().flex().flex_col().gap_2();
@@ -362,13 +371,18 @@ impl Render for LineageExplorerView {
             .gap_3()
             .p_4()
             .border_r_1()
-            .border_color(rgb(0xd9d9d3))
-            .child(div().text_sm().text_color(rgb(0x666666)).child(format!(
-                "{} Worlds · {} roots · {} detached",
-                self.index.nodes().len(),
-                self.index.roots().len(),
-                self.index.detached().len()
-            )))
+            .border_color(crate::theme_rgb(0xd9d9d3))
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(crate::theme_rgb(0x666666))
+                    .child(format!(
+                        "{} Worlds · {} roots · {} detached",
+                        self.index.nodes().len(),
+                        self.index.roots().len(),
+                        self.index.detached().len()
+                    )),
+            )
             .child(div().text_sm().child("Roots"))
             .child(roots);
         if !self.index.detached().is_empty() {
@@ -379,8 +393,8 @@ impl Render for LineageExplorerView {
 
         div()
             .size_full()
-            .bg(rgb(0xf7f7f3))
-            .text_color(rgb(0x202020))
+            .bg(crate::theme_rgb(0xf7f7f3))
+            .text_color(crate::theme_rgb(0x202020))
             .flex()
             .flex_col()
             .child(
@@ -390,7 +404,7 @@ impl Render for LineageExplorerView {
                     .flex()
                     .items_center()
                     .border_b_1()
-                    .border_color(rgb(0xd9d9d3))
+                    .border_color(crate::theme_rgb(0xd9d9d3))
                     .child(div().text_xl().child("World Lineage")),
             )
             .child(
@@ -426,7 +440,7 @@ fn detail_shell() -> Div {
         .flex()
         .flex_col()
         .gap_3()
-        .bg(rgb(0xffffff))
+        .bg(crate::theme_rgb(0xffffff))
 }
 
 fn detail_row(label: &str, value: String) -> Div {
@@ -437,7 +451,7 @@ fn detail_row(label: &str, value: String) -> Div {
         .child(
             div()
                 .text_xs()
-                .text_color(rgb(0x777777))
+                .text_color(crate::theme_rgb(0x777777))
                 .child(label.to_owned()),
         )
         .child(div().text_sm().child(value))
@@ -568,4 +582,9 @@ mod tests {
             "Strategy: Choose A · 5 periods"
         );
     }
+}
+
+/// A light-palette colour adapted to the current appearance.
+pub(crate) fn theme_rgb(hex: u32) -> gpui::Rgba {
+    gpui::rgb(world_theme::adapt(hex))
 }

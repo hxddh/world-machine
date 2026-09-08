@@ -6,6 +6,7 @@ Releases live on the [Releases page](https://github.com/hxddh/world-machine/rele
 
 - Home shows a banner when a newer stable release exists (one request to the GitHub Releases API per launch; `WORLD_MACHINE_NO_UPDATE_CHECK=1` turns it off). Download opens the release page.
 - Help → Report a Problem… opens the issue template with the build label and macOS version already filled in.
+- Dark mode: every window follows the macOS appearance. The light palette is adapted automatically (backgrounds dark, cards slightly raised, text and accents light) and windows re-render when the system switches.
 - Standard Mac behaviour: Cmd-W closes a window, Cmd-M minimizes, Cmd-H hides, a Window menu, Hide Others / Show All in the app menu, and clicking the Dock icon after the last window is closed brings Home back.
 
 ## v0.2.0 (2026-09-07)

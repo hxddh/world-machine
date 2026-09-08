@@ -1,6 +1,6 @@
 use crate::{SharedDocument, WorldDocumentView};
 use gpui::{
-    div, prelude::*, px, rgb, size, AppContext, Bounds, Context, IntoElement, SharedString, Styled,
+    div, prelude::*, px, size, AppContext, Bounds, Context, IntoElement, SharedString, Styled,
     WindowBounds, WindowOptions,
 };
 use std::sync::Arc;
@@ -119,7 +119,7 @@ impl SavedWorldSetupView {
             .child(
                 div()
                     .text_sm()
-                    .text_color(rgb(0x666666))
+                    .text_color(crate::theme_rgb(0x666666))
                     .child(label.to_string()),
             );
 
@@ -154,16 +154,28 @@ impl SavedWorldSetupView {
                         .flex()
                         .justify_between()
                         .child(div().text_sm().child(title))
-                        .child(div().text_xs().text_color(rgb(0x777770)).child(format!(
-                            "t={} · {} events",
-                            document.world_time, document.event_count
-                        ))),
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(crate::theme_rgb(0x777770))
+                                .child(format!(
+                                    "t={} · {} events",
+                                    document.world_time, document.event_count
+                                )),
+                        ),
                 )
-                .child(div().text_xs().text_color(rgb(0x777770)).child(identity));
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(crate::theme_rgb(0x777770))
+                        .child(identity),
+                );
             card = if is_selected {
-                card.border_color(rgb(0x6684c4)).bg(rgb(0xf2f6ff))
+                card.border_color(crate::theme_rgb(0x6684c4))
+                    .bg(crate::theme_rgb(0xf2f6ff))
             } else {
-                card.border_color(rgb(0xd8d8d2)).bg(rgb(0xffffff))
+                card.border_color(crate::theme_rgb(0xd8d8d2))
+                    .bg(crate::theme_rgb(0xffffff))
             };
             column = column.child(card.on_click(cx.listener(move |this, _, _, cx| {
                 match side {
@@ -246,13 +258,17 @@ pub(super) fn open_saved_comparison<T: 'static>(
 
 impl gpui::Render for SavedWorldSetupView {
     fn render(&mut self, window: &mut gpui::Window, cx: &mut Context<Self>) -> impl IntoElement {
+        world_theme::set_dark(matches!(
+            window.appearance(),
+            gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark
+        ));
         window.set_window_title("Compare Saved Worlds — World Machine");
 
         let mut body = div()
             .size_full()
             .p_5()
-            .bg(rgb(0xf7f7f3))
-            .text_color(rgb(0x202020))
+            .bg(crate::theme_rgb(0xf7f7f3))
+            .text_color(crate::theme_rgb(0x202020))
             .flex()
             .flex_col()
             .gap_4()
@@ -260,7 +276,7 @@ impl gpui::Render for SavedWorldSetupView {
             .child(
                 div()
                     .text_sm()
-                    .text_color(rgb(0x666666))
+                    .text_color(crate::theme_rgb(0x666666))
                     .child("Choose any two Worlds from My Worlds. Comparison reads their current durable state, never advances either World, and requires the same Pack version."),
             )
             .child(
@@ -285,7 +301,7 @@ impl gpui::Render for SavedWorldSetupView {
             body = body.child(
                 div()
                     .text_sm()
-                    .text_color(rgb(0x9b5a4f))
+                    .text_color(crate::theme_rgb(0x9b5a4f))
                     .child("Choose two different saved Worlds."),
             );
         }
@@ -298,8 +314,8 @@ impl gpui::Render for SavedWorldSetupView {
                 div()
                     .p_3()
                     .rounded_md()
-                    .bg(rgb(background))
-                    .text_color(rgb(foreground))
+                    .bg(crate::theme_rgb(background))
+                    .text_color(crate::theme_rgb(foreground))
                     .text_sm()
                     .child(message.to_owned()),
             );
@@ -312,8 +328,8 @@ impl gpui::Render for SavedWorldSetupView {
                 .p_3()
                 .rounded_md()
                 .border_1()
-                .border_color(rgb(0x6684c4))
-                .bg(rgb(0xeaf0ff))
+                .border_color(crate::theme_rgb(0x6684c4))
+                .bg(crate::theme_rgb(0xeaf0ff))
                 .text_sm()
                 .child("Compare current saved state")
                 .on_click(cx.listener(|this, _, _, cx| {

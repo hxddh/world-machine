@@ -625,8 +625,8 @@ impl Render for AnalystTextInput {
             .items_center()
             .rounded_md()
             .border_1()
-            .border_color(gpui::rgb(0xcacac4))
-            .bg(gpui::rgb(0xffffff))
+            .border_color(crate::theme_rgb(0xcacac4))
+            .bg(crate::theme_rgb(0xffffff))
             .text_sm()
             .child(AnalystTextElement { input: cx.entity() })
     }

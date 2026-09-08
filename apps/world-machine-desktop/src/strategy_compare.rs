@@ -3,8 +3,8 @@ use super::{
     WorldDocumentView,
 };
 use gpui::{
-    div, prelude::*, px, rgb, size, App, AppContext, Bounds, Context, Div, Entity, IntoElement,
-    Render, SharedString, Styled, Window, WindowBounds, WindowOptions,
+    div, prelude::*, px, size, App, AppContext, Bounds, Context, Div, Entity, IntoElement, Render,
+    SharedString, Styled, Window, WindowBounds, WindowOptions,
 };
 use std::rc::Rc;
 use std::sync::Arc;
@@ -115,7 +115,7 @@ impl StrategySetupView {
         let mut column = div().w(px(390.0)).flex().flex_col().gap_2().child(
             div()
                 .text_sm()
-                .text_color(rgb(0x666666))
+                .text_color(crate::theme_rgb(0x666666))
                 .child(label.to_string()),
         );
 
@@ -135,13 +135,15 @@ impl StrategySetupView {
                 .child(
                     div()
                         .text_xs()
-                        .text_color(rgb(0x777777))
+                        .text_color(crate::theme_rgb(0x777777))
                         .child(choice.detail.clone()),
                 );
             card = if selected {
-                card.border_color(rgb(0x6684c4)).bg(rgb(0xf2f6ff))
+                card.border_color(crate::theme_rgb(0x6684c4))
+                    .bg(crate::theme_rgb(0xf2f6ff))
             } else {
-                card.border_color(rgb(0xd8d8d2)).bg(rgb(0xffffff))
+                card.border_color(crate::theme_rgb(0xd8d8d2))
+                    .bg(crate::theme_rgb(0xffffff))
             };
             column = column.child(card.on_click(cx.listener(move |this, _, _, cx| {
                 if side == "left" {
@@ -171,9 +173,13 @@ impl StrategySetupView {
                 .text_sm()
                 .child(format!("{horizon} periods"));
             option = if selected {
-                option.border_color(rgb(0x6684c4)).bg(rgb(0xf2f6ff))
+                option
+                    .border_color(crate::theme_rgb(0x6684c4))
+                    .bg(crate::theme_rgb(0xf2f6ff))
             } else {
-                option.border_color(rgb(0xd8d8d2)).bg(rgb(0xffffff))
+                option
+                    .border_color(crate::theme_rgb(0xd8d8d2))
+                    .bg(crate::theme_rgb(0xffffff))
             };
             row = row.child(option.on_click(cx.listener(move |this, _, _, cx| {
                 this.horizon = horizon;
@@ -307,14 +313,18 @@ fn open_result(
 
 impl Render for StrategySetupView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        world_theme::set_dark(matches!(
+            window.appearance(),
+            gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark
+        ));
         window.set_window_title("Compare Futures — World Machine");
 
         let same_choice = self.left_index == self.right_index;
         let mut body = div()
             .size_full()
             .p_5()
-            .bg(rgb(0xf7f7f3))
-            .text_color(rgb(0x202020))
+            .bg(crate::theme_rgb(0xf7f7f3))
+            .text_color(crate::theme_rgb(0x202020))
             .flex()
             .flex_col()
             .gap_4()
@@ -322,7 +332,7 @@ impl Render for StrategySetupView {
             .child(
                 div()
                     .text_sm()
-                    .text_color(rgb(0x666666))
+                    .text_color(crate::theme_rgb(0x666666))
                     .child("Choose two possible actions from the same durable World, then decide how far each future should run."),
             )
             .child(
@@ -339,7 +349,7 @@ impl Render for StrategySetupView {
             body = body.child(
                 div()
                     .text_sm()
-                    .text_color(rgb(0x9b5a4f))
+                    .text_color(crate::theme_rgb(0x9b5a4f))
                     .child("Choose two different futures before running the comparison."),
             );
         }
@@ -352,8 +362,8 @@ impl Render for StrategySetupView {
                 div()
                     .p_3()
                     .rounded_md()
-                    .bg(rgb(background))
-                    .text_color(rgb(foreground))
+                    .bg(crate::theme_rgb(background))
+                    .text_color(crate::theme_rgb(foreground))
                     .text_sm()
                     .child(status.message.clone()),
             );
@@ -366,8 +376,8 @@ impl Render for StrategySetupView {
                 .p_3()
                 .rounded_md()
                 .border_1()
-                .border_color(rgb(0x6684c4))
-                .bg(rgb(0xeaf0ff))
+                .border_color(crate::theme_rgb(0x6684c4))
+                .bg(crate::theme_rgb(0xeaf0ff))
                 .text_sm()
                 .child(format!("Run comparison · {} periods", self.horizon))
                 .on_click(cx.listener(|this, _, _, cx| {
@@ -523,8 +533,8 @@ impl StrategyResultView {
                         .p_2()
                         .rounded_md()
                         .border_1()
-                        .border_color(rgb(0xb9c8b1))
-                        .bg(rgb(0xf1f6ee))
+                        .border_color(crate::theme_rgb(0xb9c8b1))
+                        .bg(crate::theme_rgb(0xf1f6ee))
                         .text_sm()
                         .child(format!("Saved {label} · {saved}")),
                 )
@@ -535,8 +545,8 @@ impl StrategyResultView {
                         .p_2()
                         .rounded_md()
                         .border_1()
-                        .border_color(rgb(0x9eb0d6))
-                        .bg(rgb(0xf4f7ff))
+                        .border_color(crate::theme_rgb(0x9eb0d6))
+                        .bg(crate::theme_rgb(0xf4f7ff))
                         .text_sm()
                         .child("Open")
                         .on_click(cx.listener(move |this, _, _, cx| {
@@ -560,8 +570,8 @@ impl StrategyResultView {
                 .p_2()
                 .rounded_md()
                 .border_1()
-                .border_color(rgb(0x9eb0d6))
-                .bg(rgb(0xf4f7ff))
+                .border_color(crate::theme_rgb(0x9eb0d6))
+                .bg(crate::theme_rgb(0xf4f7ff))
                 .text_sm()
                 .child(format!("Save {label}"))
                 .on_click(cx.listener(move |this, _, _, cx| {
@@ -576,6 +586,10 @@ impl StrategyResultView {
 
 impl Render for StrategyResultView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        world_theme::set_dark(matches!(
+            window.appearance(),
+            gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark
+        ));
         window.set_window_title("Strategy Comparison — World Machine");
 
         let actions = div()
@@ -591,8 +605,8 @@ impl Render for StrategyResultView {
                     .p_2()
                     .rounded_md()
                     .border_1()
-                    .border_color(rgb(0xcacac4))
-                    .bg(rgb(0xffffff))
+                    .border_color(crate::theme_rgb(0xcacac4))
+                    .bg(crate::theme_rgb(0xffffff))
                     .text_sm()
                     .child("Change choices…")
                     .on_click(cx.listener(|this, _, _, cx| {
@@ -612,8 +626,8 @@ impl Render for StrategyResultView {
             .w_full()
             .p_3()
             .border_b_1()
-            .border_color(rgb(0xd9d9d3))
-            .bg(rgb(0xf7f7f3))
+            .border_color(crate::theme_rgb(0xd9d9d3))
+            .bg(crate::theme_rgb(0xf7f7f3))
             .flex()
             .items_center()
             .justify_between()
@@ -629,10 +643,15 @@ impl Render for StrategyResultView {
                         "What if · {} vs {}",
                         self.left_label, self.right_label
                     )))
-                    .child(div().text_xs().text_color(rgb(0x777770)).child(format!(
-                        "{} · {} periods from now",
-                        self.source_label, self.horizon
-                    ))),
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(crate::theme_rgb(0x777770))
+                            .child(format!(
+                                "{} · {} periods from now",
+                                self.source_label, self.horizon
+                            )),
+                    ),
             )
             .child(actions);
 
@@ -644,7 +663,7 @@ impl Render for StrategyResultView {
             chrome = chrome.child(
                 div()
                     .text_xs()
-                    .text_color(rgb(foreground))
+                    .text_color(crate::theme_rgb(foreground))
                     .child(status.message.clone()),
             );
         }

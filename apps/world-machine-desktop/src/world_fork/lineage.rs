@@ -1,6 +1,6 @@
 use super::super::{mark_library_changed, observer, SharedDocument, WorldDocumentView};
 use gpui::{
-    div, prelude::*, px, rgb, size, AppContext, Bounds, Context, IntoElement, Styled, WindowBounds,
+    div, prelude::*, px, size, AppContext, Bounds, Context, IntoElement, Styled, WindowBounds,
     WindowOptions,
 };
 use std::sync::Arc;
@@ -61,10 +61,10 @@ pub(super) fn lineage_badge(lineage: &WorldLineage) -> impl IntoElement {
         .p_2()
         .rounded_md()
         .border_1()
-        .border_color(rgb(0xc8cdd7))
-        .bg(rgb(0xf5f6f8))
+        .border_color(crate::theme_rgb(0xc8cdd7))
+        .bg(crate::theme_rgb(0xf5f6f8))
         .text_xs()
-        .text_color(rgb(0x5f6570))
+        .text_color(crate::theme_rgb(0x5f6570))
         .child(truncate_for_chrome(
             &lineage_label(lineage),
             LINEAGE_BADGE_MAX_CHARS,
