@@ -174,7 +174,12 @@ impl DocumentStatus {
 
 #[cfg(target_os = "macos")]
 struct WorldDocumentView {
+    /// The durable identity of the World's file. Stays visible so a World can
+    /// always be matched to the file it lives in.
     document_label: String,
+    /// What this World is called: the name its owner gave it on Home, or the
+    /// durable identity when it has none.
+    document_name: String,
     document: SharedDocument,
     projection: Entity<world_gpui::ProjectionView>,
     status: Option<DocumentStatus>,
@@ -193,6 +198,7 @@ impl WorldDocumentView {
         cx: &mut Context<Self>,
     ) -> Self {
         let document_label = session.display_name();
+        let document_name = session_display_name(&session);
         let document = Rc::new(RefCell::new(SharedDocumentState {
             session,
             registry,
@@ -205,11 +211,26 @@ impl WorldDocumentView {
         let analyst_available = world_fork::analyst_available();
         Self {
             document_label,
+            document_name,
             document,
             projection,
             status: None,
             analyst_available,
         }
+    }
+
+    /// Re-read what this World is called from the session, after anything
+    /// that can change its file or its target.
+    fn refresh_document_identity(&mut self) {
+        let (label, name) = {
+            let document = self.document.borrow();
+            (
+                document.session.display_name(),
+                session_display_name(&document.session),
+            )
+        };
+        self.document_label = label;
+        self.document_name = name;
     }
 
     /// Opens Compare Futures for this World. Returns the Home status to show
@@ -229,7 +250,7 @@ impl WorldDocumentView {
                 cx.notify();
                 Some(HomeStatus::info(format!(
                     "Opened {} · {error}",
-                    self.document_label
+                    self.document_name
                 )))
             }
         }
@@ -248,10 +269,11 @@ impl WorldDocumentView {
                 if self.document.borrow().session.document_id().is_some() {
                     mark_library_changed();
                 }
+                self.refresh_document_identity();
                 self.rebuild_projection(cx);
                 self.status = Some(DocumentStatus::success(format!(
                     "Reloaded {} · World time {}",
-                    self.document_label, snapshot.world_time
+                    self.document_name, snapshot.world_time
                 )));
             }
             Err(error) => {
@@ -263,7 +285,7 @@ impl WorldDocumentView {
 
     fn save_as(&mut self, cx: &mut Context<Self>) {
         let semantic_title = self.document.borrow().session.snapshot().title;
-        let suggested_name = suggested_world_file_name(&semantic_title, &self.document_label);
+        let suggested_name = suggested_world_file_name(&semantic_title, &self.document_name);
         let save_dialog = cx.prompt_for_new_path(&PathBuf::default(), Some(&suggested_name));
         cx.spawn(async move |this, cx| {
             let destination = match save_dialog.await {
@@ -296,11 +318,11 @@ impl WorldDocumentView {
                 };
                 match result {
                     Ok(snapshot) => {
-                        this.document_label = this.document.borrow().session.display_name();
+                        this.refresh_document_identity();
                         this.rebuild_projection(cx);
                         this.status = Some(DocumentStatus::success(format!(
                             "Saved As {} · World time {}",
-                            this.document_label, snapshot.world_time
+                            this.document_name, snapshot.world_time
                         )));
                     }
                     Err(error) => {
@@ -383,7 +405,7 @@ impl Render for WorldDocumentView {
             window.appearance(),
             gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark
         ));
-        window.set_window_title(&document_window_title(&self.document_label));
+        window.set_window_title(&document_window_title(&self.document_name));
         let mut actions = div().flex_shrink_0().flex().items_center().gap_2();
         if let Some(badge) = world_fork::lineage_badge(&self.document) {
             actions = actions.child(badge);
@@ -418,6 +440,25 @@ impl Render for WorldDocumentView {
                     })),
             );
 
+        // The World is called by its name; the durable file identity stays
+        // beside it, so renaming never hides which file this window edits.
+        let mut identity = div()
+            .flex_1()
+            .min_w(px(0.0))
+            .flex()
+            .gap_2()
+            .items_center()
+            .overflow_hidden()
+            .child(div().text_sm().child(self.document_name.clone()));
+        if self.document_name != self.document_label {
+            identity = identity.child(
+                div()
+                    .text_xs()
+                    .text_color(crate::theme_rgb(0x8a8a82))
+                    .child(self.document_label.clone()),
+            );
+        }
+
         let mut chrome = div()
             .h(px(48.0))
             .w_full()
@@ -429,16 +470,7 @@ impl Render for WorldDocumentView {
             .border_b_1()
             .border_color(crate::theme_rgb(0xd9d9d3))
             .bg(crate::theme_rgb(0xf7f7f3))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w(px(0.0))
-                    .flex()
-                    .gap_2()
-                    .items_center()
-                    .overflow_hidden()
-                    .child(div().text_sm().child(self.document_label.clone())),
-            )
+            .child(identity)
             .child(actions);
 
         if let Some(status) = &self.status {
@@ -3011,6 +3043,23 @@ fn world_pack_filter_counts(documents: &[WorldDocumentSummary]) -> Vec<(String, 
     filters
 }
 
+/// What a World is called: the name its owner gave it, or the durable identity
+/// of its file when it has no name.
+#[cfg(target_os = "macos")]
+fn document_display_name(display_title: Option<&str>, durable_label: &str) -> String {
+    display_title
+        .map(str::trim)
+        .filter(|title| !title.is_empty())
+        .unwrap_or(durable_label)
+        .to_owned()
+}
+
+#[cfg(target_os = "macos")]
+fn session_display_name(session: &DurableWorldSession) -> String {
+    let durable_label = session.display_name();
+    document_display_name(session.metadata().display_title.as_deref(), &durable_label)
+}
+
 #[cfg(target_os = "macos")]
 fn document_window_title(document_label: &str) -> String {
     format!("{document_label} — World Machine")
@@ -3439,10 +3488,30 @@ mod file_type_tests {
     }
 
     #[test]
-    fn document_window_title_uses_stable_durable_identity() {
+    fn a_world_is_called_by_its_name_and_falls_back_to_its_durable_identity() {
+        assert_eq!(
+            document_display_name(Some("  Maple Street · 1987  "), "pocket-universe-42"),
+            "Maple Street · 1987"
+        );
+        assert_eq!(
+            document_display_name(Some("   "), "pocket-universe-42"),
+            "pocket-universe-42"
+        );
+        assert_eq!(
+            document_display_name(None, "pocket-universe-42"),
+            "pocket-universe-42"
+        );
+    }
+
+    #[test]
+    fn document_window_title_carries_what_the_world_is_called() {
         assert_eq!(
             document_window_title("pocket-universe-42"),
             "pocket-universe-42 — World Machine"
+        );
+        assert_eq!(
+            document_window_title("Maple Street · 1987"),
+            "Maple Street · 1987 — World Machine"
         );
     }
 
