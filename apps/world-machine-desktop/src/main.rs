@@ -736,6 +736,10 @@ struct WorldMachineHome {
     renaming: Option<RenameDraft>,
     /// The World whose removal is waiting for a second click.
     pending_removal: Option<WorldDocumentId>,
+    /// How My Worlds is ordered, for this run of the app.
+    world_sort: WorldSort,
+    /// What was typed into Find a World.
+    world_search: Entity<AnalystTextInput>,
 }
 
 /// A World name being typed on Home. Only one World is renamed at a time, so
@@ -1787,6 +1791,59 @@ impl WorldMachineHome {
             .unwrap_or_else(|| pack_id.to_owned())
     }
 
+    /// Find a World, and choose whether the list reads most-recent-first or
+    /// A to Z. Shown only once there are enough Worlds for the list to be hard
+    /// to scan.
+    fn world_controls(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let mut order = div().flex_shrink_0().flex().items_center().gap_2().child(
+            div()
+                .text_xs()
+                .text_color(crate::theme_rgb(0x777770))
+                .child("Order"),
+        );
+        for sort in [WorldSort::Recent, WorldSort::Name] {
+            let selected = self.world_sort == sort;
+            let (border, background, text) = if selected {
+                (0x6f86b0, 0xe9eef7, 0x314b72)
+            } else {
+                (0xd9d9d3, 0xffffff, 0x666666)
+            };
+            order = order.child(
+                div()
+                    .id(SharedString::from(format!(
+                        "world-sort-{}",
+                        sort.label().to_lowercase()
+                    )))
+                    .cursor_pointer()
+                    .p_2()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(crate::theme_rgb(border))
+                    .bg(crate::theme_rgb(background))
+                    .text_color(crate::theme_rgb(text))
+                    .text_xs()
+                    .child(sort.label())
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.world_sort = sort;
+                        cx.notify();
+                    })),
+            );
+        }
+
+        div()
+            .w_full()
+            .flex()
+            .items_center()
+            .gap_3()
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.0))
+                    .child(self.world_search.clone()),
+            )
+            .child(order)
+    }
+
     fn document_pack_title(&self, document_id: &WorldDocumentId) -> String {
         self.documents
             .iter()
@@ -2767,10 +2824,29 @@ impl Render for WorldMachineHome {
         let has_documents = !documents.is_empty();
         let pack_filters = world_pack_filter_counts(&documents);
         let selected_world_pack = self.selected_world_pack.clone();
-        let visible_documents = documents
+        let search_query = normalize_world_search(self.world_search.read(cx).text());
+        let show_world_controls = documents.len() >= WORLD_SEARCH_THRESHOLD;
+        let mut visible_cards = documents
             .iter()
             .filter(|document| world_matches_pack_filter(document, selected_world_pack.as_deref()))
-            .cloned()
+            .map(|document| {
+                let pack_title = self
+                    .registry
+                    .descriptor_for(&document.pack)
+                    .map(|descriptor| descriptor.title.clone())
+                    .unwrap_or_else(|| document.pack.id.clone());
+                let title = world_summary_title(document, &pack_title);
+                (title, pack_title, document.clone())
+            })
+            .filter(|(title, pack_title, document)| {
+                world_matches_search(title, pack_title, document.id.as_str(), &search_query)
+            })
+            .map(|(title, _pack_title, document)| (title, document))
+            .collect::<Vec<_>>();
+        sort_world_cards(&mut visible_cards, self.world_sort);
+        let visible_documents = visible_cards
+            .into_iter()
+            .map(|(_title, document)| document)
             .collect::<Vec<_>>();
         let visible_document_count = visible_documents.len();
         let descriptors = self
@@ -2808,6 +2884,11 @@ impl Render for WorldMachineHome {
                     .child("No Worlds yet. Start one below; it keeps living while you are away."),
             );
         } else if visible_documents.is_empty() {
+            let empty = if search_query.is_empty() {
+                "No Worlds match this Pack filter."
+            } else {
+                "No Worlds match what you typed."
+            };
             saved = saved.child(
                 div()
                     .p_4()
@@ -2816,7 +2897,7 @@ impl Render for WorldMachineHome {
                     .border_color(crate::theme_rgb(0xe1e1dc))
                     .text_sm()
                     .text_color(crate::theme_rgb(0x777770))
-                    .child("No Worlds match this Pack filter."),
+                    .child(empty),
             );
         } else {
             for document in visible_documents {
@@ -2959,12 +3040,14 @@ impl Render for WorldMachineHome {
         }
 
         if has_documents || self.included_packs.is_empty() {
-            let worlds_title = if selected_world_pack.is_some() {
-                format!("My Worlds · {visible_document_count}/{}", documents.len())
-            } else {
-                format!("My Worlds · {}", documents.len())
-            };
-            body = body.child(div().text_sm().child(worlds_title));
+            body = body.child(
+                div()
+                    .text_sm()
+                    .child(my_worlds_title(visible_document_count, documents.len())),
+            );
+            if show_world_controls {
+                body = body.child(self.world_controls(cx));
+            }
             if let Some(note) = unreadable_documents_note(&self.unreadable_documents) {
                 body = body.child(
                     div()
@@ -3069,6 +3152,73 @@ impl Render for WorldMachineHome {
         }
 
         shell.child(body)
+    }
+}
+
+/// How My Worlds is ordered.
+#[cfg(target_os = "macos")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum WorldSort {
+    /// The Library's own order: most recently played first.
+    Recent,
+    /// What the cards say, A to Z.
+    Name,
+}
+
+#[cfg(target_os = "macos")]
+impl WorldSort {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Recent => "Recent",
+            Self::Name => "Name",
+        }
+    }
+}
+
+/// Beyond this many Worlds the list needs finding and ordering; below it the
+/// controls would be clutter on a screen that shows every World at once.
+#[cfg(target_os = "macos")]
+const WORLD_SEARCH_THRESHOLD: usize = 6;
+
+#[cfg(target_os = "macos")]
+fn normalize_world_search(query: &str) -> String {
+    query.trim().to_lowercase()
+}
+
+/// A World matches what was typed when the text appears in something the card
+/// itself shows: its name, its World Pack's title, or its file identity.
+#[cfg(target_os = "macos")]
+fn world_matches_search(title: &str, pack_title: &str, document_id: &str, query: &str) -> bool {
+    if query.is_empty() {
+        return true;
+    }
+    [title, pack_title, document_id]
+        .iter()
+        .any(|field| field.to_lowercase().contains(query))
+}
+
+/// Order the cards. `Recent` leaves the Library's own most-recently-played
+/// order alone; `Name` sorts by what the card shows, ignoring case, with the
+/// file identity breaking ties so the order never wobbles between renders.
+#[cfg(target_os = "macos")]
+fn sort_world_cards(cards: &mut [(String, WorldDocumentSummary)], sort: WorldSort) {
+    if sort == WorldSort::Name {
+        cards.sort_by(|(left_title, left), (right_title, right)| {
+            left_title
+                .to_lowercase()
+                .cmp(&right_title.to_lowercase())
+                .then_with(|| left.id.cmp(&right.id))
+        });
+    }
+}
+
+/// What the My Worlds heading says once some Worlds are filtered out.
+#[cfg(target_os = "macos")]
+fn my_worlds_title(visible: usize, total: usize) -> String {
+    if visible == total {
+        format!("My Worlds · {total}")
+    } else {
+        format!("My Worlds · {visible}/{total}")
     }
 }
 
@@ -3566,6 +3716,93 @@ mod file_type_tests {
     }
 
     #[test]
+    fn finding_a_world_matches_what_the_card_shows() {
+        let query = normalize_world_search("  MAPLE  ");
+        assert_eq!(query, "maple");
+
+        assert!(world_matches_search(
+            "Maple Street · 1987",
+            "Pocket Universe",
+            "pocket-universe-3",
+            &query
+        ));
+        assert!(world_matches_search(
+            "Ares Colony",
+            "Pocket Universe",
+            "maple-import",
+            &query
+        ));
+        assert!(!world_matches_search(
+            "Ares Colony",
+            "Pocket Universe",
+            "pocket-universe-3",
+            &query
+        ));
+
+        // An empty box hides nothing.
+        assert!(world_matches_search("Ares", "Tiny Society", "tiny-1", ""));
+        // The World Pack's own title is searchable too.
+        assert!(world_matches_search(
+            "Ares",
+            "Tiny Society",
+            "tiny-1",
+            &normalize_world_search("tiny")
+        ));
+    }
+
+    #[test]
+    fn ordering_by_name_ignores_case_and_stays_stable() {
+        let card = |id: &str, title: &str| {
+            (
+                title.to_owned(),
+                WorldDocumentSummary {
+                    id: WorldDocumentId::new(id).unwrap(),
+                    pack: WorldPackRef::new("pocket-universe", "1.0.0"),
+                    display_title: Some(title.to_owned()),
+                    display_summary: None,
+                    world_time: 0,
+                    event_count: 0,
+                },
+            )
+        };
+        let recent_order = vec![
+            card("c", "zephyr"),
+            card("a", "Maple Street"),
+            card("b", "ares colony"),
+            card("d", "Maple Street"),
+        ];
+
+        let mut untouched = recent_order.clone();
+        sort_world_cards(&mut untouched, WorldSort::Recent);
+        assert_eq!(
+            untouched
+                .iter()
+                .map(|(_, document)| document.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["c", "a", "b", "d"],
+            "Recent must leave the Library's own order alone"
+        );
+
+        let mut by_name = recent_order;
+        sort_world_cards(&mut by_name, WorldSort::Name);
+        assert_eq!(
+            by_name
+                .iter()
+                .map(|(_, document)| document.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["b", "a", "d", "c"],
+            "equal names fall back to the file identity so the order is stable"
+        );
+    }
+
+    #[test]
+    fn the_my_worlds_heading_counts_what_is_hidden() {
+        assert_eq!(my_worlds_title(7, 7), "My Worlds · 7");
+        assert_eq!(my_worlds_title(2, 7), "My Worlds · 2/7");
+        assert_eq!(my_worlds_title(0, 7), "My Worlds · 0/7");
+    }
+
+    #[test]
     fn renaming_reports_the_name_or_the_pack_title_it_fell_back_to() {
         let named = rename_result_message(Some("Maple Street"), "Pocket Universe");
         assert!(named.starts_with("Renamed to Maple Street."));
@@ -3791,7 +4028,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     application.run(move |cx: &mut App| {
         about::install(cx);
+        analyst_input::bind_keys(cx);
         let home = cx.new(|cx| {
+            let world_search = cx.new(|cx| AnalystTextInput::new("Find a World…", cx));
+            // Typing filters the list, so Home has to redraw as the field changes.
+            cx.observe(&world_search, |_, _, cx| cx.notify()).detach();
             let mut home = WorldMachineHome {
                 registry,
                 library,
@@ -3811,6 +4052,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 unreadable_documents,
                 renaming: None,
                 pending_removal: None,
+                world_sort: WorldSort::Recent,
+                world_search,
             };
             home.start_system_open_listener(cx);
             home.activate_included_packs(cx);

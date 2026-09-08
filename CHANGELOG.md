@@ -4,6 +4,7 @@ Releases live on the [Releases page](https://github.com/hxddh/world-machine/rele
 
 ## Unreleased
 
+- My Worlds: once you have six or more Worlds, the list gains **Find a World** and an **Order** switch — most recently played, or A to Z. Typing matches a World's name, its World Pack's title, or its file id, and the heading says how many of your Worlds are showing.
 - Windows open where you left them. Home and World windows remember their size and position between launches; a window saved on a display you no longer have opens centred instead of off-screen.
 
 ## v0.2.2 (2026-09-08)
