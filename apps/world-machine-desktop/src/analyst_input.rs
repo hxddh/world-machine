@@ -89,6 +89,16 @@ impl AnalystTextInput {
         }
     }
 
+    /// Start the field with text already in it, cursor at the end. Used when
+    /// a field opens on something that already has a value, such as renaming
+    /// a World that is already named.
+    pub(crate) fn with_text(mut self, text: impl Into<SharedString>) -> Self {
+        let content: SharedString = text.into();
+        self.selected_range = content.len()..content.len();
+        self.content = content;
+        self
+    }
+
     pub(crate) fn text(&self) -> &str {
         &self.content
     }

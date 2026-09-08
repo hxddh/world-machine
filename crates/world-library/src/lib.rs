@@ -14,6 +14,9 @@ use world_projection::{ProjectionIntent, ProjectionSnapshot};
 
 pub const WORLD_DOCUMENT_SUFFIX: &str = ".world";
 pub const LEGACY_WORLD_DOCUMENT_SUFFIX: &str = ".world.json";
+/// Removed Worlds are kept in this folder inside the Worlds folder rather
+/// than deleted, so a removal stays reversible in the Finder.
+pub const REMOVED_DIRECTORY: &str = "Removed";
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct WorldDocumentId(String);
@@ -61,6 +64,23 @@ pub struct WorldDocumentSummary {
     pub display_summary: Option<String>,
     pub world_time: u64,
     pub event_count: usize,
+}
+
+/// A file in the Worlds folder that names itself a World but could not be
+/// read as one: a truncated save, a file from a newer build, or something
+/// that was copied in by hand.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UnreadableWorldFile {
+    pub file_name: String,
+    pub reason: String,
+}
+
+/// Everything the Worlds folder holds: the Worlds that can be opened, and the
+/// files that look like Worlds but cannot be read.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct WorldLibraryListing {
+    pub documents: Vec<WorldDocumentSummary>,
+    pub unreadable: Vec<UnreadableWorldFile>,
 }
 
 #[derive(Clone, Debug)]
@@ -181,13 +201,25 @@ impl WorldLibrary {
     /// written into World state or used by replay. Ties are ordered by stable
     /// document id so the result remains deterministic for equal timestamps.
     pub fn list(&self) -> Result<Vec<WorldDocumentSummary>, LibraryError> {
+        Ok(self.listing()?.documents)
+    }
+
+    /// List Library Worlds and, separately, the files in the Worlds folder
+    /// that look like Worlds but could not be read. One damaged or foreign
+    /// file must never hide the rest of somebody's Worlds, so a per-file
+    /// failure is reported instead of failing the whole listing; only a
+    /// failure to read the folder itself is fatal.
+    pub fn listing(&self) -> Result<WorldLibraryListing, LibraryError> {
         let entries = match fs::read_dir(&self.root) {
             Ok(entries) => entries,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return Ok(WorldLibraryListing::default());
+            }
             Err(error) => return Err(LibraryError::Io(error)),
         };
 
         let mut ids = Vec::new();
+        let mut unreadable = Vec::new();
         for entry in entries {
             let entry = entry?;
             if !entry.file_type()?.is_file() {
@@ -204,17 +236,40 @@ impl WorldLibrary {
             } else {
                 continue;
             };
-            ids.push(WorldDocumentId::new(raw_id)?);
+            match WorldDocumentId::new(raw_id) {
+                Ok(id) => ids.push(id),
+                Err(error) => unreadable.push(UnreadableWorldFile {
+                    file_name: file_name.to_owned(),
+                    reason: error.to_string(),
+                }),
+            }
         }
         ids.sort();
         ids.dedup();
 
         let mut documents = Vec::new();
         for id in ids {
-            let Some(document) = self.load_document(&id)? else {
-                continue;
+            let document = match self.load_document(&id) {
+                Ok(Some(document)) => document,
+                Ok(None) => continue,
+                Err(error) => {
+                    unreadable.push(UnreadableWorldFile {
+                        file_name: id.file_name(),
+                        reason: error.to_string(),
+                    });
+                    continue;
+                }
             };
-            let modified = self.document_modified_time(&id)?.unwrap_or(UNIX_EPOCH);
+            let modified = match self.document_modified_time(&id) {
+                Ok(modified) => modified.unwrap_or(UNIX_EPOCH),
+                Err(error) => {
+                    unreadable.push(UnreadableWorldFile {
+                        file_name: id.file_name(),
+                        reason: error.to_string(),
+                    });
+                    continue;
+                }
+            };
             documents.push((modified, summary(id, &document)));
         }
         documents.sort_by(|(left_modified, left), (right_modified, right)| {
@@ -222,10 +277,66 @@ impl WorldLibrary {
                 .cmp(left_modified)
                 .then_with(|| left.id.cmp(&right.id))
         });
-        Ok(documents
+        unreadable.sort_by(|left, right| left.file_name.cmp(&right.file_name));
+        Ok(WorldLibraryListing {
+            documents: documents
+                .into_iter()
+                .map(|(_modified, document)| document)
+                .collect(),
+            unreadable,
+        })
+    }
+
+    /// Give a World the name its owner typed, or clear it back to the World
+    /// Pack's own title. Only the display name changes; the World's history,
+    /// its file, and its durable identity stay as they are.
+    pub fn set_display_title(
+        &self,
+        id: &WorldDocumentId,
+        title: Option<&str>,
+    ) -> Result<WorldDocumentSummary, LibraryError> {
+        let mut document = self
+            .load_document(id)?
+            .ok_or_else(|| LibraryError::UnknownDocument(id.clone()))?;
+        document.metadata.display_title = title
+            .map(str::trim)
+            .filter(|title| !title.is_empty())
+            .map(str::to_owned);
+        self.save_document(id, &document)?;
+        Ok(summary(id.clone(), &document))
+    }
+
+    /// Take a World out of the Library without destroying it: its file moves
+    /// into the `Removed` folder next to the Worlds, so a removal made by
+    /// mistake is a drag back in the Finder rather than lost history.
+    pub fn remove(&self, id: &WorldDocumentId) -> Result<PathBuf, LibraryError> {
+        let sources = [self.path(id), self.legacy_path(id)]
             .into_iter()
-            .map(|(_modified, document)| document)
-            .collect())
+            .filter(|path| path.is_file())
+            .collect::<Vec<_>>();
+        if sources.is_empty() {
+            return Err(LibraryError::UnknownDocument(id.clone()));
+        }
+
+        let removed_root = self.removed_root();
+        fs::create_dir_all(&removed_root)?;
+        let mut moved = None;
+        for source in sources {
+            let file_name = source
+                .file_name()
+                .ok_or_else(|| io::Error::other("World document path has no file name"))?
+                .to_string_lossy()
+                .into_owned();
+            let destination = unique_removed_path(&removed_root, &file_name)?;
+            fs::rename(&source, &destination)?;
+            moved.get_or_insert(destination);
+        }
+        moved.ok_or_else(|| LibraryError::UnknownDocument(id.clone()))
+    }
+
+    /// Where [`WorldLibrary::remove`] puts a removed World.
+    pub fn removed_root(&self) -> PathBuf {
+        self.root.join(REMOVED_DIRECTORY)
     }
 
     pub fn import_file(
@@ -602,6 +713,31 @@ fn required_archive(session: &dyn WorldSession) -> Result<WorldArchive, LibraryE
         .ok_or_else(|| LibraryError::ArchiveUnsupported(session.pack().id))
 }
 
+/// Removing twice must not overwrite the first removal, so a name already
+/// taken in the `Removed` folder gains a numeric suffix.
+fn unique_removed_path(removed_root: &Path, file_name: &str) -> Result<PathBuf, LibraryError> {
+    let candidate = removed_root.join(file_name);
+    if !candidate.try_exists()? {
+        return Ok(candidate);
+    }
+    let (stem, suffix) = if let Some(stem) = file_name.strip_suffix(LEGACY_WORLD_DOCUMENT_SUFFIX) {
+        (stem, LEGACY_WORLD_DOCUMENT_SUFFIX)
+    } else if let Some(stem) = file_name.strip_suffix(WORLD_DOCUMENT_SUFFIX) {
+        (stem, WORLD_DOCUMENT_SUFFIX)
+    } else {
+        (file_name, "")
+    };
+    for attempt in 2..=u32::MAX {
+        let candidate = removed_root.join(format!("{stem}-{attempt}{suffix}"));
+        if !candidate.try_exists()? {
+            return Ok(candidate);
+        }
+    }
+    Err(LibraryError::Io(io::Error::other(
+        "the Removed folder already holds every candidate name for this World",
+    )))
+}
+
 fn atomic_write(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let parent = path
         .parent()
@@ -875,6 +1011,162 @@ mod tests {
         );
         assert_eq!(documents[1].world_time, 9);
         assert_eq!(documents[1].event_count, 0);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn one_unreadable_file_does_not_hide_the_other_worlds() {
+        let root = temp_root("unreadable");
+        let library = WorldLibrary::new(root.clone());
+        let healthy = WorldDocumentId::new("healthy").unwrap();
+        library.save(&healthy, &mock_archive(3)).unwrap();
+        fs::write(root.join("truncated.world"), "{\"format\":").unwrap();
+        fs::write(root.join("not a world id.world"), "{}").unwrap();
+
+        let listing = library.listing().unwrap();
+        assert_eq!(
+            listing
+                .documents
+                .iter()
+                .map(|document| document.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["healthy"]
+        );
+        assert_eq!(
+            listing
+                .unreadable
+                .iter()
+                .map(|file| file.file_name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["not a world id.world", "truncated.world"]
+        );
+        assert!(listing
+            .unreadable
+            .iter()
+            .all(|file| !file.reason.is_empty()));
+        assert_eq!(library.list().unwrap().len(), 1);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn an_unreadable_worlds_folder_is_still_a_hard_failure() {
+        let root = temp_root("folder-is-a-file");
+        fs::create_dir_all(root.parent().unwrap()).unwrap();
+        fs::write(&root, "not a folder").unwrap();
+        let library = WorldLibrary::new(root.clone());
+
+        assert!(matches!(library.listing(), Err(LibraryError::Io(_))));
+
+        let _ = fs::remove_file(root);
+    }
+
+    #[test]
+    fn renaming_a_world_keeps_its_history_and_can_be_cleared() {
+        let root = temp_root("rename");
+        let library = WorldLibrary::new(root.clone());
+        let id = WorldDocumentId::new("pocket-universe-3").unwrap();
+        library.save(&id, &mock_archive(7)).unwrap();
+
+        let renamed = library
+            .set_display_title(&id, Some("  Maple Street · 1987  "))
+            .unwrap();
+        assert_eq!(
+            renamed.display_title.as_deref(),
+            Some("Maple Street · 1987")
+        );
+        assert_eq!(
+            library.list().unwrap()[0].display_title.as_deref(),
+            Some("Maple Street · 1987")
+        );
+        assert_eq!(library.load(&id).unwrap().unwrap().world_time, 7);
+
+        let cleared = library.set_display_title(&id, Some("   ")).unwrap();
+        assert_eq!(cleared.display_title, None);
+        assert_eq!(library.list().unwrap()[0].display_title, None);
+
+        let missing = WorldDocumentId::new("absent").unwrap();
+        assert!(matches!(
+            library.set_display_title(&missing, Some("x")),
+            Err(LibraryError::UnknownDocument(unknown)) if unknown == missing
+        ));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn removing_a_world_moves_the_file_aside_instead_of_destroying_it() {
+        let root = temp_root("remove");
+        let library = WorldLibrary::new(root.clone());
+        let id = WorldDocumentId::new("pocket-universe-3").unwrap();
+        library.save(&id, &mock_archive(5)).unwrap();
+
+        let removed = library.remove(&id).unwrap();
+        assert_eq!(
+            removed,
+            library.removed_root().join("pocket-universe-3.world")
+        );
+        assert!(removed.is_file());
+        assert!(!library.contains(&id).unwrap());
+        assert!(library.list().unwrap().is_empty());
+        assert_eq!(read_document_file(&removed).unwrap().archive.world_time, 5);
+
+        assert!(matches!(
+            library.remove(&id),
+            Err(LibraryError::UnknownDocument(unknown)) if unknown == id
+        ));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn removing_the_same_name_twice_keeps_both_files() {
+        let root = temp_root("remove-twice");
+        let library = WorldLibrary::new(root.clone());
+        let id = WorldDocumentId::new("pocket-universe-3").unwrap();
+
+        library.save(&id, &mock_archive(1)).unwrap();
+        library.remove(&id).unwrap();
+        library.save(&id, &mock_archive(2)).unwrap();
+        let second = library.remove(&id).unwrap();
+
+        assert_eq!(
+            second,
+            library.removed_root().join("pocket-universe-3-2.world")
+        );
+        assert_eq!(
+            read_document_file(&library.removed_root().join("pocket-universe-3.world"))
+                .unwrap()
+                .archive
+                .world_time,
+            1
+        );
+        assert_eq!(read_document_file(&second).unwrap().archive.world_time, 2);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn removed_worlds_are_not_listed_as_worlds() {
+        let root = temp_root("removed-not-listed");
+        let library = WorldLibrary::new(root.clone());
+        let kept = WorldDocumentId::new("kept").unwrap();
+        let gone = WorldDocumentId::new("gone").unwrap();
+        library.save(&kept, &mock_archive(1)).unwrap();
+        library.save(&gone, &mock_archive(2)).unwrap();
+        library.remove(&gone).unwrap();
+
+        let listing = library.listing().unwrap();
+        assert_eq!(
+            listing
+                .documents
+                .iter()
+                .map(|document| document.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["kept"]
+        );
+        assert!(listing.unreadable.is_empty());
 
         let _ = fs::remove_dir_all(root);
     }
