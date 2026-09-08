@@ -1,14 +1,14 @@
 > **Status (2026-09-08):** Audit-driven transport hardening stays **frozen**; M263 (#266) was the last such milestone. The active plan is Phase VI in [docs/ROADMAP.md](docs/ROADMAP.md), whose progress table lists what is done and what remains. Every entry below states what a user will see change.
 
-# Next Coding Task — after v0.2.1
+# Next Coding Task — after v0.2.2
 
-`v0.2.1` shipped on 2026-09-08. The list below is ordered by what it changes for somebody using the app, and each entry says whether it can be finished from CI alone.
+`v0.2.2` shipped on 2026-09-08. The list below is ordered by what it changes for somebody using the app, and each entry says whether it can be finished from CI alone.
 
 ## Only the owner can do these
 
 0. **Apple Developer Program.** Enrol, create the Developer ID Application certificate, and add the five secrets in [docs/RELEASE_SIGNING.md](docs/RELEASE_SIGNING.md). The next release is then a normal macOS app: download, open, use. Nothing else on this list removes the first-launch dialog, and no packaging trick substitutes for it.
    *User-visible change:* the "Open Anyway" detour disappears from the first launch.
-1. **Real-device verification and screenshots.** Install `v0.2.1` on a physical Mac (macOS 14 and 15 if possible), walk [docs/INSTALL.md](docs/INSTALL.md), open Home and a World window in light and dark, and confirm nothing lays out past the window edge. Capture `docs/screenshots/home.png` and `docs/screenshots/world.png`. The CI screenshot job draws layout but rasterizes no text inside Apple Virtualization, so this cannot be automated — do not spend more time on `screenshots.yml`.
+1. **Real-device verification and screenshots.** Install `v0.2.2` on a physical Mac (macOS 14 and 15 if possible), walk [docs/INSTALL.md](docs/INSTALL.md), open Home and a World window in light and dark, and confirm nothing lays out past the window edge. Capture `docs/screenshots/home.png` and `docs/screenshots/world.png`. The CI screenshot job draws layout but rasterizes no text inside Apple Virtualization, so this cannot be automated — do not spend more time on `screenshots.yml`.
    *User-visible change:* the README stops describing the app and shows it.
 2. **Usability test.** Three to five non-developers, five minutes each, from download to a progressing World. Every stall becomes an entry here with the user-visible change it fixes.
    *User-visible change:* none directly; it is what turns the rest of this list from guesses into findings.
@@ -17,9 +17,9 @@ Anything the owner reports from 1 or 2 outranks everything below.
 
 ## Can be finished without a Mac in hand
 
-3. **Name and remove Worlds from Home.** *(done, this branch)* Branching produces Worlds quickly, and until now every one of them was listed under its World Pack's title with only a file id to tell them apart, with no way to remove one except in the Finder. Every World card now carries **Rename** and **Remove**; removal moves the file into a `Removed` folder rather than deleting it. One unreadable file in the Worlds folder no longer hides every other World.
+3. **Name and remove Worlds from Home.** *(done, shipped in `v0.2.2`)* Branching produces Worlds quickly, and until now every one of them was listed under its World Pack's title with only a file id to tell them apart, with no way to remove one except in the Finder. Every World card now carries **Rename** and **Remove**; removal moves the file into a `Removed` folder rather than deleting it. One unreadable file in the Worlds folder no longer hides every other World.
    *User-visible change:* My Worlds becomes a list of named Worlds the owner can prune.
-4. **A World window that says which World it is.** The window title and its status line still use the durable file id (`pocket-universe-3`), so a World named on Home is unnamed in its own window. Carry the name into the window title, the save/reload status lines, and the suggested export file name, keeping the file id visible where identity matters.
+4. **A World window that says which World it is.** *(done, shipped in `v0.2.2`)* The window title, header, save and reload lines, and the file name Save As suggests now carry the World's name, with the durable file id kept beside it.
    *User-visible change:* the renamed World is called by its name everywhere it appears.
 5. **Sort and find in My Worlds.** Beyond roughly a dozen Worlds the pack filter is not enough. Order by last played or by name, and filter by typed text.
    *User-visible change:* a long list of Worlds stays usable.

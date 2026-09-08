@@ -290,7 +290,7 @@ A normal macOS app is download, open, use. That requires a Developer ID signatur
 | Stage 4: screenshot in the README | needs a real Mac; the CI runner renders no text |
 | Stage 4: `v0.2.0` | shipped 2026-09-07 at the owner's direction, before real-device verification and the usability test; both stay open below |
 | Stage 4: `v0.2.1` | shipped 2026-09-08: update banner, prefilled problem report, dark mode, standard window and app menu behaviour |
-| After 0.2.1: naming and removing Worlds, and a Library that survives one damaged file | done |
+| `v0.2.2` | shipped 2026-09-08: naming and removing Worlds, a World window that carries the name, and a Library that survives one damaged file |
 
 ### Why this phase exists
 
