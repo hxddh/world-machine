@@ -1,14 +1,14 @@
 > **Status (2026-09-08):** Audit-driven transport hardening stays **frozen**; M263 (#266) was the last such milestone. The active plan is Phase VI in [docs/ROADMAP.md](docs/ROADMAP.md), whose progress table lists what is done and what remains. Every entry below states what a user will see change.
 
-# Next Coding Task — after v0.2.2
+# Next Coding Task — after v0.3.0
 
-`v0.2.2` shipped on 2026-09-08. The list below is ordered by what it changes for somebody using the app, and each entry says whether it can be finished from CI alone.
+`v0.3.0` shipped on 2026-09-08. The list below is ordered by what it changes for somebody using the app, and each entry says whether it can be finished from CI alone.
 
 ## Only the owner can do these
 
 0. **Apple Developer Program.** Enrol, create the Developer ID Application certificate, and add the five secrets in [docs/RELEASE_SIGNING.md](docs/RELEASE_SIGNING.md). The next release is then a normal macOS app: download, open, use. Nothing else on this list removes the first-launch dialog, and no packaging trick substitutes for it.
    *User-visible change:* the "Open Anyway" detour disappears from the first launch.
-1. **Real-device verification and screenshots.** Install `v0.2.2` on a physical Mac (macOS 14 and 15 if possible), walk [docs/INSTALL.md](docs/INSTALL.md), open Home and a World window in light and dark, and confirm nothing lays out past the window edge. Capture `docs/screenshots/home.png` and `docs/screenshots/world.png`. The CI screenshot job draws layout but rasterizes no text inside Apple Virtualization, so this cannot be automated — do not spend more time on `screenshots.yml`.
+1. **Real-device verification and screenshots.** Install `v0.3.0` on a physical Mac (macOS 14 and 15 if possible), walk [docs/INSTALL.md](docs/INSTALL.md), open Home and a World window in light and dark, and confirm nothing lays out past the window edge. Capture `docs/screenshots/home.png` and `docs/screenshots/world.png`. The CI screenshot job draws layout but rasterizes no text inside Apple Virtualization, so this cannot be automated — do not spend more time on `screenshots.yml`.
    *User-visible change:* the README stops describing the app and shows it.
 2. **Usability test.** Three to five non-developers, five minutes each, from download to a progressing World. Every stall becomes an entry here with the user-visible change it fixes.
    *User-visible change:* none directly; it is what turns the rest of this list from guesses into findings.
@@ -21,12 +21,21 @@ Anything the owner reports from 1 or 2 outranks everything below.
    *User-visible change:* My Worlds becomes a list of named Worlds the owner can prune.
 4. **A World window that says which World it is.** *(done, shipped in `v0.2.2`)* The window title, header, save and reload lines, and the file name Save As suggests now carry the World's name, with the durable file id kept beside it.
    *User-visible change:* the renamed World is called by its name everywhere it appears.
-5. **Sort and find in My Worlds.** Beyond roughly a dozen Worlds the pack filter is not enough. Order by last played or by name, and filter by typed text.
+5. **Sort and find in My Worlds.** *(done, shipped in `v0.3.0`)* Past six Worlds the list carries Find a World and an Order switch.
    *User-visible change:* a long list of Worlds stays usable.
-6. **A fourth Pocket Universe chapter, and a second Tiny Society consequence chain.** Retention is the point of the product, and Stage 3 shipped three chapters. This is the largest item here and the only one that makes returning to a week-old World more interesting.
+6. **A fourth Pocket Universe chapter, and a second Tiny Society consequence chain.** *(done, shipped in `v0.3.0`)* Pocket Universe 0.17 adds succession, with no deadline and a successor whose habits deepen while the observer waits. Tiny Society 0.2 adds an employment chain that reads the first chain's result: recovered demand across a lean counter earns Mia her first job.
    *User-visible change:* `While you were away` keeps having something to say on the fifth visit.
-7. **Window size and position remembered between launches.** Home and World windows currently open centred at a fixed size every time.
+7. **Window size and position remembered between launches.** *(done, shipped in `v0.3.0`)*
    *User-visible change:* the app opens where it was left.
+
+## What is left after v0.3.0
+
+Everything on the CI-only list is shipped. The next entries should come from the owner's real-device verification and the usability test rather than from this file, per the rule at the end of [docs/ROADMAP.md](docs/ROADMAP.md). Two things are known and waiting:
+
+8. **Carrying a World across a Pack version change.** `v0.3.0` moved both Pack versions and closed every Pocket Universe and Tiny Society World saved before it. The versioning model already allows several versions of one Pack to be installed at once, so the app could ship the previous version alongside the new one and let old Worlds keep their old rules. Until it does, every content release costs everybody their Worlds.
+   *User-visible change:* a World keeps opening after an update that changes its Pack's rules.
+9. **A second Tiny Society branch worth taking.** The employment chain reads the first chain's outcome; there is still only one durable fork (repair the boat or not) that decides it.
+   *User-visible change:* two different Tiny Society Worlds diverge on more than one choice.
 
 ## Deliberately not doing
 

@@ -2,7 +2,7 @@
 
 Releases live on the [Releases page](https://github.com/hxddh/world-machine/releases). `0.2.0` is the first release intended to be usable without reading the repository; the `v0.1.0-pre.N` tags below were its pre-releases.
 
-## Unreleased
+## v0.3.0 (2026-09-08)
 
 **Worlds created before this release will not open.** Pocket Universe moves to `0.17` and Tiny Society to `0.2` because both change the rules their Worlds run under, and a `.world` file records the exact Pack version it was created with. This release ships only the new versions, so a Pocket Universe or Tiny Society World saved by `v0.2.2` or earlier reports that it needs a Pack version this build does not have. Export anything you want to keep before updating; Micro Company Worlds are unaffected.
 
