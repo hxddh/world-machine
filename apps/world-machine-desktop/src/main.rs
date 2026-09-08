@@ -33,8 +33,9 @@ mod world_fork;
 
 #[cfg(target_os = "macos")]
 use gpui::{
-    div, prelude::*, px, size, App, AppContext, Bounds, Context, Entity, Global, IntoElement,
-    PathPromptOptions, Render, SharedString, Styled, Window, WindowBounds, WindowOptions,
+    div, point, prelude::*, px, size, App, AppContext, Bounds, Context, Entity, Global,
+    IntoElement, PathPromptOptions, PlatformDisplay, Render, SharedString, Styled, Window,
+    WindowBounds, WindowOptions,
 };
 #[cfg(target_os = "macos")]
 use std::cell::RefCell;
@@ -49,7 +50,7 @@ use std::rc::Rc;
 #[cfg(target_os = "macos")]
 use std::sync::{
     atomic::{AtomicU64, Ordering},
-    Arc,
+    Arc, Mutex,
 };
 #[cfg(target_os = "macos")]
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -65,6 +66,8 @@ use world_library::{
 #[cfg(target_os = "macos")]
 use world_lineage::LineageIndex;
 #[cfg(target_os = "macos")]
+use world_machine_desktop::window_state::{self, StoredWindowBounds};
+#[cfg(target_os = "macos")]
 use world_pack_bundle::PACK_BUNDLE_SUFFIX;
 #[cfg(target_os = "macos")]
 use world_pack_catalog::{InstalledPack, PackAvailability, PackCatalog, PackInstallPreview};
@@ -77,6 +80,146 @@ const LIBRARY_OVERRIDE_ENV: &str = "WORLD_MACHINE_LIBRARY_DIR";
 const PACK_CATALOG_OVERRIDE_ENV: &str = "WORLD_MACHINE_PACK_CATALOG";
 #[cfg(target_os = "macos")]
 const LINEAGE_CHILD_PREVIEW_LIMIT: usize = 4;
+/// 200 ms ticks between writes of changed window geometry.
+#[cfg(target_os = "macos")]
+const WINDOW_GEOMETRY_FLUSH_TICKS: u32 = 5;
+
+/// Which window a remembered rectangle belongs to. World windows share one
+/// entry: reopening a World puts it where the last World window was, which is
+/// what "the app opens where I left it" means with several Worlds open.
+#[cfg(target_os = "macos")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RememberedWindow {
+    Home,
+    World,
+}
+
+/// The latest geometry each window has reported, and what is already on disk.
+/// Windows report while they render; the Home background loop writes the
+/// difference a few times a second, so dragging a window is not a stream of
+/// file writes.
+#[cfg(target_os = "macos")]
+struct WindowGeometry {
+    home: Option<StoredWindowBounds>,
+    world: Option<StoredWindowBounds>,
+    saved_home: Option<StoredWindowBounds>,
+    saved_world: Option<StoredWindowBounds>,
+}
+
+#[cfg(target_os = "macos")]
+static WINDOW_GEOMETRY: Mutex<WindowGeometry> = Mutex::new(WindowGeometry {
+    home: None,
+    world: None,
+    saved_home: None,
+    saved_world: None,
+});
+
+#[cfg(target_os = "macos")]
+fn stored_bounds(bounds: Bounds<gpui::Pixels>) -> StoredWindowBounds {
+    StoredWindowBounds::new(
+        f32::from(bounds.origin.x),
+        f32::from(bounds.origin.y),
+        f32::from(bounds.size.width),
+        f32::from(bounds.size.height),
+    )
+}
+
+#[cfg(target_os = "macos")]
+fn restored_bounds(stored: StoredWindowBounds) -> Bounds<gpui::Pixels> {
+    Bounds::new(
+        point(px(stored.x), px(stored.y)),
+        size(px(stored.width), px(stored.height)),
+    )
+}
+
+/// The displays a window could be reopened onto right now.
+#[cfg(target_os = "macos")]
+fn display_bounds(cx: &App) -> Vec<StoredWindowBounds> {
+    cx.displays()
+        .into_iter()
+        .map(|display| stored_bounds(display.bounds()))
+        .collect()
+}
+
+/// Note where a window is now. Only an ordinary windowed rectangle is worth
+/// remembering: a maximized or full-screen window should not reopen at the
+/// size of somebody's screen.
+#[cfg(target_os = "macos")]
+fn remember_window_geometry(window: &Window, which: RememberedWindow) {
+    let WindowBounds::Windowed(bounds) = window.window_bounds() else {
+        return;
+    };
+    let stored = stored_bounds(bounds);
+    if !stored.is_plausible() {
+        return;
+    }
+    let Ok(mut geometry) = WINDOW_GEOMETRY.lock() else {
+        return;
+    };
+    match which {
+        RememberedWindow::Home => geometry.home = Some(stored),
+        RememberedWindow::World => geometry.world = Some(stored),
+    }
+}
+
+/// Where a window should open, or `None` for its default place.
+#[cfg(target_os = "macos")]
+fn remembered_window_bounds(which: RememberedWindow, cx: &App) -> Option<Bounds<gpui::Pixels>> {
+    let geometry = WINDOW_GEOMETRY.lock().ok()?;
+    let stored = match which {
+        RememberedWindow::Home => geometry.home,
+        RememberedWindow::World => geometry.world,
+    };
+    drop(geometry);
+    StoredWindowBounds::restorable(stored, &display_bounds(cx)).map(restored_bounds)
+}
+
+/// Write any geometry that changed since the last write. Cheap and silent when
+/// nothing moved, which is the common case.
+#[cfg(target_os = "macos")]
+fn flush_window_geometry() {
+    let Ok(geometry) = WINDOW_GEOMETRY.lock() else {
+        return;
+    };
+    if geometry.home == geometry.saved_home && geometry.world == geometry.saved_world {
+        return;
+    }
+    let (home, world) = (geometry.home, geometry.world);
+    drop(geometry);
+
+    let Ok(root) = world_machine_desktop::analyst_settings::application_support_root() else {
+        return;
+    };
+    let mut state = window_state::load(&root);
+    state.home = home.or(state.home);
+    state.world = world.or(state.world);
+    match window_state::save(&root, &state) {
+        Ok(()) => {
+            if let Ok(mut geometry) = WINDOW_GEOMETRY.lock() {
+                geometry.saved_home = home;
+                geometry.saved_world = world;
+            }
+        }
+        // Where the windows were is a convenience; failing to record it is a
+        // line in the log, never something in front of somebody.
+        Err(error) => diagnostics::error(format!("could not record window positions: {error}")),
+    }
+}
+
+/// Seed the remembered geometry from disk at launch.
+#[cfg(target_os = "macos")]
+fn load_window_geometry() {
+    let Ok(root) = world_machine_desktop::analyst_settings::application_support_root() else {
+        return;
+    };
+    let state = window_state::load(&root);
+    if let Ok(mut geometry) = WINDOW_GEOMETRY.lock() {
+        geometry.home = state.home;
+        geometry.world = state.world;
+        geometry.saved_home = state.home;
+        geometry.saved_world = state.world;
+    }
+}
 
 #[cfg(target_os = "macos")]
 static LIBRARY_CHANGE_REVISION: AtomicU64 = AtomicU64::new(0);
@@ -405,6 +548,7 @@ impl Render for WorldDocumentView {
             window.appearance(),
             gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark
         ));
+        remember_window_geometry(window, RememberedWindow::World);
         window.set_window_title(&document_window_title(&self.document_name));
         let mut actions = div().flex_shrink_0().flex().items_center().gap_2();
         if let Some(badge) = world_fork::lineage_badge(&self.document) {
@@ -607,6 +751,7 @@ impl WorldMachineHome {
     fn start_system_open_listener(&mut self, cx: &mut Context<Self>) {
         cx.spawn(async move |this, cx| {
             let mut observed_library_revision = library_change_revision();
+            let mut ticks_since_geometry_flush = 0u32;
             loop {
                 cx.background_executor()
                     .timer(Duration::from_millis(200))
@@ -615,6 +760,15 @@ impl WorldMachineHome {
                 let Some(this) = this.upgrade() else {
                     return;
                 };
+
+                // Windows report where they are as they render; write any
+                // change a few times a second rather than on every frame of a
+                // drag.
+                ticks_since_geometry_flush += 1;
+                if ticks_since_geometry_flush >= WINDOW_GEOMETRY_FLUSH_TICKS {
+                    ticks_since_geometry_flush = 0;
+                    flush_window_geometry();
+                }
                 let paths = system_open::drain_paths();
                 let revision = library_change_revision();
                 let library_changed = revision != observed_library_revision;
@@ -1288,7 +1442,8 @@ impl WorldMachineHome {
         };
         let registry = Arc::clone(&self.registry);
         let library = Arc::clone(&self.library);
-        let bounds = Bounds::centered(None, size(px(1100.0), px(900.0)), cx);
+        let bounds = remembered_window_bounds(RememberedWindow::World, cx)
+            .unwrap_or_else(|| Bounds::centered(None, size(px(1100.0), px(900.0)), cx));
         let opened = cx.open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
@@ -2605,6 +2760,7 @@ impl Render for WorldMachineHome {
             window.appearance(),
             gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark
         ));
+        remember_window_geometry(window, RememberedWindow::Home);
         window.set_window_title("World Machine");
 
         let documents = self.documents.clone();
@@ -3552,6 +3708,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let application = application();
     system_open::install(&application);
     diagnostics::init();
+    load_window_geometry();
     let library = Arc::new(discover_library()?);
     let pack_catalog_path = discover_pack_catalog_path(library.as_ref());
     diagnostics::info(format!(
@@ -3679,7 +3836,8 @@ impl Global for HomeEntity {}
 
 #[cfg(target_os = "macos")]
 fn open_home_window(home: Entity<WorldMachineHome>, cx: &mut App) {
-    let bounds = Bounds::centered(None, size(px(760.0), px(760.0)), cx);
+    let bounds = remembered_window_bounds(RememberedWindow::Home, cx)
+        .unwrap_or_else(|| Bounds::centered(None, size(px(760.0), px(760.0)), cx));
     if let Err(error) = cx.open_window(
         WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
