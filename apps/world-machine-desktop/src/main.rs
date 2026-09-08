@@ -19,7 +19,7 @@ mod world_fork;
 
 #[cfg(target_os = "macos")]
 use gpui::{
-    div, prelude::*, px, rgb, size, App, AppContext, Bounds, Context, Entity, IntoElement,
+    div, prelude::*, px, rgb, size, App, AppContext, Bounds, Context, Entity, Global, IntoElement,
     PathPromptOptions, Render, SharedString, Styled, Window, WindowBounds, WindowOptions,
 };
 #[cfg(target_os = "macos")]
@@ -3067,6 +3067,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .or(included_status)
         .map(HomeStatus::error);
 
+    // Clicking the Dock icon after the last window was closed brings Home
+    // back, the way a document-based Mac app behaves.
+    application.on_reopen(|cx| {
+        if cx.windows().is_empty() {
+            if let Some(home) = cx.try_global::<HomeEntity>().map(|home| home.0.clone()) {
+                open_home_window(home, cx);
+            }
+        }
+    });
+
     application.run(move |cx: &mut App| {
         about::install(cx);
         let home = cx.new(|cx| {
@@ -3093,19 +3103,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             home
         });
         about::install_home_actions(&home, cx);
-        let bounds = Bounds::centered(None, size(px(760.0), px(760.0)), cx);
-        cx.open_window(
-            WindowOptions {
-                window_bounds: Some(WindowBounds::Windowed(bounds)),
-                ..Default::default()
-            },
-            move |_, _| home,
-        )
-        .expect("failed to open World Machine library window");
+        cx.set_global(HomeEntity(home.clone()));
+        open_home_window(home, cx);
         cx.activate(true);
     });
 
     Ok(())
+}
+
+/// The one Home entity, kept alive across window closes so the library
+/// listener and Pack activation state survive Cmd-W.
+#[cfg(target_os = "macos")]
+struct HomeEntity(Entity<WorldMachineHome>);
+
+#[cfg(target_os = "macos")]
+impl Global for HomeEntity {}
+
+#[cfg(target_os = "macos")]
+fn open_home_window(home: Entity<WorldMachineHome>, cx: &mut App) {
+    let bounds = Bounds::centered(None, size(px(760.0), px(760.0)), cx);
+    if let Err(error) = cx.open_window(
+        WindowOptions {
+            window_bounds: Some(WindowBounds::Windowed(bounds)),
+            ..Default::default()
+        },
+        move |_, _| home,
+    ) {
+        diagnostics::error(format!("could not open the Home window: {error}"));
+    }
 }
 
 #[cfg(not(target_os = "macos"))]
