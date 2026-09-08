@@ -208,8 +208,11 @@ function archiveFixture(withDivergence) {
     format: "world-machine",
     format_version: 1,
     pack: {
+      // Must match the Tiny Society Pack version the app is built with: the
+      // host refuses an archive pinned to a version it does not have, which is
+      // the same rule that closes older Worlds after a Pack's rules change.
       id: "world-machine.tiny-society",
-      version: "0.1.0",
+      version: "0.2.0",
     },
     world_time: withDivergence ? 2 : 1,
     events,
