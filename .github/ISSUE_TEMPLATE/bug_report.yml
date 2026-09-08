@@ -6,8 +6,8 @@ body:
     id: build
     attributes:
       label: Build label
-      description: Shown in World Machine → About. Looks like "World Machine 0.2.0 · build abc123def456 · aarch64".
-      placeholder: World Machine 0.2.0 · build abc123def456 · aarch64
+      description: Shown in World Machine → About. Looks like "World Machine 0.2.1 · build abc123def456 · aarch64".
+      placeholder: World Machine 0.2.1 · build abc123def456 · aarch64
     validations:
       required: true
   - type: input
