@@ -1,6 +1,6 @@
 # Known issues
 
-Current as of `v0.2.2` in the [changelog](../CHANGELOG.md). Report anything else with **Help → Report a Problem…** in the app.
+Current as of the `Unreleased` section of the [changelog](../CHANGELOG.md). Report anything else with **Help → Report a Problem…** in the app.
 
 ## Installation
 
