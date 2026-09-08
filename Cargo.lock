@@ -6696,6 +6696,7 @@ version = "0.1.0"
 dependencies = [
  "gpui",
  "world-projection",
+ "world-theme",
 ]
 
 [[package]]
@@ -6774,6 +6775,7 @@ dependencies = [
  "world-library",
  "world-lineage",
  "world-persistence",
+ "world-theme",
 ]
 
 [[package]]
@@ -6801,6 +6803,7 @@ dependencies = [
  "world-projection",
  "world-strategy-document",
  "world-strategy-gpui",
+ "world-theme",
 ]
 
 [[package]]
@@ -6933,7 +6936,12 @@ dependencies = [
  "world-compare",
  "world-projection",
  "world-strategy",
+ "world-theme",
 ]
+
+[[package]]
+name = "world-theme"
+version = "0.1.0"
 
 [[package]]
 name = "writeable"

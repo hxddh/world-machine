@@ -14,6 +14,7 @@ world-host = { path = "../../crates/world-host" }
 world-library = { path = "../../crates/world-library" }
 world-observer = { path = "../../crates/world-observer" }
 world-gpui = { path = "../../crates/world-gpui" }
+world-theme = { path = "../../crates/world-theme" }
 
 [dev-dependencies]
 world-persistence = { path = "../../crates/world-persistence" }

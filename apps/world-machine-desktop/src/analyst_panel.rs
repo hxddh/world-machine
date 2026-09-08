@@ -4,7 +4,7 @@ use super::{
 };
 use crate::{SharedDocument, WorldDocumentView};
 use gpui::{
-    div, list, prelude::*, px, rgb, size, AnyElement, AppContext, Bounds, Context, Div, Entity,
+    div, list, prelude::*, px, size, AnyElement, AppContext, Bounds, Context, Div, Entity,
     FollowMode, IntoElement, ListAlignment, ListState, PathPromptOptions, Render, SharedString,
     Styled, Window, WindowBounds, WindowOptions,
 };
@@ -878,13 +878,16 @@ impl AnalystPanelView {
         let Some(status) = self.runtime.as_ref() else {
             return div()
                 .text_xs()
-                .text_color(rgb(0x777770))
+                .text_color(crate::theme_rgb(0x777770))
                 .child(format!("{label} · waiting for runtime check"));
         };
         let Some(selections) = status.selections.as_ref() else {
-            return div().text_xs().text_color(rgb(0x777770)).child(format!(
-                "{label} · settings unavailable until runtime settings load"
-            ));
+            return div()
+                .text_xs()
+                .text_color(crate::theme_rgb(0x777770))
+                .child(format!(
+                    "{label} · settings unavailable until runtime settings load"
+                ));
         };
         let selection = match program {
             analyst_runtime::AnalystRuntimeProgram::Node => &selections.node,
@@ -906,7 +909,7 @@ impl AnalystPanelView {
             actions = actions.child(
                 div()
                     .text_xs()
-                    .text_color(rgb(0x777770))
+                    .text_color(crate::theme_rgb(0x777770))
                     .child("Environment controlled"),
             );
         } else {
@@ -919,8 +922,8 @@ impl AnalystPanelView {
                 .p_1()
                 .rounded_md()
                 .border_1()
-                .border_color(rgb(0xb8b2a8))
-                .bg(rgb(0xffffff))
+                .border_color(crate::theme_rgb(0xb8b2a8))
+                .bg(crate::theme_rgb(0xffffff))
                 .text_xs()
                 .child("Choose…");
             if controls_enabled {
@@ -928,7 +931,7 @@ impl AnalystPanelView {
                     cx.listener(move |this, _, _, cx| this.configure_program(program, cx)),
                 );
             } else {
-                choose = choose.text_color(rgb(0x999990));
+                choose = choose.text_color(crate::theme_rgb(0x999990));
             }
             actions = actions.child(choose);
 
@@ -942,8 +945,8 @@ impl AnalystPanelView {
                     .p_1()
                     .rounded_md()
                     .border_1()
-                    .border_color(rgb(0xd8d8d2))
-                    .bg(rgb(0xf7f7f3))
+                    .border_color(crate::theme_rgb(0xd8d8d2))
+                    .bg(crate::theme_rgb(0xf7f7f3))
                     .text_xs()
                     .child("Clear saved path");
                 if controls_enabled {
@@ -951,7 +954,7 @@ impl AnalystPanelView {
                         cx.listener(move |this, _, _, cx| this.clear_program(program, cx)),
                     );
                 } else {
-                    clear = clear.text_color(rgb(0x999990));
+                    clear = clear.text_color(crate::theme_rgb(0x999990));
                 }
                 actions = actions.child(clear);
             }
@@ -962,8 +965,8 @@ impl AnalystPanelView {
             .p_2()
             .rounded_md()
             .border_1()
-            .border_color(rgb(0xe0e0db))
-            .bg(rgb(0xfafaf8))
+            .border_color(crate::theme_rgb(0xe0e0db))
+            .bg(crate::theme_rgb(0xfafaf8))
             .flex()
             .items_center()
             .justify_between()
@@ -981,7 +984,7 @@ impl AnalystPanelView {
                     .child(
                         div()
                             .text_xs()
-                            .text_color(rgb(0x777770))
+                            .text_color(crate::theme_rgb(0x777770))
                             .child(selection.program.display().to_string()),
                     ),
             )
@@ -1066,7 +1069,7 @@ impl AnalystPanelView {
                         .min_w(px(0.0))
                         .overflow_x_scroll()
                         .text_xs()
-                        .text_color(rgb(0x777770))
+                        .text_color(crate::theme_rgb(0x777770))
                         .child(document_id_label),
                 );
             }
@@ -1074,21 +1077,28 @@ impl AnalystPanelView {
                 .child(
                     div()
                         .text_xs()
-                        .text_color(rgb(0x777770))
+                        .text_color(crate::theme_rgb(0x777770))
                         .child(document_pack_label(document)),
                 )
-                .child(div().text_xs().text_color(rgb(0x777770)).child(format!(
-                    "{} · t={} · {} events",
-                    summary, document.world_time, document.event_count
-                )));
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(crate::theme_rgb(0x777770))
+                        .child(format!(
+                            "{} · t={} · {} events",
+                            summary, document.world_time, document.event_count
+                        )),
+                );
             card = if is_selected {
-                card.border_color(rgb(0x6684c4)).bg(rgb(0xf2f6ff))
+                card.border_color(crate::theme_rgb(0x6684c4))
+                    .bg(crate::theme_rgb(0xf2f6ff))
             } else if is_opposite {
-                card.border_color(rgb(0xe0e0db))
-                    .bg(rgb(0xf7f7f3))
-                    .text_color(rgb(0x999990))
+                card.border_color(crate::theme_rgb(0xe0e0db))
+                    .bg(crate::theme_rgb(0xf7f7f3))
+                    .text_color(crate::theme_rgb(0x999990))
             } else {
-                card.border_color(rgb(0xd8d8d2)).bg(rgb(0xffffff))
+                card.border_color(crate::theme_rgb(0xd8d8d2))
+                    .bg(crate::theme_rgb(0xffffff))
             };
             if selector_enabled && !is_selected && !is_opposite {
                 worlds = worlds.child(card.cursor_pointer().on_click(
@@ -1139,7 +1149,7 @@ impl AnalystPanelView {
             filter_control = filter_control.child(
                 div()
                     .text_xs()
-                    .text_color(rgb(0x777770))
+                    .text_color(crate::theme_rgb(0x777770))
                     .child("No other saved Worlds match this filter"),
             );
         }
@@ -1161,8 +1171,8 @@ impl AnalystPanelView {
             .p_1()
             .rounded_md()
             .border_1()
-            .border_color(rgb(0xb8b2a8))
-            .bg(rgb(0xffffff))
+            .border_color(crate::theme_rgb(0xb8b2a8))
+            .bg(crate::theme_rgb(0xffffff))
             .text_xs()
             .child("Swap sides");
         if can_swap {
@@ -1170,7 +1180,7 @@ impl AnalystPanelView {
                 .cursor_pointer()
                 .on_click(cx.listener(|this, _, _, cx| this.swap_worlds(cx)));
         } else {
-            swap = swap.text_color(rgb(0x999990));
+            swap = swap.text_color(crate::theme_rgb(0x999990));
         }
         let pair_header = div()
             .w_full()
@@ -1181,7 +1191,7 @@ impl AnalystPanelView {
             .child(
                 div()
                     .text_sm()
-                    .text_color(rgb(0x666660))
+                    .text_color(crate::theme_rgb(0x666660))
                     .child("Choose two distinct saved Worlds to compare."),
             )
             .child(swap);
@@ -1203,8 +1213,8 @@ impl AnalystPanelView {
             .p_1()
             .rounded_md()
             .border_1()
-            .border_color(rgb(0xb8b2a8))
-            .bg(rgb(0xffffff))
+            .border_color(crate::theme_rgb(0xb8b2a8))
+            .bg(crate::theme_rgb(0xffffff))
             .text_xs()
             .child("Recheck");
         if recheck_enabled {
@@ -1212,7 +1222,7 @@ impl AnalystPanelView {
                 .cursor_pointer()
                 .on_click(cx.listener(|this, _, _, cx| this.refresh_saved_world_catalog(cx)));
         } else {
-            recheck = recheck.text_color(rgb(0x999990));
+            recheck = recheck.text_color(crate::theme_rgb(0x999990));
         }
 
         let runtime_status = if self.catalog_refreshing {
@@ -1224,7 +1234,7 @@ impl AnalystPanelView {
                 .child(
                     div()
                         .text_xs()
-                        .text_color(rgb(0x666660))
+                        .text_color(crate::theme_rgb(0x666660))
                         .child("Refreshing saved Worlds…"),
                 )
                 .child(recheck)
@@ -1237,7 +1247,7 @@ impl AnalystPanelView {
                 .child(
                     div()
                         .text_xs()
-                        .text_color(rgb(0x666660))
+                        .text_color(crate::theme_rgb(0x666660))
                         .child("Checking analyst runtime readiness…"),
                 )
                 .child(recheck)
@@ -1246,17 +1256,17 @@ impl AnalystPanelView {
                 Some(DesktopAnalystRuntimeReadiness::Ready { .. }) => div()
                     .flex_1()
                     .text_xs()
-                    .text_color(rgb(0x4d6748))
+                    .text_color(crate::theme_rgb(0x4d6748))
                     .child("Analyst runtime ready · Node and Pi resolved"),
                 Some(DesktopAnalystRuntimeReadiness::Unavailable { issue }) => div()
                     .flex_1()
                     .text_xs()
-                    .text_color(rgb(0x9b4a42))
+                    .text_color(crate::theme_rgb(0x9b4a42))
                     .child(issue.message().to_owned()),
                 None => div()
                     .flex_1()
                     .text_xs()
-                    .text_color(rgb(0x9b4a42))
+                    .text_color(crate::theme_rgb(0x9b4a42))
                     .child("Analyst runtime readiness is unavailable. Recheck the runtime."),
             };
             div()
@@ -1304,14 +1314,14 @@ impl AnalystPanelView {
         start = if can_start {
             start
                 .cursor_pointer()
-                .border_color(rgb(0x6684c4))
-                .bg(rgb(0xf2f6ff))
+                .border_color(crate::theme_rgb(0x6684c4))
+                .bg(crate::theme_rgb(0xf2f6ff))
                 .on_click(cx.listener(|this, _, _, cx| this.start_session(cx)))
         } else {
             start
-                .border_color(rgb(0xd8d8d2))
-                .bg(rgb(0xf4f4f1))
-                .text_color(rgb(0x999990))
+                .border_color(crate::theme_rgb(0xd8d8d2))
+                .bg(crate::theme_rgb(0xf4f4f1))
+                .text_color(crate::theme_rgb(0x999990))
         };
 
         div()
@@ -1348,10 +1358,10 @@ impl AnalystPanelView {
                         .p_4()
                         .rounded_md()
                         .border_1()
-                        .border_color(rgb(0xe0e0db))
-                        .bg(rgb(0xfafaf8))
+                        .border_color(crate::theme_rgb(0xe0e0db))
+                        .bg(crate::theme_rgb(0xfafaf8))
                         .text_sm()
-                        .text_color(rgb(0x666660))
+                        .text_color(crate::theme_rgb(0x666660))
                         .child("Ask a question about what changed, why the Worlds diverged, or which evidence explains the difference."),
                 )
         } else {
@@ -1380,13 +1390,13 @@ impl AnalystPanelView {
             .child(if self.busy { "Analyzing…" } else { "Ask" });
         ask = if can_ask {
             ask.cursor_pointer()
-                .border_color(rgb(0x6684c4))
-                .bg(rgb(0xf2f6ff))
+                .border_color(crate::theme_rgb(0x6684c4))
+                .bg(crate::theme_rgb(0xf2f6ff))
                 .on_click(cx.listener(|this, _, _, cx| this.ask(cx)))
         } else {
-            ask.border_color(rgb(0xd8d8d2))
-                .bg(rgb(0xf4f4f1))
-                .text_color(rgb(0x999990))
+            ask.border_color(crate::theme_rgb(0xd8d8d2))
+                .bg(crate::theme_rgb(0xf4f4f1))
+                .text_color(crate::theme_rgb(0x999990))
         };
 
         let can_cancel = can_cancel_analysis(
@@ -1406,8 +1416,8 @@ impl AnalystPanelView {
                 .p_2()
                 .rounded_md()
                 .border_1()
-                .border_color(rgb(0xc9aaa1))
-                .bg(rgb(0xfff8f6))
+                .border_color(crate::theme_rgb(0xc9aaa1))
+                .bg(crate::theme_rgb(0xfff8f6))
                 .text_sm()
                 .child(if cancelling {
                     "Cancelling…"
@@ -1419,7 +1429,7 @@ impl AnalystPanelView {
                     .cursor_pointer()
                     .on_click(cx.listener(|this, _, _, cx| this.cancel_analysis(cx)));
             } else {
-                cancel = cancel.text_color(rgb(0x999990));
+                cancel = cancel.text_color(crate::theme_rgb(0x999990));
             }
             composer_actions = composer_actions.child(cancel);
         }
@@ -1435,7 +1445,7 @@ impl AnalystPanelView {
         let mut snapshot_status = div().flex().gap_2().items_center().child(
             div()
                 .text_xs()
-                .text_color(rgb(0x777770))
+                .text_color(crate::theme_rgb(0x777770))
                 .child("Read-only · fixed snapshot pair"),
         );
         if !self.busy && matches!(self.phase, PanelPhase::Active) {
@@ -1447,8 +1457,8 @@ impl AnalystPanelView {
                     .p_1()
                     .rounded_md()
                     .border_1()
-                    .border_color(rgb(0xb8b2a8))
-                    .bg(rgb(0xffffff))
+                    .border_color(crate::theme_rgb(0xb8b2a8))
+                    .bg(crate::theme_rgb(0xffffff))
                     .text_xs()
                     .child("New comparison")
                     .on_click(cx.listener(|this, _, _, cx| this.start_new_comparison(cx))),
@@ -1490,8 +1500,8 @@ impl AnalystPanelView {
                 .p_2()
                 .rounded_md()
                 .border_1()
-                .border_color(rgb(0xb8b2a8))
-                .bg(rgb(0xffffff))
+                .border_color(crate::theme_rgb(0xb8b2a8))
+                .bg(crate::theme_rgb(0xffffff))
                 .text_sm()
                 .child("Recover and recheck runtime");
             if !self.busy {
@@ -1499,20 +1509,20 @@ impl AnalystPanelView {
                     .cursor_pointer()
                     .on_click(cx.listener(|this, _, _, cx| this.recover_from_fatal(cx)));
             } else {
-                recover = recover.text_color(rgb(0x999990));
+                recover = recover.text_color(crate::theme_rgb(0x999990));
             }
             body = body.child(
                 div()
                     .p_3()
                     .rounded_md()
-                    .bg(rgb(0xfff2f0))
+                    .bg(crate::theme_rgb(0xfff2f0))
                     .flex()
                     .flex_col()
                     .gap_2()
                     .child(
                         div()
                             .text_sm()
-                            .text_color(rgb(0x9b4a42))
+                            .text_color(crate::theme_rgb(0x9b4a42))
                             .child(format!("Analyst session ended: {message}")),
                     )
                     .child(recover),
@@ -1524,6 +1534,10 @@ impl AnalystPanelView {
 
 impl Render for AnalystPanelView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        world_theme::set_dark(matches!(
+            window.appearance(),
+            gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark
+        ));
         window.set_window_title("World Analyst — World Machine");
         let content = match &self.phase {
             PanelPhase::Setup | PanelPhase::Starting => self.render_setup(cx),
@@ -1535,16 +1549,21 @@ impl Render for AnalystPanelView {
             .flex_col()
             .gap_3()
             .p_4()
-            .bg(rgb(0xf7f7f3))
+            .bg(crate::theme_rgb(0xf7f7f3))
             .child(
                 div()
                     .flex()
                     .flex_col()
                     .gap_1()
                     .child(div().text_lg().child("World Analyst"))
-                    .child(div().text_xs().text_color(rgb(0x777770)).child(
-                        "Evidence-backed questions over two immutable saved-World snapshots",
-                    )),
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(crate::theme_rgb(0x777770))
+                            .child(
+                            "Evidence-backed questions over two immutable saved-World snapshots",
+                        ),
+                    ),
             )
             .child(content);
         if let Some(failed_question) = &self.failed_question {
@@ -1552,15 +1571,15 @@ impl Render for AnalystPanelView {
                 .p_3()
                 .rounded_md()
                 .border_1()
-                .border_color(rgb(0xe1b4aa))
-                .bg(rgb(0xfff8f6))
+                .border_color(crate::theme_rgb(0xe1b4aa))
+                .bg(crate::theme_rgb(0xfff8f6))
                 .flex()
                 .flex_col()
                 .gap_2()
                 .child(
                     div()
                         .text_xs()
-                        .text_color(rgb(0x9b4a42))
+                        .text_color(crate::theme_rgb(0x9b4a42))
                         .child("Failed question"),
                 )
                 .child(div().text_sm().child(failed_question.clone()));
@@ -1589,8 +1608,8 @@ impl Render for AnalystPanelView {
                             .p_1()
                             .rounded_md()
                             .border_1()
-                            .border_color(rgb(0xc9aaa1))
-                            .bg(rgb(0xffffff))
+                            .border_color(crate::theme_rgb(0xc9aaa1))
+                            .bg(crate::theme_rgb(0xffffff))
                             .text_xs()
                             .child("Retry failed question")
                             .on_click(cx.listener(|this, _, _, cx| this.retry_failed_question(cx))),
@@ -1605,8 +1624,8 @@ impl Render for AnalystPanelView {
                             .p_1()
                             .rounded_md()
                             .border_1()
-                            .border_color(rgb(0xb8b2a8))
-                            .bg(rgb(0xffffff))
+                            .border_color(crate::theme_rgb(0xb8b2a8))
+                            .bg(crate::theme_rgb(0xffffff))
                             .text_xs()
                             .child("Dismiss failed question")
                             .on_click(
@@ -1623,9 +1642,9 @@ impl Render for AnalystPanelView {
                 div()
                     .p_3()
                     .rounded_md()
-                    .bg(rgb(0xfff2f0))
+                    .bg(crate::theme_rgb(0xfff2f0))
                     .text_sm()
-                    .text_color(rgb(0x9b4a42))
+                    .text_color(crate::theme_rgb(0x9b4a42))
                     .child(error.clone()),
             );
         }
@@ -2246,8 +2265,8 @@ fn render_turn(index: usize, turn: &PanelTurn) -> impl IntoElement {
         .p_4()
         .rounded_md()
         .border_1()
-        .border_color(rgb(0xd8d8d2))
-        .bg(rgb(0xffffff))
+        .border_color(crate::theme_rgb(0xd8d8d2))
+        .bg(crate::theme_rgb(0xffffff))
         .flex()
         .flex_col()
         .gap_2()
@@ -2255,11 +2274,16 @@ fn render_turn(index: usize, turn: &PanelTurn) -> impl IntoElement {
             div()
                 .p_2()
                 .rounded_md()
-                .bg(rgb(0xf2f6ff))
+                .bg(crate::theme_rgb(0xf2f6ff))
                 .flex()
                 .flex_col()
                 .gap_1()
-                .child(div().text_xs().text_color(rgb(0x66718a)).child("Question"))
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(crate::theme_rgb(0x66718a))
+                        .child("Question"),
+                )
                 .child(div().text_sm().child(turn.question.clone())),
         )
         .child(
@@ -2267,7 +2291,12 @@ fn render_turn(index: usize, turn: &PanelTurn) -> impl IntoElement {
                 .flex()
                 .flex_col()
                 .gap_1()
-                .child(div().text_xs().text_color(rgb(0x777770)).child("Analyst"))
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(crate::theme_rgb(0x777770))
+                        .child("Analyst"),
+                )
                 .child(div().text_sm().child(turn.answer.clone())),
         );
 
@@ -2275,7 +2304,7 @@ fn render_turn(index: usize, turn: &PanelTurn) -> impl IntoElement {
         let mut tools = div().flex().flex_col().gap_2().child(
             div()
                 .text_xs()
-                .text_color(rgb(0x777770))
+                .text_color(crate::theme_rgb(0x777770))
                 .child(format!("Evidence calls · {}", turn.tool_calls.len())),
         );
         for call in &turn.tool_calls {
@@ -2286,7 +2315,7 @@ fn render_turn(index: usize, turn: &PanelTurn) -> impl IntoElement {
                 div()
                     .p_2()
                     .rounded_md()
-                    .bg(rgb(0xf7f7f3))
+                    .bg(crate::theme_rgb(0xf7f7f3))
                     .flex()
                     .flex_col()
                     .gap_1()
@@ -2294,13 +2323,13 @@ fn render_turn(index: usize, turn: &PanelTurn) -> impl IntoElement {
                     .child(
                         div()
                             .text_xs()
-                            .text_color(rgb(0x777770))
+                            .text_color(crate::theme_rgb(0x777770))
                             .child(format!("{input_label}  {}", call.input.text)),
                     )
                     .child(
                         div()
                             .text_xs()
-                            .text_color(rgb(0x555550))
+                            .text_color(crate::theme_rgb(0x555550))
                             .child(format!("{output_label} {}", call.output.text)),
                     ),
             );
@@ -2314,7 +2343,7 @@ fn render_turn(index: usize, turn: &PanelTurn) -> impl IntoElement {
             errors = errors.child(
                 div()
                     .text_xs()
-                    .text_color(rgb(0x9b4a42))
+                    .text_color(crate::theme_rgb(0x9b4a42))
                     .child(format!("Runtime error · {error}")),
             );
         }

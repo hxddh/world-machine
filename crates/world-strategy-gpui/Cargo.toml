@@ -6,6 +6,7 @@ license = "Apache-2.0"
 publish = false
 
 [dependencies]
+world-theme = { path = "../world-theme" }
 world-compare = { path = "../world-compare" }
 world-projection = { path = "../world-projection" }
 world-strategy = { path = "../world-strategy" }

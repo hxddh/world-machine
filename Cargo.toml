@@ -1,6 +1,7 @@
 [workspace]
 members = [
   "crates/world-core",
+  "crates/world-theme",
   "crates/world-cli",
   "crates/world-agent",
   "crates/world-analyst-client",

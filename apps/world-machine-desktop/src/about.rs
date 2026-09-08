@@ -7,9 +7,9 @@
 //! issue template or the install guide.
 
 use gpui::{
-    actions, div, prelude::*, px, rgb, size, App, AppContext, Bounds, ClipboardItem, Context,
-    Entity, IntoElement, KeyBinding, Menu, MenuItem, Render, Styled, SystemMenuType, Window,
-    WindowBounds, WindowOptions,
+    actions, div, prelude::*, px, size, App, AppContext, Bounds, ClipboardItem, Context, Entity,
+    IntoElement, KeyBinding, Menu, MenuItem, Render, Styled, SystemMenuType, Window, WindowBounds,
+    WindowOptions,
 };
 
 use crate::{build_info, diagnostics, WorldMachineHome};
@@ -198,6 +198,10 @@ struct AboutView {
 
 impl Render for AboutView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        world_theme::set_dark(matches!(
+            window.appearance(),
+            gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark
+        ));
         window.set_window_title("About World Machine");
         let environment = diagnostics::environment();
         let library = environment
@@ -216,8 +220,8 @@ impl Render for AboutView {
 
         div()
             .size_full()
-            .bg(rgb(0xfcfcfa))
-            .text_color(rgb(0x202020))
+            .bg(crate::theme_rgb(0xfcfcfa))
+            .text_color(crate::theme_rgb(0x202020))
             .flex()
             .flex_col()
             .gap_3()
@@ -226,20 +230,20 @@ impl Render for AboutView {
             .child(
                 div()
                     .text_sm()
-                    .text_color(rgb(0x666666))
+                    .text_color(crate::theme_rgb(0x666666))
                     .child("Persistent worlds that remember, evolve, and branch."),
             )
             .child(div().text_sm().child(build_info::display_label()))
             .child(
                 div()
                     .text_sm()
-                    .text_color(rgb(0x9b4a42))
+                    .text_color(crate::theme_rgb(0x9b4a42))
                     .child("Not yet notarized by Apple: the first launch asks once."),
             )
             .child(
                 div()
                     .text_xs()
-                    .text_color(rgb(0x666666))
+                    .text_color(crate::theme_rgb(0x666666))
                     .child(diagnostics::host_description()),
             )
             .child(
@@ -248,14 +252,14 @@ impl Render for AboutView {
                     .flex_col()
                     .gap_1()
                     .text_xs()
-                    .text_color(rgb(0x666666))
+                    .text_color(crate::theme_rgb(0x666666))
                     .child(format!("Worlds: {library}"))
                     .child(format!("Log: {log}")),
             )
             .child(
                 div()
                     .text_xs()
-                    .text_color(rgb(0x8a8a82))
+                    .text_color(crate::theme_rgb(0x8a8a82))
                     .child("Everything stays on this Mac. World Machine sends no telemetry."),
             )
             .child(
@@ -299,8 +303,8 @@ fn about_button(id: &'static str, label: &'static str) -> gpui::Stateful<gpui::D
         .p_2()
         .rounded_md()
         .border_1()
-        .border_color(rgb(0xd9d9d3))
-        .bg(rgb(0xffffff))
+        .border_color(crate::theme_rgb(0xd9d9d3))
+        .bg(crate::theme_rgb(0xffffff))
         .text_sm()
         .child(label)
 }

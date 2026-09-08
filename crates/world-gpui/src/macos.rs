@@ -1,7 +1,5 @@
 use crate::ProjectionController;
-use gpui::{
-    div, prelude::*, px, rgb, Context, Div, IntoElement, Render, SharedString, Styled, Window,
-};
+use gpui::{div, prelude::*, px, Context, Div, IntoElement, Render, SharedString, Styled, Window};
 use world_projection::{
     BriefingItem, CanvasItemKind, CollectionItem, InspectorProjection, ProjectionCommand,
     ProjectionIntent, ProjectionSnapshot, SelectionId, TimelineItem, WhyNode,
@@ -121,7 +119,7 @@ impl ProjectionView {
             .gap_3()
             .p_3()
             .border_r_1()
-            .border_color(rgb(0xdadada))
+            .border_color(crate::theme_rgb(0xdadada))
             .child(
                 div()
                     .text_lg()
@@ -142,15 +140,15 @@ impl ProjectionView {
             .rounded_md()
             .cursor_pointer()
             .bg(if selected {
-                rgb(0xe7eefc)
+                crate::theme_rgb(0xe7eefc)
             } else {
-                rgb(0xf6f6f6)
+                crate::theme_rgb(0xf6f6f6)
             })
             .child(div().text_sm().child(item.title.clone()))
             .child(
                 div()
                     .text_xs()
-                    .text_color(rgb(0x777777))
+                    .text_color(crate::theme_rgb(0x777777))
                     .child(item.subtitle.clone()),
             )
             .on_click(cx.listener(move |this, _, _, cx| this.select(selection, cx)))
@@ -172,7 +170,7 @@ impl ProjectionView {
             .gap_3()
             .p_3()
             .border_l_1()
-            .border_color(rgb(0xdadada))
+            .border_color(crate::theme_rgb(0xdadada))
             .child(div().text_lg().child("Timeline"))
             .child(body)
     }
@@ -189,21 +187,21 @@ impl ProjectionView {
             .rounded_md()
             .cursor_pointer()
             .bg(if selected {
-                rgb(0xe7eefc)
+                crate::theme_rgb(0xe7eefc)
             } else {
-                rgb(0xf7f7f7)
+                crate::theme_rgb(0xf7f7f7)
             })
             .child(
                 div()
                     .text_xs()
-                    .text_color(rgb(0x777777))
+                    .text_color(crate::theme_rgb(0x777777))
                     .child(format!("t={}", item.world_time)),
             )
             .child(div().text_sm().child(item.title.clone()))
             .child(
                 div()
                     .text_xs()
-                    .text_color(rgb(0x777777))
+                    .text_color(crate::theme_rgb(0x777777))
                     .child(item.subtitle.clone()),
             )
             .on_click(cx.listener(move |this, _, _, cx| this.select(selection, cx)))
@@ -221,15 +219,15 @@ impl ProjectionView {
                 .p_3()
                 .rounded_md()
                 .border_1()
-                .border_color(rgb(0xd8d3c4))
-                .bg(rgb(0xfffbef))
+                .border_color(crate::theme_rgb(0xd8d3c4))
+                .bg(crate::theme_rgb(0xfffbef))
                 .flex()
                 .flex_col()
                 .gap_2()
                 .child(
                     div()
                         .text_xs()
-                        .text_color(rgb(0x7a6f53))
+                        .text_color(crate::theme_rgb(0x7a6f53))
                         .child(briefing.eyebrow.clone()),
                 )
                 .child(div().text_lg().child(briefing.title.clone()))
@@ -248,14 +246,14 @@ impl ProjectionView {
             .flex_1()
             .p_2()
             .rounded_md()
-            .bg(rgb(0xffffff))
+            .bg(crate::theme_rgb(0xffffff))
             .border_1()
-            .border_color(rgb(0xe8e1cf))
+            .border_color(crate::theme_rgb(0xe8e1cf))
             .child(div().text_sm().child(item.title.clone()))
             .child(
                 div()
                     .text_xs()
-                    .text_color(rgb(0x777777))
+                    .text_color(crate::theme_rgb(0x777777))
                     .child(item.detail.clone()),
             );
 
@@ -283,12 +281,17 @@ impl ProjectionView {
                 .p_3()
                 .rounded_md()
                 .border_1()
-                .border_color(rgb(0xaec5a7))
-                .bg(rgb(0xf1f8ee))
+                .border_color(crate::theme_rgb(0xaec5a7))
+                .bg(crate::theme_rgb(0xf1f8ee))
                 .flex()
                 .flex_col()
                 .gap_2()
-                .child(div().text_xs().text_color(rgb(0x60755a)).child("NEXT"))
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(crate::theme_rgb(0x60755a))
+                        .child("NEXT"),
+                )
                 .child(div().text_lg().child(panel_title))
                 .child(commands),
         )
@@ -305,14 +308,14 @@ impl ProjectionView {
             .p_3()
             .rounded_md()
             .border_1()
-            .border_color(rgb(0xcbd8c3))
-            .bg(rgb(0xffffff))
+            .border_color(crate::theme_rgb(0xcbd8c3))
+            .bg(crate::theme_rgb(0xffffff))
             .cursor_pointer()
             .child(div().text_sm().child(command.title.clone()))
             .child(
                 div()
                     .text_xs()
-                    .text_color(rgb(0x66705f))
+                    .text_color(crate::theme_rgb(0x66705f))
                     .child(command.detail.clone()),
             )
             .on_click(
@@ -327,16 +330,16 @@ impl ProjectionView {
             .w_full()
             .rounded_md()
             .border_1()
-            .border_color(rgb(0xd8d8d8))
-            .bg(rgb(0xf1f3ef));
+            .border_color(crate::theme_rgb(0xd8d8d8))
+            .bg(crate::theme_rgb(0xf1f3ef));
 
         for item in &self.snapshot.canvas.items {
             let selection = item.id;
             let selected = self.selected == Some(selection);
             let color = match item.kind {
-                CanvasItemKind::Place => rgb(0xdde5d8),
-                CanvasItemKind::Actor => rgb(0xf4e4c8),
-                CanvasItemKind::Object => rgb(0xe2e2e2),
+                CanvasItemKind::Place => crate::theme_rgb(0xdde5d8),
+                CanvasItemKind::Actor => crate::theme_rgb(0xf4e4c8),
+                CanvasItemKind::Object => crate::theme_rgb(0xe2e2e2),
             };
             canvas = canvas.child(
                 div()
@@ -352,9 +355,9 @@ impl ProjectionView {
                     .rounded_md()
                     .border_1()
                     .border_color(if selected {
-                        rgb(0x4e6fb3)
+                        crate::theme_rgb(0x4e6fb3)
                     } else {
-                        rgb(0xbfc5bd)
+                        crate::theme_rgb(0xbfc5bd)
                     })
                     .bg(color)
                     .cursor_pointer()
@@ -362,7 +365,7 @@ impl ProjectionView {
                     .child(
                         div()
                             .text_xs()
-                            .text_color(rgb(0x666666))
+                            .text_color(crate::theme_rgb(0x666666))
                             .child(item.detail.clone()),
                     )
                     .on_click(cx.listener(move |this, _, _, cx| this.select(selection, cx))),
@@ -390,7 +393,7 @@ impl ProjectionView {
                     .child(
                         div()
                             .text_xs()
-                            .text_color(rgb(0x66705f))
+                            .text_color(crate::theme_rgb(0x66705f))
                             .child("Active relations connected to this visible entity. Select one to inspect the relation and its recorded history."),
                     )
                     .child(items);
@@ -399,7 +402,7 @@ impl ProjectionView {
                     panel = panel.child(
                         div()
                             .text_xs()
-                            .text_color(rgb(0x777777))
+                            .text_color(crate::theme_rgb(0x777777))
                             .child(format!("{hidden} more current relations not shown")),
                     );
                 }
@@ -416,7 +419,7 @@ impl ProjectionView {
                     .child(
                         div()
                             .text_xs()
-                            .text_color(rgb(0x66705f))
+                            .text_color(crate::theme_rgb(0x66705f))
                             .child("Recorded events whose StateChanges directly changed this entity. Select one to inspect the event, trace its causes and effects, or fork before it."),
                     )
                     .child(items);
@@ -425,7 +428,7 @@ impl ProjectionView {
                     panel = panel.child(
                         div()
                             .text_xs()
-                            .text_color(rgb(0x777777))
+                            .text_color(crate::theme_rgb(0x777777))
                             .child(format!("{hidden} more recorded entity changes not shown")),
                     );
                 }
@@ -445,7 +448,7 @@ impl ProjectionView {
                     .child(
                         div()
                             .text_xs()
-                            .text_color(rgb(0x66705f))
+                            .text_color(crate::theme_rgb(0x66705f))
                             .child("Visible entities connected by this active relation. Removed relation tombstones intentionally have no current endpoints."),
                     )
                     .child(items);
@@ -454,7 +457,7 @@ impl ProjectionView {
                     panel = panel.child(
                         div()
                             .text_xs()
-                            .text_color(rgb(0x777777))
+                            .text_color(crate::theme_rgb(0x777777))
                             .child(format!("{hidden} more current endpoints not shown")),
                     );
                 }
@@ -471,7 +474,7 @@ impl ProjectionView {
                     .child(
                         div()
                             .text_xs()
-                            .text_color(rgb(0x66705f))
+                            .text_color(crate::theme_rgb(0x66705f))
                             .child("Recorded events that created, changed, or removed this relation incarnation. Select one to inspect the event, trace its causes and effects, or fork before it."),
                     )
                     .child(items);
@@ -480,7 +483,7 @@ impl ProjectionView {
                     panel = panel.child(
                         div()
                             .text_xs()
-                            .text_color(rgb(0x777777))
+                            .text_color(crate::theme_rgb(0x777777))
                             .child(format!("{hidden} more recorded relation changes not shown")),
                     );
                 }
@@ -500,7 +503,7 @@ impl ProjectionView {
                     .child(
                         div()
                             .text_xs()
-                            .text_color(rgb(0x66705f))
+                            .text_color(crate::theme_rgb(0x66705f))
                             .child("Entities with a direct recorded StateChange from this visible event. Select one to inspect its current state and recorded history."),
                     )
                     .child(items);
@@ -511,7 +514,7 @@ impl ProjectionView {
                     panel = panel.child(
                         div()
                             .text_xs()
-                            .text_color(rgb(0x777777))
+                            .text_color(crate::theme_rgb(0x777777))
                             .child(format!("{hidden} more directly changed entities not shown")),
                     );
                 }
@@ -530,7 +533,7 @@ impl ProjectionView {
                     .child(
                         div()
                             .text_xs()
-                            .text_color(rgb(0x66705f))
+                            .text_color(crate::theme_rgb(0x66705f))
                             .child("Relation incarnations whose recorded lifetime or properties directly changed in this visible event. Removed relations remain inspectable as recorded tombstones."),
                     )
                     .child(items);
@@ -538,9 +541,14 @@ impl ProjectionView {
                     .len()
                     .saturating_sub(EVENT_RELATION_EFFECT_LIMIT);
                 if hidden > 0 {
-                    panel = panel.child(div().text_xs().text_color(rgb(0x777777)).child(format!(
-                        "{hidden} more directly changed relations not shown"
-                    )));
+                    panel = panel.child(
+                        div()
+                            .text_xs()
+                            .text_color(crate::theme_rgb(0x777777))
+                            .child(format!(
+                                "{hidden} more directly changed relations not shown"
+                            )),
+                    );
                 }
             }
         }
@@ -566,14 +574,19 @@ impl ProjectionView {
             .p_2()
             .rounded_md()
             .border_1()
-            .border_color(rgb(0xe2e4e8))
-            .bg(rgb(0xf8f9fc))
+            .border_color(crate::theme_rgb(0xe2e4e8))
+            .bg(crate::theme_rgb(0xf8f9fc))
             .cursor_pointer()
             .flex()
             .flex_col()
             .gap_1()
             .child(div().text_sm().child(title))
-            .child(div().text_xs().text_color(rgb(0x666666)).child(subtitle))
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(crate::theme_rgb(0x666666))
+                    .child(subtitle),
+            )
             .on_click(cx.listener(move |this, _, _, cx| this.select(selection, cx)))
     }
 
@@ -595,14 +608,19 @@ impl ProjectionView {
             .p_2()
             .rounded_md()
             .border_1()
-            .border_color(rgb(0xe2e4e8))
-            .bg(rgb(0xf8f9fc))
+            .border_color(crate::theme_rgb(0xe2e4e8))
+            .bg(crate::theme_rgb(0xf8f9fc))
             .cursor_pointer()
             .flex()
             .flex_col()
             .gap_1()
             .child(div().text_sm().child(title))
-            .child(div().text_xs().text_color(rgb(0x666666)).child(subtitle))
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(crate::theme_rgb(0x666666))
+                    .child(subtitle),
+            )
             .on_click(cx.listener(move |this, _, _, cx| this.select(selection, cx)))
     }
 
@@ -624,14 +642,19 @@ impl ProjectionView {
             .p_2()
             .rounded_md()
             .border_1()
-            .border_color(rgb(0xe2e4e8))
-            .bg(rgb(0xf8f9fc))
+            .border_color(crate::theme_rgb(0xe2e4e8))
+            .bg(crate::theme_rgb(0xf8f9fc))
             .cursor_pointer()
             .flex()
             .flex_col()
             .gap_1()
             .child(div().text_sm().child(title))
-            .child(div().text_xs().text_color(rgb(0x666666)).child(subtitle))
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(crate::theme_rgb(0x666666))
+                    .child(subtitle),
+            )
             .on_click(cx.listener(move |this, _, _, cx| this.select(selection, cx)))
     }
 
@@ -653,14 +676,19 @@ impl ProjectionView {
             .p_2()
             .rounded_md()
             .border_1()
-            .border_color(rgb(0xe2e4e8))
-            .bg(rgb(0xf8f9fc))
+            .border_color(crate::theme_rgb(0xe2e4e8))
+            .bg(crate::theme_rgb(0xf8f9fc))
             .cursor_pointer()
             .flex()
             .flex_col()
             .gap_1()
             .child(div().text_sm().child(title))
-            .child(div().text_xs().text_color(rgb(0x666666)).child(subtitle))
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(crate::theme_rgb(0x666666))
+                    .child(subtitle),
+            )
             .on_click(cx.listener(move |this, _, _, cx| this.select(selection, cx)))
     }
 
@@ -674,8 +702,8 @@ impl ProjectionView {
             .p_2()
             .rounded_md()
             .border_1()
-            .border_color(rgb(0xe2e4e8))
-            .bg(rgb(0xf8f9fc))
+            .border_color(crate::theme_rgb(0xe2e4e8))
+            .bg(crate::theme_rgb(0xf8f9fc))
             .cursor_pointer()
             .flex()
             .flex_col()
@@ -684,13 +712,13 @@ impl ProjectionView {
             .child(
                 div()
                     .text_xs()
-                    .text_color(rgb(0x555555))
+                    .text_color(crate::theme_rgb(0x555555))
                     .child(item.subtitle.clone()),
             )
             .child(
                 div()
                     .text_xs()
-                    .text_color(rgb(0x777777))
+                    .text_color(crate::theme_rgb(0x777777))
                     .child(format!("World time {}", item.world_time)),
             )
             .on_click(cx.listener(move |this, _, _, cx| this.select(selection, cx)))
@@ -710,8 +738,8 @@ impl ProjectionView {
             .p_2()
             .rounded_md()
             .border_1()
-            .border_color(rgb(0xe2e4e8))
-            .bg(rgb(0xf8f9fc))
+            .border_color(crate::theme_rgb(0xe2e4e8))
+            .bg(crate::theme_rgb(0xf8f9fc))
             .cursor_pointer()
             .flex()
             .flex_col()
@@ -720,13 +748,13 @@ impl ProjectionView {
             .child(
                 div()
                     .text_xs()
-                    .text_color(rgb(0x555555))
+                    .text_color(crate::theme_rgb(0x555555))
                     .child(item.subtitle.clone()),
             )
             .child(
                 div()
                     .text_xs()
-                    .text_color(rgb(0x777777))
+                    .text_color(crate::theme_rgb(0x777777))
                     .child(format!("World time {}", item.world_time)),
             )
             .on_click(cx.listener(move |this, _, _, cx| this.select(selection, cx)))
@@ -790,19 +818,24 @@ impl ProjectionView {
             .p_3()
             .rounded_md()
             .border_1()
-            .border_color(rgb(0xd7e2d7))
-            .bg(rgb(0xf7fbf7))
+            .border_color(crate::theme_rgb(0xd7e2d7))
+            .bg(crate::theme_rgb(0xf7fbf7))
             .flex()
             .flex_col()
             .gap_2()
             .child(
                 div()
                     .text_xs()
-                    .text_color(rgb(0x657565))
+                    .text_color(crate::theme_rgb(0x657565))
                     .child("SEMANTIC IMPACT"),
             )
             .child(div().text_lg().child("What this affected"))
-            .child(div().text_xs().text_color(rgb(0x657565)).child(summary));
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(crate::theme_rgb(0x657565))
+                    .child(summary),
+            );
 
         if !semantic_path.is_empty() {
             let path_len = semantic_path.len();
@@ -834,7 +867,7 @@ impl ProjectionView {
                         .px_2()
                         .py_1()
                         .text_xs()
-                        .text_color(rgb(0x657565))
+                        .text_color(crate::theme_rgb(0x657565))
                         .child(format!(
                             "+{} intermediate world-visible stages",
                             path_len - 5
@@ -853,11 +886,11 @@ impl ProjectionView {
                 }
             }
             panel = panel
-                .child(div().text_xs().text_color(rgb(0x657565)).child("HOW IT UNFOLDED"))
+                .child(div().text_xs().text_color(crate::theme_rgb(0x657565)).child("HOW IT UNFOLDED"))
                 .child(
                     div()
                         .text_xs()
-                        .text_color(rgb(0x657565))
+                        .text_color(crate::theme_rgb(0x657565))
                         .child(format!(
                             "Representative causal thread from the selected Event to the latest downstream effect · {path_len} world-visible {}",
                             if path_len == 1 { "stage" } else { "stages" }
@@ -871,7 +904,7 @@ impl ProjectionView {
                 .child(
                     div()
                         .text_xs()
-                        .text_color(rgb(0x657565))
+                        .text_color(crate::theme_rgb(0x657565))
                         .child("OTHER WORLD-VISIBLE EFFECTS"),
                 )
                 .child(other_nodes);
@@ -879,7 +912,7 @@ impl ProjectionView {
                 panel = panel.child(
                     div()
                         .text_xs()
-                        .text_color(rgb(0x657565))
+                        .text_color(crate::theme_rgb(0x657565))
                         .child(format!("+{} more world-visible effects", other_count - 6)),
                 );
             }
@@ -888,7 +921,7 @@ impl ProjectionView {
             panel = panel.child(
                 div()
                     .text_xs()
-                    .text_color(rgb(0x657565))
+                    .text_color(crate::theme_rgb(0x657565))
                     .child("Supporting records remain available in Timeline and Why."),
             );
         }
@@ -910,8 +943,8 @@ impl ProjectionView {
             .p_3()
             .rounded_md()
             .border_1()
-            .border_color(rgb(0xd7dce8))
-            .bg(rgb(0xf7f9fe))
+            .border_color(crate::theme_rgb(0xd7dce8))
+            .bg(crate::theme_rgb(0xf7f9fe))
             .flex()
             .flex_col()
             .gap_2()
@@ -924,8 +957,8 @@ impl ProjectionView {
                     .id("fork-before-event")
                     .p_2()
                     .rounded_md()
-                    .bg(rgb(0x263b6a))
-                    .text_color(rgb(0xffffff))
+                    .bg(crate::theme_rgb(0x263b6a))
+                    .text_color(crate::theme_rgb(0xffffff))
                     .cursor_pointer()
                     .child("Fork before this event")
                     .on_click(cx.listener(|this, _, _, cx| this.fork_before_selected(cx))),
@@ -969,22 +1002,27 @@ impl ProjectionView {
             )))
             .p_2()
             .rounded_md()
-            .bg(rgb(0xffffff))
+            .bg(crate::theme_rgb(0xffffff))
             .cursor_pointer()
             .child(
                 div()
                     .text_xs()
-                    .text_color(rgb(0x657565))
+                    .text_color(crate::theme_rgb(0x657565))
                     .child(causal_context),
             )
             .child(div().text_sm().child(item.title.clone()))
             .child(
                 div()
                     .text_xs()
-                    .text_color(rgb(0x4f5f4f))
+                    .text_color(crate::theme_rgb(0x4f5f4f))
                     .child(effect.to_string()),
             )
-            .child(div().text_xs().text_color(rgb(0x777777)).child(event_ref))
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(crate::theme_rgb(0x777777))
+                    .child(event_ref),
+            )
             .on_click(cx.listener(move |this, _, _, cx| this.select(selection, cx)))
     }
 
@@ -1007,14 +1045,19 @@ impl ProjectionView {
             )))
             .p_2()
             .rounded_md()
-            .bg(rgb(0xffffff))
+            .bg(crate::theme_rgb(0xffffff))
             .cursor_pointer()
-            .child(div().text_xs().text_color(rgb(0x657565)).child(prefix))
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(crate::theme_rgb(0x657565))
+                    .child(prefix),
+            )
             .child(div().text_sm().child(item.title.clone()))
             .child(
                 div()
                     .text_xs()
-                    .text_color(rgb(0x777777))
+                    .text_color(crate::theme_rgb(0x777777))
                     .child(item.subtitle.clone()),
             )
             .on_click(cx.listener(move |this, _, _, cx| this.select(selection, cx)))
@@ -1031,14 +1074,19 @@ impl ProjectionView {
             .id(SharedString::from(format!("why-event-{}", node.event)))
             .p_2()
             .rounded_md()
-            .bg(rgb(0xffffff))
+            .bg(crate::theme_rgb(0xffffff))
             .cursor_pointer()
-            .child(div().text_xs().text_color(rgb(0x65708a)).child(prefix))
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(crate::theme_rgb(0x65708a))
+                    .child(prefix),
+            )
             .child(div().text_sm().child(node.title.clone()))
             .child(
                 div()
                     .text_xs()
-                    .text_color(rgb(0x777777))
+                    .text_color(crate::theme_rgb(0x777777))
                     .child(node.subtitle.clone()),
             )
             .on_click(cx.listener(move |this, _, _, cx| this.select(selection, cx)))
@@ -1047,6 +1095,10 @@ impl ProjectionView {
 
 impl Render for ProjectionView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        world_theme::set_dark(matches!(
+            _window.appearance(),
+            gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark
+        ));
         let mut center = div()
             .id("projection-center-scroll")
             .flex_1()
@@ -1068,7 +1120,7 @@ impl Render for ProjectionView {
             center = center.child(
                 div()
                     .text_sm()
-                    .text_color(rgb(0x666666))
+                    .text_color(crate::theme_rgb(0x666666))
                     .child("Explore the world"),
             );
             if !self.snapshot.canvas.items.is_empty() {
@@ -1103,7 +1155,7 @@ impl Render for ProjectionView {
         let mut header_right = div().flex().gap_3().child(
             div()
                 .text_sm()
-                .text_color(rgb(0x666666))
+                .text_color(crate::theme_rgb(0x666666))
                 .child(format!("World time {}", self.snapshot.world_time)),
         );
         if let Some(status) = &self.status {
@@ -1111,9 +1163,9 @@ impl Render for ProjectionView {
                 div()
                     .text_sm()
                     .text_color(if self.status_is_error {
-                        rgb(0xa33a3a)
+                        crate::theme_rgb(0xa33a3a)
                     } else {
-                        rgb(0x4e6fb3)
+                        crate::theme_rgb(0x4e6fb3)
                     })
                     .child(status.clone()),
             );
@@ -1121,8 +1173,8 @@ impl Render for ProjectionView {
 
         div()
             .size_full()
-            .bg(rgb(0xfcfcfa))
-            .text_color(rgb(0x202020))
+            .bg(crate::theme_rgb(0xfcfcfa))
+            .text_color(crate::theme_rgb(0x202020))
             .flex()
             .flex_col()
             .child(
@@ -1134,7 +1186,7 @@ impl Render for ProjectionView {
                     .justify_between()
                     .px_4()
                     .border_b_1()
-                    .border_color(rgb(0xdadada))
+                    .border_color(crate::theme_rgb(0xdadada))
                     .child(div().text_xl().child(self.snapshot.title.clone()))
                     .child(header_right),
             )
@@ -1193,7 +1245,7 @@ fn inspector_panel(inspector: &InspectorProjection) -> Div {
         .child(
             div()
                 .text_xs()
-                .text_color(rgb(0x666666))
+                .text_color(crate::theme_rgb(0x666666))
                 .child(inspector.subtitle.clone()),
         );
 
@@ -1208,7 +1260,7 @@ fn inspector_panel(inspector: &InspectorProjection) -> Div {
                     .child(
                         div()
                             .text_xs()
-                            .text_color(rgb(0x777777))
+                            .text_color(crate::theme_rgb(0x777777))
                             .child(row.label.clone()),
                     )
                     .child(div().text_sm().child(row.value.clone())),
@@ -1223,8 +1275,8 @@ fn inspector_panel(inspector: &InspectorProjection) -> Div {
         .p_3()
         .rounded_md()
         .border_1()
-        .border_color(rgb(0xdadada))
-        .bg(rgb(0xffffff))
+        .border_color(crate::theme_rgb(0xdadada))
+        .bg(crate::theme_rgb(0xffffff))
         .flex()
         .flex_col()
         .gap_3()
