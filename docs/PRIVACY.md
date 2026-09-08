@@ -8,9 +8,13 @@ World Machine runs entirely on your Mac.
 - **The log** at `~/Library/Logs/World Machine/world-machine.log` records what the app observed: startup facts, error messages you also saw on screen, and crashes. It rotates at 1 MiB and is never sent anywhere by the app.
 - **Diagnostics** (**Help → Copy Diagnostics**) put the build label, your macOS version, the paths above, the names of included Packs, and the last lines of the log on your clipboard. You decide where to paste it.
 
+## The update check
+
+Once per launch the app asks `api.github.com` for the latest release, the same request a browser makes when it opens the Releases page. GitHub sees your IP address and the app's version string, nothing else, and the app only reads back the version and the download page. A newer stable release shows as a banner on Home with Download and Later. To turn the check off, launch with the environment variable `WORLD_MACHINE_NO_UPDATE_CHECK=1`.
+
 ## What the app never does
 
-- No account, no sign-in, no telemetry, no crash reporting service, no update check. The only network activity the app initiates is opening the GitHub pages for the install guide and the issue template in your browser when you ask.
+- No account, no sign-in, no telemetry, no crash reporting service, no automatic download. Beyond the update check above, the only network activity the app initiates is opening the GitHub pages for the install guide, the Releases page, and the issue template in your browser when you ask. The issue template arrives with the build label and macOS version filled in; you see and can edit both before submitting.
 
 ## The optional World Analyst
 

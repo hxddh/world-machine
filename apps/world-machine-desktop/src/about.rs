@@ -24,6 +24,13 @@ actions!(
         ReportProblem,
         InstallGuide,
         CheckForUpdates,
+        // Standard app and window behaviour.
+        HideApp,
+        HideOthers,
+        ShowAll,
+        CloseWindow,
+        MinimizeWindow,
+        ZoomWindow,
         // File menu, handled by Home wherever it is.
         ImportWorld,
         InstallPack,
@@ -53,7 +60,7 @@ pub fn install(cx: &mut App) {
     cx.on_action(|_: &OpenLogFolder, cx| open_log_folder(cx));
     cx.on_action(|_: &ReportProblem, cx| {
         diagnostics::info("opening the issue template");
-        cx.open_url(diagnostics::ISSUE_URL);
+        cx.open_url(&diagnostics::issue_url());
     });
     cx.on_action(|_: &InstallGuide, cx| cx.open_url(diagnostics::INSTALL_GUIDE_URL));
     cx.on_action(|_: &CheckForUpdates, cx| {
@@ -61,13 +68,43 @@ pub fn install(cx: &mut App) {
         cx.open_url(diagnostics::RELEASES_URL);
     });
 
-    cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
+    cx.on_action(|_: &HideApp, cx| cx.hide());
+    cx.on_action(|_: &HideOthers, cx| cx.hide_other_apps());
+    cx.on_action(|_: &ShowAll, cx| cx.unhide_other_apps());
+    cx.on_action(|_: &CloseWindow, cx| {
+        if let Some(window) = cx.active_window() {
+            let _ = window.update(cx, |_, window, _| window.remove_window());
+        }
+    });
+    cx.on_action(|_: &MinimizeWindow, cx| {
+        if let Some(window) = cx.active_window() {
+            let _ = window.update(cx, |_, window, _| window.minimize_window());
+        }
+    });
+    cx.on_action(|_: &ZoomWindow, cx| {
+        if let Some(window) = cx.active_window() {
+            let _ = window.update(cx, |_, window, _| window.zoom_window());
+        }
+    });
+
+    cx.bind_keys([
+        KeyBinding::new("cmd-q", Quit, None),
+        KeyBinding::new("cmd-h", HideApp, None),
+        KeyBinding::new("alt-cmd-h", HideOthers, None),
+        KeyBinding::new("cmd-w", CloseWindow, None),
+        KeyBinding::new("cmd-m", MinimizeWindow, None),
+        KeyBinding::new("cmd-,", About, None),
+    ]);
 
     cx.set_menus([
         Menu::new("World Machine").items([
             MenuItem::action("About World Machine…", About),
             MenuItem::separator(),
             MenuItem::os_submenu("Services", SystemMenuType::Services),
+            MenuItem::separator(),
+            MenuItem::action("Hide World Machine", HideApp),
+            MenuItem::action("Hide Others", HideOthers),
+            MenuItem::action("Show All", ShowAll),
             MenuItem::separator(),
             MenuItem::action("Quit World Machine", Quit),
         ]),
@@ -89,6 +126,12 @@ pub fn install(cx: &mut App) {
             MenuItem::action("Lineage…", ShowLineage),
             MenuItem::separator(),
             MenuItem::action("Analyze Saved Worlds (Experimental)…", AnalyzeWorlds),
+        ]),
+        Menu::new("Window").items([
+            MenuItem::action("Minimize", MinimizeWindow),
+            MenuItem::action("Zoom", ZoomWindow),
+            MenuItem::separator(),
+            MenuItem::action("Close Window", CloseWindow),
         ]),
         Menu::new("Help").items([
             MenuItem::action("Check for Updates…", CheckForUpdates),
@@ -236,7 +279,7 @@ impl Render for AboutView {
                         about_button("about-report-problem", "Report a Problem…").on_click(
                             cx.listener(|_, _, _, cx| {
                                 diagnostics::info("opening the issue template");
-                                cx.open_url(diagnostics::ISSUE_URL);
+                                cx.open_url(&diagnostics::issue_url());
                             }),
                         ),
                     )

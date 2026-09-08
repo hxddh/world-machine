@@ -26,6 +26,31 @@ const REPORT_TAIL_LINES: usize = 60;
 
 pub const ISSUE_URL: &str =
     "https://github.com/hxddh/world-machine/issues/new?template=bug_report.yml";
+
+/// The issue template with its build and macOS fields already filled in, so
+/// a report never arrives without the two facts needed to reproduce it.
+pub fn issue_url() -> String {
+    format!(
+        "{ISSUE_URL}&build={}&macos={}",
+        percent_encode(&build_info::display_label()),
+        percent_encode(&host_description())
+    )
+}
+
+fn percent_encode(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() * 3);
+    for byte in text.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(byte as char)
+            }
+            _ => {
+                let _ = write!(out, "%{byte:02X}");
+            }
+        }
+    }
+    out
+}
 pub const INSTALL_GUIDE_URL: &str =
     "https://github.com/hxddh/world-machine/blob/main/docs/INSTALL.md";
 pub const RELEASES_URL: &str = "https://github.com/hxddh/world-machine/releases";
@@ -347,6 +372,22 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[test]
+    fn issue_url_percent_encodes_its_prefilled_fields() {
+        assert_eq!(
+            percent_encode("World Machine 0.2.0 · build abc"),
+            "World%20Machine%200.2.0%20%C2%B7%20build%20abc"
+        );
+        assert_eq!(
+            percent_encode("macOS 15.1 (24B83)"),
+            "macOS%2015.1%20%2824B83%29"
+        );
+        let url = issue_url();
+        assert!(url.starts_with(ISSUE_URL));
+        assert!(url.contains("&build=World%20Machine%20"));
+        assert!(url.contains("&macos="));
     }
 
     #[test]

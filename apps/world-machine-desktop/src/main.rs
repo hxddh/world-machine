@@ -13,11 +13,13 @@ mod strategy_compare;
 #[cfg(target_os = "macos")]
 mod system_open;
 #[cfg(target_os = "macos")]
+mod updates;
+#[cfg(target_os = "macos")]
 mod world_fork;
 
 #[cfg(target_os = "macos")]
 use gpui::{
-    div, prelude::*, px, rgb, size, App, AppContext, Bounds, Context, Entity, IntoElement,
+    div, prelude::*, px, rgb, size, App, AppContext, Bounds, Context, Entity, Global, IntoElement,
     PathPromptOptions, Render, SharedString, Styled, Window, WindowBounds, WindowOptions,
 };
 #[cfg(target_os = "macos")]
@@ -528,6 +530,9 @@ struct WorldMachineHome {
     /// Installed-Pack management is hidden behind one line on Home until asked
     /// for; nothing in the ordinary path needs it.
     show_packs: bool,
+    /// A newer stable release found at launch, shown as a banner until
+    /// dismissed or downloaded.
+    available_update: Option<updates::AvailableUpdate>,
 }
 
 #[cfg(target_os = "macos")]
@@ -659,6 +664,95 @@ impl WorldMachineHome {
     /// content on install and the durable probe still runs before activation.
     /// User-supplied `.worldpack` files keep the explicit review flow.
     /// Packs that are already in the catalog, enabled or not, are left alone.
+    /// One background request to the Releases API; a newer stable version
+    /// becomes a banner on Home. Silent on failure, off with
+    /// WORLD_MACHINE_NO_UPDATE_CHECK=1.
+    fn start_update_check(&mut self, cx: &mut Context<Self>) {
+        if !updates::enabled() {
+            return;
+        }
+        let task = cx
+            .background_executor()
+            .spawn(async move { updates::check() });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                if let Some(update) = result {
+                    diagnostics::info(format!("update available: {}", update.version));
+                    this.available_update = Some(update);
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
+    fn update_banner(
+        &self,
+        update: updates::AvailableUpdate,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let url = update.url.clone();
+        div()
+            .id("update-available")
+            .w_full()
+            .p_3()
+            .rounded_md()
+            .border_1()
+            .border_color(rgb(0xa8b9d6))
+            .bg(rgb(0xf1f5fb))
+            .flex()
+            .items_center()
+            .justify_between()
+            .gap_3()
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.0))
+                    .text_sm()
+                    .text_color(rgb(0x314b72))
+                    .child(format!(
+                        "World Machine {} is available. You have {}.",
+                        update.version,
+                        build_info::APP_VERSION
+                    )),
+            )
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .flex()
+                    .gap_2()
+                    .child(
+                        div()
+                            .id("download-update")
+                            .cursor_pointer()
+                            .p_2()
+                            .rounded_md()
+                            .border_1()
+                            .border_color(rgb(0x657da7))
+                            .bg(rgb(0xffffff))
+                            .text_sm()
+                            .child("Download")
+                            .on_click(cx.listener(move |_, _, _, cx| cx.open_url(&url))),
+                    )
+                    .child(
+                        div()
+                            .id("dismiss-update")
+                            .cursor_pointer()
+                            .p_2()
+                            .rounded_md()
+                            .border_1()
+                            .border_color(rgb(0xc5cfdf))
+                            .text_sm()
+                            .child("Later")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.available_update = None;
+                                cx.notify();
+                            })),
+                    ),
+            )
+    }
+
     fn activate_included_packs(&mut self, cx: &mut Context<Self>) {
         let packs = self.included_packs.clone();
         for pack in packs {
@@ -2313,6 +2407,10 @@ impl Render for WorldMachineHome {
             .gap_3()
             .p_4();
 
+        if let Some(update) = self.available_update.clone() {
+            body = body.child(self.update_banner(update, cx));
+        }
+
         if let Some(preview) = self.pending_pack_install.clone() {
             body = body.child(self.pack_install_review_card(preview, cx));
         }
@@ -2969,6 +3067,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .or(included_status)
         .map(HomeStatus::error);
 
+    // Clicking the Dock icon after the last window was closed brings Home
+    // back, the way a document-based Mac app behaves.
+    application.on_reopen(|cx| {
+        if cx.windows().is_empty() {
+            if let Some(home) = cx.try_global::<HomeEntity>().map(|home| home.0.clone()) {
+                open_home_window(home, cx);
+            }
+        }
+    });
+
     application.run(move |cx: &mut App| {
         about::install(cx);
         let home = cx.new(|cx| {
@@ -2987,25 +3095,42 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 probing_packs: Vec::new(),
                 status,
                 show_packs: false,
+                available_update: None,
             };
             home.start_system_open_listener(cx);
             home.activate_included_packs(cx);
+            home.start_update_check(cx);
             home
         });
         about::install_home_actions(&home, cx);
-        let bounds = Bounds::centered(None, size(px(760.0), px(760.0)), cx);
-        cx.open_window(
-            WindowOptions {
-                window_bounds: Some(WindowBounds::Windowed(bounds)),
-                ..Default::default()
-            },
-            move |_, _| home,
-        )
-        .expect("failed to open World Machine library window");
+        cx.set_global(HomeEntity(home.clone()));
+        open_home_window(home, cx);
         cx.activate(true);
     });
 
     Ok(())
+}
+
+/// The one Home entity, kept alive across window closes so the library
+/// listener and Pack activation state survive Cmd-W.
+#[cfg(target_os = "macos")]
+struct HomeEntity(Entity<WorldMachineHome>);
+
+#[cfg(target_os = "macos")]
+impl Global for HomeEntity {}
+
+#[cfg(target_os = "macos")]
+fn open_home_window(home: Entity<WorldMachineHome>, cx: &mut App) {
+    let bounds = Bounds::centered(None, size(px(760.0), px(760.0)), cx);
+    if let Err(error) = cx.open_window(
+        WindowOptions {
+            window_bounds: Some(WindowBounds::Windowed(bounds)),
+            ..Default::default()
+        },
+        move |_, _| home,
+    ) {
+        diagnostics::error(format!("could not open the Home window: {error}"));
+    }
 }
 
 #[cfg(not(target_os = "macos"))]
