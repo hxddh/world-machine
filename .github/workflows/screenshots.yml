@@ -58,6 +58,34 @@ jobs:
           open -a "$APP" "$WM_LIB/maple-street-1987.world"
           sleep 15
           screencapture -x shots/03-world-fresh.png
+          # How much of a big window the layout actually uses is a question
+          # the shots above cannot answer: both windows open at their default
+          # size. Seed the remembered geometry with a rectangle the size of the
+          # runner's screen and reopen, so there is a wide shot to compare.
+          osascript -e 'tell application "World Machine" to quit' || true
+          sleep 3
+          STATE="$HOME/Library/Application Support/World Machine/Window State.json"
+          mkdir -p "$(dirname "$STATE")"
+          cat > "$STATE" <<'JSON'
+          {"version":1,
+           "home":{"x":0,"y":25,"width":1024,"height":740},
+           "world":{"x":0,"y":25,"width":1024,"height":740}}
+JSON
+          cat "$STATE"
+          open -a "$APP"
+          sleep 12
+          screencapture -x shots/04-home-wide.png
+          open -a "$APP" "$WM_LIB/ares-pocket-colony.world"
+          sleep 12
+          screencapture -x shots/05-world-wide.png
+          # Full screen is a green-button/⌃⌘F affordance rather than anything
+          # the app draws, so the only way to know it works is to ask for it.
+          # UI scripting needs Accessibility, which the runner may refuse; the
+          # shot is taken either way and says which happened.
+          osascript -e 'tell application "System Events" to keystroke "f" using {control down, command down}' \
+            || echo "UI scripting refused: full screen not exercised"
+          sleep 8
+          screencapture -x shots/06-world-fullscreen.png
           osascript -e 'tell application "World Machine" to quit' || true
           sleep 2
           launchctl unsetenv WORLD_MACHINE_LIBRARY_DIR || true
@@ -68,6 +96,7 @@ jobs:
           ls -la "$WM_LIB" "$WM_LIB/.world-machine-packs" || true
           echo "===== app stdout"; cat "$RUNNER_TEMP/app.stdout.log" || true
           echo "===== app stderr"; cat "$RUNNER_TEMP/app.stderr.log" || true
+          echo "===== window state after the wide run"; cat "$STATE" || true
           echo "===== fonts"; fc-list 2>/dev/null | wc -l || true; ls /System/Library/Fonts | head -5
           echo "===== gpu"; system_profiler SPDisplaysDataType || true
           cp "$RUNNER_TEMP"/app.*.log shots/ || true
