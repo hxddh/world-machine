@@ -1595,7 +1595,10 @@ fn legacy_return_context(world: &World, legacy: &str) -> String {
     }
 }
 
-fn return_digest_items(events: &[Event]) -> Vec<BriefingItem> {
+/// The Events a return digest will show, and how many of that kind it stands
+/// for. Shared with the narrator so that what gets put into words is exactly
+/// what gets read, and the two can never drift apart.
+pub(crate) fn digest_events(events: &[Event]) -> Vec<(&Event, usize)> {
     let mut groups = Vec::<(&Event, usize)>::new();
     for event in events.iter().rev().filter(|event| {
         // Agent plumbing is not news, and a narrated line is not an event of
@@ -1613,9 +1616,16 @@ fn return_digest_items(events: &[Event]) -> Vec<BriefingItem> {
     }
 
     groups.sort_by_key(|(event, _)| return_digest_priority(event.kind.as_str()));
+    groups.truncate(RETURN_DIGEST_ENTRIES);
     groups
+}
+
+/// How many kinds of thing a return digest reports before it stops.
+pub(crate) const RETURN_DIGEST_ENTRIES: usize = 3;
+
+fn return_digest_items(events: &[Event]) -> Vec<BriefingItem> {
+    digest_events(events)
         .into_iter()
-        .take(3)
         .map(|(event, occurrences)| return_item(events, event, occurrences))
         .collect()
 }
