@@ -30,6 +30,8 @@ pub(crate) fn watch_appearance(window: &mut Window) {
 }
 #[cfg(target_os = "macos")]
 mod world_fork;
+#[cfg(target_os = "macos")]
+mod world_voice;
 
 #[cfg(target_os = "macos")]
 use gpui::{
@@ -3444,6 +3446,7 @@ fn build_registry(catalog: Option<&PackCatalog>) -> Result<world_host::WorldRegi
         let source = catalog
             .trusted_source()
             .map_err(|error| error.to_string())?;
+        let source = world_voice::with_settings(source, world_voice::pack_settings());
         registry
             .install_source(&source)
             .map_err(|error| error.to_string())?;

@@ -6799,6 +6799,7 @@ dependencies = [
  "world-observer",
  "world-pack-bundle",
  "world-pack-catalog",
+ "world-pack-process",
  "world-persistence",
  "world-projection",
  "world-strategy-document",

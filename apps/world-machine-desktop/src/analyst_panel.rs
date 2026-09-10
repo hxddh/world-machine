@@ -326,6 +326,43 @@ impl AnalystPanelView {
         .detach();
     }
 
+    /// Turn a World's voice on or off.
+    ///
+    /// Worlds already open keep the voice they were opened with, because a Pack
+    /// process is told how to speak when it launches; the row says so rather
+    /// than pretending otherwise.
+    fn toggle_world_voice(&mut self, on: bool, cx: &mut Context<Self>) {
+        if self.busy
+            || self.settings_busy
+            || self.session.is_some()
+            || self.runtime_checking
+            || self.catalog_refreshing
+        {
+            return;
+        }
+        self.settings_busy = true;
+        self.last_error = None;
+        cx.notify();
+
+        let task = cx
+            .background_executor()
+            .spawn(async move { analyst_runtime::save_world_voice(on) });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                this.settings_busy = false;
+                match result {
+                    Ok(()) => this.refresh_runtime(cx),
+                    Err(error) => {
+                        this.last_error = Some(error);
+                        cx.notify();
+                    }
+                }
+            });
+        })
+        .detach();
+    }
+
     fn configure_program(
         &mut self,
         program: analyst_runtime::AnalystRuntimeProgram,
@@ -991,6 +1028,92 @@ impl AnalystPanelView {
             .child(actions)
     }
 
+    /// Whether the Worlds this app opens write in their own words.
+    fn render_world_voice_row(&self, cx: &mut Context<Self>) -> Div {
+        let Some(status) = self.runtime.as_ref() else {
+            return div()
+                .text_xs()
+                .text_color(crate::theme_rgb(0x777770))
+                .child("World voice · waiting for runtime check");
+        };
+        let Some(settings) = status.settings.as_ref() else {
+            return div()
+                .text_xs()
+                .text_color(crate::theme_rgb(0x777770))
+                .child("World voice · settings unavailable until runtime settings load");
+        };
+        let on = settings.world_voice;
+        let program = settings.pi_program.clone();
+        let detail = match (&program, on) {
+            (None, _) => {
+                "Choose a Pi program above first — a voice needs a local model to write with."
+                    .to_string()
+            }
+            (Some(_), true) => {
+                "Worlds you open from now on will say what happened in their own words.".to_string()
+            }
+            (Some(_), false) => {
+                "Worlds read from their built-in copy. Nothing is sent anywhere while this is off."
+                    .to_string()
+            }
+        };
+        let controls_enabled = program.is_some()
+            && !self.busy
+            && !self.settings_busy
+            && !self.runtime_checking
+            && !self.catalog_refreshing
+            && self.session.is_none();
+
+        let mut toggle = div()
+            .id("toggle-world-voice")
+            .px_3()
+            .p_1()
+            .rounded_md()
+            .border_1()
+            .border_color(crate::theme_rgb(0xb8b2a8))
+            .bg(crate::theme_rgb(0xffffff))
+            .text_xs()
+            .child(if on { "Turn off" } else { "Turn on" });
+        if controls_enabled {
+            toggle = toggle
+                .cursor_pointer()
+                .on_click(cx.listener(move |this, _, _, cx| this.toggle_world_voice(!on, cx)));
+        } else {
+            toggle = toggle.text_color(crate::theme_rgb(0x999990));
+        }
+
+        div()
+            .w_full()
+            .p_2()
+            .rounded_md()
+            .border_1()
+            .border_color(crate::theme_rgb(0xe0e0db))
+            .bg(crate::theme_rgb(0xfafaf8))
+            .flex()
+            .items_center()
+            .justify_between()
+            .gap_3()
+            .child(
+                div()
+                    .flex_1()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(
+                        div()
+                            .text_xs()
+                            .child(format!("World voice · {}", if on { "on" } else { "off" })),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(crate::theme_rgb(0x777770))
+                            .child(detail),
+                    ),
+            )
+            .child(toggle)
+    }
+
     fn render_world_selector(
         &self,
         side: PanelPairSide,
@@ -1284,7 +1407,8 @@ impl AnalystPanelView {
             .flex_col()
             .gap_2()
             .child(self.render_program_row(analyst_runtime::AnalystRuntimeProgram::Node, cx))
-            .child(self.render_program_row(analyst_runtime::AnalystRuntimeProgram::Pi, cx));
+            .child(self.render_program_row(analyst_runtime::AnalystRuntimeProgram::Pi, cx))
+            .child(self.render_world_voice_row(cx));
 
         let can_start = !self.busy
             && !self.settings_busy
