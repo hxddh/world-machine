@@ -767,9 +767,11 @@ pub mod canvas_layout {
     pub const ORIGIN_X: f32 = 14.0;
     pub const ORIGIN_Y: f32 = 12.0;
     pub const SPAN_X: f32 = 288.0;
-    pub const SPAN_Y: f32 = 196.0;
+    pub const SPAN_Y: f32 = 240.0;
     pub const ITEM_WIDTH: f32 = 130.0;
-    pub const ITEM_HEIGHT: f32 = 46.0;
+    /// Tall enough for the two lines a canvas item carries plus its padding.
+    /// At 46 the second line was clipped.
+    pub const ITEM_HEIGHT: f32 = 58.0;
     pub const EDGE_THICKNESS: f32 = 2.0;
 
     /// The narrowest centre column the World window offers, at the smallest
