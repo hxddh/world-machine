@@ -192,13 +192,13 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
         .iter()
         .rev()
         .filter_map(|event| {
-            let title = narrated_title(event)?;
+            let title = narrated_title(world, event)?;
             if !told.insert(event.kind.clone()) {
                 return None;
             }
             Some(BriefingItem {
                 selection: Some(SelectionId::Event(event.id)),
-                title: title.into(),
+                title,
                 detail: format!("World time {} · Event #{}", event.world_time, event.id),
                 kind: BriefingItemKind::Beat,
             })
@@ -220,7 +220,7 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
     // caused them, because the cut was older. If beats are left out, the
     // briefing says how many rather than pretending there were none.
     let told = items.len();
-    let happened = narratable_count(relevant_events);
+    let happened = narratable_count(world, relevant_events);
     if happened > told {
         items.push(BriefingItem {
             selection: None,
@@ -284,8 +284,24 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
 /// This World's own words for an Event, or `None` when the Event is part of
 /// the background hum. One table, used both to write the beats and to count
 /// how many were left out, so the two can never disagree.
-fn narrated_title(event: &Event) -> Option<&'static str> {
-    Some(match event.kind.as_str() {
+///
+/// It takes the World because some of these sentences name somebody, and a
+/// sentence that leaves the person out reads as being about nobody while the
+/// Event beside it is filed under their name: "The bakery could not cover
+/// payroll" sat next to Jonas, because it was his wage, and never said so.
+fn narrated_title(world: &World, event: &Event) -> Option<String> {
+    if event.kind == "payroll_shortfall" {
+        let worker = event
+            .targets
+            .first()
+            .and_then(|id| world.state().entity(*id))
+            .map(entity_title);
+        return Some(match worker {
+            Some(name) => format!("The bakery could not pay {name}"),
+            None => "The bakery could not cover payroll".to_string(),
+        });
+    }
+    Some(String::from(match event.kind.as_str() {
         "support_repaid" => "Jonas repaid Leo after returning to sea",
         "fish_sold" => "Jonas's catch reached the mainland",
         "boat_repaired" => "Sea Finch returned to the water",
@@ -327,16 +343,16 @@ fn narrated_title(event: &Event) -> Option<&'static str> {
         "storm_started" => "A storm reached the harbor",
         "counter_help_hired" => "Mara took Mia on at the bakery counter",
         _ => return None,
-    })
+    }))
 }
 
 /// How many of these Events the briefing would tell, before the cap. One per
 /// kind, matching what the beats themselves collapse to, so "3 more things
 /// happened" counts things rather than repetitions of one thing.
-fn narratable_count(events: &[Event]) -> usize {
+fn narratable_count(world: &World, events: &[Event]) -> usize {
     let mut kinds = std::collections::BTreeSet::new();
     for event in events {
-        if narrated_title(event).is_some() {
+        if narrated_title(world, event).is_some() {
             kinds.insert(event.kind.as_str());
         }
     }
@@ -822,6 +838,52 @@ mod reading_order_tests {
             times, sorted,
             "beats read in the order they happened, so a cause is never printed \
              below its own consequence"
+        );
+    }
+}
+
+#[cfg(test)]
+mod naming_tests {
+    use super::*;
+    use crate::TinySociety;
+
+    #[test]
+    fn a_line_filed_under_somebody_says_who_it_is_about() {
+        let mut society = TinySociety::new().unwrap();
+        society.run_story().unwrap();
+        let mut branch = society.branch();
+        for _ in 0..250 {
+            if branch
+                .world()
+                .events()
+                .iter()
+                .any(|event| event.kind == "payroll_shortfall")
+            {
+                break;
+            }
+            branch.advance_days(1).unwrap();
+        }
+
+        let shortfall = branch
+            .world()
+            .events()
+            .iter()
+            .find(|event| event.kind == "payroll_shortfall")
+            .expect("the bakery eventually cannot cover a wage");
+        // The Event carries no actor, so a timeline and any UI that shows one
+        // fall back to the first target — the worker. The sentence has to be
+        // about the same person, or the line reads as being about nobody with
+        // somebody's name printed beside it.
+        let worker = branch
+            .world()
+            .state()
+            .entity(shortfall.targets[0])
+            .map(entity_title)
+            .expect("the shortfall names the worker it could not pay");
+        let told = narrated_title(branch.world(), shortfall).expect("this is news");
+        assert!(
+            told.contains(&worker),
+            "{told:?} is filed under {worker} and does not mention them"
         );
     }
 }
