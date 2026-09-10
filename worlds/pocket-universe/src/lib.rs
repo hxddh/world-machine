@@ -219,9 +219,16 @@ where
         })
     }
 
-    /// Ask this World's narrator for the line about to be read, if it has one.
-    fn narrate_latest(&mut self) -> Option<EventId> {
-        narrator::narrate_latest(&mut self.world, &self.actions, self.narrator.as_mut())
+    /// Ask this World's narrator for the lines about to be read, if it has one.
+    /// `since` is where the observer last looked, so the narrator is handed
+    /// exactly what the return digest is about to show.
+    fn narrate_return(&mut self, since: usize) -> usize {
+        narrator::narrate_return(
+            &mut self.world,
+            &self.actions,
+            self.narrator.as_mut(),
+            since,
+        )
     }
 
     /// Give this World a voice. Without one it reads from the table, and every
@@ -250,6 +257,7 @@ where
         command_id: &str,
     ) -> Result<EventId, Box<dyn Error>> {
         if command_id == NUDGE_COMMAND {
+            let since = self.world.events().len();
             let mut candidate = self.world.clone();
             let growth_request = growth_request(&candidate);
             let growth = candidate.execute(&self.actions, &growth_request)?.id;
@@ -280,7 +288,7 @@ where
             let relationship = candidate.execute(&self.actions, &relationship_request)?.id;
             let returned = era::resolve_period(&mut candidate, &self.actions, relationship)?;
             self.world = candidate;
-            self.narrate_latest();
+            self.narrate_return(since);
             return Ok(returned);
         }
 
@@ -313,6 +321,9 @@ where
     }
 
     pub fn advance_periods(&mut self, periods: u64) -> Result<(), Box<dyn Error>> {
+        // Where the observer last looked. Everything after it is what they are
+        // about to read, and so what is worth putting into words.
+        let since = self.world.events().len();
         let mut candidate = self.world.clone();
         for _ in 0..periods {
             let target = candidate
@@ -358,9 +369,9 @@ where
             era::resolve_period(&mut candidate, &self.actions, relationship)?;
         }
         self.world = candidate;
-        // Once, for the line an observer is about to read — not once per
+        // Once, for the lines an observer is about to read — not once per
         // period. A week-long catch-up resolves as fast as it always did.
-        self.narrate_latest();
+        self.narrate_return(since);
         Ok(())
     }
 
@@ -3711,30 +3722,37 @@ mod tests {
         assert!(!briefing.items[decided].detail.is_empty());
     }
 
-    /// A narrator that says a fixed line and counts how often it was asked.
+    /// A narrator that says a fixed line and counts both how often it was
+    /// asked for a whole return and how many lines it was asked for.
+    #[derive(Default)]
+    struct NarratorCalls {
+        returns: std::cell::Cell<usize>,
+        lines: std::cell::Cell<usize>,
+    }
+
     struct ScriptedNarrator {
         line: String,
-        calls: std::rc::Rc<std::cell::Cell<usize>>,
+        calls: std::rc::Rc<NarratorCalls>,
     }
 
     impl narrator::Narrator for ScriptedNarrator {
         fn narrate(&mut self, facts: &narrator::NarrationFacts) -> Option<String> {
-            self.calls.set(self.calls.get() + 1);
+            self.calls.lines.set(self.calls.lines.get() + 1);
             // The narrator is handed facts that are already decided.
             assert!(!facts.seed.is_empty());
             assert!(!facts.event_kind.is_empty());
             assert!(!facts.table_summary.is_empty());
             Some(self.line.clone())
         }
+
+        fn narrate_all(&mut self, facts: &[narrator::NarrationFacts]) -> Vec<Option<String>> {
+            self.calls.returns.set(self.calls.returns.get() + 1);
+            facts.iter().map(|fact| self.narrate(fact)).collect()
+        }
     }
 
-    fn narrated_with(
-        line: &str,
-    ) -> (
-        PocketUniverse<PocketMind>,
-        std::rc::Rc<std::cell::Cell<usize>>,
-    ) {
-        let calls = std::rc::Rc::new(std::cell::Cell::new(0));
+    fn narrated_with(line: &str) -> (PocketUniverse<PocketMind>, std::rc::Rc<NarratorCalls>) {
+        let calls = std::rc::Rc::new(NarratorCalls::default());
         let mut universe = freshly_seeded(SEED_MARS_COLONY_COMMAND);
         universe.set_narrator(Box::new(ScriptedNarrator {
             line: line.into(),
@@ -3773,7 +3791,7 @@ mod tests {
         let cursor = universe.world().events().len();
         universe.advance_periods(6).unwrap();
 
-        assert!(calls.get() >= 1, "the narrator was never asked");
+        assert!(calls.returns.get() >= 1, "the narrator was never asked");
         assert_eq!(
             text_component_from_state(universe.world().state(), UNIVERSE, LAST_CHANGE).unwrap(),
             line,
@@ -3807,10 +3825,19 @@ mod tests {
         let (mut universe, calls) = narrated_with("A week of dust, and the intakes held.");
         universe.advance_periods(28).unwrap();
         assert_eq!(
-            calls.get(),
+            calls.returns.get(),
             1,
-            "a twenty-eight period catch-up asked the narrator {} times",
-            calls.get()
+            "a twenty-eight period catch-up made {} requests",
+            calls.returns.get()
+        );
+        assert!(
+            calls.lines.get() > 1,
+            "a week-long return put only {} line(s) into the World's own words",
+            calls.lines.get()
+        );
+        assert!(
+            calls.lines.get() <= projection::RETURN_DIGEST_ENTRIES,
+            "more lines were narrated than a return digest shows"
         );
     }
 
@@ -3850,10 +3877,14 @@ mod tests {
         let line = "The relay stayed quiet, and Ares stopped waiting on it.";
         let (mut universe, calls) = narrated_with(line);
         universe.advance_periods(6).unwrap();
-        let asked = calls.get();
+        let asked = calls.returns.get();
 
         let replayed = universe.world().replay().unwrap();
-        assert_eq!(calls.get(), asked, "replay asked the narrator again");
+        assert_eq!(
+            calls.returns.get(),
+            asked,
+            "replay asked the narrator again"
+        );
         assert_eq!(replayed.events(), universe.world().events());
         assert_eq!(replayed.state(), universe.world().state());
         assert_eq!(
@@ -3881,13 +3912,61 @@ mod tests {
     fn the_same_consequence_is_never_put_into_words_twice() {
         let (mut universe, calls) = narrated_with("The dust thickened early this year.");
         universe.advance_periods(4).unwrap();
-        let after_first = calls.get();
+        let after_first = calls.returns.get();
         let events = universe.world().events().len();
 
         // Coming back without the World having moved leaves it alone.
         universe.advance_periods(0).unwrap();
-        assert_eq!(calls.get(), after_first);
+        assert_eq!(calls.returns.get(), after_first);
         assert_eq!(universe.world().events().len(), events);
+    }
+
+    #[test]
+    fn every_line_a_return_shows_can_be_in_the_world_own_words() {
+        // Measured before this: over twenty week-long returns the digest's
+        // trouble lines were stuck at exactly three distinct phrasings each
+        // (83%, 82%, 82% repeat), because there are three troubles per seed and
+        // one written line per stage. Narrating only the latest consequence
+        // left the other entries on the table.
+        let (mut universe, calls) = narrated_with("The season turned against Ares, and it held.");
+        let cursor = universe.world().events().len();
+        universe.advance_periods(28).unwrap();
+
+        let briefing = universe
+            .projection_snapshot_since(Some(cursor))
+            .briefing
+            .expect("a return has a briefing");
+        let narrated_events = universe
+            .world()
+            .events()
+            .iter()
+            .filter(|event| event.kind == narrator::NARRATED)
+            .count();
+        assert!(
+            narrated_events > 1,
+            "only {narrated_events} line(s) of the return were put into the World's own words"
+        );
+        assert_eq!(
+            calls.returns.get(),
+            1,
+            "narrating the whole digest cost more than the one request a return budgets"
+        );
+
+        // Every digest entry the World has words for shows those words.
+        let voiced = briefing
+            .items
+            .iter()
+            .filter(|item| item.detail == "The season turned against Ares, and it held.")
+            .count();
+        assert_eq!(
+            voiced, narrated_events,
+            "the briefing kept a table line for something the World had already put into its own words: {:?}",
+            briefing
+                .items
+                .iter()
+                .map(|item| (&item.title, &item.detail))
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]

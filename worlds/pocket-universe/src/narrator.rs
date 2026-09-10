@@ -26,6 +26,7 @@
 //!   asks a narrator anything.
 
 use super::*;
+use crate::projection;
 use world_core::Event;
 
 pub(crate) const NARRATED: &str = "world_narrated";
@@ -63,6 +64,19 @@ pub struct NarrationFacts {
 /// allowed and always safe: the World keeps its table line.
 pub trait Narrator {
     fn narrate(&mut self, facts: &NarrationFacts) -> Option<String>;
+
+    /// Say everything a returning observer is about to read, in one go.
+    ///
+    /// A return budgets one request, however many lines it shows, so a narrator
+    /// backed by a model overrides this to ask once for the whole briefing
+    /// rather than once per line. The default asks line by line, which is what
+    /// a local or scripted narrator wants.
+    ///
+    /// The returned lines correspond to `facts` by position; a shorter answer
+    /// leaves the rest on their table lines, which is the usual fallback.
+    fn narrate_all(&mut self, facts: &[NarrationFacts]) -> Vec<Option<String>> {
+        facts.iter().map(|fact| self.narrate(fact)).collect()
+    }
 }
 
 /// The default. A World with no narrator reads from the table, which is every
@@ -96,56 +110,87 @@ pub(crate) fn usable_narration(candidate: &str) -> Option<String> {
     Some(trimmed.to_owned())
 }
 
-/// The facts of the most recent consequence, if there is one worth narrating.
+/// The facts behind each line a returning observer is about to read.
 ///
-/// A World is narrated at the line an observer is about to read, not once per
-/// period: a long absence resolves as fast as it does today and costs one
-/// narration, not one per period.
-pub(crate) fn latest_facts(world: &World) -> Option<(EventId, NarrationFacts)> {
-    let event = world.events().iter().rev().find(|event| {
-        event.kind != NARRATED && matches!(event.payload.get("summary"), Some(Value::Text(_)))
-    })?;
-    let Some(Value::Text(summary)) = event.payload.get("summary") else {
-        return None;
+/// These are exactly the Events the return digest will show — the projection
+/// decides that, and hands the same list here, so what gets put into words can
+/// never drift from what gets read. `since` is where the observer last looked.
+///
+/// A World is narrated at the lines about to be read, not once per period: a
+/// long absence resolves as fast as it does today and costs one narration.
+pub(crate) fn return_facts(world: &World, since: usize) -> Vec<(EventId, NarrationFacts)> {
+    let events = world.events();
+    let Some(window) = events.get(since..) else {
+        return Vec::new();
     };
     let state = world.state();
-    Some((
-        event.id,
-        NarrationFacts {
-            seed: seed_id_from_state(state).ok()?,
-            era: era::era_from_state(state),
-            event_kind: event.kind.clone(),
-            table_summary: summary.clone(),
-        },
-    ))
+    let Ok(seed) = seed_id_from_state(state) else {
+        return Vec::new();
+    };
+    let era = era::era_from_state(state);
+    projection::digest_events(window)
+        .into_iter()
+        .filter_map(|(event, _)| {
+            let Some(Value::Text(summary)) = event.payload.get("summary") else {
+                return None;
+            };
+            Some((
+                event.id,
+                NarrationFacts {
+                    seed: seed.clone(),
+                    era,
+                    event_kind: event.kind.clone(),
+                    table_summary: summary.clone(),
+                },
+            ))
+        })
+        .collect()
 }
 
-/// Ask this World's narrator to say the latest consequence in its own words,
+/// Ask this World's narrator to say what is about to be read in its own words,
 /// and record what it says.
 ///
-/// Returns the recorded Event when a line was usable. Every other outcome —
-/// nothing to narrate, no narrator, an unusable line — leaves the World exactly
-/// as it was, which is the point.
-pub(crate) fn narrate_latest(
+/// Every unusable answer — no narrator, nothing to narrate, a silent line, a
+/// line the Action would refuse — leaves that line on the table, which is the
+/// point. A narrator that answers for none of them costs the World nothing.
+pub(crate) fn narrate_return(
     world: &mut World,
     actions: &ActionRegistry,
     narrator: &mut dyn Narrator,
-) -> Option<EventId> {
-    let (about, facts) = latest_facts(world)?;
-    if already_narrated(world, about) {
-        return None;
+    since: usize,
+) -> usize {
+    let pending = return_facts(world, since)
+        .into_iter()
+        .filter(|(about, _)| !already_narrated(world, *about))
+        .collect::<Vec<_>>();
+    if pending.is_empty() {
+        return 0;
     }
-    let text = usable_narration(&narrator.narrate(&facts)?)?;
-    let request = ActionRequest::new("narrate_world")
-        .actor(UNIVERSE)
-        .arg(ABOUT_ARG, about.0 as i64)
-        .arg(TEXT_ARG, text)
-        .caused_by(about);
-    // Deliberately infallible. `usable_narration` has already accepted this
-    // line, so the Action cannot reject it; and if that ever stopped being
-    // true, a World that moved must not be reported as a World that failed.
-    // The table line stands and everything that actually happened is kept.
-    world.execute(actions, &request).ok().map(|event| event.id)
+    let facts = pending
+        .iter()
+        .map(|(_, facts)| facts.clone())
+        .collect::<Vec<_>>();
+    let lines = narrator.narrate_all(&facts);
+
+    let mut recorded = 0;
+    for ((about, _), line) in pending.iter().zip(lines) {
+        let Some(text) = line.as_deref().and_then(usable_narration) else {
+            continue;
+        };
+        let request = ActionRequest::new("narrate_world")
+            .actor(UNIVERSE)
+            .arg(ABOUT_ARG, about.0 as i64)
+            .arg(TEXT_ARG, text)
+            .caused_by(*about);
+        // Deliberately infallible. `usable_narration` has already accepted this
+        // line, so the Action cannot reject it; and if that ever stopped being
+        // true, a World that moved must not be reported as a World that failed.
+        // The table line stands and everything that happened is kept.
+        if world.execute(actions, &request).is_ok() {
+            recorded += 1;
+        }
+    }
+    recorded
 }
 
 /// Whether this Event has already been put into the World's own words. A
