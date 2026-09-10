@@ -63,7 +63,10 @@ pub(crate) fn resolve_period(
     actions: &ActionRegistry,
     relationship: EventId,
 ) -> Result<EventId, Box<dyn Error>> {
-    let mut tail = legacy::resolve_stage(world, actions, relationship)?;
+    // Drift first: a choice the World has been left holding is answered before
+    // this period's consequences read the state it decides.
+    let mut tail = drift::resolve_stage(world, actions, relationship)?;
+    tail = legacy::resolve_stage(world, actions, tail)?;
     tail = pressure::resolve_stage(world, actions, tail)?;
     tail = succession::resolve_stage(world, actions, tail)?;
     resolve_turnover(world, actions, tail)

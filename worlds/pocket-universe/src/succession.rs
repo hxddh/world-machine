@@ -423,9 +423,11 @@ impl Action for EntrustLegacy {
     fn evaluate(
         &self,
         state: &WorldState,
-        _request: &ActionRequest,
+        request: &ActionRequest,
     ) -> Result<EventDraft, ActionError> {
-        answer_draft(state, true)
+        let mut draft = answer_draft(state, true)?;
+        drift::record_decider(&mut draft, request);
+        Ok(draft)
     }
 }
 
@@ -437,9 +439,10 @@ impl Action for ReleaseLegacy {
     fn evaluate(
         &self,
         state: &WorldState,
-        _request: &ActionRequest,
+        request: &ActionRequest,
     ) -> Result<EventDraft, ActionError> {
         let mut draft = answer_draft(state, false)?;
+        drift::record_decider(&mut draft, request);
         // Releasing is durable and costly in the same currency chapter three
         // used: the legacy the World had built stops accumulating and the
         // successor's version has to earn its own cycles.

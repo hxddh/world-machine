@@ -1,3 +1,4 @@
+use crate::drift;
 use crate::era::{self, EraStanding};
 use crate::pressure::{self, PRESSURE_OUTCOME};
 use crate::succession::{self, SuccessorStanding, SUCCESSION, SUCCESSION_OUTCOME};
@@ -235,6 +236,24 @@ fn succession_nudge_copy(world: &World) -> Option<(&'static str, &'static str)> 
             "Leave it as it already is",
             "The work is theirs in all but name. Entrusting now would be a formality; releasing would only say so out loud.",
         ),
+    })
+}
+
+/// What the World settled while nobody was answering. Only on a return digest:
+/// on a fresh visit there is no "since" to have missed anything in.
+fn decided_without_you_item(events: &[Event]) -> Option<BriefingItem> {
+    let drifted = drift::drifted_decisions(events);
+    let last = drifted.last()?;
+    let note = drift::drift_note(last)?;
+    let detail = match drifted.len() - 1 {
+        0 => note.to_string(),
+        1 => format!("{note} One other decision was reached the same way."),
+        more => format!("{note} {more} other decisions were reached the same way."),
+    };
+    Some(BriefingItem {
+        selection: Some(SelectionId::Event(last.id)),
+        title: "Decided without you".into(),
+        detail,
     })
 }
 
@@ -790,6 +809,11 @@ fn briefing(world: &World, seeded: bool, since_event_count: Option<usize>) -> Br
     if let Some(since) = since_event_count.filter(|since| *since < world.events().len()) {
         let events = &world.events()[since..];
         let mut items = return_digest_items(events);
+        // What the World settled for itself comes first: it is the thing a
+        // returning observer most needs to know and least expects.
+        if let Some(item) = decided_without_you_item(events) {
+            items.insert(0, item);
+        }
         items.push(return_compass_item(world));
         extend_with_persistent_consequences(world, &mut items);
         return BriefingProjection {
