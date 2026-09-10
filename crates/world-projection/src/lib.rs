@@ -302,6 +302,27 @@ impl ProjectionSnapshot {
             .collect()
     }
 
+    /// Where each canvas item is drawn, after any layout the Pack asked for
+    /// that could not be read has been replaced by a grid.
+    ///
+    /// Edges and boxes both read this, so a line cannot arrive where its own
+    /// endpoint is not.
+    pub fn canvas_placements(&self) -> Vec<(SelectionId, f32, f32)> {
+        let asked = self
+            .canvas
+            .items
+            .iter()
+            .map(|item| (item.x, item.y))
+            .collect::<Vec<_>>();
+        let drawn = canvas_layout::placements(&asked);
+        self.canvas
+            .items
+            .iter()
+            .zip(drawn)
+            .map(|(item, (x, y))| (item.id, x, y))
+            .collect()
+    }
+
     /// Every relation whose two ends are both on the canvas, with the
     /// positions of those ends.
     ///
@@ -311,9 +332,9 @@ impl ProjectionSnapshot {
     /// the picture.
     pub fn canvas_edges(&self) -> Vec<CanvasEdge> {
         let mut positions = BTreeMap::new();
-        for item in &self.canvas.items {
-            if let SelectionId::Entity(entity) = item.id {
-                positions.insert(entity, (item.x, item.y));
+        for (selection, x, y) in self.canvas_placements() {
+            if let SelectionId::Entity(entity) = selection {
+                positions.insert(entity, (x, y));
             }
         }
 
@@ -798,6 +819,63 @@ pub mod canvas_layout {
     pub fn anchor(x: f32, y: f32) -> (f32, f32) {
         let (left, top) = item_corner(x, y);
         (left + ITEM_WIDTH / 2.0, top + ITEM_HEIGHT / 2.0)
+    }
+
+    /// How many boxes fit across the canvas without touching.
+    pub const COLUMNS: usize = 3;
+
+    /// Whether any two boxes at these positions would overlap.
+    pub fn any_overlap(positions: &[(f32, f32)]) -> bool {
+        let corners = positions
+            .iter()
+            .map(|(x, y)| item_corner(*x, *y))
+            .collect::<Vec<_>>();
+        for (index, a) in corners.iter().enumerate() {
+            for b in corners.iter().skip(index + 1) {
+                if (a.0 - b.0).abs() < ITEM_WIDTH && (a.1 - b.1).abs() < ITEM_HEIGHT {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// A deterministic grid for this many things, filled left to right.
+    pub fn grid(count: usize) -> Vec<(f32, f32)> {
+        let rows = count.div_ceil(COLUMNS).max(1);
+        (0..count)
+            .map(|index| {
+                let x = if COLUMNS > 1 {
+                    (index % COLUMNS) as f32 / (COLUMNS - 1) as f32
+                } else {
+                    0.5
+                };
+                let y = if rows > 1 {
+                    (index / COLUMNS) as f32 / (rows - 1) as f32
+                } else {
+                    0.5
+                };
+                (x, y)
+            })
+            .collect()
+    }
+
+    /// Where to actually draw things.
+    ///
+    /// A Pack's own positions are a picture of its World and are used
+    /// whenever they can be read. When any two of them would overlap at the
+    /// size the boxes are actually drawn, the whole set falls back to a grid:
+    /// every Pack writes its own table of coordinates by hand, none of them
+    /// knew the box size, and a legible grid beats an artful pile.
+    ///
+    /// All or nothing, deliberately. Nudging only the offending boxes would
+    /// leave a layout that is neither the Pack's arrangement nor a grid.
+    pub fn placements(positions: &[(f32, f32)]) -> Vec<(f32, f32)> {
+        if any_overlap(positions) {
+            grid(positions.len())
+        } else {
+            positions.to_vec()
+        }
     }
 
     /// An edge routed as three right-angle segments: out, across, in.
@@ -1568,6 +1646,68 @@ mod tests {
             canvas: CanvasProjection { items },
             ..ProjectionSnapshot::default()
         }
+    }
+
+    #[test]
+    fn a_layout_that_can_be_read_is_left_alone() {
+        use canvas_layout::*;
+        // Three things across the top: no two boxes touch, so the Pack's own
+        // arrangement survives.
+        let asked = vec![(0.0, 0.0), (0.5, 0.0), (1.0, 0.0)];
+        assert!(!any_overlap(&asked));
+        assert_eq!(placements(&asked), asked);
+    }
+
+    #[test]
+    fn a_layout_that_cannot_be_read_becomes_a_grid() {
+        use canvas_layout::*;
+        // Two things in almost the same place: unreadable however the Pack
+        // meant it.
+        let asked = vec![(0.5, 0.5), (0.52, 0.5), (0.0, 0.0)];
+        assert!(any_overlap(&asked));
+        let drawn = placements(&asked);
+        assert_ne!(drawn, asked);
+        assert!(!any_overlap(&drawn), "{drawn:?}");
+        assert_eq!(drawn.len(), asked.len());
+    }
+
+    #[test]
+    fn the_grid_keeps_things_apart_and_on_the_canvas() {
+        use canvas_layout::*;
+        // The counts a World realistically has. Beyond this the canvas is
+        // simply too small, which is a different problem from a broken rule.
+        for count in 1..=15 {
+            let drawn = grid(count);
+            assert_eq!(drawn.len(), count);
+            assert!(!any_overlap(&drawn), "count {count}: {drawn:?}");
+            for (x, y) in &drawn {
+                assert!((0.0..=1.0).contains(x) && (0.0..=1.0).contains(y));
+            }
+        }
+    }
+
+    #[test]
+    fn an_edge_reads_the_positions_the_boxes_are_drawn_at() {
+        // When the Pack's layout is replaced, the edge must move with the
+        // boxes rather than pointing at where they used to be.
+        let piled = snapshot_with(vec![placed(1, 0.5, 0.5), placed(2, 0.51, 0.5)]);
+        let drawn = piled.canvas_placements();
+        let edge = piled
+            .canvas_edges()
+            .into_iter()
+            .find(|edge| edge.relation == RelationId::new(7))
+            .expect("the partnership is drawable");
+
+        let position = |entity: EntityId| {
+            drawn
+                .iter()
+                .find(|(selection, _, _)| *selection == SelectionId::Entity(entity))
+                .map(|(_, x, y)| (*x, *y))
+                .unwrap()
+        };
+        assert_eq!((edge.from_x, edge.from_y), position(edge.from));
+        assert_eq!((edge.to_x, edge.to_y), position(edge.to));
+        assert_ne!((edge.from_x, edge.from_y), (0.5, 0.5));
     }
 
     #[test]

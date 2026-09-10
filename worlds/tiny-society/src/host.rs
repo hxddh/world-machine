@@ -100,6 +100,35 @@ mod tests {
     /// entity — so every screenshot of that Pack shows an edgeless canvas no
     /// matter how correct the drawing is. Tiny Society is where there is
     /// something to draw, so this is where the claim can be tested.
+    /// However many people and places this World has, no two of them are
+    /// drawn on top of each other.
+    ///
+    /// Its own coordinate table piled them up once the boxes were drawn at a
+    /// legible size, which is why the canvas resolves positions rather than
+    /// trusting them.
+    #[test]
+    fn no_two_things_in_this_world_are_drawn_on_top_of_each_other() {
+        use world_projection::canvas_layout;
+
+        let mut registry = world_host::WorldRegistry::new();
+        registry.register(tiny_society_registration()).unwrap();
+        let mut session = registry.create(crate::TINY_SOCIETY_PACK_ID).unwrap();
+        session.advance_background(4).unwrap();
+        let snapshot = session.snapshot();
+
+        let drawn = snapshot
+            .canvas_placements()
+            .into_iter()
+            .map(|(_, x, y)| (x, y))
+            .collect::<Vec<_>>();
+        assert!(drawn.len() > 3, "this World should have things to place");
+        assert!(
+            !canvas_layout::any_overlap(&drawn),
+            "{} things overlap: {drawn:?}",
+            drawn.len()
+        );
+    }
+
     #[test]
     fn the_canvas_has_a_line_for_every_relation_it_places() {
         use world_projection::SelectionId;

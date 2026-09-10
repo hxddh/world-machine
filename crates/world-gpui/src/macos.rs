@@ -363,8 +363,11 @@ impl ProjectionView {
             }
         }
 
-        for item in &self.snapshot.canvas.items {
-            let corner = canvas_layout::item_corner(item.x, item.y);
+        // Positions come from the same resolver the edges read, so a box and
+        // the line into it cannot disagree about where it is.
+        let placements = self.snapshot.canvas_placements();
+        for (item, (_, x, y)) in self.snapshot.canvas.items.iter().zip(placements) {
+            let corner = canvas_layout::item_corner(x, y);
             let selection = item.id;
             let selected = self.selected == Some(selection);
             let color = match item.kind {
