@@ -1,5 +1,6 @@
 use crate::drift;
 use crate::era::{self, EraStanding};
+use crate::narrator;
 use crate::pressure::{self, PRESSURE_OUTCOME};
 use crate::succession::{self, SuccessorStanding, SUCCESSION, SUCCESSION_OUTCOME};
 use crate::{
@@ -1596,11 +1597,11 @@ fn legacy_return_context(world: &World, legacy: &str) -> String {
 
 fn return_digest_items(events: &[Event]) -> Vec<BriefingItem> {
     let mut groups = Vec::<(&Event, usize)>::new();
-    for event in events
-        .iter()
-        .rev()
-        .filter(|event| event.kind != "agent_decision_recorded")
-    {
+    for event in events.iter().rev().filter(|event| {
+        // Agent plumbing is not news, and a narrated line is not an event of
+        // its own: it is how the event it re-words gets read.
+        event.kind != "agent_decision_recorded" && event.kind != narrator::NARRATED
+    }) {
         if let Some((_, count)) = groups
             .iter_mut()
             .find(|(latest, _)| latest.kind == event.kind)
@@ -1615,7 +1616,7 @@ fn return_digest_items(events: &[Event]) -> Vec<BriefingItem> {
     groups
         .into_iter()
         .take(3)
-        .map(|(event, occurrences)| return_item(event, occurrences))
+        .map(|(event, occurrences)| return_item(events, event, occurrences))
         .collect()
 }
 
@@ -1655,12 +1656,19 @@ fn extend_with_persistent_consequences(world: &World, items: &mut Vec<BriefingIt
     );
 }
 
-fn return_item(event: &Event, occurrences: usize) -> BriefingItem {
-    let detail = ["change", "summary"]
-        .into_iter()
-        .find_map(|key| match event.payload.get(key) {
-            Some(Value::Text(value)) => Some(value.clone()),
-            _ => None,
+fn return_item(events: &[Event], event: &Event, occurrences: usize) -> BriefingItem {
+    // This World's own words if it has them for this Event, and the table line
+    // otherwise. The table is the floor: a World with no narrator, or one whose
+    // narrator said nothing usable, reads exactly as it always did.
+    let detail = narrator::narrated_text(events, event.id)
+        .map(str::to_owned)
+        .or_else(|| {
+            ["change", "summary"]
+                .into_iter()
+                .find_map(|key| match event.payload.get(key) {
+                    Some(Value::Text(value)) => Some(value.clone()),
+                    _ => None,
+                })
         })
         .unwrap_or_else(|| event.kind.replace('_', " "));
     let base_title: String = match event.kind.as_str() {

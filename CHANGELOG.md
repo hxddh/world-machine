@@ -2,6 +2,10 @@
 
 Releases live on the [Releases page](https://github.com/hxddh/world-machine/releases). `0.2.0` is the first release intended to be usable without reading the repository; the `v0.1.0-pre.N` tags below were its pre-releases.
 
+## Unreleased
+
+- Groundwork for Worlds that write in their own words: a World can now be given a narrator, and what it says about a consequence is recorded as a durable Event that the briefing prefers over the built-in copy. Nothing changes yet for anyone — no World ships with a narrator — and by design nothing can get worse: a narrator that is absent, silent, or returns something unusable leaves a World reading exactly as it did.
+
 ## v0.4.0 (2026-09-10)
 
 **Worlds created before this release will not open.** Pocket Universe moves to `0.18` because the era engine changes the rules its Worlds run under, and a `.world` file records the Pack version it was created with. Export anything you want to keep before updating; Tiny Society and Micro Company Worlds are unaffected.

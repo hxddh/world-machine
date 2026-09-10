@@ -1,6 +1,7 @@
 mod drift;
 mod era;
 mod legacy;
+mod narrator;
 mod pressure;
 mod projection;
 mod succession;
@@ -177,6 +178,10 @@ where
     actions: ActionRegistry,
     mind: R,
     mind_profile: String,
+    /// Who says what happened in this World's own words. A World without one
+    /// reads from the table, which is every World that shipped before this
+    /// existed.
+    narrator: Box<dyn narrator::Narrator>,
 }
 
 impl PocketUniverse<PocketMind> {
@@ -210,7 +215,19 @@ where
             actions: build_action_registry()?,
             mind,
             mind_profile: validate_mind_profile(mind_profile.into())?,
+            narrator: Box::new(narrator::NoNarrator),
         })
+    }
+
+    /// Ask this World's narrator for the line about to be read, if it has one.
+    fn narrate_latest(&mut self) -> Option<EventId> {
+        narrator::narrate_latest(&mut self.world, &self.actions, self.narrator.as_mut())
+    }
+
+    /// Give this World a voice. Without one it reads from the table, and every
+    /// World that has already been recorded keeps reading exactly as it did.
+    pub fn set_narrator(&mut self, narrator: Box<dyn narrator::Narrator>) {
+        self.narrator = narrator;
     }
 
     pub fn world(&self) -> &World {
@@ -263,6 +280,7 @@ where
             let relationship = candidate.execute(&self.actions, &relationship_request)?.id;
             let returned = era::resolve_period(&mut candidate, &self.actions, relationship)?;
             self.world = candidate;
+            self.narrate_latest();
             return Ok(returned);
         }
 
@@ -340,6 +358,9 @@ where
             era::resolve_period(&mut candidate, &self.actions, relationship)?;
         }
         self.world = candidate;
+        // Once, for the line an observer is about to read — not once per
+        // period. A week-long catch-up resolves as fast as it always did.
+        self.narrate_latest();
         Ok(())
     }
 
@@ -405,6 +426,7 @@ where
             actions: build_action_registry()?,
             mind,
             mind_profile: validate_mind_profile(mind_profile.into())?,
+            narrator: Box::new(narrator::NoNarrator),
         })
     }
 }
@@ -581,6 +603,7 @@ fn build_action_registry() -> Result<ActionRegistry, ActionError> {
     actions.register(ResolveSocialArc)?;
     legacy::register_actions(&mut actions)?;
     era::register_actions(&mut actions)?;
+    narrator::register_actions(&mut actions)?;
     pressure::register_actions(&mut actions)?;
     succession::register_actions(&mut actions)?;
     actions.register(SteerSharedProject)?;
@@ -3686,6 +3709,185 @@ mod tests {
             "the World buried what it decided under {titles:?}"
         );
         assert!(!briefing.items[decided].detail.is_empty());
+    }
+
+    /// A narrator that says a fixed line and counts how often it was asked.
+    struct ScriptedNarrator {
+        line: String,
+        calls: std::rc::Rc<std::cell::Cell<usize>>,
+    }
+
+    impl narrator::Narrator for ScriptedNarrator {
+        fn narrate(&mut self, facts: &narrator::NarrationFacts) -> Option<String> {
+            self.calls.set(self.calls.get() + 1);
+            // The narrator is handed facts that are already decided.
+            assert!(!facts.seed.is_empty());
+            assert!(!facts.event_kind.is_empty());
+            assert!(!facts.table_summary.is_empty());
+            Some(self.line.clone())
+        }
+    }
+
+    fn narrated_with(
+        line: &str,
+    ) -> (
+        PocketUniverse<PocketMind>,
+        std::rc::Rc<std::cell::Cell<usize>>,
+    ) {
+        let calls = std::rc::Rc::new(std::cell::Cell::new(0));
+        let mut universe = freshly_seeded(SEED_MARS_COLONY_COMMAND);
+        universe.set_narrator(Box::new(ScriptedNarrator {
+            line: line.into(),
+            calls: std::rc::Rc::clone(&calls),
+        }));
+        (universe, calls)
+    }
+
+    #[test]
+    fn a_world_with_no_narrator_reads_exactly_as_it_always_did() {
+        // The floor under everything else here: the table is what a World
+        // shows when nobody is putting it into words.
+        let mut plain = freshly_seeded(SEED_MARS_COLONY_COMMAND);
+        live_with(&mut plain, 12, false);
+
+        assert!(
+            !plain
+                .world()
+                .events()
+                .iter()
+                .any(|event| event.kind == narrator::NARRATED),
+            "a World with no narrator recorded a narrated line"
+        );
+        let thread = text_component_from_state(plain.world().state(), UNIVERSE, LAST_CHANGE)
+            .unwrap_or_default();
+        assert!(
+            !thread.is_empty(),
+            "the table left the World with nothing to say"
+        );
+    }
+
+    #[test]
+    fn a_world_with_a_voice_reads_in_its_own_words() {
+        let line = "Ares stopped listening for the relay and started keeping its own time.";
+        let (mut universe, calls) = narrated_with(line);
+        let cursor = universe.world().events().len();
+        universe.advance_periods(6).unwrap();
+
+        assert!(calls.get() >= 1, "the narrator was never asked");
+        assert_eq!(
+            text_component_from_state(universe.world().state(), UNIVERSE, LAST_CHANGE).unwrap(),
+            line,
+            "the World kept the table line instead of its own words"
+        );
+        let briefing = universe
+            .projection_snapshot_since(Some(cursor))
+            .briefing
+            .expect("a return has a briefing");
+        assert!(
+            briefing.items.iter().any(|item| item.detail == line),
+            "the return digest never showed the World's own words: {:?}",
+            briefing
+                .items
+                .iter()
+                .map(|item| &item.title)
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            !briefing
+                .items
+                .iter()
+                .any(|item| item.title.contains("world narrated")),
+            "a narrated line became a digest entry of its own"
+        );
+    }
+
+    #[test]
+    fn a_narrator_is_asked_once_for_a_return_not_once_per_period() {
+        // The whole cost argument for giving a World a model rests on this.
+        let (mut universe, calls) = narrated_with("A week of dust, and the intakes held.");
+        universe.advance_periods(28).unwrap();
+        assert_eq!(
+            calls.get(),
+            1,
+            "a twenty-eight period catch-up asked the narrator {} times",
+            calls.get()
+        );
+    }
+
+    #[test]
+    fn nothing_a_narrator_says_can_make_a_world_worse() {
+        // Whatever comes back, the World keeps every fact it had and reads at
+        // least as well as the table.
+        for unusable in ["", "   ", "flooded ".repeat(200).as_str(), "two\nlines"] {
+            let (mut universe, _) = narrated_with(unusable);
+            let plain = {
+                let mut plain = freshly_seeded(SEED_MARS_COLONY_COMMAND);
+                live_with(&mut plain, 8, false);
+                plain
+            };
+            live_with(&mut universe, 8, false);
+
+            assert!(
+                !universe
+                    .world()
+                    .events()
+                    .iter()
+                    .any(|event| event.kind == narrator::NARRATED),
+                "an unusable line was recorded: {unusable:?}"
+            );
+            assert_eq!(
+                text_component_from_state(universe.world().state(), UNIVERSE, LAST_CHANGE).unwrap(),
+                text_component_from_state(plain.world().state(), UNIVERSE, LAST_CHANGE).unwrap(),
+                "an unusable line changed what the World says: {unusable:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn replaying_a_narrated_world_never_asks_the_narrator_anything() {
+        // The reason this is safe to point at a model: what was said is a
+        // recorded fact, and replay applies recorded facts.
+        let line = "The relay stayed quiet, and Ares stopped waiting on it.";
+        let (mut universe, calls) = narrated_with(line);
+        universe.advance_periods(6).unwrap();
+        let asked = calls.get();
+
+        let replayed = universe.world().replay().unwrap();
+        assert_eq!(calls.get(), asked, "replay asked the narrator again");
+        assert_eq!(replayed.events(), universe.world().events());
+        assert_eq!(replayed.state(), universe.world().state());
+        assert_eq!(
+            text_component_from_state(replayed.state(), UNIVERSE, LAST_CHANGE).unwrap(),
+            line
+        );
+    }
+
+    #[test]
+    fn a_narrated_line_survives_being_saved_and_reopened() {
+        let line = "Nia logged the first fouled intake and said nothing about it.";
+        let (mut universe, _) = narrated_with(line);
+        universe.advance_periods(6).unwrap();
+
+        let archive = universe.archive().unwrap();
+        let reopened = PocketUniverse::resume_archive(&archive).unwrap();
+        assert_eq!(
+            text_component_from_state(reopened.world().state(), UNIVERSE, LAST_CHANGE).unwrap(),
+            line,
+            "reopening the World lost its own words"
+        );
+    }
+
+    #[test]
+    fn the_same_consequence_is_never_put_into_words_twice() {
+        let (mut universe, calls) = narrated_with("The dust thickened early this year.");
+        universe.advance_periods(4).unwrap();
+        let after_first = calls.get();
+        let events = universe.world().events().len();
+
+        // Coming back without the World having moved leaves it alone.
+        universe.advance_periods(0).unwrap();
+        assert_eq!(calls.get(), after_first);
+        assert_eq!(universe.world().events().len(), events);
     }
 
     #[test]
