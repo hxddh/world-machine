@@ -8,9 +8,16 @@
 //! Two rules shape everything below.
 //!
 //! **The key is never a process argument.** Arguments are readable by every
-//! process on the machine, so `security` is handed the key on standard input
-//! and the arguments carry only which item is being read or written. The test
-//! that pins this runs everywhere, including where there is no keychain at all.
+//! process on the machine, so storing goes through `security -i`, which reads
+//! the command itself from standard input: the key travels inside that command
+//! text and never appears in the process table. The test that pins this runs
+//! everywhere, including where there is no keychain at all.
+//!
+//! **A key is only stored once it has been read back.** The first attempt at
+//! this passed the key with a bare `-w` and trusted the exit status; the
+//! keychain reported success and had stored nothing, which is the worst way for
+//! this to fail. Storing now proves itself by reading the key back, so
+//! "success" means the key is really there.
 //!
 //! **A keychain that will not answer is not an error worth stopping for.** A
 //! locked keychain, a denied prompt, or no `security` at all reads as "no key",
@@ -26,20 +33,30 @@ const SECURITY: &str = "/usr/bin/security";
 const SERVICE: &str = "World Machine · World voice";
 const ACCOUNT: &str = "anthropic-api-key";
 
-/// The arguments for storing a key. The key is not among them.
+/// The arguments for storing a key: read the command from standard input, so
+/// nothing about it — least of all the key — becomes an argument.
 pub fn save_args() -> Vec<String> {
-    vec![
-        "add-generic-password".into(),
-        "-a".into(),
-        ACCOUNT.into(),
-        "-s".into(),
-        SERVICE.into(),
-        // Replace an existing key rather than failing, so entering a new one
-        // just works.
-        "-U".into(),
-        // No value: the key follows on standard input.
-        "-w".into(),
-    ]
+    vec!["-i".into()]
+}
+
+/// The command `security -i` is given on standard input.
+///
+/// `-U` replaces an existing key rather than failing, so entering a new one
+/// just works.
+pub fn save_command(key: &str) -> String {
+    format!(
+        "add-generic-password -a {} -s {} -U -w {}\n",
+        quote(ACCOUNT),
+        quote(SERVICE),
+        quote(key)
+    )
+}
+
+/// `security -i` splits its commands on whitespace and honours double quotes,
+/// so every value is quoted and anything that could end a quoted value early is
+/// escaped.
+fn quote(value: &str) -> String {
+    format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
 /// The arguments for reading the key back.
@@ -66,6 +83,9 @@ pub fn clear_args() -> Vec<String> {
 }
 
 /// Store the key, replacing any key already there.
+///
+/// Proves itself: a keychain that reports success and stored nothing is not a
+/// success, and that is exactly how this failed the first time.
 pub fn save(key: &str) -> Result<(), String> {
     let key = key.trim();
     if key.is_empty() {
@@ -78,22 +98,28 @@ pub fn save(key: &str) -> Result<(), String> {
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|error| format!("could not reach the keychain: {error}"))?;
-    child
-        .stdin
-        .take()
-        .ok_or_else(|| "could not hand the keychain the key".to_string())?
-        .write_all(format!("{key}\n").as_bytes())
-        .map_err(|error| format!("could not hand the keychain the key: {error}"))?;
+    {
+        let mut stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| "could not hand the keychain the key".to_string())?;
+        stdin
+            .write_all(save_command(key).as_bytes())
+            .map_err(|error| format!("could not hand the keychain the key: {error}"))?;
+        // Closing standard input is what ends the interactive session.
+    }
     let output = child
         .wait_with_output()
         .map_err(|error| format!("the keychain did not answer: {error}"))?;
-    if output.status.success() {
+    if load().as_deref() == Some(key) {
         return Ok(());
     }
-    Err(format!(
-        "the keychain refused to store the key: {}",
-        String::from_utf8_lossy(&output.stderr).trim()
-    ))
+    let complaint = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+    Err(if complaint.is_empty() {
+        "the keychain did not keep the key".to_string()
+    } else {
+        format!("the keychain refused to store the key: {complaint}")
+    })
 }
 
 /// The stored key, if there is one this app can read right now.
@@ -147,17 +173,48 @@ mod tests {
                 );
             }
             assert!(
-                args.iter().any(|argument| argument == ACCOUNT),
-                "the arguments do not say which item they mean: {args:?}"
+                !args.is_empty(),
+                "an empty argument list would run the wrong thing: {args:?}"
             );
         }
-        // Storing takes -w with no value, which is what makes the key arrive on
-        // standard input instead.
-        let save = save_args();
+        // Storing takes only -i, so the whole command — key included — arrives
+        // on standard input instead of in the process table.
+        assert_eq!(save_args(), vec!["-i".to_string()]);
+        let command = save_command(KEY);
+        assert!(
+            command.contains(KEY),
+            "the key never reached the command the keychain actually reads"
+        );
+        assert!(
+            command.starts_with("add-generic-password ") && command.ends_with('\n'),
+            "the interactive command is malformed: {command:?}"
+        );
+    }
+
+    #[test]
+    fn a_key_cannot_smuggle_a_second_command_into_the_keychain() {
+        // The command is read from standard input, so a key that could end its
+        // own quoted value could append instructions of its own.
+        let command = save_command("abc\" delete-generic-password -a x");
         assert_eq!(
-            save.last().map(String::as_str),
-            Some("-w"),
-            "the key would have to be an argument: {save:?}"
+            command.matches("add-generic-password").count(),
+            1,
+            "the key wrote a command of its own: {command:?}"
+        );
+        // The quote the key carried is escaped, so it cannot end the value it
+        // sits inside.
+        assert!(
+            command.contains("\\\""),
+            "the key's quote was not escaped: {command:?}"
+        );
+        assert!(
+            !command.contains("-w \"abc\" "),
+            "the key ended its own value: {command:?}"
+        );
+        assert_eq!(
+            command.lines().count(),
+            1,
+            "the key added a line: {command:?}"
         );
     }
 
