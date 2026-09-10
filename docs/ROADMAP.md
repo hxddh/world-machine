@@ -495,7 +495,25 @@ status (what is durably true): 421 lines over 80 periods, 79% repeat
 
 Seventy-two per cent of what is on screen is a status panel — `World direction · Rooted`, `Your influence · Fortified habitat` — and those lines repeat because the facts they report have not changed. That is them working. Rewording a standing fact every visit would be churn, and worse than churn: it would make something that did not change look like it did.
 
-So the target is the news lines, and the seam alone already moves them from 65% to 56%. Phase VIII is accepted on the news number; the status panel is deliberately left alone.
+So the target is the news lines, and the status panel is deliberately left alone.
+
+Measured again on the loop the product actually has — leave for a week, come back, read the briefing, twenty times over:
+
+```text
+20 week-long returns: 207 lines, 80 distinct, 61% repeat
+
+   20 lines /  1 distinct (95%)  World direction      status, working as intended
+   20 lines /  1 distinct (95%)  Your influence       status, working as intended
+   20 lines /  3 distinct (85%)  Decided without you  news
+   18 lines /  3 distinct (83%)  Pressure is rising   news
+   17 lines /  3 distinct (82%)  The pressure peaked  news
+   17 lines /  3 distinct (82%)  Something was lost   news
+   13 lines / 13 distinct ( 0%)  2 eras turned
+```
+
+The news lines are stuck at **exactly three distinct phrasings each**, because there are three troubles per seed and each has one written line per stage. That is the content wall in its precise shape, and it is visible on the return path rather than in a per-period snapshot.
+
+Those lines are the return digest's entries, which already prefer a narrated line when one exists. So Phase VIII is accepted on the return path: the repeat share of the digest's event lines over twenty week-long returns.
 
 ## After 0.2
 
