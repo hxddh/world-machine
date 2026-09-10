@@ -292,6 +292,7 @@ A normal macOS app is download, open, use. That requires a Developer ID signatur
 | Stage 4: `v0.2.1` | shipped 2026-09-08: update banner, prefilled problem report, dark mode, standard window and app menu behaviour |
 | `v0.2.2` | shipped 2026-09-08: naming and removing Worlds, a World window that carries the name, and a Library that survives one damaged file |
 | `v0.3.0` | shipped 2026-09-08: find and order My Worlds, windows that reopen where they were left, Pocket Universe chapter four, and a second Tiny Society consequence chain. Both Pack versions moved, which closes Worlds saved by earlier releases |
+| `v0.4.0` | shipped 2026-09-10: the era engine, three troubles per seed, a history that reads back, a World that keeps living while nobody answers, and a week of catch-up that reads as the eras it crossed. Pocket Universe moves to `0.18`, which closes Pocket Universe Worlds saved by earlier releases |
 
 ### Why this phase exists
 
@@ -361,7 +362,20 @@ Accepted when: the Release page explains itself to a stranger and at least one e
 
 ## Phase VII — 0.4 "Worlds that don't end"
 
-Status: planned 2026-09-10.
+Status: shipped 2026-09-10 as `v0.4.0`.
+
+### What it produced, measured the same way it was planned
+
+```text
+before   all four chapters complete by period 13, then ["pocket-universe.nudge"] forever
+after    13 eras in 80 attended periods, never inert
+
+before   an unattended World stalls at period 18 and never moves again
+after    the same World reaches its third era by period 60, on its own
+
+before   catch-up capped at 7 periods — a week away equalled two days away
+after    capped at one week of World time, and a return that crossed eras says so
+```
 
 ### The measurement this phase exists because of
 
@@ -411,7 +425,7 @@ Multi-version Packs and World migration; a background daemon or notifications (t
 
 ### Accepted when
 
-A World left running produces a next thing to decide indefinitely, two consecutive eras never face the same threat, an era's reading depends on the eras before it, and a World left alone still moves and reports what it decided without you.
+A World left running produces a next thing to decide indefinitely, two consecutive eras never face the same threat, an era's reading depends on the eras before it, and a World left alone still moves and reports what it decided without you. All four hold, each with a test that fails if it stops holding.
 
 ## After 0.2
 
