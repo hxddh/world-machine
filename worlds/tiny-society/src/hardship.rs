@@ -29,6 +29,13 @@ use world_core::{
 /// [`JONAS_SUPPORT_THRESHOLD`](crate::social::JONAS_SUPPORT_THRESHOLD).
 pub(crate) const HARDSHIP_THRESHOLD: i64 = 7 * JONAS_DAILY_LIVING_COST;
 
+/// Getting out is a higher bar than falling in. A counter wage that hovers
+/// around a week of cover would otherwise cross the same line in both
+/// directions every few days, and the briefing would report the crossing every
+/// time — the flapping counter this module exists to avoid, wearing the
+/// clothes of news. Coming out needs a fortnight of cover.
+pub(crate) const HARDSHIP_EASED_THRESHOLD: i64 = 14 * JONAS_DAILY_LIVING_COST;
+
 pub(crate) const STEADY: &str = "steady";
 pub(crate) const STRAINED: &str = "strained";
 pub(crate) const DESTITUTE: &str = "destitute";
@@ -84,7 +91,7 @@ pub(crate) fn register_behaviors(registry: &mut BehaviorRegistry) -> Result<(), 
             let Ok(cash) = integer_component(state, JONAS, CASH) else {
                 return Vec::new();
             };
-            if cash >= HARDSHIP_THRESHOLD && hardship_status(state) != STEADY {
+            if cash >= HARDSHIP_EASED_THRESHOLD && hardship_status(state) != STEADY {
                 vec![ActionRequest::new("record_hardship_eased").actor(JONAS)]
             } else {
                 Vec::new()
@@ -188,9 +195,9 @@ impl Action for RecordHardshipEased {
         _request: &ActionRequest,
     ) -> Result<EventDraft, ActionError> {
         let cash = integer_component(state, JONAS, CASH)?;
-        if cash < HARDSHIP_THRESHOLD {
+        if cash < HARDSHIP_EASED_THRESHOLD {
             return Err(ActionError::Invalid(format!(
-                "Jonas has {cash} cash, which is not yet back to a week of cover"
+                "Jonas has {cash} cash, which is not yet back to a fortnight of cover"
             )));
         }
         if hardship_status(state) == STEADY {

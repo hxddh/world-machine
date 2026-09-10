@@ -16,7 +16,7 @@ use world_projection::ProjectionSnapshot;
 pub const TINY_SOCIETY_PACK_ID: &str = "world-machine.tiny-society";
 pub const TINY_SOCIETY_PACK_VERSION: &str = "0.3.0";
 
-const WORLD_DAY_TICKS: u64 = 10;
+pub(crate) const WORLD_DAY_TICKS: u64 = 10;
 const MORNING_OFFSET_TICKS: u64 = 5;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -115,6 +115,21 @@ impl TinySocietyBranch {
                 &behavior_registry,
                 end_time,
             )?);
+
+            // A question nobody answered is answered by the harbour, at most
+            // one per day, so a long absence reads as a sequence rather than
+            // resolving in one jump when somebody returns.
+            for event in crate::drift::resolve_overdue(&mut self.world, &actions)? {
+                generated_events.push(event);
+                let run = BehaviorRuntime::run_from_event(
+                    &mut self.world,
+                    &actions,
+                    &behavior_registry,
+                    event,
+                    32,
+                )?;
+                generated_events.extend(run.generated_events);
+            }
         }
 
         Ok(generated_events)

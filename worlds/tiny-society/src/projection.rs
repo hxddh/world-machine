@@ -100,6 +100,48 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
         });
     }
 
+    if repair_offer_is_open(world) {
+        commands.push(ProjectionCommand {
+            id: crate::REPAIR_BOAT_COMMAND.into(),
+            title: "Repair Sea Finch with Leo's backing".into(),
+            detail: format!(
+                "Leo pays Evan {} to repair Sea Finch. Jonas returns to Harbor fishing once the boat is sound. Leo's backing does not stand indefinitely.",
+                crate::social::SEA_FINCH_REPAIR_COST
+            ),
+        });
+    }
+
+    if crate::drift::sea_finch_can_be_sold(world.state()) {
+        commands.push(ProjectionCommand {
+            id: crate::SELL_BOAT_COMMAND.into(),
+            title: "Sell Sea Finch for what it will fetch".into(),
+            detail: format!(
+                "A broken boat fetches {}, against the {} it would take to make her sound. It ends the fishing life, and it is money today.",
+                crate::drift::SEA_FINCH_SCRAP_VALUE,
+                crate::social::SEA_FINCH_REPAIR_COST
+            ),
+        });
+    }
+
+    if crate::livelihood::work_ask_is_open(world.state()) {
+        commands.push(ProjectionCommand {
+            id: crate::TAKE_JONAS_ON_COMMAND.into(),
+            title: "Take Jonas back at the bakery".into(),
+            detail: format!(
+                "Jonas works the counter for {} a day. It is a second wage against the same island trade, and the bakery has to carry it.",
+                crate::livelihood::COUNTER_WAGE
+            ),
+        });
+    }
+
+    commands
+}
+
+/// Whether Leo's backing is on the table right now.
+///
+/// Drift measures its deadline against this, so the question the World answers
+/// for itself is exactly the question it was offering.
+pub(crate) fn repair_offer_is_open(world: &World) -> bool {
     let sea_finch_damaged =
         component_text(world, JONAS_BOAT, CONDITION).as_deref() == Some("damaged");
     let jonas_unemployed = component_text(world, JONAS, JOB).as_deref() == Some("unemployed");
@@ -110,25 +152,27 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
     let leo_can_afford = component_integer(world, LEO, CASH)
         .is_some_and(|cash| cash >= crate::social::SEA_FINCH_REPAIR_COST);
     let harbor_job_missing = world.state().relation(JONAS_HARBOR_JOB).is_none();
-    if sea_finch_damaged
+    let backing_stands =
+        crate::drift::backing_status(world.state()) != crate::drift::BACKING_WITHDRAWN;
+
+    sea_finch_damaged
         && jonas_unemployed
         && support_received
         && trust_ready
         && leo_can_afford
         && harbor_job_missing
-    {
-        commands.push(ProjectionCommand {
-            id: crate::REPAIR_BOAT_COMMAND.into(),
-            title: "Repair Sea Finch with Leo's backing".into(),
-            detail: format!(
-                "Leo pays Evan {} to repair Sea Finch. Jonas returns to Harbor fishing once the boat is sound.",
-                crate::social::SEA_FINCH_REPAIR_COST
-            ),
-        });
-    }
-
-    commands
+        && backing_stands
 }
+
+/// Beats a return briefing tells before it starts counting.
+///
+/// This was four, from when the briefing was a small block in a corner of the
+/// window. Real consequence chains produce more than four notable events in a
+/// long absence — a household budget cut, the demand loss it causes, a
+/// payroll shortfall, a closure, and a second workplace going the same way is
+/// five before anything happens to anybody by name — and a visitor who has
+/// been away a fortnight is owed the story rather than its last four lines.
+const BEATS_PER_BRIEFING: usize = 8;
 
 fn society_briefing(world: &World, since_event_count: Option<usize>) -> BriefingProjection {
     let start = since_event_count.unwrap_or(0).min(world.events().len());
@@ -148,50 +192,7 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
         .iter()
         .rev()
         .filter_map(|event| {
-            let title = match event.kind.as_str() {
-                "support_repaid" => "Jonas repaid Leo after returning to sea",
-                "fish_sold" => "Jonas's catch reached the mainland",
-                "boat_repaired" => "Sea Finch returned to the water",
-                "bakery_reopened_lean" => "Mara reopened Harbor Bakery as an owner-run counter",
-                "bakery_reopened" => "Mara reopened Harbor Bakery",
-                "bakery_closed" => "Harbor Bakery closed its doors",
-                "bread_budget_cut" if event.actor == Some(LEO) => {
-                    "Leo started protecting his savings"
-                }
-                "bread_budget_cut" if event.actor == Some(EMMA) => {
-                    "Emma started protecting her savings"
-                }
-                "income_disrupted" if event.actor == Some(LEO) => "Leo's Pub income was disrupted",
-                "income_disrupted" if event.actor == Some(EMMA) => {
-                    "Emma's School income was disrupted"
-                }
-                "payroll_reserve_exhausted" if event.targets.contains(&PUB) => {
-                    "Anchor Pub exhausted its payroll reserve"
-                }
-                "payroll_reserve_exhausted" if event.targets.contains(&SCHOOL) => {
-                    "Island School exhausted its payroll reserve"
-                }
-                "payroll_reserve_exhausted" => "A workplace exhausted its payroll reserve",
-                "payroll_shortfall" => "The bakery could not cover payroll",
-                "living_cost_unmet" => "Jonas could not cover his day",
-                "hardship_began" => "Jonas started eating into his savings",
-                "hardship_eased" => "Jonas is covering his own days again",
-                "support_received" => "Leo helped Jonas stay afloat",
-                "support_requested" => "Jonas asked Leo for help",
-                "work_shift_completed"
-                    if event.actor == Some(JONAS) && event.targets.contains(&BAKERY) =>
-                {
-                    "Jonas completed another bakery shift"
-                }
-                "worker_retained" => "Mara gave Jonas another chance",
-                "worker_dismissed" => "Mara dismissed Jonas",
-                "order_lost" => "The bakery lost the wedding order",
-                "temporary_work_assigned" => "Jonas took temporary work at the bakery",
-                "loan_requested" => "Jonas asked Leo for a loan",
-                "storm_started" => "A storm reached the harbor",
-                "counter_help_hired" => "Mara took Mia on at the bakery counter",
-                _ => return None,
-            };
+            let title = narrated_title(event)?;
             if !told.insert(event.kind.clone()) {
                 return None;
             }
@@ -202,8 +203,24 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
                 kind: BriefingItemKind::Beat,
             })
         })
-        .take(4)
+        .take(BEATS_PER_BRIEFING)
         .collect::<Vec<_>>();
+
+    // Truncation used to be silent, and with a busier World it started losing
+    // the thing a visitor most needed: a window holding a school's payroll
+    // collapse and the bakery's closure dropped the household budget cut that
+    // caused them, because the cut was older. If beats are left out, the
+    // briefing says how many rather than pretending there were none.
+    let told = items.len();
+    let happened = narratable_count(relevant_events);
+    if happened > told {
+        items.push(BriefingItem {
+            selection: None,
+            title: format!("{} more things happened", happened - told),
+            detail: "The whole history is in the timeline.".into(),
+            kind: BriefingItemKind::Status,
+        });
+    }
 
     // Counters travel with the briefing but are marked Status, not Beat:
     // "Harbor Bakery had customers · 40 purchases · 400 revenue" answers "was
@@ -254,6 +271,68 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
         },
         items,
     }
+}
+
+/// This World's own words for an Event, or `None` when the Event is part of
+/// the background hum. One table, used both to write the beats and to count
+/// how many were left out, so the two can never disagree.
+fn narrated_title(event: &Event) -> Option<&'static str> {
+    Some(match event.kind.as_str() {
+        "support_repaid" => "Jonas repaid Leo after returning to sea",
+        "fish_sold" => "Jonas's catch reached the mainland",
+        "boat_repaired" => "Sea Finch returned to the water",
+        "bakery_reopened_lean" => "Mara reopened Harbor Bakery as an owner-run counter",
+        "bakery_reopened" => "Mara reopened Harbor Bakery",
+        "bakery_closed" => "Harbor Bakery closed its doors",
+        "bread_budget_cut" if event.actor == Some(LEO) => "Leo started protecting his savings",
+        "bread_budget_cut" if event.actor == Some(EMMA) => "Emma started protecting her savings",
+        "income_disrupted" if event.actor == Some(LEO) => "Leo's Pub income was disrupted",
+        "income_disrupted" if event.actor == Some(EMMA) => "Emma's School income was disrupted",
+        "payroll_reserve_exhausted" if event.targets.contains(&PUB) => {
+            "Anchor Pub exhausted its payroll reserve"
+        }
+        "payroll_reserve_exhausted" if event.targets.contains(&SCHOOL) => {
+            "Island School exhausted its payroll reserve"
+        }
+        "payroll_reserve_exhausted" => "A workplace exhausted its payroll reserve",
+        "payroll_shortfall" => "The bakery could not cover payroll",
+        "backing_withdrawn" => "Leo put his backing elsewhere",
+        "work_sought" => "Jonas asked Mara for work",
+        "jonas_taken_on" if crate::drift::was_drifted(event) => {
+            "Mara took Jonas back on while nobody was watching"
+        }
+        "jonas_taken_on" => "Mara took Jonas back on",
+        "boat_sold" if crate::drift::was_drifted(event) => {
+            "Jonas sold Sea Finch for scrap while nobody was watching"
+        }
+        "boat_sold" => "Jonas sold Sea Finch for scrap",
+        "living_cost_unmet" => "Jonas could not cover his day",
+        "hardship_began" => "Jonas started eating into his savings",
+        "hardship_eased" => "Jonas is covering his own days again",
+        "support_received" => "Leo helped Jonas stay afloat",
+        "support_requested" => "Jonas asked Leo for help",
+        "worker_retained" => "Mara gave Jonas another chance",
+        "worker_dismissed" => "Mara dismissed Jonas",
+        "order_lost" => "The bakery lost the wedding order",
+        "temporary_work_assigned" => "Jonas took temporary work at the bakery",
+        "loan_requested" => "Jonas asked Leo for a loan",
+        "storm_started" => "A storm reached the harbor",
+        "counter_help_hired" => "Mara took Mia on at the bakery counter",
+        _ => return None,
+    })
+}
+
+/// How many of these Events the briefing would tell, before the cap. One per
+/// kind, matching what the beats themselves collapse to, so "3 more things
+/// happened" counts things rather than repetitions of one thing.
+fn narratable_count(events: &[Event]) -> usize {
+    let mut kinds = std::collections::BTreeSet::new();
+    for event in events {
+        if narrated_title(event).is_some() {
+            kinds.insert(event.kind.as_str());
+        }
+    }
+    kinds.len()
 }
 
 /// The "what is happening now" line every briefing opens with, so a return
@@ -598,16 +677,27 @@ mod running_out_tests {
         let mut branch = society.branch();
         branch.advance_days(120).unwrap();
 
-        for kind in ["hardship_began", "living_cost_unmet"] {
-            let occurrences = branch
-                .world()
-                .events()
-                .iter()
-                .filter(|event| event.kind == kind)
-                .count();
-            assert_eq!(
-                occurrences, 1,
-                "{kind} marks a crossing, so it happens once per spell, not once a day"
+        // Once per spell, not once a day, and not once ever: a man who gets a
+        // wage, climbs out, and slides again has had two spells, and the
+        // second is news too. What must never happen is two crossings in the
+        // same direction with nothing in between.
+        let mut spells = Vec::new();
+        for event in branch.world().events() {
+            match event.kind.as_str() {
+                "hardship_began" | "living_cost_unmet" | "hardship_eased" => {
+                    spells.push(event.kind.as_str())
+                }
+                _ => {}
+            }
+        }
+        assert!(
+            spells.len() >= 2,
+            "a World this long has more than one crossing to report, got {spells:?}"
+        );
+        for window in spells.windows(2) {
+            assert_ne!(
+                window[0], window[1],
+                "the same crossing was reported twice running: {spells:?}"
             );
         }
     }
