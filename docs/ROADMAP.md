@@ -359,13 +359,67 @@ Accepted when: the Release page explains itself to a stranger and at least one e
 - **No Apple Developer ID in the 0.2 timeframe.** The app cannot be notarized, so Gatekeeper interrupts every first launch. Mitigation: Stage 1 ships the ad-hoc package with a tested install guide and a Homebrew tap, states the status everywhere, and keeps the pipeline ready for a later certificate. Revisit notarization before any release aimed at non-technical users.
 - **Pi license rider.** Mitigation: keep the Analyst out-of-process and optional and never bundle the `pi` binary, which is already the case.
 
+## Phase VII — 0.4 "Worlds that don't end"
+
+Status: planned 2026-09-10.
+
+### The measurement this phase exists because of
+
+Driving a fresh Pocket Universe World and taking every choice the moment it is offered:
+
+```text
+period 3   chose careful-path
+period 6   chose rooted-posture
+period 9   legacy=habitat-commons formed
+period 11  chose pressure-hold
+period 13  chose succession-entrust   -> all four chapters complete
+--- for the next 47 periods the command list is exactly ["pocket-universe.nudge"]
+```
+
+A World's entire content is thirteen periods. After that it is permanently inert. Two related measurements:
+
+- **Nothing happens unless the observer acts.** Advancing sixty periods without making a choice leaves the World at `legacy=forming`. Every chapter is gated behind an observer decision, so "keeps living while you are away" is currently "waits for you".
+- **Catch-up is capped** at one period per six hours, at most seven periods. Leaving for a week returns the same World as leaving for two days.
+
+A fifth chapter would move the wall from thirteen periods to sixteen. This phase removes the wall instead.
+
+### Pillar 1 — the era engine
+
+The four chapters are hard-chained at their call sites (`legacy` calls `pressure` calls `succession`) and end. They become the stages of one **era**, and an era loops: the successor becomes the new anchor-keeper and the next era begins.
+
+Three mechanisms keep the loop from being a replay:
+
+- **A pressure pool per seed.** Each era draws a different threat, never the same one twice in a row. Selection is a deterministic function of era number and history — never a random draw — so replay stays exact.
+- **An era record derived from the event log.** No new serialization: `era_began`, the pressure resolution, and the succession answer are already durable Events, so a World's history of eras is a projection over its own log.
+- **History read back into the present.** A World that released its legacy three times running offers a different fourth era than one that entrusted three times. This is the only thing that keeps unbounded content from becoming wallpaper.
+
+### Pillar 2 — a World that moves without you
+
+Every decision point gains a drift: if the observer stays away, the World reaches the default itself, marks the outcome as one it decided, and says so on return. Chapter four's patience bands are the prototype; this generalizes them. A drifted decision is exactly as durable as one you made — that is the cost, and the reason to come back.
+
+### Pillar 3 — pacing to match
+
+The six-hour period and seven-period cap were tuned to ration finite content. With the wall gone, the cap should be about how much narration one return should carry, and `While you were away` should summarize an era rather than list periods.
+
+### Versioning under this phase
+
+No multi-version Packs, no World migration, no frozen crates, no protocol change: carrying older Worlds across a rules change is explicitly not this phase's problem. Instead the era engine is designed so that **new content never changes the meaning of Events already recorded**. Pack versions exist to protect replay determinism; if content is additive, one version carries it and a version bump becomes rare rather than routine. The kernel cannot enforce this — it is a discipline, not a mechanism — but it is cheaper and more honest than building migration machinery. `v0.4` itself bumps once, because the era engine does change what the rules mean.
+
+### Explicitly out of scope for 0.4
+
+Multi-version Packs and World migration; a background daemon or notifications (the app being closed is a macOS background-execution and notarization problem, separate from Worlds not moving); AI-generated content; Windows and Linux; a Pack marketplace.
+
+### Accepted when
+
+A World left running produces a next thing to decide indefinitely, two consecutive eras never face the same threat, an era's reading depends on the eras before it, and a World left alone still moves and reports what it decided without you.
+
 ## After 0.2
 
 Decide the next phase from real usage, not from architectural interest. Candidates, in rough order:
 
 1. Developer ID signing and notarization as soon as a certificate exists; this is the gate for any release aimed beyond technical early adopters.
 2. Real-device verification, README screenshots, and the usability test. These need a physical Mac and testers; the CI screenshot runner rasterizes no text and cannot substitute. Findings from them outrank the rest of this list, and [NEXT_TASK.md](../NEXT_TASK.md) carries the ordered plan while none exist yet.
-3. Carrying a World across a Pack version change. `v0.3.0` closed every Pocket Universe and Tiny Society World saved before it; the catalog already supports several versions of one Pack at once, so shipping the previous version alongside the new one would let old Worlds keep their old rules.
+3. Carrying a World across a Pack version change. Deliberately deferred by Phase VII, which instead keeps content additive so version bumps stay rare; revisit only if a rules change genuinely has to alter what past Events mean.
 4. Windows or Linux support if download requests justify the GPUI cost.
 5. A second-party Pack authoring guide once first-party content proves retention.
 6. Persistent Pi sessions or direct model API access for the Analyst if the Experimental panel sees use.

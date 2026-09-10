@@ -1,47 +1,41 @@
-> **Status (2026-09-08):** Audit-driven transport hardening stays **frozen**; M263 (#266) was the last such milestone. The active plan is Phase VI in [docs/ROADMAP.md](docs/ROADMAP.md), whose progress table lists what is done and what remains. Every entry below states what a user will see change.
+> **Status (2026-09-10):** The active plan is Phase VII in [docs/ROADMAP.md](docs/ROADMAP.md) — `0.4 "Worlds that don't end"`. Audit-driven transport hardening stays **frozen**. Every entry below states what a user will see change.
 
-# Next Coding Task — after v0.3.0
+# Next Coding Task — 0.4, the era engine
 
-`v0.3.0` shipped on 2026-09-08. The list below is ordered by what it changes for somebody using the app, and each entry says whether it can be finished from CI alone.
+`v0.3.0` shipped on 2026-09-08 and completed every CI-only item on the old list. Measuring what it actually produced showed the problem worth a whole version:
+
+**A World's entire content is thirteen periods, and then it is inert forever.** Taking every choice as it appears, all four Pocket Universe chapters complete by period 13; for the next forty-seven periods the command list is exactly `["pocket-universe.nudge"]`. Separately, a World that is never given a choice never moves at all — sixty periods leave it at `legacy=forming`. The product's premise is persistent Worlds that keep living; the measurement says they stop.
+
+The items below build the era engine that removes that wall, in dependency order. A fifth chapter is explicitly **not** on this list: it would move the wall, not remove it.
+
+## The version
+
+1. **The era engine.** *(in progress)* Make the four chapters the stages of one era, and make eras loop: succession settling begins the next era with the successor as the new anchor-keeper. Carry a `pressure_kind` so each era can face a different threat, and select it deterministically from a per-seed pool that never repeats back to back. Give each seed a second threat so the second era genuinely differs.
+   *User-visible change:* a World that finished its story has a next thing to decide instead of one dead button.
+2. **A third threat per seed, and history read back.** Fill the pool to three per seed, and make an era's reading depend on the eras before it — a World that released three times running offers a different fourth era than one that entrusted three times.
+   *User-visible change:* the fourth era does not read like the first.
+3. **Drift: a World that moves without you.** Every decision point gets a deadline and a default. Staying away means the World decides, durably, and the return briefing says which decisions it made for you.
+   *User-visible change:* leaving a World alone changes it, instead of pausing it.
+4. **Pacing and the era briefing.** Re-tune the six-hour period and seven-period catch-up cap for unbounded content, and make `While you were away` summarize an era rather than list periods.
+   *User-visible change:* coming back after a week is different from coming back after two days.
+5. **Ship `v0.4.0`.**
 
 ## Only the owner can do these
 
-0. **Apple Developer Program.** Enrol, create the Developer ID Application certificate, and add the five secrets in [docs/RELEASE_SIGNING.md](docs/RELEASE_SIGNING.md). The next release is then a normal macOS app: download, open, use. Nothing else on this list removes the first-launch dialog, and no packaging trick substitutes for it.
+They have not moved since `v0.2.1` and they still outrank everything above if they produce findings.
+
+0. **Apple Developer Program.** Enrol, create the Developer ID Application certificate, add the five secrets in [docs/RELEASE_SIGNING.md](docs/RELEASE_SIGNING.md).
    *User-visible change:* the "Open Anyway" detour disappears from the first launch.
-1. **Real-device verification and screenshots.** Install `v0.3.0` on a physical Mac (macOS 14 and 15 if possible), walk [docs/INSTALL.md](docs/INSTALL.md), open Home and a World window in light and dark, and confirm nothing lays out past the window edge. Capture `docs/screenshots/home.png` and `docs/screenshots/world.png`. The CI screenshot job draws layout but rasterizes no text inside Apple Virtualization, so this cannot be automated — do not spend more time on `screenshots.yml`.
+1. **Real-device verification and screenshots.** Install the current release on a physical Mac, walk [docs/INSTALL.md](docs/INSTALL.md), capture `docs/screenshots/home.png` and `docs/screenshots/world.png` in light and dark. The CI screenshot job rasterizes no text and cannot substitute.
    *User-visible change:* the README stops describing the app and shows it.
-2. **Usability test.** Three to five non-developers, five minutes each, from download to a progressing World. Every stall becomes an entry here with the user-visible change it fixes.
-   *User-visible change:* none directly; it is what turns the rest of this list from guesses into findings.
-
-Anything the owner reports from 1 or 2 outranks everything below.
-
-## Can be finished without a Mac in hand
-
-3. **Name and remove Worlds from Home.** *(done, shipped in `v0.2.2`)* Branching produces Worlds quickly, and until now every one of them was listed under its World Pack's title with only a file id to tell them apart, with no way to remove one except in the Finder. Every World card now carries **Rename** and **Remove**; removal moves the file into a `Removed` folder rather than deleting it. One unreadable file in the Worlds folder no longer hides every other World.
-   *User-visible change:* My Worlds becomes a list of named Worlds the owner can prune.
-4. **A World window that says which World it is.** *(done, shipped in `v0.2.2`)* The window title, header, save and reload lines, and the file name Save As suggests now carry the World's name, with the durable file id kept beside it.
-   *User-visible change:* the renamed World is called by its name everywhere it appears.
-5. **Sort and find in My Worlds.** *(done, shipped in `v0.3.0`)* Past six Worlds the list carries Find a World and an Order switch.
-   *User-visible change:* a long list of Worlds stays usable.
-6. **A fourth Pocket Universe chapter, and a second Tiny Society consequence chain.** *(done, shipped in `v0.3.0`)* Pocket Universe 0.17 adds succession, with no deadline and a successor whose habits deepen while the observer waits. Tiny Society 0.2 adds an employment chain that reads the first chain's result: recovered demand across a lean counter earns Mia her first job.
-   *User-visible change:* `While you were away` keeps having something to say on the fifth visit.
-7. **Window size and position remembered between launches.** *(done, shipped in `v0.3.0`)*
-   *User-visible change:* the app opens where it was left.
-
-## What is left after v0.3.0
-
-Everything on the CI-only list is shipped. The next entries should come from the owner's real-device verification and the usability test rather than from this file, per the rule at the end of [docs/ROADMAP.md](docs/ROADMAP.md). Two things are known and waiting:
-
-8. **Carrying a World across a Pack version change.** `v0.3.0` moved both Pack versions and closed every Pocket Universe and Tiny Society World saved before it. The versioning model already allows several versions of one Pack to be installed at once, so the app could ship the previous version alongside the new one and let old Worlds keep their old rules. Until it does, every content release costs everybody their Worlds.
-   *User-visible change:* a World keeps opening after an update that changes its Pack's rules.
-9. **A second Tiny Society branch worth taking.** The employment chain reads the first chain's outcome; there is still only one durable fork (repair the boat or not) that decides it.
-   *User-visible change:* two different Tiny Society Worlds diverge on more than one choice.
+2. **Usability test.** Three to five non-developers, five minutes each. The plan above rests on code measurement: it can prove a World goes inert at period 13, but not whether a real person leaves at period 3. Findings win over this file.
 
 ## Deliberately not doing
 
-- Further transport, scheduler, or Pack-protocol hardening without a reported failure (see the Phase VI freeze).
-- Any new runtime primitive that no two Worlds would use (see the end of [docs/ROADMAP.md](docs/ROADMAP.md)).
-- Homebrew, `curl | sh`, or other install routes around notarization; the owner has ruled these out and none of them removes the Gatekeeper step.
+- Multi-version Packs, World migration, frozen crates, Pack protocol changes: Phase VII keeps content additive instead, so version bumps stay rare.
+- A background daemon or notifications. Pillar 3 fixes "the World does not move"; "the World does not move while the app is closed" is a macOS background-execution and notarization problem and waits for notarization.
+- AI-generated content, Windows and Linux, a Pack marketplace.
+- Further transport, scheduler, or Pack-protocol hardening without a reported failure.
 
 The previous milestone text is kept below for reference.
 
