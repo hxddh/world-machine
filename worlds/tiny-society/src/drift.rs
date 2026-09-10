@@ -232,6 +232,11 @@ impl Action for SellSeaFinch {
                 key: CONDITION.into(),
                 value: "sold".into(),
             },
+            // Selling her ends the owning. Leaving the relation standing left
+            // Jonas's card reading "Owns · Sea Finch" for the rest of the
+            // World, which is the sort of thing that makes a whole app feel
+            // like it is not really keeping track.
+            StateChange::RemoveRelation(crate::model::JONAS_BOAT_OWNER),
             StateChange::SetComponent {
                 entity: JONAS,
                 key: CASH.into(),

@@ -22,13 +22,13 @@
 
 use crate::{
     actions::text_component,
-    model::{BAKERY, JONAS, MARA, OPERATING_STATUS, TEMP_BAKERY_JOB},
+    model::{BAKERY, CONDITION, JONAS, JONAS_BOAT, MARA, OPERATING_STATUS, TEMP_BAKERY_JOB},
 };
 use society_basic::{EMPLOYER, JOB};
 use std::error::Error;
 use world_core::{
-    Action, ActionError, ActionRegistry, ActionRequest, BehaviorRegistry, Event, EventDraft,
-    Relation, RuleBehavior, StateChange, WorldState,
+    Action, ActionError, ActionRegistry, ActionRequest, EventDraft, EventId, Relation, StateChange,
+    World, WorldState,
 };
 
 /// On Jonas: `sought` while the ask is open, `taken_on` once it is answered.
@@ -49,21 +49,32 @@ pub(crate) fn register_actions(registry: &mut ActionRegistry) -> Result<(), Acti
     Ok(())
 }
 
-pub(crate) fn register_behaviors(registry: &mut BehaviorRegistry) -> Result<(), Box<dyn Error>> {
-    registry.register(RuleBehavior::new(
-        "a-man-without-a-boat-asks-for-work",
-        ["boat_sold"],
-        |state: &WorldState, event: &Event| {
-            if event.actor != Some(JONAS) {
-                return Vec::new();
-            }
-            if !work_can_be_sought(state) {
-                return Vec::new();
-            }
-            vec![ActionRequest::new("seek_work").actor(JONAS)]
-        },
-    ))?;
-    Ok(())
+/// Jonas asks for work whenever asking is a thing that makes sense, checked
+/// once a day.
+///
+/// This was a behaviour on `boat_sold`, which was wrong twice over. Invoking a
+/// projection command executes the action without running the behaviour
+/// runtime, so a bakery reopened by somebody pressing the button never
+/// triggered anything; and an edge trigger only ever fires once, while being
+/// out of work is a standing condition a man is in until it changes. Asking is
+/// something he does because of how things are, not because of one Event.
+pub(crate) fn seek_work_if_needed(
+    world: &mut World,
+    actions: &ActionRegistry,
+) -> Result<Vec<EventId>, Box<dyn Error>> {
+    if !work_can_be_sought(world.state()) {
+        return Ok(Vec::new());
+    }
+    let mut request = ActionRequest::new("seek_work").actor(JONAS);
+    if let Some(cause) = world
+        .events()
+        .iter()
+        .rev()
+        .find(|event| matches!(event.kind.as_str(), "boat_sold" | "bakery_reopened"))
+    {
+        request = request.caused_by(cause.id);
+    }
+    Ok(vec![world.execute(actions, &request)?.id])
 }
 
 fn work_request_status(state: &WorldState) -> &str {
@@ -71,9 +82,25 @@ fn work_request_status(state: &WorldState) -> &str {
 }
 
 fn work_can_be_sought(state: &WorldState) -> bool {
-    work_request_status(state) == "none"
+    // Not a one-shot. A closed bakery costs Jonas the counter job, and if the
+    // ask could only ever be made once he would spend the rest of the World
+    // unemployed with a status component still reading `taken_on` — a state
+    // that is both a dead end and a lie about him.
+    // Only once the boat is actually gone. Jonas is a fisherman with a damaged
+    // boat for most of this World, and a fisherman waiting on a repair does
+    // not go asking for counter work — making this a standing condition
+    // without that gate had him taking the bakery job on day one, which meant
+    // he never ran out of money, never needed Leo, and the whole chain this
+    // module is the end of never happened.
+    text_component(state, JONAS_BOAT, CONDITION).ok() == Some("sold")
+        && work_request_status(state) != SOUGHT
+        && state.relation(TEMP_BAKERY_JOB).is_none()
         && text_component(state, JONAS, JOB).ok() == Some("unemployed")
         && text_component(state, BAKERY, OPERATING_STATUS).ok() == Some("open")
+        // A bakery reopened as an owner-run counter is deliberately one pair
+        // of hands, and the staffing chain decides when it has earned a
+        // second. Asking there would only close it again.
+        && text_component(state, BAKERY, crate::staffing::STAFFING_STATUS).ok() != Some("lean")
 }
 
 /// Whether Jonas's ask is still waiting on an answer.
@@ -285,5 +312,97 @@ mod tests {
                 "a closed bakery does not offer a counter job"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod second_ask_tests {
+    use super::*;
+    use crate::{TinySociety, REOPEN_BAKERY_COMMAND};
+
+    #[test]
+    fn a_sold_boat_is_no_longer_something_jonas_owns() {
+        let mut society = TinySociety::new().unwrap();
+        society.run_story().unwrap();
+        let mut branch = society.branch();
+        for _ in 0..90 {
+            if branch
+                .world()
+                .events()
+                .iter()
+                .any(|event| event.kind == "boat_sold")
+            {
+                break;
+            }
+            branch.advance_days(1).unwrap();
+        }
+
+        assert!(
+            branch
+                .world()
+                .state()
+                .relation(crate::model::JONAS_BOAT_OWNER)
+                .is_none(),
+            "a man who sold his boat does not still own her"
+        );
+        let jonas = branch
+            .projection_snapshot()
+            .inspectors
+            .into_values()
+            .find(|inspector| inspector.title == "Jonas")
+            .expect("Jonas is inspectable");
+        let relations = jonas
+            .sections
+            .iter()
+            .find(|section| section.title == "Relations")
+            .map(|section| {
+                section
+                    .rows
+                    .iter()
+                    .map(|row| row.value.clone())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        assert!(
+            !relations.iter().any(|value| value == "Sea Finch"),
+            "and his card does not say he does, got {relations:?}"
+        );
+    }
+
+    #[test]
+    fn losing_the_counter_job_lets_him_ask_again() {
+        let mut society = TinySociety::new().unwrap();
+        society.run_story().unwrap();
+        let mut branch = society.branch();
+        for _ in 0..250 {
+            if branch
+                .world()
+                .events()
+                .iter()
+                .any(|event| event.kind == "bakery_closed")
+            {
+                break;
+            }
+            branch.advance_days(1).unwrap();
+        }
+        assert_eq!(
+            text_component(branch.world().state(), JONAS, JOB).unwrap(),
+            "unemployed",
+            "the closure costs Jonas the counter job"
+        );
+        assert!(
+            !work_ask_is_open(branch.world().state()),
+            "a closed bakery has no work to ask for"
+        );
+
+        branch
+            .invoke_projection_command(REOPEN_BAKERY_COMMAND)
+            .unwrap();
+        branch.advance_days(1).unwrap();
+        assert!(
+            work_ask_is_open(branch.world().state()),
+            "a reopened bakery is somewhere to ask again, rather than a status \
+             component that reads taken_on for a man with no job"
+        );
     }
 }

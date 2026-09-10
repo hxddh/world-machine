@@ -116,10 +116,14 @@ impl TinySocietyBranch {
                 end_time,
             )?);
 
+            // Things people do because of how things stand, rather than in
+            // reaction to one Event, are checked once a day.
+            let mut daily = crate::livelihood::seek_work_if_needed(&mut self.world, &actions)?;
             // A question nobody answered is answered by the harbour, at most
             // one per day, so a long absence reads as a sequence rather than
             // resolving in one jump when somebody returns.
-            for event in crate::drift::resolve_overdue(&mut self.world, &actions)? {
+            daily.extend(crate::drift::resolve_overdue(&mut self.world, &actions)?);
+            for event in daily {
                 generated_events.push(event);
                 let run = BehaviorRuntime::run_from_event(
                     &mut self.world,

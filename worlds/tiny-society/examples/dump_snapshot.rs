@@ -3,12 +3,17 @@
 //! content.
 //!
 //! ```bash
-//! cargo run -p tiny-society --example dump_snapshot -- 4 > snapshot.json
+//! cargo run -p tiny-society --example dump_snapshot -- 28 4 > snapshot.json
 //! ```
 //!
-//! The argument is how many background periods to advance first, which is how
-//! a World of a given age is obtained. No voice is configured, so the text in
-//! the output is the table-written text every observer sees by default.
+//! The first argument is how many background periods to advance, which is how
+//! a World of a given age is obtained. The second is how many periods pass
+//! between visits: without it the World is advanced in one jump and the
+//! briefing covers the whole run, which is not a thing the app ever shows.
+//! Pass it to get the snapshot a visitor actually sees on the last return.
+//!
+//! No voice is configured, so the text in the output is the table-written text
+//! every observer sees by default.
 
 use std::env;
 use std::error::Error;
@@ -22,15 +27,24 @@ fn main() -> Result<(), Box<dyn Error>> {
         .nth(1)
         .unwrap_or_else(|| "4".to_string())
         .parse::<u64>()?;
+    let stride = env::args()
+        .nth(2)
+        .map(|value| value.parse::<u64>())
+        .transpose()?
+        .filter(|stride| *stride > 0)
+        .unwrap_or(periods.max(1));
 
     let mut registry = WorldRegistry::new();
     registry.register(tiny_society_registration())?;
     let mut session = registry.create(TINY_SOCIETY_PACK_ID)?;
-    if periods > 0 {
-        session.advance_background(periods)?;
+    let mut snapshot = session.snapshot();
+    let mut advanced = 0;
+    while advanced < periods {
+        let step = stride.min(periods - advanced);
+        snapshot = session.advance_background(step)?;
+        advanced += step;
     }
 
-    let snapshot = session.snapshot();
     let wire = ProjectionSnapshotWire::from(&snapshot);
     println!("{}", serde_json::to_string_pretty(&wire)?);
     Ok(())
