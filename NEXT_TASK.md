@@ -1,47 +1,50 @@
-> **Status (2026-09-10):** The active plan is Phase VIII in [docs/ROADMAP.md](docs/ROADMAP.md) — `0.5 "A World that speaks for itself"`. Audit-driven transport hardening stays **frozen**. Every entry below states what a user will see change.
+> **Status (2026-09-10):** Phase VIII shipped as `v0.5.0`. The next entries should come from the owner's real-device verification and usability test rather than from this file. Audit-driven transport hardening stays **frozen**. Every entry below states what a user will see change.
 
-# Next Coding Task — 0.5, a World that speaks for itself
+# Next Coding Task — after v0.5.0
 
-`v0.4.0` shipped on 2026-09-10 and made a World's story unbounded. Measuring what it actually reads like:
+`v0.5.0` shipped on 2026-09-10 and closed Phase VIII. Measured on the loop the product actually has — leave for a week, come back, read the briefing, twenty times over:
 
 ```text
-80 periods of play: 586 lines of prose shown, 114 distinct  ->  81% already read
-first repeated line: period 3
-two Worlds, same seed, every answer opposite: 46% of their prose is identical
+  Pressure is rising   18 lines /  3 distinct (83% repeat)  ->  18 distinct (0%)
+  The pressure peaked  17 lines /  3 distinct (82% repeat)  ->  17 distinct (0%)
+  Something was lost   17 lines /  3 distinct (82% repeat)  ->  17 distinct (0%)
+
+  whole return page:  61% repeat  ->  40% repeat
 ```
 
-The wall at period 13 is gone; the wall at period 3 is not. A World's structure is infinite and its vocabulary is a lookup table of 114 lines, and every new trouble costs eighteen hand-written copy fields per seed.
+No Pack version moved, so no World was closed by the release.
 
-Separately, three of three shipped `AgentRuntime` implementations are hand-written branching, `AgentDecision` is `{ action: String }`, and the app has no settings window at all — so "the inhabitants act on their own" means an if/else chain, and the only way to give a World a model is an environment variable and a `pi` CLI.
+## Shipped in 0.5
 
-The items below are in dependency order. Everything except item 4's window can be finished from CI.
-
-## The version
-
-1. **Tiny Society ships in the app.** `build-app.sh` bundles `pocket-universe.worldpack` and `micro-company.worldpack` only. The README advertises Tiny Society, `v0.3.0` shipped its second consequence chain, and nobody who downloaded the app has ever been able to open it.
-   *User-visible change:* the third World the README promises is actually there.
-2. **The narrator seam.** A `world_narrated` Event carrying prose, recorded after a period's consequences resolve, preferred by the briefing and falling back to today's table whenever it is absent, empty, oversized, or slow. Deterministic structure untouched; the table stays the floor. Testable with a scripted narrator, no model involved.
-   *User-visible change:* none yet on its own — this is the seam item 3 fills, and it ships with the fallback proven.
-3. **A local model writes the news.** *(done)* The seam narrates every line a return shows, a Pi-backed narrator writes them in one request, and the Analyst settings carry a **World voice** switch that routes the already-persisted program into the Pack process. What decides and what narrates are separate settings, because the mind costs fifty-six requests per week-long catch-up and the voice costs one.
-   Two measurements from building item 2 shape this. First, the 81% figure counts the whole page and over-states the problem: most of the page is a status panel reporting facts that have not changed, and rewording those every visit would make a stable fact look like it moved. Measured on the loop the product actually has — twenty week-long returns — the repetition that matters sits in the digest's event lines, each stuck at exactly three distinct phrasings (`Pressure is rising` 83%, `The pressure peaked` 82%, `Something was lost` 82%, `Decided without you` 85%), because there are three troubles per seed and one written line per stage. Second, the one-call-per-return budget is per *return*, not per line, so one request can carry every event the digest is about to show rather than only the latest consequence.
-   *User-visible change:* what the World tells you happened is written about your World, not picked from a table, and two Worlds with the same seed stop sharing that prose. The status panel keeps saying plainly what is true.
-4. **A settings window of its own, and a key for people without a CLI.** *(done)* ⌘, opens a Settings window that owns the World voice: on or off, program or key, and the key itself in the login keychain. The switch has moved out of the Analyst settings. Where the app says how it reaches a model, what it costs, and that everything still works without one. The key lives in the macOS Keychain, never in a file.
-   *User-visible change:* a person who has never opened a terminal can give their World a voice, or knowingly decline and lose nothing but the phrasing.
-5. **Ship `v0.5.0`.**
+1. **Tiny Society ships in the app.** *(shipped)* Advertised since before `v0.2.0` and unreachable until now.
+2. **The narrator seam.** *(shipped)* Prose recorded as a durable Event the briefing prefers, with the built-in copy as the floor under it.
+3. **A local model writes the news.** *(shipped)* Every line a return shows, in one request; what decides and what narrates are separate settings because the mind costs fifty-six requests per week-long catch-up and the voice costs one.
+4. **A Settings window, and a key for people without a CLI.** *(shipped)* ⌘, opens it; the key lives in the login keychain and never in a process argument.
+5. **Ship `v0.5.0`.** *(shipped)*
 
 ## Only the owner can do these
 
-They have not moved since `v0.2.1` and they outrank everything above if they produce findings.
+They have not moved since `v0.2.1` and they outrank everything below if they produce findings.
 
 0. **Apple Developer Program.** Enrol, create the Developer ID Application certificate, add the five secrets in [docs/RELEASE_SIGNING.md](docs/RELEASE_SIGNING.md).
    *User-visible change:* the "Open Anyway" detour disappears from the first launch.
-1. **Real-device verification and screenshots.** Install `v0.4.0` on a physical Mac, walk [docs/INSTALL.md](docs/INSTALL.md), capture `docs/screenshots/home.png` and `docs/screenshots/world.png` in light and dark. The CI screenshot job rasterizes no text and cannot substitute.
+1. **Real-device verification and screenshots.** Install `v0.5.0` on a physical Mac, walk [docs/INSTALL.md](docs/INSTALL.md), open the new Settings window, and capture `docs/screenshots/home.png` and `docs/screenshots/world.png` in light and dark. The CI screenshot job rasterizes no text and cannot substitute — and nothing in 0.5 could verify a window's *layout* anywhere, only that it compiles and behaves.
    *User-visible change:* the README stops describing the app and shows it.
-2. **Usability test.** Three to five non-developers, five minutes each. Phase VII and this plan both rest on code measurement: it can prove 81% of lines repeat, not whether a real person minds. Findings win over this file.
+2. **Usability test.** Three to five non-developers, five minutes each. Two versions have now rested entirely on code measurement. It can prove the lines stopped repeating; it cannot tell you whether a stranger switches the voice on, or whether the prose it produces is actually good.
+   *User-visible change:* none directly; it is what turns the rest of this list from guesses into findings.
+
+## Known and waiting, if no findings arrive
+
+3. **Is generated prose actually better?** Everything measured in 0.5 is structural — that the lines differ, not that they read well. Nobody has judged the output of a real model against the hand-written copy. That judgement needs a person, and it may send content work in a different direction entirely.
+   *User-visible change:* whatever the judgement finds.
+4. **The other Packs still end.** The era engine is Pocket Universe's, and so is the voice. Tiny Society has two consequence chains and then stops; Micro Company has one arc.
+   *User-visible change:* a Tiny Society World is still worth opening on the fifth visit.
+5. **A second Tiny Society branch worth taking.** There is still only one durable fork deciding both chains.
+   *User-visible change:* two different Tiny Society Worlds diverge on more than one choice.
 
 ## Deliberately not doing
 
-- A model deciding what happens rather than how it reads. Structure stays deterministic: the existing tests keep their meaning, and a bad generation costs a clumsy sentence rather than a broken World.
+- A model deciding what happens rather than how it reads. Structure stays deterministic: a bad generation costs a clumsy sentence rather than a broken World, and that is what makes a voice safe to switch on.
 - Generating a World's rules, a Pack marketplace or remote catalog, multi-version Packs and World migration, Windows and Linux.
 - A background daemon or notifications; that waits on notarization.
 - Further transport, scheduler, or Pack-protocol hardening without a reported failure.

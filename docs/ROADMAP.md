@@ -293,6 +293,7 @@ A normal macOS app is download, open, use. That requires a Developer ID signatur
 | `v0.2.2` | shipped 2026-09-08: naming and removing Worlds, a World window that carries the name, and a Library that survives one damaged file |
 | `v0.3.0` | shipped 2026-09-08: find and order My Worlds, windows that reopen where they were left, Pocket Universe chapter four, and a second Tiny Society consequence chain. Both Pack versions moved, which closes Worlds saved by earlier releases |
 | `v0.4.0` | shipped 2026-09-10: the era engine, three troubles per seed, a history that reads back, a World that keeps living while nobody answers, and a week of catch-up that reads as the eras it crossed. Pocket Universe moves to `0.18`, which closes Pocket Universe Worlds saved by earlier releases |
+| `v0.5.0` | shipped 2026-09-10: Worlds that write in their own words, a Settings window, an API key in the login keychain, and Tiny Society finally in the app. No Pack version moved, so every existing World still opens |
 
 ### Why this phase exists
 
@@ -429,7 +430,21 @@ A World left running produces a next thing to decide indefinitely, two consecuti
 
 ## Phase VIII — 0.5 "A World that speaks for itself"
 
-Status: planned 2026-09-10.
+Status: shipped 2026-09-10 as `v0.5.0`.
+
+### What it produced, measured on the loop the product has
+
+```text
+twenty week-long returns, the digest's trouble lines:
+
+  Pressure is rising   18 lines /  3 distinct (83% repeat)  ->  18 distinct (0%)
+  The pressure peaked  17 lines /  3 distinct (82% repeat)  ->  17 distinct (0%)
+  Something was lost   17 lines /  3 distinct (82% repeat)  ->  17 distinct (0%)
+
+  whole return page:  61% repeat  ->  40% repeat
+```
+
+Measured with a stand-in narrator that only echoes the facts it is handed, so this is the structural result rather than a claim about prose quality. And no Pack version moved, so no World was closed by the release — the first content release able to say that.
 
 ### The measurement this phase exists because of
 
