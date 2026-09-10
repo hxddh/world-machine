@@ -2521,9 +2521,13 @@ impl WorldMachineHome {
                 // Without a basis of its own this column asks for the whole
                 // sentence on one line and pushes the buttons past the window
                 // edge at the size Home opens at, which put the app's own
-                // first-run call to action half off screen.
+                // first-run call to action half off screen. flex_1 alone is not
+                // enough: a flex item's automatic minimum size is its content,
+                // so the column still refuses to go narrower than the sentence
+                // until min_w_0 says it may.
                 div()
                     .flex_1()
+                    .min_w_0()
                     .flex()
                     .flex_col()
                     .gap_1()
