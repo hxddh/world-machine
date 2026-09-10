@@ -1744,22 +1744,41 @@ fn collection(world: &World) -> CollectionProjection {
     }
 }
 
+/// Where the nth of `count` things sits on the canvas.
+///
+/// A fixed table of six scattered positions used to do this, and every thing
+/// past the sixth was pinned to the last of them — a pile rather than a place.
+/// The scatter also put pairs close enough that drawing them at a legible size
+/// made them overlap. A grid is less picturesque and can be read.
+fn canvas_position(index: usize, count: usize) -> (f32, f32) {
+    const COLUMNS: usize = 3;
+    let rows = count.div_ceil(COLUMNS).max(1);
+    let x = if COLUMNS > 1 {
+        (index % COLUMNS) as f32 / (COLUMNS - 1) as f32
+    } else {
+        0.5
+    };
+    let y = if rows > 1 {
+        (index / COLUMNS) as f32 / (rows - 1) as f32
+    } else {
+        0.5
+    };
+    (x, y)
+}
+
 fn canvas(world: &World) -> CanvasProjection {
-    const POSITIONS: [(f32, f32); 6] = [
-        (0.14, 0.24),
-        (0.72, 0.22),
-        (0.16, 0.78),
-        (0.78, 0.74),
-        (0.50, 0.48),
-        (0.50, 0.82),
-    ];
+    let count = world
+        .state()
+        .entities()
+        .filter(|entity| entity.id != UNIVERSE)
+        .count();
     let items = world
         .state()
         .entities()
         .filter(|entity| entity.id != UNIVERSE)
         .enumerate()
         .map(|(index, entity)| {
-            let (x, y) = POSITIONS[index.min(POSITIONS.len() - 1)];
+            let (x, y) = canvas_position(index, count);
             CanvasItem {
                 id: SelectionId::Entity(entity.id),
                 kind: canvas_kind(entity),
@@ -1842,6 +1861,38 @@ fn intervention_copy(seed: &str) -> (&'static str, &'static str, &'static str, &
             "Take the careful path",
             "Protect what already exists and reduce immediate risk.",
         ),
+    }
+}
+
+#[cfg(test)]
+mod canvas_layout_tests {
+    use super::*;
+    use world_projection::canvas_layout;
+
+    #[test]
+    fn no_two_things_on_the_canvas_are_placed_on_top_of_each_other() {
+        // Every count the grid has to survive, including more things than the
+        // fixed table it replaced had positions for.
+        for count in 1..=12 {
+            let boxes = (0..count)
+                .map(|index| {
+                    let (x, y) = canvas_position(index, count);
+                    assert!(
+                        (0.0..=1.0).contains(&x) && (0.0..=1.0).contains(&y),
+                        "{index} of {count} is off the canvas at {x},{y}"
+                    );
+                    canvas_layout::item_corner(x, y)
+                })
+                .collect::<Vec<_>>();
+
+            for (index, a) in boxes.iter().enumerate() {
+                for b in boxes.iter().skip(index + 1) {
+                    let apart = (a.0 - b.0).abs() >= canvas_layout::ITEM_WIDTH
+                        || (a.1 - b.1).abs() >= canvas_layout::ITEM_HEIGHT;
+                    assert!(apart, "count {count}: boxes at {a:?} and {b:?} overlap");
+                }
+            }
+        }
     }
 }
 

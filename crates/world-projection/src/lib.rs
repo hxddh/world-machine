@@ -302,6 +302,69 @@ impl ProjectionSnapshot {
             .collect()
     }
 
+    /// Where each canvas item is drawn, after any layout the Pack asked for
+    /// that could not be read has been replaced by a grid.
+    ///
+    /// Edges and boxes both read this, so a line cannot arrive where its own
+    /// endpoint is not.
+    pub fn canvas_placements(&self) -> Vec<(SelectionId, f32, f32)> {
+        let asked = self
+            .canvas
+            .items
+            .iter()
+            .map(|item| (item.x, item.y))
+            .collect::<Vec<_>>();
+        let drawn = canvas_layout::placements(&asked);
+        self.canvas
+            .items
+            .iter()
+            .zip(drawn)
+            .map(|(item, (x, y))| (item.id, x, y))
+            .collect()
+    }
+
+    /// Every relation whose two ends are both on the canvas, with the
+    /// positions of those ends.
+    ///
+    /// A relation with an endpoint the canvas does not place cannot be drawn
+    /// truthfully, so it is left out rather than anchored somewhere
+    /// convenient. Ordering follows relation id so a redraw never reshuffles
+    /// the picture.
+    pub fn canvas_edges(&self) -> Vec<CanvasEdge> {
+        let mut positions = BTreeMap::new();
+        for (selection, x, y) in self.canvas_placements() {
+            if let SelectionId::Entity(entity) = selection {
+                positions.insert(entity, (x, y));
+            }
+        }
+
+        let mut edges = Vec::new();
+        for (selection, inspector) in &self.inspectors {
+            let SelectionId::Relation(relation) = *selection else {
+                continue;
+            };
+            let Some(identity) = relation_identity_from_inspector(inspector) else {
+                continue;
+            };
+            let (Some(from), Some(to)) =
+                (positions.get(&identity.from), positions.get(&identity.to))
+            else {
+                continue;
+            };
+            edges.push(CanvasEdge {
+                relation,
+                from: identity.from,
+                to: identity.to,
+                label: inspector.title.clone(),
+                from_x: from.0,
+                from_y: from.1,
+                to_x: to.0,
+                to_y: to.1,
+            });
+        }
+        edges
+    }
+
     pub fn relation_identity(&self, relation: RelationId) -> Option<RelationIdentity> {
         self.inspector(SelectionId::Relation(relation))
             .and_then(relation_identity_from_inspector)
@@ -679,6 +742,184 @@ pub struct CanvasItem {
     pub detail: String,
     pub x: f32,
     pub y: f32,
+}
+
+/// One relation drawn between two things on the canvas.
+///
+/// The canvas has always known where things are and has never shown what
+/// joins them, which left a World looking like a scattering of labels. The
+/// endpoints are not inferred from prose: a relation's inspector carries its
+/// identity section, so `from` and `to` are as structural as the positions.
+///
+/// Positions are carried in the same normalized space the canvas items use,
+/// so a renderer applies one transform to both and cannot put an edge
+/// somewhere its own endpoints are not.
+///
+/// Order follows relation id, which the inspector map already guarantees: it
+/// is a `BTreeMap` and `SelectionId::Relation` sorts by id. A redraw
+/// therefore never reshuffles the picture.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CanvasEdge {
+    pub relation: RelationId,
+    pub from: EntityId,
+    pub to: EntityId,
+    pub label: String,
+    pub from_x: f32,
+    pub from_y: f32,
+    pub to_x: f32,
+    pub to_y: f32,
+}
+
+/// Where the canvas puts things, in the pixel space a renderer draws into.
+///
+/// The item boxes and the edges between them are placed from these same
+/// numbers. Keeping them here rather than in the renderer is what lets the
+/// geometry be tested at all: the renderer crate only compiles on macOS.
+pub mod canvas_layout {
+    /// One axis-aligned rectangle to fill.
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct Rect {
+        pub left: f32,
+        pub top: f32,
+        pub width: f32,
+        pub height: f32,
+    }
+
+    pub const ORIGIN_X: f32 = 14.0;
+    pub const ORIGIN_Y: f32 = 12.0;
+    pub const SPAN_X: f32 = 288.0;
+    pub const SPAN_Y: f32 = 240.0;
+    /// Narrower than the column pitch by enough for an edge to be seen
+    /// running between two columns. At 130 the gutter was 14pt and a line in
+    /// it read as a smudge.
+    pub const ITEM_WIDTH: f32 = 112.0;
+    /// Tall enough for the two lines a canvas item carries plus its padding.
+    /// At 46 the second line was clipped.
+    pub const ITEM_HEIGHT: f32 = 58.0;
+    pub const EDGE_THICKNESS: f32 = 4.0;
+
+    /// The clear space between two columns of boxes, which is all the room an
+    /// edge has to be visible in once the boxes are drawn over it.
+    pub fn gutter() -> f32 {
+        SPAN_X / (COLUMNS - 1) as f32 - ITEM_WIDTH
+    }
+
+    /// The narrowest centre column the World window offers, at the smallest
+    /// window size that has ever been screenshotted: a 1024pt window less the
+    /// two side panels and the column's own padding. The canvas is placed in
+    /// absolute pixels, so it does not grow or shrink with the window; what it
+    /// must do is fit.
+    pub const NARROWEST_COLUMN: f32 = 1024.0 - 220.0 - 300.0 - 24.0;
+
+    /// The box the canvas needs, which is what the renderer reserves.
+    pub fn extent() -> (f32, f32) {
+        (
+            ORIGIN_X * 2.0 + SPAN_X + ITEM_WIDTH,
+            ORIGIN_Y * 2.0 + SPAN_Y + ITEM_HEIGHT,
+        )
+    }
+
+    /// The top-left corner of the box drawn for an item at this position.
+    pub fn item_corner(x: f32, y: f32) -> (f32, f32) {
+        (ORIGIN_X + x * SPAN_X, ORIGIN_Y + y * SPAN_Y)
+    }
+
+    /// The centre of that box, which is where an edge meets it.
+    pub fn anchor(x: f32, y: f32) -> (f32, f32) {
+        let (left, top) = item_corner(x, y);
+        (left + ITEM_WIDTH / 2.0, top + ITEM_HEIGHT / 2.0)
+    }
+
+    /// How many boxes fit across the canvas without touching.
+    pub const COLUMNS: usize = 3;
+
+    /// Whether any two boxes at these positions would overlap.
+    pub fn any_overlap(positions: &[(f32, f32)]) -> bool {
+        let corners = positions
+            .iter()
+            .map(|(x, y)| item_corner(*x, *y))
+            .collect::<Vec<_>>();
+        for (index, a) in corners.iter().enumerate() {
+            for b in corners.iter().skip(index + 1) {
+                if (a.0 - b.0).abs() < ITEM_WIDTH && (a.1 - b.1).abs() < ITEM_HEIGHT {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// A deterministic grid for this many things, filled left to right.
+    pub fn grid(count: usize) -> Vec<(f32, f32)> {
+        let rows = count.div_ceil(COLUMNS).max(1);
+        (0..count)
+            .map(|index| {
+                let x = if COLUMNS > 1 {
+                    (index % COLUMNS) as f32 / (COLUMNS - 1) as f32
+                } else {
+                    0.5
+                };
+                let y = if rows > 1 {
+                    (index / COLUMNS) as f32 / (rows - 1) as f32
+                } else {
+                    0.5
+                };
+                (x, y)
+            })
+            .collect()
+    }
+
+    /// Where to actually draw things.
+    ///
+    /// A Pack's own positions are a picture of its World and are used
+    /// whenever they can be read. When any two of them would overlap at the
+    /// size the boxes are actually drawn, the whole set falls back to a grid:
+    /// every Pack writes its own table of coordinates by hand, none of them
+    /// knew the box size, and a legible grid beats an artful pile.
+    ///
+    /// All or nothing, deliberately. Nudging only the offending boxes would
+    /// leave a layout that is neither the Pack's arrangement nor a grid.
+    pub fn placements(positions: &[(f32, f32)]) -> Vec<(f32, f32)> {
+        if any_overlap(positions) {
+            grid(positions.len())
+        } else {
+            positions.to_vec()
+        }
+    }
+
+    /// An edge routed as three right-angle segments: out, across, in.
+    ///
+    /// Right angles rather than a diagonal because an axis-aligned rectangle
+    /// is the only shape a plain element tree can fill, and because a tidy
+    /// elbow suits this app better than a hairline. A segment is never
+    /// thinner than the stroke, so two things at the same height still show a
+    /// visible join rather than nothing.
+    pub fn edge_segments(from: (f32, f32), to: (f32, f32)) -> [Rect; 3] {
+        let (x1, y1) = anchor(from.0, from.1);
+        let (x2, y2) = anchor(to.0, to.1);
+        let mid_x = (x1 + x2) / 2.0;
+        let half = EDGE_THICKNESS / 2.0;
+        [
+            Rect {
+                left: x1.min(mid_x),
+                top: y1 - half,
+                width: (mid_x - x1).abs().max(EDGE_THICKNESS),
+                height: EDGE_THICKNESS,
+            },
+            Rect {
+                left: mid_x - half,
+                top: y1.min(y2),
+                width: EDGE_THICKNESS,
+                height: (y2 - y1).abs().max(EDGE_THICKNESS),
+            },
+            Rect {
+                left: mid_x.min(x2),
+                top: y2 - half,
+                width: (x2 - mid_x).abs().max(EDGE_THICKNESS),
+                height: EDGE_THICKNESS,
+            },
+        ]
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1363,6 +1604,259 @@ mod tests {
             }],
         )
         .unwrap()
+    }
+
+    /// A World with two entities joined by one relation, projected by the
+    /// real producer so the identity section under test is the real one.
+    fn related_world() -> World {
+        use world_core::Relation;
+        let mut state = WorldState::default();
+        state
+            .seed_entity(Entity::new(EntityId::new(1), "person").with_component("name", "Nia"))
+            .unwrap();
+        state
+            .seed_entity(Entity::new(EntityId::new(2), "person").with_component("name", "Tomas"))
+            .unwrap();
+        // Seeded high id first, so a test on ordering is not satisfied by the
+        // order they happen to be written in.
+        state
+            .seed_relation(Relation::new(
+                RelationId::new(7),
+                "partnership",
+                EntityId::new(1),
+                EntityId::new(2),
+            ))
+            .unwrap();
+        state
+            .seed_relation(Relation::new(
+                RelationId::new(3),
+                "rivalry",
+                EntityId::new(2),
+                EntityId::new(1),
+            ))
+            .unwrap();
+        World::from_history(state, &[]).unwrap()
+    }
+
+    fn placed(id: u64, x: f32, y: f32) -> CanvasItem {
+        CanvasItem {
+            id: SelectionId::Entity(EntityId::new(id)),
+            kind: CanvasItemKind::Actor,
+            label: format!("entity {id}"),
+            detail: String::new(),
+            x,
+            y,
+        }
+    }
+
+    fn snapshot_with(items: Vec<CanvasItem>) -> ProjectionSnapshot {
+        ProjectionSnapshot {
+            inspectors: inspectors_from_world(&related_world()),
+            canvas: CanvasProjection { items },
+            ..ProjectionSnapshot::default()
+        }
+    }
+
+    #[test]
+    fn a_layout_that_can_be_read_is_left_alone() {
+        use canvas_layout::*;
+        // Three things across the top: no two boxes touch, so the Pack's own
+        // arrangement survives.
+        let asked = vec![(0.0, 0.0), (0.5, 0.0), (1.0, 0.0)];
+        assert!(!any_overlap(&asked));
+        assert_eq!(placements(&asked), asked);
+    }
+
+    #[test]
+    fn a_layout_that_cannot_be_read_becomes_a_grid() {
+        use canvas_layout::*;
+        // Two things in almost the same place: unreadable however the Pack
+        // meant it.
+        let asked = vec![(0.5, 0.5), (0.52, 0.5), (0.0, 0.0)];
+        assert!(any_overlap(&asked));
+        let drawn = placements(&asked);
+        assert_ne!(drawn, asked);
+        assert!(!any_overlap(&drawn), "{drawn:?}");
+        assert_eq!(drawn.len(), asked.len());
+    }
+
+    #[test]
+    fn the_grid_keeps_things_apart_and_on_the_canvas() {
+        use canvas_layout::*;
+        // The counts a World realistically has. Beyond this the canvas is
+        // simply too small, which is a different problem from a broken rule.
+        for count in 1..=15 {
+            let drawn = grid(count);
+            assert_eq!(drawn.len(), count);
+            assert!(!any_overlap(&drawn), "count {count}: {drawn:?}");
+            for (x, y) in &drawn {
+                assert!((0.0..=1.0).contains(x) && (0.0..=1.0).contains(y));
+            }
+        }
+    }
+
+    #[test]
+    fn an_edge_reads_the_positions_the_boxes_are_drawn_at() {
+        // When the Pack's layout is replaced, the edge must move with the
+        // boxes rather than pointing at where they used to be.
+        let piled = snapshot_with(vec![placed(1, 0.5, 0.5), placed(2, 0.51, 0.5)]);
+        let drawn = piled.canvas_placements();
+        let edge = piled
+            .canvas_edges()
+            .into_iter()
+            .find(|edge| edge.relation == RelationId::new(7))
+            .expect("the partnership is drawable");
+
+        let position = |entity: EntityId| {
+            drawn
+                .iter()
+                .find(|(selection, _, _)| *selection == SelectionId::Entity(entity))
+                .map(|(_, x, y)| (*x, *y))
+                .unwrap()
+        };
+        assert_eq!((edge.from_x, edge.from_y), position(edge.from));
+        assert_eq!((edge.to_x, edge.to_y), position(edge.to));
+        assert_ne!((edge.from_x, edge.from_y), (0.5, 0.5));
+    }
+
+    #[test]
+    fn an_edge_has_room_to_be_seen_between_two_columns() {
+        use canvas_layout::*;
+        // Boxes are drawn over the edges, so the only part of an edge that
+        // shows is the run between two columns. If that gap is not
+        // comfortably wider than the stroke, the edge reads as a smudge
+        // rather than a connection.
+        assert!(
+            gutter() >= EDGE_THICKNESS * 4.0,
+            "a {}pt gutter cannot show a {EDGE_THICKNESS}pt edge",
+            gutter()
+        );
+    }
+
+    #[test]
+    fn the_canvas_fits_the_narrowest_column_it_is_drawn_in() {
+        use canvas_layout::*;
+        let (width, _) = extent();
+        assert!(
+            width <= NARROWEST_COLUMN,
+            "the canvas needs {width}pt and the column offers {NARROWEST_COLUMN}pt, \
+             so items at the right edge would be cut off"
+        );
+        // And every placeable position stays inside that box.
+        for (x, y) in [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0)] {
+            let (left, top) = item_corner(x, y);
+            let (w, h) = extent();
+            assert!(left >= 0.0 && left + ITEM_WIDTH <= w, "x={x}");
+            assert!(top >= 0.0 && top + ITEM_HEIGHT <= h, "y={y}");
+        }
+    }
+
+    #[test]
+    fn an_edge_starts_and_ends_on_the_boxes_it_joins() {
+        use canvas_layout::*;
+        let from = (0.1_f32, 0.2_f32);
+        let to = (0.7_f32, 0.9_f32);
+        let segments = edge_segments(from, to);
+        let (ax, ay) = anchor(from.0, from.1);
+        let (bx, by) = anchor(to.0, to.1);
+
+        // The first segment touches the source anchor and the last touches
+        // the target anchor: an edge that floats free of its own endpoints is
+        // the one failure a picture cannot survive.
+        let touches = |rect: Rect, x: f32, y: f32| {
+            x >= rect.left - 0.01
+                && x <= rect.left + rect.width + 0.01
+                && y >= rect.top - 0.01
+                && y <= rect.top + rect.height + 0.01
+        };
+        assert!(touches(segments[0], ax, ay), "{:?}", segments[0]);
+        assert!(touches(segments[2], bx, by), "{:?}", segments[2]);
+
+        // And the three segments form one connected run.
+        assert!(touches(
+            segments[1],
+            segments[0].left + segments[0].width,
+            ay
+        ));
+        assert!(touches(segments[1], segments[2].left, by));
+    }
+
+    #[test]
+    fn an_edge_between_two_things_at_the_same_height_is_still_visible() {
+        use canvas_layout::*;
+        let segments = edge_segments((0.1, 0.5), (0.8, 0.5));
+        for segment in segments {
+            assert!(
+                segment.width >= EDGE_THICKNESS && segment.height >= EDGE_THICKNESS,
+                "{segment:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_item_box_and_its_anchor_agree() {
+        use canvas_layout::*;
+        let (left, top) = item_corner(0.4, 0.6);
+        let (x, y) = anchor(0.4, 0.6);
+        assert!(x > left && x < left + ITEM_WIDTH);
+        assert!(y > top && y < top + ITEM_HEIGHT);
+    }
+
+    #[test]
+    fn an_edge_carries_the_positions_of_the_two_things_it_joins() {
+        let snapshot = snapshot_with(vec![placed(1, 0.2, 0.8), placed(2, 0.6, 0.1)]);
+        let edges = snapshot.canvas_edges();
+
+        assert_eq!(edges.len(), 2, "{edges:?}");
+        let edge = edges
+            .iter()
+            .find(|edge| edge.relation == RelationId::new(7))
+            .expect("the partnership is drawable");
+        assert_eq!(edge.from, EntityId::new(1));
+        assert_eq!(edge.to, EntityId::new(2));
+        assert_eq!((edge.from_x, edge.from_y), (0.2, 0.8));
+        assert_eq!((edge.to_x, edge.to_y), (0.6, 0.1));
+        assert!(!edge.label.is_empty());
+    }
+
+    #[test]
+    fn a_relation_the_canvas_does_not_place_is_left_out_rather_than_anchored() {
+        // Only one end is on the canvas: drawing it would put a line at a
+        // position the World never claimed.
+        let only_one_end = snapshot_with(vec![placed(1, 0.2, 0.8)]);
+        assert!(only_one_end.canvas_edges().is_empty());
+
+        let neither_end = snapshot_with(Vec::new());
+        assert!(neither_end.canvas_edges().is_empty());
+    }
+
+    #[test]
+    fn edges_are_ordered_by_relation_so_a_redraw_does_not_reshuffle_them() {
+        let snapshot = snapshot_with(vec![placed(1, 0.2, 0.8), placed(2, 0.6, 0.1)]);
+        let once = snapshot.canvas_edges();
+        let again = snapshot.canvas_edges();
+        assert_eq!(once, again);
+        assert_eq!(
+            once.len(),
+            2,
+            "the fixture must have enough edges to reorder"
+        );
+        assert!(once
+            .windows(2)
+            .all(|pair| pair[0].relation < pair[1].relation));
+    }
+
+    #[test]
+    fn every_drawable_relation_is_drawn() {
+        // The count the renderer must not silently reduce: every relation with
+        // both ends placed appears exactly once.
+        let snapshot = snapshot_with(vec![placed(1, 0.0, 0.0), placed(2, 1.0, 1.0)]);
+        let drawable = snapshot
+            .inspectors
+            .keys()
+            .filter(|selection| matches!(selection, SelectionId::Relation(_)))
+            .count();
+        assert_eq!(snapshot.canvas_edges().len(), drawable);
     }
 
     #[test]

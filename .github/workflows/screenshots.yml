@@ -32,6 +32,10 @@ jobs:
           LIB="$RUNNER_TEMP/world-machine/Worlds"
           mkdir -p "$LIB"
           cargo run -p pocket-universe --example demo_world -- "$LIB"
+          # Pocket Universe declares no relations at all, so a library of only
+          # its Worlds can never show whether the canvas draws them. Tiny
+          # Society does declare them.
+          cargo run -p tiny-society --example demo_world -- "$LIB"
           echo "WM_LIB=$LIB" >> "$GITHUB_ENV"
 
       - name: Launch the app and capture the screen
@@ -58,6 +62,9 @@ jobs:
           open -a "$APP" "$WM_LIB/maple-street-1987.world"
           sleep 15
           screencapture -x shots/03-world-fresh.png
+          open -a "$APP" "$WM_LIB/harbour-town.world"
+          sleep 15
+          screencapture -x shots/03b-world-with-relations.png
           # How much of a big window the layout actually uses is a question
           # the shots above cannot answer: both windows open at their default
           # size. Seed the remembered geometry with a rectangle the size of the

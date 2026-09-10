@@ -1,8 +1,8 @@
 use crate::ProjectionController;
 use gpui::{div, prelude::*, px, Context, Div, IntoElement, Render, SharedString, Styled, Window};
 use world_projection::{
-    BriefingItem, CanvasItemKind, CollectionItem, InspectorProjection, ProjectionCommand,
-    ProjectionIntent, ProjectionSnapshot, SelectionId, TimelineItem, WhyNode,
+    canvas_layout, BriefingItem, CanvasItemKind, CollectionItem, InspectorProjection,
+    ProjectionCommand, ProjectionIntent, ProjectionSnapshot, SelectionId, TimelineItem, WhyNode,
 };
 
 const ENTITY_HISTORY_LIMIT: usize = 6;
@@ -323,17 +323,51 @@ impl ProjectionView {
             )
     }
 
+    /// Fill one rectangle of an edge. The geometry is decided in
+    /// `world_projection::canvas_layout`, which is testable off macOS; this
+    /// crate only paints what it is handed.
+    fn render_canvas_segment(rect: canvas_layout::Rect) -> Div {
+        div()
+            .absolute()
+            .left(px(rect.left))
+            .top(px(rect.top))
+            .w(px(rect.width))
+            .h(px(rect.height))
+            .bg(crate::theme_rgb(0x8f9a8a))
+    }
+
     fn render_canvas(&self, cx: &mut Context<Self>) -> Div {
+        // Every child of this element is absolutely positioned, so it
+        // contributes no height of its own and is the one thing in the centre
+        // column a flex layout can shrink for free. Without flex_shrink_0 it
+        // collapses to a sliver and takes the whole World with it.
+        let (canvas_width, canvas_height) = canvas_layout::extent();
         let mut canvas = div()
+            .flex_shrink_0()
             .relative()
-            .h(px(330.0))
-            .w_full()
+            .overflow_hidden()
+            .h(px(canvas_height))
+            .w(px(canvas_width))
             .rounded_md()
             .border_1()
             .border_color(crate::theme_rgb(0xd8d8d8))
             .bg(crate::theme_rgb(0xf1f3ef));
 
-        for item in &self.snapshot.canvas.items {
+        // Edges first so the boxes they join sit over them.
+        let edges = self.snapshot.canvas_edges();
+        for edge in &edges {
+            for rect in
+                canvas_layout::edge_segments((edge.from_x, edge.from_y), (edge.to_x, edge.to_y))
+            {
+                canvas = canvas.child(Self::render_canvas_segment(rect));
+            }
+        }
+
+        // Positions come from the same resolver the edges read, so a box and
+        // the line into it cannot disagree about where it is.
+        let placements = self.snapshot.canvas_placements();
+        for (item, (_, x, y)) in self.snapshot.canvas.items.iter().zip(placements) {
+            let corner = canvas_layout::item_corner(x, y);
             let selection = item.id;
             let selected = self.selected == Some(selection);
             let color = match item.kind {
@@ -348,9 +382,11 @@ impl ProjectionView {
                         selection.stable_key()
                     )))
                     .absolute()
-                    .left(px(18.0 + item.x * 500.0))
-                    .top(px(12.0 + item.y * 260.0))
-                    .w(px(135.0))
+                    .left(px(corner.0))
+                    .top(px(corner.1))
+                    .w(px(canvas_layout::ITEM_WIDTH))
+                    .h(px(canvas_layout::ITEM_HEIGHT))
+                    .overflow_hidden()
                     .p_2()
                     .rounded_md()
                     .border_1()
@@ -1110,6 +1146,13 @@ impl Render for ProjectionView {
             .gap_3()
             .p_3();
 
+        // The World itself goes first. It used to sit below the briefing and
+        // the choices, which put the one picture of the place under the fold
+        // and left the window reading as a report about a World rather than a
+        // view of one.
+        if !self.snapshot.canvas.items.is_empty() {
+            center = center.child(self.render_canvas(cx));
+        }
         if let Some(briefing) = self.render_briefing(cx) {
             center = center.child(briefing);
         }
@@ -1117,15 +1160,6 @@ impl Render for ProjectionView {
             center = center.child(commands);
         }
         if has_exploration(&self.snapshot, self.selected) {
-            center = center.child(
-                div()
-                    .text_sm()
-                    .text_color(crate::theme_rgb(0x666666))
-                    .child("Explore the world"),
-            );
-            if !self.snapshot.canvas.items.is_empty() {
-                center = center.child(self.render_canvas(cx));
-            }
             if let Some(inspector) = self.render_inspector(cx) {
                 center = center.child(inspector);
             }

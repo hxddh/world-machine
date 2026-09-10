@@ -5381,6 +5381,7 @@ dependencies = [
  "world-agent",
  "world-core",
  "world-host",
+ "world-library",
  "world-persistence",
  "world-projection",
 ]
