@@ -1,3 +1,4 @@
+use crate::era;
 use crate::pressure::{self, PRESSURE_OUTCOME};
 use crate::succession::{self, SuccessorStanding, SUCCESSION, SUCCESSION_OUTCOME};
 use crate::{
@@ -80,6 +81,8 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
     let succession_nudge = succession_nudge_copy(world);
     let (nudge_title, nudge_detail) = if let Some(copy) = succession_nudge {
         copy
+    } else if let Some(copy) = era_calm_nudge_copy(world) {
+        copy
     } else if let Some(copy) = pressure_nudge_copy(&pressure_stage) {
         copy
     } else if posture_choice_available {
@@ -151,7 +154,7 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             detail: command_detail_with_signal(world, ROOTED_POSTURE_COMMAND, rooted_detail),
         });
     }
-    let copy = pressure::copy_for_seed(seed_id(world));
+    let copy = pressure::copy_for_state(world.state());
     if pressure::window_open(&pressure_stage) {
         commands.push(ProjectionCommand {
             id: HOLD_PRESSURE_COMMAND.into(),
@@ -197,6 +200,22 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
 
 /// While a successor is waiting, letting a cycle pass is itself a decision:
 /// the copy says what waiting is costing.
+/// The stretch after an era opens and before its threat arrives. There is
+/// genuinely nothing to decide yet, and the copy should say so rather than fall
+/// back to first-visit language.
+fn era_calm_nudge_copy(world: &World) -> Option<(&'static str, &'static str)> {
+    if era::era_from_state(world.state()) < 2 {
+        return None;
+    }
+    if pressure::pressure_id_from_state(world.state()) != "none" {
+        return None;
+    }
+    Some((
+        "Let the quiet stretch run",
+        "This era has not met its trouble yet. Nothing needs deciding; the World is simply living in the meantime.",
+    ))
+}
+
 fn succession_nudge_copy(world: &World) -> Option<(&'static str, &'static str)> {
     let stage = succession::succession_id_from_state(world.state());
     if !succession::choice_open(&stage) {
@@ -216,6 +235,30 @@ fn succession_nudge_copy(world: &World) -> Option<(&'static str, &'static str)> 
             "Leave it as it already is",
             "The work is theirs in all but name. Entrusting now would be a formality; releasing would only say so out loud.",
         ),
+    })
+}
+
+/// Which era this is, and what it inherited. Only once a World has had more
+/// than one: saying "Era 1" to somebody on their first visit is noise.
+fn era_item(world: &World) -> Option<BriefingItem> {
+    let era = era::era_from_state(world.state());
+    if era < 2 {
+        return None;
+    }
+    let event = world
+        .events()
+        .iter()
+        .rev()
+        .find(|event| event.kind == "era_began")?;
+    let inherited = match payload_text(event, "inherited") {
+        Some("renewed") => "began again on its successor's terms",
+        _ => "kept what it was handed",
+    };
+    let summary = payload_text(event, "summary").unwrap_or("").to_string();
+    Some(BriefingItem {
+        selection: Some(SelectionId::Event(event.id)),
+        title: format!("Era {era} · {inherited}"),
+        detail: summary,
     })
 }
 
@@ -350,7 +393,7 @@ fn command_choice_signal(world: &World, command_id: &str) -> Option<String> {
                 (command_id, posture.as_str()),
                 (HOLD_PRESSURE_COMMAND, "rooted") | (REACH_PRESSURE_COMMAND, "outward")
             );
-            let copy = pressure::copy_for_seed(seed_id(world));
+            let copy = pressure::copy_for_state(world.state());
             let status = if command_id == HOLD_PRESSURE_COMMAND {
                 copy.hold_status
             } else {
@@ -366,7 +409,7 @@ fn command_choice_signal(world: &World, command_id: &str) -> Option<String> {
             ))
         }
         RECOVER_ANCHOR_COMMAND => {
-            let copy = pressure::copy_for_seed(seed_id(world));
+            let copy = pressure::copy_for_state(world.state());
             Some(format!(
                 "the anchor's durable status becomes {}; legacy cycles reset to 0 and the legacy must reinforce itself again",
                 copy.recover_status
@@ -885,6 +928,9 @@ fn persistent_consequence_items(world: &World) -> Vec<BriefingItem> {
         items.push(item);
     }
     if let Some(item) = succession_consequence_item(world) {
+        items.push(item);
+    }
+    if let Some(item) = era_item(world) {
         items.push(item);
     }
     items

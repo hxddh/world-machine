@@ -16,6 +16,9 @@ pub(crate) const PRESSURE_GENERATION: &str = "pressure_generation";
 /// Durable record of how the World answered: `none`, `aligned`, `strained`,
 /// `lost`, or `recovered`.
 pub(crate) const PRESSURE_OUTCOME: &str = "pressure_outcome";
+/// Which of the seed's threats this era faces. Absent on a World that predates
+/// the era engine, which reads as the threat its seed has always opened with.
+pub(crate) const PRESSURE_KIND: &str = "pressure_kind";
 
 /// Pressure rises once the legacy has reinforced this many times.
 const RISE_AFTER_LEGACY_CYCLES: i64 = 2;
@@ -36,7 +39,8 @@ pub(crate) fn register_actions(actions: &mut ActionRegistry) -> Result<(), Actio
 
 /// Advance the pressure stage at most one step per period. Runs after the
 /// legacy consequences so the rise reads the cycle count that period wrote.
-pub(crate) fn resolve_period_pressure(
+/// Returns the new tail; the era engine drives what comes next.
+pub(crate) fn resolve_stage(
     world: &mut World,
     actions: &ActionRegistry,
     tail: EventId,
@@ -49,8 +53,7 @@ pub(crate) fn resolve_period_pressure(
     } else if loss_candidate(state)?.is_some() {
         "lose_anchor"
     } else {
-        // Nothing left for this chapter; chapter four reads the outcome.
-        return succession::resolve_period_succession(world, actions, tail);
+        return Ok(tail);
     };
     let mut request = ActionRequest::new(action).caused_by(tail);
     for cause in pressure_causes(world) {
@@ -58,8 +61,18 @@ pub(crate) fn resolve_period_pressure(
             request = request.caused_by(cause);
         }
     }
-    let advanced = world.execute(actions, &request)?.id;
-    succession::resolve_period_succession(world, actions, advanced)
+    Ok(world.execute(actions, &request)?.id)
+}
+
+/// The threat this era faces, falling back to the seed's opening threat.
+pub(crate) fn pressure_kind_from_state(state: &WorldState, seed: &str) -> String {
+    match state
+        .entity(UNIVERSE)
+        .and_then(|entity| entity.component(PRESSURE_KIND))
+    {
+        Some(Value::Text(kind)) => kind.clone(),
+        _ => era::pressure_pool(seed)[0].to_owned(),
+    }
 }
 
 pub(crate) fn pressure_id_from_state(state: &WorldState) -> String {
@@ -112,6 +125,9 @@ fn rise_candidate(state: &WorldState) -> Result<Option<()>, ActionError> {
     if legacy::legacy_id_from_state(state)? == "forming" {
         return Ok(None);
     }
+    if !era::calm_is_over(state)? {
+        return Ok(None);
+    }
     let cycles = integer_component(state, UNIVERSE, LEGACY_CYCLES)?;
     Ok((cycles >= RISE_AFTER_LEGACY_CYCLES).then_some(()))
 }
@@ -157,9 +173,75 @@ pub(crate) struct PressureCopy {
     pub recover_summary: &'static str,
 }
 
-pub(crate) fn copy_for_seed(seed: &str) -> PressureCopy {
-    match seed {
-        "mars-colony" => PressureCopy {
+/// The copy for the threat a World is facing now.
+pub(crate) fn copy_for_state(state: &WorldState) -> PressureCopy {
+    let seed = seed_id_from_state(state).unwrap_or_else(|_| UNSEEDED.to_owned());
+    copy_for(&seed, &pressure_kind_from_state(state, &seed))
+}
+
+pub(crate) fn copy_for(seed: &str, kind: &str) -> PressureCopy {
+    match (seed, kind) {
+        ("mars-colony", "dust-season") => PressureCopy {
+            warning_status: "dust rising",
+            warning_summary: "The season's dust is thickening early. Nia logs the first fouled intake and Ares starts watching the sky.",
+            crisis_status: "intakes fouling",
+            crisis_summary: "Dust is fouling the intakes faster than they can be cleared. Ares will be breathing its own exhaust within days unless the colony acts.",
+            lost_status: "upper deck abandoned",
+            lost_summary: "The intakes clogged past clearing. Ares abandoned its upper deck and lives lower, and darker, than it did.",
+            hold_title: "Clear the intakes by hand, every shift",
+            hold_detail: "Ares puts every spare pair of hands on the intakes and clears them by hand until the season turns. Nothing comes from outside.",
+            hold_status: "intakes held by hand",
+            hold_summary: "Ares cleared its intakes by hand through the whole season. It cost sleep and nothing else.",
+            reach_title: "Trade for filters from the relay",
+            reach_detail: "Tomas takes Kestrel to the relay station and trades away Ares's margin for a season of proper filters.",
+            reach_status: "filtered from outside",
+            reach_summary: "Tomas traded Ares's margin for filters from the relay. The colony breathed easy and owes the ridge nothing it can name.",
+            recover_title: "Reopen the upper deck",
+            recover_detail: "Dig out and reseal the upper deck. What the colony built up there will have to be built again.",
+            recover_status: "upper deck reopened",
+            recover_summary: "Ares dug out its upper deck. What it had built up there is gone, and its legacy starts over.",
+        },
+        ("1980s-town", "night-bus") => PressureCopy {
+            warning_status: "route under review",
+            warning_summary: "The transit board posts the night bus for review. Without it, half the arcade's regulars cannot get home.",
+            crisis_status: "last run scheduled",
+            crisis_summary: "The night bus has a last scheduled run. After it, Maple Street closes when the light goes.",
+            lost_status: "dark after nine",
+            lost_summary: "The night bus stopped running. Maple Street empties at nine now, and the arcade closes with it.",
+            hold_title: "Get the neighborhood driving",
+            hold_detail: "Lena organizes rides among the regulars themselves. Maple Street carries its own people home.",
+            hold_status: "neighborhood driving",
+            hold_summary: "The regulars drove each other home all season. Maple Street kept its nights with its own cars.",
+            reach_title: "Take the route to the board",
+            reach_detail: "Max puts the route on K-88 and packs the transit board's meeting with people from outside the neighborhood.",
+            reach_status: "route reinstated",
+            reach_summary: "K-88 filled the transit board's meeting and the route was reinstated. Maple Street's nights were saved from outside.",
+            recover_title: "Move the closing time",
+            recover_detail: "Rebuild the arcade's nights around the last light instead of the last bus. What the late hours built is gone.",
+            recover_status: "closing moved",
+            recover_summary: "Maple Street rebuilt its nights around daylight. What the late hours had built is gone, and its legacy starts over.",
+        },
+        ("penguin-civilization", "fish-vault") => PressureCopy {
+            warning_status: "vault thinning",
+            warning_summary: "The fish vault is thinning ahead of the dark season. Piko counts it twice and gets the same answer.",
+            crisis_status: "rations set",
+            crisis_summary: "Icebridge is on rations. The vault will not carry the colony to the thaw unless something changes.",
+            lost_status: "colony dispersed",
+            lost_summary: "The vault ran out. Icebridge scattered to the outer floes for the rest of the dark season.",
+            hold_title: "Fish the near water harder",
+            hold_detail: "The colony works the near water through the dark, taking less rest and no risks beyond the familiar ice.",
+            hold_status: "near water worked",
+            hold_summary: "Icebridge fished its own near water through the dark season. It was thin, and it was theirs.",
+            reach_title: "Send for the outer colonies' catch",
+            reach_detail: "The Aurora Council sends across the ice to the outer colonies and trades for their surplus.",
+            reach_status: "shared from outside",
+            reach_summary: "The outer colonies shared their catch across the ice. Icebridge ate, and now owes.",
+            recover_title: "Call the colony back",
+            recover_detail: "Gather the scattered colony back to the bridge. The winter routines that held it together are gone.",
+            recover_status: "colony regathered",
+            recover_summary: "Icebridge gathered its people back from the floes. What held them together before is gone, and its legacy starts over.",
+        },
+        ("mars-colony", _) => PressureCopy {
             warning_status: "reclaimer faltering",
             warning_summary: "The water reclaimer is losing efficiency. Nia logs the first shortfall and the colony starts counting sols.",
             crisis_status: "rationing water",
@@ -179,7 +261,7 @@ pub(crate) fn copy_for_seed(seed: &str) -> PressureCopy {
             recover_status: "ring reopened",
             recover_summary: "The colony reopened the sealed ring with a salvaged reclaimer. The habits it had built are gone, and its legacy starts over.",
         },
-        "1980s-town" => PressureCopy {
+        ("1980s-town", _) => PressureCopy {
             warning_status: "rent rising",
             warning_summary: "The arcade's landlord posts a rent increase. Lena counts the quarters and the numbers do not reach.",
             crisis_status: "lease ending",
@@ -199,7 +281,7 @@ pub(crate) fn copy_for_seed(seed: &str) -> PressureCopy {
             recover_status: "reopened",
             recover_summary: "Maple Arcade reopened under new hands. The old regulars' routines are gone, and its legacy starts over.",
         },
-        "penguin-civilization" => PressureCopy {
+        ("penguin-civilization", _) => PressureCopy {
             warning_status: "span cracked",
             warning_summary: "A crack runs across the third span of the ice bridge. Piko marks it and the council starts to worry.",
             crisis_status: "bridge closed",
@@ -312,7 +394,7 @@ impl Action for RaisePressure {
                 "this World's legacy has not settled enough for pressure to rise".into(),
             )
         })?;
-        let copy = copy_for_seed(&seed_id_from_state(state)?);
+        let copy = copy_for_state(state);
         stage_draft(
             state,
             "pressure_rising",
@@ -337,7 +419,7 @@ impl Action for EscalatePressure {
         escalate_candidate(state)?.ok_or_else(|| {
             ActionError::Invalid("this World's pressure is not ready to peak".into())
         })?;
-        let copy = copy_for_seed(&seed_id_from_state(state)?);
+        let copy = copy_for_state(state);
         stage_draft(
             state,
             "pressure_peaked",
@@ -362,7 +444,7 @@ impl Action for LoseAnchor {
         loss_candidate(state)?.ok_or_else(|| {
             ActionError::Invalid("this World's crisis has not run out of time".into())
         })?;
-        let copy = copy_for_seed(&seed_id_from_state(state)?);
+        let copy = copy_for_state(state);
         stage_draft(
             state,
             "anchor_lost",
@@ -393,7 +475,7 @@ fn answer_draft(state: &WorldState, reach: bool) -> Result<EventDraft, ActionErr
         (true, "outward") | (false, "rooted")
     );
     let outcome = if aligned { "aligned" } else { "strained" };
-    let copy = copy_for_seed(&seed);
+    let copy = copy_for_state(state);
     let (kind, stage, status, summary) = if reach {
         (
             "pressure_reached",
@@ -456,7 +538,7 @@ impl Action for RecoverAnchor {
                 "this World has nothing to recover (pressure is {pressure})"
             )));
         }
-        let copy = copy_for_seed(&seed_id_from_state(state)?);
+        let copy = copy_for_state(state);
         let mut draft = stage_draft(
             state,
             "anchor_recovered",
@@ -483,7 +565,7 @@ mod tests {
     #[test]
     fn every_seed_has_distinct_copy_for_every_stage() {
         for seed in ["mars-colony", "1980s-town", "penguin-civilization"] {
-            let copy = copy_for_seed(seed);
+            let copy = copy_for(seed, era::pressure_pool(seed)[0]);
             let statuses = [
                 copy.warning_status,
                 copy.crisis_status,

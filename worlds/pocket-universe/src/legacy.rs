@@ -9,7 +9,9 @@ pub(crate) fn register_actions(actions: &mut ActionRegistry) -> Result<(), Actio
     Ok(())
 }
 
-pub(crate) fn resolve_period_consequences(
+/// The relationship and legacy stages of an era. Returns the new tail; the era
+/// engine drives what comes next.
+pub(crate) fn resolve_stage(
     world: &mut World,
     actions: &ActionRegistry,
     relationship: EventId,
@@ -51,7 +53,7 @@ pub(crate) fn resolve_period_consequences(
         }
         tail = world.execute(actions, &request)?.id;
     }
-    pressure::resolve_period_pressure(world, actions, tail)
+    Ok(tail)
 }
 
 pub(crate) fn legacy_id_from_state(state: &WorldState) -> Result<String, ActionError> {

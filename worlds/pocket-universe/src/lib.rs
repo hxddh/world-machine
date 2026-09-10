@@ -1,3 +1,4 @@
+mod era;
 mod legacy;
 mod pressure;
 mod projection;
@@ -18,7 +19,7 @@ use world_persistence::{PersistenceError, WorldArchive, WorldPackRef};
 use world_projection::{ProjectionIntent, ProjectionSnapshot};
 
 pub const POCKET_UNIVERSE_PACK_ID: &str = "world-machine.pocket-universe";
-pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.17.0";
+pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.18.0";
 
 pub const SEED_MARS_COLONY_COMMAND: &str = "pocket-universe.seed-mars-colony";
 pub const SEED_1980S_TOWN_COMMAND: &str = "pocket-universe.seed-1980s-town";
@@ -259,8 +260,7 @@ where
                 relationship_context_causes(&candidate),
             );
             let relationship = candidate.execute(&self.actions, &relationship_request)?.id;
-            let returned =
-                legacy::resolve_period_consequences(&mut candidate, &self.actions, relationship)?;
+            let returned = era::resolve_period(&mut candidate, &self.actions, relationship)?;
             self.world = candidate;
             return Ok(returned);
         }
@@ -336,7 +336,7 @@ where
                 relationship_context_causes(&candidate),
             );
             let relationship = candidate.execute(&self.actions, &relationship_request)?.id;
-            legacy::resolve_period_consequences(&mut candidate, &self.actions, relationship)?;
+            era::resolve_period(&mut candidate, &self.actions, relationship)?;
         }
         self.world = candidate;
         Ok(())
@@ -579,6 +579,7 @@ fn build_action_registry() -> Result<ActionRegistry, ActionError> {
     actions.register(UpdateRelationship)?;
     actions.register(ResolveSocialArc)?;
     legacy::register_actions(&mut actions)?;
+    era::register_actions(&mut actions)?;
     pressure::register_actions(&mut actions)?;
     succession::register_actions(&mut actions)?;
     actions.register(SteerSharedProject)?;
@@ -3254,6 +3255,16 @@ mod tests {
         assert_eq!(forked.commands.len(), 3);
     }
 
+    fn era_of(universe: &PocketUniverse) -> i64 {
+        era::era_from_state(universe.world().state())
+    }
+
+    fn pressure_kind_of(universe: &PocketUniverse) -> String {
+        let state = universe.world().state();
+        let seed = seed_id_from_state(state).unwrap();
+        pressure::pressure_kind_from_state(state, &seed)
+    }
+
     fn succession_of(universe: &PocketUniverse) -> String {
         succession::succession_id_from_state(universe.world().state())
     }
@@ -3484,13 +3495,193 @@ mod tests {
         assert!(!ids.iter().any(|id| id == ENTRUST_LEGACY_COMMAND));
         assert!(!ids.iter().any(|id| id == RELEASE_LEGACY_COMMAND));
 
-        // Settled is durable: later cycles neither reopen nor re-raise it.
+        // The answer is durable, and the World does not stop at it: the next
+        // period opens a new era rather than reopening the settled question.
         let events_before = universe.world().events().len();
-        universe.advance_periods(3).unwrap();
-        assert_eq!(succession_of(&universe), "settled");
+        universe.advance_periods(1).unwrap();
+        assert_eq!(era_of(&universe), 2);
+        assert_eq!(succession_of(&universe), "none");
+        assert!(universe.world().events()[events_before..]
+            .iter()
+            .any(|event| event.kind == "era_began"));
         assert!(!universe.world().events()[events_before..]
             .iter()
-            .any(|event| event.kind.starts_with("successor_")));
+            .any(|event| event.kind == "legacy_entrusted"));
+
+        // The new era faces a threat this World has not just survived.
+        assert_eq!(pressure_of(&universe), "none");
+        assert_ne!(pressure_kind_of(&universe), "reclaimer");
+    }
+
+    /// A World that has only been seeded, with every later decision still open.
+    fn freshly_seeded(seed_command: &str) -> PocketUniverse {
+        let mut universe = PocketUniverse::new().unwrap();
+        universe.invoke_projection_command(seed_command).unwrap();
+        universe
+    }
+
+    /// Take the first decision the World offers each period, whatever it is.
+    fn live_with(universe: &mut PocketUniverse, periods: usize, prefer_release: bool) {
+        let succession = if prefer_release {
+            RELEASE_LEGACY_COMMAND
+        } else {
+            ENTRUST_LEGACY_COMMAND
+        };
+        for _ in 0..periods {
+            universe.advance_periods(1).unwrap();
+            let offered = command_ids(universe);
+            for candidate in [
+                CAREFUL_PATH_COMMAND,
+                ROOTED_POSTURE_COMMAND,
+                HOLD_PRESSURE_COMMAND,
+                RECOVER_ANCHOR_COMMAND,
+                succession,
+            ] {
+                if offered.iter().any(|id| id == candidate) {
+                    universe.invoke_projection_command(candidate).unwrap();
+                    break;
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_later_era_says_which_era_it_is_and_what_it_inherited() {
+        let mut universe = freshly_seeded(SEED_MARS_COLONY_COMMAND);
+        // A first visit is not told it is in "Era 1"; that would be noise.
+        assert!(!universe
+            .projection_snapshot()
+            .briefing
+            .unwrap()
+            .items
+            .iter()
+            .any(|item| item.title.starts_with("Era ")));
+
+        live_with(&mut universe, 20, false);
+        let briefing = universe.projection_snapshot().briefing.unwrap();
+        let era = briefing
+            .items
+            .iter()
+            .find(|item| item.title.starts_with("Era "))
+            .expect("a World past its first era says so");
+        assert!(era.title.contains("kept what it was handed"));
+        assert!(!era.detail.is_empty());
+    }
+
+    #[test]
+    fn the_quiet_stretch_after_an_era_opens_says_it_is_quiet() {
+        let mut universe = freshly_seeded(SEED_MARS_COLONY_COMMAND);
+        live_with(&mut universe, 14, false);
+        assert_eq!(era_of(&universe), 2);
+        assert_eq!(pressure_of(&universe), "none");
+
+        let nudge = universe
+            .projection_snapshot()
+            .commands
+            .into_iter()
+            .find(|command| command.id == NUDGE_COMMAND)
+            .expect("every World can let a cycle pass");
+        assert_eq!(nudge.title, "Let the quiet stretch run");
+    }
+
+    #[test]
+    fn a_world_that_finished_its_story_keeps_having_a_next_one() {
+        // The measurement this whole engine exists for: before eras, all four
+        // chapters completed by period 13 and the command list was exactly
+        // ["pocket-universe.nudge"] for every period after.
+        let mut universe = freshly_seeded(SEED_MARS_COLONY_COMMAND);
+        live_with(&mut universe, 40, false);
+
+        let eras = era_of(&universe);
+        assert!(eras >= 5, "40 periods produced only {eras} era(s)");
+        assert_eq!(
+            universe
+                .world()
+                .events()
+                .iter()
+                .filter(|event| event.kind == "era_began")
+                .count() as i64,
+            eras - 1
+        );
+
+        // Still living. Not "there is a decision right now" — an era opens on a
+        // calm stretch where there is genuinely nothing to decide — but "a
+        // decision comes back", which is precisely what stopped being true at
+        // period 13 before eras existed.
+        let mut waited = 0;
+        while command_ids(&universe) == vec![NUDGE_COMMAND.to_string()] {
+            universe.advance_periods(1).unwrap();
+            waited += 1;
+            assert!(
+                waited <= 10,
+                "the World offered nothing but nudge for {waited} periods"
+            );
+        }
+    }
+
+    #[test]
+    fn consecutive_eras_never_face_the_same_threat() {
+        let mut universe = freshly_seeded(SEED_MARS_COLONY_COMMAND);
+        live_with(&mut universe, 40, false);
+
+        let threats = universe
+            .world()
+            .events()
+            .iter()
+            .filter(|event| event.kind == "era_began")
+            .map(|event| match event.payload.get("pressure_kind") {
+                Some(Value::Text(kind)) => kind.clone(),
+                _ => panic!("an era records the threat it faces"),
+            })
+            .collect::<Vec<_>>();
+
+        assert!(threats.len() >= 4, "not enough eras to judge: {threats:?}");
+        for pair in threats.windows(2) {
+            assert_ne!(pair[0], pair[1], "two eras running faced {}", pair[0]);
+        }
+    }
+
+    #[test]
+    fn how_an_era_ends_decides_what_the_next_one_inherits() {
+        let mut entrusted = freshly_seeded(SEED_MARS_COLONY_COMMAND);
+        live_with(&mut entrusted, 14, false);
+        let mut released = freshly_seeded(SEED_MARS_COLONY_COMMAND);
+        live_with(&mut released, 14, true);
+
+        // Both are in their second era, and they inherited different Worlds:
+        // a legacy handed on unchanged carries over, one let go has to form
+        // again from whatever the successor builds.
+        assert_eq!(era_of(&entrusted), 2);
+        assert_eq!(era_of(&released), 2);
+        assert_ne!(
+            legacy::legacy_id_from_state(entrusted.world().state()).unwrap(),
+            "forming"
+        );
+        assert_eq!(
+            legacy::legacy_id_from_state(released.world().state()).unwrap(),
+            "forming"
+        );
+
+        let opening = |universe: &PocketUniverse| {
+            universe
+                .world()
+                .events()
+                .iter()
+                .rev()
+                .find(|event| event.kind == "era_began")
+                .and_then(|event| event.payload.get("inherited").cloned())
+                .unwrap()
+        };
+        assert_eq!(opening(&entrusted), Value::Text("continued".into()));
+        assert_eq!(opening(&released), Value::Text("renewed".into()));
+    }
+
+    #[test]
+    fn an_era_cannot_begin_before_its_succession_settles() {
+        let mut universe = rising_pressure_world(ROOTED_POSTURE_COMMAND);
+        let before = era_of(&universe);
+        universe.advance_periods(2).unwrap();
+        assert_eq!(era_of(&universe), before, "an era began mid-story");
     }
 
     #[test]
