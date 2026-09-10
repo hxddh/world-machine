@@ -63,3 +63,36 @@ A successful `response` for the `prompt` command is required before the decision
 - the process has a 120-second default decision timeout.
 
 M8.1 may add a persistent transport and native action/tool registration only if those changes preserve the same provider-neutral, capability, replay, and licensing boundaries.
+
+## Two choices, not one
+
+A Pack that can reach a local model has two separate uses for it, and they are
+configured separately because they cost very different amounts.
+
+| Setting | Values | What it does | What it costs |
+| --- | --- | --- | --- |
+| `WORLD_MACHINE_POCKET_UNIVERSE_MIND` | `deterministic` (default), `pi` | Decides what the World's inhabitants do | Two requests per period — a week-long catch-up is fifty-six |
+| `WORLD_MACHINE_POCKET_UNIVERSE_VOICE` | `none` (default), `pi` | Says what happened, in this World's own words | One request per return, however long the observer was away |
+| `WORLD_MACHINE_PI_PROGRAM` | path (default `pi`) | The program both use | — |
+
+The mind only ever picks one of two offered actions, so the combination worth
+having is **`MIND=deterministic` with `VOICE=pi`**: the simulation stays
+instant and the prose is the World's own. Both default to off, so a Pack that
+is given nothing behaves exactly as it always has.
+
+## Narration
+
+The voice is asked once per return for every line the return digest is about
+to show, numbered, and its answer is matched back by number rather than
+trusted to arrive in order. The same locked-down process is used — no tools,
+no extensions, no session — and the World's contents go in inside
+`<world_data>` as data, never as instructions, with newlines stripped so a
+World's own text cannot forge a fact.
+
+Nothing the model returns is trusted. A line that is missing, mis-numbered,
+duplicated, empty, over-long, or carrying control characters leaves that entry
+on the World's built-in copy, and a model that cannot be reached at all leaves
+every entry on it. A World is never worse for having asked.
+
+What comes back is recorded as a `world_narrated` Event, so it is durable,
+replay-exact, and never regenerated: replaying a World never runs a model.

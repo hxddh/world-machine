@@ -7,11 +7,11 @@ publish = false
 
 [dependencies]
 pocket-universe = { path = "../../worlds/pocket-universe" }
+world-host = { path = "../../crates/world-host" }
 world-pack-server = { path = "../../crates/world-pack-server" }
 world-pi-rpc = { path = "../../crates/world-pi-rpc" }
 
 [dev-dependencies]
 world-persistence = { path = "../../crates/world-persistence" }
-world-host = { path = "../../crates/world-host" }
 world-pack-catalog = { path = "../../crates/world-pack-catalog" }
 world-projection = { path = "../../crates/world-projection" }
