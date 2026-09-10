@@ -337,10 +337,17 @@ impl ProjectionView {
     }
 
     fn render_canvas(&self, cx: &mut Context<Self>) -> Div {
+        // Every child of this element is absolutely positioned, so it
+        // contributes no height of its own and is the one thing in the centre
+        // column a flex layout can shrink for free. Without flex_shrink_0 it
+        // collapses to a sliver and takes the whole World with it.
+        let (canvas_width, canvas_height) = canvas_layout::extent();
         let mut canvas = div()
+            .flex_shrink_0()
             .relative()
-            .h(px(330.0))
-            .w_full()
+            .overflow_hidden()
+            .h(px(canvas_height))
+            .w(px(canvas_width))
             .rounded_md()
             .border_1()
             .border_color(crate::theme_rgb(0xd8d8d8))

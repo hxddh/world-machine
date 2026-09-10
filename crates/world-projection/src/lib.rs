@@ -764,13 +764,28 @@ pub mod canvas_layout {
         pub height: f32,
     }
 
-    pub const ORIGIN_X: f32 = 18.0;
+    pub const ORIGIN_X: f32 = 14.0;
     pub const ORIGIN_Y: f32 = 12.0;
-    pub const SPAN_X: f32 = 500.0;
-    pub const SPAN_Y: f32 = 260.0;
-    pub const ITEM_WIDTH: f32 = 135.0;
+    pub const SPAN_X: f32 = 288.0;
+    pub const SPAN_Y: f32 = 196.0;
+    pub const ITEM_WIDTH: f32 = 130.0;
     pub const ITEM_HEIGHT: f32 = 46.0;
     pub const EDGE_THICKNESS: f32 = 2.0;
+
+    /// The narrowest centre column the World window offers, at the smallest
+    /// window size that has ever been screenshotted: a 1024pt window less the
+    /// two side panels and the column's own padding. The canvas is placed in
+    /// absolute pixels, so it does not grow or shrink with the window; what it
+    /// must do is fit.
+    pub const NARROWEST_COLUMN: f32 = 1024.0 - 220.0 - 300.0 - 24.0;
+
+    /// The box the canvas needs, which is what the renderer reserves.
+    pub fn extent() -> (f32, f32) {
+        (
+            ORIGIN_X * 2.0 + SPAN_X + ITEM_WIDTH,
+            ORIGIN_Y * 2.0 + SPAN_Y + ITEM_HEIGHT,
+        )
+    }
 
     /// The top-left corner of the box drawn for an item at this position.
     pub fn item_corner(x: f32, y: f32) -> (f32, f32) {
@@ -1550,6 +1565,24 @@ mod tests {
             inspectors: inspectors_from_world(&related_world()),
             canvas: CanvasProjection { items },
             ..ProjectionSnapshot::default()
+        }
+    }
+
+    #[test]
+    fn the_canvas_fits_the_narrowest_column_it_is_drawn_in() {
+        use canvas_layout::*;
+        let (width, _) = extent();
+        assert!(
+            width <= NARROWEST_COLUMN,
+            "the canvas needs {width}pt and the column offers {NARROWEST_COLUMN}pt, \
+             so items at the right edge would be cut off"
+        );
+        // And every placeable position stays inside that box.
+        for (x, y) in [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0)] {
+            let (left, top) = item_corner(x, y);
+            let (w, h) = extent();
+            assert!(left >= 0.0 && left + ITEM_WIDTH <= w, "x={x}");
+            assert!(top >= 0.0 && top + ITEM_HEIGHT <= h, "y={y}");
         }
     }
 
