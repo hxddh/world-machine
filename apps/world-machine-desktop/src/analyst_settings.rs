@@ -43,6 +43,17 @@ impl DesktopAnalystSettings {
         }
     }
 
+    /// The program a World should write with, if it has been given one.
+    ///
+    /// Both halves have to be true — the voice turned on, and a program chosen
+    /// — so the rule lives here rather than being re-derived by each caller.
+    pub fn configured_voice_program(&self) -> Option<String> {
+        if !self.world_voice {
+            return None;
+        }
+        Some(self.pi_program.as_ref()?.display().to_string())
+    }
+
     pub fn validate(&self) -> Result<(), DesktopAnalystSettingsError> {
         if self.version != SETTINGS_VERSION {
             return Err(DesktopAnalystSettingsError::UnsupportedVersion(
@@ -454,6 +465,7 @@ mod tests {
         // Turning a World's voice on must never cost somebody the programs they
         // already configured.
         let fixture = Fixture::new();
+        fs::create_dir_all(&fixture.root).unwrap();
         fs::write(
             settings_path(&fixture.root),
             r#"{"version":1,"node_program":"/saved/node","pi_program":"/saved/pi"}"#,
@@ -464,6 +476,34 @@ mod tests {
         assert!(
             !loaded.world_voice,
             "a voice nobody asked for was switched on"
+        );
+    }
+
+    #[test]
+    fn a_voice_needs_both_a_switch_and_a_program() {
+        // Either half missing means there is nothing to tell a World, so the
+        // app passes it nothing and the World reads as it always has.
+        let mut settings = DesktopAnalystSettings::empty();
+        assert_eq!(settings.configured_voice_program(), None);
+
+        settings.world_voice = true;
+        assert_eq!(
+            settings.configured_voice_program(),
+            None,
+            "a voice was claimed with no program to write with"
+        );
+
+        settings.pi_program = Some(PathBuf::from("/saved/pi"));
+        assert_eq!(
+            settings.configured_voice_program(),
+            Some("/saved/pi".to_string())
+        );
+
+        settings.world_voice = false;
+        assert_eq!(
+            settings.configured_voice_program(),
+            None,
+            "a World was given a voice its observer had switched off"
         );
     }
 

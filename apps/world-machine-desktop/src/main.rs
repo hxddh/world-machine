@@ -30,6 +30,8 @@ pub(crate) fn watch_appearance(window: &mut Window) {
 }
 #[cfg(target_os = "macos")]
 mod world_fork;
+#[cfg(target_os = "macos")]
+mod world_voice;
 
 #[cfg(target_os = "macos")]
 use gpui::{
@@ -3444,69 +3446,12 @@ fn build_registry(catalog: Option<&PackCatalog>) -> Result<world_host::WorldRegi
         let source = catalog
             .trusted_source()
             .map_err(|error| error.to_string())?;
-        let source = with_pack_settings(source, world_voice_settings());
+        let source = world_voice::with_settings(source, world_voice::pack_settings());
         registry
             .install_source(&source)
             .map_err(|error| error.to_string())?;
     }
     Ok(registry)
-}
-
-/// What this app tells the Worlds it launches about how to speak.
-///
-/// Empty unless somebody has both turned a World's voice on and told the app
-/// which local program to use — a preference with nothing to act on is not a
-/// setting worth passing. A Pack that is given nothing behaves exactly as it
-/// always has.
-#[cfg(target_os = "macos")]
-fn world_voice_settings() -> Vec<(String, String)> {
-    let Ok(root) = world_machine_desktop::analyst_settings::application_support_root() else {
-        return Vec::new();
-    };
-    let Ok(settings) = world_machine_desktop::analyst_settings::load(&root) else {
-        return Vec::new();
-    };
-    if !settings.world_voice {
-        return Vec::new();
-    }
-    let Some(program) = settings.pi_program.as_ref() else {
-        return Vec::new();
-    };
-    vec![
-        (
-            "WORLD_MACHINE_POCKET_UNIVERSE_VOICE".to_string(),
-            "pi".to_string(),
-        ),
-        (
-            "WORLD_MACHINE_PI_PROGRAM".to_string(),
-            program.display().to_string(),
-        ),
-    ]
-}
-
-/// Hand every Pack in this source the same settings.
-///
-/// A setting the Pack layer refuses is a mistake in this app rather than
-/// anything the observer did, so the Worlds are installed without it instead of
-/// leaving somebody unable to open anything.
-#[cfg(target_os = "macos")]
-fn with_pack_settings(
-    source: world_pack_process::ProcessPackSource,
-    settings: Vec<(String, String)>,
-) -> world_pack_process::ProcessPackSource {
-    if settings.is_empty() {
-        return source;
-    }
-    let packs = source
-        .packs()
-        .iter()
-        .cloned()
-        .map(|pack| pack.with_settings(settings.clone()))
-        .collect::<Result<Vec<_>, _>>();
-    match packs {
-        Ok(packs) => world_pack_process::ProcessPackSource::from_packs(packs),
-        Err(_) => source,
-    }
 }
 
 #[cfg(target_os = "macos")]
