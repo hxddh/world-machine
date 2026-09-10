@@ -1,7 +1,7 @@
 mod drift;
 mod era;
 mod legacy;
-mod narrator;
+pub mod narrator;
 mod pressure;
 mod projection;
 mod succession;
@@ -454,10 +454,16 @@ impl<R> PocketUniverseSession<R>
 where
     R: AgentRuntime + 'static,
 {
-    fn fresh(mind: R, mind_profile: &str) -> Result<Box<dyn WorldSession>, HostError> {
+    fn fresh(
+        mind: R,
+        mind_profile: &str,
+        voice: Box<dyn narrator::Narrator>,
+    ) -> Result<Box<dyn WorldSession>, HostError> {
+        let mut world = PocketUniverse::with_agent_runtime_profile(mind, mind_profile)
+            .map_err(HostError::session)?;
+        world.set_narrator(voice);
         Ok(Box::new(Self {
-            world: PocketUniverse::with_agent_runtime_profile(mind, mind_profile)
-                .map_err(HostError::session)?,
+            world,
             return_since_event_count: None,
         }))
     }
@@ -466,14 +472,14 @@ where
         archive: &WorldArchive,
         mind: R,
         mind_profile: &str,
+        voice: Box<dyn narrator::Narrator>,
     ) -> Result<Box<dyn WorldSession>, HostError> {
+        let mut world =
+            PocketUniverse::resume_archive_with_agent_runtime_profile(archive, mind, mind_profile)
+                .map_err(HostError::session)?;
+        world.set_narrator(voice);
         Ok(Box::new(Self {
-            world: PocketUniverse::resume_archive_with_agent_runtime_profile(
-                archive,
-                mind,
-                mind_profile,
-            )
-            .map_err(HostError::session)?,
+            world,
             return_since_event_count: None,
         }))
     }
@@ -556,9 +562,50 @@ where
     Ok(registration_with_validated_profile(factory, mind_profile))
 }
 
+/// Builds the narrator each session of this Pack gets.
+pub type NarratorFactory = Arc<dyn Fn() -> Box<dyn narrator::Narrator> + Send + Sync>;
+
+/// A Pack whose Worlds have a voice as well as a mind.
+///
+/// Every World this registration creates or opens is given a narrator from
+/// `narrator_factory`. A Pack registered without one keeps reading from the
+/// table, which is what every registration above does.
+pub fn pocket_universe_registration_with_voice<R, F>(
+    factory: F,
+    mind_profile: impl Into<String>,
+    narrator_factory: NarratorFactory,
+) -> Result<WorldRegistration, std::io::Error>
+where
+    R: AgentRuntime + 'static,
+    F: Fn() -> R + Send + Sync + 'static,
+{
+    let mind_profile = validate_mind_profile(mind_profile.into())?;
+    Ok(registration_with_narrator(
+        factory,
+        mind_profile,
+        narrator_factory,
+    ))
+}
+
 fn registration_with_validated_profile<R, F>(
     factory: F,
     mind_profile: impl Into<String>,
+) -> WorldRegistration
+where
+    R: AgentRuntime + 'static,
+    F: Fn() -> R + Send + Sync + 'static,
+{
+    registration_with_narrator(
+        factory,
+        mind_profile,
+        Arc::new(|| Box::new(narrator::NoNarrator)),
+    )
+}
+
+fn registration_with_narrator<R, F>(
+    factory: F,
+    mind_profile: impl Into<String>,
+    narrator_factory: NarratorFactory,
 ) -> WorldRegistration
 where
     R: AgentRuntime + 'static,
@@ -570,11 +617,18 @@ where
     let open_factory = Arc::clone(&factory);
     let create_profile = Arc::clone(&mind_profile);
     let open_profile = Arc::clone(&mind_profile);
+    let create_voice = Arc::clone(&narrator_factory);
+    let open_voice = Arc::clone(&narrator_factory);
     WorldRegistration::new(pocket_universe_descriptor(), move || {
-        PocketUniverseSession::fresh(create_factory(), create_profile.as_str())
+        PocketUniverseSession::fresh(create_factory(), create_profile.as_str(), create_voice())
     })
     .with_archive_opener(move |archive| {
-        PocketUniverseSession::open_archive(archive, open_factory(), open_profile.as_str())
+        PocketUniverseSession::open_archive(
+            archive,
+            open_factory(),
+            open_profile.as_str(),
+            open_voice(),
+        )
     })
 }
 
