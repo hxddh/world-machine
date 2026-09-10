@@ -72,7 +72,7 @@ The [install guide]({install_url}) has the same steps with more detail.
 {status_line}
 
 {install}
-{"Pre-release build." if prerelease else "Early release."} Everything stays on your Mac: no account, no telemetry. The World file format may still change between releases; see the [changelog](https://github.com/{repository}/blob/{tag}/CHANGELOG.md).
+{"Pre-release build." if prerelease else "Early release."} No account, no telemetry; your Worlds are files on your Mac and nothing is uploaded. Two optional features can reach a model if you switch them on. The World file format may still change between releases; see the [changelog](https://github.com/{repository}/blob/{tag}/CHANGELOG.md).
 
 ## Build
 

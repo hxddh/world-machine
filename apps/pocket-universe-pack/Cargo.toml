@@ -7,6 +7,7 @@ publish = false
 
 [dependencies]
 pocket-universe = { path = "../../worlds/pocket-universe" }
+serde_json = "1"
 world-host = { path = "../../crates/world-host" }
 world-pack-server = { path = "../../crates/world-pack-server" }
 world-pi-rpc = { path = "../../crates/world-pi-rpc" }
