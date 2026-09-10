@@ -10,8 +10,8 @@ use world_document::{
 use world_host::{HostError, WorldDescriptor, WorldRegistration, WorldRegistry, WorldSession};
 use world_persistence::{WorldArchive, WorldPackRef, WORLD_ARCHIVE_FORMAT, WORLD_ARCHIVE_VERSION};
 use world_projection::{
-    BriefingItem, BriefingProjection, ProjectionCapabilities, ProjectionCommand, ProjectionIntent,
-    ProjectionSnapshot,
+    BriefingItem, BriefingItemKind, BriefingProjection, ProjectionCapabilities, ProjectionCommand,
+    ProjectionIntent, ProjectionSnapshot,
 };
 
 const MOCK_PACK: &str = "world-machine.metadata-regression";
@@ -34,6 +34,7 @@ impl WorldSession for MockSession {
                 eyebrow: "Metadata".into(),
                 title: "Current state".into(),
                 items: vec![BriefingItem {
+                    kind: BriefingItemKind::Beat,
                     selection: None,
                     title: format!("State {}", self.count),
                     detail: format!("Durable summary {}", self.count),

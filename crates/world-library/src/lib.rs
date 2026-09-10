@@ -847,7 +847,8 @@ mod tests {
     use world_host::{WorldDescriptor, WorldRegistration};
     use world_persistence::{WORLD_ARCHIVE_FORMAT, WORLD_ARCHIVE_VERSION};
     use world_projection::{
-        BriefingItem, BriefingProjection, ProjectionCapabilities, ProjectionCommand,
+        BriefingItem, BriefingItemKind, BriefingProjection, ProjectionCapabilities,
+        ProjectionCommand,
     };
 
     const MOCK_PACK: &str = "world-machine.mock";
@@ -870,6 +871,7 @@ mod tests {
                     eyebrow: "Mock".into(),
                     title: "Current mock state".into(),
                     items: vec![BriefingItem {
+                        kind: BriefingItemKind::Beat,
                         selection: None,
                         title: format!("Count {}", self.count),
                         detail: format!("Current durable count {}", self.count),
@@ -1348,6 +1350,7 @@ mod tests {
                 eyebrow: "Test".into(),
                 title: "Today".into(),
                 items: vec![BriefingItem {
+                    kind: BriefingItemKind::Beat,
                     selection: None,
                     title: "  Ridge   Network ".into(),
                     detail: "  Routes   now   persist.  ".into(),
@@ -1369,6 +1372,7 @@ mod tests {
                 eyebrow: "Test".into(),
                 title: "Today".into(),
                 items: vec![BriefingItem {
+                    kind: BriefingItemKind::Beat,
                     selection: None,
                     title: "State".into(),
                     detail: "x".repeat(400),

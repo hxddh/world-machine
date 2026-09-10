@@ -5,9 +5,9 @@ use crate::{
 use world_core::{Entity, Event, Value, World};
 use world_projection::{
     entity_title, inspectors_from_world, timeline_from_world, why_map_from_world, BriefingItem,
-    BriefingProjection, CanvasItem, CanvasItemKind, CanvasProjection, CollectionItem,
-    CollectionProjection, ProjectionCapabilities, ProjectionCommand, ProjectionSnapshot,
-    SelectionId,
+    BriefingItemKind, BriefingProjection, CanvasItem, CanvasItemKind, CanvasProjection,
+    CollectionItem, CollectionProjection, ProjectionCapabilities, ProjectionCommand,
+    ProjectionSnapshot, SelectionId,
 };
 
 pub(crate) fn snapshot(world: &World, since_event_count: Option<usize>) -> ProjectionSnapshot {
@@ -79,11 +79,13 @@ fn briefing(world: &World, since_event_count: Option<usize>) -> BriefingProjecti
         },
         items: vec![
             BriefingItem {
+                kind: BriefingItemKind::Status,
                 selection: Some(SelectionId::Entity(COMPANY)),
                 title: format!("Cash {cash} · Quality {quality} · Customers {customers}"),
                 detail: last_change,
             },
             BriefingItem {
+                kind: BriefingItemKind::Status,
                 selection: Some(SelectionId::Entity(RELATIONSHIP)),
                 title: format!("Working trust {trust} · Tension {tension}"),
                 detail: "The leads' choices are ordinary World events, so their working pattern is inspectable, causal, and forkable.".into(),
@@ -101,6 +103,7 @@ fn return_item(event: &Event) -> BriefingItem {
         })
         .unwrap_or_else(|| event.kind.replace('_', " "));
     BriefingItem {
+        kind: BriefingItemKind::Beat,
         selection: Some(SelectionId::Event(event.id)),
         title: match event.kind.as_str() {
             "market_cycle_started" => "The clock kept running".into(),

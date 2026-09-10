@@ -2,6 +2,15 @@
 
 Releases live on the [Releases page](https://github.com/hxddh/world-machine/releases). `0.2.0` is the first release intended to be usable without reading the repository; the `v0.1.0-pre.N` tags below were its pre-releases.
 
+## Unreleased
+
+**Worlds created before this release will not open.** Tiny Society moves to `0.3.0` because it now records things it used to leave unrecorded, and a `.world` file records the Pack version it was created with. Export anything you want to keep before updating; Pocket Universe and Micro Company Worlds are unaffected.
+
+- **Coming back to a World stops reading like a dashboard.** A return briefing mixed two different things in one list: what happened to somebody, and how much of the routine ran. Measured over fourteen returns to a Tiny Society World, eight of them led with "Harbor Bakery had customers · 40 purchases · 400 revenue" — a counter, presented exactly like news. The two are now marked apart where the World produces them, so a counter can never again be handed to you as the answer to "what happened while I was away?".
+- **Tiny Society 0.3.0: running out of money is something you are told about.** Jonas leaves the opening story unemployed with savings to burn, and burning them took twenty periods during which the World recorded nothing at all — his cash fell from 85 towards nothing and every briefing in between said only that the bakery had customers. The World now records the crossings: when he starts spending savings he cannot replace, when he can no longer cover a day, and when he is covering his own days again. Each is recorded once per spell, so none of them becomes another daily counter.
+- **A day nobody could pay for no longer passes in silence.** When Jonas could not cover his living costs the simulation simply skipped him — no event, no trace, and a World that appeared to freeze with him at 5 cash forever. That day is now recorded like anything else that happens.
+- **The same thing happening every day is told once.** Once Sea Finch is back in the water Jonas sells a catch daily, and a briefing would print three identical lines about it. The most recent stands for the rest; how many there were is what the counters are for.
+
 ## v0.5.2 (2026-09-10)
 
 - **A new app icon.** The first one was a node joined to two smaller nodes, which is the share glyph every platform already uses and said nothing about what this app does. It is now a single stroke that spirals outward from the centre, thin and pale where a World's history begins and broad and warm at the present — the one shape that means "this kept going while you were away".

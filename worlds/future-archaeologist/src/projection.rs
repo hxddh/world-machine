@@ -2,10 +2,10 @@ use crate::model::*;
 use std::collections::{BTreeMap, BTreeSet};
 use world_core::{Entity, EntityId, Event, EventId, Value, World};
 use world_projection::{
-    BriefingItem, BriefingProjection, CanvasItem, CanvasItemKind, CanvasProjection, CollectionItem,
-    CollectionProjection, InspectorProjection, InspectorRow, InspectorSection,
-    ProjectionCapabilities, ProjectionCommand, ProjectionSnapshot, SelectionId, TimelineItem,
-    TimelineProjection, WhyNode, WhyProjection,
+    BriefingItem, BriefingItemKind, BriefingProjection, CanvasItem, CanvasItemKind,
+    CanvasProjection, CollectionItem, CollectionProjection, InspectorProjection, InspectorRow,
+    InspectorSection, ProjectionCapabilities, ProjectionCommand, ProjectionSnapshot, SelectionId,
+    TimelineItem, TimelineProjection, WhyNode, WhyProjection,
 };
 
 const ARTIFACTS: [EntityId; 6] = [
@@ -129,6 +129,7 @@ fn briefing(world: &World, artifacts: &[EntityId]) -> BriefingProjection {
         .filter_map(|id| {
             let entity = world.state().entity(*id)?;
             Some(BriefingItem {
+                kind: BriefingItemKind::Status,
                 selection: Some(SelectionId::Entity(*id)),
                 title: entity_name(entity),
                 detail: text_component(entity, SUMMARY)

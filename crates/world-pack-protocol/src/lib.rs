@@ -5,10 +5,10 @@ use std::fmt;
 use world_core::{EntityId, EventId, RelationId};
 use world_persistence::{WorldArchive, WorldPackRef};
 use world_projection::{
-    BriefingItem, BriefingProjection, CanvasItem, CanvasItemKind, CanvasProjection, CollectionItem,
-    CollectionProjection, InspectorProjection, InspectorRow, InspectorSection,
-    ProjectionCapabilities, ProjectionCommand, ProjectionIntent, ProjectionSnapshot, SelectionId,
-    TimelineItem, TimelineProjection, WhyNode, WhyProjection,
+    BriefingItem, BriefingItemKind, BriefingProjection, CanvasItem, CanvasItemKind,
+    CanvasProjection, CollectionItem, CollectionProjection, InspectorProjection, InspectorRow,
+    InspectorSection, ProjectionCapabilities, ProjectionCommand, ProjectionIntent,
+    ProjectionSnapshot, SelectionId, TimelineItem, TimelineProjection, WhyNode, WhyProjection,
 };
 
 pub const PACK_MANIFEST_FORMAT: &str = "world-machine-pack";
@@ -508,6 +508,37 @@ pub struct BriefingItemWire {
     pub selection: Option<SelectionIdWire>,
     pub title: String,
     pub detail: String,
+    /// Absent in snapshots written before briefings distinguished news from
+    /// counters; those lines were all presented as news, so that is what they
+    /// decode back to.
+    #[serde(default)]
+    pub kind: BriefingItemKindWire,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BriefingItemKindWire {
+    #[default]
+    Beat,
+    Status,
+}
+
+impl From<BriefingItemKind> for BriefingItemKindWire {
+    fn from(kind: BriefingItemKind) -> Self {
+        match kind {
+            BriefingItemKind::Beat => Self::Beat,
+            BriefingItemKind::Status => Self::Status,
+        }
+    }
+}
+
+impl From<BriefingItemKindWire> for BriefingItemKind {
+    fn from(kind: BriefingItemKindWire) -> Self {
+        match kind {
+            BriefingItemKindWire::Beat => Self::Beat,
+            BriefingItemKindWire::Status => Self::Status,
+        }
+    }
 }
 
 impl From<&BriefingItem> for BriefingItemWire {
@@ -516,6 +547,7 @@ impl From<&BriefingItem> for BriefingItemWire {
             selection: item.selection.map(Into::into),
             title: item.title.clone(),
             detail: item.detail.clone(),
+            kind: item.kind.into(),
         }
     }
 }
@@ -526,6 +558,7 @@ impl From<BriefingItemWire> for BriefingItem {
             selection: item.selection.map(Into::into),
             title: item.title,
             detail: item.detail,
+            kind: item.kind.into(),
         }
     }
 }
@@ -1002,6 +1035,7 @@ mod tests {
                 eyebrow: "Status".into(),
                 title: "World briefing".into(),
                 items: vec![BriefingItem {
+                    kind: BriefingItemKind::Status,
                     selection: Some(entity),
                     title: "Entity seven".into(),
                     detail: "A selected entity".into(),

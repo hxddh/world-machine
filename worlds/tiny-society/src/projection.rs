@@ -9,9 +9,9 @@ use society_basic::{CASH, JOB};
 use world_core::{EntityId, Event, RelationId, Value, World};
 use world_projection::{
     entity_title, inspectors_from_world, timeline_from_world, why_map_from_world, BriefingItem,
-    BriefingProjection, CanvasItem, CanvasItemKind, CanvasProjection, CollectionItem,
-    CollectionProjection, ProjectionCapabilities, ProjectionCommand, ProjectionSnapshot,
-    SelectionId,
+    BriefingItemKind, BriefingProjection, CanvasItem, CanvasItemKind, CanvasProjection,
+    CollectionItem, CollectionProjection, ProjectionCapabilities, ProjectionCommand,
+    ProjectionSnapshot, SelectionId,
 };
 
 const RESIDENTS: [EntityId; 8] = [JONAS, MARA, LEO, EMMA, MIA, NOAH, EVAN, SOFIA];
@@ -138,6 +138,12 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
         world.events()
     };
 
+    // One line per kind of thing that happened. Once Jonas is fishing again he
+    // sells a catch every single day, and three identical "Jonas's catch
+    // reached the mainland" lines are a counter wearing a sentence's clothes.
+    // The most recent occurrence stands for the rest; how many there were is
+    // what the Status counters are for.
+    let mut told = std::collections::BTreeSet::<String>::new();
     let mut items = relevant_events
         .iter()
         .rev()
@@ -167,6 +173,9 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
                 }
                 "payroll_reserve_exhausted" => "A workplace exhausted its payroll reserve",
                 "payroll_shortfall" => "The bakery could not cover payroll",
+                "living_cost_unmet" => "Jonas could not cover his day",
+                "hardship_began" => "Jonas started eating into his savings",
+                "hardship_eased" => "Jonas is covering his own days again",
                 "support_received" => "Leo helped Jonas stay afloat",
                 "support_requested" => "Jonas asked Leo for help",
                 "work_shift_completed"
@@ -183,23 +192,31 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
                 "counter_help_hired" => "Mara took Mia on at the bakery counter",
                 _ => return None,
             };
+            if !told.insert(event.kind.clone()) {
+                return None;
+            }
             Some(BriefingItem {
                 selection: Some(SelectionId::Event(event.id)),
                 title: title.into(),
                 detail: format!("World time {} · Event #{}", event.world_time, event.id),
+                kind: BriefingItemKind::Beat,
             })
         })
         .take(4)
         .collect::<Vec<_>>();
 
+    // Counters travel with the briefing but are marked Status, not Beat:
+    // "Harbor Bakery had customers · 40 purchases · 400 revenue" answers "was
+    // anything happening at all?", never "what happened?". Keeping them here
+    // costs nothing now that the distinction is carried in the projection, and
+    // dropping them would throw away the one number that makes a quiet stretch
+    // legible.
     if since_event_count.is_some() {
         if let Some(sales) = bakery_sales_summary(world, relevant_events) {
             items.push(sales);
-            items.truncate(4);
         }
         if let Some(activity) = living_activity_summary(world, relevant_events) {
             items.push(activity);
-            items.truncate(4);
         }
     }
 
@@ -224,6 +241,7 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
             selection: None,
             title: title.into(),
             detail,
+            kind: BriefingItemKind::Status,
         });
     }
 
@@ -264,6 +282,7 @@ fn harbor_today(world: &World) -> BriefingItem {
         .map(|cash| format!(", cash {cash}"))
         .unwrap_or_default();
     BriefingItem {
+        kind: BriefingItemKind::Status,
         selection: Some(SelectionId::Entity(BAKERY)),
         title: "Harbor today".into(),
         detail: format!(
@@ -308,6 +327,7 @@ fn bakery_sales_summary(world: &World, events: &[Event]) -> Option<BriefingItem>
     };
 
     Some(BriefingItem {
+        kind: BriefingItemKind::Status,
         selection: Some(SelectionId::Event(latest.id)),
         title: "Harbor Bakery had customers".into(),
         detail: format!(
@@ -349,6 +369,7 @@ fn living_activity_summary(world: &World, events: &[Event]) -> Option<BriefingIt
     let shift_label = if shifts.len() == 1 { "shift" } else { "shifts" };
 
     Some(BriefingItem {
+        kind: BriefingItemKind::Status,
         selection: Some(SelectionId::Event(latest.id)),
         title: "The world moved forward".into(),
         detail: format!(
@@ -516,5 +537,152 @@ mod tests {
         let items = quiet.briefing.expect("briefing").items;
         assert_eq!(items[0].title, "Harbor today");
         assert_eq!(items[1].title, "No new events");
+    }
+}
+
+#[cfg(test)]
+mod running_out_tests {
+    use super::*;
+    use crate::TinySociety;
+
+    /// Visiting the World the way the app does: a stretch of background time,
+    /// then a briefing covering only that stretch.
+    fn visit(branch: &mut crate::TinySocietyBranch, days: u64) -> BriefingProjection {
+        let cursor = branch.visit_cursor();
+        branch.advance_days(days).unwrap();
+        branch
+            .projection_snapshot_since(cursor)
+            .briefing
+            .expect("Tiny Society has a return briefing")
+    }
+
+    fn beat_titles(briefing: &BriefingProjection) -> Vec<String> {
+        briefing
+            .beats()
+            .into_iter()
+            .map(|item| item.title.clone())
+            .collect()
+    }
+
+    #[test]
+    fn running_out_of_money_is_something_the_visitor_is_told_about() {
+        let mut society = TinySociety::new().unwrap();
+        society.run_story().unwrap();
+        let mut branch = society.branch();
+
+        // Jonas leaves the opening story unemployed with savings to burn. The
+        // burning used to be invisible: his cash fell from 85 towards nothing
+        // over twenty periods and every briefing in between said only that the
+        // bakery had customers.
+        let mut told = Vec::new();
+        for _ in 0..8 {
+            told.extend(beat_titles(&visit(&mut branch, 4)));
+        }
+
+        assert!(
+            told.iter()
+                .any(|title| title == "Jonas started eating into his savings"),
+            "a visitor is told when Jonas starts spending savings he cannot replace, got {told:?}"
+        );
+        assert!(
+            told.iter()
+                .any(|title| title == "Jonas could not cover his day"),
+            "a visitor is told when Jonas can no longer cover a day at all, got {told:?}"
+        );
+    }
+
+    #[test]
+    fn running_out_of_money_is_told_once_rather_than_every_day() {
+        let mut society = TinySociety::new().unwrap();
+        society.run_story().unwrap();
+        let mut branch = society.branch();
+        branch.advance_days(120).unwrap();
+
+        for kind in ["hardship_began", "living_cost_unmet"] {
+            let occurrences = branch
+                .world()
+                .events()
+                .iter()
+                .filter(|event| event.kind == kind)
+                .count();
+            assert_eq!(
+                occurrences, 1,
+                "{kind} marks a crossing, so it happens once per spell, not once a day"
+            );
+        }
+    }
+
+    #[test]
+    fn a_day_jonas_cannot_pay_for_no_longer_passes_in_silence() {
+        let mut society = TinySociety::new().unwrap();
+        society.run_story().unwrap();
+        let mut branch = society.branch();
+        branch.advance_days(120).unwrap();
+
+        let unmet = branch
+            .world()
+            .events()
+            .iter()
+            .find(|event| event.kind == "living_cost_unmet")
+            .expect("Jonas eventually cannot cover a day");
+        // The scheduler used to return early here and record nothing at all,
+        // which is why the World appeared to freeze with Jonas at 5 cash.
+        assert_eq!(unmet.actor, Some(JONAS));
+        assert!(matches!(
+            unmet.payload.get("shortfall"),
+            Some(Value::Integer(shortfall)) if *shortfall > 0
+        ));
+    }
+
+    #[test]
+    fn counters_are_never_told_as_news() {
+        let mut society = TinySociety::new().unwrap();
+        society.run_story().unwrap();
+        let mut branch = society.branch();
+
+        // A stretch long enough that the bakery and the shifts both have
+        // something to total up.
+        let briefing = visit(&mut branch, 8);
+        for title in ["Harbor today", "Harbor Bakery had customers"] {
+            let item = briefing
+                .items
+                .iter()
+                .find(|item| item.title == title)
+                .unwrap_or_else(|| panic!("{title} is part of a return briefing"));
+            assert_eq!(
+                item.kind,
+                BriefingItemKind::Status,
+                "{title} totals up the routine and is not news"
+            );
+        }
+        assert!(
+            !beat_titles(&briefing).contains(&"Harbor Bakery had customers".to_string()),
+            "a counter must never reach the visitor as a beat"
+        );
+    }
+
+    #[test]
+    fn a_thing_that_happens_every_day_is_told_once() {
+        let mut society = TinySociety::new().unwrap();
+        society.run_story().unwrap();
+        let mut branch = society.branch();
+        branch.advance_days(10).unwrap();
+        branch
+            .invoke_projection_command(crate::REPAIR_BOAT_COMMAND)
+            .unwrap();
+
+        // Once Sea Finch is back in the water Jonas sells a catch every single
+        // day. Three identical lines about it are a counter wearing a
+        // sentence's clothes.
+        let briefing = visit(&mut branch, 6);
+        let titles = beat_titles(&briefing);
+        let mut unique = titles.clone();
+        unique.sort();
+        unique.dedup();
+        assert_eq!(
+            titles.len(),
+            unique.len(),
+            "each kind of thing that happened is told once, got {titles:?}"
+        );
     }
 }
