@@ -76,6 +76,8 @@ jobs:
         with:
           shared-key: semantic
       - run: bash ./scripts/check-boundaries.sh
+      - name: Check included World Packs agree about their identity
+        run: python3 ./scripts/check-included-packs.py
       - name: Check Pi analyst integration
         run: bash ./scripts/check-pi-analyst.sh
       - name: Check packaged analyst smoke syntax

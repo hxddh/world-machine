@@ -14,9 +14,9 @@ Persistent worlds that remember, evolve, and branch. A World keeps living while 
 
 ## What is inside
 
-- **Pocket Universe** (start here): a tiny persistent world whose inhabitants act on their own. Three chapters unfold over visits: a relationship forms and you choose whether to steer it, a legacy takes shape, then pressure rises against the World's anchor and you hold or reach beyond it.
+- **Pocket Universe** (start here): a tiny persistent world whose inhabitants act on their own. A relationship forms and you choose whether to steer it, a legacy takes shape, trouble rises against the World's anchor, and a successor steps forward — and then the next era begins, facing a different trouble, shaped by how you answered the last one. Left alone, it keeps going without you and says what it decided.
 - **Micro Company**: a two-actor product company that can find traction or run out of cash.
-- **Tiny Society**: the original reference world with economic circulation and institutional risk.
+- **Tiny Society**: a harbour town where money circulates between neighbours. One durable choice about a fishing boat decides whether local spending recovers, whether the bakery reopens, and whether the job the closure cost comes back.
 - Every World is a `.world` document in your library. Open, fork, compare, export, and import them; history is replayed from events, never re-run through an AI.
 
 ## Documentation
