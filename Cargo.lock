@@ -5377,10 +5377,13 @@ dependencies = [
 name = "tiny-society"
 version = "0.2.0"
 dependencies = [
+ "serde_json",
  "society-basic",
  "world-agent",
  "world-core",
  "world-host",
+ "world-library",
+ "world-pack-protocol",
  "world-persistence",
  "world-projection",
 ]
