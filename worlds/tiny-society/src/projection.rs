@@ -206,6 +206,14 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
         .take(BEATS_PER_BRIEFING)
         .collect::<Vec<_>>();
 
+    // Newest first is how you pick which beats to keep; oldest first is how
+    // you read them. Left newest-first, a window reported "Harbor Bakery
+    // closed its doors" above "The bakery could not cover payroll" — the
+    // consequence before its cause, which is a log. Turned around it is the
+    // sentence the World actually wrote: the payroll failed, so the bakery
+    // shut, so the school's income went with it.
+    items.reverse();
+
     // Truncation used to be silent, and with a busier World it started losing
     // the thing a visitor most needed: a window holding a school's payroll
     // collapse and the bakery's closure dropped the household budget cut that
@@ -773,6 +781,47 @@ mod running_out_tests {
             titles.len(),
             unique.len(),
             "each kind of thing that happened is told once, got {titles:?}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod reading_order_tests {
+    use super::*;
+    use crate::TinySociety;
+
+    #[test]
+    fn a_briefing_reads_forwards_even_though_it_keeps_the_newest() {
+        let mut society = TinySociety::new().unwrap();
+        society.run_story().unwrap();
+        let mut branch = society.branch();
+        let cursor = branch.visit_cursor();
+        branch.advance_days(60).unwrap();
+
+        let briefing = branch
+            .projection_snapshot_since(cursor)
+            .briefing
+            .expect("Tiny Society has a return briefing");
+        let times = briefing
+            .beats()
+            .into_iter()
+            .filter_map(|item| match item.selection {
+                Some(SelectionId::Event(id)) => branch.world().event(id),
+                _ => None,
+            })
+            .map(|event| (event.world_time, event.id))
+            .collect::<Vec<_>>();
+
+        assert!(
+            times.len() >= 3,
+            "a long absence has a story, got {times:?}"
+        );
+        let mut sorted = times.clone();
+        sorted.sort();
+        assert_eq!(
+            times, sorted,
+            "beats read in the order they happened, so a cause is never printed \
+             below its own consequence"
         );
     }
 }
