@@ -1,52 +1,48 @@
-> **Status (2026-09-10):** Phase VII shipped as `v0.4.0`. The next entries should come from the owner's real-device verification and usability test rather than from this file. Audit-driven transport hardening stays **frozen**. Every entry below states what a user will see change.
+> **Status (2026-09-10):** The active plan is Phase VIII in [docs/ROADMAP.md](docs/ROADMAP.md) — `0.5 "A World that speaks for itself"`. Audit-driven transport hardening stays **frozen**. Every entry below states what a user will see change.
 
-# Next Coding Task — after v0.4.0
+# Next Coding Task — 0.5, a World that speaks for itself
 
-`v0.4.0` shipped on 2026-09-10 and closed Phase VII. What it was for, measured the same way it was planned:
+`v0.4.0` shipped on 2026-09-10 and made a World's story unbounded. Measuring what it actually reads like:
 
 ```text
-before   all four chapters complete by period 13, then ["pocket-universe.nudge"] forever
-after    13 eras in 80 attended periods, never inert
-
-before   an unattended World stalls at period 18 and never moves again
-after    the same World reaches its third era by period 60, on its own
-
-before   catch-up capped at 7 periods — a week away equalled two days away
-after    capped at one week of World time, and a return that crossed eras says so
+80 periods of play: 586 lines of prose shown, 114 distinct  ->  81% already read
+first repeated line: period 3
+two Worlds, same seed, every answer opposite: 46% of their prose is identical
 ```
 
-## Shipped in 0.4
+The wall at period 13 is gone; the wall at period 3 is not. A World's structure is infinite and its vocabulary is a lookup table of 114 lines, and every new trouble costs eighteen hand-written copy fields per seed.
 
-1. **The era engine.** *(shipped)* The four chapters are the stages of one era, and eras loop.
-2. **A third threat per seed, and history read back.** *(shipped)* Three troubles per seed, selected deterministically from era number, history, and the trouble just survived; a run of the same ending is read back into what the World says.
-3. **Drift: a World that moves without you.** *(shipped)* Every choice has a deadline as well as a default, at most one answered per period, and the return briefing leads with what was decided without you.
-4. **Pacing and the era briefing.** *(shipped)* Catch-up is one week of World time, and a return that crossed eras opens with the era frame instead of a list of periods.
-5. **Ship `v0.4.0`.** *(shipped)*
+Separately, three of three shipped `AgentRuntime` implementations are hand-written branching, `AgentDecision` is `{ action: String }`, and the app has no settings window at all — so "the inhabitants act on their own" means an if/else chain, and the only way to give a World a model is an environment variable and a `pi` CLI.
+
+The items below are in dependency order. Everything except item 4's window can be finished from CI.
+
+## The version
+
+1. **Tiny Society ships in the app.** `build-app.sh` bundles `pocket-universe.worldpack` and `micro-company.worldpack` only. The README advertises Tiny Society, `v0.3.0` shipped its second consequence chain, and nobody who downloaded the app has ever been able to open it.
+   *User-visible change:* the third World the README promises is actually there.
+2. **The narrator seam.** A `world_narrated` Event carrying prose, recorded after a period's consequences resolve, preferred by the briefing and falling back to today's table whenever it is absent, empty, oversized, or slow. Deterministic structure untouched; the table stays the floor. Testable with a scripted narrator, no model involved.
+   *User-visible change:* none yet on its own — this is the seam item 3 fills, and it ships with the fallback proven.
+3. **A local model writes it.** Route the program the Analyst panel already persists into the Pack process, replace the environment variable with a visible choice, and make the narrator call it once per return rather than twice per period.
+   *User-visible change:* the line you read is about your World's actual state rather than the third showing of the same sentence, and two Worlds with the same seed stop sharing their prose.
+4. **The first settings window, and a key for people without a CLI.** Where the app says how it reaches a model, what it costs, and that everything still works without one. The key lives in the macOS Keychain, never in a file.
+   *User-visible change:* a person who has never opened a terminal can give their World a voice, or knowingly decline and lose nothing but the phrasing.
+5. **Ship `v0.5.0`.**
 
 ## Only the owner can do these
 
-They have not moved since `v0.2.1` and they outrank everything below if they produce findings.
+They have not moved since `v0.2.1` and they outrank everything above if they produce findings.
 
 0. **Apple Developer Program.** Enrol, create the Developer ID Application certificate, add the five secrets in [docs/RELEASE_SIGNING.md](docs/RELEASE_SIGNING.md).
    *User-visible change:* the "Open Anyway" detour disappears from the first launch.
 1. **Real-device verification and screenshots.** Install `v0.4.0` on a physical Mac, walk [docs/INSTALL.md](docs/INSTALL.md), capture `docs/screenshots/home.png` and `docs/screenshots/world.png` in light and dark. The CI screenshot job rasterizes no text and cannot substitute.
    *User-visible change:* the README stops describing the app and shows it.
-2. **Usability test.** Three to five non-developers, five minutes each. Phase VII rests entirely on code measurement: it can prove a World keeps producing something to decide, but not whether a real person wants the next era. Findings win over this file.
-
-## Known and waiting, if no findings arrive
-
-3. **The other Packs still end.** The era engine is Pocket Universe's. Tiny Society has two consequence chains and then stops; Micro Company has one arc. Whether they need eras of their own or something else is a content question, and the honest answer needs the usability test first.
-   *User-visible change:* a Tiny Society World is still worth opening on the fifth visit.
-4. **A second Tiny Society branch worth taking.** There is still only one durable fork (repair the boat or not) deciding both chains.
-   *User-visible change:* two different Tiny Society Worlds diverge on more than one choice.
-5. **Carrying a World across a Pack version change.** `v0.4.0` closed every Pocket Universe World saved before it. Phase VII's answer is discipline — content stays additive, so bumps stay rare — and that is now the thing to hold to rather than a mechanism to build. Revisit only if a rules change genuinely has to alter what past Events mean.
-   *User-visible change:* a World keeps opening after an update.
+2. **Usability test.** Three to five non-developers, five minutes each. Phase VII and this plan both rest on code measurement: it can prove 81% of lines repeat, not whether a real person minds. Findings win over this file.
 
 ## Deliberately not doing
 
-- Multi-version Packs, World migration, frozen crates, Pack protocol changes: content stays additive instead, so version bumps stay rare.
-- A background daemon or notifications. `v0.4.0` fixed "the World does not move"; "the World does not move while the app is closed" is a macOS background-execution and notarization problem and waits for notarization.
-- AI-generated content, Windows and Linux, a Pack marketplace.
+- A model deciding what happens rather than how it reads. Structure stays deterministic: the existing tests keep their meaning, and a bad generation costs a clumsy sentence rather than a broken World.
+- Generating a World's rules, a Pack marketplace or remote catalog, multi-version Packs and World migration, Windows and Linux.
+- A background daemon or notifications; that waits on notarization.
 - Further transport, scheduler, or Pack-protocol hardening without a reported failure.
 
 The previous milestone text is kept below for reference.

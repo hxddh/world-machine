@@ -427,6 +427,63 @@ Multi-version Packs and World migration; a background daemon or notifications (t
 
 A World left running produces a next thing to decide indefinitely, two consecutive eras never face the same threat, an era's reading depends on the eras before it, and a World left alone still moves and reports what it decided without you. All four hold, each with a test that fails if it stops holding.
 
+## Phase VIII — 0.5 "A World that speaks for itself"
+
+Status: planned 2026-09-10.
+
+### The measurement this phase exists because of
+
+Playing a Pocket Universe World for eighty periods, counting every line of prose the app puts on screen:
+
+```text
+586 lines shown, 114 of them distinct  ->  81% of what a player reads is a line they have already read
+first repeated line: period 3
+```
+
+And two Worlds seeded the same way, one answering every choice the opposite way from the other, after forty periods:
+
+```text
+54 recorded lines each, 25 identical  ->  46% of their prose is the same words
+```
+
+Phase VII removed the wall at period 13 and made the structure unbounded. The language did not move: `worlds/pocket-universe` carries 710 long string literals, and a new trouble costs eighteen hand-written copy fields per seed. A World's story is now infinite; its vocabulary is a 114-line lookup table, and the first repeat still arrives on the third visit.
+
+The second measurement is about what "the inhabitants act on their own" currently means. Every `AgentRuntime` implementation that ships is hand-written branching, and `AgentDecision` is `{ action: String }` — a model, where one is wired at all, picks between two offered actions and writes nothing.
+
+### What makes this cheap, and why it is not a kernel change
+
+`World::replay()` applies the `StateChange`s of recorded Events and never re-runs `evaluate()`. Text written into an Event is therefore durable, replay-exact, and never regenerated. "Replay never re-runs AI" is not a constraint to work around here; it is the foundation this phase stands on. No new kernel primitive, no protocol change, no migration.
+
+### Pillar 1 — the World writes in its own words
+
+The deterministic path is untouched and always writes its table line. A **narrator pass** then runs when an observer is about to read: it takes the facts already recorded — the era, the trouble, what was decided and by whom — and records a `world_narrated` Event carrying prose. The briefing prefers that prose and falls back to the table.
+
+Three properties make this safe rather than exciting:
+
+- **The table is the floor, generation is the decoration.** Empty, oversized, slow, offline, or absent model: the World reads exactly as it does today. A World is never worse for having tried.
+- **Structure is not on the table.** Which trouble comes next, when an era turns, what drifts, what a choice costs — all stay deterministic. The model is given the facts and asked only for the sentence. Every existing test keeps its meaning.
+- **One call per return, not per period.** The simulation resolves instantly as it does now, including a twenty-eight-period catch-up; the narrator runs once for what is about to be read.
+
+World data goes into the prompt as untrusted data under the discipline `world-pi-rpc` already established, and the narrator has no tools, no filesystem, and no mutation authority.
+
+### Pillar 2 — a stranger can install it and reach all of it
+
+- `build-app.sh` bundles two of the three Packs the README advertises; Tiny Society, shipped in `v0.3.0`, has never been reachable by anyone who downloaded the app.
+- **Install a World Pack** is a file picker, and no `.worldpack` file exists for a user to pick.
+- The app has no settings surface at all. The only model configuration lives in the Analyst panel and requires the user to have installed a `pi` CLI and to know an environment variable.
+
+So: Tiny Society ships in the app; the app gains its first settings window, which says how it reaches a model and what happens when it cannot; and the choice of a World's mind stops being an environment variable.
+
+Two paths to a model, local first: a local agent CLI the user already has (no key handling, and enough to prove whether generated prose is actually better), and an API key stored in the macOS Keychain for people who have no such CLI.
+
+### Explicitly out of scope for 0.5
+
+Notarization, which remains owner-only and unblocked by nothing here. A model deciding what happens rather than how it reads. A Pack marketplace or remote catalog. Multi-version Packs and World migration. Windows and Linux. Generating a World's rules rather than its words.
+
+### Accepted when
+
+The share of repeated lines over eighty periods is measured again and has fallen, two Worlds with the same seed no longer share their prose, every World still reads completely with no model configured, and somebody who downloads the app can open all three Worlds and can tell from the app alone how to give it a model.
+
 ## After 0.2
 
 Decide the next phase from real usage, not from architectural interest. Candidates, in rough order:
