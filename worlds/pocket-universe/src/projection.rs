@@ -239,6 +239,32 @@ fn succession_nudge_copy(world: &World) -> Option<(&'static str, &'static str)> 
     })
 }
 
+/// How many eras turned while nobody was looking, and where that leaves the
+/// World. A long absence used to read as a list of periods; the era it crossed
+/// is the thing that actually happened in it.
+fn eras_turned_item(world: &World, events: &[Event]) -> Option<BriefingItem> {
+    let turned = events
+        .iter()
+        .filter(|event| event.kind == "era_began")
+        .collect::<Vec<_>>();
+    let latest = turned.last()?;
+    let era = era::era_from_state(world.state());
+    let left_during = era - turned.len() as i64;
+    let summary = payload_text(latest, "summary").unwrap_or("");
+    let title = if turned.len() == 1 {
+        "An era turned".to_string()
+    } else {
+        format!("{} eras turned", turned.len())
+    };
+    Some(BriefingItem {
+        selection: Some(SelectionId::Event(latest.id)),
+        title,
+        detail: format!("You left during era {left_during}; this is era {era}. {summary}")
+            .trim_end()
+            .to_string(),
+    })
+}
+
 /// What the World settled while nobody was answering. Only on a return digest:
 /// on a fresh visit there is no "since" to have missed anything in.
 fn decided_without_you_item(events: &[Event]) -> Option<BriefingItem> {
@@ -809,9 +835,14 @@ fn briefing(world: &World, seeded: bool, since_event_count: Option<usize>) -> Br
     if let Some(since) = since_event_count.filter(|since| *since < world.events().len()) {
         let events = &world.events()[since..];
         let mut items = return_digest_items(events);
-        // What the World settled for itself comes first: it is the thing a
-        // returning observer most needs to know and least expects.
+        // What the World settled for itself comes before the routine churn: it
+        // is the thing a returning observer least expects.
         if let Some(item) = decided_without_you_item(events) {
+            items.insert(0, item);
+        }
+        // And an era that turned frames everything else, so it goes above even
+        // that.
+        if let Some(item) = eras_turned_item(world, events) {
             items.insert(0, item);
         }
         items.push(return_compass_item(world));

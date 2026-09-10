@@ -3671,12 +3671,56 @@ mod tests {
             .briefing
             .expect("a return has a briefing");
         assert_eq!(briefing.title, "While you were away");
-        let first = briefing.items.first().expect("a return digest has items");
-        assert_eq!(
-            first.title, "Decided without you",
-            "the World buried what it decided under everything else"
+        let titles = briefing
+            .items
+            .iter()
+            .map(|item| item.title.as_str())
+            .collect::<Vec<_>>();
+        let decided = titles
+            .iter()
+            .position(|title| *title == "Decided without you")
+            .unwrap_or_else(|| panic!("nothing said what the World decided: {titles:?}"));
+        // Only the era frame is allowed above it; routine churn is not.
+        assert!(
+            decided <= 1,
+            "the World buried what it decided under {titles:?}"
         );
-        assert!(!first.detail.is_empty());
+        assert!(!briefing.items[decided].detail.is_empty());
+    }
+
+    #[test]
+    fn a_long_absence_reads_as_the_eras_it_crossed() {
+        // A week away is now twenty-eight periods rather than seven, so the
+        // digest has to say what an absence amounted to instead of counting
+        // the routine events inside it.
+        let mut universe = freshly_seeded(SEED_MARS_COLONY_COMMAND);
+        live_with(&mut universe, 12, false);
+        let left_during = era_of(&universe);
+        let cursor = universe.world().events().len();
+        live_with(&mut universe, 28, false);
+
+        let briefing = universe
+            .projection_snapshot_since(Some(cursor))
+            .briefing
+            .expect("a return has a briefing");
+        let first = briefing.items.first().expect("a return digest has items");
+        let era = era_of(&universe);
+        assert!(
+            era > left_during,
+            "the absence did not cross an era, so this test proves nothing"
+        );
+        assert!(
+            first.title.ends_with("eras turned") || first.title == "An era turned",
+            "a return spanning eras led with {:?}",
+            first.title
+        );
+        assert!(
+            first.detail.starts_with(&format!(
+                "You left during era {left_during}; this is era {era}."
+            )),
+            "the era frame does not say where the absence started and ended: {:?}",
+            first.detail
+        );
     }
 
     #[test]
