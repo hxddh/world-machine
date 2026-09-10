@@ -789,11 +789,20 @@ pub mod canvas_layout {
     pub const ORIGIN_Y: f32 = 12.0;
     pub const SPAN_X: f32 = 288.0;
     pub const SPAN_Y: f32 = 240.0;
-    pub const ITEM_WIDTH: f32 = 130.0;
+    /// Narrower than the column pitch by enough for an edge to be seen
+    /// running between two columns. At 130 the gutter was 14pt and a line in
+    /// it read as a smudge.
+    pub const ITEM_WIDTH: f32 = 112.0;
     /// Tall enough for the two lines a canvas item carries plus its padding.
     /// At 46 the second line was clipped.
     pub const ITEM_HEIGHT: f32 = 58.0;
-    pub const EDGE_THICKNESS: f32 = 2.0;
+    pub const EDGE_THICKNESS: f32 = 4.0;
+
+    /// The clear space between two columns of boxes, which is all the room an
+    /// edge has to be visible in once the boxes are drawn over it.
+    pub fn gutter() -> f32 {
+        SPAN_X / (COLUMNS - 1) as f32 - ITEM_WIDTH
+    }
 
     /// The narrowest centre column the World window offers, at the smallest
     /// window size that has ever been screenshotted: a 1024pt window less the
@@ -1708,6 +1717,20 @@ mod tests {
         assert_eq!((edge.from_x, edge.from_y), position(edge.from));
         assert_eq!((edge.to_x, edge.to_y), position(edge.to));
         assert_ne!((edge.from_x, edge.from_y), (0.5, 0.5));
+    }
+
+    #[test]
+    fn an_edge_has_room_to_be_seen_between_two_columns() {
+        use canvas_layout::*;
+        // Boxes are drawn over the edges, so the only part of an edge that
+        // shows is the run between two columns. If that gap is not
+        // comfortably wider than the stroke, the edge reads as a smudge
+        // rather than a connection.
+        assert!(
+            gutter() >= EDGE_THICKNESS * 4.0,
+            "a {}pt gutter cannot show a {EDGE_THICKNESS}pt edge",
+            gutter()
+        );
     }
 
     #[test]

@@ -333,7 +333,7 @@ impl ProjectionView {
             .top(px(rect.top))
             .w(px(rect.width))
             .h(px(rect.height))
-            .bg(crate::theme_rgb(0xb9bfb4))
+            .bg(crate::theme_rgb(0x8f9a8a))
     }
 
     fn render_canvas(&self, cx: &mut Context<Self>) -> Div {
