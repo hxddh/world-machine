@@ -2,7 +2,7 @@
 
 Releases live on the [Releases page](https://github.com/hxddh/world-machine/releases). `0.2.0` is the first release intended to be usable without reading the repository; the `v0.1.0-pre.N` tags below were its pre-releases.
 
-## Unreleased
+## v0.5.2 (2026-09-10)
 
 - **A new app icon.** The first one was a node joined to two smaller nodes, which is the share glyph every platform already uses and said nothing about what this app does. It is now a single stroke that spirals outward from the centre, thin and pale where a World's history begins and broad and warm at the present — the one shape that means "this kept going while you were away".
 - **Full screen.** The Window menu had Minimize and Zoom but no **Enter Full Screen**, and ⌃⌘F — which works in every other Mac app — did nothing. AppKit only adds that item for apps whose menus come from a nib, and this app builds its menus in code, so it had to be added by hand.
