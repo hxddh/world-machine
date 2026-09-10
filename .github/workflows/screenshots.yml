@@ -83,6 +83,15 @@ jobs:
             || echo "UI scripting refused: full screen not exercised"
           sleep 8
           screencapture -x shots/06-world-fullscreen.png
+          # A window that did not go full screen has two possible causes, and
+          # they need different fixes: the app has no such shortcut, or the
+          # runner never delivered the keystroke. cmd-m is bound by the app
+          # itself, so this shot tells the two apart — a minimized window here
+          # means UI scripting works and shot 06 is about the app.
+          osascript -e 'tell application "System Events" to keystroke "m" using {command down}' \
+            || echo "UI scripting refused: the minimize control shot proves nothing"
+          sleep 5
+          screencapture -x shots/07-ui-scripting-control.png
           osascript -e 'tell application "World Machine" to quit' || true
           sleep 2
           launchctl unsetenv WORLD_MACHINE_LIBRARY_DIR || true
