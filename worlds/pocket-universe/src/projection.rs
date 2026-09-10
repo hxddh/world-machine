@@ -1,4 +1,4 @@
-use crate::era;
+use crate::era::{self, EraStanding};
 use crate::pressure::{self, PRESSURE_OUTCOME};
 use crate::succession::{self, SuccessorStanding, SUCCESSION, SUCCESSION_OUTCOME};
 use crate::{
@@ -255,10 +255,21 @@ fn era_item(world: &World) -> Option<BriefingItem> {
         _ => "kept what it was handed",
     };
     let summary = payload_text(event, "summary").unwrap_or("").to_string();
+    // A run of the same ending is a fact about the World, not about this era,
+    // so it is read from the log here rather than recorded in the Event.
+    let detail = match era::standing(&era::era_endings(world)) {
+        EraStanding::Settled(run) => format!(
+            "{summary} {run} eras running have handed their habits on unchanged; nobody keeping them now chose them."
+        ),
+        EraStanding::Restless(run) => format!(
+            "{summary} {run} eras running have been rewritten; nothing here is older than one keeper."
+        ),
+        EraStanding::Mixed => summary,
+    };
     Some(BriefingItem {
         selection: Some(SelectionId::Event(event.id)),
         title: format!("Era {era} · {inherited}"),
-        detail: summary,
+        detail,
     })
 }
 

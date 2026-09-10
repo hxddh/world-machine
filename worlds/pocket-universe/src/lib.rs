@@ -3569,6 +3569,37 @@ mod tests {
     }
 
     #[test]
+    fn a_world_that_keeps_answering_the_same_way_is_told_so() {
+        let mut settled = freshly_seeded(SEED_MARS_COLONY_COMMAND);
+        live_with(&mut settled, 30, false);
+        let detail = |universe: &PocketUniverse| {
+            universe
+                .projection_snapshot()
+                .briefing
+                .unwrap()
+                .items
+                .iter()
+                .find(|item| item.title.starts_with("Era "))
+                .expect("a World past its first era says so")
+                .detail
+                .clone()
+        };
+        assert!(
+            detail(&settled).contains("handed their habits on unchanged"),
+            "a World that keeps entrusting is not told it has a pattern: {}",
+            detail(&settled)
+        );
+
+        let mut restless = freshly_seeded(SEED_MARS_COLONY_COMMAND);
+        live_with(&mut restless, 30, true);
+        assert!(
+            detail(&restless).contains("rewritten"),
+            "a World that keeps releasing is not told it has a pattern: {}",
+            detail(&restless)
+        );
+    }
+
+    #[test]
     fn the_quiet_stretch_after_an_era_opens_says_it_is_quiet() {
         let mut universe = freshly_seeded(SEED_MARS_COLONY_COMMAND);
         live_with(&mut universe, 14, false);
