@@ -9,6 +9,8 @@ mod included_packs;
 #[cfg(target_os = "macos")]
 mod observer;
 #[cfg(target_os = "macos")]
+mod settings;
+#[cfg(target_os = "macos")]
 mod strategy_compare;
 #[cfg(target_os = "macos")]
 mod system_open;

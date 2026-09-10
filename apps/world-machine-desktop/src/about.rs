@@ -18,6 +18,7 @@ actions!(
     world_machine,
     [
         About,
+        Settings,
         Quit,
         CopyDiagnostics,
         OpenLogFolder,
@@ -52,6 +53,7 @@ actions!(
 /// application starts and before the first window opens.
 pub fn install(cx: &mut App) {
     cx.on_action(|_: &About, cx| open_about_window(cx));
+    cx.on_action(|_: &Settings, cx| crate::settings::open(cx));
     cx.on_action(|_: &Quit, cx| {
         diagnostics::info("quit requested from the menu");
         cx.quit();
@@ -93,12 +95,15 @@ pub fn install(cx: &mut App) {
         KeyBinding::new("alt-cmd-h", HideOthers, None),
         KeyBinding::new("cmd-w", CloseWindow, None),
         KeyBinding::new("cmd-m", MinimizeWindow, None),
-        KeyBinding::new("cmd-,", About, None),
+        // Cmd-, is Settings everywhere else on this platform.
+        KeyBinding::new("cmd-,", Settings, None),
     ]);
 
     cx.set_menus([
         Menu::new("World Machine").items([
             MenuItem::action("About World Machine…", About),
+            MenuItem::separator(),
+            MenuItem::action("Settings…", Settings),
             MenuItem::separator(),
             MenuItem::os_submenu("Services", SystemMenuType::Services),
             MenuItem::separator(),

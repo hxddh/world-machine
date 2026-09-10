@@ -27,10 +27,35 @@ pub struct DesktopAnalystSettings {
     /// exactly as it did.
     #[serde(default, skip_serializing_if = "is_off")]
     pub world_voice: bool,
+    /// Which way the voice reaches a model. Absent means the local program,
+    /// which is the only way that existed when this field did not, so a
+    /// settings file written before it keeps behaving as it did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub world_voice_source: Option<VoiceSource>,
 }
 
 fn is_off(value: &bool) -> bool {
     !*value
+}
+
+/// A voice that is actually usable: switched on, with something behind it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ConfiguredVoice {
+    Program(String),
+    Key(String),
+}
+
+/// How a World's voice reaches a model.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum VoiceSource {
+    /// A program already on this Mac. Where it sends anything is between the
+    /// observer and it.
+    #[default]
+    Program,
+    /// A key the observer gave the app. The only way a World's contents leave
+    /// the machine because of World Machine itself.
+    Key,
 }
 
 impl DesktopAnalystSettings {
@@ -40,18 +65,29 @@ impl DesktopAnalystSettings {
             node_program: None,
             pi_program: None,
             world_voice: false,
+            world_voice_source: None,
         }
     }
 
-    /// The program a World should write with, if it has been given one.
+    /// Which way this app should give its Worlds a voice, if any.
     ///
-    /// Both halves have to be true — the voice turned on, and a program chosen
-    /// — so the rule lives here rather than being re-derived by each caller.
-    pub fn configured_voice_program(&self) -> Option<String> {
+    /// Every half has to be true — the voice turned on, a source chosen, and
+    /// that source actually configured — so the rule lives here rather than
+    /// being re-derived by each caller. A voice switched on with nothing behind
+    /// it is no voice, and the Worlds read from their built-in copy.
+    pub fn configured_voice(&self, stored_key: Option<String>) -> Option<ConfiguredVoice> {
         if !self.world_voice {
             return None;
         }
-        Some(self.pi_program.as_ref()?.display().to_string())
+        match self.world_voice_source.unwrap_or_default() {
+            VoiceSource::Program => Some(ConfiguredVoice::Program(
+                self.pi_program.as_ref()?.display().to_string(),
+            )),
+            VoiceSource::Key => {
+                let key = stored_key?;
+                (!key.trim().is_empty()).then(|| ConfiguredVoice::Key(key))
+            }
+        }
     }
 
     pub fn validate(&self) -> Result<(), DesktopAnalystSettingsError> {
@@ -223,6 +259,16 @@ pub fn save_world_voice(root: &Path, on: bool) -> Result<(), DesktopAnalystSetti
     update_settings(root, move |settings| settings.world_voice = on)
 }
 
+/// Which way the voice reaches a model.
+pub fn save_world_voice_source(
+    root: &Path,
+    source: VoiceSource,
+) -> Result<(), DesktopAnalystSettingsError> {
+    update_settings(root, move |settings| {
+        settings.world_voice_source = Some(source)
+    })
+}
+
 pub fn clear_node_program(root: &Path) -> Result<(), DesktopAnalystSettingsError> {
     update_settings(root, |settings| settings.node_program = None)
 }
@@ -379,6 +425,7 @@ mod tests {
             node_program: Some(PathBuf::from("/opt/homebrew/bin/node")),
             pi_program: Some(PathBuf::from("/usr/local/bin/pi")),
             world_voice: false,
+            world_voice_source: None,
         };
         save(&fixture.root, &settings).unwrap();
         assert_eq!(load(&fixture.root).unwrap(), settings);
@@ -443,6 +490,7 @@ mod tests {
             node_program: Some(PathBuf::from("/persisted/node")),
             pi_program: Some(PathBuf::from("/persisted/pi")),
             world_voice: false,
+            world_voice_source: None,
         };
         let selected = selections(&settings, Some(PathBuf::from("/env/node")), None);
         assert_eq!(selected.node.program, PathBuf::from("/env/node"));
@@ -480,30 +528,77 @@ mod tests {
     }
 
     #[test]
-    fn a_voice_needs_both_a_switch_and_a_program() {
-        // Either half missing means there is nothing to tell a World, so the
-        // app passes it nothing and the World reads as it always has.
+    fn a_voice_needs_both_a_switch_and_something_behind_it() {
+        // Any half missing means there is nothing to tell a World, so the app
+        // passes it nothing and the World reads as it always has.
         let mut settings = DesktopAnalystSettings::empty();
-        assert_eq!(settings.configured_voice_program(), None);
+        assert_eq!(settings.configured_voice(None), None);
 
         settings.world_voice = true;
         assert_eq!(
-            settings.configured_voice_program(),
+            settings.configured_voice(None),
             None,
-            "a voice was claimed with no program to write with"
+            "a voice was claimed with nothing to write with"
         );
 
         settings.pi_program = Some(PathBuf::from("/saved/pi"));
         assert_eq!(
-            settings.configured_voice_program(),
-            Some("/saved/pi".to_string())
+            settings.configured_voice(None),
+            Some(ConfiguredVoice::Program("/saved/pi".to_string())),
+            "a settings file from before sources existed must keep using its program"
         );
 
         settings.world_voice = false;
         assert_eq!(
-            settings.configured_voice_program(),
+            settings.configured_voice(None),
             None,
             "a World was given a voice its observer had switched off"
+        );
+    }
+
+    #[test]
+    fn a_key_voice_is_the_stored_key_and_never_the_program() {
+        let mut settings = DesktopAnalystSettings::empty();
+        settings.world_voice = true;
+        settings.world_voice_source = Some(VoiceSource::Key);
+        settings.pi_program = Some(PathBuf::from("/saved/pi"));
+
+        assert_eq!(
+            settings.configured_voice(None),
+            None,
+            "a key voice was claimed with no key stored"
+        );
+        assert_eq!(
+            settings.configured_voice(Some("   ".into())),
+            None,
+            "whitespace was accepted as a key"
+        );
+        assert_eq!(
+            settings.configured_voice(Some("sk-ant-test".into())),
+            Some(ConfiguredVoice::Key("sk-ant-test".to_string())),
+            "the key voice fell back to the program that happens to be configured"
+        );
+    }
+
+    #[test]
+    fn the_way_a_voice_reaches_a_model_survives_being_written_down() {
+        let fixture = Fixture::new();
+        save_pi_program(&fixture.root, PathBuf::from("/saved/pi")).unwrap();
+        assert_eq!(load(&fixture.root).unwrap().world_voice_source, None);
+
+        save_world_voice_source(&fixture.root, VoiceSource::Key).unwrap();
+        let stored = load(&fixture.root).unwrap();
+        assert_eq!(stored.world_voice_source, Some(VoiceSource::Key));
+        assert_eq!(
+            stored.pi_program,
+            Some(PathBuf::from("/saved/pi")),
+            "choosing a key threw away the program"
+        );
+
+        save_world_voice_source(&fixture.root, VoiceSource::Program).unwrap();
+        assert_eq!(
+            load(&fixture.root).unwrap().world_voice_source,
+            Some(VoiceSource::Program)
         );
     }
 
@@ -541,6 +636,7 @@ mod tests {
                 node_program: Some(PathBuf::from("/saved/node")),
                 pi_program: Some(PathBuf::from("/saved/pi")),
                 world_voice: false,
+                world_voice_source: None,
             }
         );
 

@@ -7,4 +7,5 @@
 pub mod analyst_readiness;
 pub mod analyst_session;
 pub mod analyst_settings;
+pub mod key_store;
 pub mod window_state;
