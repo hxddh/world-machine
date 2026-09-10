@@ -66,11 +66,8 @@ jobs:
           sleep 3
           STATE="$HOME/Library/Application Support/World Machine/Window State.json"
           mkdir -p "$(dirname "$STATE")"
-          cat > "$STATE" <<'JSON'
-          {"version":1,
-           "home":{"x":0,"y":25,"width":1024,"height":740},
-           "world":{"x":0,"y":25,"width":1024,"height":740}}
-JSON
+          WIDE='{"x":0,"y":25,"width":1024,"height":740}'
+          printf '{"version":1,"home":%s,"world":%s}\n' "$WIDE" "$WIDE" > "$STATE"
           cat "$STATE"
           open -a "$APP"
           sleep 12
