@@ -2,6 +2,11 @@
 
 Releases live on the [Releases page](https://github.com/hxddh/world-machine/releases). `0.2.0` is the first release intended to be usable without reading the repository; the `v0.1.0-pre.N` tags below were its pre-releases.
 
+## Unreleased
+
+- **Tiny Society ships in the app.** It has been advertised in the README since before `v0.2.0` and its second consequence chain shipped in `v0.3.0`, but the packaged app only ever carried Pocket Universe and Micro Company, so nobody who downloaded World Machine could open it. It is now one of the included Worlds on Home, alongside the other two.
+- The Packs the app ships now have to agree about who they are. The Pack's own id and version, what the app expects to find, and what the build actually writes into the app are three lists in three places that cannot see each other; a drift between them makes a bundled World refuse to install, and only on a real Mac. A check now fails the build instead.
+
 ## v0.4.0 (2026-09-10)
 
 **Worlds created before this release will not open.** Pocket Universe moves to `0.18` because the era engine changes the rules its Worlds run under, and a `.world` file records the Pack version it was created with. Export anything you want to keep before updating; Tiny Society and Micro Company Worlds are unaffected.
