@@ -88,5 +88,5 @@ jobs:
           mkdir -p docs/screenshots
           cp shots/* docs/screenshots/
           git add docs/screenshots
-          git commit -m "screenshots: capture from run $GITHUB_RUN_ID on ${{ matrix.runner }} [skip ci]"
+          git commit -m "screenshots: capture from run $GITHUB_RUN_ID on ${{ matrix.runner }}"
           git push origin "$BRANCH"

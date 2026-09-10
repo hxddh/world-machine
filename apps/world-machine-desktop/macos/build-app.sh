@@ -14,6 +14,9 @@ PROFILE="${WORLD_MACHINE_PROFILE:-release}"
 TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT_DIR/target}"
 APP_DIR="${WORLD_MACHINE_APP_DIR:-$TARGET_DIR/bundle/World Machine.app}"
 PLIST_TEMPLATE="$SCRIPT_DIR/Info.plist.in"
+ICON_SOURCE="$SCRIPT_DIR/icon.png"
+ICONSET_DIR="$TARGET_DIR/bundle/AppIcon.iconset"
+RESOURCES_DIR="$APP_DIR/Contents/Resources"
 BINARY_NAME="world-machine-desktop"
 INCLUDED_PACK_DIR="$APP_DIR/Contents/Resources/World Packs"
 ANALYST_RUNTIME_DIR="$APP_DIR/Contents/Resources/Analyst Runtime"
@@ -151,6 +154,38 @@ cp "$BINARY_PATH" "$APP_DIR/Contents/MacOS/$BINARY_NAME"
 chmod +x "$APP_DIR/Contents/MacOS/$BINARY_NAME"
 sed "s/@VERSION@/$VERSION/g" "$PLIST_TEMPLATE" > "$APP_DIR/Contents/Info.plist"
 
+# The Dock, the Finder, the Cmd-Tab switcher and the About window all read
+# the icon from Contents/Resources/AppIcon.icns; without it macOS draws the
+# blank generic-application page and the app has no logo anywhere. sips and
+# iconutil ship with macOS, so one 1024px source produces every size.
+rm -rf "$ICONSET_DIR"
+mkdir -p "$ICONSET_DIR"
+if [[ ! -s "$ICON_SOURCE" ]]; then
+    echo "app icon source is missing or empty: $ICON_SOURCE" >&2
+    exit 1
+fi
+for icon_spec in \
+    "16 icon_16x16" \
+    "32 icon_16x16@2x" \
+    "32 icon_32x32" \
+    "64 icon_32x32@2x" \
+    "128 icon_128x128" \
+    "256 icon_128x128@2x" \
+    "256 icon_256x256" \
+    "512 icon_256x256@2x" \
+    "512 icon_512x512" \
+    "1024 icon_512x512@2x"; do
+    icon_pixels="${icon_spec%% *}"
+    icon_name="${icon_spec#* }"
+    sips -z "$icon_pixels" "$icon_pixels" "$ICON_SOURCE" \
+        --out "$ICONSET_DIR/$icon_name.png" > /dev/null
+done
+iconutil --convert icns "$ICONSET_DIR" --output "$RESOURCES_DIR/AppIcon.icns"
+if [[ ! -s "$RESOURCES_DIR/AppIcon.icns" ]]; then
+    echo "app icon was not produced: $RESOURCES_DIR/AppIcon.icns" >&2
+    exit 1
+fi
+
 for pack_name in "${INCLUDED_PACK_NAMES[@]}"; do
     bundle="$INCLUDED_PACK_DIR/$pack_name.worldpack"
     "$BIN_DIR/$pack_name-pack" --write-bundle "$bundle"
@@ -215,6 +250,9 @@ pack_type = "io.github.hxddh.world-machine.worldpack"
 assert plist["CFBundleExecutable"] == "world-machine-desktop"
 assert plist["CFBundleIdentifier"] == "io.github.hxddh.world-machine"
 assert plist["CFBundlePackageType"] == "APPL"
+assert plist["CFBundleIconFile"] == "AppIcon"
+icon = plist_path.parent / "Resources" / "AppIcon.icns"
+assert icon.is_file() and icon.stat().st_size > 0, icon
 
 document_types = {
     item["LSItemContentTypes"][0]: item

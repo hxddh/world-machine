@@ -176,6 +176,31 @@ impl WorldRegistry {
         self.register_batch(registrations)
     }
 
+    /// Install a source's registrations for the Pack ids nothing has claimed
+    /// yet, and quietly drop the rest.
+    ///
+    /// This is for a fallback source: a set of Worlds compiled into the host
+    /// binary that stand in for the ones an observer has not installed. Such a
+    /// source overlaps the installed Packs by design — the same World can be
+    /// both — and `install_source` would refuse the whole batch as a duplicate
+    /// rather than let the installed Pack stand. Here the already-registered
+    /// Pack always wins, whatever version either side claims, because it is the
+    /// one the observer chose to install.
+    ///
+    /// A source failure still leaves the registry completely unchanged, and so
+    /// does an invalid descriptor among the registrations that would be kept.
+    pub fn install_fallback_source<S>(&mut self, source: &S) -> Result<(), HostError>
+    where
+        S: WorldPackSource + ?Sized,
+    {
+        let registrations = source
+            .registrations()?
+            .into_iter()
+            .filter(|registration| !self.families.contains_key(&registration.descriptor.pack.id))
+            .collect::<Vec<_>>();
+        self.register_batch(registrations)
+    }
+
     /// Atomically register a batch in iteration order. If several versions of
     /// one Pack id are present, the last version in the batch becomes active.
     /// Version strings remain opaque and are never semver-sorted by the Host.
@@ -502,6 +527,92 @@ mod tests {
                 }))
             },
         )
+    }
+
+    #[test]
+    fn a_fallback_source_fills_only_the_gaps_the_installed_packs_leave() {
+        let mut registry = WorldRegistry::new();
+        registry
+            .install_source(&StaticSource {
+                registrations: vec![("shared.world", "2")],
+            })
+            .unwrap();
+
+        registry
+            .install_fallback_source(&StaticSource {
+                registrations: vec![("shared.world", "1"), ("only.builtin", "1")],
+            })
+            .unwrap();
+
+        let active = registry
+            .descriptors()
+            .into_iter()
+            .map(|descriptor| (descriptor.pack.id.clone(), descriptor.pack.version.clone()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            active,
+            vec![
+                ("only.builtin".to_string(), "1".to_string()),
+                ("shared.world".to_string(), "2".to_string()),
+            ]
+        );
+        // The dropped fallback is dropped outright, not kept as an older
+        // compatible version of the installed Pack.
+        assert_eq!(registry.descriptors_for("shared.world").len(), 1);
+    }
+
+    #[test]
+    fn a_fallback_source_claiming_the_same_version_is_dropped_rather_than_refused() {
+        let mut registry = WorldRegistry::new();
+        registry
+            .install_source(&StaticSource {
+                registrations: vec![("shared.world", "1")],
+            })
+            .unwrap();
+
+        // install_source would refuse the whole batch here, which is what made
+        // an installed Pack unreachable behind the built-in copy of itself.
+        assert!(matches!(
+            registry.install_source(&StaticSource {
+                registrations: vec![("shared.world", "1")],
+            }),
+            Err(HostError::DuplicateWorld(_))
+        ));
+
+        registry
+            .install_fallback_source(&StaticSource {
+                registrations: vec![("shared.world", "1")],
+            })
+            .unwrap();
+        assert_eq!(registry.descriptors_for("shared.world").len(), 1);
+    }
+
+    #[test]
+    fn a_fallback_source_that_fails_leaves_the_registry_alone() {
+        let mut registry = WorldRegistry::new();
+        registry
+            .install_source(&StaticSource {
+                registrations: vec![("shared.world", "1")],
+            })
+            .unwrap();
+
+        assert!(registry.install_fallback_source(&FailingSource).is_err());
+        assert_eq!(registry.descriptors().len(), 1);
+    }
+
+    #[test]
+    fn a_fallback_source_still_refuses_an_invalid_descriptor_it_would_keep() {
+        struct InvalidFallback;
+
+        impl WorldPackSource for InvalidFallback {
+            fn registrations(&self) -> Result<Vec<WorldRegistration>, HostError> {
+                Ok(vec![invalid_registration()])
+            }
+        }
+
+        let mut registry = WorldRegistry::new();
+        assert!(registry.install_fallback_source(&InvalidFallback).is_err());
+        assert!(registry.descriptors().is_empty());
     }
 
     fn invalid_registration() -> WorldRegistration {

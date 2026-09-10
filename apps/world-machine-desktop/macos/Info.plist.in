@@ -8,6 +8,10 @@
     <string>World Machine</string>
     <key>CFBundleExecutable</key>
     <string>world-machine-desktop</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>CFBundleIconName</key>
+    <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
     <string>io.github.hxddh.world-machine</string>
     <key>CFBundleInfoDictionaryVersion</key>

@@ -1,6 +1,6 @@
 # Known issues
 
-Current as of `v0.5.0` in the [changelog](../CHANGELOG.md). Report anything else with **Help → Report a Problem…** in the app.
+Current as of `v0.5.1` in the [changelog](../CHANGELOG.md). Report anything else with **Help → Report a Problem…** in the app.
 
 ## Installation
 
@@ -21,4 +21,4 @@ Current as of `v0.5.0` in the [changelog](../CHANGELOG.md). Report anything else
 ## Verification gaps
 
 - The pre-alpha has been exercised through automated tests and CI-built screenshots, not yet on a wide range of real Macs. Layout on small screens and with large accessibility text sizes is unverified.
-- The CI screenshot runner renders layout but no text (a GPUI glyph-atlas limitation inside Apple Virtualization), so the screenshots in the repository are taken by hand on a real Mac.
+- The CI screenshot runner produced images with layout but no text through `v0.5.0`. That was not a limitation of the runner: the app itself rendered no text anywhere, on CI and on real Macs alike, and `v0.5.1` fixes it. Screenshots in the repository are still taken by hand on a real Mac.

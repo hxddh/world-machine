@@ -2518,7 +2518,16 @@ impl WorldMachineHome {
             .items_center()
             .gap_3()
             .child(
+                // Without a basis of its own this column asks for the whole
+                // sentence on one line and pushes the buttons past the window
+                // edge at the size Home opens at, which put the app's own
+                // first-run call to action half off screen. flex_1 alone is not
+                // enough: a flex item's automatic minimum size is its content,
+                // so the column still refuses to go narrower than the sentence
+                // until min_w_0 says it may.
                 div()
+                    .flex_1()
+                    .min_w_0()
                     .flex()
                     .flex_col()
                     .gap_1()
@@ -2533,6 +2542,7 @@ impl WorldMachineHome {
             )
             .child(
                 div()
+                    .flex_shrink_0()
                     .flex()
                     .gap_2()
                     .child(
@@ -3442,8 +3452,18 @@ fn discover_pack_catalog_path(library: &WorldLibrary) -> PathBuf {
 }
 
 #[cfg(target_os = "macos")]
+/// The Worlds this app can create and open.
+///
+/// Installed Packs go in first and the in-process copies only fill the gaps
+/// they leave. The two overlap: a World that ships as a real Pack is also
+/// compiled into this binary, and the Host refuses to register one Pack id and
+/// version twice — rightly, since two registrations claiming to be the same
+/// Pack version cannot both be it. Installing the built-ins first made that
+/// collision fail the Pack the observer actually installed, so Home reported a
+/// Registry rebuild failure on every launch and the installed Pack never
+/// became reachable. An installed Pack is the one that wins.
 fn build_registry(catalog: Option<&PackCatalog>) -> Result<world_host::WorldRegistry, String> {
-    let mut registry = world_builtins::registry().map_err(|error| error.to_string())?;
+    let mut registry = world_host::WorldRegistry::new();
     if let Some(catalog) = catalog {
         let source = catalog
             .trusted_source()
@@ -3453,6 +3473,9 @@ fn build_registry(catalog: Option<&PackCatalog>) -> Result<world_host::WorldRegi
             .install_source(&source)
             .map_err(|error| error.to_string())?;
     }
+    registry
+        .install_fallback_source(&world_builtins::BuiltinWorlds)
+        .map_err(|error| error.to_string())?;
     Ok(registry)
 }
 
