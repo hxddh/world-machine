@@ -32,6 +32,7 @@ actions!(
         CloseWindow,
         MinimizeWindow,
         ZoomWindow,
+        ToggleFullScreen,
         // File menu, handled by Home wherever it is.
         ImportWorld,
         InstallPack,
@@ -88,6 +89,11 @@ pub fn install(cx: &mut App) {
             let _ = window.update(cx, |_, window, _| window.zoom_window());
         }
     });
+    cx.on_action(|_: &ToggleFullScreen, cx| {
+        if let Some(window) = cx.active_window() {
+            let _ = window.update(cx, |_, window, _| window.toggle_fullscreen());
+        }
+    });
 
     cx.bind_keys([
         KeyBinding::new("cmd-q", Quit, None),
@@ -95,6 +101,11 @@ pub fn install(cx: &mut App) {
         KeyBinding::new("alt-cmd-h", HideOthers, None),
         KeyBinding::new("cmd-w", CloseWindow, None),
         KeyBinding::new("cmd-m", MinimizeWindow, None),
+        // Every other Mac app enters full screen on ctrl-cmd-f. AppKit only
+        // adds that item to an app's Window menu when the menu comes from a
+        // nib, and this app builds its menus in code, so without these two
+        // lines the shortcut does nothing at all.
+        KeyBinding::new("ctrl-cmd-f", ToggleFullScreen, None),
         // Cmd-, is Settings everywhere else on this platform.
         KeyBinding::new("cmd-,", Settings, None),
     ]);
@@ -135,6 +146,7 @@ pub fn install(cx: &mut App) {
         Menu::new("Window").items([
             MenuItem::action("Minimize", MinimizeWindow),
             MenuItem::action("Zoom", ZoomWindow),
+            MenuItem::action("Enter Full Screen", ToggleFullScreen),
             MenuItem::separator(),
             MenuItem::action("Close Window", CloseWindow),
         ]),

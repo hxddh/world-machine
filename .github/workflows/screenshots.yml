@@ -77,12 +77,28 @@ jobs:
           screencapture -x shots/05-world-wide.png
           # Full screen is a green-button/⌃⌘F affordance rather than anything
           # the app draws, so the only way to know it works is to ask for it.
-          # UI scripting needs Accessibility, which the runner may refuse; the
-          # shot is taken either way and says which happened.
+          #
+          # It does not work here, and the control shot below is how we know:
+          # cmd-m, which the app binds itself, does not minimize the window
+          # either. GitHub's macOS runners grant no Accessibility permission,
+          # so System Events accepts the command, osascript exits 0, and the
+          # keystroke goes nowhere. Both shots are kept because they cost
+          # nothing and would start working if that ever changed, but neither
+          # is evidence about the app today: anything needing keyboard or
+          # mouse input has to be checked on a real Mac.
           osascript -e 'tell application "System Events" to keystroke "f" using {control down, command down}' \
             || echo "UI scripting refused: full screen not exercised"
           sleep 8
-          screencapture -x shots/06-world-fullscreen.png
+          screencapture -x shots/06-fullscreen-attempt.png
+          # A window that did not go full screen has two possible causes, and
+          # they need different fixes: the app has no such shortcut, or the
+          # runner never delivered the keystroke. cmd-m is bound by the app
+          # itself, so this shot tells the two apart — a minimized window here
+          # means UI scripting works and shot 06 is about the app.
+          osascript -e 'tell application "System Events" to keystroke "m" using {command down}' \
+            || echo "UI scripting refused: the minimize control shot proves nothing"
+          sleep 5
+          screencapture -x shots/07-ui-scripting-control.png
           osascript -e 'tell application "World Machine" to quit' || true
           sleep 2
           launchctl unsetenv WORLD_MACHINE_LIBRARY_DIR || true

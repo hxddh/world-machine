@@ -21,4 +21,5 @@ Current as of `v0.5.1` in the [changelog](../CHANGELOG.md). Report anything else
 ## Verification gaps
 
 - The pre-alpha has been exercised through automated tests and CI-built screenshots, not yet on a wide range of real Macs. Layout on small screens and with large accessibility text sizes is unverified.
+- **Nothing that needs a keypress or a click is verified anywhere.** The CI screenshot runner can launch the app and open a World, but GitHub's macOS runners grant no Accessibility permission, so no keystroke it sends ever arrives — proven by pressing ⌘M, which the app binds, and watching the window not minimize. Full screen, every keyboard shortcut, and every button click are therefore unchecked until somebody runs the app on a real Mac.
 - The CI screenshot runner produced images with layout but no text through `v0.5.0`. That was not a limitation of the runner: the app itself rendered no text anywhere, on CI and on real Macs alike, and `v0.5.1` fixes it. Screenshots in the repository are still taken by hand on a real Mac.
