@@ -104,6 +104,14 @@ pub(crate) fn save_program(program: AnalystRuntimeProgram, path: PathBuf) -> Res
     result.map_err(|error| error.to_string())
 }
 
+/// Turn a World's voice on or off. The program it uses is the Pi program
+/// configured above, so this is a preference with nothing to act on until one
+/// is set — which is why the caller only offers it once there is.
+pub(crate) fn save_world_voice(on: bool) -> Result<(), String> {
+    let root = analyst_settings::application_support_root().map_err(|error| error.to_string())?;
+    analyst_settings::save_world_voice(&root, on).map_err(|error| error.to_string())
+}
+
 pub(crate) fn clear_program(program: AnalystRuntimeProgram) -> Result<(), String> {
     let root = analyst_settings::application_support_root().map_err(|error| error.to_string())?;
     let result = match program {

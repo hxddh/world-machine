@@ -20,6 +20,17 @@ pub struct DesktopAnalystSettings {
     pub version: u32,
     pub node_program: Option<PathBuf>,
     pub pi_program: Option<PathBuf>,
+    /// Whether the Worlds this app opens are given a voice — the same local
+    /// program, asked to say what happened in a World's own words when you come
+    /// back to it. Off unless somebody turns it on, and omitted from the file
+    /// while it is off, so a settings file written before this existed reads
+    /// exactly as it did.
+    #[serde(default, skip_serializing_if = "is_off")]
+    pub world_voice: bool,
+}
+
+fn is_off(value: &bool) -> bool {
+    !*value
 }
 
 impl DesktopAnalystSettings {
@@ -28,6 +39,7 @@ impl DesktopAnalystSettings {
             version: SETTINGS_VERSION,
             node_program: None,
             pi_program: None,
+            world_voice: false,
         }
     }
 
@@ -193,6 +205,13 @@ pub fn save_pi_program(root: &Path, path: PathBuf) -> Result<(), DesktopAnalystS
     update_settings(root, move |settings| settings.pi_program = Some(path))
 }
 
+/// Turn a World's voice on or off. The program it uses is the Pi program
+/// already configured above; without one, this stays a preference with nothing
+/// to act on, which is why the caller checks both.
+pub fn save_world_voice(root: &Path, on: bool) -> Result<(), DesktopAnalystSettingsError> {
+    update_settings(root, move |settings| settings.world_voice = on)
+}
+
 pub fn clear_node_program(root: &Path) -> Result<(), DesktopAnalystSettingsError> {
     update_settings(root, |settings| settings.node_program = None)
 }
@@ -348,6 +367,7 @@ mod tests {
             version: SETTINGS_VERSION,
             node_program: Some(PathBuf::from("/opt/homebrew/bin/node")),
             pi_program: Some(PathBuf::from("/usr/local/bin/pi")),
+            world_voice: false,
         };
         save(&fixture.root, &settings).unwrap();
         assert_eq!(load(&fixture.root).unwrap(), settings);
@@ -411,6 +431,7 @@ mod tests {
             version: SETTINGS_VERSION,
             node_program: Some(PathBuf::from("/persisted/node")),
             pi_program: Some(PathBuf::from("/persisted/pi")),
+            world_voice: false,
         };
         let selected = selections(&settings, Some(PathBuf::from("/env/node")), None);
         assert_eq!(selected.node.program, PathBuf::from("/env/node"));
@@ -429,6 +450,46 @@ mod tests {
     }
 
     #[test]
+    fn a_settings_file_written_before_voices_existed_still_reads() {
+        // Turning a World's voice on must never cost somebody the programs they
+        // already configured.
+        let fixture = Fixture::new();
+        fs::write(
+            settings_path(&fixture.root),
+            r#"{"version":1,"node_program":"/saved/node","pi_program":"/saved/pi"}"#,
+        )
+        .unwrap();
+        let loaded = load(&fixture.root).unwrap();
+        assert_eq!(loaded.pi_program, Some(PathBuf::from("/saved/pi")));
+        assert!(
+            !loaded.world_voice,
+            "a voice nobody asked for was switched on"
+        );
+    }
+
+    #[test]
+    fn a_voice_is_off_until_it_is_turned_on_and_stays_where_it_is_put() {
+        let fixture = Fixture::new();
+        save_pi_program(&fixture.root, PathBuf::from("/saved/pi")).unwrap();
+        assert!(!load(&fixture.root).unwrap().world_voice);
+
+        save_world_voice(&fixture.root, true).unwrap();
+        let on = load(&fixture.root).unwrap();
+        assert!(on.world_voice);
+        assert_eq!(
+            on.pi_program,
+            Some(PathBuf::from("/saved/pi")),
+            "turning the voice on lost the program it needs"
+        );
+
+        save_world_voice(&fixture.root, false).unwrap();
+        assert!(!load(&fixture.root).unwrap().world_voice);
+        // Off is the default, so it leaves no trace in the file.
+        let written = fs::read_to_string(settings_path(&fixture.root)).unwrap();
+        assert!(!written.contains("world_voice"), "{written}");
+    }
+
+    #[test]
     fn field_updates_preserve_each_other_and_clear_individually_or_together() {
         let fixture = Fixture::new();
         save_node_program(&fixture.root, PathBuf::from("/saved/node")).unwrap();
@@ -439,6 +500,7 @@ mod tests {
                 version: SETTINGS_VERSION,
                 node_program: Some(PathBuf::from("/saved/node")),
                 pi_program: Some(PathBuf::from("/saved/pi")),
+                world_voice: false,
             }
         );
 

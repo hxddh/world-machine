@@ -75,6 +75,12 @@ configured separately because they cost very different amounts.
 | `WORLD_MACHINE_POCKET_UNIVERSE_VOICE` | `none` (default), `pi` | Says what happened, in this World's own words | One request per return, however long the observer was away |
 | `WORLD_MACHINE_PI_PROGRAM` | path (default `pi`) | The program both use | — |
 
+The app sets `…_VOICE` and `…_PI_PROGRAM` on the Pack processes it launches
+when somebody turns **World voice** on in the Analyst settings and has chosen a
+Pi program. A host may only add settings named `WORLD_MACHINE_…` to a Pack's
+environment; anything else is refused, so a host configures a Pack rather than
+reshaping what it inherits.
+
 The mind only ever picks one of two offered actions, so the combination worth
 having is **`MIND=deterministic` with `VOICE=pi`**: the simulation stays
 instant and the prose is the World's own. Both default to off, so a Pack that

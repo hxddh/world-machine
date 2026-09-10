@@ -67,7 +67,15 @@ pub struct ProcessPack {
     pub command: PathBuf,
     pub args: Vec<String>,
     pin: Option<ProcessPackPin>,
+    settings: Vec<(String, String)>,
 }
+
+/// The prefix a host setting has to carry to reach a Pack process.
+///
+/// A host configures a Pack; it does not reshape the Pack's environment. The
+/// prefix keeps that distinction enforceable rather than conventional: `PATH`,
+/// `DYLD_*`, and everything else a Pack inherits stay out of reach.
+pub const PACK_SETTING_PREFIX: &str = "WORLD_MACHINE_";
 
 impl ProcessPack {
     pub fn load(manifest_path: impl AsRef<Path>) -> Result<Self, HostError> {
@@ -100,6 +108,7 @@ impl ProcessPack {
             command,
             args,
             pin: None,
+            settings: Vec::new(),
         })
     }
 
@@ -113,6 +122,38 @@ impl ProcessPack {
     pub fn with_pin(mut self, pin: ProcessPackPin) -> Self {
         self.pin = Some(pin);
         self
+    }
+
+    /// Settings the host hands this Pack's process when it is launched.
+    ///
+    /// Every name must carry [`PACK_SETTING_PREFIX`]; anything else is refused
+    /// rather than quietly dropped, because a setting that silently fails to
+    /// arrive is worse than one that never existed. Values reach the Pack as
+    /// process environment, which is what an external Pack can read without a
+    /// protocol change.
+    pub fn with_settings<I, K, V>(mut self, settings: I) -> Result<Self, HostError>
+    where
+        I: IntoIterator<Item = (K, V)>,
+        K: Into<String>,
+        V: Into<String>,
+    {
+        self.settings = settings
+            .into_iter()
+            .map(|(name, value)| {
+                let name = name.into();
+                if !name.starts_with(PACK_SETTING_PREFIX) {
+                    return Err(HostError::pack_source(format!(
+                        "a Pack setting has to be named {PACK_SETTING_PREFIX}…, not {name}"
+                    )));
+                }
+                Ok((name, value.into()))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(self)
+    }
+
+    pub fn settings(&self) -> &[(String, String)] {
+        &self.settings
     }
 
     pub fn pin(&self) -> Option<&ProcessPackPin> {
@@ -634,6 +675,9 @@ impl ProcessClient {
         if pack.pin.is_none() {
             command.args(&pack.args);
         }
+        for (name, value) in &pack.settings {
+            command.env(name, value);
+        }
         command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -1113,6 +1157,105 @@ mod tests {
             .map(|pack| pack.descriptor.pack.id.as_str())
             .collect::<Vec<_>>();
         assert_eq!(ids, vec!["pack.a", "pack.b"]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_host_setting_reaches_the_pack_process() {
+        // The host configures a Pack by handing it settings when it launches.
+        // Proven by a Pack that writes what it was given to a file.
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = temp_dir("settings");
+        let runtime = root.join("runtime.sh");
+        let observed = root.join("observed");
+        let responses = vec![
+            response_line(
+                1,
+                PackResponse::Descriptor {
+                    descriptor: descriptor(),
+                },
+            ),
+            response_line(
+                2,
+                PackResponse::Snapshot {
+                    snapshot: wire_snapshot(0, "Created externally"),
+                },
+            ),
+        ];
+        let mut script = String::from("#!/bin/sh\n");
+        script.push_str(&format!(
+            "printf '%s' \"$WORLD_MACHINE_TEST_VOICE\" > {}\n",
+            shell_quote(observed.to_str().unwrap())
+        ));
+        for response in &responses {
+            script.push_str("IFS= read -r _line || exit 1\n");
+            script.push_str("printf '%s\\n' ");
+            script.push_str(&shell_quote(response));
+            script.push('\n');
+        }
+        script.push_str("IFS= read -r _shutdown || true\n");
+        fs::write(&runtime, script).unwrap();
+        let mut permissions = fs::metadata(&runtime).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&runtime, permissions).unwrap();
+
+        let manifest = PackManifest::process(descriptor(), "runtime.sh", Vec::new());
+        let manifest_path = root.join("fixture.world-pack.json");
+        fs::write(&manifest_path, manifest.to_json_pretty().unwrap()).unwrap();
+
+        let pack = ProcessPack::load(manifest_path)
+            .unwrap()
+            .with_settings([("WORLD_MACHINE_TEST_VOICE", "pi")])
+            .unwrap();
+        let source = ProcessPackSource::from_packs(vec![pack]);
+        let mut registry = WorldRegistry::new();
+        registry.install_source(&source).unwrap();
+        let session = registry.create("fixture.external").unwrap();
+        assert_eq!(session.snapshot().title, "Created externally");
+        assert_eq!(
+            fs::read_to_string(&observed).unwrap(),
+            "pi",
+            "the Pack process was not given the setting the host configured"
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_host_cannot_reshape_a_pack_environment_under_the_guise_of_a_setting() {
+        let root = temp_dir("settings-refused");
+        let runtime = root.join("runtime.sh");
+        write_fixture_process(&runtime, &[]);
+        let manifest = PackManifest::process(descriptor(), "runtime.sh", Vec::new());
+        let manifest_path = root.join("fixture.world-pack.json");
+        fs::write(&manifest_path, manifest.to_json_pretty().unwrap()).unwrap();
+        let pack = ProcessPack::load(manifest_path).unwrap();
+
+        // A Pack inherits its environment; the host may add settings to it and
+        // nothing else. Refused loudly, because a setting that silently fails
+        // to arrive is worse than one that never existed.
+        for name in [
+            "PATH",
+            "DYLD_INSERT_LIBRARIES",
+            "HOME",
+            "world_machine_voice",
+        ] {
+            let error = pack
+                .clone()
+                .with_settings([(name, "anything")])
+                .expect_err("{name} was accepted as a Pack setting");
+            assert!(
+                format!("{error}").contains(PACK_SETTING_PREFIX),
+                "the refusal does not say what a Pack setting has to look like: {error}"
+            );
+        }
+        assert!(
+            pack.settings().is_empty(),
+            "a Pack carries no settings unless the host gives it some"
+        );
+
+        let _ = fs::remove_dir_all(root);
     }
 
     #[cfg(unix)]
