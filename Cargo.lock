@@ -3882,6 +3882,7 @@ name = "pocket-universe-pack"
 version = "0.18.0"
 dependencies = [
  "pocket-universe",
+ "serde_json",
  "world-host",
  "world-pack-catalog",
  "world-pack-server",

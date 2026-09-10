@@ -74,6 +74,22 @@ configured separately because they cost very different amounts.
 | `WORLD_MACHINE_POCKET_UNIVERSE_MIND` | `deterministic` (default), `pi` | Decides what the World's inhabitants do | Two requests per period — a week-long catch-up is fifty-six |
 | `WORLD_MACHINE_POCKET_UNIVERSE_VOICE` | `none` (default), `pi` | Says what happened, in this World's own words | One request per return, however long the observer was away |
 | `WORLD_MACHINE_PI_PROGRAM` | path (default `pi`) | The program both use | — |
+| `WORLD_MACHINE_ANTHROPIC_API_KEY` | key | Required by `…_VOICE=api` | — |
+
+`…_VOICE` takes `none` (default), `pi` (a local program), or `api` (a key). The
+`api` value without a key is an error rather than a quiet fall back to silence:
+somebody asked for a voice and would otherwise never learn why their Worlds
+stayed the same.
+
+The `api` voice is the only path on which a World's contents leave the machine.
+It sends one request per return to `api.anthropic.com` carrying the facts that
+return is about to show and nothing else, asks `claude-opus-5` at `low` effort
+with a `max_tokens` ceiling of 2048 — a narration the World would refuse above
+one paragraph a line has nothing to gain from a larger one — and gives up after
+30 seconds rather than hanging a return. The key is written to `curl`'s
+configuration on standard input and never becomes a process argument, because
+arguments are readable by every process on the machine; the request body goes to
+a file created `0600` and removed when the narration is done.
 
 The app sets `…_VOICE` and `…_PI_PROGRAM` on the Pack processes it launches
 when somebody turns **World voice** on in the Analyst settings and has chosen a

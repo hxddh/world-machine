@@ -59,7 +59,7 @@ where
 }
 
 /// Ask for one line per fact, numbered, with the World's contents as data.
-fn render_prompt(facts: &[NarrationFacts]) -> String {
+pub(crate) fn render_prompt(facts: &[NarrationFacts]) -> String {
     let mut out = String::new();
     out.push_str(
         "You are the narrator of a small persistent world inside World Machine.\n\
@@ -96,7 +96,7 @@ fn escape(value: &str) -> String {
 ///
 /// Deliberately strict and never fatal: a line that is missing, duplicated,
 /// out of range, or empty simply leaves that fact on its table copy.
-fn parse_lines(response: &str, expected: usize) -> Vec<Option<String>> {
+pub(crate) fn parse_lines(response: &str, expected: usize) -> Vec<Option<String>> {
     let mut lines = vec![None; expected];
     for raw in response.lines() {
         let Some(rest) = raw.trim().strip_prefix(LINE_PREFIX) else {
