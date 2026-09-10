@@ -2,6 +2,10 @@
 
 Releases live on the [Releases page](https://github.com/hxddh/world-machine/releases). `0.2.0` is the first release intended to be usable without reading the repository; the `v0.1.0-pre.N` tags below were its pre-releases.
 
+## Unreleased
+
+- **Full screen.** The Window menu had Minimize and Zoom but no **Enter Full Screen**, and ⌃⌘F — which works in every other Mac app — did nothing. AppKit only adds that item for apps whose menus come from a nib, and this app builds its menus in code, so it had to be added by hand.
+
 ## v0.5.1 (2026-09-10)
 
 **Every release before this one shipped with no text on screen.** World Machine drew its windows, its cards, its buttons and its borders, and every word inside them was invisible — the app was unusable, and had been since the first release. `gpui_platform`, the crate the app opens its window through, ships with an empty default feature set; without `font-kit` it quietly installs a text system that measures text but draws nothing, logs no error, and never crashes. Enabling that feature is the whole fix. A check now fails the build if any desktop app in this repository asks for a window without also asking to be able to render text.
