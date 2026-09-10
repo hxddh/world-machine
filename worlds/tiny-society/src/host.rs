@@ -141,7 +141,7 @@ mod tests {
             (total, notable.len(), notable)
         }
 
-        let (young_total, young, _) = returning_at(0);
+        let (young_total, _, _) = returning_at(0);
         let (mid_total, mid, mid_titles) = returning_at(4);
         let (old_total, old, _) = returning_at(20);
 

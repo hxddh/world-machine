@@ -304,13 +304,11 @@ impl ProjectionSnapshot {
 
     /// The events worth telling somebody about when they come back.
     ///
-    /// A World's history is mostly weather. Measured on a Tiny Society World
-    /// left alone for twenty periods: of 135 recorded events, 122 are three
-    /// kinds — a shift worked, bread bought, living costs paid — and the
-    /// thirteen that are actually news (a worker dismissed, an order lost, a
-    /// boat damaged, a storm) happen exactly once each. Sorted newest first,
-    /// the six most recent rows were three identical shifts and two identical
-    /// purchases, and the storm was nowhere near the top.
+    /// A World's history is mostly weather. Measured on a real World left
+    /// alone for twenty periods: of 135 recorded events, 122 were three
+    /// kinds of routine, and the thirteen that were actually news happened
+    /// exactly once each. Sorted newest first, the six rows at the top were
+    /// all routine and none of the news was near them.
     ///
     /// So recurrence is the signal, and it needs nothing but the history the
     /// World already has: a kind that has happened often enough is weather, a
