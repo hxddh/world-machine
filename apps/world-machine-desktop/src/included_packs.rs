@@ -46,6 +46,15 @@ const INCLUDED_PACKS: &[IncludedPackSpec] = &[
         featured: false,
         file_name: "micro-company.worldpack",
     },
+    IncludedPackSpec {
+        id: "world-machine.tiny-society",
+        version: "0.2.0",
+        title: "Tiny Society",
+        description: "A persistent harbour town where money circulates between neighbours. One durable choice about a fishing boat decides whether local spending recovers, whether the bakery reopens, and whether the job the closure cost comes back.",
+        experience: "Make one durable choice · Watch the money circulate · Live with what closed",
+        featured: false,
+        file_name: "tiny-society.worldpack",
+    },
 ];
 
 pub fn discover() -> io::Result<Vec<IncludedPack>> {
@@ -151,6 +160,7 @@ mod tests {
         let root = scratch_dir();
         fs::create_dir_all(&root).unwrap();
         fs::write(root.join("micro-company.worldpack"), b"company").unwrap();
+        fs::write(root.join("tiny-society.worldpack"), b"society").unwrap();
         fs::write(root.join("pocket-universe.worldpack"), b"pocket").unwrap();
 
         let packs = discover_in(&root);
@@ -161,12 +171,13 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![
                 "world-machine.pocket-universe",
-                "world-machine.micro-company"
+                "world-machine.micro-company",
+                "world-machine.tiny-society"
             ]
         );
         assert_eq!(packs.iter().filter(|pack| pack.featured).count(), 1);
         assert!(packs[0].featured);
-        assert!(!packs[1].featured);
+        assert!(packs[1..].iter().all(|pack| !pack.featured));
 
         fs::remove_dir_all(root).unwrap();
     }

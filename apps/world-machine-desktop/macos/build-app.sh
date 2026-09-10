@@ -45,18 +45,29 @@ sign_executable() {
     fi
 }
 
+# Every World Pack the app ships, named the way it is named on the wire. One
+# list drives the build, the signature, the bundle written into Resources, and
+# the Info.plist check, so those four cannot disagree with each other; and
+# scripts/check-included-packs.py ties this list to the Pack ids the app
+# expects to find and to the versions the world crates actually build.
+INCLUDED_PACK_NAMES=(
+    pocket-universe
+    micro-company
+    tiny-society
+)
+
 PACKAGES=(
     -p world-machine-desktop
     -p world-agent-tool-stdio
-    -p pocket-universe-pack
-    -p micro-company-pack
 )
 BINARIES=(
     world-machine-desktop
     world-agent-tool-stdio
-    pocket-universe-pack
-    micro-company-pack
 )
+for pack_name in "${INCLUDED_PACK_NAMES[@]}"; do
+    PACKAGES+=(-p "$pack_name-pack")
+    BINARIES+=("$pack_name-pack")
+done
 case "$PROFILE" in
     release)
         PROFILE_FLAGS=(--release)
@@ -110,13 +121,14 @@ else:
 
 BINARY_PATH="$BIN_DIR/$BINARY_NAME"
 ANALYST_HOST_BINARY="$BIN_DIR/world-agent-tool-stdio"
-POCKET_UNIVERSE_BINARY="$BIN_DIR/pocket-universe-pack"
-MICRO_COMPANY_BINARY="$BIN_DIR/micro-company-pack"
+PACK_BINARIES=()
+for pack_name in "${INCLUDED_PACK_NAMES[@]}"; do
+    PACK_BINARIES+=("$BIN_DIR/$pack_name-pack")
+done
 for executable in \
     "$BINARY_PATH" \
     "$ANALYST_HOST_BINARY" \
-    "$POCKET_UNIVERSE_BINARY" \
-    "$MICRO_COMPANY_BINARY"; do
+    "${PACK_BINARIES[@]}"; do
     if [[ ! -x "$executable" ]]; then
         echo "built binary is missing or not executable: $executable" >&2
         exit 1
@@ -124,8 +136,9 @@ for executable in \
 done
 
 sign_executable "$ANALYST_HOST_BINARY"
-sign_executable "$POCKET_UNIVERSE_BINARY"
-sign_executable "$MICRO_COMPANY_BINARY"
+for pack_binary in "${PACK_BINARIES[@]}"; do
+    sign_executable "$pack_binary"
+done
 
 rm -rf "$APP_DIR"
 mkdir -p \
@@ -138,14 +151,9 @@ cp "$BINARY_PATH" "$APP_DIR/Contents/MacOS/$BINARY_NAME"
 chmod +x "$APP_DIR/Contents/MacOS/$BINARY_NAME"
 sed "s/@VERSION@/$VERSION/g" "$PLIST_TEMPLATE" > "$APP_DIR/Contents/Info.plist"
 
-"$POCKET_UNIVERSE_BINARY" \
-    --write-bundle "$INCLUDED_PACK_DIR/pocket-universe.worldpack"
-"$MICRO_COMPANY_BINARY" \
-    --write-bundle "$INCLUDED_PACK_DIR/micro-company.worldpack"
-
-for bundle in \
-    "$INCLUDED_PACK_DIR/pocket-universe.worldpack" \
-    "$INCLUDED_PACK_DIR/micro-company.worldpack"; do
+for pack_name in "${INCLUDED_PACK_NAMES[@]}"; do
+    bundle="$INCLUDED_PACK_DIR/$pack_name.worldpack"
+    "$BIN_DIR/$pack_name-pack" --write-bundle "$bundle"
     if [[ ! -s "$bundle" ]]; then
         echo "included World Pack is missing or empty: $bundle" >&2
         exit 1
@@ -190,7 +198,8 @@ fi
 
 plutil -lint "$APP_DIR/Contents/Info.plist"
 
-python3 - "$APP_DIR/Contents/Info.plist" "$INCLUDED_PACK_DIR" "$ANALYST_RUNTIME_DIR" <<'PY'
+python3 - "$APP_DIR/Contents/Info.plist" "$INCLUDED_PACK_DIR" "$ANALYST_RUNTIME_DIR" \
+    "${INCLUDED_PACK_NAMES[@]}" <<'PY'
 import plistlib
 import sys
 from pathlib import Path
@@ -231,10 +240,8 @@ assert "public.data" in pack["UTTypeConformsTo"]
 assert "public.content" in pack["UTTypeConformsTo"]
 assert pack["UTTypeTagSpecification"]["public.filename-extension"] == ["worldpack"]
 
-expected_packs = {
-    "pocket-universe.worldpack",
-    "micro-company.worldpack",
-}
+expected_packs = {f"{name}.worldpack" for name in sys.argv[4:]}
+assert expected_packs, "build-app.sh passed no included Pack names"
 actual_packs = {path.name for path in included_pack_dir.iterdir() if path.is_file()}
 assert actual_packs == expected_packs, (actual_packs, expected_packs)
 assert all((included_pack_dir / name).stat().st_size > 0 for name in expected_packs)

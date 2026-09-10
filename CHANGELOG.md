@@ -4,6 +4,8 @@ Releases live on the [Releases page](https://github.com/hxddh/world-machine/rele
 
 ## Unreleased
 
+- **Tiny Society ships in the app.** It has been advertised in the README since before `v0.2.0` and its second consequence chain shipped in `v0.3.0`, but the packaged app only ever carried Pocket Universe and Micro Company, so nobody who downloaded World Machine could open it. It is now one of the included Worlds on Home, alongside the other two.
+- The Packs the app ships now have to agree about who they are. The Pack's own id and version, what the app expects to find, and what the build actually writes into the app are three lists in three places that cannot see each other; a drift between them makes a bundled World refuse to install, and only on a real Mac. A check now fails the build instead.
 - Groundwork for Worlds that write in their own words: a World can now be given a narrator, and what it says about a consequence is recorded as a durable Event that the briefing prefers over the built-in copy. Nothing changes yet for anyone — no World ships with a narrator — and by design nothing can get worse: a narrator that is absent, silent, or returns something unusable leaves a World reading exactly as it did.
 
 ## v0.4.0 (2026-09-10)
