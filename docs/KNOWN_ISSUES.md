@@ -1,6 +1,6 @@
 # Known issues
 
-Current as of `v0.5.0` in the [changelog](../CHANGELOG.md). Report anything else with **Help → Report a Problem…** in the app.
+Current as of `v0.5.1` in the [changelog](../CHANGELOG.md). Report anything else with **Help → Report a Problem…** in the app.
 
 ## Installation
 
