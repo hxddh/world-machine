@@ -40,7 +40,7 @@ pub(crate) fn register_actions(actions: &mut ActionRegistry) -> Result<(), Actio
 
 /// Advance succession at most one step per period. Runs after the pressure
 /// chapter so the emergence reads the outcome that period wrote.
-pub(crate) fn resolve_period_succession(
+pub(crate) fn resolve_stage(
     world: &mut World,
     actions: &ActionRegistry,
     tail: EventId,
@@ -242,6 +242,16 @@ pub(crate) fn inheritance_note(pressure_outcome: &str, continued: bool) -> &'sta
         ("recovered", false) => "What is being let go was rebuilt once already.",
         (_, true) => "The World hands on what it has.",
         (_, false) => "The World lets go of what it has.",
+    }
+}
+
+pub(crate) fn succession_outcome_from_state(state: &WorldState) -> String {
+    match state
+        .entity(UNIVERSE)
+        .and_then(|entity| entity.component(SUCCESSION_OUTCOME))
+    {
+        Some(Value::Text(outcome)) => outcome.clone(),
+        _ => "none".into(),
     }
 }
 
