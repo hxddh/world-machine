@@ -129,9 +129,9 @@ fn turnover_causes(world: &World) -> Vec<EventId> {
 /// opened with, so a first era reads exactly as it did before eras existed.
 pub(crate) fn pressure_pool(seed: &str) -> &'static [&'static str] {
     match seed {
-        "mars-colony" => &["reclaimer", "dust-season"],
-        "1980s-town" => &["lease", "night-bus"],
-        "penguin-civilization" => &["span", "fish-vault"],
+        "mars-colony" => &["reclaimer", "dust-season", "relay-silence"],
+        "1980s-town" => &["lease", "night-bus", "highway-mall"],
+        "penguin-civilization" => &["span", "fish-vault", "early-thaw"],
         _ => &["strain"],
     }
 }
@@ -155,6 +155,47 @@ pub(crate) fn next_pressure_kind(
         index = (index + 1) % pool.len();
     }
     pool[index]
+}
+
+/// What a World's recent eras add up to. Derived from the event log rather
+/// than stored: the endings are already durable Events, and a projection is
+/// where reading them belongs.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum EraStanding {
+    /// Not enough eras yet to be a pattern.
+    Mixed,
+    /// This many eras running have handed their legacy on unchanged.
+    Settled(usize),
+    /// This many eras running have let their legacy be rewritten.
+    Restless(usize),
+}
+
+/// How each past era ended, oldest first: `true` where the legacy was let go.
+pub(crate) fn era_endings(world: &World) -> Vec<bool> {
+    world
+        .events()
+        .iter()
+        .filter_map(|event| match event.kind.as_str() {
+            "legacy_entrusted" => Some(false),
+            "legacy_released" => Some(true),
+            _ => None,
+        })
+        .collect()
+}
+
+pub(crate) fn standing(endings: &[bool]) -> EraStanding {
+    let Some(last) = endings.last().copied() else {
+        return EraStanding::Mixed;
+    };
+    let run = endings.iter().rev().take_while(|end| **end == last).count();
+    if run < 2 {
+        return EraStanding::Mixed;
+    }
+    if last {
+        EraStanding::Restless(run)
+    } else {
+        EraStanding::Settled(run)
+    }
 }
 
 struct BeginEra;
@@ -334,21 +375,50 @@ mod tests {
     }
 
     #[test]
-    fn two_threats_alternate_and_history_cannot_yet_change_that() {
-        // With a pool of two, the no-repeat rule fully determines the next
-        // threat from the one just survived, so how the World got here cannot
-        // influence it: both histories below land on the same threat. The
-        // `renewed` term is in the selection for when each seed has a third
-        // threat; until then this test states the real, weaker property rather
-        // than pretending the history already matters.
-        let continued = next_pressure_kind("mars-colony", 3, 0, "dust-season");
-        let renewed = next_pressure_kind("mars-colony", 3, 1, "dust-season");
-        assert_eq!(continued, "reclaimer");
-        assert_eq!(renewed, "reclaimer");
+    fn how_the_world_has_lived_changes_which_trouble_comes_next() {
+        // This is the property a two-trouble pool could not have: with only two,
+        // the no-repeat rule fully determined the next trouble from the one just
+        // survived, and history had no room to act. With three it does.
+        let a_settled_world = next_pressure_kind("mars-colony", 3, 0, "dust-season");
+        let a_restless_world = next_pressure_kind("mars-colony", 3, 1, "dust-season");
+        assert_ne!(
+            a_settled_world, a_restless_world,
+            "two Worlds at the same era with different histories met the same trouble"
+        );
 
+        for seed in ["mars-colony", "1980s-town", "penguin-civilization"] {
+            let differing = (2..12)
+                .flat_map(|era| {
+                    pressure_pool(seed)
+                        .iter()
+                        .map(move |survived| (era, *survived))
+                })
+                .filter(|(era, survived)| {
+                    next_pressure_kind(seed, *era, 0, survived)
+                        != next_pressure_kind(seed, *era, 1, survived)
+                })
+                .count();
+            assert!(
+                differing > 0,
+                "{seed}: letting the legacy go never changes what comes next"
+            );
+        }
+    }
+
+    #[test]
+    fn a_run_of_the_same_ending_becomes_a_pattern_and_a_change_breaks_it() {
+        assert_eq!(standing(&[]), EraStanding::Mixed);
+        assert_eq!(standing(&[false]), EraStanding::Mixed);
+        assert_eq!(standing(&[false, false]), EraStanding::Settled(2));
         assert_eq!(
-            next_pressure_kind("mars-colony", 4, 0, "reclaimer"),
-            "dust-season"
+            standing(&[true, false, false, false]),
+            EraStanding::Settled(3)
+        );
+        assert_eq!(standing(&[true, true]), EraStanding::Restless(2));
+        assert_eq!(standing(&[false, false, true]), EraStanding::Mixed);
+        assert_eq!(
+            standing(&[false, false, true, true]),
+            EraStanding::Restless(2)
         );
     }
 
