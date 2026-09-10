@@ -26,7 +26,7 @@ ways to switch it on, which differ in exactly the way that matters here.
 - **A local program you already have.** The app starts the program you chose,
   the same way the World Analyst does. Where that program sends anything is
   between you and it; World Machine bundles no model and no key.
-- **An API key you give the app.** This is the only case where World Machine
+- **An API key you give the app**, entered in **Settings** and kept in your login keychain rather than in any file this app writes — a backup of your Worlds folder never carries one, and you can inspect or delete it yourself in Keychain Access under "World Machine · World voice". This is the only case where World Machine
   itself sends your World's contents anywhere. When you come back to a World,
   one request goes to `api.anthropic.com` carrying the facts that World has
   already recorded — its seed, which era it is, what just happened, and the
