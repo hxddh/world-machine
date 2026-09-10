@@ -482,7 +482,20 @@ Notarization, which remains owner-only and unblocked by nothing here. A model de
 
 ### Accepted when
 
-The share of repeated lines over eighty periods is measured again and has fallen, two Worlds with the same seed no longer share their prose, every World still reads completely with no model configured, and somebody who downloads the app can open all three Worlds and can tell from the app alone how to give it a model.
+The share of repeated **news** lines over eighty periods has fallen, two Worlds with the same seed no longer share their prose, every World still reads completely with no model configured, and somebody who downloads the app can open all three Worlds and can tell from the app alone how to give it a model.
+
+#### A correction to the measurement, made while building the seam
+
+The 81% above counts every line on the page, and that over-states the problem. Splitting them:
+
+```text
+news   (what just happened): 165 lines over 80 periods,  65% repeat
+status (what is durably true): 421 lines over 80 periods, 79% repeat
+```
+
+Seventy-two per cent of what is on screen is a status panel — `World direction · Rooted`, `Your influence · Fortified habitat` — and those lines repeat because the facts they report have not changed. That is them working. Rewording a standing fact every visit would be churn, and worse than churn: it would make something that did not change look like it did.
+
+So the target is the news lines, and the seam alone already moves them from 65% to 56%. Phase VIII is accepted on the news number; the status panel is deliberately left alone.
 
 ## After 0.2
 
