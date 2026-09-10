@@ -302,6 +302,40 @@ impl ProjectionSnapshot {
             .collect()
     }
 
+    /// The events worth telling somebody about when they come back.
+    ///
+    /// A World's history is mostly weather. Measured on a real World left
+    /// alone for twenty periods: of 135 recorded events, 122 were three
+    /// kinds of routine, and the thirteen that were actually news happened
+    /// exactly once each. Sorted newest first, the six rows at the top were
+    /// all routine and none of the news was near them.
+    ///
+    /// So recurrence is the signal, and it needs nothing but the history the
+    /// World already has: a kind that has happened often enough is weather, a
+    /// kind that has barely happened is news. No Pack knows it is being
+    /// judged and no Pack has to say which of its events matter.
+    pub fn notable_events(&self) -> Vec<&TimelineItem> {
+        let counts = self.event_kind_counts();
+        let total = self.timeline.items.len();
+        self.timeline
+            .items
+            .iter()
+            .filter(|item| {
+                let count = counts.get(&item.title).copied().unwrap_or(0);
+                !is_routine(count, total)
+            })
+            .collect()
+    }
+
+    /// How many times each kind of thing has happened in this World.
+    pub fn event_kind_counts(&self) -> BTreeMap<String, usize> {
+        let mut counts = BTreeMap::new();
+        for item in &self.timeline.items {
+            *counts.entry(item.title.clone()).or_insert(0) += 1;
+        }
+        counts
+    }
+
     pub fn relation_identity(&self, relation: RelationId) -> Option<RelationIdentity> {
         self.inspector(SelectionId::Relation(relation))
             .and_then(relation_identity_from_inspector)
@@ -713,6 +747,21 @@ pub struct InspectorSection {
 pub struct InspectorRow {
     pub label: String,
     pub value: String,
+}
+
+/// Below this many occurrences a kind is news however small the World is, so
+/// the first storm in a young World is not filed as weather for being a
+/// twentieth of a short history.
+pub const ROUTINE_FLOOR: usize = 3;
+
+/// And above this share of a World's history a kind is weather however large
+/// the World is, so a long-running World does not slowly promote its own
+/// background hum into news.
+pub const ROUTINE_SHARE: usize = 20;
+
+/// Whether a kind of event has happened often enough to stop being news.
+pub fn is_routine(count: usize, total_events: usize) -> bool {
+    count >= ROUTINE_FLOOR.max(total_events / ROUTINE_SHARE)
 }
 
 pub fn timeline_from_world(world: &World) -> TimelineProjection {
@@ -1363,6 +1412,35 @@ mod tests {
             }],
         )
         .unwrap()
+    }
+
+    #[test]
+    fn a_thing_that_has_barely_happened_is_news() {
+        // A young World: eighteen events in, the first storm is not weather
+        // for being a small fraction of a short history.
+        //
+        // These two are also what the floor is for: without it the threshold
+        // in a World this young is zero, every count clears it, and
+        // everything that ever happened is weather.
+        assert!(!is_routine(1, 18));
+        assert!(!is_routine(2, 18));
+    }
+
+    #[test]
+    fn a_thing_that_keeps_happening_is_weather() {
+        assert!(is_routine(10, 18));
+        assert!(is_routine(67, 135));
+    }
+
+    #[test]
+    fn a_long_running_world_does_not_promote_its_own_hum_into_news() {
+        // Ten occurrences is a lot in a young World and nothing in an old
+        // one: ten thousand events in, a kind seen ten times is still news.
+        // This is what the share is for; the floor alone would have filed it
+        // as weather.
+        assert!(!is_routine(10, 10_000));
+        assert!(is_routine(10, 18));
+        assert!(is_routine(600, 10_000));
     }
 
     #[test]

@@ -12,3 +12,8 @@ world-agent = { path = "../../crates/world-agent" }
 world-projection = { path = "../../crates/world-projection" }
 world-persistence = { path = "../../crates/world-persistence" }
 world-host = { path = "../../crates/world-host" }
+
+[dev-dependencies]
+serde_json = "1"
+world-pack-protocol = { path = "../../crates/world-pack-protocol" }
+world-library = { path = "../../crates/world-library" }
