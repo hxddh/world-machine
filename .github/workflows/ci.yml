@@ -2,6 +2,12 @@ name: CI
 
 on:
   push:
+    # The screenshot job pushes its captures to a branch of its own.
+    # Those commits carry no source, so there is nothing for CI to
+    # check; excluding them here is what keeps that push cheap,
+    # rather than a marker in the commit message.
+    branches-ignore:
+      - 'screenshots/**'
   pull_request:
 
 concurrency:
