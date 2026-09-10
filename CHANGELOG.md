@@ -2,6 +2,13 @@
 
 Releases live on the [Releases page](https://github.com/hxddh/world-machine/releases). `0.2.0` is the first release intended to be usable without reading the repository; the `v0.1.0-pre.N` tags below were its pre-releases.
 
+## v0.5.1 (unreleased)
+
+**Every release before this one shipped with no text on screen.** World Machine drew its windows, its cards, its buttons and its borders, and every word inside them was invisible — the app was unusable, and had been since the first release. `gpui_platform`, the crate the app opens its window through, ships with an empty default feature set; without `font-kit` it quietly installs a text system that measures text but draws nothing, logs no error, and never crashes. Enabling that feature is the whole fix. A check now fails the build if any desktop app in this repository asks for a window without also asking to be able to render text.
+
+- **The app has an icon.** The bundle never carried one, so macOS drew the blank generic-application page in the Dock, the Finder and the Cmd-Tab switcher. It is now built from a single source image at every size macOS asks for.
+- The About window no longer says everything stays on your Mac without qualification — the same correction the privacy page took in `v0.5.0`, in the one place a user actually reads it.
+
 ## v0.5.0 (2026-09-10)
 
 **Every World you already have still opens.** No World Pack changed the rules its Worlds run under, so nothing saved by `v0.4.0` — or by anything older that still opens — is closed by this release. That is the first time a content release has been able to say so, and it is what the additive-content discipline is for.

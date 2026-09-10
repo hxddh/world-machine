@@ -78,6 +78,10 @@ jobs:
       - run: bash ./scripts/check-boundaries.sh
       - name: Check included World Packs agree about their identity
         run: python3 ./scripts/check-included-packs.py
+      - name: Check the desktop apps render text
+        run: python3 ./scripts/check-desktop-fonts.py
+      - name: Check the app icon
+        run: python3 ./scripts/check-app-icon.py
       - name: Check Pi analyst integration
         run: bash ./scripts/check-pi-analyst.sh
       - name: Check packaged analyst smoke syntax

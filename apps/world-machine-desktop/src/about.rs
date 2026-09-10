@@ -265,7 +265,11 @@ impl Render for AboutView {
                 div()
                     .text_xs()
                     .text_color(crate::theme_rgb(0x8a8a82))
-                    .child("Everything stays on this Mac. World Machine sends no telemetry."),
+                    .child(
+                        "No account, no telemetry. Your Worlds are files on this Mac; \
+                         only the optional World voice and Analyst send anything out, \
+                         and only once you turn them on.",
+                    ),
             )
             .child(
                 div()
