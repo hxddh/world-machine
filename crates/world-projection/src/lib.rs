@@ -1418,11 +1418,12 @@ mod tests {
     fn a_thing_that_has_barely_happened_is_news() {
         // A young World: eighteen events in, the first storm is not weather
         // for being a small fraction of a short history.
+        //
+        // These two are also what the floor is for: without it the threshold
+        // in a World this young is zero, every count clears it, and
+        // everything that ever happened is weather.
         assert!(!is_routine(1, 18));
         assert!(!is_routine(2, 18));
-        // This is what the floor is for. Without it the threshold in a World
-        // this young is zero and everything that ever happened is weather.
-        assert_eq!(ROUTINE_FLOOR.max(18 / ROUTINE_SHARE), ROUTINE_FLOOR);
     }
 
     #[test]
