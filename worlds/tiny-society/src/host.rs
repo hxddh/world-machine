@@ -91,6 +91,83 @@ mod tests {
     use super::*;
     use world_projection::{ProjectionIntent, SelectionId};
 
+    /// What a returning observer is shown, measured on a real World.
+    ///
+    /// The point of separating news from weather is what reaches the top of
+    /// the list, so that is what this asserts rather than the rule in the
+    /// abstract.
+    #[test]
+    fn coming_back_shows_what_happened_rather_than_the_background_hum() {
+        fn returning_at(periods: u64) -> (usize, usize, Vec<String>) {
+            let mut registry = world_host::WorldRegistry::new();
+            registry.register(tiny_society_registration()).unwrap();
+            let mut session = registry.create(crate::TINY_SOCIETY_PACK_ID).unwrap();
+            if periods > 0 {
+                session.advance_background(periods).unwrap();
+            }
+            let snapshot = session.snapshot();
+            let counts = snapshot.event_kind_counts();
+            let total = snapshot.timeline.items.len();
+
+            // Whatever this World does over and over is weather.
+            for (kind, count) in &counts {
+                if *count >= 8 {
+                    assert!(
+                        world_projection::is_routine(*count, total),
+                        "{periods}: {kind} happened {count} of {total} times and is still news"
+                    );
+                }
+            }
+            // And whatever it has done once is news.
+            let notable = snapshot
+                .notable_events()
+                .into_iter()
+                .map(|item| item.title.clone())
+                .collect::<Vec<_>>();
+            for (kind, count) in &counts {
+                if *count == 1 {
+                    assert!(
+                        notable.contains(kind),
+                        "{periods}: {kind} happened once and was left out"
+                    );
+                }
+            }
+            // Short enough to read in one sitting, at any age.
+            assert!(
+                notable.len() <= 20,
+                "{periods}: {} events is not a briefing",
+                notable.len()
+            );
+            (total, notable.len(), notable)
+        }
+
+        let (young_total, young, _) = returning_at(0);
+        let (mid_total, mid, mid_titles) = returning_at(4);
+        let (old_total, old, _) = returning_at(20);
+
+        // In a brand new World almost everything is news, and that is right.
+        // The claim is about what happens as a World runs: history triples
+        // and what a returning observer has to read barely moves.
+        assert!(old_total > mid_total * 2 && mid_total > young_total);
+        assert!(
+            old <= mid + 4,
+            "history went from {mid_total} to {old_total} events and the briefing \
+             went from {mid} to {old}"
+        );
+        assert!(old * 4 < old_total, "{old} of {old_total} is not a filter");
+
+        // The story of this World, not its bookkeeping.
+        assert!(
+            mid_titles.contains(&"Worker Dismissed".to_string()),
+            "{mid_titles:?}"
+        );
+        assert!(
+            mid_titles.contains(&"Order Lost".to_string()),
+            "{mid_titles:?}"
+        );
+        assert!(!mid_titles.contains(&"Work Shift Completed".to_string()));
+    }
+
     #[test]
     fn registration_creates_and_reopens_the_same_world_history() {
         let registration = tiny_society_registration();
