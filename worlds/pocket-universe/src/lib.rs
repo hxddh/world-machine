@@ -1,3 +1,4 @@
+mod drift;
 mod era;
 mod legacy;
 mod pressure;
@@ -1294,9 +1295,9 @@ impl Action for ChooseBoldPath {
     fn evaluate(
         &self,
         state: &WorldState,
-        _request: &ActionRequest,
+        request: &ActionRequest,
     ) -> Result<EventDraft, ActionError> {
-        choice_draft(state, true)
+        choice_draft(state, request, true)
     }
 }
 
@@ -1308,13 +1309,17 @@ impl Action for ChooseCarefulPath {
     fn evaluate(
         &self,
         state: &WorldState,
-        _request: &ActionRequest,
+        request: &ActionRequest,
     ) -> Result<EventDraft, ActionError> {
-        choice_draft(state, false)
+        choice_draft(state, request, false)
     }
 }
 
-fn choice_draft(state: &WorldState, bold: bool) -> Result<EventDraft, ActionError> {
+fn choice_draft(
+    state: &WorldState,
+    request: &ActionRequest,
+    bold: bool,
+) -> Result<EventDraft, ActionError> {
     let seed = seed_id_from_state(state)?;
     if seed == UNSEEDED {
         return Err(ActionError::Invalid(
@@ -1403,6 +1408,7 @@ fn choice_draft(state: &WorldState, bold: bool) -> Result<EventDraft, ActionErro
             value: value.into(),
         },
     ];
+    drift::record_decider(&mut draft, request);
     Ok(draft)
 }
 
@@ -1414,9 +1420,9 @@ impl Action for ChooseOutwardPosture {
     fn evaluate(
         &self,
         state: &WorldState,
-        _request: &ActionRequest,
+        request: &ActionRequest,
     ) -> Result<EventDraft, ActionError> {
-        posture_draft(state, "outward")
+        posture_draft(state, request, "outward")
     }
 }
 
@@ -1428,13 +1434,17 @@ impl Action for ChooseRootedPosture {
     fn evaluate(
         &self,
         state: &WorldState,
-        _request: &ActionRequest,
+        request: &ActionRequest,
     ) -> Result<EventDraft, ActionError> {
-        posture_draft(state, "rooted")
+        posture_draft(state, request, "rooted")
     }
 }
 
-fn posture_draft(state: &WorldState, posture: &str) -> Result<EventDraft, ActionError> {
+fn posture_draft(
+    state: &WorldState,
+    request: &ActionRequest,
+    posture: &str,
+) -> Result<EventDraft, ActionError> {
     let seed = seed_id_from_state(state)?;
     if seed == UNSEEDED {
         return Err(ActionError::Invalid(
@@ -1512,6 +1522,7 @@ fn posture_draft(state: &WorldState, posture: &str) -> Result<EventDraft, Action
             value: summary.into(),
         },
     ];
+    drift::record_decider(&mut draft, request);
     Ok(draft)
 }
 
@@ -3613,6 +3624,71 @@ mod tests {
             .find(|command| command.id == NUDGE_COMMAND)
             .expect("every World can let a cycle pass");
         assert_eq!(nudge.title, "Let the quiet stretch run");
+    }
+
+    #[test]
+    fn a_world_nobody_answers_keeps_living_and_says_what_it_decided() {
+        // Measured before drift existed: a World seeded and then left alone
+        // walked to period 18 and stopped at succession=emerging forever, and
+        // one never given its opening choices never left legacy=forming.
+        let mut abandoned = freshly_seeded(SEED_MARS_COLONY_COMMAND);
+        abandoned.advance_periods(60).unwrap();
+
+        assert!(
+            era_of(&abandoned) >= 2,
+            "an abandoned World never reached a second era"
+        );
+        assert_ne!(
+            legacy::legacy_id_from_state(abandoned.world().state()).unwrap(),
+            "forming",
+            "an abandoned World never formed a legacy"
+        );
+
+        // Everything it decided is marked as its own doing, and readable.
+        let drifted = drift::drifted_decisions(abandoned.world().events());
+        assert!(
+            drifted.len() >= 3,
+            "expected the opening choices and a succession to drift, got {}",
+            drifted.len()
+        );
+        for event in &drifted {
+            assert!(
+                drift::drift_note(event).is_some(),
+                "{} drifted without anything to say about it",
+                event.kind
+            );
+        }
+    }
+
+    #[test]
+    fn coming_back_to_an_abandoned_world_leads_with_what_it_decided() {
+        let mut universe = freshly_seeded(SEED_MARS_COLONY_COMMAND);
+        let cursor = universe.world().events().len();
+        universe.advance_periods(30).unwrap();
+
+        let briefing = universe
+            .projection_snapshot_since(Some(cursor))
+            .briefing
+            .expect("a return has a briefing");
+        assert_eq!(briefing.title, "While you were away");
+        let first = briefing.items.first().expect("a return digest has items");
+        assert_eq!(
+            first.title, "Decided without you",
+            "the World buried what it decided under everything else"
+        );
+        assert!(!first.detail.is_empty());
+    }
+
+    #[test]
+    fn a_world_that_is_answered_is_never_answered_for() {
+        // Drift must never overrule somebody who is actually there.
+        let mut attended = freshly_seeded(SEED_MARS_COLONY_COMMAND);
+        live_with(&mut attended, 40, false);
+
+        assert!(
+            drift::drifted_decisions(attended.world().events()).is_empty(),
+            "the World decided something on behalf of an observer who was answering"
+        );
     }
 
     #[test]
