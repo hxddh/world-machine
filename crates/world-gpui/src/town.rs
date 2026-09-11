@@ -21,7 +21,7 @@ use world_projection::{CanvasItem, CanvasItemKind, CanvasItemState, SelectionId}
 /// screen left the workspace 206 pixels and cut the news off mid-sentence. The
 /// picture is the thing you look at first and the news is the thing you came
 /// for; the picture does not get to take the news off the screen.
-pub(crate) const SCENE_HEIGHT: f32 = 180.0;
+pub(crate) const SCENE_HEIGHT: f32 = 150.0;
 
 fn ink() -> Hsla {
     hsla(0.07, 0.14, 0.16, 1.0)
@@ -158,7 +158,7 @@ fn paint_building(
 pub(crate) fn scene(items: &[CanvasItem], lit: &[SelectionId]) -> Div {
     let items = items.to_vec();
     let lit = lit.to_vec();
-    div().w_full().h(px(SCENE_HEIGHT)).child(
+    div().w_full().h(px(SCENE_HEIGHT)).flex_shrink(1.0).child(
         canvas(
             move |_, _, _| {},
             move |bounds, _, window, cx| {

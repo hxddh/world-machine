@@ -1215,9 +1215,14 @@ impl Render for ProjectionView {
         let town = crate::town::is_a_place(&self.snapshot.canvas.items)
             .then(|| crate::town::scene(&self.snapshot.canvas.items, &self.lit_selections()));
 
+        // The picture and the line are a summary; the workspace is what the
+        // reader came for. On a 768px screen the two of them plus the header
+        // and the turn bar left the news 145 pixels and cut it off after one
+        // line. The workspace claims a floor and the scene is the piece that
+        // yields.
         let mut workspace = div()
             .flex_1()
-            .min_h(px(0.0))
+            .min_h(px(200.0))
             .w_full()
             .min_w(px(0.0))
             .overflow_hidden()
@@ -1230,12 +1235,10 @@ impl Render for ProjectionView {
             workspace = workspace.child(self.render_timeline(cx));
         }
 
-        let mut header_right = div().flex().gap_3().child(
-            div()
-                .text_sm()
-                .text_color(crate::theme_rgb(0x666666))
-                .child(format!("World time {}", self.snapshot.world_time)),
-        );
+        // No "World time 820" in the corner. It is a tick count, it changes by
+        // ten every visit, and it was the only thing the page header told
+        // anybody. The status line still lands here when there is one.
+        let mut header_right = div().flex().gap_3();
         if let Some(status) = &self.status {
             header_right = header_right.child(
                 div()

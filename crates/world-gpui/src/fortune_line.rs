@@ -16,7 +16,7 @@ use gpui::{
 };
 use world_projection::{Fortune, ProjectionSnapshot};
 
-pub(crate) const LINE_HEIGHT: f32 = 96.0;
+pub(crate) const LINE_HEIGHT: f32 = 72.0;
 
 fn ink() -> Hsla {
     hsla(0.07, 0.14, 0.22, 1.0)
