@@ -229,7 +229,10 @@ fn paint_names(
         // below it and out of the frame entirely — it came out painted across
         // the news underneath the picture.
         const LABEL_H: f32 = 10.0;
-        let below = object.at.1 + 16.0;
+        // A line lower than a person's name. Both used to be written just
+        // under the thing they name, so on the quay "Wedding bread order ·
+        // gone" and "Mara" came out on the same line across each other.
+        let below = object.at.1 + 16.0 + LABEL_H + 2.0;
         // Above the thing when there is no room under it. Clamping it to the
         // bottom edge instead dragged the name up onto the object's own mark:
         // a gone boat is a short dark dash, and "Sea Finch · gone" came out
