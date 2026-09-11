@@ -255,7 +255,10 @@ pub fn plan(items: &[CanvasItem], width: f32, height: f32) -> ScenePlan {
                 id: place.id,
                 label: place.label.clone(),
                 state: place.state,
-                roof_peak: (body.centre_x(), body.y - 30.0),
+                // A roof is a share of the wall it sits on. At a fixed 30 it
+                // was more than half the height of a 48px wall, so a short
+                // scene came out as a street of tents.
+                roof_peak: (body.centre_x(), body.y - (body_h * 0.30).clamp(10.0, 30.0)),
                 body,
                 sign,
                 door,

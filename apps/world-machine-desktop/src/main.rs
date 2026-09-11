@@ -1462,7 +1462,7 @@ impl WorldMachineHome {
         let registry = Arc::clone(&self.registry);
         let library = Arc::clone(&self.library);
         let bounds = remembered_window_bounds(RememberedWindow::World, cx)
-            .unwrap_or_else(|| Bounds::centered(None, size(px(1100.0), px(900.0)), cx));
+            .unwrap_or_else(|| default_window(1100.0, 900.0, cx));
         let opened = cx.open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
@@ -4133,10 +4133,31 @@ struct HomeEntity(Entity<WorldMachineHome>);
 #[cfg(target_os = "macos")]
 impl Global for HomeEntity {}
 
+/// A default window that fits the screen it opens on.
+///
+/// `Bounds::centered` centres whatever it is given, including a window larger
+/// than the display: the World default is 1100x900, and on a 1024x768 screen
+/// centring that put the window 38 pixels off the left edge and 66 off the
+/// top. Two of the screenshots in every run were of a World window with its
+/// first column cut off, and it was not the screenshot's fault.
+#[cfg(target_os = "macos")]
+fn default_window(width: f32, height: f32, cx: &mut App) -> Bounds<gpui::Pixels> {
+    let screen = cx
+        .primary_display()
+        .map(|display| display.bounds().size)
+        .unwrap_or_else(|| size(px(width), px(height)));
+    // A margin so the window does not sit flush against the screen edges.
+    let fits = size(
+        px(width).min(f32::from(screen.width) * 0.94),
+        px(height).min(f32::from(screen.height) * 0.90),
+    );
+    Bounds::centered(None, fits, cx)
+}
+
 #[cfg(target_os = "macos")]
 fn open_home_window(home: Entity<WorldMachineHome>, cx: &mut App) {
     let bounds = remembered_window_bounds(RememberedWindow::Home, cx)
-        .unwrap_or_else(|| Bounds::centered(None, size(px(760.0), px(760.0)), cx));
+        .unwrap_or_else(|| default_window(760.0, 760.0, cx));
     if let Err(error) = cx.open_window(
         WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),

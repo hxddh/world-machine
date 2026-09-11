@@ -288,15 +288,20 @@ impl ProjectionView {
             .py_4()
             .child(div().text_xl().child(briefing.title.clone()));
 
-        if beats.is_empty() {
+        if !beats.is_empty() {
+            band = band.child(lines);
+        } else if !any_standing {
+            // Only when the World has said nothing at all. It used to print
+            // whenever there were no *beats*, so Maple Street — which reports
+            // everything as standing rather than as news — opened with
+            // "Nothing happened worth telling you about." directly above two
+            // lines saying what had happened.
             band = band.child(
                 div()
                     .text_sm()
                     .text_color(crate::theme_rgb(0x77736c))
                     .child("Nothing happened worth telling you about."),
             );
-        } else {
-            band = band.child(lines);
         }
         if any_standing {
             band = band.child(standing);

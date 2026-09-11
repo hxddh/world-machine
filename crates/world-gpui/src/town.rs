@@ -224,23 +224,20 @@ fn paint_names(
             (CanvasItemState::Hurt, false) => format!("{} · damaged", object.label),
             _ => object.label.clone(),
         };
-        // Under the thing, or over it, but never on it. An object is drawn as
-        // a mark around its own point — 13px above it and 5px below — and the
-        // name has to clear that mark in whichever direction it goes. Both of
-        // the previous attempts put it through: "Sea Finch · gone" struck out
-        // by the dash that is a gone boat, and then "Wedding bread order ·
-        // gone" struck out by the crate on the quay.
+        // Objects are named on the waterline; people are named on the quay.
+        // Two rows that cannot collide, because every previous rule put them
+        // in the same one: under the thing, then a line lower, and the crate's
+        // name still came out across Mara's head. The quay is too narrow at a
+        // small scene to hold a figure, a figure's name and an object's name,
+        // and the sea beside it is empty.
         const LABEL_H: f32 = 10.0;
         const MARK_ABOVE: f32 = 13.0;
-        const MARK_BELOW: f32 = 5.0;
-        // A line lower than a person's name, so an object's name and somebody
-        // standing beside it do not share a row.
-        let below = object.at.1 + MARK_BELOW + 11.0 + LABEL_H + 2.0;
-        let above = object.at.1 - MARK_ABOVE - LABEL_H - 4.0;
-        let y = if below + LABEL_H + 2.0 > f32::from(bounds.size.height) {
-            above
+        let on_the_water = plan.water_y + 2.0;
+        let y = if on_the_water + LABEL_H + 2.0 <= f32::from(bounds.size.height) {
+            on_the_water
         } else {
-            below
+            // A scene too short even for that: above the object's own mark.
+            object.at.1 - MARK_ABOVE - LABEL_H - 4.0
         };
         write(
             window,
