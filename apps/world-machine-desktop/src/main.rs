@@ -4146,10 +4146,12 @@ fn default_window(width: f32, height: f32, cx: &mut App) -> Bounds<gpui::Pixels>
         .primary_display()
         .map(|display| display.bounds().size)
         .unwrap_or_else(|| size(px(width), px(height)));
-    // A margin so the window does not sit flush against the screen edges.
+    // A margin so the window does not sit flush against the screen edges. The
+    // arithmetic stays in f32 and becomes Pixels once: `Pixels::min` takes
+    // Pixels, and mixing the two is what broke the macOS build.
     let fits = size(
-        px(width).min(f32::from(screen.width) * 0.94),
-        px(height).min(f32::from(screen.height) * 0.90),
+        px(width.min(f32::from(screen.width) * 0.94)),
+        px(height.min(f32::from(screen.height) * 0.90)),
     );
     Bounds::centered(None, fits, cx)
 }
