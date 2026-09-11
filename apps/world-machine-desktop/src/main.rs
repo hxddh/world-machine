@@ -1727,7 +1727,12 @@ impl WorldMachineHome {
             .documents
             .iter()
             .find(|document| document.id == document_id)
-            .and_then(|document| document.display_title.as_deref())
+            .and_then(|document| {
+                document
+                    .display_title
+                    .as_deref()
+                    .or(document.world_title.as_deref())
+            })
             .unwrap_or_default();
         let suggested_name = suggested_world_file_name(semantic_title, document_id.as_str());
         let save_dialog = cx.prompt_for_new_path(&PathBuf::default(), Some(&suggested_name));
@@ -3308,10 +3313,19 @@ fn report_unreadable_documents(unreadable: &[UnreadableWorldFile]) {
 }
 
 #[cfg(target_os = "macos")]
+/// What a World is called on its card: the name its owner typed, else the name
+/// the World last gave itself, else the Pack's title.
+///
+/// The middle step is the one that was missing. A World's own title is not a
+/// constant — an unseeded Pocket Universe calls itself "Pocket Universe" and
+/// the same document calls itself "Ares Pocket Colony" once it is seeded — and
+/// with only the first and last steps every World of a Pack sat on the Home
+/// screen under the Pack's name, indistinguishable from its siblings.
 fn world_summary_title(document: &WorldDocumentSummary, pack_title: &str) -> String {
     document
         .display_title
         .as_deref()
+        .or(document.world_title.as_deref())
         .map(str::trim)
         .filter(|title| !title.is_empty())
         .unwrap_or(pack_title)
@@ -3377,7 +3391,7 @@ fn document_display_name(display_title: Option<&str>, durable_label: &str) -> St
 #[cfg(target_os = "macos")]
 fn session_display_name(session: &DurableWorldSession) -> String {
     let durable_label = session.display_name();
-    document_display_name(session.metadata().display_title.as_deref(), &durable_label)
+    document_display_name(session.metadata().label(), &durable_label)
 }
 
 #[cfg(target_os = "macos")]
@@ -3660,6 +3674,7 @@ mod file_type_tests {
             id: WorldDocumentId::new(id).unwrap(),
             pack: WorldPackRef::new(pack_id, "1.0.0"),
             display_title: None,
+            world_title: None,
             display_summary: None,
             world_time: 0,
             event_count: 0,
@@ -3718,6 +3733,7 @@ mod file_type_tests {
             id: WorldDocumentId::new("mars").unwrap(),
             pack,
             display_title: Some("  Ares Pocket Colony  ".into()),
+            world_title: None,
             display_summary: Some("  Current thread · Ridge Network  ".into()),
             world_time: 3,
             event_count: 7,
@@ -3787,6 +3803,7 @@ mod file_type_tests {
                     id: WorldDocumentId::new(id).unwrap(),
                     pack: WorldPackRef::new("pocket-universe", "1.0.0"),
                     display_title: Some(title.to_owned()),
+                    world_title: None,
                     display_summary: None,
                     world_time: 0,
                     event_count: 0,

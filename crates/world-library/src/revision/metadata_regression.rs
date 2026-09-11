@@ -158,8 +158,12 @@ fn interactive_edits_preserve_document_metadata() {
     assert_eq!(session.snapshot().world_time, 6);
     assert_eq!(session.metadata().lineage, source.metadata.lineage);
     assert_eq!(
-        session.metadata().display_title.as_deref(),
+        session.metadata().world_title.as_deref(),
         Some("Metadata Mock 6")
+    );
+    assert_eq!(
+        session.metadata().display_title.as_deref(),
+        Some("Metadata Mock 5")
     );
     assert_eq!(
         session.metadata().display_summary.as_deref(),
@@ -168,9 +172,15 @@ fn interactive_edits_preserve_document_metadata() {
     let stored = library.load_document(&id).unwrap().unwrap();
     assert_eq!(stored.archive.world_time, 6);
     assert_eq!(stored.metadata.lineage, source.metadata.lineage);
+    // The World renamed itself as it advanced; the name the fixture typed for
+    // it did not move, which is the whole point of keeping the two apart.
+    assert_eq!(
+        stored.metadata.world_title.as_deref(),
+        Some("Metadata Mock 6")
+    );
     assert_eq!(
         stored.metadata.display_title.as_deref(),
-        Some("Metadata Mock 6")
+        Some("Metadata Mock 5")
     );
     assert_eq!(
         stored.metadata.display_summary.as_deref(),
@@ -194,8 +204,12 @@ fn background_progression_preserves_document_metadata() {
     assert_eq!(session.snapshot().world_time, 8);
     assert_eq!(session.metadata().lineage, source.metadata.lineage);
     assert_eq!(
-        session.metadata().display_title.as_deref(),
+        session.metadata().world_title.as_deref(),
         Some("Metadata Mock 8")
+    );
+    assert_eq!(
+        session.metadata().display_title.as_deref(),
+        Some("Metadata Mock 5")
     );
     assert_eq!(
         session.metadata().display_summary.as_deref(),
@@ -203,9 +217,15 @@ fn background_progression_preserves_document_metadata() {
     );
     let stored = library.load_document(&id).unwrap().unwrap();
     assert_eq!(stored.metadata.lineage, source.metadata.lineage);
+    // The World renamed itself as it advanced; the name the fixture typed for
+    // it did not move, which is the whole point of keeping the two apart.
+    assert_eq!(
+        stored.metadata.world_title.as_deref(),
+        Some("Metadata Mock 8")
+    );
     assert_eq!(
         stored.metadata.display_title.as_deref(),
-        Some("Metadata Mock 8")
+        Some("Metadata Mock 5")
     );
     assert_eq!(
         stored.metadata.display_summary.as_deref(),
@@ -263,6 +283,7 @@ fn metadata_only_external_changes_participate_in_revision_conflicts() {
     let mut second = first.clone();
     second.metadata = WorldDocumentMetadata {
         display_title: first.metadata.display_title.clone(),
+        world_title: first.metadata.world_title.clone(),
         display_summary: first.metadata.display_summary.clone(),
         lineage: Some(lineage("second")),
     };

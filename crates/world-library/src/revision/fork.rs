@@ -280,6 +280,7 @@ mod tests {
         let child_id = WorldDocumentId::new("child").unwrap();
         let metadata = WorldDocumentMetadata {
             display_title: Some("Fork Source".into()),
+            world_title: None,
             display_summary: Some("Fork source summary".into()),
             lineage: Some(inherited_lineage()),
         };

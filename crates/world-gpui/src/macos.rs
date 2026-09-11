@@ -265,36 +265,62 @@ impl ProjectionView {
         card
     }
 
-    fn render_commands(&self, cx: &mut Context<Self>) -> Option<Div> {
-        if self.controller.is_none() || self.snapshot.commands.is_empty() {
-            return None;
+    /// What the reader can do, pinned to the foot of the window.
+    ///
+    /// It used to be a panel in the middle column, rendered after the
+    /// briefing, inside the part of the window that scrolls. On a 1024x768
+    /// screen that put it under a wall of prose and off the bottom of the
+    /// frame: the only verb the product has was not on screen. A return that
+    /// asks you something has to show you what it is asking without being
+    /// scrolled to, so this sits below the workspace and outside it, the way
+    /// an action bar does in every other document app.
+    ///
+    /// It is drawn even when there is nothing to decide, because "this World
+    /// is not waiting on you" is itself the answer to the question the reader
+    /// arrived with.
+    fn render_turn(&self, cx: &mut Context<Self>) -> Div {
+        let bar = div()
+            .w_full()
+            .px_4()
+            .py_3()
+            .border_t_1()
+            .border_color(crate::theme_rgb(0xdadada));
+
+        let quiet = if self.controller.is_none() {
+            "Open for reading. Nothing here can be changed."
+        } else if self.snapshot.commands.is_empty() {
+            "Nothing to decide right now. This World is carrying on by itself."
+        } else {
+            ""
+        };
+        if !quiet.is_empty() {
+            return bar.bg(crate::theme_rgb(0xf7f7f4)).child(
+                div()
+                    .text_sm()
+                    .text_color(crate::theme_rgb(0x77736c))
+                    .child(quiet),
+            );
         }
 
-        let panel_title = command_panel_title(self.snapshot.commands.len());
-        let mut commands = div().flex().flex_col().gap_2();
+        let mut choices = div().flex().flex_wrap().gap_2();
         for command in &self.snapshot.commands {
-            commands = commands.child(self.command_item(command, cx));
+            choices = choices.child(self.command_item(command, cx));
         }
 
-        Some(
-            div()
-                .p_3()
-                .rounded_md()
-                .border_1()
-                .border_color(crate::theme_rgb(0xaec5a7))
-                .bg(crate::theme_rgb(0xf1f8ee))
-                .flex()
-                .flex_col()
-                .gap_2()
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(crate::theme_rgb(0x60755a))
-                        .child("NEXT"),
-                )
-                .child(div().text_lg().child(panel_title))
-                .child(commands),
-        )
+        bar.bg(crate::theme_rgb(0xf1f8ee))
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(crate::theme_rgb(0x60755a))
+                    .child(format!(
+                        "YOUR TURN · {}",
+                        command_panel_title(self.snapshot.commands.len())
+                    )),
+            )
+            .child(choices)
     }
 
     fn command_item(
@@ -305,10 +331,16 @@ impl ProjectionView {
         let command_id = command.id.clone();
         div()
             .id(SharedString::from(format!("command-{}", command.id)))
-            .p_3()
+            // Wide enough to read, bounded so three choices share a row
+            // instead of one choice owning the window.
+            .min_w(px(190.0))
+            .max_w(px(320.0))
+            .flex_1()
+            .px_3()
+            .py_2()
             .rounded_md()
             .border_1()
-            .border_color(crate::theme_rgb(0xcbd8c3))
+            .border_color(crate::theme_rgb(0xaec5a7))
             .bg(crate::theme_rgb(0xffffff))
             .cursor_pointer()
             .child(div().text_sm().child(command.title.clone()))
@@ -1141,9 +1173,6 @@ impl Render for ProjectionView {
         if let Some(briefing) = self.render_briefing(cx) {
             center = center.child(briefing);
         }
-        if let Some(commands) = self.render_commands(cx) {
-            center = center.child(commands);
-        }
         if has_exploration(&self.snapshot, self.selected) {
             center = center.child(
                 div()
@@ -1239,7 +1268,7 @@ impl Render for ProjectionView {
         if let Some(town) = town {
             window_body = window_body.child(town);
         }
-        window_body.child(workspace)
+        window_body.child(workspace).child(self.render_turn(cx))
     }
 }
 

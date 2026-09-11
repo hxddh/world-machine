@@ -52,9 +52,7 @@ impl DurableWorldSession {
         }
 
         let mut next_metadata = self.metadata.clone();
-        if let Some(title) = snapshot_display_title(&snapshot) {
-            next_metadata.display_title = Some(title);
-        }
+        next_metadata.world_title = snapshot_display_title(&snapshot);
         next_metadata.display_summary = snapshot_display_summary(&snapshot);
         let next_document = WorldDocument {
             archive: next_archive,
@@ -239,11 +237,59 @@ mod tests {
 
         assert_eq!(snapshot.world_time, 8);
         assert_eq!(session.snapshot().world_time, 8);
-        assert_eq!(session.metadata.display_title.as_deref(), Some("Mock 8"));
+        // The World named itself; nobody has typed a name for it.
+        assert_eq!(session.metadata.world_title.as_deref(), Some("Mock 8"));
+        assert_eq!(session.metadata.display_title, None);
         assert_eq!(read_archive_file(&path).unwrap().world_time, 8);
 
         let reopened = DurableWorldSession::open_file(path.clone(), &registry).unwrap();
         assert_eq!(reopened.snapshot().world_time, 8);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    /// Renaming a World has to survive the World living.
+    ///
+    /// `display_title` is the name its owner typed — `set_display_title` says
+    /// so, and so does the Home card, which falls back to the Pack's title
+    /// only when there is no name. But every durable write derived the field
+    /// from the snapshot again, so the Pack's own title was written back over
+    /// the owner's name the first time the World advanced. The visible effect
+    /// is that Rename appears to work and is gone by the next visit, and that
+    /// every World of a Pack is called the same thing on the Home screen.
+    #[test]
+    fn a_world_keeps_the_name_its_owner_typed_after_it_lives_on() {
+        let root = temp_root("rename");
+        fs::create_dir_all(&root).unwrap();
+        let library = WorldLibrary::new(root.join("library"));
+        let registry = registry();
+        let id = crate::WorldDocumentId::new("harbour-town").unwrap();
+        library.save(&id, &mock_archive(5)).unwrap();
+        library
+            .set_display_title(&id, Some("Harbour Town"))
+            .unwrap();
+
+        let mut session = DurableWorldSession::open(id.clone(), &registry, &library).unwrap();
+        session
+            .advance_background_if_changed(3, &registry, &library)
+            .unwrap()
+            .expect("the mock World advances");
+
+        assert_eq!(
+            library
+                .load_document(&id)
+                .unwrap()
+                .expect("the document is still there")
+                .metadata
+                .display_title
+                .as_deref(),
+            Some("Harbour Town"),
+            "the World was renamed and then lived; the name is the owner's, not the Pack's"
+        );
+        assert_eq!(
+            session.metadata.display_title.as_deref(),
+            Some("Harbour Town"),
+            "and the open session agrees with the file"
+        );
         let _ = fs::remove_dir_all(root);
     }
 

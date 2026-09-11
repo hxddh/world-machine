@@ -2362,6 +2362,7 @@ mod tests {
             id: WorldDocumentId::new(id).unwrap(),
             pack: WorldPackRef::new(pack, "1"),
             display_title: title.map(str::to_owned),
+            world_title: None,
             display_summary: None,
             world_time: 0,
             event_count: 0,
