@@ -109,6 +109,11 @@ const SIGN_H: f32 = 22.0;
 const DOOR_W: f32 = 30.0;
 const DOOR_H: f32 = 44.0;
 const FIGURE_SPREAD: f32 = 40.0;
+/// How close a crowd will stand before the picture would rather clip than
+/// squash them further.
+const FIGURE_MIN_SPREAD: f32 = 20.0;
+/// The margin a figure keeps from the edge of the frame.
+const EDGE: f32 = 34.0;
 const FIGURE_HEIGHT: f32 = 40.0;
 
 /// A stable colour seed for one entity, used to decide where a cast starts on
@@ -251,12 +256,24 @@ pub fn plan(items: &[CanvasItem], width: f32, height: f32) -> ScenePlan {
             .filter(|item| item.kind == CanvasItemKind::Actor && item.at == actor.at)
             .count();
         let (cx, cy) = anchor(actor.at);
-        let start = cx - (crowd as f32 - 1.0) * FIGURE_SPREAD / 2.0;
+        // A crowd closes ranks rather than running off the edge. Once
+        // everybody in the town works nowhere they all stand on the quay
+        // together, and at full spacing the far end of that line was outside
+        // the frame — eight people around the harbour reached x=1068 in a
+        // window 1000 wide.
+        let spread = {
+            let room = (width - 2.0 * EDGE) / crowd.max(1) as f32;
+            FIGURE_SPREAD.min(room.max(FIGURE_MIN_SPREAD))
+        };
+        let line = (crowd as f32 - 1.0) * spread;
+        let start = (cx - line / 2.0)
+            .max(EDGE)
+            .min((width - EDGE - line).max(EDGE));
         folk.push(FigureSpot {
             id: actor.id,
             label: actor.label.clone(),
             state: actor.state,
-            feet: (start + slot as f32 * FIGURE_SPREAD, cy),
+            feet: (start + slot as f32 * spread, cy),
             hue: 0.0, // assigned below, once the whole cast is known
         });
     }
@@ -683,6 +700,70 @@ mod hue_spread_tests {
                 assert!(
                     apart >= 25.0,
                     "two of the eight residents are {apart:.0}° apart, which reads as one colour: {hues:?}"
+                );
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod crowd_tests {
+    use super::*;
+    use crate::{CanvasItem, CanvasItemKind, CanvasItemState, EntityId};
+
+    /// A town where everybody has ended up in the same place still fits.
+    ///
+    /// Once whereabouts follow work, the end of Harbour Town is all eight
+    /// residents standing on the quay together. At full spacing the far end
+    /// of that line was at x=1068 in a window 1000 wide: two people simply
+    /// off the edge of the picture.
+    ///
+    /// Eighteen of them, because eight is not the interesting case — a line
+    /// of eight fits any of these frames once it is kept clear of the edges,
+    /// and a Pack with a real crowd in one place is what makes the spacing
+    /// have to give.
+    #[test]
+    fn a_whole_town_in_one_place_still_fits_the_frame() {
+        let mut items = vec![CanvasItem {
+            id: SelectionId::Entity(EntityId::new(1)),
+            kind: CanvasItemKind::Place,
+            label: "Water".into(),
+            detail: String::new(),
+            x: 0.0,
+            y: 0.0,
+            at: None,
+            state: CanvasItemState::Working,
+        }];
+        for id in 10..28 {
+            items.push(CanvasItem {
+                id: SelectionId::Entity(EntityId::new(id)),
+                kind: CanvasItemKind::Actor,
+                label: format!("Person {id}"),
+                detail: String::new(),
+                x: 0.0,
+                y: 0.0,
+                at: Some(SelectionId::Entity(EntityId::new(1))),
+                state: CanvasItemState::Working,
+            });
+        }
+
+        for width in [420.0_f32, 700.0, 1000.0, 1100.0] {
+            let plan = plan(&items, width, 300.0);
+            for spot in &plan.folk {
+                assert!(
+                    spot.feet.0 >= 0.0 && spot.feet.0 <= width,
+                    "{} stands at {:.0} in a picture {width:.0} wide",
+                    spot.label,
+                    spot.feet.0
+                );
+            }
+            let mut xs: Vec<f32> = plan.folk.iter().map(|spot| spot.feet.0).collect();
+            xs.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            for pair in xs.windows(2) {
+                assert!(
+                    pair[1] - pair[0] >= FIGURE_MIN_SPREAD - 0.01,
+                    "two of them stand {:.0} apart, which is on top of each other",
+                    pair[1] - pair[0]
                 );
             }
         }

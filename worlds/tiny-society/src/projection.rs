@@ -17,7 +17,7 @@ use world_projection::{
     ProjectionCommand, ProjectionSnapshot, SelectionId,
 };
 
-const RESIDENTS: [EntityId; 8] = [JONAS, MARA, LEO, EMMA, MIA, NOAH, EVAN, SOFIA];
+pub(crate) const RESIDENTS: [EntityId; 8] = [JONAS, MARA, LEO, EMMA, MIA, NOAH, EVAN, SOFIA];
 
 pub(crate) fn snapshot(world: &World) -> ProjectionSnapshot {
     snapshot_since(world, None)
@@ -370,6 +370,12 @@ fn narrated_title(world: &World, event: &Event) -> Option<String> {
         "loan_requested" => "Jonas asked Leo for a loan",
         "storm_started" => "A storm reached the harbor",
         "counter_help_hired" => "Mara took Mia on at the bakery counter",
+        // Somebody walking is deliberately not news. A resident moves because
+        // their work changed, and the thing that changed it — the bakery
+        // shutting, the job ending — is already a beat on the same day. The
+        // picture shows the move; the briefing saying it too would be the
+        // same fact twice.
+        "resident_moved" => return None,
         _ => return None,
     }))
 }
@@ -1197,14 +1203,27 @@ mod scene_tests {
             CanvasItemState::Stopped,
             "a shut shop is shut in the picture"
         );
-        // Nobody has moved, and that is not an oversight in the drawing: a
-        // resident's `location` is set once when the World is seeded and never
-        // written again, so Mara stands outside her own shut bakery. The
-        // picture changes because the things in it change, not because people
-        // walk around. Worth knowing before anyone tries to animate it.
-        assert_eq!(
-            opening.folk.iter().map(|f| f.feet).collect::<Vec<_>>(),
-            later.folk.iter().map(|f| f.feet).collect::<Vec<_>>(),
+        // And people have moved. This assertion used to say the opposite and
+        // called it honest: a resident's `location` was written once when the
+        // World was seeded and never again, so Mara stood in front of her own
+        // shut bakery for the rest of the World. Now whereabouts follow work,
+        // so the picture changes because somebody walked as well as because
+        // something happened to them.
+        let mara_before = opening
+            .folk
+            .iter()
+            .find(|f| f.label == "Mara")
+            .expect("Mara is in the picture")
+            .feet;
+        let mara_after = later
+            .folk
+            .iter()
+            .find(|f| f.label == "Mara")
+            .expect("Mara is still in the picture")
+            .feet;
+        assert_ne!(
+            mara_before, mara_after,
+            "the baker does not stand at a bakery that has shut"
         );
 
         let boat = |plan: &town_scene::ScenePlan| {

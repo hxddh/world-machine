@@ -18,6 +18,7 @@ mod seed;
 mod social;
 mod staffing;
 mod stillness;
+mod whereabouts;
 
 use std::error::Error;
 use world_agent::{
@@ -395,6 +396,7 @@ fn build_action_registry() -> Result<ActionRegistry, Box<dyn Error>> {
     local_economy::register_actions(&mut actions)?;
     payroll::register_actions(&mut actions)?;
     stillness::register_actions(&mut actions)?;
+    whereabouts::register_actions(&mut actions)?;
     reciprocity::register_actions(&mut actions)?;
     recovery::register_actions(&mut actions)?;
     social::register_actions(&mut actions)?;

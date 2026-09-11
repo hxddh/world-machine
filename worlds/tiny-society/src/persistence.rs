@@ -124,6 +124,9 @@ impl TinySocietyBranch {
             // one per day, so a long absence reads as a sequence rather than
             // resolving in one jump when somebody returns.
             daily.extend(crate::drift::resolve_overdue(&mut self.world, &actions)?);
+            // People are where their work is. When a workplace shuts, everyone
+            // who worked there is somewhere else by the end of the day.
+            daily.extend(crate::whereabouts::follow_work(&mut self.world, &actions)?);
             for event in daily {
                 generated_events.push(event);
                 let run = BehaviorRuntime::run_from_event(
