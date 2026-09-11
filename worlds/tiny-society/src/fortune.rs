@@ -224,3 +224,66 @@ mod is_there_anything_worth_doing {
         );
     }
 }
+
+#[cfg(test)]
+mod the_shape_of_an_absence {
+    use crate::TinySociety;
+
+    /// A return says when it began, so the line can shade the stretch.
+    ///
+    /// This is the half of that feature a screenshot cannot check: the
+    /// screenshot harness opens an archive rather than leaving a World and
+    /// coming back, so it never has an absence to shade and the shading has
+    /// no pixels to prove. The data it needs is checked here instead.
+    #[test]
+    fn a_return_knows_when_it_began() {
+        let mut society = TinySociety::new().unwrap();
+        society.run_story().unwrap();
+        let mut branch = society.branch();
+        branch.advance_days(20).unwrap();
+
+        let cursor = branch.visit_cursor();
+        let left_at = branch.world().world_time();
+        branch.advance_days(30).unwrap();
+
+        let briefing = branch
+            .projection_snapshot_since(cursor)
+            .briefing
+            .expect("a return briefing");
+        let since = briefing
+            .since_world_time
+            .expect("a return knows when the reader left");
+        assert!(
+            since <= left_at,
+            "the absence starts no later than the moment they left: {since} against {left_at}"
+        );
+
+        let fortune = branch
+            .projection_snapshot_since(cursor)
+            .fortune
+            .expect("Harbour Town says how it is doing");
+        assert!(
+            fortune
+                .history
+                .iter()
+                .any(|point| point.world_time >= since),
+            "and the line has readings inside the stretch it is being asked to shade"
+        );
+    }
+
+    /// Looking at a World you never left has nothing to shade.
+    #[test]
+    fn a_world_you_did_not_leave_has_no_absence() {
+        let mut society = TinySociety::new().unwrap();
+        society.run_story().unwrap();
+        let branch = society.branch();
+        assert_eq!(
+            branch
+                .projection_snapshot()
+                .briefing
+                .expect("a briefing")
+                .since_world_time,
+            None
+        );
+    }
+}
