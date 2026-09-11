@@ -6,8 +6,8 @@ use world_core::{EntityId, EventId, RelationId};
 use world_persistence::{WorldArchive, WorldPackRef};
 use world_projection::{
     BriefingItem, BriefingItemKind, BriefingProjection, CanvasItem, CanvasItemKind,
-    CanvasProjection, CollectionItem, CollectionProjection, InspectorProjection, InspectorRow,
-    InspectorSection, ProjectionCapabilities, ProjectionCommand, ProjectionIntent,
+    CanvasItemState, CanvasProjection, CollectionItem, CollectionProjection, InspectorProjection,
+    InspectorRow, InspectorSection, ProjectionCapabilities, ProjectionCommand, ProjectionIntent,
     ProjectionSnapshot, SelectionId, TimelineItem, TimelineProjection, WhyNode, WhyProjection,
 };
 
@@ -725,6 +725,45 @@ pub struct CanvasItemWire {
     pub detail: String,
     pub x: f32,
     pub y: f32,
+    /// Both absent in snapshots written before a canvas could say where a
+    /// thing is or how it is doing; those decode to a loose item that is
+    /// working, which is exactly how they used to read.
+    #[serde(default)]
+    pub at: Option<SelectionIdWire>,
+    #[serde(default)]
+    pub state: CanvasItemStateWire,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CanvasItemStateWire {
+    #[default]
+    Working,
+    Stopped,
+    Hurt,
+    Gone,
+}
+
+impl From<CanvasItemState> for CanvasItemStateWire {
+    fn from(state: CanvasItemState) -> Self {
+        match state {
+            CanvasItemState::Working => Self::Working,
+            CanvasItemState::Stopped => Self::Stopped,
+            CanvasItemState::Hurt => Self::Hurt,
+            CanvasItemState::Gone => Self::Gone,
+        }
+    }
+}
+
+impl From<CanvasItemStateWire> for CanvasItemState {
+    fn from(state: CanvasItemStateWire) -> Self {
+        match state {
+            CanvasItemStateWire::Working => Self::Working,
+            CanvasItemStateWire::Stopped => Self::Stopped,
+            CanvasItemStateWire::Hurt => Self::Hurt,
+            CanvasItemStateWire::Gone => Self::Gone,
+        }
+    }
 }
 
 impl From<&CanvasItem> for CanvasItemWire {
@@ -736,6 +775,8 @@ impl From<&CanvasItem> for CanvasItemWire {
             detail: item.detail.clone(),
             x: item.x,
             y: item.y,
+            at: item.at.map(Into::into),
+            state: item.state.into(),
         }
     }
 }
@@ -749,6 +790,8 @@ impl From<CanvasItemWire> for CanvasItem {
             detail: item.detail,
             x: item.x,
             y: item.y,
+            at: item.at.map(Into::into),
+            state: item.state.into(),
         }
     }
 }
@@ -1071,6 +1114,8 @@ mod tests {
                     detail: "On the canvas".into(),
                     x: 0.25,
                     y: 0.75,
+                    at: None,
+                    state: CanvasItemState::Hurt,
                 }],
             },
             inspectors: BTreeMap::from([(

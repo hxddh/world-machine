@@ -1,17 +1,20 @@
 use crate::model::{
-    CONDITION, JONAS_HARBOR_JOB, JONAS_LEO_TRUST, OPERATING_STATUS, SUPPORT_STATUS,
+    CONDITION, JONAS_HARBOR_JOB, JONAS_LEO_TRUST, LOCATION, OPERATING_STATUS, ORDER_STATUS,
+    SUPPORT_STATUS,
 };
 use crate::{
     BAKERY, EMMA, EVAN, HARBOR, JONAS, JONAS_BOAT, LEO, MARA, MIA, NOAH, PUB, SCHOOL, SOFIA,
     WEDDING_ORDER,
 };
+use std::collections::BTreeMap;
+
 use society_basic::{CASH, JOB};
 use world_core::{EntityId, Event, RelationId, Value, World};
 use world_projection::{
     entity_title, inspectors_from_world, timeline_from_world, why_map_from_world, BriefingItem,
-    BriefingItemKind, BriefingProjection, CanvasItem, CanvasItemKind, CanvasProjection,
-    CollectionItem, CollectionProjection, ProjectionCapabilities, ProjectionCommand,
-    ProjectionSnapshot, SelectionId,
+    BriefingItemKind, BriefingProjection, CanvasItem, CanvasItemKind, CanvasItemState,
+    CanvasProjection, CollectionItem, CollectionProjection, ProjectionCapabilities,
+    ProjectionCommand, ProjectionSnapshot, SelectionId,
 };
 
 const RESIDENTS: [EntityId; 8] = [JONAS, MARA, LEO, EMMA, MIA, NOAH, EVAN, SOFIA];
@@ -497,75 +500,129 @@ fn resident_item(world: &World, id: EntityId) -> Option<CollectionItem> {
 fn canvas_items(world: &World) -> Vec<CanvasItem> {
     let mut items = Vec::new();
 
-    for (id, x, y) in [
-        (HARBOR, 0.08, 0.48),
-        (BAKERY, 0.62, 0.18),
-        (SCHOOL, 0.62, 0.66),
-        (PUB, 0.28, 0.16),
+    // The waterfront, left to right, as a row rather than a scatter. The
+    // positions used to be arbitrary points that put Jonas nowhere near the
+    // harbour he lives at; a drawing of a town needs the order of its street.
+    for (id, x) in [
+        (BAKERY, 0.14_f32),
+        (SCHOOL, 0.38),
+        (PUB, 0.62),
+        (HARBOR, 0.88),
     ] {
-        if let Some(entity) = world.state().entity(id) {
-            let detail = if id == BAKERY {
-                component_text(world, BAKERY, OPERATING_STATUS)
-                    .map(|status| format!("Place · {status}"))
-                    .unwrap_or_else(|| "Place".into())
-            } else if id == HARBOR {
-                component_integer(world, HARBOR, CASH)
-                    .map(|cash| format!("Place · cash {cash}"))
-                    .unwrap_or_else(|| "Place".into())
-            } else {
-                "Place".into()
+        let Some(entity) = world.state().entity(id) else {
+            continue;
+        };
+        let state = if id == BAKERY
+            && component_text(world, BAKERY, OPERATING_STATUS).as_deref() != Some("open")
+        {
+            CanvasItemState::Stopped
+        } else {
+            CanvasItemState::Working
+        };
+        let detail = match id {
+            BAKERY => component_text(world, BAKERY, OPERATING_STATUS)
+                .map(|status| format!("Place · {status}"))
+                .unwrap_or_else(|| "Place".into()),
+            HARBOR => component_integer(world, HARBOR, CASH)
+                .map(|cash| format!("Place · cash {cash}"))
+                .unwrap_or_else(|| "Place".into()),
+            _ => "Place".into(),
+        };
+        items.push(CanvasItem {
+            id: SelectionId::Entity(id),
+            kind: CanvasItemKind::Place,
+            label: entity_title(entity),
+            detail,
+            x,
+            y: 0.42,
+            at: None,
+            state,
+        });
+    }
+
+    // People stand where the World says they are. `Location` holds the name of
+    // the place, so it is matched against the places already placed above
+    // rather than against a table written down twice.
+    let places = items
+        .iter()
+        .map(|place| (place.label.clone(), (place.id, place.x)))
+        .collect::<BTreeMap<_, _>>();
+    let mut standing = BTreeMap::<String, usize>::new();
+    for id in RESIDENTS {
+        let Some(entity) = world.state().entity(id) else {
+            continue;
+        };
+        let location = component_text(world, id, LOCATION);
+        let (at, base) = location
+            .as_ref()
+            .and_then(|name| places.get(name.as_str()))
+            .map(|(place, x)| (Some(*place), *x))
+            .unwrap_or((None, 0.5));
+        let index = standing
+            .entry(location.clone().unwrap_or_default())
+            .or_insert(0);
+        let x = base + (*index as f32) * 0.035;
+        *index += 1;
+        let job = component_text(world, id, JOB).unwrap_or_else(|| "Resident".into());
+        let state = if job == "unemployed" {
+            CanvasItemState::Stopped
+        } else {
+            CanvasItemState::Working
+        };
+        items.push(CanvasItem {
+            id: SelectionId::Entity(id),
+            kind: CanvasItemKind::Actor,
+            label: entity_title(entity),
+            detail: job,
+            x,
+            y: 0.68,
+            at,
+            state,
+        });
+    }
+
+    for id in [JONAS_BOAT, WEDDING_ORDER] {
+        let Some(entity) = world.state().entity(id) else {
+            continue;
+        };
+        let (at, x, state, detail) = if id == JONAS_BOAT {
+            let condition = component_text(world, JONAS_BOAT, CONDITION);
+            let state = match condition.as_deref() {
+                Some("damaged") => CanvasItemState::Hurt,
+                Some("sold") => CanvasItemState::Gone,
+                _ => CanvasItemState::Working,
             };
-            items.push(CanvasItem {
-                id: SelectionId::Entity(id),
-                kind: CanvasItemKind::Place,
-                label: entity_title(entity),
-                detail,
-                x,
-                y,
-            });
-        }
-    }
-
-    for (id, x, y) in [
-        (JONAS, 0.12, 0.62),
-        (MARA, 0.68, 0.32),
-        (LEO, 0.34, 0.28),
-        (EMMA, 0.70, 0.74),
-        (MIA, 0.82, 0.67),
-        (NOAH, 0.20, 0.52),
-        (EVAN, 0.04, 0.72),
-        (SOFIA, 0.42, 0.12),
-    ] {
-        if let Some(entity) = world.state().entity(id) {
-            items.push(CanvasItem {
-                id: SelectionId::Entity(id),
-                kind: CanvasItemKind::Actor,
-                label: entity_title(entity),
-                detail: component_text(world, id, JOB).unwrap_or_else(|| "Resident".into()),
-                x,
-                y,
-            });
-        }
-    }
-
-    for (id, x, y) in [(JONAS_BOAT, 0.02, 0.42), (WEDDING_ORDER, 0.84, 0.22)] {
-        if let Some(entity) = world.state().entity(id) {
-            let detail = if id == JONAS_BOAT {
-                component_text(world, JONAS_BOAT, CONDITION)
+            (
+                Some(SelectionId::Entity(HARBOR)),
+                0.94_f32,
+                state,
+                condition
                     .map(|condition| format!("asset · {condition}"))
-                    .unwrap_or_else(|| entity.kind.clone())
-            } else {
-                entity.kind.clone()
+                    .unwrap_or_else(|| entity.kind.clone()),
+            )
+        } else {
+            let status = component_text(world, WEDDING_ORDER, ORDER_STATUS);
+            let state = match status.as_deref() {
+                Some("lost") => CanvasItemState::Gone,
+                _ => CanvasItemState::Working,
             };
-            items.push(CanvasItem {
-                id: SelectionId::Entity(id),
-                kind: CanvasItemKind::Object,
-                label: entity_title(entity),
-                detail,
-                x,
-                y,
-            });
-        }
+            (
+                Some(SelectionId::Entity(BAKERY)),
+                0.20,
+                state,
+                entity.kind.clone(),
+            )
+        };
+        items.push(CanvasItem {
+            id: SelectionId::Entity(id),
+            kind: CanvasItemKind::Object,
+            label: entity_title(entity),
+            detail,
+            x,
+            y: 0.86,
+            at,
+            state,
+        });
     }
 
     items
@@ -884,6 +941,146 @@ mod naming_tests {
         assert!(
             told.contains(&worker),
             "{told:?} is filed under {worker} and does not mention them"
+        );
+    }
+}
+
+#[cfg(test)]
+mod canvas_tests {
+    use super::*;
+    use crate::TinySociety;
+
+    fn canvas(branch: &crate::TinySocietyBranch) -> Vec<CanvasItem> {
+        branch.projection_snapshot().canvas.items
+    }
+
+    fn find<'a>(items: &'a [CanvasItem], label: &str) -> &'a CanvasItem {
+        items
+            .iter()
+            .find(|item| item.label == label)
+            .unwrap_or_else(|| panic!("{label} is on the canvas"))
+    }
+
+    #[test]
+    fn everybody_stands_somewhere_the_world_knows_about() {
+        let mut society = TinySociety::new().unwrap();
+        society.run_story().unwrap();
+        let branch = society.branch();
+        let items = canvas(&branch);
+
+        let places = items
+            .iter()
+            .filter(|item| item.kind == CanvasItemKind::Place)
+            .map(|item| item.id)
+            .collect::<Vec<_>>();
+        assert_eq!(places.len(), 4, "the town has four places");
+
+        for actor in items.iter().filter(|i| i.kind == CanvasItemKind::Actor) {
+            let at = actor
+                .at
+                .unwrap_or_else(|| panic!("{} stands somewhere", actor.label));
+            assert!(
+                places.contains(&at),
+                "{} stands at a place the canvas also draws",
+                actor.label
+            );
+        }
+    }
+
+    #[test]
+    fn a_place_can_say_who_is_standing_there() {
+        let mut society = TinySociety::new().unwrap();
+        society.run_story().unwrap();
+        let branch = society.branch();
+        let items = canvas(&branch);
+
+        let bakery = find(&items, "Harbor Bakery");
+        let names = bakery
+            .occupants(&items)
+            .into_iter()
+            .map(|item| item.label.clone())
+            .collect::<Vec<_>>();
+        assert!(
+            names.contains(&"Mara".to_string()),
+            "the baker is at the bakery, got {names:?}"
+        );
+        assert_eq!(
+            items
+                .iter()
+                .filter(|i| i.kind == CanvasItemKind::Actor && i.at.is_some())
+                .count(),
+            items
+                .iter()
+                .filter(|i| i.kind == CanvasItemKind::Place)
+                .map(|place| place
+                    .occupants(&items)
+                    .into_iter()
+                    .filter(|i| i.kind == CanvasItemKind::Actor)
+                    .count())
+                .sum::<usize>(),
+            "everybody standing somewhere is somewhere's occupant"
+        );
+    }
+
+    #[test]
+    fn a_shop_that_is_shut_says_so_as_a_fact() {
+        let mut society = TinySociety::new().unwrap();
+        society.run_story().unwrap();
+        let mut branch = society.branch();
+        assert_eq!(
+            find(&canvas(&branch), "Harbor Bakery").state,
+            CanvasItemState::Working
+        );
+
+        for _ in 0..250 {
+            if branch
+                .world()
+                .events()
+                .iter()
+                .any(|event| event.kind == "bakery_closed")
+            {
+                break;
+            }
+            branch.advance_days(1).unwrap();
+        }
+        assert_eq!(
+            find(&canvas(&branch), "Harbor Bakery").state,
+            CanvasItemState::Stopped,
+            "a closed bakery is drawable as closed without reading its detail line"
+        );
+    }
+
+    #[test]
+    fn a_boat_carries_her_condition_rather_than_a_sentence_about_it() {
+        let mut society = TinySociety::new().unwrap();
+        society.run_story().unwrap();
+        let mut branch = society.branch();
+        assert_eq!(
+            find(&canvas(&branch), "Sea Finch").state,
+            CanvasItemState::Hurt,
+            "the opening story leaves her holed"
+        );
+        assert_eq!(
+            find(&canvas(&branch), "Sea Finch").at,
+            Some(SelectionId::Entity(HARBOR)),
+            "a boat is moored somewhere"
+        );
+
+        for _ in 0..90 {
+            if branch
+                .world()
+                .events()
+                .iter()
+                .any(|event| event.kind == "boat_sold")
+            {
+                break;
+            }
+            branch.advance_days(1).unwrap();
+        }
+        assert_eq!(
+            find(&canvas(&branch), "Sea Finch").state,
+            CanvasItemState::Gone,
+            "and once she is sold the canvas can draw the empty mooring"
         );
     }
 }

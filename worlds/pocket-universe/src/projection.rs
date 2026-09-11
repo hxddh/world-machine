@@ -16,8 +16,8 @@ use world_core::{Entity, EntityId, Event, StateChange, Value, World};
 use world_projection::{
     entity_title, inspectors_from_world, timeline_from_world, value_text, why_map_from_world,
     BriefingItem, BriefingItemKind, BriefingProjection, CanvasItem, CanvasItemKind,
-    CanvasProjection, CollectionItem, CollectionProjection, ProjectionCapabilities,
-    ProjectionCommand, ProjectionSnapshot, SelectionId,
+    CanvasItemState, CanvasProjection, CollectionItem, CollectionProjection,
+    ProjectionCapabilities, ProjectionCommand, ProjectionSnapshot, SelectionId,
 };
 
 pub(crate) fn snapshot(world: &World) -> ProjectionSnapshot {
@@ -1787,6 +1787,8 @@ fn canvas(world: &World) -> CanvasProjection {
                 detail: entity.kind.replace('_', " "),
                 x,
                 y,
+                at: None,
+                state: CanvasItemState::Working,
             }
         })
         .collect();

@@ -701,6 +701,27 @@ pub enum CanvasItemKind {
     Object,
 }
 
+/// How a thing on the canvas is doing, in words general enough for any World.
+///
+/// A drawing can only show that a shop is shut, a boat is holed or a mooring is
+/// empty if it is told so as a fact rather than as a sentence. Packs used to
+/// put this in `detail` — "Place · closed", "asset · damaged" — where the only
+/// way to use it was to read prose and guess.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum CanvasItemState {
+    /// Going about its business. The ordinary case, and the default.
+    #[default]
+    Working,
+    /// Standing but not running: a shop with its shutters down, a person out
+    /// of work.
+    Stopped,
+    /// Damaged, and not able to do what it is for until that is dealt with.
+    Hurt,
+    /// No longer here at all — sold, lost, destroyed. Still worth drawing,
+    /// because the gap it left is part of the picture.
+    Gone,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct CanvasItem {
     pub id: SelectionId,
@@ -709,6 +730,22 @@ pub struct CanvasItem {
     pub detail: String,
     pub x: f32,
     pub y: f32,
+    /// The place this thing is at, when the World knows of one. People stand
+    /// somewhere and boats are moored somewhere; a scatter of loose
+    /// coordinates cannot say so, and a picture of a town needs to.
+    pub at: Option<SelectionId>,
+    pub state: CanvasItemState,
+}
+
+impl CanvasItem {
+    /// The things the World says are at this place, in the order the Pack gave
+    /// them.
+    pub fn occupants<'a>(&self, items: &'a [CanvasItem]) -> Vec<&'a CanvasItem> {
+        items
+            .iter()
+            .filter(|item| item.at == Some(self.id))
+            .collect()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]

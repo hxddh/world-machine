@@ -3,9 +3,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use world_core::{Entity, EntityId, Event, EventId, Value, World};
 use world_projection::{
     BriefingItem, BriefingItemKind, BriefingProjection, CanvasItem, CanvasItemKind,
-    CanvasProjection, CollectionItem, CollectionProjection, InspectorProjection, InspectorRow,
-    InspectorSection, ProjectionCapabilities, ProjectionCommand, ProjectionSnapshot, SelectionId,
-    TimelineItem, TimelineProjection, WhyNode, WhyProjection,
+    CanvasItemState, CanvasProjection, CollectionItem, CollectionProjection, InspectorProjection,
+    InspectorRow, InspectorSection, ProjectionCapabilities, ProjectionCommand, ProjectionSnapshot,
+    SelectionId, TimelineItem, TimelineProjection, WhyNode, WhyProjection,
 };
 
 const ARTIFACTS: [EntityId; 6] = [
@@ -164,6 +164,8 @@ fn canvas(world: &World, artifacts: &[EntityId]) -> CanvasProjection {
                 detail: humanize(&entity.kind),
                 x,
                 y,
+                at: None,
+                state: CanvasItemState::Working,
             });
         }
     }
@@ -190,6 +192,8 @@ fn canvas(world: &World, artifacts: &[EntityId]) -> CanvasProjection {
                 .unwrap_or_else(|| "Artifact".into()),
             x,
             y,
+            at: None,
+            state: CanvasItemState::Working,
         });
     }
 
