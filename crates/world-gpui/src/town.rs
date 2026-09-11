@@ -51,7 +51,10 @@ fn roof(index: usize) -> Hsla {
     hsla(ROOFS[index % ROOFS.len()], 0.42, 0.42, 1.0)
 }
 fn coat(hue: f32, dimmed: bool) -> Hsla {
-    hsla(hue / 360.0, 0.32, 0.52, if dimmed { 0.45 } else { 1.0 })
+    // A resident the news is not about is still standing there. At 0.45 they
+    // washed out to nearly nothing against the quay; the point is to lift the
+    // few the return concerns, not to erase everyone else.
+    hsla(hue / 360.0, 0.32, 0.52, if dimmed { 0.7 } else { 1.0 })
 }
 
 /// Whether this World has told the canvas enough to be drawn as a place.
@@ -140,37 +143,65 @@ fn paint_building(
 }
 
 /// The picture, and the names that go on it.
+///
+/// Everything is painted inside one canvas, including the words. The first
+/// version laid the scene out against a hardcoded 1100px and positioned the
+/// labels as absolutely-placed divs over the top; in a window narrower than
+/// that, the boat and its name were simply off the right-hand edge. A canvas
+/// is handed its real width at paint time, which is the only place the true
+/// figure is known.
 pub(crate) fn scene(items: &[CanvasItem], lit: &[SelectionId]) -> Div {
-    let plan = town_scene::plan(items, 1100.0, SCENE_HEIGHT);
+    let items = items.to_vec();
     let lit = lit.to_vec();
-    let paint_plan = plan.clone();
-
-    let mut layer = div().relative().w_full().h(px(SCENE_HEIGHT));
-    layer = layer.child(
+    div().w_full().h(px(SCENE_HEIGHT)).child(
         canvas(
             move |_, _, _| {},
-            move |bounds, _, window, _| paint(window, bounds, &paint_plan, &lit),
+            move |bounds, _, window, cx| {
+                let plan = town_scene::plan(
+                    &items,
+                    f32::from(bounds.size.width),
+                    f32::from(bounds.size.height),
+                );
+                paint(window, bounds, &plan, &lit);
+                paint_names(window, cx, bounds, &plan);
+            },
         )
-        .absolute()
-        .inset_0(),
-    );
+        .size_full(),
+    )
+}
+
+/// The words: a sign over each door, a name under each figure.
+fn paint_names(
+    window: &mut gpui::Window,
+    cx: &mut gpui::App,
+    bounds: Bounds<Pixels>,
+    plan: &ScenePlan,
+) {
     for building in &plan.buildings {
-        layer = layer.child(caption(
-            building.sign.x + 4.0,
-            building.sign.y + 4.0,
-            building.sign.width - 8.0,
-            building.label.clone(),
+        write(
+            window,
+            cx,
+            bounds,
+            building.label.clone().into(),
+            building.sign.x,
+            building.sign.y + 3.0,
+            building.sign.width,
+            11.0,
             0x2f2822,
-        ));
+        );
     }
     for spot in &plan.folk {
-        layer = layer.child(caption(
-            spot.feet.0 - 30.0,
-            spot.feet.1 + 6.0,
-            60.0,
-            spot.label.clone(),
+        write(
+            window,
+            cx,
+            bounds,
+            spot.label.clone().into(),
+            spot.feet.0 - 34.0,
+            spot.feet.1 + 5.0,
+            68.0,
+            11.0,
             0x2f2822,
-        ));
+        );
     }
     for object in &plan.objects {
         // "Holed" is a thing that happens to boats. A damaged thing on the
@@ -182,27 +213,56 @@ pub(crate) fn scene(items: &[CanvasItem], lit: &[SelectionId]) -> Div {
             (CanvasItemState::Hurt, false) => format!("{} · damaged", object.label),
             _ => object.label.clone(),
         };
-        layer = layer.child(caption(
+        write(
+            window,
+            cx,
+            bounds,
+            words.into(),
             object.at.0 - 60.0,
-            object.at.1 + 18.0,
+            object.at.1 + 16.0,
             120.0,
-            words,
-            0x2f2822,
-        ));
+            10.0,
+            if object.afloat { 0x2f2822 } else { 0x4a4038 },
+        );
     }
-    layer
 }
 
-fn caption(x: f32, y: f32, width: f32, words: impl Into<SharedString>, colour: u32) -> Div {
-    div()
-        .absolute()
-        .left(px(x))
-        .top(px(y))
-        .w(px(width))
-        .text_xs()
-        .text_center()
-        .text_color(crate::theme_rgb(colour))
-        .child(words.into())
+/// One centred line, clipped to the frame rather than allowed to run off it.
+#[allow(clippy::too_many_arguments)]
+fn write(
+    window: &mut gpui::Window,
+    cx: &mut gpui::App,
+    bounds: Bounds<Pixels>,
+    words: SharedString,
+    x: f32,
+    y: f32,
+    width: f32,
+    size: f32,
+    colour: u32,
+) {
+    let x = x
+        .max(2.0)
+        .min((f32::from(bounds.size.width) - width).max(2.0));
+    let font = window.text_style().font();
+    let run = gpui::TextRun {
+        len: words.len(),
+        font,
+        color: crate::theme_rgb(colour).into(),
+        background_color: None,
+        underline: None,
+        strikethrough: None,
+    };
+    let line = window
+        .text_system()
+        .shape_line(words, px(size), &[run], None);
+    let _ = line.paint(
+        point(bounds.origin.x + px(x), bounds.origin.y + px(y)),
+        px(size * 1.3),
+        gpui::TextAlign::Center,
+        Some(px(width)),
+        window,
+        cx,
+    );
 }
 
 fn paint(window: &mut gpui::Window, bounds: Bounds<Pixels>, plan: &ScenePlan, lit: &[SelectionId]) {
@@ -343,7 +403,7 @@ fn paint(window: &mut gpui::Window, bounds: Bounds<Pixels>, plan: &ScenePlan, li
         ));
         window.paint_path(
             disc((x, y - 26.0), 6.0, bounds),
-            hsla(0.08, 0.55, 0.80, if dimmed { 0.45 } else { 1.0 }),
+            hsla(0.08, 0.45, 0.72, if dimmed { 0.7 } else { 1.0 }),
         );
     }
 }

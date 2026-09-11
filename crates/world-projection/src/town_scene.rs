@@ -111,16 +111,27 @@ const DOOR_H: f32 = 44.0;
 const FIGURE_SPREAD: f32 = 40.0;
 const FIGURE_HEIGHT: f32 = 40.0;
 
-/// The colour a given entity is drawn in. Deterministic, so the same person is
-/// the same colour in the picture, in the list of what happened, and anywhere
-/// else they are mentioned.
+/// A stable colour seed for one entity, used to decide where a cast starts on
+/// the wheel. It is deterministic, so the same World always comes out the same
+/// colours, but it is NOT how a figure's hue is chosen: telling eight people
+/// apart is a property of the eight together, which no per-id hash can promise
+/// — hash them into 360 slots and two of them collide soon enough. `plan`
+/// spreads the cast evenly instead, and uses this only to rotate the wheel.
 pub fn hue_for(id: SelectionId) -> f32 {
     // The id's own stable key, so the colour survives everything that key
     // survives: the wire, an archive, a fork.
     let seed = id.stable_key().bytes().fold(0_u64, |acc, byte| {
         acc.wrapping_mul(131).wrapping_add(byte as u64)
     });
-    (seed % 360) as f32
+    // Stir before taking the hue. The rolling hash alone maps consecutive ids
+    // to consecutive numbers, so a town of eight residents came out as eight
+    // shades of one green, 1° apart. This is the SplitMix64 finalizer: it
+    // costs nothing and it scatters neighbours across the wheel.
+    let mut mixed = seed.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    mixed = (mixed ^ (mixed >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    mixed = (mixed ^ (mixed >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    mixed ^= mixed >> 31;
+    (mixed % 360) as f32
 }
 
 /// Lay a World out as a waterfront.
@@ -246,7 +257,7 @@ pub fn plan(items: &[CanvasItem], width: f32, height: f32) -> ScenePlan {
             label: actor.label.clone(),
             state: actor.state,
             feet: (start + slot as f32 * FIGURE_SPREAD, cy),
-            hue: hue_for(actor.id),
+            hue: 0.0, // assigned below, once the whole cast is known
         });
     }
 
@@ -277,6 +288,25 @@ pub fn plan(items: &[CanvasItem], width: f32, height: f32) -> ScenePlan {
             }
         })
         .collect();
+
+    // Spread the cast evenly round the wheel, in a deterministic order, so no
+    // two residents in one picture land on the same colour. Rotated by the
+    // cast's own seed so different Worlds do not all open on the same red.
+    let mut order: Vec<SelectionId> = folk.iter().map(|spot| spot.id).collect();
+    order.sort_by_key(|id| id.stable_key());
+    let rotation = order.first().copied().map(hue_for).unwrap_or(0.0);
+    let step = if order.is_empty() {
+        0.0
+    } else {
+        360.0 / order.len() as f32
+    };
+    for spot in &mut folk {
+        let rank = order
+            .iter()
+            .position(|id| *id == spot.id)
+            .expect("every figure is in the cast");
+        spot.hue = (rotation + rank as f32 * step) % 360.0;
+    }
 
     ScenePlan {
         width,
@@ -561,5 +591,62 @@ mod object_shape_tests {
             plan.water_y,
             boat.at.1
         );
+    }
+}
+
+#[cfg(test)]
+mod hue_spread_tests {
+    use super::*;
+    use crate::{CanvasItem, CanvasItemKind, CanvasItemState, EntityId};
+
+    fn place(id: u64, label: &str) -> CanvasItem {
+        CanvasItem {
+            id: SelectionId::Entity(EntityId::new(id)),
+            kind: CanvasItemKind::Place,
+            label: label.into(),
+            detail: String::new(),
+            x: 0.0,
+            y: 0.0,
+            at: None,
+            state: CanvasItemState::Working,
+        }
+    }
+
+    #[test]
+    fn neighbouring_entities_are_told_apart_by_colour() {
+        // The first drawing of a real World came out with every resident in
+        // the same green: consecutive entity ids differ by one byte, and the
+        // rolling hash moved the result by about as much, so eight people
+        // landed within 8° of each other. Hashing harder only trades that for
+        // collisions. Telling a cast apart is the scene's job, and this is
+        // the test of it.
+        let places = vec![place(1, "Shop")];
+        let cast: Vec<CanvasItem> = (10..18)
+            .map(|id| CanvasItem {
+                id: SelectionId::Entity(EntityId::new(id)),
+                kind: CanvasItemKind::Actor,
+                label: format!("Person {id}"),
+                detail: String::new(),
+                x: 0.0,
+                y: 0.0,
+                at: Some(SelectionId::Entity(EntityId::new(1))),
+                state: CanvasItemState::Working,
+            })
+            .collect();
+        let items: Vec<CanvasItem> = places.into_iter().chain(cast).collect();
+        let hues: Vec<f32> = plan(&items, 1100.0, 300.0)
+            .folk
+            .iter()
+            .map(|spot| spot.hue)
+            .collect();
+        for (i, a) in hues.iter().enumerate() {
+            for b in hues.iter().skip(i + 1) {
+                let apart = (a - b).abs().min(360.0 - (a - b).abs());
+                assert!(
+                    apart >= 25.0,
+                    "two of the eight residents are {apart:.0}° apart, which reads as one colour: {hues:?}"
+                );
+            }
+        }
     }
 }
