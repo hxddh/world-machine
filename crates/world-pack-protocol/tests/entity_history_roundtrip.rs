@@ -15,6 +15,7 @@ fn entity_evidence_edges_survive_pack_json_wire_round_trip() {
     let event_item = TimelineItem {
         id: event,
         world_time: 41,
+        when: Some("Day 4".into()),
         title: "Changed".into(),
         subtitle: "External Pack event".into(),
         caused_by: vec![EventId::new(8)],

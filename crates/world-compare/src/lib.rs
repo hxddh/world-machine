@@ -799,6 +799,7 @@ mod tests {
         TimelineItem {
             id: SelectionId::Event(EventId::new(id)),
             world_time,
+            when: None,
             title: title.into(),
             subtitle: format!("{title} summary"),
             caused_by: Vec::new(),
@@ -888,6 +889,7 @@ mod tests {
             vec![TimelineItem {
                 id: event,
                 world_time: 9,
+                when: None,
                 title: "Changed".into(),
                 subtitle: "Recorded change".into(),
                 caused_by: Vec::new(),
@@ -1334,6 +1336,7 @@ mod tests {
         let left_common = TimelineItem {
             id: SelectionId::Event(EventId::new(1)),
             world_time: 1,
+            when: None,
             title: "Common".into(),
             subtitle: "Alice · Event #1".into(),
             caused_by: vec![],
@@ -1358,6 +1361,7 @@ mod tests {
         let item = TimelineItem {
             id: SelectionId::Event(EventId::new(1)),
             world_time: 1,
+            when: None,
             title: "Choice Made".into(),
             subtitle: "Event #1".into(),
             caused_by: vec![],
@@ -1394,6 +1398,7 @@ mod tests {
         let item = TimelineItem {
             id: SelectionId::Event(EventId::new(1)),
             world_time: 1,
+            when: None,
             title: "Choice Made".into(),
             subtitle: "Event #1".into(),
             caused_by: vec![],
@@ -1430,6 +1435,7 @@ mod tests {
         let common = TimelineItem {
             id: SelectionId::Event(EventId::new(1)),
             world_time: 1,
+            when: None,
             title: "Common".into(),
             subtitle: "Event #1".into(),
             caused_by: vec![],
@@ -1503,6 +1509,7 @@ mod tests {
         let common = TimelineItem {
             id: SelectionId::Event(EventId::new(1)),
             world_time: 1,
+            when: None,
             title: "Common".into(),
             subtitle: "Event #1".into(),
             caused_by: vec![],
@@ -1510,6 +1517,7 @@ mod tests {
         let left_first = TimelineItem {
             id: SelectionId::Event(EventId::new(2)),
             world_time: 2,
+            when: None,
             title: "Left choice".into(),
             subtitle: "Left choice · Event #2".into(),
             caused_by: vec![EventId::new(1)],
@@ -1517,6 +1525,7 @@ mod tests {
         let left_support = TimelineItem {
             id: SelectionId::Event(EventId::new(3)),
             world_time: 3,
+            when: None,
             title: "Supporting record".into(),
             subtitle: "Event #3".into(),
             caused_by: vec![EventId::new(2)],
@@ -1524,6 +1533,7 @@ mod tests {
         let left_effect = TimelineItem {
             id: SelectionId::Event(EventId::new(4)),
             world_time: 4,
+            when: None,
             title: "Left effect".into(),
             subtitle: "Left effect · Event #4".into(),
             caused_by: vec![EventId::new(3)],
@@ -1531,6 +1541,7 @@ mod tests {
         let right_first = TimelineItem {
             id: SelectionId::Event(EventId::new(2)),
             world_time: 2,
+            when: None,
             title: "Right choice".into(),
             subtitle: "Right choice · Event #2".into(),
             caused_by: vec![EventId::new(1)],
@@ -1538,6 +1549,7 @@ mod tests {
         let right_effect = TimelineItem {
             id: SelectionId::Event(EventId::new(3)),
             world_time: 3,
+            when: None,
             title: "Right effect".into(),
             subtitle: "Right effect · Event #3".into(),
             caused_by: vec![EventId::new(2)],

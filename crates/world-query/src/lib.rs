@@ -1745,6 +1745,7 @@ mod tests {
                 items: vec![TimelineItem {
                     id: event,
                     world_time: 9,
+                    when: None,
                     title: "Changed".into(),
                     subtitle: "Recorded change".into(),
                     caused_by: Vec::new(),
@@ -2065,6 +2066,7 @@ mod tests {
             TimelineItem {
                 id: SelectionId::Event(EventId::new(3)),
                 world_time: 3,
+                when: None,
                 title: "Final effect".into(),
                 subtitle: "Final".into(),
                 caused_by: vec![EventId::new(2)],
@@ -2072,6 +2074,7 @@ mod tests {
             TimelineItem {
                 id: SelectionId::Event(EventId::new(2)),
                 world_time: 2,
+                when: None,
                 title: "Intermediate effect".into(),
                 subtitle: "Middle".into(),
                 caused_by: vec![EventId::new(1)],
@@ -2079,6 +2082,7 @@ mod tests {
             TimelineItem {
                 id: SelectionId::Event(EventId::new(1)),
                 world_time: 1,
+                when: None,
                 title: "Root cause".into(),
                 subtitle: "Root".into(),
                 caused_by: Vec::new(),
@@ -2118,6 +2122,7 @@ mod tests {
             TimelineItem {
                 id: SelectionId::Event(EventId::new(3)),
                 world_time: 3,
+                when: None,
                 title: "Final".into(),
                 subtitle: "Root".into(),
                 caused_by: vec![EventId::new(2), EventId::new(1)],
@@ -2125,6 +2130,7 @@ mod tests {
             TimelineItem {
                 id: SelectionId::Event(EventId::new(2)),
                 world_time: 2,
+                when: None,
                 title: "First direct cause".into(),
                 subtitle: "Also points at event 1".into(),
                 caused_by: vec![EventId::new(1)],
@@ -2132,6 +2138,7 @@ mod tests {
             TimelineItem {
                 id: SelectionId::Event(EventId::new(1)),
                 world_time: 1,
+                when: None,
                 title: "Second direct cause".into(),
                 subtitle: "Direct and indirect".into(),
                 caused_by: Vec::new(),
@@ -2157,6 +2164,7 @@ mod tests {
             TimelineItem {
                 id: SelectionId::Event(EventId::new(3)),
                 world_time: 3,
+                when: None,
                 title: "Final".into(),
                 subtitle: "Visible".into(),
                 caused_by: vec![EventId::new(2), EventId::new(99)],
@@ -2164,6 +2172,7 @@ mod tests {
             TimelineItem {
                 id: SelectionId::Event(EventId::new(2)),
                 world_time: 2,
+                when: None,
                 title: "Cycle".into(),
                 subtitle: "Visible".into(),
                 caused_by: vec![EventId::new(3)],

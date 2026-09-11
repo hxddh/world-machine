@@ -112,6 +112,7 @@ fn timeline(
             .map(|event| TimelineItem {
                 id: SelectionId::Event(event.id),
                 world_time: event.world_time,
+                when: None,
                 title: humanize(&event.kind),
                 subtitle: evidence_summary(world, event, artifacts),
                 caused_by: event

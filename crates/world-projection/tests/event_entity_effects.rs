@@ -58,6 +58,7 @@ fn directly_changed_entities_inverts_only_visible_recorded_entity_history() {
             items: vec![TimelineItem {
                 id: SelectionId::Event(target_event),
                 world_time: 7,
+                when: None,
                 title: "Target event".into(),
                 subtitle: "Visible recorded event".into(),
                 caused_by: Vec::new(),

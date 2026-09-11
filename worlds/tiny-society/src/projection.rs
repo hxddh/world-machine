@@ -11,10 +11,10 @@ use std::collections::BTreeMap;
 use society_basic::{CASH, JOB};
 use world_core::{EntityId, Event, RelationId, Value, World};
 use world_projection::{
-    entity_title, inspectors_from_world, timeline_from_world, why_map_from_world, BriefingItem,
-    BriefingItemKind, BriefingProjection, CanvasItem, CanvasItemKind, CanvasItemState,
-    CanvasProjection, CollectionItem, CollectionProjection, ProjectionCapabilities,
-    ProjectionCommand, ProjectionSnapshot, SelectionId,
+    entity_title, inspectors_from_world, timeline_from_world_when, why_map_from_world,
+    BriefingItem, BriefingItemKind, BriefingProjection, CanvasItem, CanvasItemKind,
+    CanvasItemState, CanvasProjection, CollectionItem, CollectionProjection,
+    ProjectionCapabilities, ProjectionCommand, ProjectionSnapshot, SelectionId,
 };
 
 pub(crate) const RESIDENTS: [EntityId; 8] = [JONAS, MARA, LEO, EMMA, MIA, NOAH, EVAN, SOFIA];
@@ -48,7 +48,12 @@ pub(crate) fn snapshot_since(
                 .filter_map(|id| resident_item(world, *id))
                 .collect(),
         },
-        timeline: timeline_from_world(world),
+        timeline: timeline_from_world_when(world, |at| {
+            Some(format!(
+                "Day {}",
+                at / crate::persistence::WORLD_DAY_TICKS + 1
+            ))
+        }),
         canvas: CanvasProjection {
             items: canvas_items(world),
         },
@@ -227,7 +232,7 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
             Some(BriefingItem {
                 selection: Some(SelectionId::Event(event.id)),
                 title,
-                detail: format!("World time {} · Event #{}", event.world_time, event.id),
+                detail: day_of(event.world_time),
                 kind: BriefingItemKind::Beat,
                 concerns,
             })
@@ -428,20 +433,19 @@ fn harbor_today(world: &World) -> BriefingItem {
         _ => String::new(),
     };
     let jonas = component_text(world, JONAS, JOB)
-        .map(|job| format!("Jonas: {job}"))
+        .map(|job| format!("Jonas: {}", job_phrase(&job)))
         .unwrap_or_else(|| "Jonas".to_string());
     let jonas_cash = component_integer(world, JONAS, CASH)
-        .map(|cash| format!(", cash {cash}"))
+        .map(|cash| format!(" · {cash} coins"))
         .unwrap_or_default();
     BriefingItem {
         concerns: Vec::new(),
         kind: BriefingItemKind::Status,
         selection: Some(SelectionId::Entity(BAKERY)),
         title: "Harbor today".into(),
-        detail: format!(
-            "{bakery}{bakery_cash}{counter} · {jonas}{jonas_cash} · World time {}",
-            world.world_time()
-        ),
+        // No "· World time 820". A tick count is how the engine keeps score
+        // and it was the last thing on the first line of every return.
+        detail: format!("{bakery}{bakery_cash}{counter} · {jonas}{jonas_cash}"),
     }
 }
 
@@ -485,9 +489,9 @@ fn bakery_sales_summary(world: &World, events: &[Event]) -> Option<BriefingItem>
         selection: Some(SelectionId::Event(latest.id)),
         title: "Harbor Bakery had customers".into(),
         detail: format!(
-            "{people} bought bread · {} {purchase_label} · {total_revenue} revenue · latest at World time {}",
+            "{people} bought bread · {} {purchase_label} · {total_revenue} revenue · latest on {}",
             purchases.len(),
-            latest.world_time
+            day_of(latest.world_time)
         ),
     })
 }
@@ -528,21 +532,63 @@ fn living_activity_summary(world: &World, events: &[Event]) -> Option<BriefingIt
         selection: Some(SelectionId::Event(latest.id)),
         title: "The world moved forward".into(),
         detail: format!(
-            "{people} worked · {} {shift_label} · {total_wages} total wages · latest at World time {}",
+            "{people} worked · {} {shift_label} · {total_wages} total wages · latest on {}",
             shifts.len(),
-            latest.world_time
+            day_of(latest.world_time)
         ),
     })
 }
 
+/// The day the town would call this moment, counting the first day as Day 1.
+///
+/// The World keeps time in ticks because a scheduler needs to. A reader does
+/// not: "World time 505" appeared in every briefing beat, in two of the
+/// summary lines, and on every entry in the timeline, and it never once told
+/// anybody anything.
+pub(crate) fn day_of(world_time: u64) -> String {
+    format!(
+        "Day {}",
+        world_time / crate::persistence::WORLD_DAY_TICKS + 1
+    )
+}
+
+/// What somebody does, in words a reader can read.
+///
+/// The World stores a job as an identifier, and three of the values are not
+/// jobs at all — `bakery_closed` is what becomes of Mara's job when the
+/// bakery shuts. Printed raw, the Residents list read "Mara · bakery_closed ·
+/// cash 1220", which is a database row with a person's name on it.
+///
+/// Lower case, because this goes inside a sentence as often as it stands on
+/// its own; whoever stands it on its own capitalises it.
+fn job_phrase(job: &str) -> String {
+    match job {
+        "unemployed" => "out of work".into(),
+        "bakery_closed" => "out of work · the bakery closed".into(),
+        "pub_closed" => "out of work · the pub closed".into(),
+        "school_closed" => "out of work · the school closed".into(),
+        other => other.replace('_', " "),
+    }
+}
+
+fn sentence_case(words: &str) -> String {
+    let mut chars = words.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+        None => String::new(),
+    }
+}
+
 fn resident_item(world: &World, id: EntityId) -> Option<CollectionItem> {
     let entity = world.state().entity(id)?;
-    let job = component_text(world, id, JOB).unwrap_or_else(|| "unknown job".into());
+    let job = component_text(world, id, JOB)
+        .map(|job| sentence_case(&job_phrase(&job)))
+        .unwrap_or_else(|| "No job recorded".into());
     let cash = component_text(world, id, CASH).unwrap_or_else(|| "?".into());
     Some(CollectionItem {
         id: SelectionId::Entity(id),
         title: entity_title(entity),
-        subtitle: format!("{job} · cash {cash}"),
+        subtitle: format!("{job} · {cash} coins"),
     })
 }
 

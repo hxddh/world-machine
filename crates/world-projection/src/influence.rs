@@ -408,6 +408,7 @@ mod tests {
         TimelineItem {
             id: SelectionId::Event(EventId::new(id)),
             world_time: id,
+            when: None,
             title: title.into(),
             subtitle: format!("Event #{id}"),
             caused_by: caused_by.iter().copied().map(EventId::new).collect(),

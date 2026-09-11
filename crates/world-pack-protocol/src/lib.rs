@@ -726,6 +726,11 @@ impl From<TimelineProjectionWire> for TimelineProjection {
 pub struct TimelineItemWire {
     pub id: SelectionIdWire,
     pub world_time: u64,
+    /// Absent in snapshots written before an entry could say when it happened
+    /// in the World's own words; those decode to an entry with no time on it,
+    /// which is how they were drawn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub when: Option<String>,
     pub title: String,
     pub subtitle: String,
     pub caused_by: Vec<u64>,
@@ -736,6 +741,7 @@ impl From<&TimelineItem> for TimelineItemWire {
         Self {
             id: item.id.into(),
             world_time: item.world_time,
+            when: item.when.clone(),
             title: item.title.clone(),
             subtitle: item.subtitle.clone(),
             caused_by: item.caused_by.iter().map(|event| event.0).collect(),
@@ -748,6 +754,7 @@ impl From<TimelineItemWire> for TimelineItem {
         Self {
             id: item.id.into(),
             world_time: item.world_time,
+            when: item.when,
             title: item.title,
             subtitle: item.subtitle,
             caused_by: item.caused_by.into_iter().map(EventId::new).collect(),
@@ -1215,6 +1222,7 @@ mod tests {
                 items: vec![TimelineItem {
                     id: event,
                     world_time: 41,
+                    when: Some("Cycle 6".into()),
                     title: "Changed".into(),
                     subtitle: "Event nine".into(),
                     caused_by: vec![EventId::new(8)],

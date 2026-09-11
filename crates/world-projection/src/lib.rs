@@ -744,6 +744,15 @@ pub struct TimelineProjection {
 pub struct TimelineItem {
     pub id: SelectionId,
     pub world_time: u64,
+    /// When this happened, in the World's own words — "Day 79", "Cycle 6".
+    ///
+    /// `world_time` is a tick count, which is the engine's business. The
+    /// window used to stamp every entry `t=790`, which tells a reader nothing
+    /// and, on a World whose entries all land in one tick, tells them nothing
+    /// four times in a row. Only the Pack knows how long a day is, so only the
+    /// Pack can say. `None` means the entry carries no time and the window
+    /// shows none, which is better than showing a number nobody can read.
+    pub when: Option<String>,
     pub title: String,
     pub subtitle: String,
     pub caused_by: Vec<EventId>,
@@ -843,6 +852,18 @@ pub struct InspectorRow {
 }
 
 pub fn timeline_from_world(world: &World) -> TimelineProjection {
+    timeline_from_world_when(world, |_| None)
+}
+
+/// A timeline whose entries say when they happened, in the Pack's own words.
+///
+/// `when` is handed the Event's world time and returns whatever the Pack calls
+/// that moment. A Pack that has no calendar keeps [`timeline_from_world`] and
+/// its entries carry no time at all.
+pub fn timeline_from_world_when(
+    world: &World,
+    when: impl Fn(u64) -> Option<String>,
+) -> TimelineProjection {
     TimelineProjection {
         items: world
             .events()
@@ -851,6 +872,7 @@ pub fn timeline_from_world(world: &World) -> TimelineProjection {
             .map(|event| TimelineItem {
                 id: SelectionId::Event(event.id),
                 world_time: event.world_time,
+                when: when(event.world_time),
                 title: humanize(&event.kind),
                 subtitle: event_summary(event, world),
                 caused_by: event.caused_by.clone(),
@@ -1443,7 +1465,10 @@ pub(crate) fn event_summary(event: &Event, world: &World) -> String {
     if let Some(summary) = semantic_event_summary(event) {
         parts.push(summary.to_string());
     }
-    parts.push(format!("Event #{}", event.id));
+    // No "Event #451". The number is how the engine refers to the Event, and
+    // the reader already has the entry in front of them; printing it turned
+    // every line of the news into a log line. It is still on the Event's own
+    // inspector, which is where an identifier belongs.
     parts.join(" · ")
 }
 
@@ -1500,7 +1525,7 @@ mod tests {
 
         assert_eq!(timeline.items.len(), 1);
         assert_eq!(timeline.items[0].title, "Work Started");
-        assert_eq!(timeline.items[0].subtitle, "Workspace · Event #1");
+        assert_eq!(timeline.items[0].subtitle, "Workspace");
         assert_eq!(
             inspectors
                 .get(&SelectionId::Entity(EntityId::new(1)))
@@ -1543,7 +1568,15 @@ mod tests {
         let timeline = timeline_from_world(&world);
         assert_eq!(
             timeline.items[0].subtitle,
-            "A durable direction was chosen. · Event #1"
+            "A durable direction was chosen."
+        );
+        // The engine's number for an Event is not part of the news.
+        assert!(
+            !timeline
+                .items
+                .iter()
+                .any(|item| item.subtitle.contains("Event #")),
+            "an event id reached a line a person reads"
         );
     }
 

@@ -191,19 +191,26 @@ impl ProjectionView {
             } else {
                 crate::theme_rgb(0xf7f7f7)
             })
-            .child(
+            // The World's own words for when, or nothing. It used to stamp
+            // every entry `t=790`, which is a tick count — and on a World
+            // whose last four entries all landed in one tick it printed the
+            // same unreadable number four times down the column.
+            .children(item.when.clone().map(|when| {
                 div()
                     .text_xs()
                     .text_color(crate::theme_rgb(0x777777))
-                    .child(format!("t={}", item.world_time)),
-            )
+                    .child(when)
+            }))
             .child(div().text_sm().child(item.title.clone()))
-            .child(
+            // An Event with nobody acting and nothing to summarise used to
+            // carry "Event #454" here. With that gone the line is empty, and
+            // an empty grey line is still a line.
+            .children((!item.subtitle.is_empty()).then(|| {
                 div()
                     .text_xs()
                     .text_color(crate::theme_rgb(0x777777))
-                    .child(item.subtitle.clone()),
-            )
+                    .child(item.subtitle.clone())
+            }))
             .on_click(cx.listener(move |this, _, _, cx| this.select(selection, cx)))
     }
 
@@ -1431,6 +1438,7 @@ mod focus_hierarchy_tests {
         snapshot.timeline.items.push(TimelineItem {
             id: event,
             world_time: 1,
+            when: None,
             title: "Changed".into(),
             subtitle: String::new(),
             caused_by: Vec::new(),
@@ -1539,6 +1547,7 @@ mod focus_hierarchy_tests {
         snapshot.timeline.items.push(TimelineItem {
             id: event,
             world_time: 1,
+            when: None,
             title: "Changed".into(),
             subtitle: String::new(),
             caused_by: Vec::new(),

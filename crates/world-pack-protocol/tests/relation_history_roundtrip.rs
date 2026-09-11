@@ -17,6 +17,7 @@ fn relation_evidence_snapshot() -> (ProjectionSnapshot, TimelineItem, RelationId
     let event_item = TimelineItem {
         id: event,
         world_time: 41,
+        when: None,
         title: "Relation changed".into(),
         subtitle: "External Pack relation event".into(),
         caused_by: vec![EventId::new(8)],
