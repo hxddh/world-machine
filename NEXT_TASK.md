@@ -1,5 +1,12 @@
 > **Status (2026-09-10):** Phase VIII shipped as `v0.5.0`. The next entries should come from the owner's real-device verification and usability test rather than from this file. Audit-driven transport hardening stays **frozen**. Every entry below states what a user will see change.
 
+> **Read [docs/PRODUCT_STUDY.md](docs/PRODUCT_STUDY.md) first.** It measures the
+> shipped Worlds against the products this one competes with, and it disagrees
+> with the ordering below: Tiny Society stops producing events at visit 77,
+> Micro Company at visit 2, and the one World that keeps going gets
+> quadratically slower as it does. Those are the findings this file was waiting
+> for; they did not need a device or a stranger to produce.
+
 # Next Coding Task — after v0.5.0
 
 `v0.5.0` shipped on 2026-09-10 and closed Phase VIII. Measured on the loop the product actually has — leave for a week, come back, read the briefing, twenty times over:
