@@ -1,12 +1,13 @@
 #[path = "household.rs"]
 mod household;
 
+use crate::model::{EMMA_SCHOOL_JOB, LEO_PUB_JOB, OPERATING_STATUS};
 use crate::{EMMA, LEO, PUB, SCHOOL};
-use society_basic::{integer_component, CASH};
+use society_basic::{integer_component, CASH, JOB};
 use std::error::Error;
 use world_core::{
     Action, ActionError, ActionRegistry, ActionRequest, BehaviorRegistry, EntityId, Event,
-    EventDraft, RuleBehavior, Value, WorldState,
+    EventDraft, RuleBehavior, StateChange, Value, WorldState,
 };
 
 pub(crate) fn register_actions(registry: &mut ActionRegistry) -> Result<(), ActionError> {
@@ -84,6 +85,31 @@ impl Action for RecordPayrollReserveExhausted {
         draft
             .payload
             .insert("cash_available".into(), cash_available.into());
+
+        // A workplace that cannot pay stops operating, and the job it cannot
+        // pay for ends. Without this the event was a sentence and nothing
+        // else: Leo stayed `pub_owner` of a pub with nothing in the till for
+        // the rest of the World, the shift scheduler silently skipped him
+        // every day forever, and no further event was ever recorded about
+        // him. The bakery has always done this on closing; the pub and the
+        // school announced the same failure and then changed nothing.
+        let (job_relation, ended_job) = match workplace {
+            PUB => (LEO_PUB_JOB, "pub_closed"),
+            _ => (EMMA_SCHOOL_JOB, "unemployed"),
+        };
+        draft.changes.push(StateChange::SetComponent {
+            entity: workplace,
+            key: OPERATING_STATUS.into(),
+            value: "closed".into(),
+        });
+        draft
+            .changes
+            .push(StateChange::RemoveRelation(job_relation));
+        draft.changes.push(StateChange::SetComponent {
+            entity: worker,
+            key: JOB.into(),
+            value: ended_job.into(),
+        });
         Ok(draft)
     }
 }
@@ -210,6 +236,76 @@ mod tests {
                 })
                 .count(),
             1
+        );
+    }
+}
+
+#[cfg(test)]
+mod ending_a_job_it_cannot_pay {
+    use crate::model::OPERATING_STATUS;
+    use crate::{TinySociety, EMMA, LEO, PUB, SCHOOL};
+    use society_basic::JOB;
+    use world_projection::{CanvasItemKind, CanvasItemState};
+
+    /// A workplace that runs out of money does something about it.
+    ///
+    /// It used to record one sentence and change nothing: Leo stayed
+    /// `pub_owner` of a pub with an empty till for the rest of the World, the
+    /// shift scheduler skipped him in silence every day, and no further event
+    /// about him was ever recorded.
+    #[test]
+    fn a_workplace_that_cannot_pay_stops_operating_and_the_job_ends() {
+        let mut society = TinySociety::new().unwrap();
+        society.run_story().unwrap();
+        let mut branch = society.branch();
+        branch.advance_days(80).unwrap();
+        let world = branch.world();
+
+        for (workplace, worker, ended) in [(PUB, LEO, "pub_closed"), (SCHOOL, EMMA, "unemployed")] {
+            assert!(
+                world
+                    .events()
+                    .iter()
+                    .any(|event| event.kind == "payroll_reserve_exhausted"
+                        && event.targets.contains(&workplace)),
+                "the reserve ran out and the World said so"
+            );
+            assert_eq!(
+                crate::actions::text_component(world.state(), workplace, OPERATING_STATUS).unwrap(),
+                "closed",
+                "a workplace that cannot pay is not still open"
+            );
+            assert_eq!(
+                crate::actions::text_component(world.state(), worker, JOB).unwrap(),
+                ended,
+                "the job it could not pay for has ended"
+            );
+        }
+    }
+
+    /// And the drawing is told, so a shut pub is drawn shut.
+    #[test]
+    fn a_shut_workplace_reads_as_stopped_on_the_canvas() {
+        let mut society = TinySociety::new().unwrap();
+        society.run_story().unwrap();
+        let mut branch = society.branch();
+        branch.advance_days(80).unwrap();
+
+        let canvas = branch.projection_snapshot().canvas;
+        let place = |label: &str| {
+            canvas
+                .items
+                .iter()
+                .find(|item| item.kind == CanvasItemKind::Place && item.label == label)
+                .unwrap_or_else(|| panic!("{label} is on the canvas"))
+                .state
+        };
+        assert_eq!(place("Anchor Pub"), CanvasItemState::Stopped);
+        assert_eq!(place("Island School"), CanvasItemState::Stopped);
+        assert_eq!(
+            place("Harbor"),
+            CanvasItemState::Working,
+            "the harbour is not a business and is never shut"
         );
     }
 }

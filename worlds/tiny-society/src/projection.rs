@@ -535,19 +535,22 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
         let Some(entity) = world.state().entity(id) else {
             continue;
         };
-        let state = if id == BAKERY
-            && component_text(world, BAKERY, OPERATING_STATUS).as_deref() != Some("open")
-        {
-            CanvasItemState::Stopped
-        } else {
-            CanvasItemState::Working
+        // Any place that says how it is doing is believed, not just the
+        // bakery. The pub and the school can shut too, and until they could
+        // say so a drawing of this town showed two lit shopfronts with
+        // nobody left inside them. A place that says nothing — the harbour —
+        // is not a business and is never shut.
+        let operating = component_text(world, id, OPERATING_STATUS);
+        let state = match operating.as_deref() {
+            Some(status) if status != "open" => CanvasItemState::Stopped,
+            _ => CanvasItemState::Working,
         };
         let detail = match id {
-            BAKERY => component_text(world, BAKERY, OPERATING_STATUS)
-                .map(|status| format!("Place · {status}"))
-                .unwrap_or_else(|| "Place".into()),
             HARBOR => component_integer(world, HARBOR, CASH)
                 .map(|cash| format!("Place · cash {cash}"))
+                .unwrap_or_else(|| "Place".into()),
+            _ if operating.is_some() => operating
+                .map(|status| format!("Place · {status}"))
                 .unwrap_or_else(|| "Place".into()),
             _ => "Place".into(),
         };
