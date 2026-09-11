@@ -40,6 +40,7 @@ fn commands(world: &World) -> Vec<ProjectionCommand> {
         return Vec::new();
     }
     vec![ProjectionCommand {
+        concerns: Vec::new(),
         id: RUN_CYCLE_COMMAND.into(),
         title: "Run one company cycle".into(),
         detail: "Pay the burn, let Maya and Jon act, then see whether product, customers, runway, and working trust move together.".into(),
@@ -79,12 +80,14 @@ fn briefing(world: &World, since_event_count: Option<usize>) -> BriefingProjecti
         },
         items: vec![
             BriefingItem {
+                concerns: Vec::new(),
                 kind: BriefingItemKind::Status,
                 selection: Some(SelectionId::Entity(COMPANY)),
                 title: format!("Cash {cash} · Quality {quality} · Customers {customers}"),
                 detail: last_change,
             },
             BriefingItem {
+                concerns: Vec::new(),
                 kind: BriefingItemKind::Status,
                 selection: Some(SelectionId::Entity(RELATIONSHIP)),
                 title: format!("Working trust {trust} · Tension {tension}"),
@@ -103,6 +106,7 @@ fn return_item(event: &Event) -> BriefingItem {
         })
         .unwrap_or_else(|| event.kind.replace('_', " "));
     BriefingItem {
+        concerns: Vec::new(),
         kind: BriefingItemKind::Beat,
         selection: Some(SelectionId::Event(event.id)),
         title: match event.kind.as_str() {

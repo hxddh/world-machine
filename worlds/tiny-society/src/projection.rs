@@ -72,6 +72,11 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
             detail:
                 "Keep Jonas at the bakery and let this branch continue into a different future."
                     .into(),
+            concerns: vec![
+                SelectionId::Entity(JONAS),
+                SelectionId::Entity(MARA),
+                SelectionId::Entity(BAKERY),
+            ],
         });
     }
 
@@ -87,7 +92,8 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 "Invest {} of Mara's cash to reopen Harbor Bakery. Mara returns to work; former workers are not automatically rehired.",
                 crate::BAKERY_REOPEN_INVESTMENT
             ),
-        });
+                    concerns: vec![SelectionId::Entity(MARA), SelectionId::Entity(BAKERY)],
+});
     }
 
     let mara_can_reopen_lean = component_integer(world, MARA, CASH)
@@ -100,7 +106,8 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 "Invest {} of Mara's cash and reopen Harbor Bakery without a fixed daily Bakery wage. Lower overhead can survive weak demand, but Mara gives up predictable pay.",
                 crate::recovery::LEAN_REOPEN_INVESTMENT
             ),
-        });
+                    concerns: vec![SelectionId::Entity(MARA), SelectionId::Entity(BAKERY)],
+});
     }
 
     if repair_offer_is_open(world) {
@@ -111,7 +118,8 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 "Leo pays Evan {} to repair Sea Finch. Jonas returns to Harbor fishing once the boat is sound. Leo's backing does not stand indefinitely.",
                 crate::social::SEA_FINCH_REPAIR_COST
             ),
-        });
+                    concerns: vec![SelectionId::Entity(JONAS), SelectionId::Entity(LEO), SelectionId::Entity(EVAN), SelectionId::Entity(JONAS_BOAT)],
+});
     }
 
     if crate::drift::sea_finch_can_be_sold(world.state()) {
@@ -123,7 +131,8 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 crate::drift::SEA_FINCH_SCRAP_VALUE,
                 crate::social::SEA_FINCH_REPAIR_COST
             ),
-        });
+                    concerns: vec![SelectionId::Entity(JONAS), SelectionId::Entity(JONAS_BOAT)],
+});
     }
 
     if crate::livelihood::work_ask_is_open(world.state()) {
@@ -134,7 +143,8 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 "Jonas works the counter for {} a day. It is a second wage against the same island trade, and the bakery has to carry it.",
                 crate::livelihood::COUNTER_WAGE
             ),
-        });
+                    concerns: vec![SelectionId::Entity(JONAS), SelectionId::Entity(MARA), SelectionId::Entity(BAKERY)],
+});
     }
 
     commands
@@ -199,11 +209,19 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
             if !told.insert(event.kind.clone()) {
                 return None;
             }
+            let mut concerns = Vec::new();
+            for id in event.actor.iter().chain(event.targets.iter()) {
+                let selection = SelectionId::Entity(*id);
+                if !concerns.contains(&selection) {
+                    concerns.push(selection);
+                }
+            }
             Some(BriefingItem {
                 selection: Some(SelectionId::Event(event.id)),
                 title,
                 detail: format!("World time {} · Event #{}", event.world_time, event.id),
                 kind: BriefingItemKind::Beat,
+                concerns,
             })
         })
         .take(BEATS_PER_BRIEFING)
@@ -230,6 +248,7 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
             title: format!("{} more things happened", happened - told),
             detail: "The whole history is in the timeline.".into(),
             kind: BriefingItemKind::Status,
+            concerns: Vec::new(),
         });
     }
 
@@ -270,6 +289,7 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
             title: title.into(),
             detail,
             kind: BriefingItemKind::Status,
+            concerns: Vec::new(),
         });
     }
 
@@ -388,6 +408,7 @@ fn harbor_today(world: &World) -> BriefingItem {
         .map(|cash| format!(", cash {cash}"))
         .unwrap_or_default();
     BriefingItem {
+        concerns: Vec::new(),
         kind: BriefingItemKind::Status,
         selection: Some(SelectionId::Entity(BAKERY)),
         title: "Harbor today".into(),
@@ -433,6 +454,7 @@ fn bakery_sales_summary(world: &World, events: &[Event]) -> Option<BriefingItem>
     };
 
     Some(BriefingItem {
+        concerns: Vec::new(),
         kind: BriefingItemKind::Status,
         selection: Some(SelectionId::Event(latest.id)),
         title: "Harbor Bakery had customers".into(),
@@ -475,6 +497,7 @@ fn living_activity_summary(world: &World, events: &[Event]) -> Option<BriefingIt
     let shift_label = if shifts.len() == 1 { "shift" } else { "shifts" };
 
     Some(BriefingItem {
+        concerns: Vec::new(),
         kind: BriefingItemKind::Status,
         selection: Some(SelectionId::Event(latest.id)),
         title: "The world moved forward".into(),
@@ -1082,5 +1105,179 @@ mod canvas_tests {
             CanvasItemState::Gone,
             "and once she is sold the canvas can draw the empty mooring"
         );
+    }
+}
+
+#[cfg(test)]
+mod scene_tests {
+    use super::*;
+    use crate::TinySociety;
+    use world_projection::town_scene;
+
+    /// The geometry is tested against a made-up town in `world-projection`.
+    /// This checks it against the one the app actually draws, because a
+    /// fixture that agrees with itself proves nothing about a real World.
+    #[test]
+    fn the_real_town_lays_out_without_anything_landing_on_anything() {
+        let mut society = TinySociety::new().unwrap();
+        society.run_story().unwrap();
+        let mut branch = society.branch();
+
+        for _ in 0..8 {
+            let items = branch.projection_snapshot().canvas.items;
+            let plan = town_scene::plan(&items, 1100.0, 430.0);
+
+            assert_eq!(plan.buildings.len(), 3, "three shops and a harbour");
+            for (index, one) in plan.buildings.iter().enumerate() {
+                for other in plan.buildings.iter().skip(index + 1) {
+                    assert!(
+                        !one.body.overlaps(&other.body),
+                        "{} over {}",
+                        one.label,
+                        other.label
+                    );
+                }
+            }
+            let deck = plan.jetty.expect("the harbour is out over the water");
+            assert!(
+                plan.buildings.iter().all(|b| b.body.right() <= deck.x),
+                "the street stops where the jetty starts"
+            );
+            for spot in &plan.folk {
+                assert!(
+                    spot.feet.0 >= 0.0 && spot.feet.0 <= 1100.0,
+                    "{} stands off the edge at {:.0}",
+                    spot.label,
+                    spot.feet.0
+                );
+            }
+            assert_eq!(plan.folk.len(), 8, "everybody in the town is drawn");
+            branch.advance_days(20).unwrap();
+        }
+    }
+
+    #[test]
+    fn the_picture_changes_as_the_world_does() {
+        let mut society = TinySociety::new().unwrap();
+        society.run_story().unwrap();
+        let mut branch = society.branch();
+
+        let opening = town_scene::plan(&branch.projection_snapshot().canvas.items, 1100.0, 430.0);
+        let bakery = |plan: &town_scene::ScenePlan| {
+            plan.buildings
+                .iter()
+                .find(|b| b.label == "Harbor Bakery")
+                .map(|b| b.state)
+                .expect("the bakery is drawn")
+        };
+        assert_eq!(bakery(&opening), CanvasItemState::Working);
+
+        for _ in 0..250 {
+            if branch
+                .world()
+                .events()
+                .iter()
+                .any(|event| event.kind == "bakery_closed")
+            {
+                break;
+            }
+            branch.advance_days(1).unwrap();
+        }
+        let later = town_scene::plan(&branch.projection_snapshot().canvas.items, 1100.0, 430.0);
+        assert_eq!(
+            bakery(&later),
+            CanvasItemState::Stopped,
+            "a shut shop is shut in the picture"
+        );
+        // Nobody has moved, and that is not an oversight in the drawing: a
+        // resident's `location` is set once when the World is seeded and never
+        // written again, so Mara stands outside her own shut bakery. The
+        // picture changes because the things in it change, not because people
+        // walk around. Worth knowing before anyone tries to animate it.
+        assert_eq!(
+            opening.folk.iter().map(|f| f.feet).collect::<Vec<_>>(),
+            later.folk.iter().map(|f| f.feet).collect::<Vec<_>>(),
+        );
+
+        let boat = |plan: &town_scene::ScenePlan| {
+            plan.objects
+                .iter()
+                .find(|o| o.label == "Sea Finch")
+                .map(|o| o.state)
+                .expect("Sea Finch is drawn")
+        };
+        assert_eq!(boat(&opening), CanvasItemState::Hurt);
+        assert_eq!(
+            boat(&later),
+            CanvasItemState::Gone,
+            "and her mooring is empty in the picture once she is sold"
+        );
+    }
+}
+
+#[cfg(test)]
+mod concerns_tests {
+    use super::*;
+    use crate::TinySociety;
+
+    #[test]
+    fn a_line_says_who_it_is_about_rather_than_leaving_it_in_the_wording() {
+        let mut society = TinySociety::new().unwrap();
+        society.run_story().unwrap();
+        let mut branch = society.branch();
+        let cursor = branch.visit_cursor();
+        branch.advance_days(60).unwrap();
+
+        let snapshot = branch.projection_snapshot_since(cursor);
+        let briefing = snapshot.briefing.expect("a return briefing");
+        let beats = briefing.beats();
+        assert!(!beats.is_empty());
+        for beat in &beats {
+            assert!(
+                !beat.concerns.is_empty(),
+                "{:?} is about nobody at all",
+                beat.title
+            );
+        }
+
+        // And the people it names are the people it says it concerns, so a
+        // picture lighting them up lights the right ones.
+        let named = beats
+            .iter()
+            .find(|beat| beat.title.contains("Jonas"))
+            .expect("this stretch has a line about Jonas");
+        assert!(
+            named.concerns.contains(&SelectionId::Entity(JONAS)),
+            "{:?} names Jonas but does not concern him",
+            named.title
+        );
+    }
+
+    #[test]
+    fn a_choice_says_who_it_is_about() {
+        let mut society = TinySociety::new().unwrap();
+        society.run_story().unwrap();
+        let mut branch = society.branch();
+        branch.advance_days(14).unwrap();
+
+        let commands = branch.projection_snapshot().commands;
+        assert!(!commands.is_empty(), "the World offers something to decide");
+        for command in &commands {
+            assert!(
+                !command.concerns.is_empty(),
+                "{:?} is a choice about nobody",
+                command.title
+            );
+        }
+        let repair = commands
+            .iter()
+            .find(|command| command.id == crate::REPAIR_BOAT_COMMAND)
+            .expect("Leo's backing is on the table");
+        for who in [JONAS, LEO, EVAN, JONAS_BOAT] {
+            assert!(
+                repair.concerns.contains(&SelectionId::Entity(who)),
+                "repairing the boat concerns everyone it names"
+            );
+        }
     }
 }

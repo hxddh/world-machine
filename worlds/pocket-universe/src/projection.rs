@@ -54,18 +54,21 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
     if !seeded {
         return vec![
             ProjectionCommand {
+                concerns: Vec::new(),
                 id: SEED_MARS_COLONY_COMMAND.into(),
                 title: "Start a Mars colony".into(),
                 detail: "A tiny habitat, one keeper, hydroponics, and a rover on a red horizon."
                     .into(),
             },
             ProjectionCommand {
+                concerns: Vec::new(),
                 id: SEED_1980S_TOWN_COMMAND.into(),
                 title: "Start a town in 1987".into(),
                 detail: "An arcade, local radio, a night bus, and a neighborhood that remembers."
                     .into(),
             },
             ProjectionCommand {
+                concerns: Vec::new(),
                 id: SEED_PENGUIN_CIVILIZATION_COMMAND.into(),
                 title: "Start a penguin civilization".into(),
                 detail: "An ice bridge, a fish vault, a moonrise council, and one bridge keeper."
@@ -103,6 +106,7 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
         )
     };
     let mut commands = vec![ProjectionCommand {
+        concerns: Vec::new(),
         id: NUDGE_COMMAND.into(),
         title: nudge_title.into(),
         detail: command_detail_with_signal(world, NUDGE_COMMAND, nudge_detail),
@@ -110,6 +114,7 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
 
     if relationship_choice_available {
         commands.push(ProjectionCommand {
+            concerns: Vec::new(),
             id: SHARED_PROJECT_COMMAND.into(),
             title: "Give them a shared project".into(),
             detail: command_detail_with_signal(
@@ -119,6 +124,7 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             ),
         });
         commands.push(ProjectionCommand {
+            concerns: Vec::new(),
             id: RIVALRY_COMMAND.into(),
             title: "Let rivalry sharpen them".into(),
             detail: command_detail_with_signal(
@@ -132,11 +138,13 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
         let (bold_title, bold_detail, careful_title, careful_detail) =
             intervention_copy(seed_id(world));
         commands.push(ProjectionCommand {
+            concerns: Vec::new(),
             id: BOLD_PATH_COMMAND.into(),
             title: bold_title.into(),
             detail: command_detail_with_signal(world, BOLD_PATH_COMMAND, bold_detail),
         });
         commands.push(ProjectionCommand {
+            concerns: Vec::new(),
             id: CAREFUL_PATH_COMMAND.into(),
             title: careful_title.into(),
             detail: command_detail_with_signal(world, CAREFUL_PATH_COMMAND, careful_detail),
@@ -146,11 +154,13 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
         let (outward_title, outward_detail, rooted_title, rooted_detail) =
             posture_command_copy(seed_id(world));
         commands.push(ProjectionCommand {
+            concerns: Vec::new(),
             id: OUTWARD_POSTURE_COMMAND.into(),
             title: outward_title.into(),
             detail: command_detail_with_signal(world, OUTWARD_POSTURE_COMMAND, outward_detail),
         });
         commands.push(ProjectionCommand {
+            concerns: Vec::new(),
             id: ROOTED_POSTURE_COMMAND.into(),
             title: rooted_title.into(),
             detail: command_detail_with_signal(world, ROOTED_POSTURE_COMMAND, rooted_detail),
@@ -159,17 +169,20 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
     let copy = pressure::copy_for_state(world.state());
     if pressure::window_open(&pressure_stage) {
         commands.push(ProjectionCommand {
+            concerns: Vec::new(),
             id: HOLD_PRESSURE_COMMAND.into(),
             title: copy.hold_title.into(),
             detail: command_detail_with_signal(world, HOLD_PRESSURE_COMMAND, copy.hold_detail),
         });
         commands.push(ProjectionCommand {
+            concerns: Vec::new(),
             id: REACH_PRESSURE_COMMAND.into(),
             title: copy.reach_title.into(),
             detail: command_detail_with_signal(world, REACH_PRESSURE_COMMAND, copy.reach_detail),
         });
     } else if pressure_stage == "lost" {
         commands.push(ProjectionCommand {
+            concerns: Vec::new(),
             id: RECOVER_ANCHOR_COMMAND.into(),
             title: copy.recover_title.into(),
             detail: command_detail_with_signal(world, RECOVER_ANCHOR_COMMAND, copy.recover_detail),
@@ -179,6 +192,7 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
     if succession::choice_open(&succession_stage) {
         let succession_copy = succession::copy_for_seed(seed_id(world));
         commands.push(ProjectionCommand {
+            concerns: Vec::new(),
             id: ENTRUST_LEGACY_COMMAND.into(),
             title: succession_copy.entrust_title.into(),
             detail: command_detail_with_signal(
@@ -188,6 +202,7 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             ),
         });
         commands.push(ProjectionCommand {
+            concerns: Vec::new(),
             id: RELEASE_LEGACY_COMMAND.into(),
             title: succession_copy.release_title.into(),
             detail: command_detail_with_signal(
@@ -258,6 +273,7 @@ fn eras_turned_item(world: &World, events: &[Event]) -> Option<BriefingItem> {
         format!("{} eras turned", turned.len())
     };
     Some(BriefingItem {
+        concerns: Vec::new(),
         kind: BriefingItemKind::Beat,
         selection: Some(SelectionId::Event(latest.id)),
         title,
@@ -279,6 +295,7 @@ fn decided_without_you_item(events: &[Event]) -> Option<BriefingItem> {
         more => format!("{note} {more} other decisions were reached the same way."),
     };
     Some(BriefingItem {
+        concerns: Vec::new(),
         kind: BriefingItemKind::Beat,
         selection: Some(SelectionId::Event(last.id)),
         title: "Decided without you".into(),
@@ -315,6 +332,7 @@ fn era_item(world: &World) -> Option<BriefingItem> {
         EraStanding::Mixed => summary,
     };
     Some(BriefingItem {
+        concerns: Vec::new(),
         kind: BriefingItemKind::Status,
         selection: Some(SelectionId::Event(event.id)),
         title: format!("Era {era} · {inherited}"),
@@ -347,6 +365,7 @@ fn succession_consequence_item(world: &World) -> Option<BriefingItem> {
         }
     };
     Some(BriefingItem {
+        concerns: Vec::new(),
         kind: BriefingItemKind::Beat,
         selection: Some(SelectionId::Event(event.id)),
         title: format!("Succession · {label}"),
@@ -370,6 +389,7 @@ fn succession_choice_evidence(event: &Event) -> Option<BriefingItem> {
         _ => return None,
     };
     Some(BriefingItem {
+        concerns: Vec::new(),
         kind: BriefingItemKind::Status,
         selection: Some(SelectionId::Event(event.id)),
         title: format!("Choice evidence · {label}"),
@@ -656,6 +676,7 @@ fn pressure_consequence_item(world: &World) -> Option<BriefingItem> {
         other => other,
     };
     Some(BriefingItem {
+        concerns: Vec::new(),
         kind: BriefingItemKind::Beat,
         selection: Some(SelectionId::Event(event.id)),
         title: format!("World pressure · {label}"),
@@ -687,6 +708,7 @@ fn pressure_choice_evidence(world: &World, event: &Event) -> Option<BriefingItem
         _ => return None,
     };
     Some(BriefingItem {
+        concerns: Vec::new(),
         kind: BriefingItemKind::Status,
         selection: Some(SelectionId::Event(event.id)),
         title: format!("Choice evidence · {label}"),
@@ -825,6 +847,7 @@ fn briefing(world: &World, seeded: bool, since_event_count: Option<usize>) -> Br
             title: "What kind of world should exist here?".into(),
             items: vec![
                 BriefingItem {
+                    concerns: Vec::new(),
                     kind: BriefingItemKind::Status,
                     selection: Some(SelectionId::Entity(UNIVERSE)),
                     title: "Create".into(),
@@ -832,6 +855,7 @@ fn briefing(world: &World, seeded: bool, since_event_count: Option<usize>) -> Br
                         .into(),
                 },
                 BriefingItem {
+                    concerns: Vec::new(),
                     kind: BriefingItemKind::Status,
                     selection: None,
                     title: "Keep · Grow · Return".into(),
@@ -888,6 +912,7 @@ fn briefing(world: &World, seeded: bool, since_event_count: Option<usize>) -> Br
         )
     };
     let mut items = vec![BriefingItem {
+        concerns: Vec::new(),
         kind: BriefingItemKind::Status,
         selection: Some(SelectionId::Entity(UNIVERSE)),
         title: "Current thread".into(),
@@ -895,6 +920,7 @@ fn briefing(world: &World, seeded: bool, since_event_count: Option<usize>) -> Br
     }];
     if let Some((guidance_title, guidance_detail)) = guidance {
         items.push(BriefingItem {
+            concerns: Vec::new(),
             kind: BriefingItemKind::Status,
             selection: None,
             title: guidance_title.into(),
@@ -988,6 +1014,7 @@ fn persistent_consequence_items(world: &World) -> Vec<BriefingItem> {
     let decision = text_component(world.state().entity(UNIVERSE), DECISION, "none");
     if let Some((title, detail)) = intervention_influence_copy(&decision) {
         items.push(BriefingItem {
+            concerns: Vec::new(),
             kind: BriefingItemKind::Status,
             selection: Some(SelectionId::Entity(UNIVERSE)),
             title: title.into(),
@@ -1078,6 +1105,7 @@ fn relationship_choice_evidence(
         ),
     };
     Some(BriefingItem {
+        concerns: Vec::new(),
         kind: BriefingItemKind::Status,
         selection: Some(SelectionId::Event(event.id)),
         title: format!("Choice evidence · {label}"),
@@ -1114,6 +1142,7 @@ fn intervention_choice_evidence(world: &World, event: &Event) -> Option<Briefing
         _ => None,
     })?;
     Some(BriefingItem {
+        concerns: Vec::new(),
         kind: BriefingItemKind::Status,
         selection: Some(SelectionId::Event(event.id)),
         title: format!("Choice evidence · {label}"),
@@ -1132,6 +1161,7 @@ fn posture_choice_evidence(event: &Event) -> Option<BriefingItem> {
         _ => "World direction",
     };
     Some(BriefingItem {
+        concerns: Vec::new(),
         kind: BriefingItemKind::Status,
         selection: Some(SelectionId::Event(event.id)),
         title: format!("Choice evidence · {label}"),
@@ -1290,6 +1320,7 @@ fn posture_consequence_item(world: &World) -> Option<BriefingItem> {
         ),
     };
     Some(BriefingItem {
+        concerns: Vec::new(),
         kind: BriefingItemKind::Status,
         selection: Some(SelectionId::Entity(UNIVERSE)),
         title: title.into(),
@@ -1332,6 +1363,7 @@ fn legacy_consequence_item(world: &World) -> Option<BriefingItem> {
         })
         .unwrap_or(SelectionId::Entity(UNIVERSE));
     Some(BriefingItem {
+        concerns: Vec::new(),
         kind: BriefingItemKind::Status,
         selection: Some(selection),
         title: format!("World legacy · {}", legacy_label(&legacy)),
@@ -1387,6 +1419,7 @@ fn relationship_consequence_item(world: &World) -> Option<BriefingItem> {
         format!("{meaning} Trust {trust} · tension {tension}. {last_dynamic}")
     };
     Some(BriefingItem {
+        concerns: Vec::new(),
         kind: BriefingItemKind::Status,
         selection: Some(SelectionId::Entity(RELATIONSHIP)),
         title: title.into(),
@@ -1467,6 +1500,7 @@ fn return_compass_item(world: &World) -> BriefingItem {
     let detail = format!("Why now: {why_now} {action_detail}");
 
     BriefingItem {
+        concerns: Vec::new(),
         kind: BriefingItemKind::Status,
         selection: None,
         title: title.into(),
@@ -1741,6 +1775,7 @@ fn return_item(events: &[Event], event: &Event, occurrences: usize) -> BriefingI
         }
     };
     BriefingItem {
+        concerns: Vec::new(),
         kind: BriefingItemKind::Beat,
         selection: Some(SelectionId::Event(event.id)),
         title,

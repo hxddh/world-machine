@@ -157,11 +157,13 @@ mod tests {
                 capabilities: ProjectionCapabilities { fork: false },
                 commands: vec![
                     ProjectionCommand {
+                        concerns: Vec::new(),
                         id: "mock.left".into(),
                         title: "Left choice".into(),
                         detail: "Advance once".into(),
                     },
                     ProjectionCommand {
+                        concerns: Vec::new(),
                         id: "mock.right".into(),
                         title: "Right choice".into(),
                         detail: "Advance twice".into(),

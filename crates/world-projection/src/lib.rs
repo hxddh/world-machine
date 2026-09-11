@@ -1,3 +1,5 @@
+pub mod town_scene;
+
 mod causal;
 mod influence;
 
@@ -149,6 +151,9 @@ pub struct ProjectionCommand {
     pub id: String,
     pub title: String,
     pub detail: String,
+    /// Who and what this choice is about, so a drawing of the World can show
+    /// them rather than guess from the wording.
+    pub concerns: Vec<SelectionId>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -648,6 +653,12 @@ pub struct BriefingItem {
     pub title: String,
     pub detail: String,
     pub kind: BriefingItemKind,
+    /// Who and what this line is about.
+    ///
+    /// Without it the only way to light up the people a return concerns is to
+    /// search the sentence for their names, which is reading prose to recover
+    /// something the World knew for certain when it wrote it.
+    pub concerns: Vec<SelectionId>,
 }
 
 impl BriefingProjection {
@@ -1670,6 +1681,7 @@ mod tests {
     fn snapshot_command_lookup_is_generic() {
         let snapshot = ProjectionSnapshot {
             commands: vec![ProjectionCommand {
+                concerns: Vec::new(),
                 id: "world.continue".into(),
                 title: "Continue".into(),
                 detail: "Let the world keep running".into(),

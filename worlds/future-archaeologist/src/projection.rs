@@ -40,6 +40,7 @@ fn commands(world: &World) -> Vec<ProjectionCommand> {
         Vec::new()
     } else {
         vec![ProjectionCommand {
+            concerns: Vec::new(),
             id: crate::RECOVER_MESSAGE_COMMAND.into(),
             title: "Recover deleted message".into(),
             detail: "Scan unallocated message storage for a recoverable fragment.".into(),
@@ -135,6 +136,7 @@ fn briefing(world: &World, artifacts: &[EntityId]) -> BriefingProjection {
                 detail: text_component(entity, SUMMARY)
                     .unwrap_or("Recovered artifact")
                     .into(),
+                concerns: vec![SelectionId::Entity(*id)],
             })
         })
         .take(3)

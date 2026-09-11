@@ -34,6 +34,7 @@ impl WorldSession for MockSession {
                 eyebrow: "Metadata".into(),
                 title: "Current state".into(),
                 items: vec![BriefingItem {
+                    concerns: Vec::new(),
                     kind: BriefingItemKind::Beat,
                     selection: None,
                     title: format!("State {}", self.count),
@@ -41,6 +42,7 @@ impl WorldSession for MockSession {
                 }],
             }),
             commands: vec![ProjectionCommand {
+                concerns: Vec::new(),
                 id: "mock.advance".into(),
                 title: "Advance".into(),
                 detail: "Advance the metadata regression World".into(),

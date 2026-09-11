@@ -979,6 +979,7 @@ mod tests {
             [entity_inspector(1, "100", "baker")],
             vec![event(1, "opened", 10)],
             vec![ProjectionCommand {
+                concerns: Vec::new(),
                 id: "world.act".into(),
                 title: "Act".into(),
                 detail: "Do something".into(),
@@ -1282,6 +1283,7 @@ mod tests {
             [],
             vec![event(1, "common", 10), event(2, "left only", 20)],
             vec![ProjectionCommand {
+                concerns: Vec::new(),
                 id: "left.action".into(),
                 title: "Left".into(),
                 detail: "left".into(),
@@ -1292,6 +1294,7 @@ mod tests {
             [],
             vec![event(1, "common", 10), event(3, "right only", 20)],
             vec![ProjectionCommand {
+                concerns: Vec::new(),
                 id: "right.action".into(),
                 title: "Right".into(),
                 detail: "right".into(),

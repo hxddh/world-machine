@@ -454,6 +454,9 @@ pub struct ProjectionCommandWire {
     pub id: String,
     pub title: String,
     pub detail: String,
+    /// Absent in snapshots written before a choice could say who it was about.
+    #[serde(default)]
+    pub concerns: Vec<SelectionIdWire>,
 }
 
 impl From<&ProjectionCommand> for ProjectionCommandWire {
@@ -462,6 +465,7 @@ impl From<&ProjectionCommand> for ProjectionCommandWire {
             id: command.id.clone(),
             title: command.title.clone(),
             detail: command.detail.clone(),
+            concerns: command.concerns.iter().map(|id| (*id).into()).collect(),
         }
     }
 }
@@ -472,6 +476,7 @@ impl From<ProjectionCommandWire> for ProjectionCommand {
             id: command.id,
             title: command.title,
             detail: command.detail,
+            concerns: command.concerns.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -513,6 +518,10 @@ pub struct BriefingItemWire {
     /// decode back to.
     #[serde(default)]
     pub kind: BriefingItemKindWire,
+    /// Absent in snapshots written before a briefing line could say who it was
+    /// about; those decode to a line about nobody in particular.
+    #[serde(default)]
+    pub concerns: Vec<SelectionIdWire>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -548,6 +557,7 @@ impl From<&BriefingItem> for BriefingItemWire {
             title: item.title.clone(),
             detail: item.detail.clone(),
             kind: item.kind.into(),
+            concerns: item.concerns.iter().map(|id| (*id).into()).collect(),
         }
     }
 }
@@ -559,6 +569,7 @@ impl From<BriefingItemWire> for BriefingItem {
             title: item.title,
             detail: item.detail,
             kind: item.kind.into(),
+            concerns: item.concerns.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -1078,6 +1089,7 @@ mod tests {
                 eyebrow: "Status".into(),
                 title: "World briefing".into(),
                 items: vec![BriefingItem {
+                    concerns: Vec::new(),
                     kind: BriefingItemKind::Status,
                     selection: Some(entity),
                     title: "Entity seven".into(),
@@ -1085,6 +1097,7 @@ mod tests {
                 }],
             }),
             commands: vec![ProjectionCommand {
+                concerns: Vec::new(),
                 id: "external.advance".into(),
                 title: "Advance".into(),
                 detail: "Advance the external world".into(),

@@ -323,6 +323,34 @@ impl ProjectionView {
             )
     }
 
+    /// The people this return is about, so the picture can light them up.
+    ///
+    /// The World says who each line concerns when it writes the line; nothing
+    /// here searches a sentence for names, which would light the wrong person
+    /// the first time somebody's name appeared in prose that was not about
+    /// them.
+    fn lit_selections(&self) -> Vec<SelectionId> {
+        let mut lit = Vec::new();
+        let mut note = |id: SelectionId| {
+            if !lit.contains(&id) {
+                lit.push(id);
+            }
+        };
+        if let Some(briefing) = self.snapshot.briefing.as_ref() {
+            for item in briefing.beats() {
+                for id in &item.concerns {
+                    note(*id);
+                }
+            }
+        }
+        for command in &self.snapshot.commands {
+            for id in &command.concerns {
+                note(*id);
+            }
+        }
+        lit
+    }
+
     fn render_canvas(&self, cx: &mut Context<Self>) -> Div {
         let mut canvas = div()
             .relative()
@@ -1123,7 +1151,9 @@ impl Render for ProjectionView {
                     .text_color(crate::theme_rgb(0x666666))
                     .child("Explore the world"),
             );
-            if !self.snapshot.canvas.items.is_empty() {
+            if !self.snapshot.canvas.items.is_empty()
+                && !crate::town::is_a_place(&self.snapshot.canvas.items)
+            {
                 center = center.child(self.render_canvas(cx));
             }
             if let Some(inspector) = self.render_inspector(cx) {
@@ -1136,6 +1166,12 @@ impl Render for ProjectionView {
                 center = center.child(influence);
             }
         }
+
+        // A World that has told the canvas where things are is drawn as the
+        // place it is, across the top of the window, rather than as a scatter
+        // of boxes in a panel.
+        let town = crate::town::is_a_place(&self.snapshot.canvas.items)
+            .then(|| crate::town::scene(&self.snapshot.canvas.items, &self.lit_selections()));
 
         let mut workspace = div()
             .flex_1()
@@ -1171,7 +1207,7 @@ impl Render for ProjectionView {
             );
         }
 
-        div()
+        let window_body = div()
             .size_full()
             .bg(crate::theme_rgb(0xfcfcfa))
             .text_color(crate::theme_rgb(0x202020))
@@ -1189,8 +1225,12 @@ impl Render for ProjectionView {
                     .border_color(crate::theme_rgb(0xdadada))
                     .child(div().text_xl().child(self.snapshot.title.clone()))
                     .child(header_right),
-            )
-            .child(workspace)
+            );
+        let mut window_body = window_body;
+        if let Some(town) = town {
+            window_body = window_body.child(town);
+        }
+        window_body.child(workspace)
     }
 }
 

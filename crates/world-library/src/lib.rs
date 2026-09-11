@@ -871,6 +871,7 @@ mod tests {
                     eyebrow: "Mock".into(),
                     title: "Current mock state".into(),
                     items: vec![BriefingItem {
+                        concerns: Vec::new(),
                         kind: BriefingItemKind::Beat,
                         selection: None,
                         title: format!("Count {}", self.count),
@@ -878,6 +879,7 @@ mod tests {
                     }],
                 }),
                 commands: vec![ProjectionCommand {
+                    concerns: Vec::new(),
                     id: "mock.advance".into(),
                     title: "Advance".into(),
                     detail: "Advance the mock World".into(),
@@ -1350,6 +1352,7 @@ mod tests {
                 eyebrow: "Test".into(),
                 title: "Today".into(),
                 items: vec![BriefingItem {
+                    concerns: Vec::new(),
                     kind: BriefingItemKind::Beat,
                     selection: None,
                     title: "  Ridge   Network ".into(),
@@ -1372,6 +1375,7 @@ mod tests {
                 eyebrow: "Test".into(),
                 title: "Today".into(),
                 items: vec![BriefingItem {
+                    concerns: Vec::new(),
                     kind: BriefingItemKind::Beat,
                     selection: None,
                     title: "State".into(),
