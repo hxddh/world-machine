@@ -173,9 +173,13 @@ pub(crate) fn scene(items: &[CanvasItem], lit: &[SelectionId]) -> Div {
         ));
     }
     for object in &plan.objects {
-        let words = match object.state {
-            CanvasItemState::Gone => format!("{} · gone", object.label),
-            CanvasItemState::Hurt => format!("{} · holed", object.label),
+        // "Holed" is a thing that happens to boats. A damaged thing on the
+        // quay is not holed, and saying so would be the drawing inventing
+        // detail the World never claimed.
+        let words = match (object.state, object.afloat) {
+            (CanvasItemState::Gone, _) => format!("{} · gone", object.label),
+            (CanvasItemState::Hurt, true) => format!("{} · holed", object.label),
+            (CanvasItemState::Hurt, false) => format!("{} · damaged", object.label),
             _ => object.label.clone(),
         };
         layer = layer.child(caption(
@@ -229,6 +233,36 @@ fn paint(window: &mut gpui::Window, bounds: Bounds<Pixels>, plan: &ScenePlan, li
 
     for object in &plan.objects {
         let (x, y) = object.at;
+        if !object.afloat {
+            // A thing on the quay is a crate, not a boat. The plan says which
+            // is which from where the World put it; a thing indoors drawn with
+            // a mast and a sail was the first thing wrong with this picture.
+            let crate_colour = match object.state {
+                CanvasItemState::Working => timber(),
+                _ => hsla(0.09, 0.10, 0.62, 1.0),
+            };
+            window.paint_quad(quad(
+                town_scene::Rect {
+                    x: x - 13.0,
+                    y: y - 13.0,
+                    width: 26.0,
+                    height: 18.0,
+                },
+                bounds,
+                crate_colour,
+            ));
+            window.paint_quad(quad(
+                town_scene::Rect {
+                    x: x - 13.0,
+                    y: y - 6.0,
+                    width: 26.0,
+                    height: 2.0,
+                },
+                bounds,
+                ink(),
+            ));
+            continue;
+        }
         match object.state {
             // An empty mooring is a rope on the water and nothing else, which
             // is the point of drawing it at all.

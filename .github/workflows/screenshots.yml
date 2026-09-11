@@ -32,6 +32,10 @@ jobs:
           LIB="$RUNNER_TEMP/world-machine/Worlds"
           mkdir -p "$LIB"
           cargo run -p pocket-universe --example demo_world -- "$LIB"
+          # Tiny Society is the Pack that tells the canvas where things are, so
+          # it is the only World here the window draws as a place rather than
+          # as a list. Without it these shots say nothing about that drawing.
+          cargo run -p tiny-society --example demo_world -- "$LIB"
           echo "WM_LIB=$LIB" >> "$GITHUB_ENV"
 
       - name: Launch the app and capture the screen
@@ -58,6 +62,10 @@ jobs:
           open -a "$APP" "$WM_LIB/maple-street-1987.world"
           sleep 15
           screencapture -x shots/03-world-fresh.png
+          # The drawn town: a shut bakery and an empty mooring.
+          open -a "$APP" "$WM_LIB/harbour-town.world"
+          sleep 15
+          screencapture -x shots/03b-world-drawn.png
           # How much of a big window the layout actually uses is a question
           # the shots above cannot answer: both windows open at their default
           # size. Seed the remembered geometry with a rectangle the size of the
@@ -75,6 +83,9 @@ jobs:
           open -a "$APP" "$WM_LIB/ares-pocket-colony.world"
           sleep 12
           screencapture -x shots/05-world-wide.png
+          open -a "$APP" "$WM_LIB/harbour-town.world"
+          sleep 12
+          screencapture -x shots/05b-world-drawn-wide.png
           # Full screen is a green-button/⌃⌘F affordance rather than anything
           # the app draws, so the only way to know it works is to ask for it.
           #

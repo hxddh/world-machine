@@ -76,6 +76,13 @@ pub struct ObjectSpot {
     pub label: String,
     pub state: CanvasItemState,
     pub at: (f32, f32),
+    /// Whether this thing sits on the water rather than on the quay.
+    ///
+    /// Two things a Pack calls Objects can be as unlike as a boat and a sack
+    /// of flour, and which is which is not something a drawing should guess
+    /// from the name. What the World does say is where each one is. Only a
+    /// thing at the waterside place is drawn afloat.
+    pub afloat: bool,
 }
 
 /// The whole picture, ready to be coloured in.
@@ -247,16 +254,18 @@ pub fn plan(items: &[CanvasItem], width: f32, height: f32) -> ScenePlan {
         .iter()
         .filter(|item| item.kind == CanvasItemKind::Object)
         .map(|object| {
+            let afloat = jetty.is_some()
+                && object.at.is_some()
+                && places.last().is_some_and(|last| Some(last.id) == object.at);
             let at = match jetty {
-                Some(deck)
-                    if object.at.is_some()
-                        && places.last().is_some_and(|last| Some(last.id) == object.at) =>
-                {
-                    (deck.right() - 90.0, water_y + 24.0)
-                }
+                Some(deck) if afloat => (deck.right() - 90.0, water_y + 24.0),
                 _ => {
+                    // On the quay, clear of the people standing in front of
+                    // the place and clear of the water. Without the clamp an
+                    // inland thing was drawn below the waterline, floating.
                     let (cx, _) = anchor(object.at);
-                    (cx, ground_y + FIGURE_HEIGHT + 26.0)
+                    let feet = ground_y + FIGURE_HEIGHT;
+                    (cx, (feet + 18.0).min(water_y - 14.0))
                 }
             };
             ObjectSpot {
@@ -264,6 +273,7 @@ pub fn plan(items: &[CanvasItem], width: f32, height: f32) -> ScenePlan {
                 label: object.label.clone(),
                 state: object.state,
                 at,
+                afloat,
             }
         })
         .collect();
@@ -480,5 +490,76 @@ mod tests {
         assert!(plan.buildings.is_empty());
         assert!(plan.jetty.is_none());
         assert!(plan.folk.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod object_shape_tests {
+    use super::*;
+    use crate::{CanvasItem, CanvasItemKind, CanvasItemState};
+
+    fn place(id: u64, label: &str) -> CanvasItem {
+        CanvasItem {
+            id: SelectionId::Entity(crate::EntityId(id)),
+            kind: CanvasItemKind::Place,
+            label: label.into(),
+            detail: String::new(),
+            x: 0.0,
+            y: 0.0,
+            at: None,
+            state: CanvasItemState::Working,
+        }
+    }
+
+    fn thing(id: u64, label: &str, at: u64) -> CanvasItem {
+        CanvasItem {
+            id: SelectionId::Entity(crate::EntityId(id)),
+            kind: CanvasItemKind::Object,
+            label: label.into(),
+            detail: String::new(),
+            x: 0.0,
+            y: 0.0,
+            at: Some(SelectionId::Entity(crate::EntityId(at))),
+            state: CanvasItemState::Working,
+        }
+    }
+
+    #[test]
+    fn only_a_thing_at_the_harbour_is_afloat() {
+        // Both are Objects. Drawing every Object as a boat put a mast and a
+        // sail on a thing sitting indoors, which is what this distinguishes.
+        let items = vec![
+            place(1, "Shop"),
+            place(2, "Water"),
+            thing(10, "Sack", 1),
+            thing(11, "Boat", 2),
+        ];
+        let plan = plan(&items, 1100.0, 300.0);
+
+        let order = plan
+            .objects
+            .iter()
+            .find(|object| object.label == "Sack")
+            .expect("the sack is in the picture");
+        let boat = plan
+            .objects
+            .iter()
+            .find(|object| object.label == "Boat")
+            .expect("the boat is in the picture");
+
+        assert!(!order.afloat, "a thing indoors is not on the water");
+        assert!(boat.afloat, "a thing at the waterside place floats");
+        assert!(
+            order.at.1 < plan.water_y,
+            "it sits on the quay, above the waterline at {:.0}, not at {:.0}",
+            plan.water_y,
+            order.at.1
+        );
+        assert!(
+            boat.at.1 > plan.water_y,
+            "the boat floats below the waterline at {:.0}, not at {:.0}",
+            plan.water_y,
+            boat.at.1
+        );
     }
 }
