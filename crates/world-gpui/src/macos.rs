@@ -12,12 +12,31 @@ const RELATION_ENDPOINT_LIMIT: usize = 6;
 const EVENT_ENTITY_EFFECT_LIMIT: usize = 6;
 const EVENT_RELATION_EFFECT_LIMIT: usize = 6;
 
+/// Which of the two surfaces the reader is on.
+///
+/// A World window used to be one screen with everything on it at once: a rail
+/// of entities, a grid of briefing cards, a column of history, a picture and a
+/// line, all competing for the same 660 pixels of a 768px screen. That is the
+/// shape of a tool you live in. This is not one — every visit is the same
+/// short errand: come back, read what happened, decide, leave. So the window
+/// has a surface for the errand and a surface for everything else, and the
+/// errand does not have to share.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+enum Surface {
+    /// What happened, and what you are going to do about it.
+    #[default]
+    Return,
+    /// The cast, the whole history, and whatever is selected in them.
+    Reference,
+}
+
 pub struct ProjectionView {
     snapshot: ProjectionSnapshot,
     selected: Option<SelectionId>,
     controller: Option<Box<dyn ProjectionController>>,
     status: Option<String>,
     status_is_error: bool,
+    surface: Surface,
 }
 
 impl ProjectionView {
@@ -29,6 +48,7 @@ impl ProjectionView {
             controller: None,
             status: None,
             status_is_error: false,
+            surface: Surface::default(),
         }
     }
 
@@ -214,62 +234,95 @@ impl ProjectionView {
             .on_click(cx.listener(move |this, _, _, cx| this.select(selection, cx)))
     }
 
-    fn render_briefing(&self, cx: &mut Context<Self>) -> Option<Div> {
+    /// What happened, as lines to read down.
+    ///
+    /// The briefing used to be a wrapping grid of bordered cards of equal
+    /// weight — which is the thing this whole design started out trying to fix
+    /// and never did, because the cards only ever got tidier. The day the
+    /// school and the bakery both ran out of payroll was the fourth of eight
+    /// identical boxes. Beats are now lines in the order they happened, and
+    /// the counters that are not news are one muted paragraph underneath them
+    /// instead of four more boxes the same size as the news.
+    fn render_news(&self, cx: &mut Context<Self>) -> Option<Div> {
         let briefing = self.snapshot.briefing.as_ref()?;
-        let mut items = div().flex().flex_wrap().gap_2();
-        for item in &briefing.items {
-            items = items.child(self.briefing_item(item, cx));
+        let beats = briefing.beats();
+
+        let mut lines = div().flex().flex_col().gap_2();
+        for item in &beats {
+            lines = lines.child(self.news_line(item, cx));
         }
 
-        Some(
-            div()
-                .p_3()
-                .rounded_md()
-                .border_1()
-                .border_color(crate::theme_rgb(0xd8d3c4))
-                .bg(crate::theme_rgb(0xfffbef))
-                .flex()
-                .flex_col()
-                .gap_2()
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(crate::theme_rgb(0x7a6f53))
-                        .child(briefing.eyebrow.clone()),
-                )
-                .child(div().text_lg().child(briefing.title.clone()))
-                .child(items),
-        )
+        let standing: Vec<String> = briefing
+            .items
+            .iter()
+            .filter(|item| item.kind != world_projection::BriefingItemKind::Beat)
+            .map(|item| {
+                if item.detail.trim().is_empty() {
+                    item.title.clone()
+                } else {
+                    format!("{} — {}", item.title, item.detail)
+                }
+            })
+            .collect();
+
+        let mut band = div()
+            .w_full()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .px_5()
+            .py_4()
+            .child(div().text_xl().child(briefing.title.clone()));
+
+        if beats.is_empty() {
+            band = band.child(
+                div()
+                    .text_sm()
+                    .text_color(crate::theme_rgb(0x77736c))
+                    .child("Nothing happened worth telling you about."),
+            );
+        } else {
+            band = band.child(lines);
+        }
+
+        for line in standing {
+            band = band.child(
+                div()
+                    .text_sm()
+                    .text_color(crate::theme_rgb(0x77736c))
+                    .child(line),
+            );
+        }
+        Some(band)
     }
 
-    fn briefing_item(&self, item: &BriefingItem, cx: &mut Context<Self>) -> impl IntoElement {
+    /// One thing that happened: what it was, and who it was about.
+    fn news_line(&self, item: &BriefingItem, cx: &mut Context<Self>) -> impl IntoElement {
         let id = item
             .selection
-            .map(|selection| format!("briefing-{}", selection.stable_key()))
-            .unwrap_or_else(|| format!("briefing-static-{}", item.title));
-        let mut card = div()
+            .map(|selection| format!("news-{}", selection.stable_key()))
+            .unwrap_or_else(|| format!("news-static-{}", item.title));
+        let selection = item.selection;
+        let mut line = div()
             .id(SharedString::from(id))
-            .min_w(px(220.0))
-            .flex_1()
-            .p_2()
-            .rounded_md()
-            .bg(crate::theme_rgb(0xffffff))
-            .border_1()
-            .border_color(crate::theme_rgb(0xe8e1cf))
-            .child(div().text_sm().child(item.title.clone()))
-            .child(
+            .w_full()
+            .flex()
+            .flex_col()
+            .child(div().text_base().child(item.title.clone()));
+        if !item.detail.trim().is_empty() {
+            line = line.child(
                 div()
-                    .text_xs()
-                    .text_color(crate::theme_rgb(0x777777))
+                    .text_sm()
+                    .text_color(crate::theme_rgb(0x77736c))
                     .child(item.detail.clone()),
             );
-
-        if let Some(selection) = item.selection {
-            card = card
+        }
+        if let Some(selection) = selection {
+            line = line
                 .cursor_pointer()
                 .on_click(cx.listener(move |this, _, _, cx| this.select(selection, cx)));
         }
-        card
+        line
     }
 
     /// What the reader can do, pinned to the foot of the window.
@@ -1160,14 +1213,46 @@ impl ProjectionView {
     }
 }
 
-impl Render for ProjectionView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        world_theme::set_dark(matches!(
-            _window.appearance(),
-            gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark
-        ));
-        let mut center = div()
-            .id("projection-center-scroll")
+impl ProjectionView {
+    /// The errand: the place, what happened in it, and what you do now.
+    fn render_return(&self, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let mut column = div()
+            .id("projection-return-scroll")
+            .flex_1()
+            .min_h(px(0.0))
+            .w_full()
+            .overflow_y_scroll()
+            .flex()
+            .flex_col();
+
+        if crate::town::is_a_place(&self.snapshot.canvas.items) {
+            column = column.child(crate::town::scene(
+                &self.snapshot.canvas.items,
+                &self.lit_selections(),
+            ));
+        }
+        if let Some(news) = self.render_news(cx) {
+            column = column.child(news);
+        }
+        if crate::fortune_line::has_a_shape(&self.snapshot) {
+            column = column.child(crate::fortune_line::line(&self.snapshot));
+        }
+        // A World that draws no place still has its things; the loose scatter
+        // is the fallback it always had, and it belongs in the read rather
+        // than nowhere.
+        if !self.snapshot.canvas.items.is_empty()
+            && !crate::town::is_a_place(&self.snapshot.canvas.items)
+        {
+            column = column.child(div().px_5().pb_4().child(self.render_canvas(cx)));
+        }
+        column.into_any_element()
+    }
+
+    /// Everything else, on purpose: the cast, the history, and whatever is
+    /// selected in either.
+    fn render_reference(&self, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let mut detail = div()
+            .id("projection-reference-scroll")
             .flex_1()
             .min_w(px(0.0))
             .h_full()
@@ -1176,69 +1261,90 @@ impl Render for ProjectionView {
             .flex_col()
             .gap_3()
             .p_3();
-
-        if let Some(briefing) = self.render_briefing(cx) {
-            center = center.child(briefing);
+        if let Some(inspector) = self.render_inspector(cx) {
+            detail = detail.child(inspector);
         }
-        if has_exploration(&self.snapshot, self.selected) {
-            center = center.child(
-                div()
-                    .text_sm()
-                    .text_color(crate::theme_rgb(0x666666))
-                    .child("Explore the world"),
-            );
-            if !self.snapshot.canvas.items.is_empty()
-                && !crate::town::is_a_place(&self.snapshot.canvas.items)
-            {
-                center = center.child(self.render_canvas(cx));
-            }
-            if let Some(inspector) = self.render_inspector(cx) {
-                center = center.child(inspector);
-            }
-            if let Some(why) = self.render_why(cx) {
-                center = center.child(why);
-            }
-            if let Some(influence) = self.render_influence(cx) {
-                center = center.child(influence);
-            }
+        if let Some(why) = self.render_why(cx) {
+            detail = detail.child(why);
+        }
+        if let Some(influence) = self.render_influence(cx) {
+            detail = detail.child(influence);
         }
 
-        // The shape of what happened, above the place it happened in. Eleven
-        // weeks of history as one line, with the stretch you were away
-        // shaded, instead of as the fourth of eight equal cards.
-        let shape = crate::fortune_line::has_a_shape(&self.snapshot)
-            .then(|| crate::fortune_line::line(&self.snapshot));
-
-        // A World that has told the canvas where things are is drawn as the
-        // place it is, across the top of the window, rather than as a scatter
-        // of boxes in a panel.
-        let town = crate::town::is_a_place(&self.snapshot.canvas.items)
-            .then(|| crate::town::scene(&self.snapshot.canvas.items, &self.lit_selections()));
-
-        // The picture and the line are a summary; the workspace is what the
-        // reader came for. On a 768px screen the two of them plus the header
-        // and the turn bar left the news 145 pixels and cut it off after one
-        // line. The workspace claims a floor and the scene is the piece that
-        // yields.
-        let mut workspace = div()
+        let mut panels = div()
             .flex_1()
-            .min_h(px(200.0))
+            .min_h(px(0.0))
             .w_full()
             .min_w(px(0.0))
             .overflow_hidden()
             .flex();
         if has_collection_panel(&self.snapshot) {
-            workspace = workspace.child(self.render_collection(cx));
+            panels = panels.child(self.render_collection(cx));
         }
-        workspace = workspace.child(center);
+        panels = panels.child(detail);
         if has_timeline_panel(&self.snapshot) {
-            workspace = workspace.child(self.render_timeline(cx));
+            panels = panels.child(self.render_timeline(cx));
         }
+        panels.into_any_element()
+    }
 
-        // No "World time 820" in the corner. It is a tick count, it changes by
-        // ten every visit, and it was the only thing the page header told
-        // anybody. The status line still lands here when there is one.
-        let mut header_right = div().flex().gap_3();
+    fn surface_tab(
+        &self,
+        surface: Surface,
+        label: &'static str,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let here = self.surface == surface;
+        div()
+            .id(SharedString::from(label))
+            .px_3()
+            .py_1()
+            .rounded_md()
+            .cursor_pointer()
+            .text_sm()
+            .bg(if here {
+                crate::theme_rgb(0xe7eefc)
+            } else {
+                crate::theme_rgb(0xfcfcfa)
+            })
+            .text_color(if here {
+                crate::theme_rgb(0x27446f)
+            } else {
+                crate::theme_rgb(0x6b665e)
+            })
+            .child(label)
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.surface = surface;
+                cx.notify();
+            }))
+    }
+}
+
+impl Render for ProjectionView {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        world_theme::set_dark(matches!(
+            _window.appearance(),
+            gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark
+        ));
+
+        // When, in the World's own words. The newest entry knows; the header
+        // is the one place it is worth saying once.
+        let when = self
+            .snapshot
+            .timeline
+            .items
+            .first()
+            .and_then(|item| item.when.clone());
+
+        let mut header_right = div().flex().items_center().gap_2();
+        if let Some(when) = when {
+            header_right = header_right.child(
+                div()
+                    .text_sm()
+                    .text_color(crate::theme_rgb(0x6b665e))
+                    .child(when),
+            );
+        }
         if let Some(status) = &self.status {
             header_right = header_right.child(
                 div()
@@ -1251,8 +1357,16 @@ impl Render for ProjectionView {
                     .child(status.clone()),
             );
         }
+        header_right = header_right
+            .child(self.surface_tab(Surface::Return, "Return", cx))
+            .child(self.surface_tab(Surface::Reference, "The world", cx));
 
-        let window_body = div()
+        let body = match self.surface {
+            Surface::Return => self.render_return(cx),
+            Surface::Reference => self.render_reference(cx),
+        };
+
+        div()
             .size_full()
             .bg(crate::theme_rgb(0xfcfcfa))
             .text_color(crate::theme_rgb(0x202020))
@@ -1260,25 +1374,20 @@ impl Render for ProjectionView {
             .flex_col()
             .child(
                 div()
-                    .h(px(58.0))
+                    .h(px(48.0))
                     .w_full()
+                    .flex_shrink_0()
                     .flex()
                     .items_center()
                     .justify_between()
-                    .px_4()
+                    .px_5()
                     .border_b_1()
                     .border_color(crate::theme_rgb(0xdadada))
-                    .child(div().text_xl().child(self.snapshot.title.clone()))
+                    .child(div().text_lg().child(self.snapshot.title.clone()))
                     .child(header_right),
-            );
-        let mut window_body = window_body;
-        if let Some(shape) = shape {
-            window_body = window_body.child(shape);
-        }
-        if let Some(town) = town {
-            window_body = window_body.child(town);
-        }
-        window_body.child(workspace).child(self.render_turn(cx))
+            )
+            .child(body)
+            .child(self.render_turn(cx))
     }
 }
 
@@ -1288,14 +1397,6 @@ fn has_collection_panel(snapshot: &ProjectionSnapshot) -> bool {
 
 fn has_timeline_panel(snapshot: &ProjectionSnapshot) -> bool {
     !snapshot.timeline.items.is_empty()
-}
-
-fn has_exploration(snapshot: &ProjectionSnapshot, selected: Option<SelectionId>) -> bool {
-    !snapshot.canvas.items.is_empty()
-        || selected
-            .and_then(|selection| snapshot.inspector(selection))
-            .is_some()
-        || matches!(selected, Some(SelectionId::Event(event)) if snapshot.why(event).is_some())
 }
 
 /// The first sentence of what a choice does.
@@ -1405,7 +1506,7 @@ fn inspector_panel(inspector: &InspectorProjection) -> Div {
 #[cfg(test)]
 mod focus_hierarchy_tests {
     use super::{
-        choice_gist, command_panel_title, default_selection, has_collection_panel, has_exploration,
+        choice_gist, command_panel_title, default_selection, has_collection_panel,
         has_timeline_panel, selection_for_snapshot,
     };
     use world_projection::{
@@ -1456,7 +1557,6 @@ mod focus_hierarchy_tests {
         let snapshot = ProjectionSnapshot::default();
         assert!(!has_collection_panel(&snapshot));
         assert!(!has_timeline_panel(&snapshot));
-        assert!(!has_exploration(&snapshot, None));
     }
 
     #[test]
@@ -1464,7 +1564,6 @@ mod focus_hierarchy_tests {
         let snapshot = snapshot_with_entity_and_event();
         assert!(has_collection_panel(&snapshot));
         assert!(has_timeline_panel(&snapshot));
-        assert!(has_exploration(&snapshot, Some(entity_selection())));
     }
 
     #[test]
