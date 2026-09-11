@@ -119,11 +119,25 @@ mod tests {
 mod is_there_anything_worth_doing {
     use crate::TinySociety;
 
-    fn fortune_after(command: Option<&str>, days: u64) -> i64 {
+    /// Run to the moment the World is actually asking something, rather than
+    /// to a day number. A hardcoded horizon has to be re-guessed every time
+    /// the economy changes, and re-guessing it is indistinguishable from
+    /// tuning the test until it agrees.
+    fn at_the_decision() -> crate::TinySocietyBranch {
         let mut society = TinySociety::new().unwrap();
         society.run_story().unwrap();
         let mut branch = society.branch();
-        branch.advance_days(55).unwrap();
+        for _ in 0..400 {
+            if !branch.projection_snapshot().commands.is_empty() {
+                return branch;
+            }
+            branch.advance_days(1).unwrap();
+        }
+        panic!("this World never asked the player anything");
+    }
+
+    fn fortune_after(command: Option<&str>, days: u64) -> i64 {
+        let mut branch = at_the_decision();
         if let Some(command) = command {
             branch
                 .invoke_projection_command(command)
@@ -155,13 +169,19 @@ mod is_there_anything_worth_doing {
         const HORIZON: u64 = 30;
         let nothing = fortune_after(None, HORIZON);
 
-        let offers = [
-            crate::REOPEN_BAKERY_COMMAND,
-            crate::LEAN_REOPEN_BAKERY_COMMAND,
-        ];
-        let scored: Vec<(&str, i64)> = offers
+        // Whatever the World is actually offering, not a list of command names
+        // kept in step by hand. Naming them meant the test asked about the
+        // bakery at a moment when the World was asking about a boat.
+        let offers: Vec<String> = at_the_decision()
+            .projection_snapshot()
+            .commands
+            .into_iter()
+            .map(|command| command.id)
+            .collect();
+        assert!(!offers.is_empty());
+        let scored: Vec<(String, i64)> = offers
             .iter()
-            .map(|id| (*id, fortune_after(Some(id), HORIZON)))
+            .map(|id| (id.clone(), fortune_after(Some(id), HORIZON)))
             .collect();
 
         assert!(

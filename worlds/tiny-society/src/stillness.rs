@@ -75,6 +75,22 @@ mod tests {
     use super::CAME_TO_REST;
     use crate::{TinySociety, REOPEN_BAKERY_COMMAND};
 
+    /// Run until the town has nothing left to do, rather than to a day
+    /// number. How long Harbour Town lasts is a property of its economy and
+    /// changes whenever that does — it moved from world time 790 to 860 the
+    /// day the pub got customers — so a test that names a day is a test that
+    /// has to be re-guessed, and re-guessing is indistinguishable from tuning
+    /// it until it agrees.
+    fn until_it_settles(branch: &mut crate::TinySocietyBranch) {
+        for _ in 0..400 {
+            if rests(branch) > 0 {
+                return;
+            }
+            branch.advance_days(1).unwrap();
+        }
+        panic!("this World never came to rest");
+    }
+
     fn rests(branch: &crate::TinySocietyBranch) -> usize {
         branch
             .world()
@@ -90,7 +106,7 @@ mod tests {
         let mut society = TinySociety::new().unwrap();
         society.run_story().unwrap();
         let mut branch = society.branch();
-        branch.advance_days(80).unwrap();
+        until_it_settles(&mut branch);
 
         assert_eq!(rests(&branch), 1, "the town settled and said so");
         let settled = branch.world().events().len();
@@ -128,7 +144,7 @@ mod tests {
         let mut society = TinySociety::new().unwrap();
         society.run_story().unwrap();
         let mut branch = society.branch();
-        branch.advance_days(80).unwrap();
+        until_it_settles(&mut branch);
         assert_eq!(rests(&branch), 1);
         let asleep = branch.world().events().len();
 
