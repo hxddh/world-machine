@@ -158,7 +158,10 @@ fn paint_building(
 pub(crate) fn scene(items: &[CanvasItem], lit: &[SelectionId]) -> Div {
     let items = items.to_vec();
     let lit = lit.to_vec();
-    div().w_full().h(px(SCENE_HEIGHT)).flex_shrink(1.0).child(
+    // Not shrinkable. The scene degrades badly below its budget — the parts
+    // of a building are sized in pixels, not in fractions of the wall — so it
+    // takes a fixed share and the workspace takes the rest.
+    div().w_full().h(px(SCENE_HEIGHT)).flex_shrink_0().child(
         canvas(
             move |_, _, _| {},
             move |bounds, _, window, cx| {

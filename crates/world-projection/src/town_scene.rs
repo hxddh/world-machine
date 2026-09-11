@@ -191,11 +191,20 @@ pub fn plan(items: &[CanvasItem], width: f32, height: f32) -> ScenePlan {
                 width: body.width - 12.0,
                 height: SIGN_H,
             };
+            // A door is DOOR_H tall *if the wall can spare it*. It used to be
+            // that height unconditionally, measured up from the street, which
+            // on a short scene put its top above the sign: at a 150px scene
+            // the wall is 48px and a 44px door climbed 11px into the name, so
+            // the school read "Isla[door]hool". The door gives way to the
+            // sign rather than the other way round — a shop with a stub of a
+            // door still reads as a shop; one whose name is painted over does
+            // not.
+            let door_top = (ground_y - DOOR_H).max(sign.bottom() + 6.0);
             let door = Rect {
                 x: body.centre_x() - DOOR_W / 2.0,
-                y: ground_y - DOOR_H,
+                y: door_top,
                 width: DOOR_W,
-                height: DOOR_H,
+                height: (ground_y - door_top).max(2.0),
             };
             let window_count = if body_w >= 150.0 { 3 } else { 2 };
             let ww = 30.0;
@@ -417,6 +426,35 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// The window is not always tall. It was checked at one generous height,
+    /// and the one thing that breaks when it is not generous — the door
+    /// climbing into the sign — went out in a screenshot.
+    #[test]
+    fn a_name_is_never_painted_over_however_short_the_scene() {
+        for height in [120.0_f32, 150.0, 180.0, 220.0, 300.0, 430.0] {
+            let plan = plan(&town(), 1100.0, height);
+            for building in &plan.buildings {
+                assert!(
+                    building.door.y >= building.sign.bottom(),
+                    "at {height}px, {}'s door is drawn over its name: door {:?}, sign {:?}",
+                    building.label,
+                    building.door,
+                    building.sign
+                );
+                assert!(
+                    building.door.height > 0.0 && building.door.bottom() <= body_floor(building),
+                    "at {height}px, {}'s door is not a door: {:?}",
+                    building.label,
+                    building.door
+                );
+            }
+        }
+    }
+
+    fn body_floor(building: &BuildingShape) -> f32 {
+        building.body.bottom() + 0.01
     }
 
     #[test]
