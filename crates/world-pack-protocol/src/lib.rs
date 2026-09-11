@@ -565,7 +565,7 @@ pub struct BriefingProjectionWire {
 impl From<&BriefingProjection> for BriefingProjectionWire {
     fn from(briefing: &BriefingProjection) -> Self {
         Self {
-            since_world_time: None,
+            since_world_time: briefing.since_world_time,
             eyebrow: briefing.eyebrow.clone(),
             title: briefing.title.clone(),
             items: briefing.items.iter().map(Into::into).collect(),
@@ -576,7 +576,7 @@ impl From<&BriefingProjection> for BriefingProjectionWire {
 impl From<BriefingProjectionWire> for BriefingProjection {
     fn from(briefing: BriefingProjectionWire) -> Self {
         Self {
-            since_world_time: None,
+            since_world_time: briefing.since_world_time,
             eyebrow: briefing.eyebrow,
             title: briefing.title,
             items: briefing.items.into_iter().map(Into::into).collect(),
@@ -1141,9 +1141,9 @@ mod tests {
     use super::*;
     use world_projection::{
         BriefingItem, BriefingProjection, CanvasItem, CanvasItemKind, CanvasProjection,
-        CollectionItem, CollectionProjection, InspectorProjection, InspectorRow, InspectorSection,
-        ProjectionCapabilities, ProjectionCommand, TimelineItem, TimelineProjection, WhyNode,
-        WhyProjection,
+        CollectionItem, CollectionProjection, Fortune, FortunePoint, InspectorProjection,
+        InspectorRow, InspectorSection, ProjectionCapabilities, ProjectionCommand, TimelineItem,
+        TimelineProjection, WhyNode, WhyProjection,
     };
 
     fn descriptor() -> PackDescriptor {
@@ -1154,21 +1154,43 @@ mod tests {
         )
     }
 
+    /// Every optional and defaulted surface carries a value that is *not* its
+    /// default.
+    ///
+    /// This is the point of the fixture rather than a detail of it. A wire
+    /// conversion that silently drops a field is invisible to a round trip
+    /// whose fixture left that field empty — both sides agree on `None`, the
+    /// test passes, and the feature is gone. `since_world_time` shipped that
+    /// way: dropped in both directions, so every Pack running out of process
+    /// lost the moment its absence began, and the one screenshot that could
+    /// have shown it had nothing to shade.
     fn sample_snapshot() -> ProjectionSnapshot {
         let entity = SelectionId::Entity(EntityId::new(7));
         let event = SelectionId::Event(EventId::new(9));
         ProjectionSnapshot {
-            // This Pack does not offer a figure for how it is doing.
-            fortune: None,
+            fortune: Some(Fortune {
+                label: "how it is doing".into(),
+                value: 11,
+                history: vec![
+                    FortunePoint {
+                        world_time: 40,
+                        value: 9,
+                    },
+                    FortunePoint {
+                        world_time: 41,
+                        value: 11,
+                    },
+                ],
+            }),
             title: "External World".into(),
             world_time: 42,
             capabilities: ProjectionCapabilities { fork: true },
             briefing: Some(BriefingProjection {
-                since_world_time: None,
+                since_world_time: Some(40),
                 eyebrow: "Status".into(),
                 title: "World briefing".into(),
                 items: vec![BriefingItem {
-                    concerns: Vec::new(),
+                    concerns: vec![entity],
                     kind: BriefingItemKind::Status,
                     selection: Some(entity),
                     title: "Entity seven".into(),
@@ -1176,7 +1198,7 @@ mod tests {
                 }],
             }),
             commands: vec![ProjectionCommand {
-                concerns: Vec::new(),
+                concerns: vec![entity],
                 id: "external.advance".into(),
                 title: "Advance".into(),
                 detail: "Advance the external world".into(),
@@ -1206,7 +1228,7 @@ mod tests {
                     detail: "On the canvas".into(),
                     x: 0.25,
                     y: 0.75,
-                    at: None,
+                    at: Some(entity),
                     state: CanvasItemState::Hurt,
                 }],
             },
