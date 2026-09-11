@@ -913,6 +913,32 @@ pub fn entity_title(entity: &Entity) -> String {
     }
 }
 
+/// A component's value as something to read.
+///
+/// A World stores what it likes, and what it likes is identifiers:
+/// `taken_on`, `payroll_reserve_exhausted`. Labels have always been humanised
+/// and values never were, so the inspector said "Work Request Status:
+/// taken_on" in a column of otherwise ordinary English.
+///
+/// Only values that are visibly identifiers — the ones carrying an underscore
+/// — are touched. Capitalising bare lowercase words as well read better and
+/// broke five Pack tests that assert their own vocabulary verbatim, which is
+/// the Packs being right: a single word is a value they chose, not a
+/// identifier this crate gets to restyle.
+fn readable_value(value: &Value, world: &World) -> String {
+    match value {
+        Value::Text(text) if text.contains('_') => {
+            let words = text.replace('_', " ");
+            let mut chars = words.chars();
+            match chars.next() {
+                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                None => words,
+            }
+        }
+        other => value_text(other, world),
+    }
+}
+
 pub fn value_text(value: &Value, world: &World) -> String {
     match value {
         Value::Null => "—".into(),
@@ -948,7 +974,7 @@ fn inspector_for_entity(
         .filter(|(key, _)| key.as_str() != "name")
         .map(|(key, value)| InspectorRow {
             label: humanize(key),
-            value: value_text(value, world),
+            value: readable_value(value, world),
         })
         .collect::<Vec<_>>();
 

@@ -135,11 +135,14 @@ fn paint_building(
         window.paint_quad(quad(*pane, origin, glass(building.state)));
         if building.state != CanvasItemState::Working {
             // Shutters: four slats across a dark window, so a shut shop reads
-            // as shut from across the room.
+            // as shut from across the room. Spaced by a fraction of the pane
+            // — at a fixed 6px apart they marched straight out of a short
+            // window and the shutters stopped being shutters.
+            let step = pane.height / 5.0;
             for slat in 0..4 {
                 let mut bar = *pane;
-                bar.y += 4.0 + slat as f32 * 6.0;
-                bar.height = 2.0;
+                bar.y += step * (slat as f32 + 0.6);
+                bar.height = (step * 0.34).max(1.0);
                 window.paint_quad(quad(bar, origin, ink()));
             }
         }
@@ -227,14 +230,22 @@ fn paint_names(
         // the news underneath the picture.
         const LABEL_H: f32 = 10.0;
         let below = object.at.1 + 16.0;
-        let floor = f32::from(bounds.size.height) - LABEL_H - 2.0;
+        // Above the thing when there is no room under it. Clamping it to the
+        // bottom edge instead dragged the name up onto the object's own mark:
+        // a gone boat is a short dark dash, and "Sea Finch · gone" came out
+        // struck through by it.
+        let floor = if below + LABEL_H + 2.0 > f32::from(bounds.size.height) {
+            object.at.1 - LABEL_H - 6.0
+        } else {
+            below
+        };
         write(
             window,
             cx,
             bounds,
             words.into(),
             object.at.0 - 60.0,
-            below.min(floor),
+            floor.max(2.0),
             120.0,
             LABEL_H,
             if object.afloat { 0x2f2822 } else { 0x4a4038 },

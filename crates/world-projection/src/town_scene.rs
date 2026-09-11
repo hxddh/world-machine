@@ -108,8 +108,15 @@ const GAP: f32 = 18.0;
 const SIGN_H: f32 = 22.0;
 const DOOR_W: f32 = 30.0;
 const DOOR_H: f32 = 44.0;
-/// Below this much wall a building drops its windows rather than cram them.
-const WALL_FOR_WINDOWS: f32 = 62.0;
+/// Below this much wall there is no room for windows at all.
+///
+/// It was 62, which dropped them on any scene shorter than about 190px — and
+/// took the shutters with them. Shutters are how a shut shop reads as shut,
+/// which is the whole reason this town is drawn instead of listed; without
+/// them Harbour Town came out as three identical shopfronts, all three of
+/// them closed. The windows are the last thing a wall gives up, not the
+/// first. The door, which says nothing, takes what is left.
+const WALL_FOR_WINDOWS: f32 = 38.0;
 const FIGURE_SPREAD: f32 = 40.0;
 /// How close a crowd will stand before the picture would rather clip than
 /// squash them further.
@@ -497,6 +504,32 @@ mod tests {
                         && building.door.bottom() <= body_floor(building),
                     "at {height}px, {} paints outside its wall",
                     building.label
+                );
+            }
+        }
+    }
+
+    /// The picture exists so that a shut shop reads as shut, and it says so
+    /// with shutters across the windows. A wall with no windows has nowhere to
+    /// put them, so at every height the app can actually give a scene, there
+    /// are windows. Dropping them below 190px passed every test in this file
+    /// and came out as three identical shopfronts, all three of them closed.
+    #[test]
+    fn a_shop_always_has_somewhere_to_show_that_it_is_shut() {
+        for height in [120.0_f32, 150.0, 180.0, 220.0, 300.0, 430.0] {
+            let plan = plan(&town(), 1100.0, height);
+            for building in &plan.buildings {
+                assert!(
+                    !building.windows.is_empty(),
+                    "at {height}px, {} has no window to shutter",
+                    building.label
+                );
+                let pane = building.windows[0];
+                assert!(
+                    pane.height >= 5.0,
+                    "at {height}px, {}'s window is {}px and cannot hold a shutter",
+                    building.label,
+                    pane.height
                 );
             }
         }
