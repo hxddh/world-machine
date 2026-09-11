@@ -102,8 +102,8 @@ pub struct ScenePlan {
 }
 
 const SKY: f32 = 0.10;
-const GROUND: f32 = 0.62;
-const WATER: f32 = 0.80;
+const GROUND: f32 = 0.58;
+const WATER: f32 = 0.86;
 const GAP: f32 = 18.0;
 const SIGN_H: f32 = 22.0;
 const DOOR_W: f32 = 30.0;
@@ -159,6 +159,14 @@ pub fn plan(items: &[CanvasItem], width: f32, height: f32) -> ScenePlan {
     let ground_y = height * GROUND;
     let water_y = height * WATER;
     let sky_y = height * SKY;
+
+    // How tall a person is, on the quay they are standing on. FIGURE_HEIGHT is
+    // 40 pixels and the quay at a 150px scene is 27, so at that size everybody
+    // in Harbour Town stood thirteen pixels out into the sea with their names
+    // written across the water. The quay is the room a figure has; the name
+    // goes under them and has to fit on it too.
+    let figure_h = (water_y - ground_y) * 0.45;
+    let figure_h = figure_h.clamp(10.0, FIGURE_HEIGHT);
 
     let mut places = items
         .iter()
@@ -259,7 +267,7 @@ pub fn plan(items: &[CanvasItem], width: f32, height: f32) -> ScenePlan {
     let anchor = |at: Option<SelectionId>| -> (f32, f32) {
         if let Some(place) = at {
             if let Some(building) = buildings.iter().find(|b| b.id == place) {
-                return (building.body.centre_x(), ground_y + FIGURE_HEIGHT);
+                return (building.body.centre_x(), ground_y + figure_h);
             }
             if let Some(deck) = jetty {
                 if places.last().is_some_and(|last| last.id == place) {
@@ -267,7 +275,7 @@ pub fn plan(items: &[CanvasItem], width: f32, height: f32) -> ScenePlan {
                 }
             }
         }
-        (width / 2.0, ground_y + FIGURE_HEIGHT)
+        (width / 2.0, ground_y + figure_h)
     };
 
     let mut standing: Vec<(Option<SelectionId>, usize)> = Vec::new();
@@ -334,7 +342,7 @@ pub fn plan(items: &[CanvasItem], width: f32, height: f32) -> ScenePlan {
                         .filter(|item| item.kind == CanvasItemKind::Actor && item.at == object.at)
                         .count();
                     let beside = (crowd as f32 * FIGURE_SPREAD) / 2.0 + 34.0;
-                    let feet = ground_y + FIGURE_HEIGHT;
+                    let feet = ground_y + figure_h;
                     (
                         (cx + beside).min(width - 62.0),
                         (feet + 18.0).min(water_y - 14.0),
@@ -530,6 +538,37 @@ mod tests {
                     "at {height}px, {}'s window is {}px and cannot hold a shutter",
                     building.label,
                     pane.height
+                );
+            }
+        }
+    }
+
+    /// The quay is where people stand and where their names are written, and
+    /// at a 150px scene it is 27 pixels deep. A person 40 pixels tall does not
+    /// fit on it: Harbour Town came out with all eight residents standing in
+    /// the sea and their names across the water.
+    #[test]
+    fn a_person_and_their_name_fit_on_the_quay() {
+        // What the window leaves under a figure's feet for the name.
+        const NAME_ROOM: f32 = 16.0;
+        for height in [120.0_f32, 150.0, 180.0, 220.0, 300.0, 430.0] {
+            let plan = plan(&town(), 1100.0, height);
+            for spot in &plan.folk {
+                let on_the_jetty = plan.jetty.is_some_and(|deck| spot.feet.1 == deck.y);
+                if on_the_jetty {
+                    continue;
+                }
+                assert!(
+                    spot.feet.1 >= plan.ground_y,
+                    "at {height}px, {} stands above the quay",
+                    spot.label
+                );
+                assert!(
+                    spot.feet.1 + NAME_ROOM <= plan.water_y,
+                    "at {height}px, {}'s name is written on the water: feet {}, waterline {}",
+                    spot.label,
+                    spot.feet.1,
+                    plan.water_y
                 );
             }
         }
