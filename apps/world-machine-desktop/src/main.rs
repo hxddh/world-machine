@@ -588,27 +588,28 @@ impl Render for WorldDocumentView {
                     })),
             );
 
-        // The World is called by its name; the durable file identity stays
-        // beside it, so renaming never hides which file this window edits.
-        let mut identity = div()
+        // Only the durable file identity. The World's name is the first thing
+        // the projection header says, two rows further down and in a larger
+        // face; saying it here as well made every World window open with its
+        // own name twice and ninety-six pixels of chrome above the picture.
+        // What this row still owns is which *file* the window edits, which
+        // renaming must never hide, and the actions that act on the document.
+        let identity = div()
             .flex_1()
             .min_w(px(0.0))
             .flex()
             .gap_2()
             .items_center()
             .overflow_hidden()
-            .child(div().text_sm().child(self.document_name.clone()));
-        if self.document_name != self.document_label {
-            identity = identity.child(
+            .child(
                 div()
                     .text_xs()
                     .text_color(crate::theme_rgb(0x8a8a82))
                     .child(self.document_label.clone()),
             );
-        }
 
         let mut chrome = div()
-            .h(px(48.0))
+            .h(px(40.0))
             .w_full()
             .flex()
             .items_center()
