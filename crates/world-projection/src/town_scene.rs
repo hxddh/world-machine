@@ -108,6 +108,8 @@ const GAP: f32 = 18.0;
 const SIGN_H: f32 = 22.0;
 const DOOR_W: f32 = 30.0;
 const DOOR_H: f32 = 44.0;
+/// Below this much wall a building drops its windows rather than cram them.
+const WALL_FOR_WINDOWS: f32 = 62.0;
 const FIGURE_SPREAD: f32 = 40.0;
 /// How close a crowd will stand before the picture would rather clip than
 /// squash them further.
@@ -185,38 +187,55 @@ pub fn plan(items: &[CanvasItem], width: f32, height: f32) -> ScenePlan {
                 width: body_w,
                 height: body_h,
             };
+            // A wall is whatever height the scene can spare, so what is
+            // painted on it is a fraction of the wall rather than a fixed
+            // number of pixels. In pixels the parts collided as soon as the
+            // scene was short: a 44px door on a 48px wall climbed into the
+            // sign, and clamping the door alone only turned it into a third
+            // window sitting between the other two.
+            let sign_h = (body_h * 0.28).clamp(10.0, SIGN_H);
+            let gap = (body_h * 0.08).clamp(3.0, 10.0);
             let sign = Rect {
                 x: body.x + 6.0,
-                y: body.y + 7.0,
+                y: body.y + gap * 0.7,
                 width: body.width - 12.0,
-                height: SIGN_H,
+                height: sign_h,
             };
-            // A door is DOOR_H tall *if the wall can spare it*. It used to be
-            // that height unconditionally, measured up from the street, which
-            // on a short scene put its top above the sign: at a 150px scene
-            // the wall is 48px and a 44px door climbed 11px into the name, so
-            // the school read "Isla[door]hool". The door gives way to the
-            // sign rather than the other way round — a shop with a stub of a
-            // door still reads as a shop; one whose name is painted over does
-            // not.
-            let door_top = (ground_y - DOOR_H).max(sign.bottom() + 6.0);
+
+            // Windows are the first thing a short wall gives up. A sign and a
+            // door still read as a shopfront; a sign, a door and two shutters
+            // crammed into 48 pixels read as nothing at all.
+            let window_h = body_h * 0.22;
+            let windows = if body_h >= WALL_FOR_WINDOWS {
+                let window_count = if body_w >= 150.0 { 3 } else { 2 };
+                let ww = 30.0;
+                let wgap = (body_w - window_count as f32 * ww) / (window_count as f32 + 1.0);
+                (0..window_count)
+                    .map(|i| Rect {
+                        x: body.x + wgap + i as f32 * (ww + wgap),
+                        y: sign.bottom() + gap,
+                        width: ww,
+                        height: window_h,
+                    })
+                    .collect::<Vec<_>>()
+            } else {
+                Vec::new()
+            };
+
+            // The door reaches the street, and starts below whatever is above
+            // it. It gives way rather than overpainting: a shop with a stub of
+            // a door still reads as a shop; one whose name is covered does not.
+            let above = windows
+                .last()
+                .map(|window| window.bottom())
+                .unwrap_or_else(|| sign.bottom());
+            let door_top = (ground_y - DOOR_H).max(above + gap);
             let door = Rect {
                 x: body.centre_x() - DOOR_W / 2.0,
                 y: door_top,
                 width: DOOR_W,
                 height: (ground_y - door_top).max(2.0),
             };
-            let window_count = if body_w >= 150.0 { 3 } else { 2 };
-            let ww = 30.0;
-            let wgap = (body_w - window_count as f32 * ww) / (window_count as f32 + 1.0);
-            let windows = (0..window_count)
-                .map(|i| Rect {
-                    x: body.x + wgap + i as f32 * (ww + wgap),
-                    y: sign.bottom() + 10.0,
-                    width: ww,
-                    height: 24.0,
-                })
-                .collect();
             buildings.push(BuildingShape {
                 id: place.id,
                 label: place.label.clone(),
@@ -449,6 +468,36 @@ mod tests {
                     building.label,
                     building.door
                 );
+                // Sign, then the row of windows if there is one, then the
+                // door: three bands down the wall. The windows are a row, not
+                // a stack, so they share a band.
+                let mut floor = building.sign.bottom();
+                for window in &building.windows {
+                    assert!(
+                        window.y >= floor,
+                        "at {height}px, {}'s name is painted over its windows",
+                        building.label
+                    );
+                }
+                if let Some(lowest) = building
+                    .windows
+                    .iter()
+                    .map(|window| window.bottom())
+                    .max_by(f32::total_cmp)
+                {
+                    floor = lowest;
+                }
+                assert!(
+                    building.door.y >= floor,
+                    "at {height}px, {}'s door is above what is painted over it",
+                    building.label
+                );
+                assert!(
+                    building.sign.y >= building.body.y
+                        && building.door.bottom() <= body_floor(building),
+                    "at {height}px, {} paints outside its wall",
+                    building.label
+                );
             }
         }
     }
@@ -477,16 +526,18 @@ mod tests {
                     building.body
                 );
             }
-            assert!(
-                building.sign.bottom() <= building.windows[0].y,
-                "{}'s name is painted over its windows",
-                building.label
-            );
-            assert!(
-                building.windows.last().unwrap().bottom() <= building.door.y,
-                "{}'s windows sit on its door",
-                building.label
-            );
+            if let Some(first) = building.windows.first() {
+                assert!(
+                    building.sign.bottom() <= first.y,
+                    "{}'s name is painted over its windows",
+                    building.label
+                );
+                assert!(
+                    building.windows.last().unwrap().bottom() <= building.door.y,
+                    "{}'s windows sit on its door",
+                    building.label
+                );
+            }
         }
     }
 
