@@ -80,6 +80,9 @@ use world_persistence::WorldPackRef;
 
 #[cfg(target_os = "macos")]
 const LIBRARY_OVERRIDE_ENV: &str = "WORLD_MACHINE_LIBRARY_DIR";
+/// Set to "world" to open World windows on the reference surface, so that the
+/// screenshot run can photograph a surface it cannot click its way to.
+const OPEN_SURFACE_ENV: &str = "WORLD_MACHINE_OPEN_SURFACE";
 #[cfg(target_os = "macos")]
 const PACK_CATALOG_OVERRIDE_ENV: &str = "WORLD_MACHINE_PACK_CATALOG";
 #[cfg(target_os = "macos")]
@@ -354,7 +357,14 @@ impl WorldDocumentView {
         let controller = HostProjectionController {
             document: Rc::clone(&document),
         };
-        let projection = cx.new(|_| world_gpui::ProjectionView::controlled(controller));
+        let projection = cx.new(|_| {
+            let mut view = world_gpui::ProjectionView::controlled(controller);
+            // Only the screenshot run sets this; see `open_on_the_world`.
+            if std::env::var(OPEN_SURFACE_ENV).is_ok_and(|value| value == "world") {
+                view.open_on_the_world();
+            }
+            view
+        });
         let analyst_available = world_fork::analyst_available();
         Self {
             document_label,

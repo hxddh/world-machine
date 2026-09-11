@@ -62,6 +62,18 @@ impl ProjectionView {
         view
     }
 
+    /// Open on the reference surface rather than on the return.
+    ///
+    /// A reader always wants the errand first, so nothing in the product does
+    /// this. It exists because the other surface is otherwise unphotographable:
+    /// reaching it needs a click, and the macOS runners that take the
+    /// screenshots are granted no Accessibility permission, so a synthesised
+    /// click goes nowhere. A surface no picture has ever shown is exactly the
+    /// kind of thing this repository has shipped broken before.
+    pub fn open_on_the_world(&mut self) {
+        self.surface = Surface::Reference;
+    }
+
     fn select(&mut self, selection: SelectionId, cx: &mut Context<Self>) {
         self.selected = Some(selection);
         self.status = None;

@@ -90,6 +90,22 @@ jobs:
           open -a "$APP" "$WM_LIB/harbour-town.world"
           sleep 12
           screencapture -x shots/05b-world-drawn-wide.png
+          # The other surface. A World window opens on the return because that
+          # is what a reader wants, and reaching the cast and the history needs
+          # a click — which these runners cannot deliver, having no
+          # Accessibility permission. So the app is asked to open there
+          # instead, and the surface stops being one no picture has ever shown.
+          osascript -e 'tell application "World Machine" to quit' || true
+          sleep 3
+          launchctl setenv WORLD_MACHINE_OPEN_SURFACE world
+          open -a "$APP" "$WM_LIB/harbour-town.world"
+          sleep 14
+          screencapture -x shots/05e-world-reference.png
+          osascript -e 'tell application "World Machine" to quit' || true
+          sleep 3
+          launchctl unsetenv WORLD_MACHINE_OPEN_SURFACE
+          open -a "$APP" "$WM_LIB/harbour-town.world"
+          sleep 12
           # A return, which no test can photograph: the fortune line shades the
           # stretch the reader was away, and every shot above opens an archive
           # rather than leaving a World and coming back, so there has never
