@@ -12,6 +12,8 @@ use world_projection::{
 
 pub(crate) fn snapshot(world: &World, since_event_count: Option<usize>) -> ProjectionSnapshot {
     ProjectionSnapshot {
+        // This Pack does not offer a figure for how it is doing.
+        fortune: None,
         title: title(world),
         world_time: world.world_time(),
         capabilities: ProjectionCapabilities {

@@ -51,13 +51,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     // A fortune line: how many people are in work and how much money is in the
     // town, sampled every few periods, on the trunk and on each branch. A
     // graph of this is the only way to see that the slope turned.
-    // A fortune line for the trunk and for each branch of the bakery choice.
-    //
-    // Summing cash out of a rendered subtitle is a hack, and it is the only
-    // way to get this today: no Pack reports a health figure, so there is
-    // nothing to plot but a string the collection panel happens to print. A
-    // World ought to say what its own fortune is, once per period, the way a
-    // chess engine reports centipawns.
+    // A fortune line for the trunk and for each branch of the bakery choice,
+    // using the figure the World reports about itself.
     println!("\n===== SERIES =====");
     for (label, command) in [
         ("trunk", None),
@@ -82,24 +77,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                 }
             }
             let s = town.snapshot();
-            let working = s
-                .collection
-                .items
-                .iter()
-                .filter(|i| !i.subtitle.contains("unemployed"))
-                .count();
-            let cash: i64 = s
-                .collection
-                .items
-                .iter()
-                .filter_map(|i| {
-                    i.subtitle
-                        .rsplit("cash ")
-                        .next()
-                        .and_then(|c| c.trim().parse::<i64>().ok())
-                })
-                .sum();
-            print!(" {}:{}:{}", s.world_time, working, cash);
+            let fortune = s.fortune.as_ref().map(|f| f.value).unwrap_or(0);
+            print!(" {}:{}", s.world_time, fortune);
         }
         println!();
     }

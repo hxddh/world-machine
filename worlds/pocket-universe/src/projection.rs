@@ -31,6 +31,8 @@ pub(crate) fn snapshot_since(
     let seed = seed_id(world);
     let seeded = seed != "unseeded";
     ProjectionSnapshot {
+        // This Pack does not offer a figure for how it is doing.
+        fortune: None,
         title: if seeded {
             universe_name(world)
         } else {

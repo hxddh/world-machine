@@ -173,6 +173,34 @@ pub struct ProjectionSnapshot {
     pub canvas: CanvasProjection,
     pub inspectors: BTreeMap<SelectionId, InspectorProjection>,
     pub why: BTreeMap<EventId, WhyProjection>,
+    /// How the World says it is doing, in one number of its own choosing.
+    ///
+    /// Absent for a Pack that does not offer one, and every renderer must
+    /// cope with that.
+    pub fortune: Option<Fortune>,
+}
+
+/// One number, named by the World, for how well it is going.
+///
+/// Deliberately a single figure rather than a panel of them. An engine
+/// reports one centipawn score and that is why a chess graph can say at a
+/// glance where the game turned; a dashboard of six measures says only that
+/// six things exist. If a World can rank two of its own futures, it can be
+/// asked whether a choice was worth making.
+///
+/// Higher is better, always. A World whose natural measure runs the other way
+/// — unrest, debt, decay — reports its negation and names it accordingly.
+///
+/// Pick a measure that falls when the World is failing. The obvious ones
+/// often do not: the total money held by Harbour Town's residents *rises*
+/// for as long as its workplaces are draining into their pockets, so by that
+/// figure the town looks richest shortly before it stops entirely.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Fortune {
+    /// What the number counts, in the World's own words, for a person to read
+    /// beside it: "money changing hands", "colonists fed".
+    pub label: String,
+    pub value: i64,
 }
 
 impl ProjectionSnapshot {

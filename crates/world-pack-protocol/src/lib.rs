@@ -6,9 +6,10 @@ use world_core::{EntityId, EventId, RelationId};
 use world_persistence::{WorldArchive, WorldPackRef};
 use world_projection::{
     BriefingItem, BriefingItemKind, BriefingProjection, CanvasItem, CanvasItemKind,
-    CanvasItemState, CanvasProjection, CollectionItem, CollectionProjection, InspectorProjection,
-    InspectorRow, InspectorSection, ProjectionCapabilities, ProjectionCommand, ProjectionIntent,
-    ProjectionSnapshot, SelectionId, TimelineItem, TimelineProjection, WhyNode, WhyProjection,
+    CanvasItemState, CanvasProjection, CollectionItem, CollectionProjection, Fortune,
+    InspectorProjection, InspectorRow, InspectorSection, ProjectionCapabilities, ProjectionCommand,
+    ProjectionIntent, ProjectionSnapshot, SelectionId, TimelineItem, TimelineProjection, WhyNode,
+    WhyProjection,
 };
 
 pub const PACK_MANIFEST_FORMAT: &str = "world-machine-pack";
@@ -342,6 +343,34 @@ pub struct ProjectionSnapshotWire {
     pub canvas: CanvasProjectionWire,
     pub inspectors: Vec<InspectorProjectionWire>,
     pub why: Vec<WhyProjectionWire>,
+    /// Absent in snapshots written before a World could say how it is doing,
+    /// and absent from any Pack that does not offer a figure.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fortune: Option<FortuneWire>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FortuneWire {
+    pub label: String,
+    pub value: i64,
+}
+
+impl From<&Fortune> for FortuneWire {
+    fn from(fortune: &Fortune) -> Self {
+        Self {
+            label: fortune.label.clone(),
+            value: fortune.value,
+        }
+    }
+}
+
+impl From<FortuneWire> for Fortune {
+    fn from(fortune: FortuneWire) -> Self {
+        Self {
+            label: fortune.label,
+            value: fortune.value,
+        }
+    }
 }
 
 impl ProjectionSnapshotWire {
@@ -375,6 +404,7 @@ impl From<&ProjectionSnapshot> for ProjectionSnapshotWire {
             title: snapshot.title.clone(),
             world_time: snapshot.world_time,
             capabilities: snapshot.capabilities.into(),
+            fortune: snapshot.fortune.as_ref().map(FortuneWire::from),
             briefing: snapshot.briefing.as_ref().map(Into::into),
             commands: snapshot.commands.iter().map(Into::into).collect(),
             collection: (&snapshot.collection).into(),
@@ -417,6 +447,7 @@ impl TryFrom<ProjectionSnapshotWire> for ProjectionSnapshot {
             title: snapshot.title,
             world_time: snapshot.world_time,
             capabilities: snapshot.capabilities.into(),
+            fortune: snapshot.fortune.map(Into::into),
             briefing: snapshot.briefing.map(Into::into),
             commands: snapshot.commands.into_iter().map(Into::into).collect(),
             collection: snapshot.collection.into(),
@@ -1082,6 +1113,8 @@ mod tests {
         let entity = SelectionId::Entity(EntityId::new(7));
         let event = SelectionId::Event(EventId::new(9));
         ProjectionSnapshot {
+            // This Pack does not offer a figure for how it is doing.
+            fortune: None,
             title: "External World".into(),
             world_time: 42,
             capabilities: ProjectionCapabilities { fork: true },

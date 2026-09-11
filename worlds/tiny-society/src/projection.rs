@@ -31,6 +31,7 @@ pub(crate) fn snapshot_since(
         title: "Tiny Society".into(),
         world_time: world.world_time(),
         capabilities: ProjectionCapabilities { fork: true },
+        fortune: Some(crate::fortune::of(world)),
         briefing: Some(society_briefing(world, since_event_count)),
         commands: available_commands(world),
         collection: CollectionProjection {

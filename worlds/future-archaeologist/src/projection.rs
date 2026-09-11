@@ -22,6 +22,8 @@ pub(crate) fn snapshot(world: &World) -> ProjectionSnapshot {
     let visible_events = visible_event_ids(world, &visible_artifacts);
 
     ProjectionSnapshot {
+        // This Pack does not offer a figure for how it is doing.
+        fortune: None,
         title: "Future Archaeologist · Terminal 17".into(),
         world_time: world.world_time(),
         capabilities: ProjectionCapabilities { fork: false },

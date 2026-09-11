@@ -2,6 +2,7 @@ mod actions;
 mod behaviors;
 mod drift;
 mod fishing;
+mod fortune;
 mod hardship;
 mod host;
 mod interventions;
