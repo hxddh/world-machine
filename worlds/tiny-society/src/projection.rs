@@ -325,6 +325,10 @@ fn narrated_title(world: &World, event: &Event) -> Option<String> {
         });
     }
     Some(String::from(match event.kind.as_str() {
+        // Not a machine notice. It is the largest thing that can be said about
+        // a town, and a return that does not say it leaves a person looking at
+        // a picture that will never change again without knowing it.
+        crate::stillness::CAME_TO_REST => "Harbour Town has come to rest",
         "support_repaid" => "Jonas repaid Leo after returning to sea",
         "fish_sold" => "Jonas's catch reached the mainland",
         "boat_repaired" => "Sea Finch returned to the water",

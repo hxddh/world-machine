@@ -91,6 +91,7 @@ impl TinySocietyBranch {
         let mut generated_events = Vec::new();
 
         for _ in 0..days {
+            let events_before_today = generated_events.len();
             let start_time = self.world.world_time();
             let morning_time = start_time
                 .checked_add(MORNING_OFFSET_TICKS)
@@ -133,6 +134,17 @@ impl TinySocietyBranch {
                     32,
                 )?;
                 generated_events.extend(run.generated_events);
+            }
+
+            // A day in which the town did nothing at all is the town having
+            // settled, and that is worth recording once — otherwise the World
+            // keeps advancing time in silence and a return cannot tell a town
+            // that has come to rest from one that is about to act.
+            let day_produced_events = generated_events.len() > events_before_today;
+            if let Some(rest) =
+                crate::stillness::note_if_at_rest(&mut self.world, &actions, day_produced_events)?
+            {
+                generated_events.push(rest);
             }
         }
 
