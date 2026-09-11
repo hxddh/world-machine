@@ -271,12 +271,22 @@ pub fn plan(items: &[CanvasItem], width: f32, height: f32) -> ScenePlan {
             let at = match jetty {
                 Some(deck) if afloat => (deck.right() - 90.0, water_y + 24.0),
                 _ => {
-                    // On the quay, clear of the people standing in front of
-                    // the place and clear of the water. Without the clamp an
-                    // inland thing was drawn below the waterline, floating.
+                    // On the quay, beside the people standing in front of the
+                    // place rather than on top of them: centred on the crowd,
+                    // its name landed on top of theirs. Clamped clear of the
+                    // water too — without that an inland thing was drawn
+                    // below the waterline, floating.
                     let (cx, _) = anchor(object.at);
+                    let crowd = items
+                        .iter()
+                        .filter(|item| item.kind == CanvasItemKind::Actor && item.at == object.at)
+                        .count();
+                    let beside = (crowd as f32 * FIGURE_SPREAD) / 2.0 + 34.0;
                     let feet = ground_y + FIGURE_HEIGHT;
-                    (cx, (feet + 18.0).min(water_y - 14.0))
+                    (
+                        (cx + beside).min(width - 62.0),
+                        (feet + 18.0).min(water_y - 14.0),
+                    )
                 }
             };
             ObjectSpot {
@@ -552,6 +562,34 @@ mod object_shape_tests {
             at: Some(SelectionId::Entity(crate::EntityId(at))),
             state: CanvasItemState::Working,
         }
+    }
+
+    #[test]
+    fn a_thing_on_the_quay_does_not_stand_on_the_people() {
+        // Its name landed on top of theirs when it shared their centre.
+        let items = vec![
+            place(1, "Shop"),
+            place(2, "Water"),
+            CanvasItem {
+                id: SelectionId::Entity(crate::EntityId::new(20)),
+                kind: CanvasItemKind::Actor,
+                label: "Ann".into(),
+                detail: String::new(),
+                x: 0.0,
+                y: 0.0,
+                at: Some(SelectionId::Entity(crate::EntityId::new(1))),
+                state: CanvasItemState::Working,
+            },
+            thing(10, "Sack", 1),
+        ];
+        let plan = plan(&items, 1100.0, 300.0);
+        let who = &plan.folk[0];
+        let what = &plan.objects[0];
+        let apart = (who.feet.0 - what.at.0).abs();
+        assert!(
+            apart >= 30.0,
+            "the sack is {apart:.0}px from Ann, so their names overlap"
+        );
     }
 
     #[test]

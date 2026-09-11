@@ -297,26 +297,44 @@ fn paint(window: &mut gpui::Window, bounds: Bounds<Pixels>, plan: &ScenePlan, li
             // A thing on the quay is a crate, not a boat. The plan says which
             // is which from where the World put it; a thing indoors drawn with
             // a mast and a sail was the first thing wrong with this picture.
-            let crate_colour = match object.state {
-                CanvasItemState::Working => timber(),
-                _ => hsla(0.09, 0.10, 0.62, 1.0),
+            let body = town_scene::Rect {
+                x: x - 13.0,
+                y: y - 13.0,
+                width: 26.0,
+                height: 18.0,
             };
+            if object.state == CanvasItemState::Gone {
+                // Absence, drawn as the outline of what is not there. The
+                // first version filled it pale grey, which on a pale quay
+                // meant nothing appeared at all.
+                let edge = hsla(0.09, 0.12, 0.34, 0.5);
+                for side in [
+                    town_scene::Rect {
+                        height: 1.5,
+                        ..body
+                    },
+                    town_scene::Rect {
+                        y: body.bottom() - 1.5,
+                        height: 1.5,
+                        ..body
+                    },
+                    town_scene::Rect { width: 1.5, ..body },
+                    town_scene::Rect {
+                        x: body.right() - 1.5,
+                        width: 1.5,
+                        ..body
+                    },
+                ] {
+                    window.paint_quad(quad(side, bounds, edge));
+                }
+                continue;
+            }
+            window.paint_quad(quad(body, bounds, timber()));
             window.paint_quad(quad(
                 town_scene::Rect {
-                    x: x - 13.0,
-                    y: y - 13.0,
-                    width: 26.0,
-                    height: 18.0,
-                },
-                bounds,
-                crate_colour,
-            ));
-            window.paint_quad(quad(
-                town_scene::Rect {
-                    x: x - 13.0,
                     y: y - 6.0,
-                    width: 26.0,
                     height: 2.0,
+                    ..body
                 },
                 bounds,
                 ink(),
