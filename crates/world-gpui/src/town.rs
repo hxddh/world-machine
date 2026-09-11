@@ -224,21 +224,21 @@ fn paint_names(
             (CanvasItemState::Hurt, false) => format!("{} · damaged", object.label),
             _ => object.label.clone(),
         };
-        // Under the thing, unless there is no "under" left. A boat sits at
-        // 0.86 of the scene's height, so on a short scene the name went 16px
-        // below it and out of the frame entirely — it came out painted across
-        // the news underneath the picture.
+        // Under the thing, or over it, but never on it. An object is drawn as
+        // a mark around its own point — 13px above it and 5px below — and the
+        // name has to clear that mark in whichever direction it goes. Both of
+        // the previous attempts put it through: "Sea Finch · gone" struck out
+        // by the dash that is a gone boat, and then "Wedding bread order ·
+        // gone" struck out by the crate on the quay.
         const LABEL_H: f32 = 10.0;
-        // A line lower than a person's name. Both used to be written just
-        // under the thing they name, so on the quay "Wedding bread order ·
-        // gone" and "Mara" came out on the same line across each other.
-        let below = object.at.1 + 16.0 + LABEL_H + 2.0;
-        // Above the thing when there is no room under it. Clamping it to the
-        // bottom edge instead dragged the name up onto the object's own mark:
-        // a gone boat is a short dark dash, and "Sea Finch · gone" came out
-        // struck through by it.
-        let floor = if below + LABEL_H + 2.0 > f32::from(bounds.size.height) {
-            object.at.1 - LABEL_H - 6.0
+        const MARK_ABOVE: f32 = 13.0;
+        const MARK_BELOW: f32 = 5.0;
+        // A line lower than a person's name, so an object's name and somebody
+        // standing beside it do not share a row.
+        let below = object.at.1 + MARK_BELOW + 11.0 + LABEL_H + 2.0;
+        let above = object.at.1 - MARK_ABOVE - LABEL_H - 4.0;
+        let y = if below + LABEL_H + 2.0 > f32::from(bounds.size.height) {
+            above
         } else {
             below
         };
@@ -248,7 +248,7 @@ fn paint_names(
             bounds,
             words.into(),
             object.at.0 - 60.0,
-            floor.max(2.0),
+            y.max(2.0),
             120.0,
             LABEL_H,
             if object.afloat { 0x2f2822 } else { 0x4a4038 },
