@@ -29,6 +29,7 @@ pub(crate) const TEMP_BAKERY_JOB: RelationId = RelationId::new(705);
 pub(crate) const MIA_BAKERY_JOB: RelationId = RelationId::new(706);
 
 pub(crate) const CONDITION: &str = "condition";
+pub(crate) const HARDSHIP_STATUS: &str = "hardship_status";
 pub(crate) const INCOME_STATUS: &str = "income_status";
 pub(crate) const LOAN_STATUS: &str = "loan_status";
 pub(crate) const MISSED_SHIFTS: &str = "missed_shifts";

@@ -625,11 +625,41 @@ pub struct BriefingProjection {
     pub items: Vec<BriefingItem>,
 }
 
+/// Whether a briefing line is something that happened or something that is
+/// merely so.
+///
+/// A World Pack has both to offer, and they are not interchangeable. One names
+/// somebody and something they did at a point in time; the other totals up how
+/// much of the routine ran. Presenting them in one undifferentiated list is how
+/// a return briefing ends up reading like a dashboard, so the distinction is
+/// carried here rather than left to whoever draws it.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum BriefingItemKind {
+    /// Something happened, to someone, at a point in time.
+    #[default]
+    Beat,
+    /// How things stand, or how much of the routine ran. Never news.
+    Status,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct BriefingItem {
     pub selection: Option<SelectionId>,
     pub title: String,
     pub detail: String,
+    pub kind: BriefingItemKind,
+}
+
+impl BriefingProjection {
+    /// The lines that report something happening, in the order the Pack gave
+    /// them. Empty means the visit has no news, however many counters the
+    /// briefing carries.
+    pub fn beats(&self) -> Vec<&BriefingItem> {
+        self.items
+            .iter()
+            .filter(|item| item.kind == BriefingItemKind::Beat)
+            .collect()
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]

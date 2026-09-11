@@ -1,8 +1,11 @@
 mod actions;
 mod behaviors;
+mod drift;
 mod fishing;
+mod hardship;
 mod host;
 mod interventions;
+mod livelihood;
 mod local_economy;
 mod model;
 mod payroll;
@@ -39,6 +42,8 @@ pub const RETAIN_WORKER_COMMAND: &str = "tiny-society.retain-worker";
 pub const REOPEN_BAKERY_COMMAND: &str = "tiny-society.reopen-bakery";
 pub const LEAN_REOPEN_BAKERY_COMMAND: &str = "tiny-society.reopen-bakery-lean";
 pub const REPAIR_BOAT_COMMAND: &str = "tiny-society.repair-sea-finch";
+pub const SELL_BOAT_COMMAND: &str = "tiny-society.sell-sea-finch";
+pub const TAKE_JONAS_ON_COMMAND: &str = "tiny-society.take-jonas-on";
 pub const BAKERY_REOPEN_INVESTMENT: i64 = 120;
 
 pub struct TinySociety {
@@ -81,6 +86,8 @@ impl TinySocietyBranch {
             REOPEN_BAKERY_COMMAND => self.reopen_bakery(),
             LEAN_REOPEN_BAKERY_COMMAND => recovery::reopen_lean(self),
             REPAIR_BOAT_COMMAND => self.repair_boat_with_leo(),
+            SELL_BOAT_COMMAND => self.sell_sea_finch(),
+            TAKE_JONAS_ON_COMMAND => self.take_jonas_on(),
             _ => Err(
                 std::io::Error::other(format!("unknown projection command: {command_id}")).into(),
             ),
@@ -152,6 +159,52 @@ impl TinySocietyBranch {
             )?
             .id;
         Ok(vec![reopened])
+    }
+
+    pub fn sell_sea_finch(&mut self) -> Result<Vec<EventId>, Box<dyn Error>> {
+        let withdrawal = self
+            .world
+            .events()
+            .iter()
+            .rev()
+            .find(|event| event.kind == "backing_withdrawn")
+            .map(|event| event.id)
+            .ok_or_else(|| {
+                std::io::Error::other("Sea Finch is not for sale while her repair is still backed")
+            })?;
+        let actions = build_action_registry()?;
+        let sold = self
+            .world
+            .execute(
+                &actions,
+                &ActionRequest::new("sell_sea_finch")
+                    .actor(JONAS)
+                    .caused_by(withdrawal),
+            )?
+            .id;
+        Ok(vec![sold])
+    }
+
+    pub fn take_jonas_on(&mut self) -> Result<Vec<EventId>, Box<dyn Error>> {
+        let asked = self
+            .world
+            .events()
+            .iter()
+            .rev()
+            .find(|event| event.kind == "work_sought")
+            .map(|event| event.id)
+            .ok_or_else(|| std::io::Error::other("Jonas has not asked the bakery for work"))?;
+        let actions = build_action_registry()?;
+        let taken_on = self
+            .world
+            .execute(
+                &actions,
+                &ActionRequest::new("take_jonas_on")
+                    .actor(MARA)
+                    .caused_by(asked),
+            )?
+            .id;
+        Ok(vec![taken_on])
     }
 
     pub fn repair_boat_with_leo(&mut self) -> Result<Vec<EventId>, Box<dyn Error>> {
@@ -333,6 +386,9 @@ fn build_action_registry() -> Result<ActionRegistry, Box<dyn Error>> {
     world_agent::register_actions(&mut actions)?;
     actions::register(&mut actions)?;
     fishing::register_actions(&mut actions)?;
+    drift::register_actions(&mut actions)?;
+    hardship::register_actions(&mut actions)?;
+    livelihood::register_actions(&mut actions)?;
     interventions::register(&mut actions)?;
     local_economy::register_actions(&mut actions)?;
     payroll::register_actions(&mut actions)?;

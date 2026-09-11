@@ -14,9 +14,9 @@ use world_persistence::{PersistenceError, WorldArchive, WorldPackRef};
 use world_projection::ProjectionSnapshot;
 
 pub const TINY_SOCIETY_PACK_ID: &str = "world-machine.tiny-society";
-pub const TINY_SOCIETY_PACK_VERSION: &str = "0.2.0";
+pub const TINY_SOCIETY_PACK_VERSION: &str = "0.3.0";
 
-const WORLD_DAY_TICKS: u64 = 10;
+pub(crate) const WORLD_DAY_TICKS: u64 = 10;
 const MORNING_OFFSET_TICKS: u64 = 5;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -115,6 +115,25 @@ impl TinySocietyBranch {
                 &behavior_registry,
                 end_time,
             )?);
+
+            // Things people do because of how things stand, rather than in
+            // reaction to one Event, are checked once a day.
+            let mut daily = crate::livelihood::seek_work_if_needed(&mut self.world, &actions)?;
+            // A question nobody answered is answered by the harbour, at most
+            // one per day, so a long absence reads as a sequence rather than
+            // resolving in one jump when somebody returns.
+            daily.extend(crate::drift::resolve_overdue(&mut self.world, &actions)?);
+            for event in daily {
+                generated_events.push(event);
+                let run = BehaviorRuntime::run_from_event(
+                    &mut self.world,
+                    &actions,
+                    &behavior_registry,
+                    event,
+                    32,
+                )?;
+                generated_events.extend(run.generated_events);
+            }
         }
 
         Ok(generated_events)
@@ -138,6 +157,16 @@ fn advance_branch_checkpoint(
 
 fn schedule_jonas_living_cost(world: &mut World, world_time: u64) -> Result<(), Box<dyn Error>> {
     if integer_component(world.state(), JONAS, CASH)? < JONAS_DAILY_LIVING_COST {
+        // A day Jonas cannot pay for used to be a day the world said nothing
+        // about: the scheduler returned early and the only trace was a cash
+        // figure that stopped moving. Record the first such day instead, once
+        // per spell, so the return briefing can say what happened to him.
+        if crate::hardship::should_record_unmet_living_cost(world.state()) {
+            world.schedule_at(
+                world_time,
+                ActionRequest::new("record_unmet_living_cost").actor(JONAS),
+            )?;
+        }
         return Ok(());
     }
     world.schedule_at(

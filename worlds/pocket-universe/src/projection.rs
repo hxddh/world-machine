@@ -15,9 +15,9 @@ use crate::{
 use world_core::{Entity, EntityId, Event, StateChange, Value, World};
 use world_projection::{
     entity_title, inspectors_from_world, timeline_from_world, value_text, why_map_from_world,
-    BriefingItem, BriefingProjection, CanvasItem, CanvasItemKind, CanvasProjection, CollectionItem,
-    CollectionProjection, ProjectionCapabilities, ProjectionCommand, ProjectionSnapshot,
-    SelectionId,
+    BriefingItem, BriefingItemKind, BriefingProjection, CanvasItem, CanvasItemKind,
+    CanvasProjection, CollectionItem, CollectionProjection, ProjectionCapabilities,
+    ProjectionCommand, ProjectionSnapshot, SelectionId,
 };
 
 pub(crate) fn snapshot(world: &World) -> ProjectionSnapshot {
@@ -258,6 +258,7 @@ fn eras_turned_item(world: &World, events: &[Event]) -> Option<BriefingItem> {
         format!("{} eras turned", turned.len())
     };
     Some(BriefingItem {
+        kind: BriefingItemKind::Beat,
         selection: Some(SelectionId::Event(latest.id)),
         title,
         detail: format!("You left during era {left_during}; this is era {era}. {summary}")
@@ -278,6 +279,7 @@ fn decided_without_you_item(events: &[Event]) -> Option<BriefingItem> {
         more => format!("{note} {more} other decisions were reached the same way."),
     };
     Some(BriefingItem {
+        kind: BriefingItemKind::Beat,
         selection: Some(SelectionId::Event(last.id)),
         title: "Decided without you".into(),
         detail,
@@ -313,6 +315,7 @@ fn era_item(world: &World) -> Option<BriefingItem> {
         EraStanding::Mixed => summary,
     };
     Some(BriefingItem {
+        kind: BriefingItemKind::Status,
         selection: Some(SelectionId::Event(event.id)),
         title: format!("Era {era} · {inherited}"),
         detail,
@@ -344,6 +347,7 @@ fn succession_consequence_item(world: &World) -> Option<BriefingItem> {
         }
     };
     Some(BriefingItem {
+        kind: BriefingItemKind::Beat,
         selection: Some(SelectionId::Event(event.id)),
         title: format!("Succession · {label}"),
         detail: summary,
@@ -366,6 +370,7 @@ fn succession_choice_evidence(event: &Event) -> Option<BriefingItem> {
         _ => return None,
     };
     Some(BriefingItem {
+        kind: BriefingItemKind::Status,
         selection: Some(SelectionId::Event(event.id)),
         title: format!("Choice evidence · {label}"),
         detail: format!(
@@ -651,6 +656,7 @@ fn pressure_consequence_item(world: &World) -> Option<BriefingItem> {
         other => other,
     };
     Some(BriefingItem {
+        kind: BriefingItemKind::Beat,
         selection: Some(SelectionId::Event(event.id)),
         title: format!("World pressure · {label}"),
         detail: summary,
@@ -681,6 +687,7 @@ fn pressure_choice_evidence(world: &World, event: &Event) -> Option<BriefingItem
         _ => return None,
     };
     Some(BriefingItem {
+        kind: BriefingItemKind::Status,
         selection: Some(SelectionId::Event(event.id)),
         title: format!("Choice evidence · {label}"),
         detail: format!(
@@ -818,12 +825,14 @@ fn briefing(world: &World, seeded: bool, since_event_count: Option<usize>) -> Br
             title: "What kind of world should exist here?".into(),
             items: vec![
                 BriefingItem {
+                    kind: BriefingItemKind::Status,
                     selection: Some(SelectionId::Entity(UNIVERSE)),
                     title: "Create".into(),
                     detail: "Choose one seed. The choice becomes the first durable event in this World."
                         .into(),
                 },
                 BriefingItem {
+                    kind: BriefingItemKind::Status,
                     selection: None,
                     title: "Keep · Grow · Return".into(),
                     detail: "Save it like a document, let time move, then come back to a world with history."
@@ -879,12 +888,14 @@ fn briefing(world: &World, seeded: bool, since_event_count: Option<usize>) -> Br
         )
     };
     let mut items = vec![BriefingItem {
+        kind: BriefingItemKind::Status,
         selection: Some(SelectionId::Entity(UNIVERSE)),
         title: "Current thread".into(),
         detail: last_change,
     }];
     if let Some((guidance_title, guidance_detail)) = guidance {
         items.push(BriefingItem {
+            kind: BriefingItemKind::Status,
             selection: None,
             title: guidance_title.into(),
             detail: guidance_detail.into(),
@@ -977,6 +988,7 @@ fn persistent_consequence_items(world: &World) -> Vec<BriefingItem> {
     let decision = text_component(world.state().entity(UNIVERSE), DECISION, "none");
     if let Some((title, detail)) = intervention_influence_copy(&decision) {
         items.push(BriefingItem {
+            kind: BriefingItemKind::Status,
             selection: Some(SelectionId::Entity(UNIVERSE)),
             title: title.into(),
             detail: detail.into(),
@@ -1066,6 +1078,7 @@ fn relationship_choice_evidence(
         ),
     };
     Some(BriefingItem {
+        kind: BriefingItemKind::Status,
         selection: Some(SelectionId::Event(event.id)),
         title: format!("Choice evidence · {label}"),
         detail: format!(
@@ -1101,6 +1114,7 @@ fn intervention_choice_evidence(world: &World, event: &Event) -> Option<Briefing
         _ => None,
     })?;
     Some(BriefingItem {
+        kind: BriefingItemKind::Status,
         selection: Some(SelectionId::Event(event.id)),
         title: format!("Choice evidence · {label}"),
         detail: format!(
@@ -1118,6 +1132,7 @@ fn posture_choice_evidence(event: &Event) -> Option<BriefingItem> {
         _ => "World direction",
     };
     Some(BriefingItem {
+        kind: BriefingItemKind::Status,
         selection: Some(SelectionId::Event(event.id)),
         title: format!("Choice evidence · {label}"),
         detail: format!(
@@ -1275,6 +1290,7 @@ fn posture_consequence_item(world: &World) -> Option<BriefingItem> {
         ),
     };
     Some(BriefingItem {
+        kind: BriefingItemKind::Status,
         selection: Some(SelectionId::Entity(UNIVERSE)),
         title: title.into(),
         detail: detail.into(),
@@ -1316,6 +1332,7 @@ fn legacy_consequence_item(world: &World) -> Option<BriefingItem> {
         })
         .unwrap_or(SelectionId::Entity(UNIVERSE));
     Some(BriefingItem {
+        kind: BriefingItemKind::Status,
         selection: Some(selection),
         title: format!("World legacy · {}", legacy_label(&legacy)),
         detail: summary,
@@ -1370,6 +1387,7 @@ fn relationship_consequence_item(world: &World) -> Option<BriefingItem> {
         format!("{meaning} Trust {trust} · tension {tension}. {last_dynamic}")
     };
     Some(BriefingItem {
+        kind: BriefingItemKind::Status,
         selection: Some(SelectionId::Entity(RELATIONSHIP)),
         title: title.into(),
         detail,
@@ -1449,6 +1467,7 @@ fn return_compass_item(world: &World) -> BriefingItem {
     let detail = format!("Why now: {why_now} {action_detail}");
 
     BriefingItem {
+        kind: BriefingItemKind::Status,
         selection: None,
         title: title.into(),
         detail,
@@ -1722,6 +1741,7 @@ fn return_item(events: &[Event], event: &Event, occurrences: usize) -> BriefingI
         }
     };
     BriefingItem {
+        kind: BriefingItemKind::Beat,
         selection: Some(SelectionId::Event(event.id)),
         title,
         detail,

@@ -4,7 +4,17 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const TINY_SOCIETY_SOURCE = join(
+  REPO_ROOT,
+  "worlds",
+  "tiny-society",
+  "src",
+  "persistence.rs",
+);
 
 const TURN_PROTOCOL = "world-machine-analyst-turns";
 const TURN_PROTOCOL_VERSION = 1;
@@ -35,6 +45,7 @@ async function main() {
     toolHost: join(runtimeRoot, "bin", "world-agent-tool-stdio"),
   };
   await validateRuntime(runtime);
+  const packVersion = await tinySocietyPackVersion();
 
   const temp = await mkdtemp(join(tmpdir(), "world-machine-m224-"));
   try {
@@ -45,8 +56,14 @@ async function main() {
     const fakePi = join(temp, "fake-pi.mjs");
     const fakePiLog = join(temp, "fake-pi.jsonl");
 
-    await writeFile(leftArchive, `${JSON.stringify(archiveFixture(false), null, 2)}\n`);
-    await writeFile(rightArchive, `${JSON.stringify(archiveFixture(true), null, 2)}\n`);
+    await writeFile(
+      leftArchive,
+      `${JSON.stringify(archiveFixture(false, packVersion), null, 2)}\n`,
+    );
+    await writeFile(
+      rightArchive,
+      `${JSON.stringify(archiveFixture(true, packVersion), null, 2)}\n`,
+    );
     await writeFile(fakePi, fakePiProgram());
     await chmod(fakePi, 0o755);
 
@@ -179,7 +196,23 @@ async function requireFile(path, label, executable = false) {
   }
 }
 
-function archiveFixture(withDivergence) {
+// The Tiny Society Pack version the app is built with, read from the Pack's
+// own source rather than written down here a second time. The host refuses an
+// archive pinned to a version it does not have — the same rule that closes
+// older Worlds when a Pack's rules change — and a copy of that number kept
+// here is a copy that silently rots the next time the Pack moves. It did.
+async function tinySocietyPackVersion() {
+  const source = await readFile(TINY_SOCIETY_SOURCE, "utf8");
+  const match = source.match(/TINY_SOCIETY_PACK_VERSION: &str = "([^"]+)"/);
+  if (!match) {
+    throw new Error(
+      `could not read TINY_SOCIETY_PACK_VERSION from ${TINY_SOCIETY_SOURCE}`,
+    );
+  }
+  return match[1];
+}
+
+function archiveFixture(withDivergence, packVersion) {
   const events = [
     {
       id: 1,
@@ -208,11 +241,8 @@ function archiveFixture(withDivergence) {
     format: "world-machine",
     format_version: 1,
     pack: {
-      // Must match the Tiny Society Pack version the app is built with: the
-      // host refuses an archive pinned to a version it does not have, which is
-      // the same rule that closes older Worlds after a Pack's rules change.
       id: "world-machine.tiny-society",
-      version: "0.2.0",
+      version: packVersion,
     },
     world_time: withDivergence ? 2 : 1,
     events,

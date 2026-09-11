@@ -5375,12 +5375,14 @@ dependencies = [
 
 [[package]]
 name = "tiny-society"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
+ "serde_json",
  "society-basic",
  "world-agent",
  "world-core",
  "world-host",
+ "world-pack-protocol",
  "world-persistence",
  "world-projection",
 ]
@@ -5397,7 +5399,7 @@ dependencies = [
 
 [[package]]
 name = "tiny-society-pack"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "tiny-society",
  "world-host",

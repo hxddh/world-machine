@@ -48,7 +48,7 @@ const INCLUDED_PACKS: &[IncludedPackSpec] = &[
     },
     IncludedPackSpec {
         id: "world-machine.tiny-society",
-        version: "0.2.0",
+        version: "0.3.0",
         title: "Tiny Society",
         description: "A persistent harbour town where money circulates between neighbours. One durable choice about a fishing boat decides whether local spending recovers, whether the bakery reopens, and whether the job the closure cost comes back.",
         experience: "Make one durable choice · Watch the money circulate · Live with what closed",
