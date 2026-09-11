@@ -1,5 +1,6 @@
 mod actions;
 mod behaviors;
+mod demo;
 mod drift;
 mod fishing;
 mod fortune;
@@ -32,6 +33,7 @@ use world_projection::ProjectionSnapshot;
 #[cfg(test)]
 pub(crate) use world_core::Value;
 
+pub use demo::{DEMO_ABSENCE_PERIODS, DEMO_EARLY_PERIODS, DEMO_LATE_PERIODS};
 pub use host::tiny_society_registration;
 pub use model::{
     BAKERY, EMMA, EVAN, HARBOR, JONAS, JONAS_BOAT, LEO, MARA, MIA, NOAH, PUB, SCHOOL, SOFIA,

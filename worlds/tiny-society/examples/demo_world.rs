@@ -1,5 +1,5 @@
-//! Write a Harbour Town World into a World Machine library directory, so the
-//! desktop app can be launched against it for screenshots and manual testing.
+//! Write Harbour Town into a World Machine library directory, so the desktop
+//! app can be launched against it for screenshots and manual testing.
 //!
 //! ```bash
 //! cargo run -p tiny-society --example demo_world -- /path/to/Worlds
@@ -9,13 +9,26 @@
 //! the only World in the library that the window can draw as a place rather
 //! than as a list. Screenshots taken without it say nothing about that drawing.
 //!
-//! The World is deterministic: the same run always produces the same archive.
+//! It writes the town twice, at two ages, because one archive cannot show both
+//! of the things the window has to get right:
+//!
+//! - **Late** (80 periods) is the place: the bakery shut, Sea Finch gone. A
+//!   town where nothing has gone wrong yet is a row of identical open shops
+//!   and proves nothing about whether a shut shop reads as shut.
+//! - **Early** (24 periods) is the only one a *return* can be photographed on.
+//!   A return shades the stretch you were away, and there is nothing to shade
+//!   unless the World is still living: by 80 periods the town has come to
+//!   rest, so an absence there spans no events and draws a flat line at zero.
+//!
+//! Both are deterministic: the same run always produces the same archives.
 
 use std::env;
 use std::error::Error;
 use std::path::PathBuf;
 
-use tiny_society::{tiny_society_registration, TINY_SOCIETY_PACK_ID};
+use tiny_society::{
+    tiny_society_registration, DEMO_EARLY_PERIODS, DEMO_LATE_PERIODS, TINY_SOCIETY_PACK_ID,
+};
 use world_host::WorldRegistry;
 use world_library::{WorldDocumentId, WorldLibrary};
 
@@ -28,12 +41,24 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut registry = WorldRegistry::new();
     registry.register(tiny_society_registration())?;
 
-    // Far enough in that the bakery has shut and Sea Finch has gone — the
-    // state the picture exists to show. A town where nothing has gone wrong
-    // yet is a row of identical open shops, and proves nothing about whether
-    // a shut shop reads as shut.
+    write_town(&library, &registry, "harbour-town", DEMO_LATE_PERIODS)?;
+    write_town(
+        &library,
+        &registry,
+        "harbour-town-still-running",
+        DEMO_EARLY_PERIODS,
+    )?;
+    Ok(())
+}
+
+fn write_town(
+    library: &WorldLibrary,
+    registry: &WorldRegistry,
+    id: &str,
+    periods: u64,
+) -> Result<(), Box<dyn Error>> {
     let mut town = registry.create(TINY_SOCIETY_PACK_ID)?;
-    town.advance_background(80)?;
+    town.advance_background(periods)?;
 
     let snapshot = town.snapshot();
     let placed = snapshot
@@ -51,10 +76,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     let archive = town
         .archive()?
         .ok_or("a Tiny Society session always has an archive")?;
-    let id = WorldDocumentId::new("harbour-town")?;
+    let id = WorldDocumentId::new(id)?;
     library.save(&id, &archive)?;
     println!(
-        "{} · World time {} · {} · {placed} things placed",
+        "{} · {periods} periods · World time {} · {} · {placed} things placed",
         library.path(&id).display(),
         snapshot.world_time,
         snapshot.title

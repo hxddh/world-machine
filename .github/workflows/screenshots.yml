@@ -35,6 +35,10 @@ jobs:
           # Tiny Society is the Pack that tells the canvas where things are, so
           # it is the only World here the window draws as a place rather than
           # as a list. Without it these shots say nothing about that drawing.
+          # It writes the town twice: late (shut bakery, empty mooring) for the
+          # drawn-place shots, and early for the return shots below, because a
+          # return can only be photographed on a World still living. Both list
+          # in the window as "Tiny Society"; the file names tell them apart.
           cargo run -p tiny-society --example demo_world -- "$LIB"
           echo "WM_LIB=$LIB" >> "$GITHUB_ENV"
 
@@ -86,6 +90,50 @@ jobs:
           open -a "$APP" "$WM_LIB/harbour-town.world"
           sleep 12
           screencapture -x shots/05b-world-drawn-wide.png
+          # A return, which no test can photograph: the fortune line shades the
+          # stretch the reader was away, and every shot above opens an archive
+          # rather than leaving a World and coming back, so there has never
+          # been an absence in any of them to shade.
+          #
+          # Making one means being away, and the app measures that in wall
+          # clock: six hours of it is one period of World time. A runner cannot
+          # wait, so the visit is backdated instead. Opening the World writes
+          # the observer's stamp; winding every stamp back two days and
+          # reopening is a two-day absence as far as the app can tell, which
+          # is eight periods of town.
+          open -a "$APP" "$WM_LIB/harbour-town-still-running.world"
+          sleep 12
+          screencapture -x shots/05c-world-before-absence.png
+          osascript -e 'tell application "World Machine" to quit' || true
+          sleep 3
+          TOWN="$WM_LIB/harbour-town-still-running.world"
+          BEFORE=$(shasum -a 256 "$TOWN" | cut -d" " -f1)
+          # The observer's clock sits beside the Worlds folder, not inside it.
+          BACKDATED=0
+          for STAMP in "$(dirname "$WM_LIB")/Observer"/*.stamp; do
+            [ -e "$STAMP" ] || continue
+            WAS=$(sed -n 2p "$STAMP")
+            case "$WAS" in ''|*[!0-9]*) echo "skipping unreadable stamp $STAMP"; continue;; esac
+            printf 'world-observer-v1\n%s\n' "$((WAS - 172800))" > "$STAMP"
+            echo "backdated $(basename "$STAMP"): $WAS -> $((WAS - 172800))"
+            BACKDATED=$((BACKDATED + 1))
+          done
+          open -a "$APP" "$TOWN"
+          sleep 15
+          screencapture -x shots/05d-world-return.png
+          # Whether this shot is of a return is not something the picture can
+          # be trusted to say: a World opened with no absence looks like a
+          # World opened with an absence that failed to happen, and the shot
+          # would quietly stand for a feature nobody had exercised. A return
+          # advances the town and writes it back, so the file changing is the
+          # evidence. No change means no absence, and the run should fail
+          # rather than publish a shot that proves nothing.
+          AFTER=$(shasum -a 256 "$TOWN" | cut -d" " -f1)
+          echo "stamps backdated: $BACKDATED · town $BEFORE -> $AFTER"
+          RETURN_BROKEN=0
+          if [ "$BACKDATED" -eq 0 ] || [ "$BEFORE" = "$AFTER" ]; then
+            RETURN_BROKEN=1
+          fi
           # Full screen is a green-button/⌃⌘F affordance rather than anything
           # the app draws, so the only way to know it works is to ask for it.
           #
@@ -124,8 +172,15 @@ jobs:
           echo "===== fonts"; fc-list 2>/dev/null | wc -l || true; ls /System/Library/Fonts | head -5
           echo "===== gpu"; system_profiler SPDisplaysDataType || true
           cp "$RUNNER_TEMP"/app.*.log shots/ || true
+          # Failed last, so the shots and the logs that would explain it are
+          # still gathered and uploaded.
+          if [ "$RETURN_BROKEN" -ne 0 ]; then
+            echo "::error::05d-world-return.png is not a return: the town did not advance"
+            exit 1
+          fi
 
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: world-machine-screenshots-${{ matrix.runner }}
           path: shots/*
