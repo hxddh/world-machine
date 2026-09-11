@@ -220,4 +220,32 @@ mod tests {
         branch.advance_days(70).unwrap();
         assert_eq!(where_is(&branch, MIA), HARBOR);
     }
+
+    /// Nobody is left standing inside a shuttered building.
+    ///
+    /// A screenshot caught this before any test did: the pub was drawn shut
+    /// and Sofia was still in it, alone, while the other seven residents had
+    /// walked down to the quay. The closure ended the job it happened to name
+    /// and left hers recorded, so the World still believed she worked there.
+    #[test]
+    fn a_shut_building_is_empty() {
+        use crate::model::OPERATING_STATUS;
+        let mut society = TinySociety::new().unwrap();
+        society.run_story().unwrap();
+        let mut branch = society.branch();
+        branch.advance_days(90).unwrap();
+
+        let state = branch.world().state();
+        for resident in crate::projection::RESIDENTS {
+            let here = standing_at(state, resident).expect("a resident is somewhere");
+            let shut = matches!(
+                state.entity(here).and_then(|place| place.component(OPERATING_STATUS)),
+                Some(Value::Text(status)) if status != "open"
+            );
+            assert!(
+                !shut,
+                "resident {resident} is standing inside a building that has closed"
+            );
+        }
+    }
 }

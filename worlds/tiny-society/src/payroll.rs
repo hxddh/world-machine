@@ -1,7 +1,7 @@
 #[path = "household.rs"]
 mod household;
 
-use crate::model::{EMMA_SCHOOL_JOB, LEO_PUB_JOB, OPERATING_STATUS};
+use crate::model::OPERATING_STATUS;
 use crate::{EMMA, LEO, PUB, SCHOOL};
 use society_basic::{integer_component, CASH, JOB};
 use std::error::Error;
@@ -93,23 +93,35 @@ impl Action for RecordPayrollReserveExhausted {
         // every day forever, and no further event was ever recorded about
         // him. The bakery has always done this on closing; the pub and the
         // school announced the same failure and then changed nothing.
-        let (job_relation, ended_job) = match workplace {
-            PUB => (LEO_PUB_JOB, "pub_closed"),
-            _ => (EMMA_SCHOOL_JOB, "unemployed"),
-        };
         draft.changes.push(StateChange::SetComponent {
             entity: workplace,
             key: OPERATING_STATUS.into(),
             value: "closed".into(),
         });
-        draft
-            .changes
-            .push(StateChange::RemoveRelation(job_relation));
-        draft.changes.push(StateChange::SetComponent {
-            entity: worker,
-            key: JOB.into(),
-            value: ended_job.into(),
-        });
+
+        // Everybody employed there, not only the one this Event names. Ending
+        // just the named job left Sofia standing inside a shuttered pub while
+        // the rest of the town had walked down to the quay, because the World
+        // still recorded her as working at it — visible in a screenshot long
+        // before any test would have asked.
+        for relation in state
+            .relations()
+            .filter(|relation| relation.kind == crate::whereabouts::WORKS_AT)
+            .filter(|relation| relation.to == workplace)
+        {
+            draft.changes.push(StateChange::RemoveRelation(relation.id));
+            // The proprietor's own shop has closed; anyone else is out of work.
+            let ended = if relation.from == worker && workplace == PUB {
+                "pub_closed"
+            } else {
+                "unemployed"
+            };
+            draft.changes.push(StateChange::SetComponent {
+                entity: relation.from,
+                key: JOB.into(),
+                value: ended.into(),
+            });
+        }
         Ok(draft)
     }
 }
