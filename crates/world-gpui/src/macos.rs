@@ -261,21 +261,23 @@ impl ProjectionView {
 
         let mut lines = div().flex().flex_col().gap_2();
         for item in &beats {
-            lines = lines.child(self.news_line(item, cx));
+            lines = lines.child(self.news_line(item, false, cx));
         }
 
-        let standing: Vec<String> = briefing
+        // How things stand, under what happened, in the same shape but quieter.
+        // Flattening them to "title — detail" strings turned Pocket Universe's
+        // return, which marks almost everything as standing rather than news,
+        // into eight paragraphs of identical grey.
+        let mut standing = div().flex().flex_col().gap_2();
+        let mut any_standing = false;
+        for item in briefing
             .items
             .iter()
             .filter(|item| item.kind != world_projection::BriefingItemKind::Beat)
-            .map(|item| {
-                if item.detail.trim().is_empty() {
-                    item.title.clone()
-                } else {
-                    format!("{} — {}", item.title, item.detail)
-                }
-            })
-            .collect();
+        {
+            any_standing = true;
+            standing = standing.child(self.news_line(item, true, cx));
+        }
 
         let mut band = div()
             .w_full()
@@ -296,44 +298,70 @@ impl ProjectionView {
         } else {
             band = band.child(lines);
         }
-
-        for line in standing {
-            band = band.child(
-                div()
-                    .text_sm()
-                    .text_color(crate::theme_rgb(0x77736c))
-                    .child(line),
-            );
+        if any_standing {
+            band = band.child(standing);
         }
         Some(band)
     }
 
-    /// One thing that happened: what it was, and who it was about.
-    fn news_line(&self, item: &BriefingItem, cx: &mut Context<Self>) -> impl IntoElement {
+    /// One line of news: what it was, and when or what about it.
+    ///
+    /// A Pack's `detail` is not a timestamp. Tiny Society's is "Day 56", so the
+    /// first version put it on the headline's row, right-aligned — and Pocket
+    /// Universe, whose detail is a whole sentence, came out with its headline
+    /// on the left margin and its sentence flung against the right one with a
+    /// chasm between them. Short details sit beside the headline; long ones go
+    /// under it.
+    fn news_line(
+        &self,
+        item: &BriefingItem,
+        muted: bool,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        const BESIDE: usize = 18;
         let id = item
             .selection
             .map(|selection| format!("news-{}", selection.stable_key()))
             .unwrap_or_else(|| format!("news-static-{}", item.title));
         let selection = item.selection;
-        // The day goes beside the headline, not under it. Under it, every
-        // piece of news was two rows tall and six of them filled the window.
-        let mut line = div()
-            .id(SharedString::from(id))
-            .w_full()
-            .flex()
-            .items_baseline()
-            .justify_between()
-            .gap_4()
-            .child(div().text_base().child(item.title.clone()));
-        if !item.detail.trim().is_empty() {
-            line = line.child(
-                div()
-                    .flex_shrink_0()
-                    .text_sm()
-                    .text_color(crate::theme_rgb(0x8a857d))
-                    .child(item.detail.clone()),
-            );
-        }
+        let detail = item.detail.trim().to_owned();
+        let aside = !detail.is_empty() && detail.chars().count() <= BESIDE;
+
+        let headline = div()
+            .text_base()
+            .text_color(if muted {
+                crate::theme_rgb(0x6b665e)
+            } else {
+                crate::theme_rgb(0x202020)
+            })
+            .child(item.title.clone());
+
+        let mut line = div().id(SharedString::from(id)).w_full();
+        line = if aside {
+            line.flex()
+                .items_baseline()
+                .justify_between()
+                .gap_4()
+                .child(headline)
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .text_sm()
+                        .text_color(crate::theme_rgb(0x8a857d))
+                        .child(detail),
+                )
+        } else {
+            let mut stacked = div().flex().flex_col().child(headline);
+            if !detail.is_empty() {
+                stacked = stacked.child(
+                    div()
+                        .text_sm()
+                        .text_color(crate::theme_rgb(0x77736c))
+                        .child(detail),
+                );
+            }
+            line.child(stacked)
+        };
         if let Some(selection) = selection {
             line = line
                 .cursor_pointer()
@@ -342,19 +370,6 @@ impl ProjectionView {
         line
     }
 
-    /// What the reader can do, pinned to the foot of the window.
-    ///
-    /// It used to be a panel in the middle column, rendered after the
-    /// briefing, inside the part of the window that scrolls. On a 1024x768
-    /// screen that put it under a wall of prose and off the bottom of the
-    /// frame: the only verb the product has was not on screen. A return that
-    /// asks you something has to show you what it is asking without being
-    /// scrolled to, so this sits below the workspace and outside it, the way
-    /// an action bar does in every other document app.
-    ///
-    /// It is drawn even when there is nothing to decide, because "this World
-    /// is not waiting on you" is itself the answer to the question the reader
-    /// arrived with.
     fn render_turn(&self, cx: &mut Context<Self>) -> Div {
         let bar = div()
             .w_full()
