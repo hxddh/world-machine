@@ -28,7 +28,14 @@ pub(crate) fn snapshot_since(
     since_event_count: Option<usize>,
 ) -> ProjectionSnapshot {
     ProjectionSnapshot {
-        title: "Tiny Society".into(),
+        // The World is called after the place, not after the Pack that runs it.
+        // "Tiny Society" is the Pack's name — it belongs on the descriptor and
+        // in the Library's filter, not on the World. With the Pack's name here,
+        // every Harbour Town anyone ever kept sat on the Home screen under the
+        // same heading as every other one, distinguishable only by the file
+        // name in grey underneath. Pocket Universe has always done this right:
+        // the Pack is "Pocket Universe" and the World is "Ares Pocket Colony".
+        title: "Harbour Town".into(),
         world_time: world.world_time(),
         capabilities: ProjectionCapabilities { fork: true },
         fortune: Some(crate::fortune::of(world)),

@@ -348,7 +348,7 @@ impl ProjectionView {
                 div()
                     .text_xs()
                     .text_color(crate::theme_rgb(0x66705f))
-                    .child(command.detail.clone()),
+                    .child(choice_gist(&command.detail)),
             )
             .on_click(
                 cx.listener(move |this, _, _, cx| this.invoke_command(command_id.clone(), cx)),
@@ -1288,6 +1288,37 @@ fn has_exploration(snapshot: &ProjectionSnapshot, selected: Option<SelectionId>)
         || matches!(selected, Some(SelectionId::Event(event)) if snapshot.why(event).is_some())
 }
 
+/// The first sentence of what a choice does.
+///
+/// A Pack's `detail` is written for a panel with room: three of them at full
+/// length made the bar 180 pixels tall and sliced the news in half at the top
+/// of the window. The first sentence is the part that says what the choice
+/// *is* — "Invest 120 of Mara\'s cash to reopen Harbor Bakery", "Let one more
+/// cycle pass without answering" — and the rest is terms and conditions, which
+/// the briefing above is already showing in full.
+fn choice_gist(detail: &str) -> String {
+    const CAP: usize = 120;
+    let detail = detail.trim();
+    let sentence = match detail.find(". ") {
+        Some(end) => &detail[..=end],
+        None => detail,
+    };
+    let sentence = sentence.trim();
+    if sentence.chars().count() <= CAP {
+        return sentence.to_owned();
+    }
+    // A Pack with one very long sentence still has to fit. Cut on a word so
+    // the tail is a word rather than half of one.
+    let cut = sentence
+        .char_indices()
+        .take(CAP)
+        .last()
+        .map(|(index, ch)| index + ch.len_utf8())
+        .unwrap_or(0);
+    let cut = sentence[..cut].rfind(' ').unwrap_or(cut);
+    format!("{}…", sentence[..cut].trim_end())
+}
+
 fn command_panel_title(command_count: usize) -> &'static str {
     if command_count == 1 {
         "Continue"
@@ -1364,7 +1395,7 @@ fn inspector_panel(inspector: &InspectorProjection) -> Div {
 #[cfg(test)]
 mod focus_hierarchy_tests {
     use super::{
-        command_panel_title, default_selection, has_collection_panel, has_exploration,
+        choice_gist, command_panel_title, default_selection, has_collection_panel, has_exploration,
         has_timeline_panel, selection_for_snapshot,
     };
     use world_projection::{
@@ -1430,6 +1461,35 @@ mod focus_hierarchy_tests {
         assert_eq!(command_panel_title(1), "Continue");
         assert_eq!(command_panel_title(2), "Choose what happens next");
         assert_eq!(command_panel_title(5), "Choose what happens next");
+    }
+
+    #[test]
+    fn a_choice_shows_what_it_is_not_its_terms_and_conditions() {
+        assert_eq!(
+            choice_gist(
+                "Invest 120 of Mara's cash to reopen Harbor Bakery. Mara returns to work; \
+                 former workers are not automatically rehired."
+            ),
+            "Invest 120 of Mara's cash to reopen Harbor Bakery."
+        );
+        assert_eq!(
+            choice_gist("Let one more cycle pass without answering. The World will not wait."),
+            "Let one more cycle pass without answering."
+        );
+        // One sentence and no full stop at all is left alone when it fits.
+        assert_eq!(choice_gist("Hold the line"), "Hold the line");
+    }
+
+    #[test]
+    fn one_very_long_sentence_is_cut_on_a_word() {
+        let gist = choice_gist(&"alpha ".repeat(60));
+        assert!(gist.ends_with('…'), "{gist}");
+        assert!(
+            gist.chars().count() <= 121,
+            "{} chars",
+            gist.chars().count()
+        );
+        assert!(!gist.contains("alph…"), "cut mid-word: {gist}");
     }
 
     #[test]

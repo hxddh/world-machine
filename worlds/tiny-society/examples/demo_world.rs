@@ -30,7 +30,7 @@ use tiny_society::{
     tiny_society_registration, DEMO_EARLY_PERIODS, DEMO_LATE_PERIODS, TINY_SOCIETY_PACK_ID,
 };
 use world_host::WorldRegistry;
-use world_library::{WorldDocumentId, WorldLibrary};
+use world_library::{DurableWorldSession, WorldDocumentId, WorldLibrary};
 
 fn main() -> Result<(), Box<dyn Error>> {
     let root = env::args_os()
@@ -57,10 +57,18 @@ fn write_town(
     id: &str,
     periods: u64,
 ) -> Result<(), Box<dyn Error>> {
-    let mut town = registry.create(TINY_SOCIETY_PACK_ID)?;
-    town.advance_background(periods)?;
+    let id = WorldDocumentId::new(id)?;
+    // Built the way the app builds one — create through the Library, then let
+    // it live — rather than by saving a bare archive. A World saved as an
+    // archive carries no document metadata at all, so the Home screen had
+    // nothing to put on its card but the Pack's name and a count of events,
+    // and every screenshot of the Library was a screenshot of a code path the
+    // app never takes.
+    let mut session =
+        DurableWorldSession::create(id.clone(), TINY_SOCIETY_PACK_ID, registry, library)?;
+    session.advance_background(periods, registry, library)?;
 
-    let snapshot = town.snapshot();
+    let snapshot = session.snapshot();
     let placed = snapshot
         .canvas
         .items
@@ -72,21 +80,17 @@ fn write_town(
                     the screenshot is meant to check"
             .into());
     }
-
-    let archive = town
-        .archive()?
-        .ok_or("a Tiny Society session always has an archive")?;
-    let id = WorldDocumentId::new(id)?;
-    library.save(&id, &archive)?;
     println!(
         "{} · {periods} periods · World time {} · {} · {placed} things placed",
         library.path(&id).display(),
         snapshot.world_time,
         snapshot.title
     );
-    // Printed so a screenshot run's log says what the picture should contain;
-    // a town where everything is Working means the shot proves less than it
-    // looks like it does.
+    println!(
+        "  card: title {:?} · summary {:?}",
+        session.metadata().label(),
+        session.metadata().display_summary
+    );
     for item in &snapshot.canvas.items {
         println!(
             "  {:?} {} · at {:?} · {:?}",
