@@ -845,6 +845,7 @@ fn nudge_copy(
 fn briefing(world: &World, seeded: bool, since_event_count: Option<usize>) -> BriefingProjection {
     if !seeded {
         return BriefingProjection {
+            since_world_time: None,
             eyebrow: "Pocket Universe".into(),
             title: "What kind of world should exist here?".into(),
             items: vec![
@@ -884,6 +885,7 @@ fn briefing(world: &World, seeded: bool, since_event_count: Option<usize>) -> Br
         items.push(return_compass_item(world));
         extend_with_persistent_consequences(world, &mut items);
         return BriefingProjection {
+            since_world_time: None,
             eyebrow: format!("Pocket Universe · {}", seed_label(seed_id(world))),
             title: "While you were away".into(),
             items,
@@ -932,6 +934,7 @@ fn briefing(world: &World, seeded: bool, since_event_count: Option<usize>) -> Br
     items.extend(persistent_consequence_items(world));
 
     BriefingProjection {
+        since_world_time: None,
         eyebrow: format!("Pocket Universe · {}", seed_label(seed_id(world))),
         title,
         items,

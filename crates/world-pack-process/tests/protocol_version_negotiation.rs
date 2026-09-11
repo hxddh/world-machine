@@ -81,10 +81,10 @@ fn host_runs_a_manifest_declared_v1_pack_using_v1_envelopes() {
                 PACK_PROTOCOL_VERSION_V1,
                 2,
                 PackResponse::Snapshot {
-                    snapshot: ProjectionSnapshotWire {
+                    snapshot: Box::new(ProjectionSnapshotWire {
                         title: "Created over v1".into(),
                         ..ProjectionSnapshotWire::default()
-                    },
+                    }),
                 },
             ),
         ],

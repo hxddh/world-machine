@@ -601,7 +601,7 @@ fn snapshot_response(
 ) -> Result<ProjectionSnapshot, HostError> {
     match response {
         PackResponse::Snapshot { snapshot } => {
-            ProjectionSnapshot::try_from(snapshot).map_err(|error| {
+            ProjectionSnapshot::try_from(*snapshot).map_err(|error| {
                 HostError::session(format!(
                     "external Pack {operation} snapshot is invalid: {error}"
                 ))
@@ -1179,7 +1179,7 @@ mod tests {
             response_line(
                 2,
                 PackResponse::Snapshot {
-                    snapshot: wire_snapshot(0, "Created externally"),
+                    snapshot: Box::new(wire_snapshot(0, "Created externally")),
                 },
             ),
         ];
@@ -1281,19 +1281,19 @@ mod tests {
             response_line(
                 2,
                 PackResponse::Snapshot {
-                    snapshot: wire_snapshot(0, "Created externally"),
+                    snapshot: Box::new(wire_snapshot(0, "Created externally")),
                 },
             ),
             response_line(
                 3,
                 PackResponse::Snapshot {
-                    snapshot: wire_snapshot(1, "Handled externally"),
+                    snapshot: Box::new(wire_snapshot(1, "Handled externally")),
                 },
             ),
             response_line(
                 4,
                 PackResponse::Snapshot {
-                    snapshot: wire_snapshot(7, "Advanced externally"),
+                    snapshot: Box::new(wire_snapshot(7, "Advanced externally")),
                 },
             ),
             response_line(
@@ -1360,7 +1360,7 @@ mod tests {
                 response_line(
                     2,
                     PackResponse::Snapshot {
-                        snapshot: wire_snapshot(3, "Created for probe"),
+                        snapshot: Box::new(wire_snapshot(3, "Created for probe")),
                     },
                 ),
                 response_line(
@@ -1410,7 +1410,7 @@ mod tests {
                 response_line(
                     2,
                     PackResponse::Snapshot {
-                        snapshot: wire_snapshot(3, "Created for probe"),
+                        snapshot: Box::new(wire_snapshot(3, "Created for probe")),
                     },
                 ),
                 response_line(
@@ -1469,7 +1469,7 @@ mod tests {
         let snapshot = response_line(
             2,
             PackResponse::Snapshot {
-                snapshot: wire_snapshot(3, "Created for probe"),
+                snapshot: Box::new(wire_snapshot(3, "Created for probe")),
             },
         );
         let original_archive = response_line(
@@ -1564,7 +1564,7 @@ mod tests {
                 response_line(
                     2,
                     PackResponse::Snapshot {
-                        snapshot: wire_snapshot(0, "Created without archive"),
+                        snapshot: Box::new(wire_snapshot(0, "Created without archive")),
                     },
                 ),
                 response_line(3, PackResponse::Archive { archive: None }),

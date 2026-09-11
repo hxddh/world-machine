@@ -113,13 +113,13 @@ fn exact_physical_request_ceiling_is_dispatched_and_correlated() {
             response_line(
                 2,
                 PackResponse::Snapshot {
-                    snapshot: snapshot(0, "Created"),
+                    snapshot: Box::new(snapshot(0, "Created")),
                 },
             ),
             response_line(
                 3,
                 PackResponse::Snapshot {
-                    snapshot: snapshot(1, "Handled exact-limit request"),
+                    snapshot: Box::new(snapshot(1, "Handled exact-limit request")),
                 },
             ),
         ],
@@ -161,13 +161,13 @@ fn oversized_multibyte_request_is_local_nonfatal_and_does_not_consume_request_id
             response_line(
                 2,
                 PackResponse::Snapshot {
-                    snapshot: snapshot(0, "Created"),
+                    snapshot: Box::new(snapshot(0, "Created")),
                 },
             ),
             response_line(
                 3,
                 PackResponse::Snapshot {
-                    snapshot: snapshot(1, "Advanced after local rejection"),
+                    snapshot: Box::new(snapshot(1, "Advanced after local rejection")),
                 },
             ),
         ],

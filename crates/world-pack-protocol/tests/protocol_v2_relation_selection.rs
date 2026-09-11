@@ -21,7 +21,7 @@ fn relation_snapshot() -> ProjectionSnapshotWire {
 #[test]
 fn protocol_v1_envelope_rejects_relation_selection_even_though_parser_understands_it() {
     let response = PackResponse::Snapshot {
-        snapshot: relation_snapshot(),
+        snapshot: Box::new(relation_snapshot()),
     };
     let error = PackResponseEnvelope::for_version(PACK_PROTOCOL_VERSION_V1, 1, response)
         .expect_err("v1 must reject a v2-only Relation selection");
@@ -41,7 +41,7 @@ fn protocol_v2_envelope_round_trips_relation_selection_and_restores_projection_i
         PACK_PROTOCOL_VERSION_V2,
         7,
         PackResponse::Snapshot {
-            snapshot: relation_snapshot(),
+            snapshot: Box::new(relation_snapshot()),
         },
     )
     .expect("v2 must allow Relation selections");
@@ -51,7 +51,7 @@ fn protocol_v2_envelope_round_trips_relation_selection_and_restores_projection_i
     let PackResponse::Snapshot { snapshot } = decoded.response else {
         panic!("expected snapshot response");
     };
-    let restored = ProjectionSnapshot::try_from(snapshot).unwrap();
+    let restored = ProjectionSnapshot::try_from(*snapshot).unwrap();
     let relation = SelectionId::Relation(RelationId::new(5));
 
     assert_eq!(relation.stable_key(), "relation-5");
@@ -64,7 +64,7 @@ fn decoding_a_v1_relation_snapshot_fails_at_protocol_validation_not_json_parsing
         protocol_version: PACK_PROTOCOL_VERSION_V1,
         request_id: 9,
         response: PackResponse::Snapshot {
-            snapshot: relation_snapshot(),
+            snapshot: Box::new(relation_snapshot()),
         },
     };
     let json = serde_json::to_string(&envelope).unwrap();

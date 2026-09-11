@@ -34,20 +34,54 @@ const MONEY_MOVED: [(&str, &str); 6] = [
     ("support_repaid", "amount"),
 ];
 
+/// How many readings of the past to offer. Enough to show the shape of a
+/// long absence without handing a renderer a point per tick to draw.
+const HISTORY_POINTS: usize = 60;
+
 pub(crate) fn of(world: &World) -> Fortune {
     let now = world.world_time();
-    let since = now.saturating_sub(WINDOW_TICKS);
-    let value = world
-        .events()
-        .iter()
-        .rev()
-        .take_while(|event| event.world_time > since)
-        .map(moved)
-        .sum();
     Fortune {
         label: "money changing hands".into(),
-        value,
+        value: at(world, now),
+        history: history(world, now),
     }
+}
+
+/// What was changing hands in the ten days up to `moment`.
+fn at(world: &World, moment: u64) -> i64 {
+    let since = moment.saturating_sub(WINDOW_TICKS);
+    world
+        .events()
+        .iter()
+        .filter(|event| event.world_time > since && event.world_time <= moment)
+        .map(moved)
+        .sum()
+}
+
+/// The same reading, taken at even intervals across the World's whole life.
+///
+/// Evenly spaced rather than one per event: a stretch where nothing happened
+/// is exactly the stretch a person most needs to see, and sampling events
+/// would draw it as a gap between two points instead of as the flat line it
+/// is.
+fn history(world: &World, now: u64) -> Vec<world_projection::FortunePoint> {
+    let first = world
+        .events()
+        .first()
+        .map(|event| event.world_time)
+        .unwrap_or(0);
+    if now <= first {
+        return Vec::new();
+    }
+    let step = ((now - first) / HISTORY_POINTS as u64).max(1);
+    (0..=HISTORY_POINTS)
+        .map(|index| first + index as u64 * step)
+        .take_while(|moment| *moment <= now)
+        .map(|moment| world_projection::FortunePoint {
+            world_time: moment,
+            value: at(world, moment),
+        })
+        .collect()
 }
 
 fn moved(event: &Event) -> i64 {

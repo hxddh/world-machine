@@ -31,6 +31,7 @@ impl WorldSession for MockSession {
             world_time: self.count,
             capabilities: ProjectionCapabilities { fork: false },
             briefing: Some(BriefingProjection {
+                since_world_time: None,
                 eyebrow: "Metadata".into(),
                 title: "Current state".into(),
                 items: vec![BriefingItem {

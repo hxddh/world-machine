@@ -295,6 +295,14 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
     }
 
     BriefingProjection {
+        // Where the absence began, so a drawing can shade it. The event just
+        // before the first new one is the last thing the reader saw.
+        since_world_time: since_event_count.and_then(|count| {
+            world
+                .events()
+                .get(count.saturating_sub(1))
+                .map(|event| event.world_time)
+        }),
         eyebrow: "Society Today".into(),
         title: if since_event_count.is_some() {
             "While you were away".into()

@@ -6,7 +6,7 @@ use world_core::{EntityId, EventId, RelationId};
 use world_persistence::{WorldArchive, WorldPackRef};
 use world_projection::{
     BriefingItem, BriefingItemKind, BriefingProjection, CanvasItem, CanvasItemKind,
-    CanvasItemState, CanvasProjection, CollectionItem, CollectionProjection, Fortune,
+    CanvasItemState, CanvasProjection, CollectionItem, CollectionProjection, Fortune, FortunePoint,
     InspectorProjection, InspectorRow, InspectorSection, ProjectionCapabilities, ProjectionCommand,
     ProjectionIntent, ProjectionSnapshot, SelectionId, TimelineItem, TimelineProjection, WhyNode,
     WhyProjection,
@@ -204,11 +204,24 @@ pub enum PackRequest {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum PackResponse {
-    Descriptor { descriptor: PackDescriptor },
-    Snapshot { snapshot: ProjectionSnapshotWire },
-    Archive { archive: Option<WorldArchive> },
+    Descriptor {
+        descriptor: PackDescriptor,
+    },
+    /// Boxed because it dwarfs every other reply: a snapshot carries the
+    /// briefing, the canvas, the inspectors and now the shape of the World's
+    /// own past, and an unboxed variant makes every `Descriptor` reply as
+    /// large as the biggest snapshot. `Box` is transparent to serde, so the
+    /// wire format is unchanged.
+    Snapshot {
+        snapshot: Box<ProjectionSnapshotWire>,
+    },
+    Archive {
+        archive: Option<WorldArchive>,
+    },
     Ok,
-    Error { message: String },
+    Error {
+        message: String,
+    },
 }
 
 pub fn encode_request(request: &PackRequestEnvelope) -> Result<String, serde_json::Error> {
@@ -353,6 +366,16 @@ pub struct ProjectionSnapshotWire {
 pub struct FortuneWire {
     pub label: String,
     pub value: i64,
+    /// Absent in snapshots written before a World could report the shape of
+    /// its own past.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub history: Vec<FortunePointWire>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FortunePointWire {
+    pub world_time: u64,
+    pub value: i64,
 }
 
 impl From<&Fortune> for FortuneWire {
@@ -360,6 +383,14 @@ impl From<&Fortune> for FortuneWire {
         Self {
             label: fortune.label.clone(),
             value: fortune.value,
+            history: fortune
+                .history
+                .iter()
+                .map(|point| FortunePointWire {
+                    world_time: point.world_time,
+                    value: point.value,
+                })
+                .collect(),
         }
     }
 }
@@ -369,6 +400,14 @@ impl From<FortuneWire> for Fortune {
         Self {
             label: fortune.label,
             value: fortune.value,
+            history: fortune
+                .history
+                .into_iter()
+                .map(|point| FortunePoint {
+                    world_time: point.world_time,
+                    value: point.value,
+                })
+                .collect(),
         }
     }
 }
@@ -517,11 +556,16 @@ pub struct BriefingProjectionWire {
     pub eyebrow: String,
     pub title: String,
     pub items: Vec<BriefingItemWire>,
+    /// Absent in snapshots written before a briefing could say when the
+    /// absence it describes began.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub since_world_time: Option<u64>,
 }
 
 impl From<&BriefingProjection> for BriefingProjectionWire {
     fn from(briefing: &BriefingProjection) -> Self {
         Self {
+            since_world_time: None,
             eyebrow: briefing.eyebrow.clone(),
             title: briefing.title.clone(),
             items: briefing.items.iter().map(Into::into).collect(),
@@ -532,6 +576,7 @@ impl From<&BriefingProjection> for BriefingProjectionWire {
 impl From<BriefingProjectionWire> for BriefingProjection {
     fn from(briefing: BriefingProjectionWire) -> Self {
         Self {
+            since_world_time: None,
             eyebrow: briefing.eyebrow,
             title: briefing.title,
             items: briefing.items.into_iter().map(Into::into).collect(),
@@ -1119,6 +1164,7 @@ mod tests {
             world_time: 42,
             capabilities: ProjectionCapabilities { fork: true },
             briefing: Some(BriefingProjection {
+                since_world_time: None,
                 eyebrow: "Status".into(),
                 title: "World briefing".into(),
                 items: vec![BriefingItem {

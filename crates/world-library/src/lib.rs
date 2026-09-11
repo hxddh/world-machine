@@ -868,6 +868,7 @@ mod tests {
                 world_time: self.count,
                 capabilities: ProjectionCapabilities { fork: false },
                 briefing: Some(BriefingProjection {
+                    since_world_time: None,
                     eyebrow: "Mock".into(),
                     title: "Current mock state".into(),
                     items: vec![BriefingItem {
@@ -1349,6 +1350,7 @@ mod tests {
     fn snapshot_display_summary_uses_the_first_briefing_item_and_compacts_whitespace() {
         let snapshot = ProjectionSnapshot {
             briefing: Some(BriefingProjection {
+                since_world_time: None,
                 eyebrow: "Test".into(),
                 title: "Today".into(),
                 items: vec![BriefingItem {
@@ -1372,6 +1374,7 @@ mod tests {
     fn snapshot_display_summary_is_bounded_for_library_cards() {
         let snapshot = ProjectionSnapshot {
             briefing: Some(BriefingProjection {
+                since_world_time: None,
                 eyebrow: "Test".into(),
                 title: "Today".into(),
                 items: vec![BriefingItem {

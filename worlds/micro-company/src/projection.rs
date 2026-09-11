@@ -52,6 +52,7 @@ fn commands(world: &World) -> Vec<ProjectionCommand> {
 fn briefing(world: &World, since_event_count: Option<usize>) -> BriefingProjection {
     if let Some(since) = since_event_count.filter(|since| *since < world.events().len()) {
         return BriefingProjection {
+            since_world_time: None,
             eyebrow: "Micro Company".into(),
             title: "While the company was running".into(),
             items: world.events()[since..]
@@ -74,6 +75,7 @@ fn briefing(world: &World, since_event_count: Option<usize>) -> BriefingProjecti
     let status = text_component(company, STATUS, "searching");
     let last_change = text_component(company, LAST_CHANGE, "The company is quiet.");
     BriefingProjection {
+        since_world_time: None,
         eyebrow: "Micro Company".into(),
         title: match status.as_str() {
             "traction" => "Traction found".into(),

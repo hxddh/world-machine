@@ -10,6 +10,7 @@ pub trait ProjectionController {
 }
 
 /// A light-palette colour adapted to the current appearance.
+mod fortune_line;
 mod town;
 
 pub(crate) fn theme_rgb(hex: u32) -> gpui::Rgba {

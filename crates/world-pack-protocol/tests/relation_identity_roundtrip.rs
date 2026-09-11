@@ -54,7 +54,7 @@ fn protocol_v2_preserves_removed_relation_identity_without_visible_endpoints() {
         PACK_PROTOCOL_VERSION_V2,
         7,
         PackResponse::Snapshot {
-            snapshot: ProjectionSnapshotWire::from(&snapshot),
+            snapshot: Box::new(ProjectionSnapshotWire::from(&snapshot)),
         },
     )
     .expect("v2 should carry stable Relation identity metadata");
@@ -63,7 +63,7 @@ fn protocol_v2_preserves_removed_relation_identity_without_visible_endpoints() {
     let PackResponse::Snapshot { snapshot } = decoded.response else {
         panic!("expected snapshot response");
     };
-    let restored = ProjectionSnapshot::try_from(snapshot).expect("snapshot should restore");
+    let restored = ProjectionSnapshot::try_from(*snapshot).expect("snapshot should restore");
 
     assert_eq!(
         restored.relation_identity(relation_id),

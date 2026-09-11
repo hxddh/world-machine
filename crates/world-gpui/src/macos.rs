@@ -1167,6 +1167,12 @@ impl Render for ProjectionView {
             }
         }
 
+        // The shape of what happened, above the place it happened in. Eleven
+        // weeks of history as one line, with the stretch you were away
+        // shaded, instead of as the fourth of eight equal cards.
+        let shape = crate::fortune_line::has_a_shape(&self.snapshot)
+            .then(|| crate::fortune_line::line(&self.snapshot));
+
         // A World that has told the canvas where things are is drawn as the
         // place it is, across the top of the window, rather than as a scatter
         // of boxes in a panel.
@@ -1227,6 +1233,9 @@ impl Render for ProjectionView {
                     .child(header_right),
             );
         let mut window_body = window_body;
+        if let Some(shape) = shape {
+            window_body = window_body.child(shape);
+        }
         if let Some(town) = town {
             window_body = window_body.child(town);
         }

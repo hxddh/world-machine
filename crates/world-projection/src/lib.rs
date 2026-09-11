@@ -201,6 +201,21 @@ pub struct Fortune {
     /// beside it: "money changing hands", "colonists fed".
     pub label: String,
     pub value: i64,
+    /// The same figure at points in the past, oldest first, so the shape of
+    /// what happened can be drawn rather than listed.
+    ///
+    /// Only the World can produce this: the figure is computed from its own
+    /// history, and a renderer holding a stream of snapshots has no way to
+    /// reconstruct the values between them. A World that offers no history
+    /// leaves it empty and is drawn as a single reading.
+    pub history: Vec<FortunePoint>,
+}
+
+/// One past reading of a World's fortune.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FortunePoint {
+    pub world_time: u64,
+    pub value: i64,
 }
 
 impl ProjectionSnapshot {
@@ -656,6 +671,12 @@ pub struct BriefingProjection {
     pub eyebrow: String,
     pub title: String,
     pub items: Vec<BriefingItem>,
+    /// The moment the absence began, when this briefing is about one.
+    ///
+    /// A return is a stretch of time, not a list, and a drawing of the World
+    /// can only shade the stretch if it is told where it starts. `None` for a
+    /// World being looked at rather than returned to.
+    pub since_world_time: Option<u64>,
 }
 
 /// Whether a briefing line is something that happened or something that is
