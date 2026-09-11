@@ -303,17 +303,22 @@ impl ProjectionView {
             .map(|selection| format!("news-{}", selection.stable_key()))
             .unwrap_or_else(|| format!("news-static-{}", item.title));
         let selection = item.selection;
+        // The day goes beside the headline, not under it. Under it, every
+        // piece of news was two rows tall and six of them filled the window.
         let mut line = div()
             .id(SharedString::from(id))
             .w_full()
             .flex()
-            .flex_col()
+            .items_baseline()
+            .justify_between()
+            .gap_4()
             .child(div().text_base().child(item.title.clone()));
         if !item.detail.trim().is_empty() {
             line = line.child(
                 div()
+                    .flex_shrink_0()
                     .text_sm()
-                    .text_color(crate::theme_rgb(0x77736c))
+                    .text_color(crate::theme_rgb(0x8a857d))
                     .child(item.detail.clone()),
             );
         }
@@ -1231,11 +1236,14 @@ impl ProjectionView {
                 &self.lit_selections(),
             ));
         }
-        if let Some(news) = self.render_news(cx) {
-            column = column.child(news);
-        }
+        // The line is a summary of the World's whole life, so it belongs with
+        // the picture. Under the news it was below the fold on any visit with
+        // more than four things to report, which is every visit worth making.
         if crate::fortune_line::has_a_shape(&self.snapshot) {
             column = column.child(crate::fortune_line::line(&self.snapshot));
+        }
+        if let Some(news) = self.render_news(cx) {
+            column = column.child(news);
         }
         // A World that draws no place still has its things; the loose scatter
         // is the fallback it always had, and it belongs in the read rather

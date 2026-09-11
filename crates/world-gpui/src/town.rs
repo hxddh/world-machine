@@ -221,15 +221,22 @@ fn paint_names(
             (CanvasItemState::Hurt, false) => format!("{} · damaged", object.label),
             _ => object.label.clone(),
         };
+        // Under the thing, unless there is no "under" left. A boat sits at
+        // 0.86 of the scene's height, so on a short scene the name went 16px
+        // below it and out of the frame entirely — it came out painted across
+        // the news underneath the picture.
+        const LABEL_H: f32 = 10.0;
+        let below = object.at.1 + 16.0;
+        let floor = f32::from(bounds.size.height) - LABEL_H - 2.0;
         write(
             window,
             cx,
             bounds,
             words.into(),
             object.at.0 - 60.0,
-            object.at.1 + 16.0,
+            below.min(floor),
             120.0,
-            10.0,
+            LABEL_H,
             if object.afloat { 0x2f2822 } else { 0x4a4038 },
         );
     }
