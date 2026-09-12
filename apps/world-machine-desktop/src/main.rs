@@ -178,7 +178,17 @@ fn remembered_window_bounds(which: RememberedWindow, cx: &App) -> Option<Bounds<
         RememberedWindow::World => geometry.world,
     };
     drop(geometry);
-    StoredWindowBounds::restorable(stored, &display_bounds(cx)).map(restored_bounds)
+    let displays = display_bounds(cx);
+    // Reopened where it was, but never further down than you can see. A
+    // remembered rectangle is checked for reachability, which a window hanging
+    // into the Dock passes; clamping only the default window fixed the first
+    // World opened and nothing after it.
+    let restorable = StoredWindowBounds::restorable(stored, &displays)?;
+    let fitted = match restorable.home_display(&displays) {
+        Some(display) => restorable.fit_within(display, MENU_BAR, DOCK),
+        None => restorable,
+    };
+    Some(restored_bounds(fitted))
 }
 
 /// Write any geometry that changed since the last write. Cheap and silent when
