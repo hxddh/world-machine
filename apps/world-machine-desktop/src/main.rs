@@ -2034,19 +2034,18 @@ impl WorldMachineHome {
 
         let expanded = self.expanded_cards.contains(&document.id);
         if expanded {
-            details = details
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(crate::theme_rgb(0x8a8a82))
-                        .child(format!(
-                            "{} · World time {} · {} events · {}",
-                            pack_title,
-                            document.world_time,
-                            document.event_count,
-                            document_label.clone()
-                        )),
-                );
+            details = details.child(
+                div()
+                    .text_xs()
+                    .text_color(crate::theme_rgb(0x8a8a82))
+                    .child(format!(
+                        "{} · World time {} · {} events · {}",
+                        pack_title,
+                        document.world_time,
+                        document.event_count,
+                        document_label.clone()
+                    )),
+            );
         }
 
         let renaming_this_world = self
@@ -2325,9 +2324,9 @@ impl WorldMachineHome {
                     .bg(crate::theme_rgb(0xf4f7ff))
                     .text_sm()
                     .child("Open")
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.open_document(open_id.clone(), cx)
-                    })),
+                    .on_click(
+                        cx.listener(move |this, _, _, cx| this.open_document(open_id.clone(), cx)),
+                    ),
             )
             .child(
                 div()

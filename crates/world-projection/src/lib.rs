@@ -1580,7 +1580,12 @@ mod tests {
 
         assert_eq!(
             runs.iter()
-                .map(|run| (run.item.title.as_str(), run.item.subtitle.as_str(), run.repeats, run.since))
+                .map(|run| (
+                    run.item.title.as_str(),
+                    run.item.subtitle.as_str(),
+                    run.repeats,
+                    run.since
+                ))
                 .collect::<Vec<_>>(),
             vec![
                 ("World came to rest", "", 1, None),
@@ -1612,7 +1617,9 @@ mod tests {
         assert_eq!(runs.len(), 3, "a repeat that is not adjacent is not a run");
         assert!(runs.iter().all(|run| run.repeats == 1));
         assert_eq!(
-            runs.iter().map(|run| run.item.world_time).collect::<Vec<_>>(),
+            runs.iter()
+                .map(|run| run.item.world_time)
+                .collect::<Vec<_>>(),
             vec![3, 2, 1]
         );
     }

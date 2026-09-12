@@ -365,8 +365,14 @@ mod tests {
         assert_eq!(told(90), "You were here less than an hour ago.");
         assert_eq!(told(5 * HOUR), "You were here five hours ago.");
 
-        assert_eq!(told(6 * HOUR), "Six hours away · it lived six hours without you.");
-        assert_eq!(told(2 * DAY), "Two days away · it lived two days without you.");
+        assert_eq!(
+            told(6 * HOUR),
+            "Six hours away · it lived six hours without you."
+        );
+        assert_eq!(
+            told(2 * DAY),
+            "Two days away · it lived two days without you."
+        );
         assert_eq!(told(WEEK), "A week away · it lived a week without you.");
 
         // Past the cap the two halves stop matching, and both are true.
