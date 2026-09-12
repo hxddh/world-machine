@@ -627,11 +627,15 @@ fn pressure_stage_copy(
             "Pressure is rising".into(),
             Some((
                 "Your turn · Hold or reach",
+                // What is wrong, and nothing else. Each of these used to go
+                // on and list the three things you could do about it, and
+                // the three things you can do about it are three buttons
+                // pinned to the bottom of the window, in their own words.
                 match seed {
-                    "mars-colony" => "The water reclaimer is failing. Rebuild it from what Ares has, send Kestrel for a replacement, or wait and see how far it slips.",
-                    "1980s-town" => "The rent is rising past what the arcade earns. Fund it from the neighborhood, put its story on the air, or wait and see.",
-                    "penguin-civilization" => "The third span is cracking. Rebuild it through the dark season, send for the outer builders, or wait and see.",
-                    _ => "Something the World depends on is failing. Hold with what the World has, reach beyond it, or wait and see.",
+                    "mars-colony" => "The water reclaimer is failing.",
+                    "1980s-town" => "The rent is rising past what the arcade earns.",
+                    "penguin-civilization" => "The third span is cracking.",
+                    _ => "Something the World depends on is failing.",
                 },
             )),
         )),
