@@ -396,7 +396,9 @@ fn succession_choice_evidence(event: &Event) -> Option<BriefingItem> {
         selection: Some(SelectionId::Event(event.id)),
         title: format!("Choice evidence · {label}"),
         detail: format!(
-            "Verified by this Event: succession = {stage}; outcome = {outcome}. {inheritance} {follow_on}"
+            "The succession reached {} and came out {}. {inheritance} {follow_on}",
+            plainly(stage),
+            plainly(outcome)
         ),
     })
 }
@@ -715,7 +717,9 @@ fn pressure_choice_evidence(world: &World, event: &Event) -> Option<BriefingItem
         selection: Some(SelectionId::Event(event.id)),
         title: format!("Choice evidence · {label}"),
         detail: format!(
-            "Verified by this Event: {anchor} · status = {status}; outcome = {outcome}. {follow_on}"
+            "{anchor} came through {}, and it came out {}. {follow_on}",
+            plainly(status),
+            plainly(outcome)
         ),
     })
 }
@@ -1115,8 +1119,8 @@ fn relationship_choice_evidence(
         selection: Some(SelectionId::Event(event.id)),
         title: format!("Choice evidence · {label}"),
         detail: format!(
-            "Verified by this Event: trust {before_trust} → {after_trust} · tension {before_tension} → {after_tension}. Durable direction = {}. {follow_on}",
-            durable_direction.replace('-', " ")
+            "Choosing {} moved trust {before_trust} → {after_trust} and tension {before_tension} → {after_tension}, and that choice has held. {follow_on}",
+            plainly(durable_direction)
         ),
     })
 }
@@ -1152,7 +1156,7 @@ fn intervention_choice_evidence(world: &World, event: &Event) -> Option<Briefing
         selection: Some(SelectionId::Event(event.id)),
         title: format!("Choice evidence · {label}"),
         detail: format!(
-            "Verified by this Event: first intervention = {label}; {effect}. Later growth reads this durable intervention."
+            "Your first intervention was {label}: {effect}. Later growth still reads it."
         ),
     })
 }
@@ -1171,9 +1175,15 @@ fn posture_choice_evidence(event: &Event) -> Option<BriefingItem> {
         selection: Some(SelectionId::Event(event.id)),
         title: format!("Choice evidence · {label}"),
         detail: format!(
-            "Verified by this Event: World direction = {label} at generation {generation}. Later growth and legacy formation read this durable posture."
+            "You set the world's direction to {label} at generation {generation}, and it has held since. Growth and the legacy it forms still follow it."
         ),
     })
+}
+
+/// An engine value as a reader sees it: `shared-project` is a key, "shared
+/// project" is two words.
+fn plainly(value: impl AsRef<str>) -> String {
+    value.as_ref().replace(['-', '_'], " ")
 }
 
 fn payload_text<'a>(event: &'a Event, key: &str) -> Option<&'a str> {
