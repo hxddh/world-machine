@@ -340,7 +340,8 @@ impl ProjectionView {
         muted: bool,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        const BESIDE: usize = 18;
+        // The same number the briefing uses to tell a stamp from a sentence.
+        const BESIDE: usize = world_projection::SHORT_DETAIL;
         let id = item
             .selection
             .map(|selection| format!("news-{}", selection.stable_key()))

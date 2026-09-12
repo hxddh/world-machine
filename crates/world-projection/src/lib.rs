@@ -750,15 +750,15 @@ impl BriefingProjection {
     /// under two headings and has to work out that there is only one fact
     /// there. Whichever comes first keeps it.
     fn reading_order(&self) -> Vec<&BriefingItem> {
-        let mut seen = Vec::<&str>::new();
+        let mut said = Vec::<&str>::new();
         let mut kept = Vec::new();
         for item in &self.items {
             let detail = item.detail.trim();
-            if !detail.is_empty() && seen.contains(&detail) {
-                continue;
-            }
-            if !detail.is_empty() {
-                seen.push(detail);
+            if is_a_statement(detail) {
+                if said.contains(&detail) {
+                    continue;
+                }
+                said.push(detail);
             }
             kept.push(item);
         }
@@ -1579,6 +1579,29 @@ pub(crate) fn event_summary(event: &Event, world: &World) -> String {
     parts.join(" · ")
 }
 
+/// Whether a briefing line's detail is something said, rather than something
+/// stamped.
+///
+/// This is the difference between the two halves of a briefing line. A long
+/// detail is a sentence, and the same sentence under two headings is one fact
+/// told twice. A short one is a stamp — "Day 28", "Cycle 6", "3 coins" — and
+/// two entirely different things can carry the same stamp, because two
+/// different things can happen on the same day.
+///
+/// Getting that wrong deleted news. Harbour Town's return listed "Anchor Pub
+/// exhausted its payroll reserve · Day 28" and "Leo's Pub income was
+/// disrupted · Day 28"; comparing details alone, the second was a repeat of
+/// the first, and it silently went. The window draws on the same line: a
+/// short detail sits beside its headline, a long one underneath.
+fn is_a_statement(detail: &str) -> bool {
+    detail.len() > SHORT_DETAIL
+}
+
+/// Above this many characters a detail is prose rather than a stamp. The
+/// window uses the same number to decide whether a detail sits beside its
+/// headline or under it.
+pub const SHORT_DETAIL: usize = 18;
+
 /// An engine identifier as a phrase: `living_cost_paid` becomes
 /// "Living cost paid".
 ///
@@ -1670,6 +1693,41 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["Your turn", "Sols", "Trust"],
             "the repeat goes and nothing else does"
+        );
+    }
+
+    #[test]
+    fn two_things_on_the_same_day_are_not_the_same_thing() {
+        // This deleted news. Both lines carry "Day 28" as their detail, and
+        // comparing details alone made the second a repeat of the first.
+        let briefing = BriefingProjection {
+            items: vec![
+                briefing_item(
+                    BriefingItemKind::Beat,
+                    "Anchor Pub exhausted its payroll reserve",
+                    "Day 28",
+                ),
+                briefing_item(
+                    BriefingItemKind::Beat,
+                    "Leo's Pub income was disrupted",
+                    "Day 28",
+                ),
+            ],
+            eyebrow: String::new(),
+            title: String::new(),
+            since_world_time: None,
+        };
+
+        assert_eq!(
+            briefing
+                .beats()
+                .iter()
+                .map(|item| item.title.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "Anchor Pub exhausted its payroll reserve",
+                "Leo's Pub income was disrupted"
+            ]
         );
     }
 
