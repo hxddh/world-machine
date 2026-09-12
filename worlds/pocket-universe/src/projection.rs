@@ -1822,21 +1822,18 @@ fn collection(world: &World) -> CollectionProjection {
 }
 
 fn canvas(world: &World) -> CanvasProjection {
-    const POSITIONS: [(f32, f32); 6] = [
-        (0.14, 0.24),
-        (0.72, 0.22),
-        (0.16, 0.78),
-        (0.78, 0.74),
-        (0.50, 0.48),
-        (0.50, 0.82),
-    ];
+    let shown = world
+        .state()
+        .entities()
+        .filter(|entity| entity.id != UNIVERSE)
+        .count();
     let items = world
         .state()
         .entities()
         .filter(|entity| entity.id != UNIVERSE)
         .enumerate()
         .map(|(index, entity)| {
-            let (x, y) = POSITIONS[index.min(POSITIONS.len() - 1)];
+            let (x, y) = spot(index, shown);
             CanvasItem {
                 id: SelectionId::Entity(entity.id),
                 kind: canvas_kind(entity),
@@ -1850,6 +1847,21 @@ fn canvas(world: &World) -> CanvasProjection {
         })
         .collect();
     CanvasProjection { items }
+}
+
+/// Where the nth of `count` things sits in the frame, as fractions.
+///
+/// This used to be a table of six positions read as `POSITIONS[index.min(5)]`,
+/// so a World that grew past six entities stacked the seventh, the eighth and
+/// everything after it on exactly the same spot — one box, with the rest of
+/// the World underneath it. A grid as wide as it needs to be has no such
+/// edge.
+fn spot(index: usize, count: usize) -> (f32, f32) {
+    let columns = (count as f32).sqrt().ceil().max(1.0);
+    let rows = (count as f32 / columns).ceil().max(1.0);
+    let column = (index % columns as usize) as f32;
+    let row = (index / columns as usize) as f32;
+    ((column + 0.5) / columns * 0.86, (row + 0.5) / rows * 0.82)
 }
 
 fn canvas_kind(entity: &Entity) -> CanvasItemKind {
@@ -1982,5 +1994,40 @@ mod first_story_copy_tests {
         assert!(mars.contains("rover signal"));
         assert!(town.contains("arcade"));
         assert!(penguins.contains("Fish Vault"));
+    }
+}
+
+#[cfg(test)]
+mod layout_tests {
+    use super::spot;
+
+    #[test]
+    fn no_two_things_are_put_in_the_same_place() {
+        // A table of six read as `POSITIONS[index.min(5)]` gave the seventh
+        // thing and everything after it one identical spot.
+        for count in 1..40usize {
+            let spots = (0..count)
+                .map(|index| spot(index, count))
+                .collect::<Vec<_>>();
+            for (a, first) in spots.iter().enumerate() {
+                for second in spots.iter().skip(a + 1) {
+                    assert!(
+                        (first.0 - second.0).abs() > 0.001 || (first.1 - second.1).abs() > 0.001,
+                        "two of {count} things share {first:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn everything_stays_inside_the_frame() {
+        for count in 1..40usize {
+            for index in 0..count {
+                let (x, y) = spot(index, count);
+                assert!((0.0..=0.9).contains(&x), "{count} things put one at x={x}");
+                assert!((0.0..=0.9).contains(&y), "{count} things put one at y={y}");
+            }
+        }
     }
 }
