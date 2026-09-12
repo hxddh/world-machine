@@ -203,7 +203,9 @@ mod tests {
             .find(|item| item.title == "Harbor Bakery had customers")
             .expect("recovered Jonas is included in Bakery demand");
         assert!(bakery_activity.detail.contains("Jonas"));
-        assert!(bakery_activity.detail.contains("78 revenue"));
+        assert!(bakery_activity
+            .detail
+            .contains("78 coins crossed the counter"));
 
         let archive = branch.archive().unwrap();
         let resumed_society = TinySociety::resume_archive(&archive).unwrap();

@@ -423,7 +423,7 @@ fn harbor_today(world: &World) -> BriefingItem {
         _ => "Harbor Bakery".to_string(),
     };
     let bakery_cash = component_integer(world, BAKERY, CASH)
-        .map(|cash| format!(" · till {cash}"))
+        .map(|cash| format!(" · {cash} in the till"))
         .unwrap_or_default();
     // After a lean reopening the bakery is one pair of hands until recovered
     // demand earns a second, so the state line says which it is.
@@ -472,15 +472,11 @@ fn bakery_sales_summary(world: &World, events: &[Event]) -> Option<BriefingItem>
         }
     }
 
-    let people = if customers.is_empty() {
-        "Residents".into()
+    let people = name_list(&customers, "Somebody");
+    let times = if purchases.len() == 1 {
+        "once".to_string()
     } else {
-        customers.join(", ")
-    };
-    let purchase_label = if purchases.len() == 1 {
-        "purchase"
-    } else {
-        "purchases"
+        format!("{} times", purchases.len())
     };
 
     Some(BriefingItem {
@@ -489,8 +485,7 @@ fn bakery_sales_summary(world: &World, events: &[Event]) -> Option<BriefingItem>
         selection: Some(SelectionId::Event(latest.id)),
         title: "Harbor Bakery had customers".into(),
         detail: format!(
-            "{people} bought bread · {} {purchase_label} · {total_revenue} revenue · latest on {}",
-            purchases.len(),
+            "{people} bought bread {times}, the last on {}, and {total_revenue} coins crossed the counter.",
             day_of(latest.world_time)
         ),
     })
@@ -519,11 +514,7 @@ fn living_activity_summary(world: &World, events: &[Event]) -> Option<BriefingIt
         }
     }
 
-    let people = if residents.is_empty() {
-        "Residents".into()
-    } else {
-        residents.join(", ")
-    };
+    let people = name_list(&residents, "Somebody");
     let shift_label = if shifts.len() == 1 { "shift" } else { "shifts" };
 
     Some(BriefingItem {
@@ -532,11 +523,22 @@ fn living_activity_summary(world: &World, events: &[Event]) -> Option<BriefingIt
         selection: Some(SelectionId::Event(latest.id)),
         title: "The world moved forward".into(),
         detail: format!(
-            "{people} worked · {} {shift_label} · {total_wages} total wages · latest on {}",
+            "{people} worked {} {shift_label} between them for {total_wages} in wages, the last on {}.",
             shifts.len(),
             day_of(latest.world_time)
         ),
     })
+}
+
+/// People, the way a person would list them: "Mara", "Mara and Leo",
+/// "Mara, Leo and Sofia". Joining on commas alone gave the harbour
+/// "Mara, Emma, Leo, Sofia worked", which is a column of a table read aloud.
+fn name_list(names: &[String], nobody: &str) -> String {
+    match names {
+        [] => nobody.to_string(),
+        [only] => only.clone(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    }
 }
 
 /// The day the town would call this moment, counting the first day as Day 1.

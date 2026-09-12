@@ -200,8 +200,8 @@ fn posture_forks_compound_into_different_emergent_legacies() -> Result<(), Box<d
     );
 
     assert!(comparison.timeline.changed.iter().any(|event| {
-        event.left.title == "World Legacy Formed"
-            && event.right.title == "World Legacy Formed"
+        event.left.title == "World legacy formed"
+            && event.right.title == "World legacy formed"
             && event.left.subtitle != event.right.subtitle
     }));
 

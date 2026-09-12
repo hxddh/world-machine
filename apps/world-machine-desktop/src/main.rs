@@ -2022,15 +2022,19 @@ impl WorldMachineHome {
             );
         }
         // The one thing a shelf of Worlds that keep living has to say, and the
-        // one thing it was not saying.
-        if let Some(absence) = self.absences.get(&document.id).copied() {
-            details = details.child(
-                div()
-                    .text_sm()
-                    .text_color(crate::theme_rgb(0x666666))
-                    .child(observer::absence_sentence(absence)),
-            );
-        }
+        // one thing it was not saying. A World with no observer stamp has
+        // never been opened on this Mac, and says that rather than saying
+        // nothing: with the line simply absent, one card in a column of four
+        // was a row shorter than the rest for no reason a reader could see.
+        details = details.child(
+            div()
+                .text_sm()
+                .text_color(crate::theme_rgb(0x666666))
+                .child(match self.absences.get(&document.id).copied() {
+                    Some(absence) => observer::absence_sentence(absence),
+                    None => "Not opened yet.".to_string(),
+                }),
+        );
 
         let expanded = self.expanded_cards.contains(&document.id);
         if expanded {
@@ -4167,27 +4171,50 @@ struct HomeEntity(Entity<WorldMachineHome>);
 #[cfg(target_os = "macos")]
 impl Global for HomeEntity {}
 
-/// A default window that fits the screen it opens on.
+/// Room the menu bar takes at the top of every Mac screen, and room the Dock
+/// takes at the bottom of most of them. gpui reports the display's whole size,
+/// which includes both.
+#[cfg(target_os = "macos")]
+const MENU_BAR: f32 = 40.0;
+#[cfg(target_os = "macos")]
+const DOCK: f32 = 110.0;
+
+/// A default window that fits the part of the screen you can actually see.
 ///
-/// `Bounds::centered` centres whatever it is given, including a window larger
-/// than the display: the World default is 1100x900, and on a 1024x768 screen
-/// centring that put the window 38 pixels off the left edge and 66 off the
-/// top. Two of the screenshots in every run were of a World window with its
-/// first column cut off, and it was not the screenshot's fault.
+/// Two mistakes, one after the other. `Bounds::centered` centres whatever it
+/// is given, including a window larger than the display: the World default is
+/// 1100x900, and on a 1024x768 screen that put the window 38 pixels off the
+/// left edge and 66 off the top. Clamping to the display fixed that and left
+/// the second one, which is that the display is not all yours. Centred
+/// vertically on a 1080-tall screen, a 900-tall window ends 90 pixels from the
+/// bottom, and the Dock is taller than that — so "Your turn", the row that
+/// asks you to decide, sat behind the Dock with its choices cut off. It was
+/// clipped in every screenshot of a World and I read it as the screenshot's
+/// fault twice.
+///
+/// The window is centred in the band between the menu bar and the Dock rather
+/// than on the glass.
 #[cfg(target_os = "macos")]
 fn default_window(width: f32, height: f32, cx: &mut App) -> Bounds<gpui::Pixels> {
     let screen = cx
         .primary_display()
         .map(|display| display.bounds().size)
         .unwrap_or_else(|| size(px(width), px(height)));
+    let screen_width = f32::from(screen.width);
+    let screen_height = f32::from(screen.height);
+    let usable_height = (screen_height - MENU_BAR - DOCK).max(screen_height * 0.5);
     // A margin so the window does not sit flush against the screen edges. The
     // arithmetic stays in f32 and becomes Pixels once: `Pixels::min` takes
     // Pixels, and mixing the two is what broke the macOS build.
-    let fits = size(
-        px(width.min(f32::from(screen.width) * 0.94)),
-        px(height.min(f32::from(screen.height) * 0.90)),
-    );
-    Bounds::centered(None, fits, cx)
+    let window_width = width.min(screen_width * 0.94);
+    let window_height = height.min(usable_height);
+    Bounds {
+        origin: gpui::point(
+            px((screen_width - window_width) / 2.0),
+            px(MENU_BAR + (usable_height - window_height) / 2.0),
+        ),
+        size: size(px(window_width), px(window_height)),
+    }
 }
 
 #[cfg(target_os = "macos")]

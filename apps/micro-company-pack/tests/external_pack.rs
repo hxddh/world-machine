@@ -196,7 +196,7 @@ fn micro_company_is_a_real_external_pack_with_distinct_deterministic_and_pi_futu
         .timeline
         .items
         .iter()
-        .any(|item| item.title == "Company Found Traction"));
+        .any(|item| item.title == "Company found traction"));
     assert_eq!(reopened.archive().unwrap().unwrap(), deterministic_archive);
     drop(reopened);
 

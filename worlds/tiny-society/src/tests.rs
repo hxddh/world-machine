@@ -507,6 +507,6 @@ fn projection_snapshot_is_self_contained_selectable_and_causal() {
 
     let why = snapshot.why(dismissal.id).unwrap();
     assert_eq!(why.nodes.first().unwrap().event, dismissal.id);
-    assert!(why.nodes.iter().any(|node| node.title == "Storm Started"));
-    assert!(why.nodes.iter().any(|node| node.title == "Order Lost"));
+    assert!(why.nodes.iter().any(|node| node.title == "Storm started"));
+    assert!(why.nodes.iter().any(|node| node.title == "Order lost"));
 }

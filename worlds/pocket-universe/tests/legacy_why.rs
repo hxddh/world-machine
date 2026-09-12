@@ -45,7 +45,7 @@ fn legacy_briefing_selects_its_event_and_exposes_why() -> Result<(), Box<dyn Err
         .why(legacy_event_id)
         .expect("the selected legacy event should already have a generic Why projection");
     assert_eq!(why.event, legacy_event_id);
-    assert_eq!(why.nodes[0].title, "World Legacy Formed");
+    assert_eq!(why.nodes[0].title, "World legacy formed");
     assert!(why.nodes[0].subtitle.contains("ridge network"));
 
     let titles = why
@@ -53,10 +53,10 @@ fn legacy_briefing_selects_its_event_and_exposes_why() -> Result<(), Box<dyn Err
         .iter()
         .map(|node| node.title.as_str())
         .collect::<Vec<_>>();
-    assert!(titles.contains(&"World Posture Chosen"));
-    assert!(titles.contains(&"Partnership Formed"));
-    assert!(titles.contains(&"Universe Intervened"));
-    assert!(titles.contains(&"Relationship Shifted"));
+    assert!(titles.contains(&"World posture chosen"));
+    assert!(titles.contains(&"Partnership formed"));
+    assert!(titles.contains(&"Universe intervened"));
+    assert!(titles.contains(&"Relationship shifted"));
 
     let mut reopened = PocketUniverse::resume_archive(&archive)?;
     let reopened_snapshot = reopened.projection_snapshot();
@@ -106,14 +106,14 @@ fn legacy_briefing_selects_its_event_and_exposes_why() -> Result<(), Box<dyn Err
     let reinforced_why = reinforced_snapshot
         .why(reinforced_event_id)
         .expect("legacy reinforcement should have a generic Why projection");
-    assert_eq!(reinforced_why.nodes[0].title, "Legacy Reinforced");
+    assert_eq!(reinforced_why.nodes[0].title, "Legacy reinforced");
     let reinforced_titles = reinforced_why
         .nodes
         .iter()
         .map(|node| node.title.as_str())
         .collect::<Vec<_>>();
-    assert!(reinforced_titles.contains(&"World Legacy Formed"));
-    assert!(reinforced_titles.contains(&"Relationship Shifted"));
+    assert!(reinforced_titles.contains(&"World legacy formed"));
+    assert!(reinforced_titles.contains(&"Relationship shifted"));
 
     let reopened_again = PocketUniverse::resume_archive(&reinforced_archive)?;
     let reopened_again_snapshot = reopened_again.projection_snapshot();

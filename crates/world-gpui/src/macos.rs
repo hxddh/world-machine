@@ -289,11 +289,7 @@ impl ProjectionView {
         // into eight paragraphs of identical grey.
         let mut standing = div().flex().flex_col().gap_2();
         let mut any_standing = false;
-        for item in briefing
-            .items
-            .iter()
-            .filter(|item| item.kind != world_projection::BriefingItemKind::Beat)
-        {
+        for item in briefing.standing() {
             any_standing = true;
             standing = standing.child(self.news_line(item, true, cx));
         }

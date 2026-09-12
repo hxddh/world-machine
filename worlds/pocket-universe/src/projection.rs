@@ -1418,10 +1418,13 @@ fn relationship_consequence_item(world: &World) -> Option<BriefingItem> {
         ),
         _ => return None,
     };
+    // Where they stand goes last and is said once. The dynamic used to carry
+    // the same pair spelled out as a sentence, so the line gave both readings
+    // eleven words apart.
     let detail = if last_dynamic.trim().is_empty() {
         format!("{meaning} Trust {trust} · tension {tension}.")
     } else {
-        format!("{meaning} Trust {trust} · tension {tension}. {last_dynamic}")
+        format!("{meaning} {last_dynamic} Trust {trust} · tension {tension}.")
     };
     Some(BriefingItem {
         concerns: Vec::new(),
@@ -1790,7 +1793,7 @@ fn return_item(events: &[Event], event: &Event, occurrences: usize) -> BriefingI
 
 fn collection(world: &World) -> CollectionProjection {
     CollectionProjection {
-        title: "World Contents".into(),
+        title: "World contents".into(),
         items: world
             .state()
             .entities()

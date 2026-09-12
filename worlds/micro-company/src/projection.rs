@@ -128,7 +128,7 @@ fn return_item(event: &Event) -> BriefingItem {
 
 fn collection(world: &World) -> CollectionProjection {
     CollectionProjection {
-        title: "Company World".into(),
+        title: "Company world".into(),
         items: world
             .state()
             .entities()

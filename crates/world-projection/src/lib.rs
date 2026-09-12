@@ -715,10 +715,54 @@ impl BriefingProjection {
     /// them. Empty means the visit has no news, however many counters the
     /// briefing carries.
     pub fn beats(&self) -> Vec<&BriefingItem> {
-        self.items
-            .iter()
+        self.reading_order()
+            .into_iter()
             .filter(|item| item.kind == BriefingItemKind::Beat)
             .collect()
+    }
+
+    /// How things stand, under what happened: everything that is not news.
+    pub fn standing(&self) -> Vec<&BriefingItem> {
+        self.reading_order()
+            .into_iter()
+            .filter(|item| item.kind != BriefingItemKind::Beat)
+            .collect()
+    }
+
+    /// The briefing with nothing said twice.
+    ///
+    /// Ares Pocket Colony opened every return with these two, one under the
+    /// other, word for word:
+    ///
+    /// ```text
+    /// World pressure · Rising
+    /// The water reclaimer is losing efficiency. Nia logs the first
+    /// shortfall and the colony starts counting sols.
+    ///
+    /// Current thread
+    /// The water reclaimer is losing efficiency. Nia logs the first
+    /// shortfall and the colony starts counting sols.
+    /// ```
+    ///
+    /// Neither line is wrong. The pressure beat reports the event, and the
+    /// current thread reports the last thing that changed, and on that visit
+    /// they are the same thing — so a reader is given the same sentence twice
+    /// under two headings and has to work out that there is only one fact
+    /// there. Whichever comes first keeps it.
+    fn reading_order(&self) -> Vec<&BriefingItem> {
+        let mut seen = Vec::<&str>::new();
+        let mut kept = Vec::new();
+        for item in &self.items {
+            let detail = item.detail.trim();
+            if !detail.is_empty() && seen.contains(&detail) {
+                continue;
+            }
+            if !detail.is_empty() {
+                seen.push(detail);
+            }
+            kept.push(item);
+        }
+        kept
     }
 }
 
@@ -1324,9 +1368,13 @@ fn inspector_for_relation(
     InspectorProjection {
         selection: SelectionId::Relation(relation.id),
         title: humanize(&relation.kind),
+        // Who and who, not which row. "Relation #602 · Active" was a database
+        // key on a card a player reads; the two people it is between is the
+        // thing that tells one relationship from another.
         subtitle: format!(
-            "Relation #{} · {}",
-            relation.id,
+            "{} · {} · {}",
+            relation_endpoint_text(relation.from, world),
+            relation_endpoint_text(relation.to, world),
             if recorded.active { "Active" } else { "Removed" }
         ),
         sections,
@@ -1531,19 +1579,30 @@ pub(crate) fn event_summary(event: &Event, world: &World) -> String {
     parts.join(" · ")
 }
 
+/// An engine identifier as a phrase: `living_cost_paid` becomes
+/// "Living cost paid".
+///
+/// Sentence case, not Title Case. Capitalising Every Word is what a schema
+/// dump looks like, and it is what the timeline looked like — "World Came To
+/// Rest", "Living Cost Unmet", "Resident Moved" — a column of headlines from
+/// a newspaper nobody writes. Only proper nouns earn a capital, and this
+/// function cannot know which words those are, so it capitalises the one word
+/// it can be sure of.
 pub(crate) fn humanize(value: &str) -> String {
-    value
-        .split('_')
-        .filter(|part| !part.is_empty())
-        .map(|part| {
-            let mut chars = part.chars();
-            match chars.next() {
-                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
-                None => String::new(),
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
+    let mut words = value.split('_').filter(|part| !part.is_empty());
+    let Some(first) = words.next() else {
+        return String::new();
+    };
+    let mut chars = first.chars();
+    let mut phrase = match chars.next() {
+        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+        None => String::new(),
+    };
+    for word in words {
+        phrase.push(' ');
+        phrase.push_str(word);
+    }
+    phrase
 }
 
 #[cfg(test)]
@@ -1560,6 +1619,72 @@ mod tests {
             subtitle: subtitle.into(),
             caused_by: Vec::new(),
         }
+    }
+
+    fn briefing_item(kind: BriefingItemKind, title: &str, detail: &str) -> BriefingItem {
+        BriefingItem {
+            concerns: Vec::new(),
+            kind,
+            selection: None,
+            title: title.into(),
+            detail: detail.into(),
+        }
+    }
+
+    #[test]
+    fn a_briefing_never_says_the_same_sentence_twice() {
+        const SHORTFALL: &str = "The water reclaimer is losing efficiency. Nia logs the first shortfall and the colony starts counting sols.";
+        let briefing = BriefingProjection {
+            items: vec![
+                briefing_item(BriefingItemKind::Beat, "World pressure · Rising", SHORTFALL),
+                briefing_item(BriefingItemKind::Status, "Current thread", SHORTFALL),
+                briefing_item(
+                    BriefingItemKind::Status,
+                    "Your turn",
+                    "Rebuild it, or wait.",
+                ),
+                // Two counters that happen to be blank are not repeats of
+                // each other; only something actually said can be said twice.
+                briefing_item(BriefingItemKind::Status, "Sols", ""),
+                briefing_item(BriefingItemKind::Status, "Trust", ""),
+            ],
+            eyebrow: String::new(),
+            title: String::new(),
+            since_world_time: None,
+        };
+
+        assert_eq!(
+            briefing
+                .beats()
+                .iter()
+                .map(|item| item.title.as_str())
+                .collect::<Vec<_>>(),
+            vec!["World pressure · Rising"],
+            "the beat comes first, so the beat keeps the sentence"
+        );
+        assert_eq!(
+            briefing
+                .standing()
+                .iter()
+                .map(|item| item.title.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Your turn", "Sols", "Trust"],
+            "the repeat goes and nothing else does"
+        );
+    }
+
+    #[test]
+    fn the_second_of_two_different_sentences_stays() {
+        let briefing = BriefingProjection {
+            items: vec![
+                briefing_item(BriefingItemKind::Beat, "One", "The reclaimer is failing."),
+                briefing_item(BriefingItemKind::Beat, "Two", "The reclaimer is fixed."),
+            ],
+            eyebrow: String::new(),
+            title: String::new(),
+            since_world_time: None,
+        };
+        assert_eq!(briefing.beats().len(), 2);
     }
 
     #[test]
@@ -1661,7 +1786,7 @@ mod tests {
         let inspectors = inspectors_from_world(&world);
 
         assert_eq!(timeline.items.len(), 1);
-        assert_eq!(timeline.items[0].title, "Work Started");
+        assert_eq!(timeline.items[0].title, "Work started");
         assert_eq!(timeline.items[0].subtitle, "Workspace");
         assert_eq!(
             inspectors
@@ -1833,7 +1958,7 @@ mod tests {
             .iter()
             .find(|section| section.title == ENTITY_HISTORY_SECTION)
             .expect("history section should exist");
-        assert_eq!(recorded.rows[0].label, "World time 3 · Workspace Renamed");
+        assert_eq!(recorded.rows[0].label, "World time 3 · Workspace renamed");
         assert_eq!(recorded.rows[0].value, "event-3");
         assert_eq!(recorded.rows[1].value, "event-1");
 
