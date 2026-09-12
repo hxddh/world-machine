@@ -501,7 +501,7 @@ impl ProjectionView {
     fn render_canvas(&self, cx: &mut Context<Self>) -> Div {
         let mut canvas = div()
             .relative()
-            .h(px(330.0))
+            .h(px(canvas_height(&self.snapshot.canvas.items)))
             .w_full()
             .rounded_md()
             .border_1()
@@ -529,7 +529,7 @@ impl ProjectionView {
                     // left six hundred pixels of an eleven-hundred-pixel box
                     // and left the rest blank.
                     .left(relative(item.x * 0.84))
-                    .top(px(12.0 + item.y * 260.0))
+                    .top(px(CANVAS_TOP + item.y * CANVAS_DEPTH))
                     .w(px(135.0))
                     .p_2()
                     .rounded_md()
@@ -1501,6 +1501,30 @@ fn selection_for_snapshot(
         .or_else(|| default_selection(snapshot))
 }
 
+/// How much of the frame the loose scatter is drawn into. Items are placed at
+/// a fraction of this.
+const CANVAS_DEPTH: f32 = 260.0;
+/// What the scatter sits inside, from the top of the frame to the bottom of
+/// the lowest box.
+const CANVAS_TOP: f32 = 12.0;
+const CANVAS_BOX: f32 = 74.0;
+
+/// As tall as it needs to be, and no taller.
+///
+/// The frame was a flat 330 pixels whatever it held. A six-thing World fills
+/// two rows of it, so the picture came with ninety pixels of empty grey
+/// underneath — and once the picture moved to the top of a return, those
+/// ninety pixels pushed six of Ares Pocket Colony's eight lines of news below
+/// the fold. An empty frame keeps a floor so it still reads as a frame.
+fn canvas_height(items: &[world_projection::CanvasItem]) -> f32 {
+    let depth = items
+        .iter()
+        .map(|item| item.y)
+        .fold(0.0_f32, f32::max)
+        .clamp(0.0, 1.0);
+    (CANVAS_TOP + depth * CANVAS_DEPTH + CANVAS_BOX).clamp(120.0, 330.0)
+}
+
 /// The panel, opening with the World's own sentence about this thing when it
 /// has one.
 ///
@@ -1567,7 +1591,7 @@ fn inspector_panel(inspector: &InspectorProjection, lead: Option<&str>, skip: Op
 #[cfg(test)]
 mod focus_hierarchy_tests {
     use super::{
-        choice_gist, command_panel_title, default_selection, has_collection_panel,
+        canvas_height, choice_gist, command_panel_title, default_selection, has_collection_panel,
         has_timeline_panel, selection_for_snapshot,
     };
     use world_projection::{
@@ -1717,5 +1741,39 @@ mod focus_hierarchy_tests {
         });
         snapshot.inspectors.insert(event, inspector(event));
         assert_eq!(default_selection(&snapshot), Some(event));
+    }
+
+    #[test]
+    fn the_loose_scatter_is_as_tall_as_what_it_holds() {
+        use world_projection::{CanvasItem, CanvasItemKind, CanvasItemState};
+
+        let thing = |y: f32| CanvasItem {
+            id: SelectionId::Entity(Default::default()),
+            kind: CanvasItemKind::Object,
+            label: "Thing".into(),
+            detail: String::new(),
+            x: 0.0,
+            y,
+            at: None,
+            state: CanvasItemState::Working,
+        };
+
+        // Two rows of a six-thing World reach 0.615 down the frame. The frame
+        // used to be a flat 330 whatever it held, so this came with ninety
+        // pixels of empty grey under it.
+        let two_rows = canvas_height(&[thing(0.205), thing(0.615)]);
+        assert!(
+            (240.0..260.0).contains(&two_rows),
+            "two rows asked for {two_rows}px"
+        );
+        assert!(
+            canvas_height(&[thing(0.205)]) < two_rows,
+            "one row must not ask for as much as two"
+        );
+
+        // A frame is still a frame when it is empty, and never taller than the
+        // page it sits on.
+        assert_eq!(canvas_height(&[]), 120.0);
+        assert_eq!(canvas_height(&[thing(4.0)]), 330.0);
     }
 }
