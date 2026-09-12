@@ -215,11 +215,13 @@ mod tests {
                 capabilities: ProjectionCapabilities { fork: false },
                 commands: vec![
                     ProjectionCommand {
+                        concerns: Vec::new(),
                         id: "mock.advance".into(),
                         title: "Advance".into(),
                         detail: "Advance mock state".into(),
                     },
                     ProjectionCommand {
+                        concerns: Vec::new(),
                         id: "mock.fail".into(),
                         title: "Fail".into(),
                         detail: "Fail without mutation".into(),

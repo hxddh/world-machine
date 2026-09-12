@@ -17,6 +17,7 @@ fn relation_evidence_snapshot() -> (ProjectionSnapshot, TimelineItem, RelationId
     let event_item = TimelineItem {
         id: event,
         world_time: 41,
+        when: None,
         title: "Relation changed".into(),
         subtitle: "External Pack relation event".into(),
         caused_by: vec![EventId::new(8)],
@@ -63,7 +64,7 @@ fn protocol_v2_preserves_typed_relation_evidence_across_json_wire_round_trip() {
         PACK_PROTOCOL_VERSION_V2,
         7,
         PackResponse::Snapshot {
-            snapshot: ProjectionSnapshotWire::from(&snapshot),
+            snapshot: Box::new(ProjectionSnapshotWire::from(&snapshot)),
         },
     )
     .expect("v2 should carry Relation evidence");
@@ -73,7 +74,7 @@ fn protocol_v2_preserves_typed_relation_evidence_across_json_wire_round_trip() {
     let PackResponse::Snapshot { snapshot } = decoded.response else {
         panic!("expected snapshot response");
     };
-    let restored = ProjectionSnapshot::try_from(snapshot).expect("snapshot should restore");
+    let restored = ProjectionSnapshot::try_from(*snapshot).expect("snapshot should restore");
 
     assert_eq!(
         restored.relation_event_evidence(),
@@ -107,7 +108,7 @@ fn protocol_v1_rejects_the_same_relation_evidence_snapshot() {
         PACK_PROTOCOL_VERSION_V1,
         1,
         PackResponse::Snapshot {
-            snapshot: ProjectionSnapshotWire::from(&snapshot),
+            snapshot: Box::new(ProjectionSnapshotWire::from(&snapshot)),
         },
     )
     .expect_err("v1 must reject Relation selections");

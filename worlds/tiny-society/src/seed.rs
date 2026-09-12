@@ -37,7 +37,8 @@ pub(crate) fn seed_world() -> Result<WorldState, Box<dyn Error>> {
         let mut entity = Entity::new(id, "location")
             .with_component("name", name)
             .with_component(CASH, cash);
-        if id == BAKERY {
+        // A business says whether it is open. The harbour is not a business.
+        if matches!(id, BAKERY | PUB | SCHOOL) {
             entity = entity.with_component(OPERATING_STATUS, "open");
         }
         state.seed_entity(entity)?;
@@ -71,6 +72,10 @@ pub(crate) fn seed_world() -> Result<WorldState, Box<dyn Error>> {
     state.seed_relation(Relation::new(LEO_PUB_JOB, "works_at", LEO, PUB))?;
     state.seed_relation(Relation::new(EMMA_SCHOOL_JOB, "works_at", EMMA, SCHOOL))?;
     state.seed_relation(Relation::new(JONAS_HARBOR_JOB, "works_at", JONAS, HARBOR))?;
+    // Sofia has been the Anchor Pub's shop assistant since the first morning
+    // and the World never recorded it, so she never worked a shift, was never
+    // paid, and could not be laid off when the pub ran dry.
+    state.seed_relation(Relation::new(SOFIA_PUB_JOB, "works_at", SOFIA, PUB))?;
 
     Ok(state)
 }

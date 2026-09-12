@@ -18,6 +18,7 @@ fn evidence_snapshot() -> ProjectionSnapshot {
             items: vec![TimelineItem {
                 id: event,
                 world_time: 9,
+                when: None,
                 title: "Changed".into(),
                 subtitle: "Recorded change".into(),
                 caused_by: Vec::new(),
@@ -167,6 +168,7 @@ fn path_snapshot() -> ProjectionSnapshot {
             items: vec![TimelineItem {
                 id: event,
                 world_time: 9,
+                when: None,
                 title: "Changed".into(),
                 subtitle: "Recorded change".into(),
                 caused_by: Vec::new(),

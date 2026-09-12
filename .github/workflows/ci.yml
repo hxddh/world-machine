@@ -95,8 +95,8 @@ jobs:
       - name: Check packaged analyst smoke syntax
         run: node --check scripts/check-packaged-analyst-runtime.mjs
       - run: cargo fmt --all -- --check
-      - run: cargo clippy --workspace --exclude world-gpui --exclude world-strategy-gpui --exclude world-lineage-gpui --exclude tiny-society-desktop --exclude future-archaeologist-desktop --exclude world-machine-desktop --exclude strategy-comparison-desktop --exclude lineage-explorer-desktop --all-targets -- -D warnings
-      - run: cargo test --workspace --exclude world-gpui --exclude world-strategy-gpui --exclude world-lineage-gpui --exclude tiny-society-desktop --exclude future-archaeologist-desktop --exclude world-machine-desktop --exclude strategy-comparison-desktop --exclude lineage-explorer-desktop
+      - run: cargo clippy --workspace --exclude world-strategy-gpui --exclude world-lineage-gpui --exclude tiny-society-desktop --exclude future-archaeologist-desktop --exclude world-machine-desktop --exclude strategy-comparison-desktop --exclude lineage-explorer-desktop --all-targets -- -D warnings
+      - run: cargo test --workspace --exclude world-strategy-gpui --exclude world-lineage-gpui --exclude tiny-society-desktop --exclude future-archaeologist-desktop --exclude world-machine-desktop --exclude strategy-comparison-desktop --exclude lineage-explorer-desktop
       - name: Verify external Pack conformance command
         run: |
           mkdir -p target/pack-check

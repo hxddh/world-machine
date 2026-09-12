@@ -5,13 +5,15 @@ use crate::{
 use world_core::{Entity, Event, Value, World};
 use world_projection::{
     entity_title, inspectors_from_world, timeline_from_world, why_map_from_world, BriefingItem,
-    BriefingItemKind, BriefingProjection, CanvasItem, CanvasItemKind, CanvasProjection,
-    CollectionItem, CollectionProjection, ProjectionCapabilities, ProjectionCommand,
-    ProjectionSnapshot, SelectionId,
+    BriefingItemKind, BriefingProjection, CanvasItem, CanvasItemKind, CanvasItemState,
+    CanvasProjection, CollectionItem, CollectionProjection, ProjectionCapabilities,
+    ProjectionCommand, ProjectionSnapshot, SelectionId,
 };
 
 pub(crate) fn snapshot(world: &World, since_event_count: Option<usize>) -> ProjectionSnapshot {
     ProjectionSnapshot {
+        // This Pack does not offer a figure for how it is doing.
+        fortune: None,
         title: title(world),
         world_time: world.world_time(),
         capabilities: ProjectionCapabilities {
@@ -40,6 +42,7 @@ fn commands(world: &World) -> Vec<ProjectionCommand> {
         return Vec::new();
     }
     vec![ProjectionCommand {
+        concerns: Vec::new(),
         id: RUN_CYCLE_COMMAND.into(),
         title: "Run one company cycle".into(),
         detail: "Pay the burn, let Maya and Jon act, then see whether product, customers, runway, and working trust move together.".into(),
@@ -49,6 +52,7 @@ fn commands(world: &World) -> Vec<ProjectionCommand> {
 fn briefing(world: &World, since_event_count: Option<usize>) -> BriefingProjection {
     if let Some(since) = since_event_count.filter(|since| *since < world.events().len()) {
         return BriefingProjection {
+            since_world_time: None,
             eyebrow: "Micro Company".into(),
             title: "While the company was running".into(),
             items: world.events()[since..]
@@ -71,6 +75,7 @@ fn briefing(world: &World, since_event_count: Option<usize>) -> BriefingProjecti
     let status = text_component(company, STATUS, "searching");
     let last_change = text_component(company, LAST_CHANGE, "The company is quiet.");
     BriefingProjection {
+        since_world_time: None,
         eyebrow: "Micro Company".into(),
         title: match status.as_str() {
             "traction" => "Traction found".into(),
@@ -79,12 +84,14 @@ fn briefing(world: &World, since_event_count: Option<usize>) -> BriefingProjecti
         },
         items: vec![
             BriefingItem {
+                concerns: Vec::new(),
                 kind: BriefingItemKind::Status,
                 selection: Some(SelectionId::Entity(COMPANY)),
                 title: format!("Cash {cash} · Quality {quality} · Customers {customers}"),
                 detail: last_change,
             },
             BriefingItem {
+                concerns: Vec::new(),
                 kind: BriefingItemKind::Status,
                 selection: Some(SelectionId::Entity(RELATIONSHIP)),
                 title: format!("Working trust {trust} · Tension {tension}"),
@@ -103,6 +110,7 @@ fn return_item(event: &Event) -> BriefingItem {
         })
         .unwrap_or_else(|| event.kind.replace('_', " "));
     BriefingItem {
+        concerns: Vec::new(),
         kind: BriefingItemKind::Beat,
         selection: Some(SelectionId::Event(event.id)),
         title: match event.kind.as_str() {
@@ -120,7 +128,7 @@ fn return_item(event: &Event) -> BriefingItem {
 
 fn collection(world: &World) -> CollectionProjection {
     CollectionProjection {
-        title: "Company World".into(),
+        title: "Company world".into(),
         items: world
             .state()
             .entities()
@@ -153,6 +161,8 @@ fn canvas(world: &World) -> CanvasProjection {
                     detail: entity.kind.replace('_', " "),
                     x,
                     y,
+                    at: None,
+                    state: CanvasItemState::Working,
                 })
             })
             .collect(),

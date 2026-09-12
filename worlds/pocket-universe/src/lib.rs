@@ -1124,7 +1124,12 @@ impl Action for UpdateRelationship {
 
         let next_trust = (trust + trust_delta).clamp(0, 10);
         let next_tension = (tension + tension_delta).clamp(0, 10);
-        let summary = format!("{dynamic} Trust is {next_trust}; tension is {next_tension}.");
+        // Just what happened between them. The numbers used to be tacked on
+        // here as well, and the briefing states them itself, so the line came
+        // out carrying both readings of the same pair eleven words apart:
+        // "…partnership. Trust 10 · tension 0. Their different instincts
+        // covered each other's blind spots. Trust is 10; tension is 0."
+        let summary = dynamic.to_string();
         let mut draft = EventDraft::new("relationship_shifted");
         draft.targets = vec![RELATIONSHIP, SLOT_B, SLOT_E];
         draft
@@ -2399,7 +2404,7 @@ mod tests {
         let profile = actor
             .inspector_rows
             .iter()
-            .find(|row| row.key.label == "Last Mind Profile")
+            .find(|row| row.key.label == "Last mind profile")
             .unwrap();
         assert_eq!(profile.left.as_deref(), Some(DETERMINISTIC_MIND_PROFILE));
         assert_eq!(profile.right.as_deref(), Some("pi"));
@@ -3190,10 +3195,26 @@ mod tests {
             .unwrap();
 
         let steered = universe.projection_snapshot();
-        assert!(steered.briefing.as_ref().unwrap().items.iter().any(|item| {
-            item.title == "Relationship · Shared project"
-                && item.detail.contains("Trust 4 · tension 0")
-        }));
+        let relationship = steered
+            .briefing
+            .as_ref()
+            .unwrap()
+            .items
+            .iter()
+            .find(|item| item.title == "Relationship · Shared project")
+            .expect("the steered relationship is on the briefing");
+        assert!(
+            relationship.detail.contains("Trust 4 · tension 0"),
+            "the line still says where they stand: {}",
+            relationship.detail
+        );
+        // Once. It used to say the pair twice, eleven words apart: once as
+        // "Trust 4 · tension 0" and again as "Trust is 4; tension is 0."
+        assert!(
+            !relationship.detail.contains("tension is 0"),
+            "the line says the numbers once: {}",
+            relationship.detail
+        );
 
         universe.invoke_projection_command(NUDGE_COMMAND).unwrap();
         let resolved = universe.projection_snapshot();
@@ -3306,7 +3327,7 @@ mod tests {
             .timeline
             .items
             .iter()
-            .find(|item| item.title == "Universe Intervened")
+            .find(|item| item.title == "Universe intervened")
             .and_then(|item| match item.id {
                 world_projection::SelectionId::Event(id) => Some(id),
                 _ => None,

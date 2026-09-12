@@ -1,3 +1,5 @@
+pub mod town_scene;
+
 mod causal;
 mod influence;
 
@@ -12,6 +14,11 @@ pub const ENTITY_HISTORY_SECTION: &str = "Recorded entity changes";
 pub const RELATION_HISTORY_SECTION: &str = "Recorded relation changes";
 pub const RELATION_ENDPOINTS_SECTION: &str = "Active relation endpoints";
 pub const RELATION_IDENTITY_SECTION: &str = "Relation identity endpoints";
+/// The read-only list of an entity's relations, by name. A window that shows
+/// the same relations as things you can select leaves this one out rather than
+/// printing "Trusts · Leo" immediately above a card for the very same
+/// relationship.
+pub const ENTITY_RELATIONS_SECTION: &str = "Relations";
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum SelectionId {
@@ -149,6 +156,9 @@ pub struct ProjectionCommand {
     pub id: String,
     pub title: String,
     pub detail: String,
+    /// Who and what this choice is about, so a drawing of the World can show
+    /// them rather than guess from the wording.
+    pub concerns: Vec<SelectionId>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -168,6 +178,49 @@ pub struct ProjectionSnapshot {
     pub canvas: CanvasProjection,
     pub inspectors: BTreeMap<SelectionId, InspectorProjection>,
     pub why: BTreeMap<EventId, WhyProjection>,
+    /// How the World says it is doing, in one number of its own choosing.
+    ///
+    /// Absent for a Pack that does not offer one, and every renderer must
+    /// cope with that.
+    pub fortune: Option<Fortune>,
+}
+
+/// One number, named by the World, for how well it is going.
+///
+/// Deliberately a single figure rather than a panel of them. An engine
+/// reports one centipawn score and that is why a chess graph can say at a
+/// glance where the game turned; a dashboard of six measures says only that
+/// six things exist. If a World can rank two of its own futures, it can be
+/// asked whether a choice was worth making.
+///
+/// Higher is better, always. A World whose natural measure runs the other way
+/// — unrest, debt, decay — reports its negation and names it accordingly.
+///
+/// Pick a measure that falls when the World is failing. The obvious ones
+/// often do not: the total money held by Harbour Town's residents *rises*
+/// for as long as its workplaces are draining into their pockets, so by that
+/// figure the town looks richest shortly before it stops entirely.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Fortune {
+    /// What the number counts, in the World's own words, for a person to read
+    /// beside it: "money changing hands", "colonists fed".
+    pub label: String,
+    pub value: i64,
+    /// The same figure at points in the past, oldest first, so the shape of
+    /// what happened can be drawn rather than listed.
+    ///
+    /// Only the World can produce this: the figure is computed from its own
+    /// history, and a renderer holding a stream of snapshots has no way to
+    /// reconstruct the values between them. A World that offers no history
+    /// leaves it empty and is drawn as a single reading.
+    pub history: Vec<FortunePoint>,
+}
+
+/// One past reading of a World's fortune.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FortunePoint {
+    pub world_time: u64,
+    pub value: i64,
 }
 
 impl ProjectionSnapshot {
@@ -623,6 +676,12 @@ pub struct BriefingProjection {
     pub eyebrow: String,
     pub title: String,
     pub items: Vec<BriefingItem>,
+    /// The moment the absence began, when this briefing is about one.
+    ///
+    /// A return is a stretch of time, not a list, and a drawing of the World
+    /// can only shade the stretch if it is told where it starts. `None` for a
+    /// World being looked at rather than returned to.
+    pub since_world_time: Option<u64>,
 }
 
 /// Whether a briefing line is something that happened or something that is
@@ -648,6 +707,12 @@ pub struct BriefingItem {
     pub title: String,
     pub detail: String,
     pub kind: BriefingItemKind,
+    /// Who and what this line is about.
+    ///
+    /// Without it the only way to light up the people a return concerns is to
+    /// search the sentence for their names, which is reading prose to recover
+    /// something the World knew for certain when it wrote it.
+    pub concerns: Vec<SelectionId>,
 }
 
 impl BriefingProjection {
@@ -655,10 +720,54 @@ impl BriefingProjection {
     /// them. Empty means the visit has no news, however many counters the
     /// briefing carries.
     pub fn beats(&self) -> Vec<&BriefingItem> {
-        self.items
-            .iter()
+        self.reading_order()
+            .into_iter()
             .filter(|item| item.kind == BriefingItemKind::Beat)
             .collect()
+    }
+
+    /// How things stand, under what happened: everything that is not news.
+    pub fn standing(&self) -> Vec<&BriefingItem> {
+        self.reading_order()
+            .into_iter()
+            .filter(|item| item.kind != BriefingItemKind::Beat)
+            .collect()
+    }
+
+    /// The briefing with nothing said twice.
+    ///
+    /// Ares Pocket Colony opened every return with these two, one under the
+    /// other, word for word:
+    ///
+    /// ```text
+    /// World pressure · Rising
+    /// The water reclaimer is losing efficiency. Nia logs the first
+    /// shortfall and the colony starts counting sols.
+    ///
+    /// Current thread
+    /// The water reclaimer is losing efficiency. Nia logs the first
+    /// shortfall and the colony starts counting sols.
+    /// ```
+    ///
+    /// Neither line is wrong. The pressure beat reports the event, and the
+    /// current thread reports the last thing that changed, and on that visit
+    /// they are the same thing — so a reader is given the same sentence twice
+    /// under two headings and has to work out that there is only one fact
+    /// there. Whichever comes first keeps it.
+    fn reading_order(&self) -> Vec<&BriefingItem> {
+        let mut said = Vec::<&str>::new();
+        let mut kept = Vec::new();
+        for item in &self.items {
+            let detail = item.detail.trim();
+            if is_a_statement(detail) {
+                if said.contains(&detail) {
+                    continue;
+                }
+                said.push(detail);
+            }
+            kept.push(item);
+        }
+        kept
     }
 }
 
@@ -684,9 +793,57 @@ pub struct TimelineProjection {
 pub struct TimelineItem {
     pub id: SelectionId,
     pub world_time: u64,
+    /// When this happened, in the World's own words — "Day 79", "Cycle 6".
+    ///
+    /// `world_time` is a tick count, which is the engine's business. The
+    /// window used to stamp every entry `t=790`, which tells a reader nothing
+    /// and, on a World whose entries all land in one tick, tells them nothing
+    /// four times in a row. Only the Pack knows how long a day is, so only the
+    /// Pack can say. `None` means the entry carries no time and the window
+    /// shows none, which is better than showing a number nobody can read.
+    pub when: Option<String>,
     pub title: String,
     pub subtitle: String,
     pub caused_by: Vec<EventId>,
+}
+
+/// One line of a timeline, with however many identical lines it stands for.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TimelineRun<'a> {
+    pub item: &'a TimelineItem,
+    /// How many entries in a row said exactly this. 1 is an ordinary entry.
+    pub repeats: usize,
+    /// The World's own word for when the run started, when that differs from
+    /// the word on `item`. A run reads "Day 74 to Day 78".
+    pub since: Option<&'a str>,
+}
+
+impl TimelineProjection {
+    /// The timeline with runs of identical entries folded into one line.
+    ///
+    /// A World that charges rent every day writes "Living cost paid · Jonas"
+    /// every day, and the reference surface printed five of them in a column,
+    /// one under the other, differing only in a date. Five identical lines
+    /// are one fact and four copies of it. Entries are folded only when they
+    /// say exactly the same thing and sit next to each other, so nothing is
+    /// reordered and nothing that differs is ever merged.
+    pub fn runs(&self) -> Vec<TimelineRun<'_>> {
+        let mut runs: Vec<TimelineRun<'_>> = Vec::new();
+        for item in &self.items {
+            match runs.last_mut() {
+                Some(run) if run.item.title == item.title && run.item.subtitle == item.subtitle => {
+                    run.repeats += 1;
+                    run.since = item.when.as_deref().or(run.since);
+                }
+                _ => runs.push(TimelineRun {
+                    item,
+                    repeats: 1,
+                    since: None,
+                }),
+            }
+        }
+        runs
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -701,6 +858,27 @@ pub enum CanvasItemKind {
     Object,
 }
 
+/// How a thing on the canvas is doing, in words general enough for any World.
+///
+/// A drawing can only show that a shop is shut, a boat is holed or a mooring is
+/// empty if it is told so as a fact rather than as a sentence. Packs used to
+/// put this in `detail` — "Place · closed", "asset · damaged" — where the only
+/// way to use it was to read prose and guess.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum CanvasItemState {
+    /// Going about its business. The ordinary case, and the default.
+    #[default]
+    Working,
+    /// Standing but not running: a shop with its shutters down, a person out
+    /// of work.
+    Stopped,
+    /// Damaged, and not able to do what it is for until that is dealt with.
+    Hurt,
+    /// No longer here at all — sold, lost, destroyed. Still worth drawing,
+    /// because the gap it left is part of the picture.
+    Gone,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct CanvasItem {
     pub id: SelectionId,
@@ -709,6 +887,22 @@ pub struct CanvasItem {
     pub detail: String,
     pub x: f32,
     pub y: f32,
+    /// The place this thing is at, when the World knows of one. People stand
+    /// somewhere and boats are moored somewhere; a scatter of loose
+    /// coordinates cannot say so, and a picture of a town needs to.
+    pub at: Option<SelectionId>,
+    pub state: CanvasItemState,
+}
+
+impl CanvasItem {
+    /// The things the World says are at this place, in the order the Pack gave
+    /// them.
+    pub fn occupants<'a>(&self, items: &'a [CanvasItem]) -> Vec<&'a CanvasItem> {
+        items
+            .iter()
+            .filter(|item| item.at == Some(self.id))
+            .collect()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -746,6 +940,18 @@ pub struct InspectorRow {
 }
 
 pub fn timeline_from_world(world: &World) -> TimelineProjection {
+    timeline_from_world_when(world, |_| None)
+}
+
+/// A timeline whose entries say when they happened, in the Pack's own words.
+///
+/// `when` is handed the Event's world time and returns whatever the Pack calls
+/// that moment. A Pack that has no calendar keeps [`timeline_from_world`] and
+/// its entries carry no time at all.
+pub fn timeline_from_world_when(
+    world: &World,
+    when: impl Fn(u64) -> Option<String>,
+) -> TimelineProjection {
     TimelineProjection {
         items: world
             .events()
@@ -754,6 +960,7 @@ pub fn timeline_from_world(world: &World) -> TimelineProjection {
             .map(|event| TimelineItem {
                 id: SelectionId::Event(event.id),
                 world_time: event.world_time,
+                when: when(event.world_time),
                 title: humanize(&event.kind),
                 subtitle: event_summary(event, world),
                 caused_by: event.caused_by.clone(),
@@ -794,6 +1001,26 @@ pub fn entity_title(entity: &Entity) -> String {
     }
 }
 
+/// A component's value as something to read.
+///
+/// A World stores what it likes, and what it likes is identifiers: `taken_on`,
+/// `payroll_reserve_exhausted`. Labels have always been humanised and values
+/// never were, so the inspector said "Work Request Status: taken_on" in a
+/// column of otherwise ordinary English.
+///
+/// Only the underscores go. Capitalising as well made "Taken on" the one
+/// capitalised value in a column of `destitute`, `lost`, `requested`,
+/// `received` — and capitalising *those* too broke five Pack tests that assert
+/// their own vocabulary verbatim, which is the Packs being right: the words
+/// are theirs. This crate takes out the punctuation a reader should never have
+/// seen and leaves the vocabulary alone.
+fn readable_value(value: &Value, world: &World) -> String {
+    match value {
+        Value::Text(text) if text.contains('_') => text.replace('_', " "),
+        other => value_text(other, world),
+    }
+}
+
 pub fn value_text(value: &Value, world: &World) -> String {
     match value {
         Value::Null => "—".into(),
@@ -829,7 +1056,7 @@ fn inspector_for_entity(
         .filter(|(key, _)| key.as_str() != "name")
         .map(|(key, value)| InspectorRow {
             label: humanize(key),
-            value: value_text(value, world),
+            value: readable_value(value, world),
         })
         .collect::<Vec<_>>();
 
@@ -862,7 +1089,7 @@ fn inspector_for_entity(
     }];
     if !relations.is_empty() {
         sections.push(InspectorSection {
-            title: "Relations".into(),
+            title: ENTITY_RELATIONS_SECTION.into(),
             rows: relations,
         });
     }
@@ -1146,15 +1373,32 @@ fn inspector_for_relation(
     InspectorProjection {
         selection: SelectionId::Relation(relation.id),
         title: humanize(&relation.kind),
+        // Who and who, not which row. "Relation #602 · Active" was a database
+        // key on a card a player reads; the two it is between is the thing
+        // that tells one relationship from another. Their names — the From
+        // and To rows inside the panel still carry the ids for anyone
+        // inspecting, and reaching for that function here swapped one id on
+        // the card for two.
         subtitle: format!(
-            "Relation #{} · {}",
-            relation.id,
+            "{} · {} · {}",
+            relation_endpoint_name(relation.from, world),
+            relation_endpoint_name(relation.to, world),
             if recorded.active { "Active" } else { "Removed" }
         ),
         sections,
     }
 }
 
+/// Just what the thing is called, for a card somebody reads.
+fn relation_endpoint_name(entity: EntityId, world: &World) -> String {
+    world
+        .state()
+        .entity(entity)
+        .map(entity_title)
+        .unwrap_or_else(|| format!("Entity #{entity}"))
+}
+
+/// The name and the id, for a row somebody is inspecting.
 fn relation_endpoint_text(entity: EntityId, world: &World) -> String {
     world
         .state()
@@ -1346,29 +1590,245 @@ pub(crate) fn event_summary(event: &Event, world: &World) -> String {
     if let Some(summary) = semantic_event_summary(event) {
         parts.push(summary.to_string());
     }
-    parts.push(format!("Event #{}", event.id));
+    // No "Event #451". The number is how the engine refers to the Event, and
+    // the reader already has the entry in front of them; printing it turned
+    // every line of the news into a log line. It is still on the Event's own
+    // inspector, which is where an identifier belongs.
     parts.join(" · ")
 }
 
+/// Whether a briefing line's detail is something said, rather than something
+/// stamped.
+///
+/// This is the difference between the two halves of a briefing line. A long
+/// detail is a sentence, and the same sentence under two headings is one fact
+/// told twice. A short one is a stamp — "Day 28", "Cycle 6", "3 coins" — and
+/// two entirely different things can carry the same stamp, because two
+/// different things can happen on the same day.
+///
+/// Getting that wrong deleted news. Harbour Town's return listed "Anchor Pub
+/// exhausted its payroll reserve · Day 28" and "Leo's Pub income was
+/// disrupted · Day 28"; comparing details alone, the second was a repeat of
+/// the first, and it silently went. The window draws on the same line: a
+/// short detail sits beside its headline, a long one underneath.
+fn is_a_statement(detail: &str) -> bool {
+    detail.len() > SHORT_DETAIL
+}
+
+/// Above this many characters a detail is prose rather than a stamp. The
+/// window uses the same number to decide whether a detail sits beside its
+/// headline or under it.
+pub const SHORT_DETAIL: usize = 18;
+
+/// An engine identifier as a phrase: `living_cost_paid` becomes
+/// "Living cost paid".
+///
+/// Sentence case, not Title Case. Capitalising Every Word is what a schema
+/// dump looks like, and it is what the timeline looked like — "World Came To
+/// Rest", "Living Cost Unmet", "Resident Moved" — a column of headlines from
+/// a newspaper nobody writes. Only proper nouns earn a capital, and this
+/// function cannot know which words those are, so it capitalises the one word
+/// it can be sure of.
 pub(crate) fn humanize(value: &str) -> String {
-    value
-        .split('_')
-        .filter(|part| !part.is_empty())
-        .map(|part| {
-            let mut chars = part.chars();
-            match chars.next() {
-                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
-                None => String::new(),
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
+    let mut words = value.split('_').filter(|part| !part.is_empty());
+    let Some(first) = words.next() else {
+        return String::new();
+    };
+    let mut chars = first.chars();
+    let mut phrase = match chars.next() {
+        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+        None => String::new(),
+    };
+    for word in words {
+        phrase.push(' ');
+        phrase.push_str(word);
+    }
+    phrase
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use world_core::{Entity, Event, EventId, StateChange, WorldState};
+
+    fn timeline_entry(id: u64, when: &str, title: &str, subtitle: &str) -> TimelineItem {
+        TimelineItem {
+            id: SelectionId::Event(EventId::new(id)),
+            world_time: id,
+            when: Some(when.into()),
+            title: title.into(),
+            subtitle: subtitle.into(),
+            caused_by: Vec::new(),
+        }
+    }
+
+    fn briefing_item(kind: BriefingItemKind, title: &str, detail: &str) -> BriefingItem {
+        BriefingItem {
+            concerns: Vec::new(),
+            kind,
+            selection: None,
+            title: title.into(),
+            detail: detail.into(),
+        }
+    }
+
+    #[test]
+    fn a_briefing_never_says_the_same_sentence_twice() {
+        const SHORTFALL: &str = "The water reclaimer is losing efficiency. Nia logs the first shortfall and the colony starts counting sols.";
+        let briefing = BriefingProjection {
+            items: vec![
+                briefing_item(BriefingItemKind::Beat, "World pressure · Rising", SHORTFALL),
+                briefing_item(BriefingItemKind::Status, "Current thread", SHORTFALL),
+                briefing_item(
+                    BriefingItemKind::Status,
+                    "Your turn",
+                    "Rebuild it, or wait.",
+                ),
+                // Two counters that happen to be blank are not repeats of
+                // each other; only something actually said can be said twice.
+                briefing_item(BriefingItemKind::Status, "Sols", ""),
+                briefing_item(BriefingItemKind::Status, "Trust", ""),
+            ],
+            eyebrow: String::new(),
+            title: String::new(),
+            since_world_time: None,
+        };
+
+        assert_eq!(
+            briefing
+                .beats()
+                .iter()
+                .map(|item| item.title.as_str())
+                .collect::<Vec<_>>(),
+            vec!["World pressure · Rising"],
+            "the beat comes first, so the beat keeps the sentence"
+        );
+        assert_eq!(
+            briefing
+                .standing()
+                .iter()
+                .map(|item| item.title.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Your turn", "Sols", "Trust"],
+            "the repeat goes and nothing else does"
+        );
+    }
+
+    #[test]
+    fn two_things_on_the_same_day_are_not_the_same_thing() {
+        // This deleted news. Both lines carry "Day 28" as their detail, and
+        // comparing details alone made the second a repeat of the first.
+        let briefing = BriefingProjection {
+            items: vec![
+                briefing_item(
+                    BriefingItemKind::Beat,
+                    "Anchor Pub exhausted its payroll reserve",
+                    "Day 28",
+                ),
+                briefing_item(
+                    BriefingItemKind::Beat,
+                    "Leo's Pub income was disrupted",
+                    "Day 28",
+                ),
+            ],
+            eyebrow: String::new(),
+            title: String::new(),
+            since_world_time: None,
+        };
+
+        assert_eq!(
+            briefing
+                .beats()
+                .iter()
+                .map(|item| item.title.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "Anchor Pub exhausted its payroll reserve",
+                "Leo's Pub income was disrupted"
+            ]
+        );
+    }
+
+    #[test]
+    fn the_second_of_two_different_sentences_stays() {
+        let briefing = BriefingProjection {
+            items: vec![
+                briefing_item(BriefingItemKind::Beat, "One", "The reclaimer is failing."),
+                briefing_item(BriefingItemKind::Beat, "Two", "The reclaimer is fixed."),
+            ],
+            eyebrow: String::new(),
+            title: String::new(),
+            since_world_time: None,
+        };
+        assert_eq!(briefing.beats().len(), 2);
+    }
+
+    #[test]
+    fn a_run_of_identical_entries_reads_as_one_line() {
+        let timeline = TimelineProjection {
+            items: vec![
+                timeline_entry(80, "Day 80", "World came to rest", ""),
+                timeline_entry(78, "Day 78", "Living cost unmet", "Jonas"),
+                timeline_entry(77, "Day 77", "Living cost paid", "Jonas"),
+                timeline_entry(76, "Day 76", "Living cost paid", "Jonas"),
+                timeline_entry(75, "Day 75", "Living cost paid", "Jonas"),
+                timeline_entry(74, "Day 74", "Living cost paid", "Jonas"),
+                timeline_entry(73, "Day 73", "Living cost paid", "Mara"),
+            ],
+        };
+
+        let runs = timeline.runs();
+
+        assert_eq!(
+            runs.iter()
+                .map(|run| (
+                    run.item.title.as_str(),
+                    run.item.subtitle.as_str(),
+                    run.repeats,
+                    run.since
+                ))
+                .collect::<Vec<_>>(),
+            vec![
+                ("World came to rest", "", 1, None),
+                ("Living cost unmet", "Jonas", 1, None),
+                ("Living cost paid", "Jonas", 4, Some("Day 74")),
+                // Same words, different person: never folded together.
+                ("Living cost paid", "Mara", 1, None),
+            ]
+        );
+        assert_eq!(
+            runs[2].item.when.as_deref(),
+            Some("Day 77"),
+            "a run keeps the newest entry's own words and names where it started"
+        );
+    }
+
+    #[test]
+    fn entries_that_differ_are_never_folded_and_nothing_is_reordered() {
+        let timeline = TimelineProjection {
+            items: vec![
+                timeline_entry(3, "Day 3", "Paid", "Jonas"),
+                timeline_entry(2, "Day 2", "Paid", "Mara"),
+                timeline_entry(1, "Day 1", "Paid", "Jonas"),
+            ],
+        };
+
+        let runs = timeline.runs();
+
+        assert_eq!(runs.len(), 3, "a repeat that is not adjacent is not a run");
+        assert!(runs.iter().all(|run| run.repeats == 1));
+        assert_eq!(
+            runs.iter()
+                .map(|run| run.item.world_time)
+                .collect::<Vec<_>>(),
+            vec![3, 2, 1]
+        );
+    }
+
+    #[test]
+    fn an_empty_timeline_has_no_runs() {
+        assert!(TimelineProjection::default().runs().is_empty());
+    }
 
     fn sample_world() -> World {
         let mut state = WorldState::default();
@@ -1402,8 +1862,8 @@ mod tests {
         let inspectors = inspectors_from_world(&world);
 
         assert_eq!(timeline.items.len(), 1);
-        assert_eq!(timeline.items[0].title, "Work Started");
-        assert_eq!(timeline.items[0].subtitle, "Workspace · Event #1");
+        assert_eq!(timeline.items[0].title, "Work started");
+        assert_eq!(timeline.items[0].subtitle, "Workspace");
         assert_eq!(
             inspectors
                 .get(&SelectionId::Entity(EntityId::new(1)))
@@ -1446,7 +1906,15 @@ mod tests {
         let timeline = timeline_from_world(&world);
         assert_eq!(
             timeline.items[0].subtitle,
-            "A durable direction was chosen. · Event #1"
+            "A durable direction was chosen."
+        );
+        // The engine's number for an Event is not part of the news.
+        assert!(
+            !timeline
+                .items
+                .iter()
+                .any(|item| item.subtitle.contains("Event #")),
+            "an event id reached a line a person reads"
         );
     }
 
@@ -1566,7 +2034,7 @@ mod tests {
             .iter()
             .find(|section| section.title == ENTITY_HISTORY_SECTION)
             .expect("history section should exist");
-        assert_eq!(recorded.rows[0].label, "World time 3 · Workspace Renamed");
+        assert_eq!(recorded.rows[0].label, "World time 3 · Workspace renamed");
         assert_eq!(recorded.rows[0].value, "event-3");
         assert_eq!(recorded.rows[1].value, "event-1");
 
@@ -1633,6 +2101,7 @@ mod tests {
     fn snapshot_command_lookup_is_generic() {
         let snapshot = ProjectionSnapshot {
             commands: vec![ProjectionCommand {
+                concerns: Vec::new(),
                 id: "world.continue".into(),
                 title: "Continue".into(),
                 detail: "Let the world keep running".into(),

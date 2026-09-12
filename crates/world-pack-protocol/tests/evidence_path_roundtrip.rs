@@ -23,6 +23,7 @@ fn protocol_v2_preserves_typed_shortest_evidence_path_across_json_wire_round_tri
             items: vec![TimelineItem {
                 id: event,
                 world_time: 9,
+                when: None,
                 title: "Changed".into(),
                 subtitle: "External Pack recorded change".into(),
                 caused_by: Vec::new(),
@@ -100,7 +101,7 @@ fn protocol_v2_preserves_typed_shortest_evidence_path_across_json_wire_round_tri
         PACK_PROTOCOL_VERSION_V2,
         7,
         PackResponse::Snapshot {
-            snapshot: ProjectionSnapshotWire::from(&snapshot),
+            snapshot: Box::new(ProjectionSnapshotWire::from(&snapshot)),
         },
     )
     .expect("v2 should carry evidence graph metadata");
@@ -109,7 +110,7 @@ fn protocol_v2_preserves_typed_shortest_evidence_path_across_json_wire_round_tri
     let PackResponse::Snapshot { snapshot } = decoded.response else {
         panic!("expected snapshot response");
     };
-    let restored = ProjectionSnapshot::try_from(snapshot).expect("snapshot should restore");
+    let restored = ProjectionSnapshot::try_from(*snapshot).expect("snapshot should restore");
 
     assert_eq!(
         restored.state_evidence_shortest_path(one, two),

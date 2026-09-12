@@ -15,4 +15,5 @@ world-host = { path = "../../crates/world-host" }
 
 [dev-dependencies]
 serde_json = "1"
+world-library = { path = "../../crates/world-library" }
 world-pack-protocol = { path = "../../crates/world-pack-protocol" }

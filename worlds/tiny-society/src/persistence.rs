@@ -2,7 +2,7 @@ use crate::model::OPERATING_STATUS;
 use crate::social::JONAS_DAILY_LIVING_COST;
 use crate::{
     behaviors, build_action_registry, projection, seed, TinySociety, TinySocietyBranch, BAKERY,
-    EMMA, HARBOR, JONAS, LEO, MARA, PUB, SCHOOL,
+    EMMA, EVAN, HARBOR, JONAS, LEO, MARA, NOAH, PUB, SCHOOL, SOFIA,
 };
 use society_basic::{integer_component, CASH, JOB};
 use std::error::Error;
@@ -91,6 +91,7 @@ impl TinySocietyBranch {
         let mut generated_events = Vec::new();
 
         for _ in 0..days {
+            let events_before_today = generated_events.len();
             let start_time = self.world.world_time();
             let morning_time = start_time
                 .checked_add(MORNING_OFFSET_TICKS)
@@ -101,6 +102,7 @@ impl TinySocietyBranch {
 
             schedule_jonas_living_cost(&mut self.world, morning_time)?;
             schedule_daily_bakery_purchases(&mut self.world, morning_time)?;
+            schedule_daily_pub_patrons(&mut self.world, morning_time)?;
             generated_events.extend(advance_branch_checkpoint(
                 &mut self.world,
                 &actions,
@@ -123,6 +125,9 @@ impl TinySocietyBranch {
             // one per day, so a long absence reads as a sequence rather than
             // resolving in one jump when somebody returns.
             daily.extend(crate::drift::resolve_overdue(&mut self.world, &actions)?);
+            // People are where their work is. When a workplace shuts, everyone
+            // who worked there is somewhere else by the end of the day.
+            daily.extend(crate::whereabouts::follow_work(&mut self.world, &actions)?);
             for event in daily {
                 generated_events.push(event);
                 let run = BehaviorRuntime::run_from_event(
@@ -133,6 +138,17 @@ impl TinySocietyBranch {
                     32,
                 )?;
                 generated_events.extend(run.generated_events);
+            }
+
+            // A day in which the town did nothing at all is the town having
+            // settled, and that is worth recording once — otherwise the World
+            // keeps advancing time in silence and a return cannot tell a town
+            // that has come to rest from one that is about to act.
+            let day_produced_events = generated_events.len() > events_before_today;
+            if let Some(rest) =
+                crate::stillness::note_if_at_rest(&mut self.world, &actions, day_produced_events)?
+            {
+                generated_events.push(rest);
             }
         }
 
@@ -202,6 +218,50 @@ fn schedule_daily_bakery_purchases(
     Ok(())
 }
 
+/// Who drinks at the Anchor Pub, and for how much.
+///
+/// The same arrangement the bakery has had all along. Without it the pub was
+/// a reserve draining at a fixed rate with no way to refill, which is why it
+/// was the first thing in town to run out.
+///
+/// The custom is deliberately a little short of the extra wage it now has to
+/// cover. The point of this was that a pub with a proprietor and an assistant
+/// should have customers, not that it should turn a profit: Anchor Pub
+/// running dry on roughly this schedule is a deliberate property of this
+/// World, and the beat that follows from it — Leo losing his income, drawing
+/// on savings, and eventually cutting back — is the chain the whole town
+/// turns on. Custom that covered the wages postponed that past the end of the
+/// World, and the beat simply stopped happening.
+fn schedule_daily_pub_patrons(world: &mut World, world_time: u64) -> Result<(), Box<dyn Error>> {
+    if !pub_is_open(world) {
+        return Ok(());
+    }
+
+    for (customer, amount) in [(EMMA, 5_i64), (NOAH, 4), (EVAN, 3)] {
+        if integer_component(world.state(), customer, CASH)? < amount {
+            continue;
+        }
+        world.schedule_at(
+            world_time,
+            ActionRequest::new("buy_drink")
+                .actor(customer)
+                .arg("customer", customer)
+                .arg("amount", amount),
+        )?;
+    }
+    Ok(())
+}
+
+fn pub_is_open(world: &World) -> bool {
+    matches!(
+        world
+            .state()
+            .entity(PUB)
+            .and_then(|entity| entity.component(OPERATING_STATUS)),
+        Some(Value::Text(status)) if status == "open"
+    )
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum WageReservation {
     Reserved,
@@ -218,6 +278,9 @@ fn schedule_daily_shifts(world: &mut World, world_time: u64) -> Result<(), Box<d
     }
     if current_job(world, LEO) == Some("pub_owner") {
         shifts.push((LEO, PUB, 22_i64));
+    }
+    if current_job(world, SOFIA) == Some("shop_assistant") {
+        shifts.push((SOFIA, PUB, 12_i64));
     }
 
     match current_job(world, JONAS) {
@@ -359,7 +422,9 @@ mod tests {
             .iter()
             .filter(|event| event.kind == "work_shift_completed")
             .collect::<Vec<_>>();
-        assert_eq!(routine_shifts.len(), 6);
+        // Four people work a routine day, not three: Sofia has been the pub's
+        // shop assistant since the first morning and now actually works.
+        assert_eq!(routine_shifts.len(), 8);
         assert!(routine_shifts
             .iter()
             .all(|event| event.actor != Some(JONAS)));
@@ -405,9 +470,11 @@ mod tests {
             integer_component(branch.world.state(), BAKERY, CASH).unwrap(),
             bakery_before
         );
+        // Emma earns 18, spends 9 on bread and 5 on a drink. The pub used to
+        // take nothing from anybody.
         assert_eq!(
             integer_component(branch.world.state(), EMMA, CASH).unwrap(),
-            emma_before + 5 * (18 - 9)
+            emma_before + 5 * (18 - 9 - 5)
         );
         assert_eq!(
             integer_component(branch.world.state(), LEO, CASH).unwrap(),
@@ -749,5 +816,72 @@ mod tests {
             }
         }
         panic!("event {kind} did not occur within {max_days} days");
+    }
+}
+
+#[cfg(test)]
+mod the_pub_is_a_business {
+    use super::*;
+    use crate::TinySociety;
+
+    /// The Anchor Pub has customers and staff, like the bakery.
+    ///
+    /// It used to have a proprietor, a shop assistant the World never
+    /// recorded employing, and no customers at all: its only money was the
+    /// reserve it was seeded with, draining at a fixed rate from the first
+    /// morning with no way to refill.
+    #[test]
+    fn the_pub_takes_money_and_pays_a_second_wage() {
+        let mut society = TinySociety::new().unwrap();
+        society.run_story().unwrap();
+        let mut branch = society.branch();
+        let cursor = branch.visit_cursor();
+        branch.advance_days(5).unwrap();
+
+        let since = &branch.world.events()[cursor.event_count..];
+        assert!(
+            since.iter().any(|event| event.kind == "drink_purchased"),
+            "somebody drinks at the pub"
+        );
+        assert!(
+            since
+                .iter()
+                .any(|event| event.kind == "work_shift_completed" && event.actor == Some(SOFIA)),
+            "Sofia works the job she has always had the title for"
+        );
+    }
+
+    /// And it still runs dry on the schedule this World is built around.
+    ///
+    /// The custom is deliberately a little short of the wages. Making the pub
+    /// solvent postponed Leo's income loss past the end of the World, and the
+    /// beat that follows from it — Leo drawing on savings and finally cutting
+    /// back, which is what starves the bakery — stopped happening at all. The
+    /// point was that the pub should have customers, not that it should turn
+    /// a profit.
+    #[test]
+    fn custom_does_not_rescue_the_pub_from_its_own_story() {
+        let mut society = TinySociety::new().unwrap();
+        society.run_story().unwrap();
+        let mut branch = society.branch();
+        branch.advance_days(200).unwrap();
+
+        let when = |kind: &str| {
+            branch
+                .world
+                .events()
+                .iter()
+                .find(|event| event.kind == kind)
+                .map(|event| event.world_time)
+        };
+        assert_eq!(
+            when("payroll_reserve_exhausted"),
+            Some(270),
+            "the pub runs dry when it always did"
+        );
+        assert!(
+            when("bread_budget_cut").is_some(),
+            "and Leo still eventually cuts back, which is the chain the town turns on"
+        );
     }
 }

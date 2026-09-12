@@ -86,7 +86,12 @@ impl PackServer {
                     .map_err(PackServerError::Host)?;
                 let snapshot = ProjectionSnapshotWire::from(&session.snapshot());
                 self.session = Some(session);
-                Ok((PackResponse::Snapshot { snapshot }, false))
+                Ok((
+                    PackResponse::Snapshot {
+                        snapshot: Box::new(snapshot),
+                    },
+                    false,
+                ))
             }
             PackRequest::Open { archive } => {
                 self.require_uninitialized("open")?;
@@ -96,13 +101,18 @@ impl PackServer {
                     .map_err(PackServerError::Host)?;
                 let snapshot = ProjectionSnapshotWire::from(&session.snapshot());
                 self.session = Some(session);
-                Ok((PackResponse::Snapshot { snapshot }, false))
+                Ok((
+                    PackResponse::Snapshot {
+                        snapshot: Box::new(snapshot),
+                    },
+                    false,
+                ))
             }
             PackRequest::Snapshot => {
                 let session = self.session("snapshot")?;
                 Ok((
                     PackResponse::Snapshot {
-                        snapshot: ProjectionSnapshotWire::from(&session.snapshot()),
+                        snapshot: Box::new(ProjectionSnapshotWire::from(&session.snapshot())),
                     },
                     false,
                 ))
@@ -114,7 +124,7 @@ impl PackServer {
                     .map_err(PackServerError::Host)?;
                 Ok((
                     PackResponse::Snapshot {
-                        snapshot: ProjectionSnapshotWire::from(&snapshot),
+                        snapshot: Box::new(ProjectionSnapshotWire::from(&snapshot)),
                     },
                     false,
                 ))
@@ -126,7 +136,7 @@ impl PackServer {
                     .map_err(PackServerError::Host)?;
                 Ok((
                     PackResponse::Snapshot {
-                        snapshot: ProjectionSnapshotWire::from(&snapshot),
+                        snapshot: Box::new(ProjectionSnapshotWire::from(&snapshot)),
                     },
                     false,
                 ))

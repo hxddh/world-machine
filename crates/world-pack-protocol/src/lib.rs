@@ -6,9 +6,10 @@ use world_core::{EntityId, EventId, RelationId};
 use world_persistence::{WorldArchive, WorldPackRef};
 use world_projection::{
     BriefingItem, BriefingItemKind, BriefingProjection, CanvasItem, CanvasItemKind,
-    CanvasProjection, CollectionItem, CollectionProjection, InspectorProjection, InspectorRow,
-    InspectorSection, ProjectionCapabilities, ProjectionCommand, ProjectionIntent,
-    ProjectionSnapshot, SelectionId, TimelineItem, TimelineProjection, WhyNode, WhyProjection,
+    CanvasItemState, CanvasProjection, CollectionItem, CollectionProjection, Fortune, FortunePoint,
+    InspectorProjection, InspectorRow, InspectorSection, ProjectionCapabilities, ProjectionCommand,
+    ProjectionIntent, ProjectionSnapshot, SelectionId, TimelineItem, TimelineProjection, WhyNode,
+    WhyProjection,
 };
 
 pub const PACK_MANIFEST_FORMAT: &str = "world-machine-pack";
@@ -203,11 +204,24 @@ pub enum PackRequest {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum PackResponse {
-    Descriptor { descriptor: PackDescriptor },
-    Snapshot { snapshot: ProjectionSnapshotWire },
-    Archive { archive: Option<WorldArchive> },
+    Descriptor {
+        descriptor: PackDescriptor,
+    },
+    /// Boxed because it dwarfs every other reply: a snapshot carries the
+    /// briefing, the canvas, the inspectors and now the shape of the World's
+    /// own past, and an unboxed variant makes every `Descriptor` reply as
+    /// large as the biggest snapshot. `Box` is transparent to serde, so the
+    /// wire format is unchanged.
+    Snapshot {
+        snapshot: Box<ProjectionSnapshotWire>,
+    },
+    Archive {
+        archive: Option<WorldArchive>,
+    },
     Ok,
-    Error { message: String },
+    Error {
+        message: String,
+    },
 }
 
 pub fn encode_request(request: &PackRequestEnvelope) -> Result<String, serde_json::Error> {
@@ -342,6 +356,60 @@ pub struct ProjectionSnapshotWire {
     pub canvas: CanvasProjectionWire,
     pub inspectors: Vec<InspectorProjectionWire>,
     pub why: Vec<WhyProjectionWire>,
+    /// Absent in snapshots written before a World could say how it is doing,
+    /// and absent from any Pack that does not offer a figure.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fortune: Option<FortuneWire>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FortuneWire {
+    pub label: String,
+    pub value: i64,
+    /// Absent in snapshots written before a World could report the shape of
+    /// its own past.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub history: Vec<FortunePointWire>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FortunePointWire {
+    pub world_time: u64,
+    pub value: i64,
+}
+
+impl From<&Fortune> for FortuneWire {
+    fn from(fortune: &Fortune) -> Self {
+        Self {
+            label: fortune.label.clone(),
+            value: fortune.value,
+            history: fortune
+                .history
+                .iter()
+                .map(|point| FortunePointWire {
+                    world_time: point.world_time,
+                    value: point.value,
+                })
+                .collect(),
+        }
+    }
+}
+
+impl From<FortuneWire> for Fortune {
+    fn from(fortune: FortuneWire) -> Self {
+        Self {
+            label: fortune.label,
+            value: fortune.value,
+            history: fortune
+                .history
+                .into_iter()
+                .map(|point| FortunePoint {
+                    world_time: point.world_time,
+                    value: point.value,
+                })
+                .collect(),
+        }
+    }
 }
 
 impl ProjectionSnapshotWire {
@@ -375,6 +443,7 @@ impl From<&ProjectionSnapshot> for ProjectionSnapshotWire {
             title: snapshot.title.clone(),
             world_time: snapshot.world_time,
             capabilities: snapshot.capabilities.into(),
+            fortune: snapshot.fortune.as_ref().map(FortuneWire::from),
             briefing: snapshot.briefing.as_ref().map(Into::into),
             commands: snapshot.commands.iter().map(Into::into).collect(),
             collection: (&snapshot.collection).into(),
@@ -417,6 +486,7 @@ impl TryFrom<ProjectionSnapshotWire> for ProjectionSnapshot {
             title: snapshot.title,
             world_time: snapshot.world_time,
             capabilities: snapshot.capabilities.into(),
+            fortune: snapshot.fortune.map(Into::into),
             briefing: snapshot.briefing.map(Into::into),
             commands: snapshot.commands.into_iter().map(Into::into).collect(),
             collection: snapshot.collection.into(),
@@ -454,6 +524,9 @@ pub struct ProjectionCommandWire {
     pub id: String,
     pub title: String,
     pub detail: String,
+    /// Absent in snapshots written before a choice could say who it was about.
+    #[serde(default)]
+    pub concerns: Vec<SelectionIdWire>,
 }
 
 impl From<&ProjectionCommand> for ProjectionCommandWire {
@@ -462,6 +535,7 @@ impl From<&ProjectionCommand> for ProjectionCommandWire {
             id: command.id.clone(),
             title: command.title.clone(),
             detail: command.detail.clone(),
+            concerns: command.concerns.iter().map(|id| (*id).into()).collect(),
         }
     }
 }
@@ -472,6 +546,7 @@ impl From<ProjectionCommandWire> for ProjectionCommand {
             id: command.id,
             title: command.title,
             detail: command.detail,
+            concerns: command.concerns.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -481,11 +556,16 @@ pub struct BriefingProjectionWire {
     pub eyebrow: String,
     pub title: String,
     pub items: Vec<BriefingItemWire>,
+    /// Absent in snapshots written before a briefing could say when the
+    /// absence it describes began.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub since_world_time: Option<u64>,
 }
 
 impl From<&BriefingProjection> for BriefingProjectionWire {
     fn from(briefing: &BriefingProjection) -> Self {
         Self {
+            since_world_time: briefing.since_world_time,
             eyebrow: briefing.eyebrow.clone(),
             title: briefing.title.clone(),
             items: briefing.items.iter().map(Into::into).collect(),
@@ -496,6 +576,7 @@ impl From<&BriefingProjection> for BriefingProjectionWire {
 impl From<BriefingProjectionWire> for BriefingProjection {
     fn from(briefing: BriefingProjectionWire) -> Self {
         Self {
+            since_world_time: briefing.since_world_time,
             eyebrow: briefing.eyebrow,
             title: briefing.title,
             items: briefing.items.into_iter().map(Into::into).collect(),
@@ -513,6 +594,10 @@ pub struct BriefingItemWire {
     /// decode back to.
     #[serde(default)]
     pub kind: BriefingItemKindWire,
+    /// Absent in snapshots written before a briefing line could say who it was
+    /// about; those decode to a line about nobody in particular.
+    #[serde(default)]
+    pub concerns: Vec<SelectionIdWire>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -548,6 +633,7 @@ impl From<&BriefingItem> for BriefingItemWire {
             title: item.title.clone(),
             detail: item.detail.clone(),
             kind: item.kind.into(),
+            concerns: item.concerns.iter().map(|id| (*id).into()).collect(),
         }
     }
 }
@@ -559,6 +645,7 @@ impl From<BriefingItemWire> for BriefingItem {
             title: item.title,
             detail: item.detail,
             kind: item.kind.into(),
+            concerns: item.concerns.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -639,6 +726,11 @@ impl From<TimelineProjectionWire> for TimelineProjection {
 pub struct TimelineItemWire {
     pub id: SelectionIdWire,
     pub world_time: u64,
+    /// Absent in snapshots written before an entry could say when it happened
+    /// in the World's own words; those decode to an entry with no time on it,
+    /// which is how they were drawn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub when: Option<String>,
     pub title: String,
     pub subtitle: String,
     pub caused_by: Vec<u64>,
@@ -649,6 +741,7 @@ impl From<&TimelineItem> for TimelineItemWire {
         Self {
             id: item.id.into(),
             world_time: item.world_time,
+            when: item.when.clone(),
             title: item.title.clone(),
             subtitle: item.subtitle.clone(),
             caused_by: item.caused_by.iter().map(|event| event.0).collect(),
@@ -661,6 +754,7 @@ impl From<TimelineItemWire> for TimelineItem {
         Self {
             id: item.id.into(),
             world_time: item.world_time,
+            when: item.when,
             title: item.title,
             subtitle: item.subtitle,
             caused_by: item.caused_by.into_iter().map(EventId::new).collect(),
@@ -725,6 +819,45 @@ pub struct CanvasItemWire {
     pub detail: String,
     pub x: f32,
     pub y: f32,
+    /// Both absent in snapshots written before a canvas could say where a
+    /// thing is or how it is doing; those decode to a loose item that is
+    /// working, which is exactly how they used to read.
+    #[serde(default)]
+    pub at: Option<SelectionIdWire>,
+    #[serde(default)]
+    pub state: CanvasItemStateWire,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CanvasItemStateWire {
+    #[default]
+    Working,
+    Stopped,
+    Hurt,
+    Gone,
+}
+
+impl From<CanvasItemState> for CanvasItemStateWire {
+    fn from(state: CanvasItemState) -> Self {
+        match state {
+            CanvasItemState::Working => Self::Working,
+            CanvasItemState::Stopped => Self::Stopped,
+            CanvasItemState::Hurt => Self::Hurt,
+            CanvasItemState::Gone => Self::Gone,
+        }
+    }
+}
+
+impl From<CanvasItemStateWire> for CanvasItemState {
+    fn from(state: CanvasItemStateWire) -> Self {
+        match state {
+            CanvasItemStateWire::Working => Self::Working,
+            CanvasItemStateWire::Stopped => Self::Stopped,
+            CanvasItemStateWire::Hurt => Self::Hurt,
+            CanvasItemStateWire::Gone => Self::Gone,
+        }
+    }
 }
 
 impl From<&CanvasItem> for CanvasItemWire {
@@ -736,6 +869,8 @@ impl From<&CanvasItem> for CanvasItemWire {
             detail: item.detail.clone(),
             x: item.x,
             y: item.y,
+            at: item.at.map(Into::into),
+            state: item.state.into(),
         }
     }
 }
@@ -749,6 +884,8 @@ impl From<CanvasItemWire> for CanvasItem {
             detail: item.detail,
             x: item.x,
             y: item.y,
+            at: item.at.map(Into::into),
+            state: item.state.into(),
         }
     }
 }
@@ -1011,9 +1148,9 @@ mod tests {
     use super::*;
     use world_projection::{
         BriefingItem, BriefingProjection, CanvasItem, CanvasItemKind, CanvasProjection,
-        CollectionItem, CollectionProjection, InspectorProjection, InspectorRow, InspectorSection,
-        ProjectionCapabilities, ProjectionCommand, TimelineItem, TimelineProjection, WhyNode,
-        WhyProjection,
+        CollectionItem, CollectionProjection, Fortune, FortunePoint, InspectorProjection,
+        InspectorRow, InspectorSection, ProjectionCapabilities, ProjectionCommand, TimelineItem,
+        TimelineProjection, WhyNode, WhyProjection,
     };
 
     fn descriptor() -> PackDescriptor {
@@ -1024,17 +1161,43 @@ mod tests {
         )
     }
 
+    /// Every optional and defaulted surface carries a value that is *not* its
+    /// default.
+    ///
+    /// This is the point of the fixture rather than a detail of it. A wire
+    /// conversion that silently drops a field is invisible to a round trip
+    /// whose fixture left that field empty — both sides agree on `None`, the
+    /// test passes, and the feature is gone. `since_world_time` shipped that
+    /// way: dropped in both directions, so every Pack running out of process
+    /// lost the moment its absence began, and the one screenshot that could
+    /// have shown it had nothing to shade.
     fn sample_snapshot() -> ProjectionSnapshot {
         let entity = SelectionId::Entity(EntityId::new(7));
         let event = SelectionId::Event(EventId::new(9));
         ProjectionSnapshot {
+            fortune: Some(Fortune {
+                label: "how it is doing".into(),
+                value: 11,
+                history: vec![
+                    FortunePoint {
+                        world_time: 40,
+                        value: 9,
+                    },
+                    FortunePoint {
+                        world_time: 41,
+                        value: 11,
+                    },
+                ],
+            }),
             title: "External World".into(),
             world_time: 42,
             capabilities: ProjectionCapabilities { fork: true },
             briefing: Some(BriefingProjection {
+                since_world_time: Some(40),
                 eyebrow: "Status".into(),
                 title: "World briefing".into(),
                 items: vec![BriefingItem {
+                    concerns: vec![entity],
                     kind: BriefingItemKind::Status,
                     selection: Some(entity),
                     title: "Entity seven".into(),
@@ -1042,6 +1205,7 @@ mod tests {
                 }],
             }),
             commands: vec![ProjectionCommand {
+                concerns: vec![entity],
                 id: "external.advance".into(),
                 title: "Advance".into(),
                 detail: "Advance the external world".into(),
@@ -1058,6 +1222,7 @@ mod tests {
                 items: vec![TimelineItem {
                     id: event,
                     world_time: 41,
+                    when: Some("Cycle 6".into()),
                     title: "Changed".into(),
                     subtitle: "Event nine".into(),
                     caused_by: vec![EventId::new(8)],
@@ -1071,6 +1236,8 @@ mod tests {
                     detail: "On the canvas".into(),
                     x: 0.25,
                     y: 0.75,
+                    at: Some(entity),
+                    state: CanvasItemState::Hurt,
                 }],
             },
             inspectors: BTreeMap::from([(

@@ -438,6 +438,7 @@ mod tests {
                 title: format!("Mock {}", self.count),
                 capabilities: ProjectionCapabilities { fork: false },
                 commands: vec![ProjectionCommand {
+                    concerns: Vec::new(),
                     id: "mock.advance".into(),
                     title: "Advance".into(),
                     detail: "Advance the mock world".into(),

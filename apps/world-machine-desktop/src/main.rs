@@ -80,6 +80,9 @@ use world_persistence::WorldPackRef;
 
 #[cfg(target_os = "macos")]
 const LIBRARY_OVERRIDE_ENV: &str = "WORLD_MACHINE_LIBRARY_DIR";
+/// Set to "world" to open World windows on the reference surface, so that the
+/// screenshot run can photograph a surface it cannot click its way to.
+const OPEN_SURFACE_ENV: &str = "WORLD_MACHINE_OPEN_SURFACE";
 #[cfg(target_os = "macos")]
 const PACK_CATALOG_OVERRIDE_ENV: &str = "WORLD_MACHINE_PACK_CATALOG";
 #[cfg(target_os = "macos")]
@@ -175,7 +178,17 @@ fn remembered_window_bounds(which: RememberedWindow, cx: &App) -> Option<Bounds<
         RememberedWindow::World => geometry.world,
     };
     drop(geometry);
-    StoredWindowBounds::restorable(stored, &display_bounds(cx)).map(restored_bounds)
+    let displays = display_bounds(cx);
+    // Reopened where it was, but never further down than you can see. A
+    // remembered rectangle is checked for reachability, which a window hanging
+    // into the Dock passes; clamping only the default window fixed the first
+    // World opened and nothing after it.
+    let restorable = StoredWindowBounds::restorable(stored, &displays)?;
+    let fitted = match restorable.home_display(&displays) {
+        Some(display) => restorable.fit_within(display, MENU_BAR, DOCK),
+        None => restorable,
+    };
+    Some(restored_bounds(fitted))
 }
 
 /// Write any geometry that changed since the last write. Cheap and silent when
@@ -321,9 +334,6 @@ impl DocumentStatus {
 
 #[cfg(target_os = "macos")]
 struct WorldDocumentView {
-    /// The durable identity of the World's file. Stays visible so a World can
-    /// always be matched to the file it lives in.
-    document_label: String,
     /// What this World is called: the name its owner gave it on Home, or the
     /// durable identity when it has none.
     document_name: String,
@@ -344,7 +354,6 @@ impl WorldDocumentView {
         library: Arc<WorldLibrary>,
         cx: &mut Context<Self>,
     ) -> Self {
-        let document_label = session.display_name();
         let document_name = session_display_name(&session);
         let document = Rc::new(RefCell::new(SharedDocumentState {
             session,
@@ -354,10 +363,16 @@ impl WorldDocumentView {
         let controller = HostProjectionController {
             document: Rc::clone(&document),
         };
-        let projection = cx.new(|_| world_gpui::ProjectionView::controlled(controller));
+        let projection = cx.new(|_| {
+            let mut view = world_gpui::ProjectionView::controlled(controller);
+            // Only the screenshot run sets this; see `open_on_the_world`.
+            if std::env::var(OPEN_SURFACE_ENV).is_ok_and(|value| value == "world") {
+                view.open_on_the_world();
+            }
+            view
+        });
         let analyst_available = world_fork::analyst_available();
         Self {
-            document_label,
             document_name,
             document,
             projection,
@@ -369,15 +384,10 @@ impl WorldDocumentView {
     /// Re-read what this World is called from the session, after anything
     /// that can change its file or its target.
     fn refresh_document_identity(&mut self) {
-        let (label, name) = {
+        self.document_name = {
             let document = self.document.borrow();
-            (
-                document.session.display_name(),
-                session_display_name(&document.session),
-            )
+            session_display_name(&document.session)
         };
-        self.document_label = label;
-        self.document_name = name;
     }
 
     /// Opens Compare Futures for this World. Returns the Home status to show
@@ -588,27 +598,17 @@ impl Render for WorldDocumentView {
                     })),
             );
 
-        // The World is called by its name; the durable file identity stays
-        // beside it, so renaming never hides which file this window edits.
-        let mut identity = div()
-            .flex_1()
-            .min_w(px(0.0))
-            .flex()
-            .gap_2()
-            .items_center()
-            .overflow_hidden()
-            .child(div().text_sm().child(self.document_name.clone()));
-        if self.document_name != self.document_label {
-            identity = identity.child(
-                div()
-                    .text_xs()
-                    .text_color(crate::theme_rgb(0x8a8a82))
-                    .child(self.document_label.clone()),
-            );
-        }
+        // The row keeps the actions and nothing else. It used to print the
+        // file's name on the left, and the window's own title bar — which is
+        // four rows above it and says "harbour-town — World Machine" — was
+        // already printing exactly that. Which file the window edits is
+        // something the title bar owns; a slug spelled twice in the first
+        // hundred pixels of every World is just the first thing you read
+        // being a filename.
+        let identity = div().flex_1().min_w(px(0.0));
 
         let mut chrome = div()
-            .h(px(48.0))
+            .h(px(40.0))
             .w_full()
             .flex()
             .items_center()
@@ -744,6 +744,14 @@ struct WorldMachineHome {
     world_sort: WorldSort,
     /// What was typed into Find a World.
     world_search: Entity<AnalystTextInput>,
+    /// How long each World has been on its own, read from the observer clock
+    /// when the shelf is built rather than on every frame.
+    absences: std::collections::HashMap<WorldDocumentId, observer::Absence>,
+    /// The Worlds whose card has been opened up. A card says three things by
+    /// default; everything else — the Pack, the World's own clock, the file,
+    /// and the four things you can do to a World other than open it — is
+    /// behind one word, because none of it is why you came.
+    expanded_cards: std::collections::HashSet<WorldDocumentId>,
 }
 
 /// A World name being typed on Home. Only one World is renamed at a time, so
@@ -1370,6 +1378,7 @@ impl WorldMachineHome {
         let count = listing.documents.len();
         self.documents = listing.documents;
         self.unreadable_documents = listing.unreadable;
+        self.refresh_absences();
         report_unreadable_documents(&self.unreadable_documents);
         // A World that is gone from the Library cannot still be mid-rename or
         // mid-removal on a card.
@@ -1394,6 +1403,16 @@ impl WorldMachineHome {
         }
         self.refresh_lineage()?;
         Ok(count)
+    }
+
+    fn refresh_absences(&mut self) {
+        let ids = self
+            .documents
+            .iter()
+            .map(|document| document.id.clone())
+            .collect::<Vec<_>>();
+        self.absences = observer::absences(&ids, self.library.as_ref());
+        self.expanded_cards.retain(|id| ids.contains(id));
     }
 
     fn refresh_lineage(&mut self) -> Result<(), HomeStatus> {
@@ -1451,7 +1470,7 @@ impl WorldMachineHome {
         let registry = Arc::clone(&self.registry);
         let library = Arc::clone(&self.library);
         let bounds = remembered_window_bounds(RememberedWindow::World, cx)
-            .unwrap_or_else(|| Bounds::centered(None, size(px(1100.0), px(900.0)), cx));
+            .unwrap_or_else(|| default_window(1100.0, 900.0, cx));
         let opened = cx.open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
@@ -1727,7 +1746,12 @@ impl WorldMachineHome {
             .documents
             .iter()
             .find(|document| document.id == document_id)
-            .and_then(|document| document.display_title.as_deref())
+            .and_then(|document| {
+                document
+                    .display_title
+                    .as_deref()
+                    .or(document.world_title.as_deref())
+            })
             .unwrap_or_default();
         let suggested_name = suggested_world_file_name(semantic_title, document_id.as_str());
         let save_dialog = cx.prompt_for_new_path(&PathBuf::default(), Some(&suggested_name));
@@ -2007,29 +2031,36 @@ impl WorldMachineHome {
                     .child(summary),
             );
         }
-        details = details
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(crate::theme_rgb(0x666666))
-                    .child(if title == pack_title {
-                        format!(
-                            "World time {} · {} events",
-                            document.world_time, document.event_count
-                        )
-                    } else {
-                        format!(
-                            "{} · World time {} · {} events",
-                            pack_title, document.world_time, document.event_count
-                        )
-                    }),
-            )
-            .child(
+        // The one thing a shelf of Worlds that keep living has to say, and the
+        // one thing it was not saying. A World with no observer stamp has
+        // never been opened on this Mac, and says that rather than saying
+        // nothing: with the line simply absent, one card in a column of four
+        // was a row shorter than the rest for no reason a reader could see.
+        details = details.child(
+            div()
+                .text_sm()
+                .text_color(crate::theme_rgb(0x666666))
+                .child(match self.absences.get(&document.id).copied() {
+                    Some(absence) => observer::absence_sentence(absence),
+                    None => "Not opened yet.".to_string(),
+                }),
+        );
+
+        let expanded = self.expanded_cards.contains(&document.id);
+        if expanded {
+            details = details.child(
                 div()
                     .text_xs()
                     .text_color(crate::theme_rgb(0x8a8a82))
-                    .child(document_label.clone()),
+                    .child(format!(
+                        "{} · World time {} · {} events · {}",
+                        pack_title,
+                        document.world_time,
+                        document.event_count,
+                        document_label.clone()
+                    )),
             );
+        }
 
         let renaming_this_world = self
             .renaming
@@ -2138,7 +2169,7 @@ impl WorldMachineHome {
                             ),
                     ),
             );
-        } else {
+        } else if expanded {
             details = details.child(
                 div()
                     .flex()
@@ -2167,7 +2198,7 @@ impl WorldMachineHome {
             );
         }
 
-        if let Some(node) = lineage_node {
+        if let Some(node) = lineage_node.filter(|_| expanded) {
             if let Some(parent) = node.parent.as_ref() {
                 let branch_label = node.branch.as_ref().map(lineage_branch_label);
                 let mut origin = div()
@@ -2286,6 +2317,77 @@ impl WorldMachineHome {
             }
         }
 
+        // One button. Opening the World is the only reason this card exists;
+        // branching it, exporting it and the rest were three more buttons of
+        // equal weight on every card of a shelf you are meant to read.
+        let toggle_id = document.id.clone();
+        let mut actions = div()
+            .flex_shrink_0()
+            .flex()
+            .flex_col()
+            .items_end()
+            .gap_2()
+            .child(
+                div()
+                    .id(SharedString::from(format!("open-{open_id}")))
+                    .cursor_pointer()
+                    .p_2()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(crate::theme_rgb(0x657da7))
+                    .bg(crate::theme_rgb(0xf4f7ff))
+                    .text_sm()
+                    .child("Open")
+                    .on_click(
+                        cx.listener(move |this, _, _, cx| this.open_document(open_id.clone(), cx)),
+                    ),
+            )
+            .child(
+                div()
+                    .id(SharedString::from(format!("more-{document_label}")))
+                    .cursor_pointer()
+                    .text_xs()
+                    .text_color(crate::theme_rgb(0x777770))
+                    .child(if expanded { "Less" } else { "More" })
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if !this.expanded_cards.remove(&toggle_id) {
+                            this.expanded_cards.insert(toggle_id.clone());
+                        }
+                        cx.notify();
+                    })),
+            );
+        if expanded {
+            actions = actions
+                .child(
+                    div()
+                        .id(SharedString::from(format!("compare-{compare_id}")))
+                        .cursor_pointer()
+                        .p_2()
+                        .rounded_md()
+                        .border_1()
+                        .border_color(crate::theme_rgb(0xd9d9d3))
+                        .text_sm()
+                        .child("What if…")
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.compare_document(compare_id.clone(), cx)
+                        })),
+                )
+                .child(
+                    div()
+                        .id(SharedString::from(format!("export-{export_id}")))
+                        .cursor_pointer()
+                        .p_2()
+                        .rounded_md()
+                        .border_1()
+                        .border_color(crate::theme_rgb(0xd9d9d3))
+                        .text_sm()
+                        .child("Export…")
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.export_document(export_id.clone(), cx)
+                        })),
+                );
+        }
+
         div()
             .id(SharedString::from(format!("document-{document_label}")))
             .w_full()
@@ -2299,57 +2401,7 @@ impl WorldMachineHome {
             .items_center()
             .gap_3()
             .child(details)
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .flex()
-                    .flex_col()
-                    .items_end()
-                    .gap_2()
-                    .child(
-                        div()
-                            .id(SharedString::from(format!("open-{open_id}")))
-                            .cursor_pointer()
-                            .p_2()
-                            .rounded_md()
-                            .border_1()
-                            .border_color(crate::theme_rgb(0x657da7))
-                            .bg(crate::theme_rgb(0xf4f7ff))
-                            .text_sm()
-                            .child("Open")
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.open_document(open_id.clone(), cx)
-                            })),
-                    )
-                    .child(
-                        div()
-                            .id(SharedString::from(format!("compare-{compare_id}")))
-                            .cursor_pointer()
-                            .p_2()
-                            .rounded_md()
-                            .border_1()
-                            .border_color(crate::theme_rgb(0xd9d9d3))
-                            .text_sm()
-                            .child("What if…")
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.compare_document(compare_id.clone(), cx)
-                            })),
-                    )
-                    .child(
-                        div()
-                            .id(SharedString::from(format!("export-{export_id}")))
-                            .cursor_pointer()
-                            .p_2()
-                            .rounded_md()
-                            .border_1()
-                            .border_color(crate::theme_rgb(0xd9d9d3))
-                            .text_sm()
-                            .child("Export…")
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.export_document(export_id.clone(), cx)
-                            })),
-                    ),
-            )
+            .child(actions)
     }
 
     fn included_pack_is_installed(&self, pack: &WorldPackRef) -> bool {
@@ -2502,6 +2554,14 @@ impl WorldMachineHome {
         descriptor: world_host::WorldDescriptor,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
+        // This card sat above "My Worlds · 4" telling somebody with four
+        // Worlds to start their first one, and gave its third line to the
+        // Pack's version number.
+        let invitation = if self.documents.is_empty() {
+            "Start your first World. It keeps living between visits, and you can always create another."
+        } else {
+            "A World of its own, living alongside the ones you already have."
+        };
         let pack_id = descriptor.pack.id.clone();
         let title = descriptor.title.clone();
         let button_title = format!("Create {}", descriptor.title);
@@ -2532,13 +2592,12 @@ impl WorldMachineHome {
                     .flex_col()
                     .gap_1()
                     .child(div().text_lg().child(format!("{title} is ready")))
-                    .child(div().text_sm().text_color(crate::theme_rgb(0x52604d)).child(
-                        "Start your first World. It keeps living between visits, and you can always create another.",
-                    ))
-                    .child(div().text_xs().text_color(crate::theme_rgb(0x75806f)).child(format!(
-                        "Version {} · no World created yet",
-                        descriptor.pack.version
-                    ))),
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(crate::theme_rgb(0x52604d))
+                            .child(invitation),
+                    ),
             )
             .child(
                 div()
@@ -3308,10 +3367,19 @@ fn report_unreadable_documents(unreadable: &[UnreadableWorldFile]) {
 }
 
 #[cfg(target_os = "macos")]
+/// What a World is called on its card: the name its owner typed, else the name
+/// the World last gave itself, else the Pack's title.
+///
+/// The middle step is the one that was missing. A World's own title is not a
+/// constant — an unseeded Pocket Universe calls itself "Pocket Universe" and
+/// the same document calls itself "Ares Pocket Colony" once it is seeded — and
+/// with only the first and last steps every World of a Pack sat on the Home
+/// screen under the Pack's name, indistinguishable from its siblings.
 fn world_summary_title(document: &WorldDocumentSummary, pack_title: &str) -> String {
     document
         .display_title
         .as_deref()
+        .or(document.world_title.as_deref())
         .map(str::trim)
         .filter(|title| !title.is_empty())
         .unwrap_or(pack_title)
@@ -3377,7 +3445,7 @@ fn document_display_name(display_title: Option<&str>, durable_label: &str) -> St
 #[cfg(target_os = "macos")]
 fn session_display_name(session: &DurableWorldSession) -> String {
     let durable_label = session.display_name();
-    document_display_name(session.metadata().display_title.as_deref(), &durable_label)
+    document_display_name(session.metadata().label(), &durable_label)
 }
 
 #[cfg(target_os = "macos")]
@@ -3660,6 +3728,7 @@ mod file_type_tests {
             id: WorldDocumentId::new(id).unwrap(),
             pack: WorldPackRef::new(pack_id, "1.0.0"),
             display_title: None,
+            world_title: None,
             display_summary: None,
             world_time: 0,
             event_count: 0,
@@ -3718,6 +3787,7 @@ mod file_type_tests {
             id: WorldDocumentId::new("mars").unwrap(),
             pack,
             display_title: Some("  Ares Pocket Colony  ".into()),
+            world_title: None,
             display_summary: Some("  Current thread · Ridge Network  ".into()),
             world_time: 3,
             event_count: 7,
@@ -3787,6 +3857,7 @@ mod file_type_tests {
                     id: WorldDocumentId::new(id).unwrap(),
                     pack: WorldPackRef::new("pocket-universe", "1.0.0"),
                     display_title: Some(title.to_owned()),
+                    world_title: None,
                     display_summary: None,
                     world_time: 0,
                     event_count: 0,
@@ -4082,7 +4153,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 pending_removal: None,
                 world_sort: WorldSort::Recent,
                 world_search,
+                absences: std::collections::HashMap::new(),
+                expanded_cards: std::collections::HashSet::new(),
             };
+            // The shelf says how long each World has been alone from its first
+            // frame, not only after something has made it reload.
+            home.refresh_absences();
             home.start_system_open_listener(cx);
             home.activate_included_packs(cx);
             home.start_update_check(cx);
@@ -4105,10 +4181,56 @@ struct HomeEntity(Entity<WorldMachineHome>);
 #[cfg(target_os = "macos")]
 impl Global for HomeEntity {}
 
+/// Room the menu bar takes at the top of every Mac screen, and room the Dock
+/// takes at the bottom of most of them. gpui reports the display's whole size,
+/// which includes both.
+#[cfg(target_os = "macos")]
+const MENU_BAR: f32 = 40.0;
+#[cfg(target_os = "macos")]
+const DOCK: f32 = 110.0;
+
+/// A default window that fits the part of the screen you can actually see.
+///
+/// Two mistakes, one after the other. `Bounds::centered` centres whatever it
+/// is given, including a window larger than the display: the World default is
+/// 1100x900, and on a 1024x768 screen that put the window 38 pixels off the
+/// left edge and 66 off the top. Clamping to the display fixed that and left
+/// the second one, which is that the display is not all yours. Centred
+/// vertically on a 1080-tall screen, a 900-tall window ends 90 pixels from the
+/// bottom, and the Dock is taller than that — so "Your turn", the row that
+/// asks you to decide, sat behind the Dock with its choices cut off. It was
+/// clipped in every screenshot of a World and I read it as the screenshot's
+/// fault twice.
+///
+/// The window is centred in the band between the menu bar and the Dock rather
+/// than on the glass.
+#[cfg(target_os = "macos")]
+fn default_window(width: f32, height: f32, cx: &mut App) -> Bounds<gpui::Pixels> {
+    let screen = cx
+        .primary_display()
+        .map(|display| display.bounds().size)
+        .unwrap_or_else(|| size(px(width), px(height)));
+    let screen_width = f32::from(screen.width);
+    let screen_height = f32::from(screen.height);
+    let usable_height = (screen_height - MENU_BAR - DOCK).max(screen_height * 0.5);
+    // A margin so the window does not sit flush against the screen edges. The
+    // arithmetic stays in f32 and becomes Pixels once: `Pixels::min` takes
+    // Pixels, and mixing the two is what broke the macOS build.
+    let window_width = width.min(screen_width * 0.94);
+    let window_height = height.min(usable_height);
+    Bounds {
+        origin: gpui::point(
+            px((screen_width - window_width) / 2.0),
+            px(MENU_BAR + (usable_height - window_height) / 2.0),
+        ),
+        size: size(px(window_width), px(window_height)),
+    }
+}
+
 #[cfg(target_os = "macos")]
 fn open_home_window(home: Entity<WorldMachineHome>, cx: &mut App) {
     let bounds = remembered_window_bounds(RememberedWindow::Home, cx)
-        .unwrap_or_else(|| Bounds::centered(None, size(px(760.0), px(760.0)), cx));
+        .unwrap_or_else(|| default_window(760.0, 760.0, cx));
     if let Err(error) = cx.open_window(
         WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),

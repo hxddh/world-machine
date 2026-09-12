@@ -16,6 +16,7 @@ pub(crate) fn register(registry: &mut ActionRegistry) -> Result<(), ActionError>
     registry.register(LoseOrder)?;
     registry.register(DismissWorker)?;
     registry.register(BuyBread)?;
+    registry.register(BuyDrink)?;
     registry.register(RecordPayrollShortfall)?;
     registry.register(CloseBakery)?;
     registry.register(ReopenBakery)?;
@@ -378,6 +379,59 @@ impl Action for BuyBread {
                 entity: BAKERY,
                 key: CASH.into(),
                 value: (bakery_cash + amount).into(),
+            },
+        ];
+        Ok(draft)
+    }
+}
+
+/// A drink at the Anchor Pub.
+///
+/// The pub had a proprietor, an assistant and no customers: its only money
+/// was the reserve it was seeded with, so it drained at a fixed rate from the
+/// first morning and nothing could ever refill it. The bakery has always had
+/// customers. This is the same arrangement for the other business in town,
+/// and it is what "money circulates between neighbours" has to mean if the
+/// pub is part of the town at all.
+struct BuyDrink;
+
+impl Action for BuyDrink {
+    fn name(&self) -> &'static str {
+        "buy_drink"
+    }
+
+    fn evaluate(
+        &self,
+        state: &WorldState,
+        request: &ActionRequest,
+    ) -> Result<EventDraft, ActionError> {
+        if text_component(state, PUB, OPERATING_STATUS)? != "open" {
+            return Err(ActionError::Invalid("the pub is closed".into()));
+        }
+        let customer = entity_arg(request, "customer")?;
+        let amount = positive_integer_arg(request, "amount")?;
+        let customer_cash = integer_component(state, customer, CASH)?;
+        if customer_cash < amount {
+            return Err(ActionError::Invalid(format!(
+                "customer {customer} cannot afford a drink costing {amount}"
+            )));
+        }
+        let pub_cash = integer_component(state, PUB, CASH)?;
+
+        let mut draft = EventDraft::new("drink_purchased");
+        draft.actor = Some(customer);
+        draft.targets = vec![customer, PUB];
+        draft.payload.insert("amount".into(), amount.into());
+        draft.changes = vec![
+            StateChange::SetComponent {
+                entity: customer,
+                key: CASH.into(),
+                value: (customer_cash - amount).into(),
+            },
+            StateChange::SetComponent {
+                entity: PUB,
+                key: CASH.into(),
+                value: (pub_cash + amount).into(),
             },
         ];
         Ok(draft)

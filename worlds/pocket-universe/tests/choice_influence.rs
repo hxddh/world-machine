@@ -63,27 +63,27 @@ fn old_choices_expose_semantic_world_effects_without_erasing_supporting_history(
 
     assert!(raw_relationship
         .iter()
-        .any(|(_, _, title)| title == "Agent Decision Recorded"));
+        .any(|(_, _, title)| title == "Agent decision recorded"));
     assert!(semantic_relationship
         .iter()
-        .all(|(_, _, title)| title != "Agent Decision Recorded"));
+        .all(|(_, _, title)| title != "Agent decision recorded"));
     assert!(semantic_relationship
         .iter()
-        .any(|(_, _, title)| title == "Relationship Shifted"));
+        .any(|(_, _, title)| title == "Relationship shifted"));
     assert!(semantic_relationship.len() < raw_relationship.len());
 
     let relationship_path = semantic_path_signature(&relationship_snapshot, relationship);
     assert!(relationship_path.len() >= 3);
     assert!(relationship_path
         .iter()
-        .all(|(_, title)| title != "Agent Decision Recorded"));
+        .all(|(_, title)| title != "Agent decision recorded"));
     let shifted = relationship_path
         .iter()
-        .position(|(_, title)| title == "Relationship Shifted")
+        .position(|(_, title)| title == "Relationship shifted")
         .expect("the compressed thread should include the materialized relationship shift");
     let partnership = relationship_path
         .iter()
-        .position(|(_, title)| title == "Partnership Formed")
+        .position(|(_, title)| title == "Partnership formed")
         .expect("the latest relationship thread should reach the resolved social arc");
     assert!(shifted < partnership);
 
@@ -91,7 +91,7 @@ fn old_choices_expose_semantic_world_effects_without_erasing_supporting_history(
     assert_eq!(relationship_details.len(), relationship_path.len());
     assert!(relationship_details
         .iter()
-        .all(|(_, _, title, _)| title != "Agent Decision Recorded"));
+        .all(|(_, _, title, _)| title != "Agent decision recorded"));
     assert!(
         relationship_details
             .iter()
@@ -100,15 +100,17 @@ fn old_choices_expose_semantic_world_effects_without_erasing_supporting_history(
     );
     let shifted_effect = relationship_details
         .iter()
-        .find(|(_, _, title, _)| title == "Relationship Shifted")
+        .find(|(_, _, title, _)| title == "Relationship shifted")
         .map(|(_, _, _, effect)| effect)
         .expect("relationship shift should carry recorded semantic evidence");
-    assert!(shifted_effect.contains("Trust is"));
     assert!(shifted_effect.contains("Recorded state"));
-    assert!(shifted_effect.contains("Trust"));
+    // Where trust landed comes from the recorded change — "Trust 4 → 6" —
+    // rather than from the summary sentence restating it, which is why the
+    // sentence no longer does.
+    assert!(shifted_effect.contains("Trust 4 → 6"), "{shifted_effect}");
     let partnership_effect = relationship_details
         .iter()
-        .find(|(_, _, title, _)| title == "Partnership Formed")
+        .find(|(_, _, title, _)| title == "Partnership formed")
         .map(|(_, _, _, effect)| effect)
         .expect("resolved social arc should carry its recorded summary");
     assert!(partnership_effect.contains("one expedition crew"));
@@ -120,7 +122,7 @@ fn old_choices_expose_semantic_world_effects_without_erasing_supporting_history(
     let semantic_intervention = semantic_influence_signature(&intervention_snapshot, intervention);
     assert!(semantic_intervention
         .iter()
-        .any(|(_, _, title)| title == "Universe Grew"));
+        .any(|(_, _, title)| title == "Universe grew"));
     assert!(semantic_intervention.len() <= raw_intervention.len());
 
     let archive = universe.archive()?;

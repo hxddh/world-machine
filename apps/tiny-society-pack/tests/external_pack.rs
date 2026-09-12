@@ -63,6 +63,26 @@ fn tiny_society_can_be_installed_and_run_as_a_real_external_pack() {
     let advanced = session.advance_background(1).unwrap();
     assert!(advanced.world_time >= initial.world_time);
 
+    // The moment the absence began has to survive the process boundary. The
+    // window shades the stretch you were away from this field alone, and the
+    // wire conversion dropped it in both directions — which nothing in-process
+    // could see, and which the protocol round trip could not see either
+    // because its fixture left the field empty on both sides. It showed up as
+    // a screenshot of a return with nothing shaded on it.
+    let briefing = advanced
+        .briefing
+        .as_ref()
+        .expect("a Pack that has run on is returned to");
+    assert_eq!(briefing.title, "While you were away");
+    let since = briefing
+        .since_world_time
+        .expect("the absence says when it began, across the process boundary");
+    assert!(
+        since <= initial.world_time,
+        "the absence starts no later than the reader left: {since} against {}",
+        initial.world_time
+    );
+
     let archive = session.archive().unwrap().unwrap();
     assert_eq!(archive.pack, session.pack());
     drop(session);

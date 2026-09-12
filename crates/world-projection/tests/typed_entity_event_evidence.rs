@@ -47,6 +47,7 @@ fn typed_evidence_is_visible_deduplicated_and_shared_by_navigation_queries() {
                 TimelineItem {
                     id: event_8,
                     world_time: 8,
+                    when: None,
                     title: "Eight".into(),
                     subtitle: "Visible".into(),
                     caused_by: Vec::new(),
@@ -54,6 +55,7 @@ fn typed_evidence_is_visible_deduplicated_and_shared_by_navigation_queries() {
                 TimelineItem {
                     id: event_7,
                     world_time: 7,
+                    when: None,
                     title: "Seven".into(),
                     subtitle: "Visible".into(),
                     caused_by: Vec::new(),

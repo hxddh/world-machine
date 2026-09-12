@@ -7,8 +7,23 @@ pub const DOCUMENT_METADATA_FIELD: &str = "document";
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct WorldDocumentMetadata {
+    /// The name this World's owner typed, and nothing else.
+    ///
+    /// Absent until somebody renames it. It is never derived from the World,
+    /// because a World that has been given a name has been given it on purpose.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub display_title: Option<String>,
+    /// What the World last called itself, cached so the Library can label a
+    /// World without opening it.
+    ///
+    /// This is the other half of a field that used to do both jobs, and did
+    /// neither: derived from the World on every durable write, it wrote the
+    /// Pack's title back over the owner's name the first time the World
+    /// advanced. Kept separate, a rename survives and a World that renames
+    /// *itself* — Pocket Universe becomes "Ares Pocket Colony" the moment it
+    /// is seeded — still shows up under the name it chose.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub world_title: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub display_summary: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -17,7 +32,21 @@ pub struct WorldDocumentMetadata {
 
 impl WorldDocumentMetadata {
     pub fn is_empty(&self) -> bool {
-        self.display_title.is_none() && self.display_summary.is_none() && self.lineage.is_none()
+        self.display_title.is_none()
+            && self.world_title.is_none()
+            && self.display_summary.is_none()
+            && self.lineage.is_none()
+    }
+
+    /// What to put on a card for this World: the name its owner typed, else
+    /// the name the World gave itself, else nothing and the caller falls back
+    /// to the Pack's title.
+    pub fn label(&self) -> Option<&str> {
+        self.display_title
+            .as_deref()
+            .or(self.world_title.as_deref())
+            .map(str::trim)
+            .filter(|label| !label.is_empty())
     }
 }
 

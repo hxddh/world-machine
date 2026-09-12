@@ -59,10 +59,9 @@ fn relationship_choice_signal_is_verified_by_the_recorded_event() -> Result<(), 
     let after = universe.projection_snapshot();
     let evidence = choice_evidence(&after, "Choice evidence · Shared project");
     assert_eq!(evidence.selection, Some(SelectionId::Event(event_id)));
-    assert!(evidence.detail.contains("trust 2 → 4 · tension 0 → 0"));
-    assert!(evidence
-        .detail
-        .contains("Durable direction = shared project"));
+    assert!(evidence.detail.contains("trust 2 → 4"));
+    assert!(evidence.detail.contains("tension 0 → 0"));
+    assert!(evidence.detail.contains("Choosing shared project"));
     assert!(evidence.detail.contains("add +1 trust and -1 tension"));
     assert!(after.inspector(SelectionId::Event(event_id)).is_some());
     assert!(after.why(event_id).is_some());
@@ -108,13 +107,11 @@ fn intervention_choice_evidence_uses_the_event_statechange_not_current_copy(
     assert_eq!(evidence.selection, Some(SelectionId::Event(event_id)));
     assert!(evidence
         .detail
-        .contains("first intervention = Signal expedition"));
+        .contains("Your first intervention was Signal expedition"));
     assert!(evidence
         .detail
         .contains("Kestrel Rover · status = signal expedition"));
-    assert!(evidence
-        .detail
-        .contains("Later growth reads this durable intervention"));
+    assert!(evidence.detail.contains("Later growth still reads it"));
 
     Ok(())
 }
@@ -160,10 +157,10 @@ fn posture_choice_evidence_survives_archive_and_reopen() -> Result<(), Box<dyn E
     assert_eq!(evidence.selection, Some(SelectionId::Event(event_id)));
     assert!(evidence
         .detail
-        .contains("World direction = Outward at generation 6"));
+        .contains("direction to Outward at generation 6"));
     assert!(evidence
         .detail
-        .contains("Later growth and legacy formation read this durable posture"));
+        .contains("Growth and the legacy it forms still follow it"));
 
     let archive = universe.archive()?;
     let reopened = PocketUniverse::resume_archive(&archive)?;

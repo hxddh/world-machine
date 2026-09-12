@@ -272,7 +272,7 @@ fn pocket_universe_is_a_real_external_pack_with_durable_seed_and_growth() {
             .sections
             .iter()
             .flat_map(|section| &section.rows)
-            .any(|row| row.label == "Social Arc" && row.value == "fracture"));
+            .any(|row| row.label == "Social arc" && row.value == "fracture"));
         let rover = reopened_snapshot
             .inspectors
             .values()
@@ -282,7 +282,7 @@ fn pocket_universe_is_a_real_external_pack_with_durable_seed_and_growth() {
             .sections
             .iter()
             .flat_map(|section| &section.rows)
-            .any(|row| row.label == "Social Status" && row.value == "split survey routes"));
+            .any(|row| row.label == "Social status" && row.value == "split survey routes"));
 
         for actor_title in ["Nia Chen", "Tomas Vale"] {
             let actor = reopened_snapshot
@@ -294,7 +294,7 @@ fn pocket_universe_is_a_real_external_pack_with_durable_seed_and_growth() {
                 .sections
                 .iter()
                 .flat_map(|section| &section.rows)
-                .any(|row| { row.label == "Last Mind Profile" && row.value == "pi" }));
+                .any(|row| { row.label == "Last mind profile" && row.value == "pi" }));
         }
 
         let error = reopened_without_pi.advance_background(1).unwrap_err();

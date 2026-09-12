@@ -18,7 +18,7 @@ pub const LEGACY_WORLD_DOCUMENT_SUFFIX: &str = ".world.json";
 /// than deleted, so a removal stays reversible in the Finder.
 pub const REMOVED_DIRECTORY: &str = "Removed";
 
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct WorldDocumentId(String);
 
 impl WorldDocumentId {
@@ -60,7 +60,10 @@ impl fmt::Display for WorldDocumentId {
 pub struct WorldDocumentSummary {
     pub id: WorldDocumentId,
     pub pack: WorldPackRef,
+    /// The name the owner typed, if they have.
     pub display_title: Option<String>,
+    /// What the World last called itself.
+    pub world_title: Option<String>,
     pub display_summary: Option<String>,
     pub world_time: u64,
     pub event_count: usize,
@@ -477,7 +480,7 @@ impl DurableWorldSession {
         let snapshot = session.snapshot();
         let archive = required_archive(session.as_ref())?;
         let mut document = WorldDocument::new(archive);
-        document.metadata.display_title = snapshot_display_title(&snapshot);
+        document.metadata.world_title = snapshot_display_title(&snapshot);
         document.metadata.display_summary = snapshot_display_summary(&snapshot);
         let revision = library.save_document_with_revision(&document_id, &document)?;
         Ok(Self {
@@ -596,9 +599,7 @@ impl DurableWorldSession {
         let snapshot = candidate.handle(intent)?;
         let next_archive = required_archive(candidate.as_ref())?;
         let mut next_metadata = self.metadata.clone();
-        if let Some(title) = snapshot_display_title(&snapshot) {
-            next_metadata.display_title = Some(title);
-        }
+        next_metadata.world_title = snapshot_display_title(&snapshot);
         next_metadata.display_summary = snapshot_display_summary(&snapshot);
         let next_document = WorldDocument {
             archive: next_archive,
@@ -657,6 +658,7 @@ fn summary(id: WorldDocumentId, document: &WorldDocument) -> WorldDocumentSummar
         id,
         pack: document.archive.pack.clone(),
         display_title: document.metadata.display_title.clone(),
+        world_title: document.metadata.world_title.clone(),
         display_summary: document.metadata.display_summary.clone(),
         world_time: document.archive.world_time,
         event_count: document.archive.events.len(),
@@ -868,9 +870,11 @@ mod tests {
                 world_time: self.count,
                 capabilities: ProjectionCapabilities { fork: false },
                 briefing: Some(BriefingProjection {
+                    since_world_time: None,
                     eyebrow: "Mock".into(),
                     title: "Current mock state".into(),
                     items: vec![BriefingItem {
+                        concerns: Vec::new(),
                         kind: BriefingItemKind::Beat,
                         selection: None,
                         title: format!("Count {}", self.count),
@@ -878,6 +882,7 @@ mod tests {
                     }],
                 }),
                 commands: vec![ProjectionCommand {
+                    concerns: Vec::new(),
                     id: "mock.advance".into(),
                     title: "Advance".into(),
                     detail: "Advance the mock World".into(),
@@ -1311,7 +1316,7 @@ mod tests {
             DurableWorldSession::create(id.clone(), MOCK_PACK, &registry, &library).unwrap();
         assert_eq!(session.snapshot().title, "Mock 0");
         assert_eq!(
-            library.list().unwrap()[0].display_title.as_deref(),
+            library.list().unwrap()[0].world_title.as_deref(),
             Some("Mock 0")
         );
         assert_eq!(
@@ -1328,7 +1333,7 @@ mod tests {
             .unwrap();
         assert_eq!(session.snapshot().title, "Mock 1");
         assert_eq!(
-            library.list().unwrap()[0].display_title.as_deref(),
+            library.list().unwrap()[0].world_title.as_deref(),
             Some("Mock 1")
         );
         assert_eq!(
@@ -1347,9 +1352,11 @@ mod tests {
     fn snapshot_display_summary_uses_the_first_briefing_item_and_compacts_whitespace() {
         let snapshot = ProjectionSnapshot {
             briefing: Some(BriefingProjection {
+                since_world_time: None,
                 eyebrow: "Test".into(),
                 title: "Today".into(),
                 items: vec![BriefingItem {
+                    concerns: Vec::new(),
                     kind: BriefingItemKind::Beat,
                     selection: None,
                     title: "  Ridge   Network ".into(),
@@ -1369,9 +1376,11 @@ mod tests {
     fn snapshot_display_summary_is_bounded_for_library_cards() {
         let snapshot = ProjectionSnapshot {
             briefing: Some(BriefingProjection {
+                since_world_time: None,
                 eyebrow: "Test".into(),
                 title: "Today".into(),
                 items: vec![BriefingItem {
+                    concerns: Vec::new(),
                     kind: BriefingItemKind::Beat,
                     selection: None,
                     title: "State".into(),

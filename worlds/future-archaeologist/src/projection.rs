@@ -3,9 +3,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use world_core::{Entity, EntityId, Event, EventId, Value, World};
 use world_projection::{
     BriefingItem, BriefingItemKind, BriefingProjection, CanvasItem, CanvasItemKind,
-    CanvasProjection, CollectionItem, CollectionProjection, InspectorProjection, InspectorRow,
-    InspectorSection, ProjectionCapabilities, ProjectionCommand, ProjectionSnapshot, SelectionId,
-    TimelineItem, TimelineProjection, WhyNode, WhyProjection,
+    CanvasItemState, CanvasProjection, CollectionItem, CollectionProjection, InspectorProjection,
+    InspectorRow, InspectorSection, ProjectionCapabilities, ProjectionCommand, ProjectionSnapshot,
+    SelectionId, TimelineItem, TimelineProjection, WhyNode, WhyProjection,
 };
 
 const ARTIFACTS: [EntityId; 6] = [
@@ -22,6 +22,8 @@ pub(crate) fn snapshot(world: &World) -> ProjectionSnapshot {
     let visible_events = visible_event_ids(world, &visible_artifacts);
 
     ProjectionSnapshot {
+        // This Pack does not offer a figure for how it is doing.
+        fortune: None,
         title: "Future Archaeologist · Terminal 17".into(),
         world_time: world.world_time(),
         capabilities: ProjectionCapabilities { fork: false },
@@ -40,6 +42,7 @@ fn commands(world: &World) -> Vec<ProjectionCommand> {
         Vec::new()
     } else {
         vec![ProjectionCommand {
+            concerns: Vec::new(),
             id: crate::RECOVER_MESSAGE_COMMAND.into(),
             title: "Recover deleted message".into(),
             detail: "Scan unallocated message storage for a recoverable fragment.".into(),
@@ -109,6 +112,7 @@ fn timeline(
             .map(|event| TimelineItem {
                 id: SelectionId::Event(event.id),
                 world_time: event.world_time,
+                when: None,
                 title: humanize(&event.kind),
                 subtitle: evidence_summary(world, event, artifacts),
                 caused_by: event
@@ -135,12 +139,14 @@ fn briefing(world: &World, artifacts: &[EntityId]) -> BriefingProjection {
                 detail: text_component(entity, SUMMARY)
                     .unwrap_or("Recovered artifact")
                     .into(),
+                concerns: vec![SelectionId::Entity(*id)],
             })
         })
         .take(3)
         .collect();
 
     BriefingProjection {
+        since_world_time: None,
         eyebrow: "Future Archaeologist".into(),
         title: format!("{} artifacts are readable", artifacts.len()),
         items,
@@ -164,6 +170,8 @@ fn canvas(world: &World, artifacts: &[EntityId]) -> CanvasProjection {
                 detail: humanize(&entity.kind),
                 x,
                 y,
+                at: None,
+                state: CanvasItemState::Working,
             });
         }
     }
@@ -190,6 +198,8 @@ fn canvas(world: &World, artifacts: &[EntityId]) -> CanvasProjection {
                 .unwrap_or_else(|| "Artifact".into()),
             x,
             y,
+            at: None,
+            state: CanvasItemState::Working,
         });
     }
 

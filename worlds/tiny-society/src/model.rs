@@ -27,10 +27,12 @@ pub(crate) const EMMA_SCHOOL_JOB: RelationId = RelationId::new(703);
 pub(crate) const JONAS_HARBOR_JOB: RelationId = RelationId::new(704);
 pub(crate) const TEMP_BAKERY_JOB: RelationId = RelationId::new(705);
 pub(crate) const MIA_BAKERY_JOB: RelationId = RelationId::new(706);
+pub(crate) const SOFIA_PUB_JOB: RelationId = RelationId::new(707);
 
 pub(crate) const CONDITION: &str = "condition";
 pub(crate) const HARDSHIP_STATUS: &str = "hardship_status";
 pub(crate) const INCOME_STATUS: &str = "income_status";
+pub(crate) const LOCATION: &str = "location";
 pub(crate) const LOAN_STATUS: &str = "loan_status";
 pub(crate) const MISSED_SHIFTS: &str = "missed_shifts";
 pub(crate) const OPERATING_STATUS: &str = "operating_status";

@@ -73,10 +73,26 @@ fn save_resume_restores_pending_world_and_briefs_only_new_events() {
         .items
         .iter()
         .any(|item| item.title == "Jonas asked Leo for a loan"));
-    assert!(briefing
-        .items
-        .iter()
-        .all(|item| item.detail.contains("World time 10")));
+    // Every beat says when, in the town's own words rather than in ticks.
+    assert!(
+        briefing
+            .beats()
+            .iter()
+            .all(|item| item.detail.contains("Day 2")),
+        "{:?}",
+        briefing
+            .beats()
+            .iter()
+            .map(|i| &i.detail)
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        !briefing
+            .items
+            .iter()
+            .any(|item| item.detail.contains("World time") || item.detail.contains("Event #")),
+        "engine facts in a briefing a person reads"
+    );
 }
 
 #[test]
@@ -491,6 +507,6 @@ fn projection_snapshot_is_self_contained_selectable_and_causal() {
 
     let why = snapshot.why(dismissal.id).unwrap();
     assert_eq!(why.nodes.first().unwrap().event, dismissal.id);
-    assert!(why.nodes.iter().any(|node| node.title == "Storm Started"));
-    assert!(why.nodes.iter().any(|node| node.title == "Order Lost"));
+    assert!(why.nodes.iter().any(|node| node.title == "Storm started"));
+    assert!(why.nodes.iter().any(|node| node.title == "Order lost"));
 }

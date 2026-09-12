@@ -80,14 +80,14 @@ fn second_arc_is_a_durable_generic_strategy_fork() -> Result<(), Box<dyn Error>>
                 && entity.left.as_ref().map(|view| view.title.as_str()) == Some("Nia Chen")
         })
         .expect("posture should produce a visible behavioral difference for Nia");
-    let care_count = row(nia, "Care Count").expect("Nia's care count should differ");
-    let explore_count = row(nia, "Explore Count").expect("Nia's explore count should differ");
+    let care_count = row(nia, "Care count").expect("Nia's care count should differ");
+    let explore_count = row(nia, "Explore count").expect("Nia's explore count should differ");
     assert_ne!(care_count.0, care_count.1);
     assert_ne!(explore_count.0, explore_count.1);
 
     assert!(comparison.timeline.changed.iter().any(|event| {
-        event.left.title == "World Posture Chosen"
-            && event.right.title == "World Posture Chosen"
+        event.left.title == "World posture chosen"
+            && event.right.title == "World posture chosen"
             && event.left.subtitle != event.right.subtitle
     }));
 
@@ -97,7 +97,7 @@ fn second_arc_is_a_durable_generic_strategy_fork() -> Result<(), Box<dyn Error>>
         .shared_frontier
         .as_ref()
         .expect("both futures share the full history before the posture choice");
-    assert_ne!(shared_frontier.title, "World Posture Chosen");
+    assert_ne!(shared_frontier.title, "World posture chosen");
     let left_first = divergence
         .left
         .first_difference
@@ -108,8 +108,8 @@ fn second_arc_is_a_durable_generic_strategy_fork() -> Result<(), Box<dyn Error>>
         .first_difference
         .as_ref()
         .expect("rooted future has a first difference");
-    assert_eq!(left_first.title, "World Posture Chosen");
-    assert_eq!(right_first.title, "World Posture Chosen");
+    assert_eq!(left_first.title, "World posture chosen");
+    assert_eq!(right_first.title, "World posture chosen");
     assert_ne!(left_first.subtitle, right_first.subtitle);
     assert!(!divergence.left.impact.is_empty());
     assert!(!divergence.right.impact.is_empty());
@@ -117,12 +117,12 @@ fn second_arc_is_a_durable_generic_strategy_fork() -> Result<(), Box<dyn Error>>
         .left
         .impact
         .iter()
-        .all(|stage| stage.event.title != "Agent Decision Recorded"));
+        .all(|stage| stage.event.title != "Agent decision recorded"));
     assert!(divergence
         .right
         .impact
         .iter()
-        .all(|stage| stage.event.title != "Agent Decision Recorded"));
+        .all(|stage| stage.event.title != "Agent decision recorded"));
     assert_ne!(
         divergence
             .left

@@ -1,7 +1,9 @@
 mod actions;
 mod behaviors;
+mod demo;
 mod drift;
 mod fishing;
+mod fortune;
 mod hardship;
 mod host;
 mod interventions;
@@ -16,6 +18,8 @@ mod recovery;
 mod seed;
 mod social;
 mod staffing;
+mod stillness;
+mod whereabouts;
 
 use std::error::Error;
 use world_agent::{
@@ -29,6 +33,7 @@ use world_projection::ProjectionSnapshot;
 #[cfg(test)]
 pub(crate) use world_core::Value;
 
+pub use demo::{DEMO_ABSENCE_PERIODS, DEMO_EARLY_PERIODS, DEMO_LATE_PERIODS};
 pub use host::tiny_society_registration;
 pub use model::{
     BAKERY, EMMA, EVAN, HARBOR, JONAS, JONAS_BOAT, LEO, MARA, MIA, NOAH, PUB, SCHOOL, SOFIA,
@@ -392,6 +397,8 @@ fn build_action_registry() -> Result<ActionRegistry, Box<dyn Error>> {
     interventions::register(&mut actions)?;
     local_economy::register_actions(&mut actions)?;
     payroll::register_actions(&mut actions)?;
+    stillness::register_actions(&mut actions)?;
+    whereabouts::register_actions(&mut actions)?;
     reciprocity::register_actions(&mut actions)?;
     recovery::register_actions(&mut actions)?;
     social::register_actions(&mut actions)?;

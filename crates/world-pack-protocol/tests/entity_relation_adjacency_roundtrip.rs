@@ -81,7 +81,7 @@ fn protocol_v2_preserves_typed_entity_relation_adjacency_across_json_wire_round_
         PACK_PROTOCOL_VERSION_V2,
         7,
         PackResponse::Snapshot {
-            snapshot: ProjectionSnapshotWire::from(&snapshot),
+            snapshot: Box::new(ProjectionSnapshotWire::from(&snapshot)),
         },
     )
     .expect("v2 should carry Relation adjacency metadata");
@@ -91,7 +91,7 @@ fn protocol_v2_preserves_typed_entity_relation_adjacency_across_json_wire_round_
     let PackResponse::Snapshot { snapshot } = decoded.response else {
         panic!("expected snapshot response");
     };
-    let restored = ProjectionSnapshot::try_from(snapshot).expect("snapshot should restore");
+    let restored = ProjectionSnapshot::try_from(*snapshot).expect("snapshot should restore");
 
     assert_eq!(
         restored.entity_relation_evidence(),
@@ -131,7 +131,7 @@ fn protocol_v1_rejects_the_same_relation_adjacency_snapshot() {
         PACK_PROTOCOL_VERSION_V1,
         1,
         PackResponse::Snapshot {
-            snapshot: ProjectionSnapshotWire::from(&snapshot),
+            snapshot: Box::new(ProjectionSnapshotWire::from(&snapshot)),
         },
     )
     .expect_err("v1 must reject Relation selections");

@@ -8,6 +8,7 @@ fn event(id: u64, world_time: u64, caused_by: &[u64]) -> TimelineItem {
     TimelineItem {
         id: SelectionId::Event(EventId::new(id)),
         world_time,
+        when: None,
         title: format!("Event {id}"),
         subtitle: format!("world time {world_time}"),
         caused_by: caused_by.iter().copied().map(EventId::new).collect(),

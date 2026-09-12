@@ -32,8 +32,17 @@ fn protocol_v1_snapshot_keeps_typed_evidence_derived_not_wire_encoded() {
     };
 
     assert!(!snapshot.contains_key("entity_event_evidence"));
+
+    // The set of keys, not their order. A JSON object's key order is not part
+    // of any contract here — nothing reads these by position — and asserting
+    // it made this test true only where `serde_json` happens to sort. The
+    // desktop app pulls in `serde_json/preserve_order` through its window
+    // library, so the shipped app has always written these in declaration
+    // order, and this test was describing a snapshot the app never produces.
+    let mut keys = snapshot.keys().map(String::as_str).collect::<Vec<_>>();
+    keys.sort_unstable();
     assert_eq!(
-        snapshot.keys().map(String::as_str).collect::<Vec<_>>(),
+        keys,
         vec![
             "briefing",
             "canvas",
