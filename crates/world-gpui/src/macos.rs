@@ -609,12 +609,6 @@ impl ProjectionView {
                 }
                 panel = panel
                     .child(div().text_sm().child("Recorded changes to this entity"))
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(crate::theme_rgb(0x66705f))
-                            .child("Recorded events whose StateChanges directly changed this entity. Select one to inspect the event, trace its causes and effects, or fork before it."),
-                    )
                     .child(items);
                 let hidden = history.len().saturating_sub(ENTITY_HISTORY_LIMIT);
                 if hidden > 0 {
@@ -638,12 +632,6 @@ impl ProjectionView {
                 }
                 panel = panel
                     .child(div().text_sm().child("Current endpoints"))
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(crate::theme_rgb(0x66705f))
-                            .child("Visible entities connected by this active relation. Removed relation tombstones intentionally have no current endpoints."),
-                    )
                     .child(items);
                 let hidden = endpoints.len().saturating_sub(RELATION_ENDPOINT_LIMIT);
                 if hidden > 0 {
@@ -664,12 +652,6 @@ impl ProjectionView {
                 }
                 panel = panel
                     .child(div().text_sm().child("Recorded changes to this relation"))
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(crate::theme_rgb(0x66705f))
-                            .child("Recorded events that created, changed, or removed this relation incarnation. Select one to inspect the event, trace its causes and effects, or fork before it."),
-                    )
                     .child(items);
                 let hidden = history.len().saturating_sub(RELATION_HISTORY_LIMIT);
                 if hidden > 0 {
@@ -693,12 +675,6 @@ impl ProjectionView {
                 }
                 panel = panel
                     .child(div().text_sm().child("Entities changed by this event"))
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(crate::theme_rgb(0x66705f))
-                            .child("Entities with a direct recorded StateChange from this visible event. Select one to inspect its current state and recorded history."),
-                    )
                     .child(items);
                 let hidden = changed_entities
                     .len()
@@ -723,12 +699,6 @@ impl ProjectionView {
                 }
                 panel = panel
                     .child(div().text_sm().child("Relations changed by this event"))
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(crate::theme_rgb(0x66705f))
-                            .child("Relation incarnations whose recorded lifetime or properties directly changed in this visible event. Removed relations remain inspectable as recorded tombstones."),
-                    )
                     .child(items);
                 let hidden = changed_relations
                     .len()
@@ -1298,11 +1268,18 @@ impl ProjectionView {
             .flex()
             .flex_col();
 
+        // The World, first, whichever kind of picture it has. A drawn town went
+        // at the top and the loose scatter went at the bottom, under every
+        // line of the news — so Ares Pocket Colony's return opened with eight
+        // paragraphs and ended with forty visible pixels of an empty grey box,
+        // the rest of it behind the turn bar. Same place for both.
         if crate::town::is_a_place(&self.snapshot.canvas.items) {
             column = column.child(crate::town::scene(
                 &self.snapshot.canvas.items,
                 &self.lit_selections(),
             ));
+        } else if !self.snapshot.canvas.items.is_empty() {
+            column = column.child(div().px_5().pt_4().child(self.render_canvas(cx)));
         }
         // The line is a summary of the World's whole life, so it belongs with
         // the picture. Under the news it was below the fold on any visit with
@@ -1312,14 +1289,6 @@ impl ProjectionView {
         }
         if let Some(news) = self.render_news(cx) {
             column = column.child(news);
-        }
-        // A World that draws no place still has its things; the loose scatter
-        // is the fallback it always had, and it belongs in the read rather
-        // than nowhere.
-        if !self.snapshot.canvas.items.is_empty()
-            && !crate::town::is_a_place(&self.snapshot.canvas.items)
-        {
-            column = column.child(div().px_5().pb_4().child(self.render_canvas(cx)));
         }
         column.into_any_element()
     }
