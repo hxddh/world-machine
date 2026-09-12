@@ -14,6 +14,11 @@ pub const ENTITY_HISTORY_SECTION: &str = "Recorded entity changes";
 pub const RELATION_HISTORY_SECTION: &str = "Recorded relation changes";
 pub const RELATION_ENDPOINTS_SECTION: &str = "Active relation endpoints";
 pub const RELATION_IDENTITY_SECTION: &str = "Relation identity endpoints";
+/// The read-only list of an entity's relations, by name. A window that shows
+/// the same relations as things you can select leaves this one out rather than
+/// printing "Trusts · Leo" immediately above a card for the very same
+/// relationship.
+pub const ENTITY_RELATIONS_SECTION: &str = "Relations";
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum SelectionId {
@@ -1084,7 +1089,7 @@ fn inspector_for_entity(
     }];
     if !relations.is_empty() {
         sections.push(InspectorSection {
-            title: "Relations".into(),
+            title: ENTITY_RELATIONS_SECTION.into(),
             rows: relations,
         });
     }

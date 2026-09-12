@@ -565,10 +565,20 @@ impl ProjectionView {
             .iter()
             .find(|item| item.id == selection)
             .map(|item| item.subtitle.as_str());
-        let mut panel = inspector_panel(inspector, lead);
+        // "Current relations" below is the same list, one card each and each
+        // one selectable. Printing the panel's own read-only "Relations ·
+        // Trusts · Leo" directly above it said the same relationship twice
+        // under two headings.
+        let entity_relations = match selection {
+            SelectionId::Entity(entity) => self.snapshot.relations_for_entity(entity),
+            _ => Vec::new(),
+        };
+        let skip =
+            (!entity_relations.is_empty()).then_some(world_projection::ENTITY_RELATIONS_SECTION);
+        let mut panel = inspector_panel(inspector, lead, skip);
 
         if let SelectionId::Entity(entity) = selection {
-            let relations = self.snapshot.relations_for_entity(entity);
+            let relations = entity_relations;
             if !relations.is_empty() {
                 let mut items = div().flex().flex_col().gap_2();
                 for relation in relations.iter().take(ENTITY_RELATION_LIMIT) {
@@ -1531,7 +1541,7 @@ fn selection_for_snapshot(
 /// describes, in the Pack's own words, as "Out of work · 7 coins". The Pack
 /// already wrote that sentence for the collection; the panel says it first and
 /// keeps the table under it.
-fn inspector_panel(inspector: &InspectorProjection, lead: Option<&str>) -> Div {
+fn inspector_panel(inspector: &InspectorProjection, lead: Option<&str>, skip: Option<&str>) -> Div {
     let mut body = div()
         .flex()
         .flex_col()
@@ -1548,7 +1558,10 @@ fn inspector_panel(inspector: &InspectorProjection, lead: Option<&str>) -> Div {
         body = body.child(div().text_sm().child(lead.to_owned()));
     }
 
-    for section in inspector.display_sections() {
+    for section in inspector
+        .display_sections()
+        .filter(|section| Some(section.title.as_str()) != skip)
+    {
         let mut rows = div().flex().flex_col().gap_1();
         for row in &section.rows {
             rows = rows.child(
