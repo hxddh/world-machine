@@ -1,5 +1,7 @@
 use crate::ProjectionController;
-use gpui::{div, prelude::*, px, Context, Div, IntoElement, Render, SharedString, Styled, Window};
+use gpui::{
+    div, prelude::*, px, relative, Context, Div, IntoElement, Render, SharedString, Styled, Window,
+};
 use world_projection::{
     BriefingItem, CanvasItemKind, CollectionItem, InspectorProjection, ProjectionCommand,
     ProjectionIntent, ProjectionSnapshot, SelectionId, TimelineItem, WhyNode,
@@ -520,7 +522,12 @@ impl ProjectionView {
                         selection.stable_key()
                     )))
                     .absolute()
-                    .left(px(18.0 + item.x * 500.0))
+                    // A share of the frame, not five hundred pixels of it.
+                    // The frame is as wide as the window and the positions
+                    // were not, so Maple Street drew its whole world into the
+                    // left six hundred pixels of an eleven-hundred-pixel box
+                    // and left the rest blank.
+                    .left(relative(item.x * 0.84))
                     .top(px(12.0 + item.y * 260.0))
                     .w(px(135.0))
                     .p_2()
