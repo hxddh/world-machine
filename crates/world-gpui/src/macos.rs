@@ -550,7 +550,14 @@ impl ProjectionView {
     fn render_inspector(&self, cx: &mut Context<Self>) -> Option<Div> {
         let selection = self.selected?;
         let inspector = self.snapshot.inspector(selection)?;
-        let mut panel = inspector_panel(inspector);
+        let lead = self
+            .snapshot
+            .collection
+            .items
+            .iter()
+            .find(|item| item.id == selection)
+            .map(|item| item.subtitle.as_str());
+        let mut panel = inspector_panel(inspector, lead);
 
         if let SelectionId::Entity(entity) = selection {
             let relations = self.snapshot.relations_for_entity(entity);
@@ -1507,7 +1514,16 @@ fn selection_for_snapshot(
         .or_else(|| default_selection(snapshot))
 }
 
-fn inspector_panel(inspector: &InspectorProjection) -> Div {
+/// The panel, opening with the World's own sentence about this thing when it
+/// has one.
+///
+/// The panel is a table of every component an entity carries: "Cash 7",
+/// "Hardship Status destitute", "Income Status lost", "Job unemployed",
+/// "Loan Status requested" — nine rows of schema for a man the list beside it
+/// describes, in the Pack's own words, as "Out of work · 7 coins". The Pack
+/// already wrote that sentence for the collection; the panel says it first and
+/// keeps the table under it.
+fn inspector_panel(inspector: &InspectorProjection, lead: Option<&str>) -> Div {
     let mut body = div()
         .flex()
         .flex_col()
@@ -1519,6 +1535,10 @@ fn inspector_panel(inspector: &InspectorProjection) -> Div {
                 .text_color(crate::theme_rgb(0x666666))
                 .child(inspector.subtitle.clone()),
         );
+
+    if let Some(lead) = lead.map(str::trim).filter(|lead| !lead.is_empty()) {
+        body = body.child(div().text_sm().child(lead.to_owned()));
+    }
 
     for section in inspector.display_sections() {
         let mut rows = div().flex().flex_col().gap_1();
