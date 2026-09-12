@@ -1369,18 +1369,31 @@ fn inspector_for_relation(
         selection: SelectionId::Relation(relation.id),
         title: humanize(&relation.kind),
         // Who and who, not which row. "Relation #602 · Active" was a database
-        // key on a card a player reads; the two people it is between is the
-        // thing that tells one relationship from another.
+        // key on a card a player reads; the two it is between is the thing
+        // that tells one relationship from another. Their names — the From
+        // and To rows inside the panel still carry the ids for anyone
+        // inspecting, and reaching for that function here swapped one id on
+        // the card for two.
         subtitle: format!(
             "{} · {} · {}",
-            relation_endpoint_text(relation.from, world),
-            relation_endpoint_text(relation.to, world),
+            relation_endpoint_name(relation.from, world),
+            relation_endpoint_name(relation.to, world),
             if recorded.active { "Active" } else { "Removed" }
         ),
         sections,
     }
 }
 
+/// Just what the thing is called, for a card somebody reads.
+fn relation_endpoint_name(entity: EntityId, world: &World) -> String {
+    world
+        .state()
+        .entity(entity)
+        .map(entity_title)
+        .unwrap_or_else(|| format!("Entity #{entity}"))
+}
+
+/// The name and the id, for a row somebody is inspecting.
 fn relation_endpoint_text(entity: EntityId, world: &World) -> String {
     world
         .state()
