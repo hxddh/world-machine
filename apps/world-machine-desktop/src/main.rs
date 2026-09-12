@@ -324,9 +324,6 @@ impl DocumentStatus {
 
 #[cfg(target_os = "macos")]
 struct WorldDocumentView {
-    /// The durable identity of the World's file. Stays visible so a World can
-    /// always be matched to the file it lives in.
-    document_label: String,
     /// What this World is called: the name its owner gave it on Home, or the
     /// durable identity when it has none.
     document_name: String,
@@ -347,7 +344,6 @@ impl WorldDocumentView {
         library: Arc<WorldLibrary>,
         cx: &mut Context<Self>,
     ) -> Self {
-        let document_label = session.display_name();
         let document_name = session_display_name(&session);
         let document = Rc::new(RefCell::new(SharedDocumentState {
             session,
@@ -367,7 +363,6 @@ impl WorldDocumentView {
         });
         let analyst_available = world_fork::analyst_available();
         Self {
-            document_label,
             document_name,
             document,
             projection,
@@ -379,15 +374,10 @@ impl WorldDocumentView {
     /// Re-read what this World is called from the session, after anything
     /// that can change its file or its target.
     fn refresh_document_identity(&mut self) {
-        let (label, name) = {
+        self.document_name = {
             let document = self.document.borrow();
-            (
-                document.session.display_name(),
-                session_display_name(&document.session),
-            )
+            session_display_name(&document.session)
         };
-        self.document_label = label;
-        self.document_name = name;
     }
 
     /// Opens Compare Futures for this World. Returns the Home status to show
@@ -598,25 +588,14 @@ impl Render for WorldDocumentView {
                     })),
             );
 
-        // Only the durable file identity. The World's name is the first thing
-        // the projection header says, two rows further down and in a larger
-        // face; saying it here as well made every World window open with its
-        // own name twice and ninety-six pixels of chrome above the picture.
-        // What this row still owns is which *file* the window edits, which
-        // renaming must never hide, and the actions that act on the document.
-        let identity = div()
-            .flex_1()
-            .min_w(px(0.0))
-            .flex()
-            .gap_2()
-            .items_center()
-            .overflow_hidden()
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(crate::theme_rgb(0x8a8a82))
-                    .child(self.document_label.clone()),
-            );
+        // The row keeps the actions and nothing else. It used to print the
+        // file's name on the left, and the window's own title bar — which is
+        // four rows above it and says "harbour-town — World Machine" — was
+        // already printing exactly that. Which file the window edits is
+        // something the title bar owns; a slug spelled twice in the first
+        // hundred pixels of every World is just the first thing you read
+        // being a filename.
+        let identity = div().flex_1().min_w(px(0.0));
 
         let mut chrome = div()
             .h(px(40.0))

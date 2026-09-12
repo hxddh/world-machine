@@ -188,8 +188,12 @@ impl ProjectionView {
 
     fn render_timeline(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let mut body = div().flex().flex_col().gap_2();
-        for item in self.snapshot.timeline.items.iter().take(12) {
-            body = body.child(self.timeline_item(item, cx));
+        // Twelve runs rather than twelve entries: a World that charges rent
+        // every day filled the whole column with "Living cost paid · Jonas",
+        // five times over, and pushed everything that actually happened off
+        // the bottom.
+        for run in self.snapshot.timeline.runs().into_iter().take(12) {
+            body = body.child(self.timeline_item(run, cx));
         }
 
         div()
@@ -207,9 +211,24 @@ impl ProjectionView {
             .child(body)
     }
 
-    fn timeline_item(&self, item: &TimelineItem, cx: &mut Context<Self>) -> impl IntoElement {
+    fn timeline_item(
+        &self,
+        run: world_projection::TimelineRun<'_>,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let item = run.item;
         let selection = item.id;
         let selected = self.selected == Some(selection);
+        // "Day 77" for one entry; "Day 74 to Day 77 · 4 times" for a run.
+        let when = match (item.when.as_deref(), run.since) {
+            (Some(when), Some(since)) => Some(format!("{since} to {when} · {} times", run.repeats)),
+            (Some(when), None) if run.repeats > 1 => {
+                Some(format!("{when} · {} times", run.repeats))
+            }
+            (Some(when), None) => Some(when.to_owned()),
+            (None, _) if run.repeats > 1 => Some(format!("{} times", run.repeats)),
+            (None, _) => None,
+        };
         div()
             .id(SharedString::from(format!(
                 "timeline-{}",
@@ -227,7 +246,7 @@ impl ProjectionView {
             // every entry `t=790`, which is a tick count — and on a World
             // whose last four entries all landed in one tick it printed the
             // same unreadable number four times down the column.
-            .children(item.when.clone().map(|when| {
+            .children(when.map(|when| {
                 div()
                     .text_xs()
                     .text_color(crate::theme_rgb(0x777777))

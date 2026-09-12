@@ -758,6 +758,45 @@ pub struct TimelineItem {
     pub caused_by: Vec<EventId>,
 }
 
+/// One line of a timeline, with however many identical lines it stands for.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TimelineRun<'a> {
+    pub item: &'a TimelineItem,
+    /// How many entries in a row said exactly this. 1 is an ordinary entry.
+    pub repeats: usize,
+    /// The World's own word for when the run started, when that differs from
+    /// the word on `item`. A run reads "Day 74 to Day 78".
+    pub since: Option<&'a str>,
+}
+
+impl TimelineProjection {
+    /// The timeline with runs of identical entries folded into one line.
+    ///
+    /// A World that charges rent every day writes "Living cost paid · Jonas"
+    /// every day, and the reference surface printed five of them in a column,
+    /// one under the other, differing only in a date. Five identical lines
+    /// are one fact and four copies of it. Entries are folded only when they
+    /// say exactly the same thing and sit next to each other, so nothing is
+    /// reordered and nothing that differs is ever merged.
+    pub fn runs(&self) -> Vec<TimelineRun<'_>> {
+        let mut runs: Vec<TimelineRun<'_>> = Vec::new();
+        for item in &self.items {
+            match runs.last_mut() {
+                Some(run) if run.item.title == item.title && run.item.subtitle == item.subtitle => {
+                    run.repeats += 1;
+                    run.since = item.when.as_deref().or(run.since);
+                }
+                _ => runs.push(TimelineRun {
+                    item,
+                    repeats: 1,
+                    since: None,
+                }),
+            }
+        }
+        runs
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct CanvasProjection {
     pub items: Vec<CanvasItem>,
@@ -1511,6 +1550,77 @@ pub(crate) fn humanize(value: &str) -> String {
 mod tests {
     use super::*;
     use world_core::{Entity, Event, EventId, StateChange, WorldState};
+
+    fn timeline_entry(id: u64, when: &str, title: &str, subtitle: &str) -> TimelineItem {
+        TimelineItem {
+            id: SelectionId::Event(EventId::new(id)),
+            world_time: id,
+            when: Some(when.into()),
+            title: title.into(),
+            subtitle: subtitle.into(),
+            caused_by: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_run_of_identical_entries_reads_as_one_line() {
+        let timeline = TimelineProjection {
+            items: vec![
+                timeline_entry(80, "Day 80", "World came to rest", ""),
+                timeline_entry(78, "Day 78", "Living cost unmet", "Jonas"),
+                timeline_entry(77, "Day 77", "Living cost paid", "Jonas"),
+                timeline_entry(76, "Day 76", "Living cost paid", "Jonas"),
+                timeline_entry(75, "Day 75", "Living cost paid", "Jonas"),
+                timeline_entry(74, "Day 74", "Living cost paid", "Jonas"),
+                timeline_entry(73, "Day 73", "Living cost paid", "Mara"),
+            ],
+        };
+
+        let runs = timeline.runs();
+
+        assert_eq!(
+            runs.iter()
+                .map(|run| (run.item.title.as_str(), run.item.subtitle.as_str(), run.repeats, run.since))
+                .collect::<Vec<_>>(),
+            vec![
+                ("World came to rest", "", 1, None),
+                ("Living cost unmet", "Jonas", 1, None),
+                ("Living cost paid", "Jonas", 4, Some("Day 74")),
+                // Same words, different person: never folded together.
+                ("Living cost paid", "Mara", 1, None),
+            ]
+        );
+        assert_eq!(
+            runs[2].item.when.as_deref(),
+            Some("Day 77"),
+            "a run keeps the newest entry's own words and names where it started"
+        );
+    }
+
+    #[test]
+    fn entries_that_differ_are_never_folded_and_nothing_is_reordered() {
+        let timeline = TimelineProjection {
+            items: vec![
+                timeline_entry(3, "Day 3", "Paid", "Jonas"),
+                timeline_entry(2, "Day 2", "Paid", "Mara"),
+                timeline_entry(1, "Day 1", "Paid", "Jonas"),
+            ],
+        };
+
+        let runs = timeline.runs();
+
+        assert_eq!(runs.len(), 3, "a repeat that is not adjacent is not a run");
+        assert!(runs.iter().all(|run| run.repeats == 1));
+        assert_eq!(
+            runs.iter().map(|run| run.item.world_time).collect::<Vec<_>>(),
+            vec![3, 2, 1]
+        );
+    }
+
+    #[test]
+    fn an_empty_timeline_has_no_runs() {
+        assert!(TimelineProjection::default().runs().is_empty());
+    }
 
     fn sample_world() -> World {
         let mut state = WorldState::default();
