@@ -106,6 +106,20 @@ impl ObserverStore {
         })
     }
 
+    /// When this World was last looked at, if it ever has been.
+    ///
+    /// The same number `claim_due` reads, without claiming anything: a shelf
+    /// can say how long a World has been on its own without advancing it.
+    /// An unreadable or absent stamp is not an error here — a World nobody
+    /// has opened simply has no answer.
+    pub fn last_observed(&self, key: &ObserverKey) -> Result<Option<u64>, ObserverError> {
+        match fs::read(self.stamp_path(key)) {
+            Ok(bytes) => Ok(parse_stamp(&bytes)),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(ObserverError::Io(error)),
+        }
+    }
+
     pub fn rollback(&self, claim: &CatchUpClaim) -> Result<(), ObserverError> {
         let Some(previous) = claim.rollback_bytes.as_deref() else {
             return Ok(());
@@ -365,6 +379,42 @@ mod tests {
 
         assert_eq!(store.stamp_path(&first), store.stamp_path(&first));
         assert_ne!(store.stamp_path(&first), store.stamp_path(&second));
+    }
+
+    #[test]
+    fn a_shelf_can_ask_when_a_world_was_last_looked_at() {
+        let root = temp_root("last-observed");
+        let store = ObserverStore::new(root.clone());
+
+        assert_eq!(
+            store.last_observed(&key()).unwrap(),
+            None,
+            "a World nobody has opened has no answer, and that is not an error"
+        );
+
+        store.claim_due(&key(), 100, policy()).unwrap();
+        assert_eq!(store.last_observed(&key()).unwrap(), Some(100));
+
+        // Asking must not move the clock: two hundred seconds later the World
+        // is still owed the same three periods it was owed before we asked.
+        assert_eq!(store.last_observed(&key()).unwrap(), Some(100));
+        let claim = store.claim_due(&key(), 300, policy()).unwrap();
+        assert_eq!(claim.periods(), 3);
+        assert_eq!(store.last_observed(&key()).unwrap(), Some(300));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn an_unreadable_stamp_reads_as_never_looked_at() {
+        let root = temp_root("last-observed-corrupt");
+        let store = ObserverStore::new(root.clone());
+        store.claim_due(&key(), 100, policy()).unwrap();
+        atomic_write(&store.stamp_path(&key()), b"not a stamp at all").unwrap();
+
+        assert_eq!(store.last_observed(&key()).unwrap(), None);
+
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

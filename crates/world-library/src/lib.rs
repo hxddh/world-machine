@@ -18,7 +18,7 @@ pub const LEGACY_WORLD_DOCUMENT_SUFFIX: &str = ".world.json";
 /// than deleted, so a removal stays reversible in the Finder.
 pub const REMOVED_DIRECTORY: &str = "Removed";
 
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct WorldDocumentId(String);
 
 impl WorldDocumentId {

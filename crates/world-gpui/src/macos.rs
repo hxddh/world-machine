@@ -545,14 +545,10 @@ impl ProjectionView {
                     items = items
                         .child(self.entity_relation_item(SelectionId::Relation(*relation), cx));
                 }
+                // The list explained itself; the paragraph explained the list
+                // to whoever wrote it.
                 panel = panel
                     .child(div().text_sm().child("Current relations"))
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(crate::theme_rgb(0x66705f))
-                            .child("Active relations connected to this visible entity. Select one to inspect the relation and its recorded history."),
-                    )
                     .child(items);
                 let hidden = relations.len().saturating_sub(ENTITY_RELATION_LIMIT);
                 if hidden > 0 {

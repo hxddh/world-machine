@@ -755,6 +755,14 @@ struct WorldMachineHome {
     world_sort: WorldSort,
     /// What was typed into Find a World.
     world_search: Entity<AnalystTextInput>,
+    /// How long each World has been on its own, read from the observer clock
+    /// when the shelf is built rather than on every frame.
+    absences: std::collections::HashMap<WorldDocumentId, observer::Absence>,
+    /// The Worlds whose card has been opened up. A card says three things by
+    /// default; everything else — the Pack, the World's own clock, the file,
+    /// and the four things you can do to a World other than open it — is
+    /// behind one word, because none of it is why you came.
+    expanded_cards: std::collections::HashSet<WorldDocumentId>,
 }
 
 /// A World name being typed on Home. Only one World is renamed at a time, so
@@ -1381,6 +1389,7 @@ impl WorldMachineHome {
         let count = listing.documents.len();
         self.documents = listing.documents;
         self.unreadable_documents = listing.unreadable;
+        self.refresh_absences();
         report_unreadable_documents(&self.unreadable_documents);
         // A World that is gone from the Library cannot still be mid-rename or
         // mid-removal on a card.
@@ -1405,6 +1414,16 @@ impl WorldMachineHome {
         }
         self.refresh_lineage()?;
         Ok(count)
+    }
+
+    fn refresh_absences(&mut self) {
+        let ids = self
+            .documents
+            .iter()
+            .map(|document| document.id.clone())
+            .collect::<Vec<_>>();
+        self.absences = observer::absences(&ids, self.library.as_ref());
+        self.expanded_cards.retain(|id| ids.contains(id));
     }
 
     fn refresh_lineage(&mut self) -> Result<(), HomeStatus> {
@@ -2023,29 +2042,33 @@ impl WorldMachineHome {
                     .child(summary),
             );
         }
-        details = details
-            .child(
+        // The one thing a shelf of Worlds that keep living has to say, and the
+        // one thing it was not saying.
+        if let Some(absence) = self.absences.get(&document.id).copied() {
+            details = details.child(
                 div()
                     .text_sm()
                     .text_color(crate::theme_rgb(0x666666))
-                    .child(if title == pack_title {
-                        format!(
-                            "World time {} · {} events",
-                            document.world_time, document.event_count
-                        )
-                    } else {
-                        format!(
-                            "{} · World time {} · {} events",
-                            pack_title, document.world_time, document.event_count
-                        )
-                    }),
-            )
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(crate::theme_rgb(0x8a8a82))
-                    .child(document_label.clone()),
+                    .child(observer::absence_sentence(absence)),
             );
+        }
+
+        let expanded = self.expanded_cards.contains(&document.id);
+        if expanded {
+            details = details
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(crate::theme_rgb(0x8a8a82))
+                        .child(format!(
+                            "{} · World time {} · {} events · {}",
+                            pack_title,
+                            document.world_time,
+                            document.event_count,
+                            document_label.clone()
+                        )),
+                );
+        }
 
         let renaming_this_world = self
             .renaming
@@ -2154,7 +2177,7 @@ impl WorldMachineHome {
                             ),
                     ),
             );
-        } else {
+        } else if expanded {
             details = details.child(
                 div()
                     .flex()
@@ -2183,7 +2206,7 @@ impl WorldMachineHome {
             );
         }
 
-        if let Some(node) = lineage_node {
+        if let Some(node) = lineage_node.filter(|_| expanded) {
             if let Some(parent) = node.parent.as_ref() {
                 let branch_label = node.branch.as_ref().map(lineage_branch_label);
                 let mut origin = div()
@@ -2302,6 +2325,77 @@ impl WorldMachineHome {
             }
         }
 
+        // One button. Opening the World is the only reason this card exists;
+        // branching it, exporting it and the rest were three more buttons of
+        // equal weight on every card of a shelf you are meant to read.
+        let toggle_id = document.id.clone();
+        let mut actions = div()
+            .flex_shrink_0()
+            .flex()
+            .flex_col()
+            .items_end()
+            .gap_2()
+            .child(
+                div()
+                    .id(SharedString::from(format!("open-{open_id}")))
+                    .cursor_pointer()
+                    .p_2()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(crate::theme_rgb(0x657da7))
+                    .bg(crate::theme_rgb(0xf4f7ff))
+                    .text_sm()
+                    .child("Open")
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.open_document(open_id.clone(), cx)
+                    })),
+            )
+            .child(
+                div()
+                    .id(SharedString::from(format!("more-{document_label}")))
+                    .cursor_pointer()
+                    .text_xs()
+                    .text_color(crate::theme_rgb(0x777770))
+                    .child(if expanded { "Less" } else { "More" })
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if !this.expanded_cards.remove(&toggle_id) {
+                            this.expanded_cards.insert(toggle_id.clone());
+                        }
+                        cx.notify();
+                    })),
+            );
+        if expanded {
+            actions = actions
+                .child(
+                    div()
+                        .id(SharedString::from(format!("compare-{compare_id}")))
+                        .cursor_pointer()
+                        .p_2()
+                        .rounded_md()
+                        .border_1()
+                        .border_color(crate::theme_rgb(0xd9d9d3))
+                        .text_sm()
+                        .child("What if…")
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.compare_document(compare_id.clone(), cx)
+                        })),
+                )
+                .child(
+                    div()
+                        .id(SharedString::from(format!("export-{export_id}")))
+                        .cursor_pointer()
+                        .p_2()
+                        .rounded_md()
+                        .border_1()
+                        .border_color(crate::theme_rgb(0xd9d9d3))
+                        .text_sm()
+                        .child("Export…")
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.export_document(export_id.clone(), cx)
+                        })),
+                );
+        }
+
         div()
             .id(SharedString::from(format!("document-{document_label}")))
             .w_full()
@@ -2315,57 +2409,7 @@ impl WorldMachineHome {
             .items_center()
             .gap_3()
             .child(details)
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .flex()
-                    .flex_col()
-                    .items_end()
-                    .gap_2()
-                    .child(
-                        div()
-                            .id(SharedString::from(format!("open-{open_id}")))
-                            .cursor_pointer()
-                            .p_2()
-                            .rounded_md()
-                            .border_1()
-                            .border_color(crate::theme_rgb(0x657da7))
-                            .bg(crate::theme_rgb(0xf4f7ff))
-                            .text_sm()
-                            .child("Open")
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.open_document(open_id.clone(), cx)
-                            })),
-                    )
-                    .child(
-                        div()
-                            .id(SharedString::from(format!("compare-{compare_id}")))
-                            .cursor_pointer()
-                            .p_2()
-                            .rounded_md()
-                            .border_1()
-                            .border_color(crate::theme_rgb(0xd9d9d3))
-                            .text_sm()
-                            .child("What if…")
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.compare_document(compare_id.clone(), cx)
-                            })),
-                    )
-                    .child(
-                        div()
-                            .id(SharedString::from(format!("export-{export_id}")))
-                            .cursor_pointer()
-                            .p_2()
-                            .rounded_md()
-                            .border_1()
-                            .border_color(crate::theme_rgb(0xd9d9d3))
-                            .text_sm()
-                            .child("Export…")
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.export_document(export_id.clone(), cx)
-                            })),
-                    ),
-            )
+            .child(actions)
     }
 
     fn included_pack_is_installed(&self, pack: &WorldPackRef) -> bool {
@@ -2518,6 +2562,14 @@ impl WorldMachineHome {
         descriptor: world_host::WorldDescriptor,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
+        // This card sat above "My Worlds · 4" telling somebody with four
+        // Worlds to start their first one, and gave its third line to the
+        // Pack's version number.
+        let invitation = if self.documents.is_empty() {
+            "Start your first World. It keeps living between visits, and you can always create another."
+        } else {
+            "A World of its own, living alongside the ones you already have."
+        };
         let pack_id = descriptor.pack.id.clone();
         let title = descriptor.title.clone();
         let button_title = format!("Create {}", descriptor.title);
@@ -2548,13 +2600,12 @@ impl WorldMachineHome {
                     .flex_col()
                     .gap_1()
                     .child(div().text_lg().child(format!("{title} is ready")))
-                    .child(div().text_sm().text_color(crate::theme_rgb(0x52604d)).child(
-                        "Start your first World. It keeps living between visits, and you can always create another.",
-                    ))
-                    .child(div().text_xs().text_color(crate::theme_rgb(0x75806f)).child(format!(
-                        "Version {} · no World created yet",
-                        descriptor.pack.version
-                    ))),
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(crate::theme_rgb(0x52604d))
+                            .child(invitation),
+                    ),
             )
             .child(
                 div()
@@ -4110,7 +4161,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 pending_removal: None,
                 world_sort: WorldSort::Recent,
                 world_search,
+                absences: std::collections::HashMap::new(),
+                expanded_cards: std::collections::HashSet::new(),
             };
+            // The shelf says how long each World has been alone from its first
+            // frame, not only after something has made it reload.
+            home.refresh_absences();
             home.start_system_open_listener(cx);
             home.activate_included_packs(cx);
             home.start_update_check(cx);
