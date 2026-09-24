@@ -1,4 +1,5 @@
 mod macos;
+pub mod scene;
 pub mod ui;
 
 pub use macos::ProjectionView;

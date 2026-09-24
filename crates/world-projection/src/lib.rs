@@ -7,6 +7,7 @@ use world_core::{
 };
 
 pub use causal::{why_from_world, why_map_from_world, WhyNode, WhyProjection};
+pub use influence::effect_headline;
 
 pub const ENTITY_HISTORY_SECTION: &str = "Recorded entity changes";
 pub const RELATION_HISTORY_SECTION: &str = "Recorded relation changes";

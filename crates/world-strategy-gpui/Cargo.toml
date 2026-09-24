@@ -7,6 +7,7 @@ publish = false
 
 [dependencies]
 world-theme = { path = "../world-theme" }
+world-gpui = { path = "../world-gpui" }
 world-compare = { path = "../world-compare" }
 world-projection = { path = "../world-projection" }
 world-strategy = { path = "../world-strategy" }

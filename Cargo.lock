@@ -6776,6 +6776,7 @@ version = "0.1.0"
 dependencies = [
  "gpui",
  "world-document",
+ "world-gpui",
  "world-library",
  "world-lineage",
  "world-persistence",
@@ -6939,6 +6940,7 @@ version = "0.1.0"
 dependencies = [
  "gpui",
  "world-compare",
+ "world-gpui",
  "world-projection",
  "world-strategy",
  "world-theme",

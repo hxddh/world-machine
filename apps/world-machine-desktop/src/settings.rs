@@ -12,8 +12,10 @@ use gpui::{
     div, prelude::*, px, size, App, AppContext, Bounds, Context, Entity, IntoElement, Render,
     SharedString, Styled, Window, WindowBounds, WindowOptions,
 };
+use world_gpui::ui;
 use world_machine_desktop::analyst_settings::{self, VoiceSource};
 use world_machine_desktop::key_store;
+use world_theme::tokens;
 
 use crate::diagnostics;
 use crate::world_fork::analyst_input::{self, AnalystTextInput};
@@ -167,7 +169,7 @@ fn button(
     if enabled {
         control = control.cursor_pointer();
     } else {
-        control = control.text_color(crate::theme_rgb(0x999990));
+        control = control.text_color(ui::color(tokens::TEXT_TERTIARY));
     }
     control
 }
@@ -216,7 +218,7 @@ impl Render for SettingsView {
             VoiceSource::Program => div().flex().flex_col().gap_1().child(
                 div()
                     .text_xs()
-                    .text_color(crate::theme_rgb(0x777770))
+                    .text_color(ui::color(tokens::TEXT_SECONDARY))
                     .child(match self.program.as_deref() {
                         Some(program) => format!("Program: {program}"),
                         None => "No program chosen. The Analyst settings are where you point the app at one.".to_string(),
@@ -238,7 +240,7 @@ impl Render for SettingsView {
                     .flex()
                     .flex_col()
                     .gap_2()
-                    .child(div().text_xs().text_color(crate::theme_rgb(0x777770)).child(
+                    .child(div().text_xs().text_color(ui::color(tokens::TEXT_SECONDARY)).child(
                         if self.key_stored {
                             "A key is stored in your login keychain. Entering another replaces it."
                         } else {
@@ -256,13 +258,13 @@ impl Render for SettingsView {
             .flex()
             .flex_col()
             .gap_4()
-            .bg(crate::theme_rgb(0xfbfbf9))
-            .text_color(crate::theme_rgb(0x1f2328))
+            .bg(ui::color(tokens::WINDOW))
+            .text_color(ui::color(tokens::TEXT))
             .child(div().text_lg().child("World voice"))
             .child(
                 div()
                     .text_sm()
-                    .text_color(crate::theme_rgb(0x4f5968))
+                    .text_color(ui::color(tokens::TEXT_SECONDARY))
                     .child("When you come back to a World, it can tell you what happened in its own words instead of reading from the copy written into the app. Worlds already open keep the voice they were opened with."),
             )
             .child(div().text_sm().child(self.summary()))
@@ -272,14 +274,14 @@ impl Render for SettingsView {
             .child(
                 div()
                     .text_xs()
-                    .text_color(crate::theme_rgb(0x777770))
+                    .text_color(ui::color(tokens::TEXT_SECONDARY))
                     .child("An API key is the only setting here that sends anything off this Mac: one request each time you return to a World, carrying what that World has already recorded and nothing else. A program you choose is between you and that program."),
             );
         if let Some(status) = self.status.clone() {
             page = page.child(
                 div()
                     .text_xs()
-                    .text_color(crate::theme_rgb(0x9a3412))
+                    .text_color(ui::color(tokens::DANGER))
                     .child(status),
             );
         }

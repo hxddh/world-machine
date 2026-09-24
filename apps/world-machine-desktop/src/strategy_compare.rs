@@ -9,11 +9,13 @@ use gpui::{
 use std::rc::Rc;
 use std::sync::Arc;
 use world_document::{WorldBranchCause, WorldDocument, WorldLineage, WorldParent};
+use world_gpui::ui;
 use world_host::WorldRegistry;
 use world_library::{snapshot_display_summary, DurableWorldSession, WorldDocumentId, WorldLibrary};
 use world_persistence::WorldArchive;
 use world_strategy_document::{available_choices, evaluate_choices, StrategyChoice};
 use world_strategy_gpui::StrategyComparisonView;
+use world_theme::tokens;
 
 const HORIZON_PRESETS: [u64; 3] = [5, 20, 100];
 
@@ -115,7 +117,7 @@ impl StrategySetupView {
         let mut column = div().w(px(390.0)).flex().flex_col().gap_2().child(
             div()
                 .text_sm()
-                .text_color(crate::theme_rgb(0x666666))
+                .text_color(ui::color(tokens::TEXT_SECONDARY))
                 .child(label.to_string()),
         );
 
@@ -135,15 +137,15 @@ impl StrategySetupView {
                 .child(
                     div()
                         .text_xs()
-                        .text_color(crate::theme_rgb(0x777777))
+                        .text_color(ui::color(tokens::TEXT_TERTIARY))
                         .child(choice.detail.clone()),
                 );
             card = if selected {
-                card.border_color(crate::theme_rgb(0x6684c4))
-                    .bg(crate::theme_rgb(0xf2f6ff))
+                card.border_color(ui::color(tokens::ACCENT))
+                    .bg(ui::color(tokens::ACCENT_SOFT))
             } else {
-                card.border_color(crate::theme_rgb(0xd8d8d2))
-                    .bg(crate::theme_rgb(0xffffff))
+                card.border_color(ui::color(tokens::BORDER_STRONG))
+                    .bg(ui::color(tokens::SURFACE))
             };
             column = column.child(card.on_click(cx.listener(move |this, _, _, cx| {
                 if side == "left" {
@@ -174,12 +176,12 @@ impl StrategySetupView {
                 .child(format!("{horizon} periods"));
             option = if selected {
                 option
-                    .border_color(crate::theme_rgb(0x6684c4))
-                    .bg(crate::theme_rgb(0xf2f6ff))
+                    .border_color(ui::color(tokens::ACCENT))
+                    .bg(ui::color(tokens::ACCENT_SOFT))
             } else {
                 option
-                    .border_color(crate::theme_rgb(0xd8d8d2))
-                    .bg(crate::theme_rgb(0xffffff))
+                    .border_color(ui::color(tokens::BORDER_STRONG))
+                    .bg(ui::color(tokens::SURFACE))
             };
             row = row.child(option.on_click(cx.listener(move |this, _, _, cx| {
                 this.horizon = horizon;
@@ -323,8 +325,8 @@ impl Render for StrategySetupView {
         let mut body = div()
             .size_full()
             .p_5()
-            .bg(crate::theme_rgb(0xf7f7f3))
-            .text_color(crate::theme_rgb(0x202020))
+            .bg(ui::color(tokens::WARNING_SOFT))
+            .text_color(ui::color(tokens::TEXT))
             .flex()
             .flex_col()
             .gap_4()
@@ -332,7 +334,7 @@ impl Render for StrategySetupView {
             .child(
                 div()
                     .text_sm()
-                    .text_color(crate::theme_rgb(0x666666))
+                    .text_color(ui::color(tokens::TEXT_SECONDARY))
                     .child("Choose two possible actions from the same durable World, then decide how far each future should run."),
             )
             .child(
@@ -349,7 +351,7 @@ impl Render for StrategySetupView {
             body = body.child(
                 div()
                     .text_sm()
-                    .text_color(crate::theme_rgb(0x9b5a4f))
+                    .text_color(ui::color(tokens::DANGER))
                     .child("Choose two different futures before running the comparison."),
             );
         }
@@ -376,8 +378,8 @@ impl Render for StrategySetupView {
                 .p_3()
                 .rounded_md()
                 .border_1()
-                .border_color(crate::theme_rgb(0x6684c4))
-                .bg(crate::theme_rgb(0xeaf0ff))
+                .border_color(ui::color(tokens::ACCENT))
+                .bg(ui::color(tokens::ACCENT_SOFT))
                 .text_sm()
                 .child(format!("Run comparison · {} periods", self.horizon))
                 .on_click(cx.listener(|this, _, _, cx| {
@@ -533,23 +535,14 @@ impl StrategyResultView {
                         .p_2()
                         .rounded_md()
                         .border_1()
-                        .border_color(crate::theme_rgb(0xb9c8b1))
-                        .bg(crate::theme_rgb(0xf1f6ee))
+                        .border_color(ui::color(tokens::BORDER_STRONG))
+                        .bg(ui::color(tokens::SUCCESS_SOFT))
                         .text_sm()
                         .child(format!("Saved {label} · {saved}")),
                 )
                 .child(
-                    div()
-                        .id(open_button_id)
-                        .cursor_pointer()
-                        .p_2()
-                        .rounded_md()
-                        .border_1()
-                        .border_color(crate::theme_rgb(0x9eb0d6))
-                        .bg(crate::theme_rgb(0xf4f7ff))
-                        .text_sm()
-                        .child("Open")
-                        .on_click(cx.listener(move |this, _, _, cx| {
+                    ui::button(open_button_id, "Open", ui::ButtonKind::Secondary).on_click(
+                        cx.listener(move |this, _, _, cx| {
                             this.status = Some(match this.open_saved_future(side, cx) {
                                 Ok(document) => StrategyStatus::success(format!(
                                     "Opened saved {label} · {document}"
@@ -559,27 +552,23 @@ impl StrategyResultView {
                                 }
                             });
                             cx.notify();
-                        })),
+                        }),
+                    ),
                 );
         }
 
         div().child(
-            div()
-                .id(save_button_id)
-                .cursor_pointer()
-                .p_2()
-                .rounded_md()
-                .border_1()
-                .border_color(crate::theme_rgb(0x9eb0d6))
-                .bg(crate::theme_rgb(0xf4f7ff))
-                .text_sm()
-                .child(format!("Save {label}"))
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    if let Err(error) = this.save_future(side) {
-                        this.status = Some(StrategyStatus::error(format!("Save failed: {error}")));
-                    }
-                    cx.notify();
-                })),
+            ui::button(
+                save_button_id,
+                format!("Save {label}"),
+                ui::ButtonKind::Secondary,
+            )
+            .on_click(cx.listener(move |this, _, _, cx| {
+                if let Err(error) = this.save_future(side) {
+                    this.status = Some(StrategyStatus::error(format!("Save failed: {error}")));
+                }
+                cx.notify();
+            })),
         )
     }
 }
@@ -590,7 +579,7 @@ impl Render for StrategyResultView {
             window.appearance(),
             gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark
         ));
-        window.set_window_title("Strategy Comparison — World Machine");
+        window.set_window_title(&format!("What if… — {}", self.source_label));
 
         let actions = div()
             .flex_shrink_0()
@@ -599,35 +588,32 @@ impl Render for StrategyResultView {
             .justify_end()
             .gap_2()
             .child(
-                div()
-                    .id("change-strategy-choices")
-                    .cursor_pointer()
-                    .p_2()
-                    .rounded_md()
-                    .border_1()
-                    .border_color(crate::theme_rgb(0xcacac4))
-                    .bg(crate::theme_rgb(0xffffff))
-                    .text_sm()
-                    .child("Change choices…")
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.status = Some(match open_setup(&this.document, cx) {
-                            Ok(count) => StrategyStatus::success(format!(
-                                "Choose from {count} choices in the setup window"
-                            )),
-                            Err(error) => StrategyStatus::error(error),
-                        });
-                        cx.notify();
-                    })),
+                ui::button(
+                    "change-strategy-choices",
+                    "Change choices…",
+                    ui::ButtonKind::Secondary,
+                )
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.status = Some(match open_setup(&this.document, cx) {
+                        Ok(count) => StrategyStatus::success(format!(
+                            "Choose from {count} choices in the setup window"
+                        )),
+                        Err(error) => StrategyStatus::error(error),
+                    });
+                    cx.notify();
+                })),
             )
             .child(self.render_save_action(FutureSide::Left, cx))
             .child(self.render_save_action(FutureSide::Right, cx));
 
         let mut chrome = div()
             .w_full()
-            .p_3()
+            .px_5()
+            .py_3()
             .border_b_1()
-            .border_color(crate::theme_rgb(0xd9d9d3))
-            .bg(crate::theme_rgb(0xf7f7f3))
+            .border_color(ui::color(tokens::BORDER))
+            .bg(ui::color(tokens::WINDOW))
+            .text_color(ui::color(tokens::TEXT))
             .flex()
             .items_center()
             .justify_between()
@@ -639,16 +625,19 @@ impl Render for StrategyResultView {
                     .flex()
                     .flex_col()
                     .gap_1()
-                    .child(div().text_sm().child(format!(
-                        "What if · {} vs {}",
-                        self.left_label, self.right_label
-                    )))
+                    .child(
+                        div()
+                            .text_base()
+                            .font_weight(gpui::FontWeight::SEMIBOLD)
+                            .truncate()
+                            .child(format!("{} or {}", self.left_label, self.right_label)),
+                    )
                     .child(
                         div()
                             .text_xs()
-                            .text_color(crate::theme_rgb(0x777770))
+                            .text_color(ui::color(tokens::TEXT_SECONDARY))
                             .child(format!(
-                                "{} · {} periods from now",
+                                "What if… · {} · {} periods ahead",
                                 self.source_label, self.horizon
                             )),
                     ),

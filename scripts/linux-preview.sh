@@ -21,9 +21,11 @@
 #   [APPEARANCE=dark] scripts/linux-preview.sh [output-dir] [click-x click-y]...
 #
 # Every window the app has open after start-up (and after each optional click,
-# given in pixels relative to Home's top-left corner) is written to
-# output-dir as <window-id>.png. Clicking Open on the first World card is
-#   scripts/linux-preview.sh shots 688 190
+# given in pixels relative to Home's top-left corner, or to the newest window
+# when the x is written @x) is written to output-dir as <window-id>.png.
+# "scroll N" turns the mouse wheel N notches over the newest window. Opening
+# the third World on Home, pressing What if…, and scrolling down is
+#   scripts/linux-preview.sh shots 688 489 @1035 25 scroll 15
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -75,10 +77,31 @@ origin() {
     xwininfo -id "$1" | awk '/Absolute upper-left X/ {x=$4} /Absolute upper-left Y/ {y=$4} END {print x, y}'
 }
 
+# X hands out window ids in increasing order, so the largest is the newest.
+newest_window() {
+    xwininfo -root -tree | awk '/"/ && $0 ~ /[0-9]{3,}x[0-9]{3,}\+/ {print $1}' \
+        | while read -r id; do printf '%d %s\n' "$id" "$id"; done \
+        | sort -n | tail -1 | cut -d' ' -f2
+}
+
 HOME_WINDOW=$(home_window)
 set -- $CLICKS
 while [ "$#" -ge 2 ]; do
-    read -r X Y < <(origin "$HOME_WINDOW")
+    # "scroll N" turns the wheel N notches down over the newest window.
+    if [ "$1" = scroll ]; then
+        read -r X Y < <(origin "$(newest_window)")
+        xdotool mousemove $((X + 400)) $((Y + 400))
+        for _ in $(seq "$2"); do xdotool click 5; sleep 0.05; done
+        sleep 2
+        shift 2
+        continue
+    fi
+    # A leading @ clicks in the most recently opened window instead of Home.
+    TARGET=$HOME_WINDOW
+    case "$1" in
+        @*) TARGET=$(newest_window); set -- "${1#@}" "${@:2}" ;;
+    esac
+    read -r X Y < <(origin "$TARGET")
     xdotool mousemove $((X + $1 - 2)) $((Y + $2 - 2))
     sleep 0.5
     xdotool mousemove $((X + $1)) $((Y + $2)) click 1

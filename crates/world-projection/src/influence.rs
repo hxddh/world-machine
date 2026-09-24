@@ -224,14 +224,14 @@ fn semantic_effect_from_snapshot(
     match (summary, evidence.is_empty()) {
         (Some(summary), true) => Some(summary.to_string()),
         (Some(summary), false) => {
-            let mut text = format!("{summary} · Recorded state · {}", evidence.join(" · "));
+            let mut text = format!("{summary} · {RECORDED_STATE}{}", evidence.join(" · "));
             if hidden > 0 {
                 text.push_str(&format!(" · +{hidden} more recorded changes"));
             }
             Some(text)
         }
         (None, false) => {
-            let mut text = format!("Recorded state · {}", evidence.join(" · "));
+            let mut text = format!("{RECORDED_STATE}{}", evidence.join(" · "));
             if hidden > 0 {
                 text.push_str(&format!(" · +{hidden} more recorded changes"));
             }
@@ -240,6 +240,20 @@ fn semantic_effect_from_snapshot(
         (None, true) => None,
     }
 }
+
+/// The part of an effect a person reads: what happened, without the
+/// recorded state changes appended as evidence. Empty when the effect is
+/// evidence alone.
+pub fn effect_headline(effect: &str) -> &str {
+    if effect.starts_with(RECORDED_STATE) {
+        return "";
+    }
+    effect
+        .split_once(&format!(" · {RECORDED_STATE}"))
+        .map_or(effect, |(headline, _)| headline)
+}
+
+const RECORDED_STATE: &str = "Recorded state · ";
 
 fn change_field_label(label: &str) -> &str {
     label.rsplit_once(" · ").map_or(label, |(_, field)| field)
@@ -677,5 +691,21 @@ mod tests {
                 SelectionId::Event(EventId::new(4)),
             ]
         );
+    }
+
+    #[test]
+    fn an_effect_headline_leaves_the_evidence_out() {
+        use super::effect_headline;
+        assert_eq!(
+            effect_headline(
+                "Nia rebuilt the reclaimer. · Recorded state · Entity #10 · Status = rebuilt"
+            ),
+            "Nia rebuilt the reclaimer."
+        );
+        assert_eq!(
+            effect_headline("Recorded state · Create entity · Second entity"),
+            ""
+        );
+        assert_eq!(effect_headline("Nothing recorded"), "Nothing recorded");
     }
 }

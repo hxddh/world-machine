@@ -6,12 +6,13 @@
 //! whoever the latest news is about, so the first thing a returning player
 //! sees is the World and who moved in it, not a paragraph.
 
-use super::{ui, ProjectionView};
+use crate::ui;
 use gpui::{
     canvas, div, linear_color_stop, linear_gradient, point, prelude::*, px, quad, relative, rgb,
-    size, BorderStyle, Bounds, Context, Div, FontWeight, Hsla, PathBuilder, SharedString,
+    size, App, BorderStyle, Bounds, Div, FontWeight, Hsla, PathBuilder, SharedString, Window,
 };
 use std::collections::{BTreeMap, BTreeSet};
+use std::rc::Rc;
 use world_projection::{
     CanvasItem, CanvasItemKind, CanvasLinkTone, ProjectionSnapshot, SelectionId,
 };
@@ -56,8 +57,26 @@ fn hsla(token: tokens::Token) -> Hsla {
     rgb(token.hex()).into()
 }
 
+/// The items in `this` scene that are not the same in `other`: gone, new,
+/// or saying something different about themselves.
+pub fn differences(this: &ProjectionSnapshot, other: &ProjectionSnapshot) -> BTreeSet<SelectionId> {
+    this.canvas
+        .items
+        .iter()
+        .filter(|item| {
+            !other.canvas.items.iter().any(|twin| {
+                twin.id == item.id && twin.label == item.label && twin.detail == item.detail
+            })
+        })
+        .map(|item| item.id)
+        .collect()
+}
+
+/// What happens when something in a scene is clicked.
+pub type SelectHandler = Rc<dyn Fn(SelectionId, &mut Window, &mut App)>;
+
 /// The name of whoever an event was done by, as the projection records it.
-pub(super) fn event_actor(snapshot: &ProjectionSnapshot, selection: SelectionId) -> Option<String> {
+pub fn event_actor(snapshot: &ProjectionSnapshot, selection: SelectionId) -> Option<String> {
     let inspector = snapshot.inspector(selection)?;
     inspector
         .sections
@@ -69,7 +88,7 @@ pub(super) fn event_actor(snapshot: &ProjectionSnapshot, selection: SelectionId)
 
 /// Everyone and everything the current news is about: the actors and
 /// targets of the events the briefing reports.
-pub(super) fn in_the_news(snapshot: &ProjectionSnapshot, latest: usize) -> BTreeSet<String> {
+pub fn in_the_news(snapshot: &ProjectionSnapshot, latest: usize) -> BTreeSet<String> {
     let mut names = BTreeSet::new();
     let Some(briefing) = snapshot.briefing.as_ref() else {
         return names;
@@ -217,317 +236,337 @@ fn layout(items: &[CanvasItem], width: f32, height: f32, compact: bool) -> Vec<(
         .collect()
 }
 
-impl ProjectionView {
-    pub(super) fn render_scene(&self, width: f32, cx: &mut Context<Self>) -> Option<Div> {
-        let items = &self.snapshot.canvas.items;
-        if items.is_empty() {
-            return None;
-        }
-        let compact = items.len() > CROWDED;
-        let stage_height = if compact {
-            CROWDED_SCENE_HEIGHT
-        } else {
-            SCENE_HEIGHT
-        };
-        let news = in_the_news(&self.snapshot, HALOED_BEATS);
-        let placed = layout(items, width.max(320.0), stage_height, compact);
-        let positions = items
-            .iter()
-            .zip(&placed)
-            .map(|(item, position)| (item.id, *position))
-            .collect::<BTreeMap<_, _>>();
-        // Relations the World records, drawn thin; connections the Pack
-        // asks for, drawn with their tone and weight.
-        let mut lines = links(&self.snapshot)
-            .into_iter()
-            .filter_map(|(from, to)| {
-                Some(Line {
-                    from: *positions.get(&from)?,
-                    to: *positions.get(&to)?,
-                    tone: CanvasLinkTone::Neutral,
-                    width: 1.5,
-                })
-            })
-            .collect::<Vec<_>>();
-        let pack_links = self
-            .snapshot
-            .canvas
-            .links
-            .iter()
-            .filter_map(|link| Some((link, *positions.get(&link.from)?, *positions.get(&link.to)?)))
-            .collect::<Vec<_>>();
-        for (link, from, to) in &pack_links {
-            lines.push(Line {
-                from: *from,
-                to: *to,
-                tone: link.tone,
-                width: 2.0 + 4.0 * link.strength,
-            });
-        }
-        let halos = items
-            .iter()
-            .zip(&placed)
-            .filter(|(item, _)| news.contains(&item.label))
-            .map(|(_, position)| *position)
-            .collect::<Vec<_>>();
+/// What a scene draws attention to.
+#[derive(Clone, Debug, Default)]
+pub enum Emphasis {
+    /// Whoever the latest news is about: the World window's default.
+    #[default]
+    News,
+    /// These items, and nothing else: how a comparison points at what is
+    /// different in this future.
+    Only(BTreeSet<SelectionId>),
+}
 
-        let grid = hsla(tokens::SCENE_GRID);
-        let tone_colour = |tone: CanvasLinkTone| match tone {
-            CanvasLinkTone::Neutral => hsla(tokens::SCENE_LINK),
-            CanvasLinkTone::Warm => hsla(tokens::SUCCESS).opacity(0.7),
-            CanvasLinkTone::Strained => hsla(tokens::DANGER).opacity(0.7),
-        };
-        let lines = lines
-            .into_iter()
-            .map(|line| (line.from, line.to, tone_colour(line.tone), line.width))
-            .collect::<Vec<_>>();
-        let glow = hsla(tokens::ACCENT);
-        let backdrop = canvas(
-            |_, _, _| (),
-            move |bounds: Bounds<gpui::Pixels>, _, window, _| {
-                let origin = bounds.origin;
-                let width = bounds.size.width;
-                let height = bounds.size.height;
-                let at = |x: f32, y: f32| point(origin.x + width * x, origin.y + height * y);
-
-                // A faint dot grid: enough texture to read as ground.
-                let step = 22.0;
-                let mut y = step;
-                while y < f32::from(height) {
-                    let mut x = step;
-                    while x < f32::from(width) {
-                        window.paint_quad(quad(
-                            Bounds::new(
-                                point(origin.x + px(x), origin.y + px(y)),
-                                size(px(2.0), px(2.0)),
-                            ),
-                            px(1.0),
-                            grid,
-                            px(0.0),
-                            grid,
-                            BorderStyle::default(),
-                        ));
-                        x += step;
-                    }
-                    y += step;
-                }
-
-                // Whoever the news is about glows, so a returning player sees
-                // where things happened before reading what happened.
-                for (x, y) in &halos {
-                    let centre = at(*x, *y);
-                    for (radius, alpha) in [(40.0, 0.08), (30.0, 0.12)] {
-                        window.paint_quad(quad(
-                            Bounds::new(
-                                point(centre.x - px(radius), centre.y - px(radius)),
-                                size(px(radius * 2.0), px(radius * 2.0)),
-                            ),
-                            px(radius),
-                            glow.opacity(alpha),
-                            px(0.0),
-                            glow.opacity(0.0),
-                            BorderStyle::default(),
-                        ));
-                    }
-                }
-
-                // Relations as gently bowed lines, so crossing links stay
-                // distinguishable.
-                for ((x1, y1), (x2, y2), colour, width) in &lines {
-                    let from = at(*x1, *y1);
-                    let to = at(*x2, *y2);
-                    let control = point((from.x + to.x) / 2.0, (from.y + to.y) / 2.0);
-                    let mut path = PathBuilder::stroke(px(*width));
-                    path.move_to(from);
-                    path.curve_to(to, control);
-                    if let Ok(path) = path.build() {
-                        window.paint_path(path, *colour);
-                    }
-                }
-            },
-        )
-        .absolute()
-        .top_0()
-        .left_0()
-        .size_full();
-
-        let mut scene = div()
-            .relative()
-            .flex_shrink_0()
-            .w_full()
-            .h(px(stage_height))
-            .rounded_xl()
-            .overflow_hidden()
-            .border_1()
-            .border_color(ui::color(tokens::BORDER))
-            .bg(linear_gradient(
-                180.0,
-                linear_color_stop(hsla(tokens::SCENE_TOP), 0.0),
-                linear_color_stop(hsla(tokens::SCENE_BOTTOM), 1.0),
-            ))
-            .child(backdrop);
-
-        for (item, (x, y)) in items.iter().zip(placed.iter().copied()) {
-            let selection = item.id;
-            let selected = self.selected == Some(selection);
-            let active = news.contains(&item.label);
-            let id = SharedString::from(format!("canvas-{}", selection.stable_key()));
-            let node = match item.kind {
-                CanvasItemKind::Actor => {
-                    actor_node(&item.label, &item.detail, selected, active, compact)
-                }
-                CanvasItemKind::Place => place_node(&item.label, &item.detail, selected, compact),
-                CanvasItemKind::Object => object_node(&item.label, selected),
-            };
-            // Centre the node on its position, whatever its size.
-            let (width, _, top_offset) = footprint(item.kind, compact);
-            scene = scene.child(
-                div()
-                    .id(id)
-                    .absolute()
-                    .left(relative(x))
-                    .top(relative(y))
-                    .ml(px(-width / 2.0))
-                    .mt(px(-top_offset))
-                    .w(px(width))
-                    .cursor_pointer()
-                    .child(node)
-                    .on_click(cx.listener(move |this, _, _, cx| this.select(selection, cx))),
-            );
-        }
-
-        // Each connection's name sits on its line and selects what it stands
-        // for, so the relationship is reached by clicking between the people.
-        for (index, (link, (x1, y1), (x2, y2))) in pack_links.iter().enumerate() {
-            if link.label.is_empty() {
-                continue;
-            }
-            let (text, border) = match link.tone {
-                CanvasLinkTone::Neutral => (tokens::TEXT_SECONDARY, tokens::BORDER),
-                CanvasLinkTone::Warm => (tokens::SUCCESS, tokens::SUCCESS),
-                CanvasLinkTone::Strained => (tokens::DANGER, tokens::DANGER),
-            };
-            let mut pill = div()
-                .id(SharedString::from(format!("scene-link-{index}")))
-                .absolute()
-                .left(relative((x1 + x2) / 2.0))
-                .top(relative((y1 + y2) / 2.0))
-                .ml(px(-LINK_LABEL_WIDTH / 2.0))
-                .mt(px(-12.0))
-                .w(px(LINK_LABEL_WIDTH))
-                .flex()
-                .justify_center()
-                .child(
-                    div()
-                        .px_2()
-                        .py(px(2.0))
-                        .rounded_full()
-                        .border_1()
-                        .border_color(ui::color(border).opacity(0.6))
-                        .bg(ui::color(tokens::SURFACE))
-                        .text_xs()
-                        .font_weight(FontWeight::MEDIUM)
-                        .text_color(ui::color(text))
-                        .child(link.label.clone()),
-                );
-            if let Some(selection) = link.selection {
-                pill = pill
-                    .cursor_pointer()
-                    .on_click(cx.listener(move |this, _, _, cx| this.select(selection, cx)));
-            }
-            scene = scene.child(pill);
-        }
-
-        Some(scene)
+/// A World's scene at `width` pixels wide, or nothing when the Pack draws
+/// none. `selected` is ringed; clicking anything calls `on_select`.
+pub fn scene(
+    snapshot: &ProjectionSnapshot,
+    width: f32,
+    selected: Option<SelectionId>,
+    emphasis: &Emphasis,
+    on_select: SelectHandler,
+) -> Option<Div> {
+    let items = &snapshot.canvas.items;
+    if items.is_empty() {
+        return None;
     }
-
-    /// When things happened across the World's whole life, as a strip of
-    /// bars, with the stretch the current news covers picked out.
-    pub(super) fn render_activity(&self) -> Option<Div> {
-        const BUCKETS: usize = 36;
-        let times = self
-            .snapshot
-            .timeline
-            .items
-            .iter()
-            .map(|item| item.world_time)
-            .collect::<Vec<_>>();
-        let (&first, &last) = (times.iter().min()?, times.iter().max()?);
-        if last == first {
-            return None;
-        }
-        let news_times = self
-            .snapshot
-            .briefing
-            .as_ref()
-            .map(|briefing| {
-                briefing
-                    .beats()
-                    .iter()
-                    .filter_map(|beat| match beat.selection {
-                        Some(SelectionId::Event(event)) => self
-                            .snapshot
-                            .timeline
-                            .items
-                            .iter()
-                            .find(|item| item.id == SelectionId::Event(event))
-                            .map(|item| item.world_time),
-                        _ => None,
-                    })
-                    .collect::<Vec<_>>()
+    let compact = items.len() > CROWDED;
+    let stage_height = if compact {
+        CROWDED_SCENE_HEIGHT
+    } else {
+        SCENE_HEIGHT
+    };
+    let news = in_the_news(snapshot, HALOED_BEATS);
+    let emphasised = |item: &CanvasItem| match emphasis {
+        Emphasis::News => news.contains(&item.label),
+        Emphasis::Only(items) => items.contains(&item.id),
+    };
+    let placed = layout(items, width.max(320.0), stage_height, compact);
+    let positions = items
+        .iter()
+        .zip(&placed)
+        .map(|(item, position)| (item.id, *position))
+        .collect::<BTreeMap<_, _>>();
+    // Relations the World records, drawn thin; connections the Pack
+    // asks for, drawn with their tone and weight.
+    let mut lines = links(snapshot)
+        .into_iter()
+        .filter_map(|(from, to)| {
+            Some(Line {
+                from: *positions.get(&from)?,
+                to: *positions.get(&to)?,
+                tone: CanvasLinkTone::Neutral,
+                width: 1.5,
             })
-            .unwrap_or_default();
-        let bucket_of = |time: u64| {
-            (((time - first) as f64 / (last - first) as f64) * (BUCKETS - 1) as f64).round()
-                as usize
-        };
-        let mut counts = [0_usize; BUCKETS];
-        for time in &times {
-            counts[bucket_of(*time)] += 1;
-        }
-        let highlighted = match (news_times.iter().min(), news_times.iter().max()) {
-            (Some(&from), Some(&to)) => bucket_of(from)..=bucket_of(to),
-            _ => {
-                let end = bucket_of(last);
-                end..=end
+        })
+        .collect::<Vec<_>>();
+    let pack_links = snapshot
+        .canvas
+        .links
+        .iter()
+        .filter_map(|link| Some((link, *positions.get(&link.from)?, *positions.get(&link.to)?)))
+        .collect::<Vec<_>>();
+    for (link, from, to) in &pack_links {
+        lines.push(Line {
+            from: *from,
+            to: *to,
+            tone: link.tone,
+            width: 2.0 + 4.0 * link.strength,
+        });
+    }
+    let halos = items
+        .iter()
+        .zip(&placed)
+        .filter(|(item, _)| emphasised(item))
+        .map(|(_, position)| *position)
+        .collect::<Vec<_>>();
+
+    let grid = hsla(tokens::SCENE_GRID);
+    let tone_colour = |tone: CanvasLinkTone| match tone {
+        CanvasLinkTone::Neutral => hsla(tokens::SCENE_LINK),
+        CanvasLinkTone::Warm => hsla(tokens::SUCCESS).opacity(0.7),
+        CanvasLinkTone::Strained => hsla(tokens::DANGER).opacity(0.7),
+    };
+    let lines = lines
+        .into_iter()
+        .map(|line| (line.from, line.to, tone_colour(line.tone), line.width))
+        .collect::<Vec<_>>();
+    let glow = hsla(tokens::ACCENT);
+    let backdrop = canvas(
+        |_, _, _| (),
+        move |bounds: Bounds<gpui::Pixels>, _, window, _| {
+            let origin = bounds.origin;
+            let width = bounds.size.width;
+            let height = bounds.size.height;
+            let at = |x: f32, y: f32| point(origin.x + width * x, origin.y + height * y);
+
+            // A faint dot grid: enough texture to read as ground.
+            let step = 22.0;
+            let mut y = step;
+            while y < f32::from(height) {
+                let mut x = step;
+                while x < f32::from(width) {
+                    window.paint_quad(quad(
+                        Bounds::new(
+                            point(origin.x + px(x), origin.y + px(y)),
+                            size(px(2.0), px(2.0)),
+                        ),
+                        px(1.0),
+                        grid,
+                        px(0.0),
+                        grid,
+                        BorderStyle::default(),
+                    ));
+                    x += step;
+                }
+                y += step;
             }
+
+            // Whoever the news is about glows, so a returning player sees
+            // where things happened before reading what happened.
+            for (x, y) in &halos {
+                let centre = at(*x, *y);
+                for (radius, alpha) in [(40.0, 0.08), (30.0, 0.12)] {
+                    window.paint_quad(quad(
+                        Bounds::new(
+                            point(centre.x - px(radius), centre.y - px(radius)),
+                            size(px(radius * 2.0), px(radius * 2.0)),
+                        ),
+                        px(radius),
+                        glow.opacity(alpha),
+                        px(0.0),
+                        glow.opacity(0.0),
+                        BorderStyle::default(),
+                    ));
+                }
+            }
+
+            // Relations as gently bowed lines, so crossing links stay
+            // distinguishable.
+            for ((x1, y1), (x2, y2), colour, width) in &lines {
+                let from = at(*x1, *y1);
+                let to = at(*x2, *y2);
+                let control = point((from.x + to.x) / 2.0, (from.y + to.y) / 2.0);
+                let mut path = PathBuilder::stroke(px(*width));
+                path.move_to(from);
+                path.curve_to(to, control);
+                if let Ok(path) = path.build() {
+                    window.paint_path(path, *colour);
+                }
+            }
+        },
+    )
+    .absolute()
+    .top_0()
+    .left_0()
+    .size_full();
+
+    let mut scene = div()
+        .relative()
+        .flex_shrink_0()
+        .w_full()
+        .h(px(stage_height))
+        .rounded_xl()
+        .overflow_hidden()
+        .border_1()
+        .border_color(ui::color(tokens::BORDER))
+        .bg(linear_gradient(
+            180.0,
+            linear_color_stop(hsla(tokens::SCENE_TOP), 0.0),
+            linear_color_stop(hsla(tokens::SCENE_BOTTOM), 1.0),
+        ))
+        .child(backdrop);
+
+    for (item, (x, y)) in items.iter().zip(placed.iter().copied()) {
+        let selection = item.id;
+        let selected = selected == Some(selection);
+        let active = emphasised(item);
+        let id = SharedString::from(format!("canvas-{}", selection.stable_key()));
+        let node = match item.kind {
+            CanvasItemKind::Actor => {
+                actor_node(&item.label, &item.detail, selected, active, compact)
+            }
+            CanvasItemKind::Place => place_node(&item.label, &item.detail, selected, compact),
+            CanvasItemKind::Object => object_node(&item.label, selected),
         };
-        let peak = counts.iter().copied().max().unwrap_or(1).max(1);
-
-        let mut bars = div().h(px(34.0)).flex().items_end().gap(px(2.0));
-        for (index, count) in counts.iter().enumerate() {
-            let height = if *count == 0 {
-                2.0
-            } else {
-                6.0 + 28.0 * (*count as f32 / peak as f32)
-            };
-            let colour = if highlighted.contains(&index) {
-                tokens::ACCENT
-            } else {
-                tokens::BORDER_STRONG
-            };
-            bars = bars.child(
-                div()
-                    .w(px(4.0))
-                    .h(px(height))
-                    .rounded_sm()
-                    .bg(ui::color(colour)),
-            );
-        }
-
-        Some(
+        // Centre the node on its position, whatever its size.
+        let (width, _, top_offset) = footprint(item.kind, compact);
+        scene = scene.child(
             div()
-                .flex()
-                .flex_col()
-                .items_end()
-                .gap_1()
-                .child(bars)
-                .child(ui::caption(format!(
-                    "{} moments · time {first}–{last}",
-                    times.len()
-                ))),
-        )
+                .id(id)
+                .absolute()
+                .left(relative(x))
+                .top(relative(y))
+                .ml(px(-width / 2.0))
+                .mt(px(-top_offset))
+                .w(px(width))
+                .cursor_pointer()
+                .child(node)
+                .on_click({
+                    let on_select = on_select.clone();
+                    move |_, window, cx| on_select(selection, window, cx)
+                }),
+        );
     }
+
+    // Each connection's name sits on its line and selects what it stands
+    // for, so the relationship is reached by clicking between the people.
+    for (index, (link, (x1, y1), (x2, y2))) in pack_links.iter().enumerate() {
+        if link.label.is_empty() {
+            continue;
+        }
+        let (text, border) = match link.tone {
+            CanvasLinkTone::Neutral => (tokens::TEXT_SECONDARY, tokens::BORDER),
+            CanvasLinkTone::Warm => (tokens::SUCCESS, tokens::SUCCESS),
+            CanvasLinkTone::Strained => (tokens::DANGER, tokens::DANGER),
+        };
+        let mut pill = div()
+            .id(SharedString::from(format!("scene-link-{index}")))
+            .absolute()
+            .left(relative((x1 + x2) / 2.0))
+            .top(relative((y1 + y2) / 2.0))
+            .ml(px(-LINK_LABEL_WIDTH / 2.0))
+            .mt(px(-12.0))
+            .w(px(LINK_LABEL_WIDTH))
+            .flex()
+            .justify_center()
+            .child(
+                div()
+                    .px_2()
+                    .py(px(2.0))
+                    .rounded_full()
+                    .border_1()
+                    .border_color(ui::color(border).opacity(0.6))
+                    .bg(ui::color(tokens::SURFACE))
+                    .text_xs()
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(ui::color(text))
+                    .child(link.label.clone()),
+            );
+        if let Some(selection) = link.selection {
+            let on_select = on_select.clone();
+            pill = pill
+                .cursor_pointer()
+                .on_click(move |_, window, cx| on_select(selection, window, cx));
+        }
+        scene = scene.child(pill);
+    }
+
+    Some(scene)
+}
+
+/// When things happened across the World's whole life, as a strip of bars,
+/// with the stretch the current news covers picked out.
+pub fn activity(snapshot: &ProjectionSnapshot) -> Option<Div> {
+    const BUCKETS: usize = 36;
+    let times = snapshot
+        .timeline
+        .items
+        .iter()
+        .map(|item| item.world_time)
+        .collect::<Vec<_>>();
+    let (&first, &last) = (times.iter().min()?, times.iter().max()?);
+    if last == first {
+        return None;
+    }
+    let news_times = snapshot
+        .briefing
+        .as_ref()
+        .map(|briefing| {
+            briefing
+                .beats()
+                .iter()
+                .filter_map(|beat| match beat.selection {
+                    Some(SelectionId::Event(event)) => snapshot
+                        .timeline
+                        .items
+                        .iter()
+                        .find(|item| item.id == SelectionId::Event(event))
+                        .map(|item| item.world_time),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let bucket_of = |time: u64| {
+        (((time - first) as f64 / (last - first) as f64) * (BUCKETS - 1) as f64).round() as usize
+    };
+    let mut counts = [0_usize; BUCKETS];
+    for time in &times {
+        counts[bucket_of(*time)] += 1;
+    }
+    let highlighted = match (news_times.iter().min(), news_times.iter().max()) {
+        (Some(&from), Some(&to)) => bucket_of(from)..=bucket_of(to),
+        _ => {
+            let end = bucket_of(last);
+            end..=end
+        }
+    };
+    let peak = counts.iter().copied().max().unwrap_or(1).max(1);
+
+    let mut bars = div().h(px(34.0)).flex().items_end().gap(px(2.0));
+    for (index, count) in counts.iter().enumerate() {
+        let height = if *count == 0 {
+            2.0
+        } else {
+            6.0 + 28.0 * (*count as f32 / peak as f32)
+        };
+        let colour = if highlighted.contains(&index) {
+            tokens::ACCENT
+        } else {
+            tokens::BORDER_STRONG
+        };
+        bars = bars.child(
+            div()
+                .w(px(4.0))
+                .h(px(height))
+                .rounded_sm()
+                .bg(ui::color(colour)),
+        );
+    }
+
+    Some(
+        div()
+            .flex()
+            .flex_col()
+            .items_end()
+            .gap_1()
+            .child(bars)
+            .child(ui::caption(format!(
+                "{} moments · time {first}–{last}",
+                times.len()
+            ))),
+    )
 }
 
 fn actor_node(name: &str, detail: &str, selected: bool, active: bool, compact: bool) -> Div {
@@ -562,7 +601,7 @@ fn actor_node(name: &str, detail: &str, selected: bool, active: bool, compact: b
                 .child(name.to_string()),
         )
         .when(!compact, |node| {
-            node.child(ui::caption(super::capitalize(detail)).truncate())
+            node.child(ui::caption(crate::macos::capitalize(detail)).truncate())
         })
 }
 
@@ -591,7 +630,7 @@ fn place_node(name: &str, detail: &str, selected: bool, compact: bool) -> Div {
                 .flex()
                 .flex_col()
                 .child(ui::row_title(name.to_string()).truncate())
-                .child(ui::caption(super::capitalize(detail)).truncate()),
+                .child(ui::caption(crate::macos::capitalize(detail)).truncate()),
         )
 }
 
@@ -664,7 +703,8 @@ fn place_icon() -> Div {
 
 #[cfg(test)]
 mod tests {
-    use super::{footprint, layout, CROWDED};
+    use super::{differences, footprint, layout, CROWDED};
+    use world_projection::ProjectionSnapshot;
     use world_projection::{CanvasItem, CanvasItemKind, SelectionId};
 
     fn item(id: u64, kind: CanvasItemKind, x: f32, y: f32) -> CanvasItem {
@@ -733,6 +773,32 @@ mod tests {
         assert_eq!(
             layout(&items, 700.0, 420.0, true),
             layout(&items, 700.0, 420.0, true)
+        );
+    }
+
+    #[test]
+    fn a_comparison_points_at_what_is_different_in_each_future() {
+        let mut held = ProjectionSnapshot::default();
+        held.canvas.items = vec![
+            item(1, CanvasItemKind::Place, 0.1, 0.1),
+            item(2, CanvasItemKind::Actor, 0.5, 0.5),
+        ];
+        held.canvas.items[0].detail = "in crisis".into();
+        let mut lost = held.clone();
+        lost.canvas.items[0].detail = "lost".into();
+        lost.canvas
+            .items
+            .push(item(3, CanvasItemKind::Actor, 0.8, 0.8));
+
+        let first = held.canvas.items[0].id;
+        let newcomer = lost.canvas.items[2].id;
+        assert_eq!(
+            differences(&held, &lost).into_iter().collect::<Vec<_>>(),
+            vec![first]
+        );
+        assert_eq!(
+            differences(&lost, &held).into_iter().collect::<Vec<_>>(),
+            vec![first, newcomer]
         );
     }
 }

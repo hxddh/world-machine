@@ -4,13 +4,14 @@ use gpui::{
     div, prelude::*, px, relative, Context, Div, FontWeight, IntoElement, Render, SharedString,
     Styled, Window,
 };
+use std::rc::Rc;
 use world_projection::{
     BriefingItem, BriefingItemKind, CanvasItemKind, CollectionItem, InspectorProjection,
     ProjectionCommand, ProjectionIntent, ProjectionSnapshot, SelectionId, TimelineItem, WhyNode,
 };
 use world_theme::tokens;
 
-mod scene;
+use crate::scene;
 
 const ENTITY_HISTORY_LIMIT: usize = 6;
 const RELATION_HISTORY_LIMIT: usize = 6;
@@ -181,7 +182,7 @@ impl ProjectionView {
             .justify_between()
             .gap_6()
             .child(heading.child(ui::page_title(title)));
-        if let Some(activity) = self.render_activity() {
+        if let Some(activity) = scene::activity(&self.snapshot) {
             masthead = masthead.child(activity);
         }
         masthead
@@ -903,6 +904,7 @@ impl ProjectionView {
                 .child(ui::row_title(item.title.clone()))
                 .child(ui::caption(world_time_label(item.world_time))),
         );
+        let effect = world_projection::effect_headline(effect);
         if !effect.is_empty() {
             row = row.child(ui::detail(effect.to_string()).line_clamp(2).text_ellipsis());
         }
@@ -1025,7 +1027,17 @@ impl Render for ProjectionView {
         let main_width =
             f32::from(window.viewport_size().width) - if two_columns { SIDEBAR_WIDTH } else { 0.0 };
         let stage_width = main_width.min(PAGE_WIDTH) - 64.0 - 2.0;
-        if let Some(scene) = self.render_scene(stage_width, cx) {
+        let view = cx.entity().downgrade();
+        let on_select: scene::SelectHandler = Rc::new(move |selection, _, cx| {
+            view.update(cx, |this, cx| this.select(selection, cx)).ok();
+        });
+        if let Some(scene) = scene::scene(
+            &self.snapshot,
+            stage_width,
+            self.selected,
+            &scene::Emphasis::News,
+            on_select,
+        ) {
             column = column.child(scene);
         }
 
@@ -1172,7 +1184,7 @@ fn collection_title(title: &str) -> String {
     }
 }
 
-fn capitalize(text: &str) -> String {
+pub(crate) fn capitalize(text: &str) -> String {
     let mut chars = text.chars();
     match chars.next() {
         Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),

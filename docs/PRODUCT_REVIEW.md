@@ -56,7 +56,7 @@ A World Machine World is a small persistent world you leave and come back to, sh
 | **The Sims** | Relationships and needs are bars and colours, never sentences like "Trust is 7". | A relationship as a line whose weight is its strength and whose colour is its tone. | Link weight and tone are done. Inspector values are still label/value rows, not meters. |
 | **Townscaper / Islanders** | Restraint: almost nothing on screen but the world, and every interaction feels good. | Calm palette, one accent, the world first. | No motion anywhere: no transitions, no easing, no sense of time passing. This is the biggest craft gap left. |
 | **Wildermyth** | A procedurally generated story told as illustrated comic panels with the characters in them. | Beats as moments with people in them. | Faces are initials. There is no art pipeline, and Packs can't supply any. |
-| **Git graph / Time Machine** | Branches and time as a picture you can scrub. | What if… and lineage should be visual. | The What if… and lineage windows are untouched lists. |
+| **Git graph / Time Machine** | Branches and time as a picture you can scrub. | What if… as two futures side by side, drawn. | What if… now shows both futures as scenes with the differences picked out. Lineage is still a list, and there is no scrubbing. |
 
 ### Scorecard (1 = absent, 5 = top of the genre)
 
@@ -67,7 +67,7 @@ A World Machine World is a small persistent world you leave and come back to, sh
 | Decision clarity | 1 | 3 | Consequence chips per choice; hover preview; real choices before "wait" |
 | Why / causality | 3 | 3 | A visual causal chain in *Why it happened* instead of an indented list |
 | Characters you care about | 1 | 2 | Portraits, moods, a voice for each person |
-| Branching / What if… | 2 | 2 | A visual timeline graph; side-by-side scenes |
+| Branching / What if… | 2 | 3 | A branch graph for lineage; scrubbing through time |
 | Visual craft (type, colour, space) | 1 | 3 | Mac verification; motion; icon set |
 | Motion and feedback | 1 | 1 | Transitions when time advances and choices land |
 | First run | 2 | 3 | A seeded scene on the very first screen instead of a card list |
@@ -103,6 +103,12 @@ Tiny Society, with thirteen things on stage, stays readable:
 
 ![Tiny Society after](review/world-tiny-society.png)
 
+**What if…** shows two futures side by side, each with the thing that happened only there as its headline, and its scene with the differences haloed. It used to say "Strategy Comparison · Two independent futures evaluated from the same durable World" above two identical cards, then "FIRST RECORDED DIFFERENCE" and "2 recorded causal steps … 1 supporting record folded".
+
+![What if after](review/what-if-after.png)
+
+**One design system everywhere.** Every window (What if…, lineage, Settings, About, the Analyst panel, Pack review) now draws its literal colours from the same tokens, mapped by role, hue and lightness. It went from 367 literals to none in those files; colours still chosen at runtime (a selected versus unselected chip) go through the old `adapt()`.
+
 **Dark mode** uses a palette picked by hand, not computed:
 
 ![World window, dark](review/world-dark.png)
@@ -133,7 +139,7 @@ Tiny Society, with thirteen things on stage, stays readable:
 1. **Check on a real Mac.** San Francisco has real weights. The Linux fallback font here does not, so headings look lighter in these screenshots than they will on a Mac. Capture `docs/screenshots/` in light and dark.
 2. **Add the projection fields above**, in this order: tone, command effects, deltas. Each one turns a sentence into something shown.
 3. **Motion.** Animate time advancing and choices landing: nodes easing to new states, halos fading in, the activity strip growing. No product in the table above feels static.
-4. **What if… and lineage as pictures**: side-by-side scenes and a branch graph. Both windows, plus Settings, the Analyst panel and Pack review, still use literal colours and `adapt()`; move them onto `ui`/`tokens`, then delete `adapt()`.
+4. **Lineage as a picture**: a branch graph you can scrub, as What if… now shows futures. Settings, the Analyst panel and Pack review are on the tokens but still laid out as they were; they need the same pass the World window had, then `adapt()` can go.
 5. **History shows every internal step.** "Agent Decision Recorded" twice per visit tells the reader nothing. The projection should mark bookkeeping events so History can fold them.
 6. **Recorded prose still has engine words.** *"Legacy cycle 8 is now a durable adaptive pattern."* is written into each event, so fixing it needs a Pack-version decision, or the narrator seam.
 7. **The usability test** in `NEXT_TASK.md`. None of the above replaces five strangers and five minutes each.

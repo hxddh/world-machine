@@ -68,8 +68,12 @@ pub const ACCENT_SOFT: Token = Token::new(0xeef2fa, 0x232c40);
 pub const ACCENT_TEXT: Token = Token::new(0x34508c, 0x9db4e8);
 
 pub const SUCCESS: Token = Token::new(0x3d7550, 0x7fc195);
-pub const WARNING: Token = Token::new(0xa46a12, 0xe0ad5c);
+pub const WARNING: Token = Token::new(0x8f5c0e, 0xe0ad5c);
 pub const DANGER: Token = Token::new(0xa93f3a, 0xe58a84);
+/// Tinted grounds for a panel that carries one of the tones above.
+pub const SUCCESS_SOFT: Token = Token::new(0xeef5ef, 0x1f2b22);
+pub const WARNING_SOFT: Token = Token::new(0xfbf4e6, 0x2e2718);
+pub const DANGER_SOFT: Token = Token::new(0xfbefee, 0x33201f);
 
 /// The ground a World's scene is drawn on: a soft sky fading into land.
 pub const SCENE_TOP: Token = Token::new(0xeef1f4, 0x1f2328);
@@ -164,11 +168,34 @@ mod tests {
 
     #[test]
     fn body_and_supporting_text_meet_wcag_aa_on_every_ground() {
-        for ground in [WINDOW, SURFACE, SIDEBAR, ROW_SELECTED, ACCENT_SOFT] {
+        for ground in [
+            WINDOW,
+            SURFACE,
+            SIDEBAR,
+            ROW_SELECTED,
+            ACCENT_SOFT,
+            SUCCESS_SOFT,
+            WARNING_SOFT,
+            DANGER_SOFT,
+        ] {
             for ratio in both(TEXT, ground) {
                 assert!(ratio >= 7.0, "{ratio}");
             }
             for ratio in both(TEXT_SECONDARY, ground) {
+                assert!(ratio >= 4.5, "{ratio}");
+            }
+        }
+    }
+
+    #[test]
+    fn tones_read_on_their_own_grounds() {
+        for (text, ground) in [
+            (SUCCESS, SUCCESS_SOFT),
+            (WARNING, WARNING_SOFT),
+            (DANGER, DANGER_SOFT),
+            (ACCENT_TEXT, ACCENT_SOFT),
+        ] {
+            for ratio in both(text, ground) {
                 assert!(ratio >= 4.5, "{ratio}");
             }
         }

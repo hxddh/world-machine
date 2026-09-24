@@ -5,9 +5,11 @@ use gpui::{
 };
 use std::sync::Arc;
 use world_document::{WorldBranchCause, WorldLineage};
+use world_gpui::ui;
 use world_library::{DurableWorldSession, WorldDocumentId, WorldLibrary};
 use world_lineage::LineageIndex;
 use world_lineage_gpui::{LineageController, LineageExplorerView};
+use world_theme::tokens;
 
 const LINEAGE_BADGE_MAX_CHARS: usize = 34;
 
@@ -61,10 +63,10 @@ pub(super) fn lineage_badge(lineage: &WorldLineage) -> impl IntoElement {
         .p_2()
         .rounded_md()
         .border_1()
-        .border_color(crate::theme_rgb(0xc8cdd7))
-        .bg(crate::theme_rgb(0xf5f6f8))
+        .border_color(ui::color(tokens::BORDER_STRONG))
+        .bg(ui::color(tokens::WINDOW))
         .text_xs()
-        .text_color(crate::theme_rgb(0x5f6570))
+        .text_color(ui::color(tokens::TEXT_SECONDARY))
         .child(truncate_for_chrome(
             &lineage_label(lineage),
             LINEAGE_BADGE_MAX_CHARS,

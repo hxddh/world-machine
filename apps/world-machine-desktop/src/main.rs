@@ -923,8 +923,8 @@ impl WorldMachineHome {
             .p_3()
             .rounded_md()
             .border_1()
-            .border_color(crate::theme_rgb(0xa8b9d6))
-            .bg(crate::theme_rgb(0xf1f5fb))
+            .border_color(ui::color(tokens::BORDER_STRONG))
+            .bg(ui::color(tokens::ACCENT_SOFT))
             .flex()
             .items_center()
             .justify_between()
@@ -934,7 +934,7 @@ impl WorldMachineHome {
                     .flex_1()
                     .min_w(px(0.0))
                     .text_sm()
-                    .text_color(crate::theme_rgb(0x314b72))
+                    .text_color(ui::color(tokens::ACCENT_TEXT))
                     .child(format!(
                         "World Machine {} is available. You have {}.",
                         update.version,
@@ -947,32 +947,16 @@ impl WorldMachineHome {
                     .flex()
                     .gap_2()
                     .child(
-                        div()
-                            .id("download-update")
-                            .cursor_pointer()
-                            .p_2()
-                            .rounded_md()
-                            .border_1()
-                            .border_color(crate::theme_rgb(0x657da7))
-                            .bg(crate::theme_rgb(0xffffff))
-                            .text_sm()
-                            .child("Download")
+                        ui::button("download-update", "Download", ui::ButtonKind::Secondary)
                             .on_click(cx.listener(move |_, _, _, cx| cx.open_url(&url))),
                     )
                     .child(
-                        div()
-                            .id("dismiss-update")
-                            .cursor_pointer()
-                            .p_2()
-                            .rounded_md()
-                            .border_1()
-                            .border_color(crate::theme_rgb(0xc5cfdf))
-                            .text_sm()
-                            .child("Later")
-                            .on_click(cx.listener(|this, _, _, cx| {
+                        ui::button("dismiss-update", "Later", ui::ButtonKind::Secondary).on_click(
+                            cx.listener(|this, _, _, cx| {
                                 this.available_update = None;
                                 cx.notify();
-                            })),
+                            }),
+                        ),
                     ),
             )
     }
@@ -1821,7 +1805,7 @@ impl WorldMachineHome {
         let mut order = div().flex_shrink_0().flex().items_center().gap_2().child(
             div()
                 .text_xs()
-                .text_color(crate::theme_rgb(0x777770))
+                .text_color(ui::color(tokens::TEXT_SECONDARY))
                 .child("Order"),
         );
         for sort in [WorldSort::Recent, WorldSort::Name] {
@@ -2049,36 +2033,27 @@ impl WorldMachineHome {
                         .items_center()
                         .gap_2()
                         .child(
-                            div()
-                                .id(SharedString::from(format!("save-name-{document_label}")))
-                                .cursor_pointer()
-                                .p_2()
-                                .rounded_md()
-                                .border_1()
-                                .border_color(crate::theme_rgb(0x657da7))
-                                .bg(crate::theme_rgb(0xf4f7ff))
-                                .text_sm()
-                                .child("Save name")
-                                .on_click(cx.listener(|this, _, _, cx| this.commit_rename(cx))),
+                            ui::button(
+                                SharedString::from(format!("save-name-{document_label}")),
+                                "Save name",
+                                ui::ButtonKind::Secondary,
+                            )
+                            .on_click(cx.listener(|this, _, _, cx| this.commit_rename(cx))),
                         )
                         .child(
-                            div()
-                                .id(SharedString::from(format!("cancel-name-{document_label}")))
-                                .cursor_pointer()
-                                .p_2()
-                                .rounded_md()
-                                .border_1()
-                                .border_color(crate::theme_rgb(0xd9d9d3))
-                                .text_sm()
-                                .child("Cancel")
-                                .on_click(cx.listener(|this, _, _, cx| this.cancel_rename(cx))),
+                            ui::button(
+                                SharedString::from(format!("cancel-name-{document_label}")),
+                                "Cancel",
+                                ui::ButtonKind::Secondary,
+                            )
+                            .on_click(cx.listener(|this, _, _, cx| this.cancel_rename(cx))),
                         )
                         .child(
                             div()
                                 .flex_1()
                                 .min_w(px(0.0))
                                 .text_xs()
-                                .text_color(crate::theme_rgb(0x777770))
+                                .text_color(ui::color(tokens::TEXT_SECONDARY))
                                 .child("An empty name lists this World under its own title again."),
                         ),
                 ),
@@ -2093,7 +2068,7 @@ impl WorldMachineHome {
                     .child(
                         div()
                             .text_sm()
-                            .text_color(crate::theme_rgb(0x9b4a42))
+                            .text_color(ui::color(tokens::DANGER))
                             .child(format!(
                                 "Remove {title}? Its file moves to the {} folder inside your Worlds folder, so you can put it back.",
                                 world_library::REMOVED_DIRECTORY
@@ -2112,9 +2087,9 @@ impl WorldMachineHome {
                                     .p_2()
                                     .rounded_md()
                                     .border_1()
-                                    .border_color(crate::theme_rgb(0xb4736c))
-                                    .bg(crate::theme_rgb(0xfbf0ee))
-                                    .text_color(crate::theme_rgb(0x9b4a42))
+                                    .border_color(ui::color(tokens::DANGER))
+                                    .bg(ui::color(tokens::DANGER_SOFT))
+                                    .text_color(ui::color(tokens::DANGER))
                                     .text_sm()
                                     .child("Remove")
                                     .on_click(
@@ -2130,7 +2105,7 @@ impl WorldMachineHome {
                                     .p_2()
                                     .rounded_md()
                                     .border_1()
-                                    .border_color(crate::theme_rgb(0xd9d9d3))
+                                    .border_color(ui::color(tokens::BORDER_STRONG))
                                     .text_sm()
                                     .child("Keep")
                                     .on_click(cx.listener(|this, _, _, cx| this.cancel_removal(cx))),
@@ -2176,12 +2151,11 @@ impl WorldMachineHome {
         if let Some(node) = lineage_node {
             if let Some(parent) = node.parent.as_ref() {
                 let branch_label = node.branch.as_ref().map(lineage_branch_label);
-                let mut origin = div()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .text_xs()
-                    .child(div().text_color(crate::theme_rgb(0x777770)).child("Origin"));
+                let mut origin = div().flex().items_center().gap_2().text_xs().child(
+                    div()
+                        .text_color(ui::color(tokens::TEXT_SECONDARY))
+                        .child("Origin"),
+                );
 
                 if let Some(parent_id) = parent.resolved.clone() {
                     let parent_label = parent_id.to_string();
@@ -2200,12 +2174,12 @@ impl WorldMachineHome {
                             .gap_1()
                             .child(
                                 div()
-                                    .text_color(crate::theme_rgb(0x4e6fb3))
+                                    .text_color(ui::color(tokens::ACCENT_TEXT))
                                     .child(parent_title),
                             )
                             .child(
                                 div()
-                                    .text_color(crate::theme_rgb(0x8a8a82))
+                                    .text_color(ui::color(tokens::TEXT_TERTIARY))
                                     .child(parent_label),
                             )
                             .on_click(cx.listener(move |this, _, _, cx| {
@@ -2219,7 +2193,7 @@ impl WorldMachineHome {
                         .unwrap_or_else(|| parent.pack.id.clone());
                     origin = origin.child(
                         div()
-                            .text_color(crate::theme_rgb(0x777770))
+                            .text_color(ui::color(tokens::TEXT_SECONDARY))
                             .child(format!("{parent_label} · outside My Worlds")),
                     );
                 }
@@ -2227,7 +2201,7 @@ impl WorldMachineHome {
                 if let Some(branch_label) = branch_label {
                     origin = origin.child(
                         div()
-                            .text_color(crate::theme_rgb(0x777770))
+                            .text_color(ui::color(tokens::TEXT_SECONDARY))
                             .child(format!("· {branch_label}")),
                     );
                 }
@@ -2238,7 +2212,7 @@ impl WorldMachineHome {
                 let mut branches = div().flex().flex_col().gap_1().child(
                     div()
                         .text_xs()
-                        .text_color(crate::theme_rgb(0x777770))
+                        .text_color(ui::color(tokens::TEXT_SECONDARY))
                         .child(format!("Branches · {}", node.children.len())),
                 );
                 let (visible_children, hidden_children) = lineage_child_preview(&node.children);
@@ -2269,10 +2243,14 @@ impl WorldMachineHome {
                             .text_xs()
                             .child(
                                 div()
-                                    .text_color(crate::theme_rgb(0x4e6fb3))
+                                    .text_color(ui::color(tokens::ACCENT_TEXT))
                                     .child(child_title),
                             )
-                            .child(div().text_color(crate::theme_rgb(0x8a8a82)).child(identity))
+                            .child(
+                                div()
+                                    .text_color(ui::color(tokens::TEXT_TERTIARY))
+                                    .child(identity),
+                            )
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.open_document(open_child.clone(), cx)
                             })),
@@ -2282,7 +2260,7 @@ impl WorldMachineHome {
                     branches = branches.child(
                         div()
                             .text_xs()
-                            .text_color(crate::theme_rgb(0x777770))
+                            .text_color(ui::color(tokens::TEXT_SECONDARY))
                             .child(format!(
                                 "+{hidden_children} more branches · listed as their own Worlds"
                             )),
@@ -2349,8 +2327,8 @@ impl WorldMachineHome {
             .p_4()
             .rounded_md()
             .border_1()
-            .border_color(crate::theme_rgb(0xa8b9d6))
-            .bg(crate::theme_rgb(0xf1f5fb))
+            .border_color(ui::color(tokens::BORDER_STRONG))
+            .bg(ui::color(tokens::ACCENT_SOFT))
             .flex()
             .justify_between()
             .items_center()
@@ -2363,44 +2341,40 @@ impl WorldMachineHome {
                     .child(
                         div()
                             .text_xs()
-                            .text_color(crate::theme_rgb(0x5e6f91))
+                            .text_color(ui::color(tokens::ACCENT_TEXT))
                             .child("START HERE · PERSISTENT SOCIAL WORLD"),
                     )
                     .child(div().text_lg().child(pack.title))
                     .child(
                         div()
                             .text_sm()
-                            .text_color(crate::theme_rgb(0x4f5968))
+                            .text_color(ui::color(tokens::TEXT_SECONDARY))
                             .child(pack.description),
                     )
                     .child(
                         div()
                             .text_sm()
-                            .text_color(crate::theme_rgb(0x314b72))
+                            .text_color(ui::color(tokens::ACCENT_TEXT))
                             .child(pack.experience),
                     )
                     .child(
                         div()
                             .text_xs()
-                            .text_color(crate::theme_rgb(0x71809a))
+                            .text_color(ui::color(tokens::ACCENT_TEXT))
                             .child(format!(
                                 "{identity} · Included external World · reviewed before it runs"
                             )),
                     ),
             )
             .child(
-                div()
-                    .id("review-featured-included-world")
-                    .cursor_pointer()
-                    .p_2()
-                    .rounded_md()
-                    .border_1()
-                    .border_color(crate::theme_rgb(0x657da7))
-                    .text_sm()
-                    .child("Review & Start")
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.review_included_pack(review_pack.clone(), true, cx)
-                    })),
+                ui::button(
+                    "review-featured-included-world",
+                    "Review & Start",
+                    ui::ButtonKind::Secondary,
+                )
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.review_included_pack(review_pack.clone(), true, cx)
+                })),
             )
     }
 
@@ -2420,8 +2394,8 @@ impl WorldMachineHome {
             .p_4()
             .rounded_md()
             .border_1()
-            .border_color(crate::theme_rgb(0xc8d5c0))
-            .bg(crate::theme_rgb(0xf7fbf5))
+            .border_color(ui::color(tokens::BORDER_STRONG))
+            .bg(ui::color(tokens::SUCCESS_SOFT))
             .flex()
             .justify_between()
             .items_center()
@@ -2435,19 +2409,19 @@ impl WorldMachineHome {
                     .child(
                         div()
                             .text_sm()
-                            .text_color(crate::theme_rgb(0x666666))
+                            .text_color(ui::color(tokens::TEXT_SECONDARY))
                             .child(pack.description),
                     )
                     .child(
                         div()
                             .text_xs()
-                            .text_color(crate::theme_rgb(0x66735f))
+                            .text_color(ui::color(tokens::TEXT_SECONDARY))
                             .child(pack.experience),
                     )
                     .child(
                         div()
                             .text_xs()
-                            .text_color(crate::theme_rgb(0x75806f))
+                            .text_color(ui::color(tokens::TEXT_TERTIARY))
                             .child(format!(
                                 "{identity} · Included external Pack · review required"
                             )),
@@ -2463,7 +2437,7 @@ impl WorldMachineHome {
                     .p_2()
                     .rounded_md()
                     .border_1()
-                    .border_color(crate::theme_rgb(0x91a486))
+                    .border_color(ui::color(tokens::BORDER_STRONG))
                     .text_sm()
                     .child("Review & Install")
                     .on_click(cx.listener(move |this, _, _, cx| {
@@ -2560,8 +2534,8 @@ impl WorldMachineHome {
             .p_4()
             .rounded_md()
             .border_1()
-            .border_color(crate::theme_rgb(0xc7a85a))
-            .bg(crate::theme_rgb(0xfffbeb))
+            .border_color(ui::color(tokens::BORDER_STRONG))
+            .bg(ui::color(tokens::WARNING_SOFT))
             .flex()
             .flex_col()
             .gap_2()
@@ -2570,7 +2544,7 @@ impl WorldMachineHome {
             .child(
                 div()
                     .text_sm()
-                    .text_color(crate::theme_rgb(0x666666))
+                    .text_color(ui::color(tokens::TEXT_SECONDARY))
                     .child(preview.description().to_owned()),
             )
             .child(div().text_xs().child(format!("Identity · {pack}")))
@@ -2581,13 +2555,13 @@ impl WorldMachineHome {
             .child(
                 div()
                     .text_xs()
-                    .text_color(crate::theme_rgb(0x777770))
+                    .text_color(ui::color(tokens::TEXT_SECONDARY))
                     .child(format!("Source · {source}")),
             )
             .child(
                 div()
                     .text_sm()
-                    .text_color(crate::theme_rgb(0x6f5420))
+                    .text_color(ui::color(tokens::WARNING))
                     .child(if start_after_install {
                         "No Pack code has run. Trust & Start approves these exact executable bytes; after the durable self-test passes, World Machine will create and open your World."
                     } else {
@@ -2605,7 +2579,7 @@ impl WorldMachineHome {
                             .p_2()
                             .rounded_md()
                             .border_1()
-                            .border_color(crate::theme_rgb(0x8c6a23))
+                            .border_color(ui::color(tokens::BORDER_STRONG))
                             .child(confirm_title)
                             .on_click(cx.listener(|this, _, _, cx| this.confirm_pack_install(cx))),
                     )
@@ -2616,7 +2590,7 @@ impl WorldMachineHome {
                             .p_2()
                             .rounded_md()
                             .border_1()
-                            .border_color(crate::theme_rgb(0xd9d9d3))
+                            .border_color(ui::color(tokens::BORDER_STRONG))
                             .child("Cancel")
                             .on_click(cx.listener(|this, _, _, cx| this.cancel_pack_install(cx))),
                     ),
@@ -2662,7 +2636,7 @@ impl WorldMachineHome {
                     .p_2()
                     .rounded_md()
                     .border_1()
-                    .border_color(crate::theme_rgb(0xd9d9d3))
+                    .border_color(ui::color(tokens::BORDER_STRONG))
                     .text_sm()
                     .child("Activate")
                     .on_click(cx.listener(move |this, _, _, cx| {
@@ -2681,7 +2655,7 @@ impl WorldMachineHome {
                     .p_2()
                     .rounded_md()
                     .border_1()
-                    .border_color(crate::theme_rgb(0xd9d9d3))
+                    .border_color(ui::color(tokens::BORDER_STRONG))
                     .text_sm()
                     .child("Disable")
                     .on_click(cx.listener(move |this, _, _, cx| {
@@ -2699,7 +2673,7 @@ impl WorldMachineHome {
                     .p_2()
                     .rounded_md()
                     .border_1()
-                    .border_color(crate::theme_rgb(0xd9d9d3))
+                    .border_color(ui::color(tokens::BORDER_STRONG))
                     .text_sm()
                     .child("Test & Enable")
                     .on_click(cx.listener(move |this, _, _, cx| {
@@ -2717,8 +2691,8 @@ impl WorldMachineHome {
             .p_4()
             .rounded_md()
             .border_1()
-            .border_color(crate::theme_rgb(0xd9d9d3))
-            .bg(crate::theme_rgb(0xffffff))
+            .border_color(ui::color(tokens::BORDER_STRONG))
+            .bg(ui::color(tokens::SURFACE))
             .flex()
             .justify_between()
             .items_center()
@@ -2732,13 +2706,13 @@ impl WorldMachineHome {
                     .child(
                         div()
                             .text_sm()
-                            .text_color(crate::theme_rgb(0x666666))
+                            .text_color(ui::color(tokens::TEXT_SECONDARY))
                             .child(pack.description),
                     )
                     .child(
                         div()
                             .text_xs()
-                            .text_color(crate::theme_rgb(0x8a8a82))
+                            .text_color(ui::color(tokens::TEXT_TERTIARY))
                             .child(format!(
                                 "{} @ {} · {state}",
                                 pack.pack.id, pack.pack.version
@@ -3036,10 +3010,10 @@ impl Render for WorldMachineHome {
                         .p_3()
                         .rounded_md()
                         .border_1()
-                        .border_color(crate::theme_rgb(0xe3d2ce))
-                        .bg(crate::theme_rgb(0xfbf0ee))
+                        .border_color(ui::color(tokens::DANGER))
+                        .bg(ui::color(tokens::DANGER_SOFT))
                         .text_xs()
-                        .text_color(crate::theme_rgb(0x9b4a42))
+                        .text_color(ui::color(tokens::DANGER))
                         .child(note),
                 );
             }
@@ -3074,7 +3048,7 @@ impl Render for WorldMachineHome {
                     .id("toggle-installed-packs")
                     .cursor_pointer()
                     .text_sm()
-                    .text_color(crate::theme_rgb(0x666666))
+                    .text_color(ui::color(tokens::TEXT_SECONDARY))
                     .child(packs_title)
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.show_packs = !this.show_packs;

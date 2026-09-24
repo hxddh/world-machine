@@ -9,6 +9,7 @@ use gpui::{
     Styled, Window, WindowBounds, WindowOptions,
 };
 use std::sync::Arc;
+use world_gpui::ui;
 use world_library::{WorldDocumentId, WorldDocumentSummary, WorldLibrary};
 use world_machine_desktop::analyst_readiness::DesktopAnalystRuntimeReadiness;
 use world_machine_desktop::analyst_session::{
@@ -16,6 +17,7 @@ use world_machine_desktop::analyst_session::{
     DesktopAnalystExchange, DesktopAnalystSession, DesktopAnalystSessionError, DesktopAnalystState,
 };
 use world_machine_desktop::analyst_settings::DesktopAnalystProgramSource;
+use world_theme::tokens;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum PanelPhase {
@@ -878,13 +880,13 @@ impl AnalystPanelView {
         let Some(status) = self.runtime.as_ref() else {
             return div()
                 .text_xs()
-                .text_color(crate::theme_rgb(0x777770))
+                .text_color(ui::color(tokens::TEXT_SECONDARY))
                 .child(format!("{label} · waiting for runtime check"));
         };
         let Some(selections) = status.selections.as_ref() else {
             return div()
                 .text_xs()
-                .text_color(crate::theme_rgb(0x777770))
+                .text_color(ui::color(tokens::TEXT_SECONDARY))
                 .child(format!(
                     "{label} · settings unavailable until runtime settings load"
                 ));
@@ -909,7 +911,7 @@ impl AnalystPanelView {
             actions = actions.child(
                 div()
                     .text_xs()
-                    .text_color(crate::theme_rgb(0x777770))
+                    .text_color(ui::color(tokens::TEXT_SECONDARY))
                     .child("Environment controlled"),
             );
         } else {
@@ -922,8 +924,8 @@ impl AnalystPanelView {
                 .p_1()
                 .rounded_md()
                 .border_1()
-                .border_color(crate::theme_rgb(0xb8b2a8))
-                .bg(crate::theme_rgb(0xffffff))
+                .border_color(ui::color(tokens::BORDER_STRONG))
+                .bg(ui::color(tokens::SURFACE))
                 .text_xs()
                 .child("Choose…");
             if controls_enabled {
@@ -931,7 +933,7 @@ impl AnalystPanelView {
                     cx.listener(move |this, _, _, cx| this.configure_program(program, cx)),
                 );
             } else {
-                choose = choose.text_color(crate::theme_rgb(0x999990));
+                choose = choose.text_color(ui::color(tokens::TEXT_TERTIARY));
             }
             actions = actions.child(choose);
 
@@ -945,8 +947,8 @@ impl AnalystPanelView {
                     .p_1()
                     .rounded_md()
                     .border_1()
-                    .border_color(crate::theme_rgb(0xd8d8d2))
-                    .bg(crate::theme_rgb(0xf7f7f3))
+                    .border_color(ui::color(tokens::BORDER_STRONG))
+                    .bg(ui::color(tokens::WARNING_SOFT))
                     .text_xs()
                     .child("Clear saved path");
                 if controls_enabled {
@@ -954,7 +956,7 @@ impl AnalystPanelView {
                         cx.listener(move |this, _, _, cx| this.clear_program(program, cx)),
                     );
                 } else {
-                    clear = clear.text_color(crate::theme_rgb(0x999990));
+                    clear = clear.text_color(ui::color(tokens::TEXT_TERTIARY));
                 }
                 actions = actions.child(clear);
             }
@@ -965,8 +967,8 @@ impl AnalystPanelView {
             .p_2()
             .rounded_md()
             .border_1()
-            .border_color(crate::theme_rgb(0xe0e0db))
-            .bg(crate::theme_rgb(0xfafaf8))
+            .border_color(ui::color(tokens::BORDER))
+            .bg(ui::color(tokens::WINDOW))
             .flex()
             .items_center()
             .justify_between()
@@ -984,7 +986,7 @@ impl AnalystPanelView {
                     .child(
                         div()
                             .text_xs()
-                            .text_color(crate::theme_rgb(0x777770))
+                            .text_color(ui::color(tokens::TEXT_SECONDARY))
                             .child(selection.program.display().to_string()),
                     ),
             )
@@ -1069,7 +1071,7 @@ impl AnalystPanelView {
                         .min_w(px(0.0))
                         .overflow_x_scroll()
                         .text_xs()
-                        .text_color(crate::theme_rgb(0x777770))
+                        .text_color(ui::color(tokens::TEXT_SECONDARY))
                         .child(document_id_label),
                 );
             }
@@ -1077,28 +1079,28 @@ impl AnalystPanelView {
                 .child(
                     div()
                         .text_xs()
-                        .text_color(crate::theme_rgb(0x777770))
+                        .text_color(ui::color(tokens::TEXT_SECONDARY))
                         .child(document_pack_label(document)),
                 )
                 .child(
                     div()
                         .text_xs()
-                        .text_color(crate::theme_rgb(0x777770))
+                        .text_color(ui::color(tokens::TEXT_SECONDARY))
                         .child(format!(
                             "{} · t={} · {} events",
                             summary, document.world_time, document.event_count
                         )),
                 );
             card = if is_selected {
-                card.border_color(crate::theme_rgb(0x6684c4))
-                    .bg(crate::theme_rgb(0xf2f6ff))
+                card.border_color(ui::color(tokens::ACCENT))
+                    .bg(ui::color(tokens::ACCENT_SOFT))
             } else if is_opposite {
-                card.border_color(crate::theme_rgb(0xe0e0db))
-                    .bg(crate::theme_rgb(0xf7f7f3))
-                    .text_color(crate::theme_rgb(0x999990))
+                card.border_color(ui::color(tokens::BORDER))
+                    .bg(ui::color(tokens::WARNING_SOFT))
+                    .text_color(ui::color(tokens::TEXT_TERTIARY))
             } else {
-                card.border_color(crate::theme_rgb(0xd8d8d2))
-                    .bg(crate::theme_rgb(0xffffff))
+                card.border_color(ui::color(tokens::BORDER_STRONG))
+                    .bg(ui::color(tokens::SURFACE))
             };
             if selector_enabled && !is_selected && !is_opposite {
                 worlds = worlds.child(card.cursor_pointer().on_click(
@@ -1149,7 +1151,7 @@ impl AnalystPanelView {
             filter_control = filter_control.child(
                 div()
                     .text_xs()
-                    .text_color(crate::theme_rgb(0x777770))
+                    .text_color(ui::color(tokens::TEXT_SECONDARY))
                     .child("No other saved Worlds match this filter"),
             );
         }
@@ -1171,8 +1173,8 @@ impl AnalystPanelView {
             .p_1()
             .rounded_md()
             .border_1()
-            .border_color(crate::theme_rgb(0xb8b2a8))
-            .bg(crate::theme_rgb(0xffffff))
+            .border_color(ui::color(tokens::BORDER_STRONG))
+            .bg(ui::color(tokens::SURFACE))
             .text_xs()
             .child("Swap sides");
         if can_swap {
@@ -1180,7 +1182,7 @@ impl AnalystPanelView {
                 .cursor_pointer()
                 .on_click(cx.listener(|this, _, _, cx| this.swap_worlds(cx)));
         } else {
-            swap = swap.text_color(crate::theme_rgb(0x999990));
+            swap = swap.text_color(ui::color(tokens::TEXT_TERTIARY));
         }
         let pair_header = div()
             .w_full()
@@ -1191,7 +1193,7 @@ impl AnalystPanelView {
             .child(
                 div()
                     .text_sm()
-                    .text_color(crate::theme_rgb(0x666660))
+                    .text_color(ui::color(tokens::TEXT_SECONDARY))
                     .child("Choose two distinct saved Worlds to compare."),
             )
             .child(swap);
@@ -1213,8 +1215,8 @@ impl AnalystPanelView {
             .p_1()
             .rounded_md()
             .border_1()
-            .border_color(crate::theme_rgb(0xb8b2a8))
-            .bg(crate::theme_rgb(0xffffff))
+            .border_color(ui::color(tokens::BORDER_STRONG))
+            .bg(ui::color(tokens::SURFACE))
             .text_xs()
             .child("Recheck");
         if recheck_enabled {
@@ -1222,7 +1224,7 @@ impl AnalystPanelView {
                 .cursor_pointer()
                 .on_click(cx.listener(|this, _, _, cx| this.refresh_saved_world_catalog(cx)));
         } else {
-            recheck = recheck.text_color(crate::theme_rgb(0x999990));
+            recheck = recheck.text_color(ui::color(tokens::TEXT_TERTIARY));
         }
 
         let runtime_status = if self.catalog_refreshing {
@@ -1234,7 +1236,7 @@ impl AnalystPanelView {
                 .child(
                     div()
                         .text_xs()
-                        .text_color(crate::theme_rgb(0x666660))
+                        .text_color(ui::color(tokens::TEXT_SECONDARY))
                         .child("Refreshing saved Worlds…"),
                 )
                 .child(recheck)
@@ -1247,7 +1249,7 @@ impl AnalystPanelView {
                 .child(
                     div()
                         .text_xs()
-                        .text_color(crate::theme_rgb(0x666660))
+                        .text_color(ui::color(tokens::TEXT_SECONDARY))
                         .child("Checking analyst runtime readiness…"),
                 )
                 .child(recheck)
@@ -1256,17 +1258,17 @@ impl AnalystPanelView {
                 Some(DesktopAnalystRuntimeReadiness::Ready { .. }) => div()
                     .flex_1()
                     .text_xs()
-                    .text_color(crate::theme_rgb(0x4d6748))
+                    .text_color(ui::color(tokens::TEXT_SECONDARY))
                     .child("Analyst runtime ready · Node and Pi resolved"),
                 Some(DesktopAnalystRuntimeReadiness::Unavailable { issue }) => div()
                     .flex_1()
                     .text_xs()
-                    .text_color(crate::theme_rgb(0x9b4a42))
+                    .text_color(ui::color(tokens::DANGER))
                     .child(issue.message().to_owned()),
                 None => div()
                     .flex_1()
                     .text_xs()
-                    .text_color(crate::theme_rgb(0x9b4a42))
+                    .text_color(ui::color(tokens::DANGER))
                     .child("Analyst runtime readiness is unavailable. Recheck the runtime."),
             };
             div()
@@ -1314,14 +1316,14 @@ impl AnalystPanelView {
         start = if can_start {
             start
                 .cursor_pointer()
-                .border_color(crate::theme_rgb(0x6684c4))
-                .bg(crate::theme_rgb(0xf2f6ff))
+                .border_color(ui::color(tokens::ACCENT))
+                .bg(ui::color(tokens::ACCENT_SOFT))
                 .on_click(cx.listener(|this, _, _, cx| this.start_session(cx)))
         } else {
             start
-                .border_color(crate::theme_rgb(0xd8d8d2))
-                .bg(crate::theme_rgb(0xf4f4f1))
-                .text_color(crate::theme_rgb(0x999990))
+                .border_color(ui::color(tokens::BORDER_STRONG))
+                .bg(ui::color(tokens::WINDOW))
+                .text_color(ui::color(tokens::TEXT_TERTIARY))
         };
 
         div()
@@ -1358,10 +1360,10 @@ impl AnalystPanelView {
                         .p_4()
                         .rounded_md()
                         .border_1()
-                        .border_color(crate::theme_rgb(0xe0e0db))
-                        .bg(crate::theme_rgb(0xfafaf8))
+                        .border_color(ui::color(tokens::BORDER))
+                        .bg(ui::color(tokens::WINDOW))
                         .text_sm()
-                        .text_color(crate::theme_rgb(0x666660))
+                        .text_color(ui::color(tokens::TEXT_SECONDARY))
                         .child("Ask a question about what changed, why the Worlds diverged, or which evidence explains the difference."),
                 )
         } else {
@@ -1390,13 +1392,13 @@ impl AnalystPanelView {
             .child(if self.busy { "Analyzing…" } else { "Ask" });
         ask = if can_ask {
             ask.cursor_pointer()
-                .border_color(crate::theme_rgb(0x6684c4))
-                .bg(crate::theme_rgb(0xf2f6ff))
+                .border_color(ui::color(tokens::ACCENT))
+                .bg(ui::color(tokens::ACCENT_SOFT))
                 .on_click(cx.listener(|this, _, _, cx| this.ask(cx)))
         } else {
-            ask.border_color(crate::theme_rgb(0xd8d8d2))
-                .bg(crate::theme_rgb(0xf4f4f1))
-                .text_color(crate::theme_rgb(0x999990))
+            ask.border_color(ui::color(tokens::BORDER_STRONG))
+                .bg(ui::color(tokens::WINDOW))
+                .text_color(ui::color(tokens::TEXT_TERTIARY))
         };
 
         let can_cancel = can_cancel_analysis(
@@ -1416,8 +1418,8 @@ impl AnalystPanelView {
                 .p_2()
                 .rounded_md()
                 .border_1()
-                .border_color(crate::theme_rgb(0xc9aaa1))
-                .bg(crate::theme_rgb(0xfff8f6))
+                .border_color(ui::color(tokens::DANGER))
+                .bg(ui::color(tokens::DANGER_SOFT))
                 .text_sm()
                 .child(if cancelling {
                     "Cancelling…"
@@ -1429,7 +1431,7 @@ impl AnalystPanelView {
                     .cursor_pointer()
                     .on_click(cx.listener(|this, _, _, cx| this.cancel_analysis(cx)));
             } else {
-                cancel = cancel.text_color(crate::theme_rgb(0x999990));
+                cancel = cancel.text_color(ui::color(tokens::TEXT_TERTIARY));
             }
             composer_actions = composer_actions.child(cancel);
         }
@@ -1445,7 +1447,7 @@ impl AnalystPanelView {
         let mut snapshot_status = div().flex().gap_2().items_center().child(
             div()
                 .text_xs()
-                .text_color(crate::theme_rgb(0x777770))
+                .text_color(ui::color(tokens::TEXT_SECONDARY))
                 .child("Read-only · fixed snapshot pair"),
         );
         if !self.busy && matches!(self.phase, PanelPhase::Active) {
@@ -1457,8 +1459,8 @@ impl AnalystPanelView {
                     .p_1()
                     .rounded_md()
                     .border_1()
-                    .border_color(crate::theme_rgb(0xb8b2a8))
-                    .bg(crate::theme_rgb(0xffffff))
+                    .border_color(ui::color(tokens::BORDER_STRONG))
+                    .bg(ui::color(tokens::SURFACE))
                     .text_xs()
                     .child("New comparison")
                     .on_click(cx.listener(|this, _, _, cx| this.start_new_comparison(cx))),
@@ -1500,8 +1502,8 @@ impl AnalystPanelView {
                 .p_2()
                 .rounded_md()
                 .border_1()
-                .border_color(crate::theme_rgb(0xb8b2a8))
-                .bg(crate::theme_rgb(0xffffff))
+                .border_color(ui::color(tokens::BORDER_STRONG))
+                .bg(ui::color(tokens::SURFACE))
                 .text_sm()
                 .child("Recover and recheck runtime");
             if !self.busy {
@@ -1509,20 +1511,20 @@ impl AnalystPanelView {
                     .cursor_pointer()
                     .on_click(cx.listener(|this, _, _, cx| this.recover_from_fatal(cx)));
             } else {
-                recover = recover.text_color(crate::theme_rgb(0x999990));
+                recover = recover.text_color(ui::color(tokens::TEXT_TERTIARY));
             }
             body = body.child(
                 div()
                     .p_3()
                     .rounded_md()
-                    .bg(crate::theme_rgb(0xfff2f0))
+                    .bg(ui::color(tokens::DANGER_SOFT))
                     .flex()
                     .flex_col()
                     .gap_2()
                     .child(
                         div()
                             .text_sm()
-                            .text_color(crate::theme_rgb(0x9b4a42))
+                            .text_color(ui::color(tokens::DANGER))
                             .child(format!("Analyst session ended: {message}")),
                     )
                     .child(recover),
@@ -1549,7 +1551,7 @@ impl Render for AnalystPanelView {
             .flex_col()
             .gap_3()
             .p_4()
-            .bg(crate::theme_rgb(0xf7f7f3))
+            .bg(ui::color(tokens::WARNING_SOFT))
             .child(
                 div()
                     .flex()
@@ -1559,7 +1561,7 @@ impl Render for AnalystPanelView {
                     .child(
                         div()
                             .text_xs()
-                            .text_color(crate::theme_rgb(0x777770))
+                            .text_color(ui::color(tokens::TEXT_SECONDARY))
                             .child(
                             "Evidence-backed questions over two immutable saved-World snapshots",
                         ),
@@ -1571,15 +1573,15 @@ impl Render for AnalystPanelView {
                 .p_3()
                 .rounded_md()
                 .border_1()
-                .border_color(crate::theme_rgb(0xe1b4aa))
-                .bg(crate::theme_rgb(0xfff8f6))
+                .border_color(ui::color(tokens::DANGER))
+                .bg(ui::color(tokens::DANGER_SOFT))
                 .flex()
                 .flex_col()
                 .gap_2()
                 .child(
                     div()
                         .text_xs()
-                        .text_color(crate::theme_rgb(0x9b4a42))
+                        .text_color(ui::color(tokens::DANGER))
                         .child("Failed question"),
                 )
                 .child(div().text_sm().child(failed_question.clone()));
@@ -1608,8 +1610,8 @@ impl Render for AnalystPanelView {
                             .p_1()
                             .rounded_md()
                             .border_1()
-                            .border_color(crate::theme_rgb(0xc9aaa1))
-                            .bg(crate::theme_rgb(0xffffff))
+                            .border_color(ui::color(tokens::DANGER))
+                            .bg(ui::color(tokens::SURFACE))
                             .text_xs()
                             .child("Retry failed question")
                             .on_click(cx.listener(|this, _, _, cx| this.retry_failed_question(cx))),
@@ -1624,8 +1626,8 @@ impl Render for AnalystPanelView {
                             .p_1()
                             .rounded_md()
                             .border_1()
-                            .border_color(crate::theme_rgb(0xb8b2a8))
-                            .bg(crate::theme_rgb(0xffffff))
+                            .border_color(ui::color(tokens::BORDER_STRONG))
+                            .bg(ui::color(tokens::SURFACE))
                             .text_xs()
                             .child("Dismiss failed question")
                             .on_click(
@@ -1642,9 +1644,9 @@ impl Render for AnalystPanelView {
                 div()
                     .p_3()
                     .rounded_md()
-                    .bg(crate::theme_rgb(0xfff2f0))
+                    .bg(ui::color(tokens::DANGER_SOFT))
                     .text_sm()
-                    .text_color(crate::theme_rgb(0x9b4a42))
+                    .text_color(ui::color(tokens::DANGER))
                     .child(error.clone()),
             );
         }
@@ -2265,8 +2267,8 @@ fn render_turn(index: usize, turn: &PanelTurn) -> impl IntoElement {
         .p_4()
         .rounded_md()
         .border_1()
-        .border_color(crate::theme_rgb(0xd8d8d2))
-        .bg(crate::theme_rgb(0xffffff))
+        .border_color(ui::color(tokens::BORDER_STRONG))
+        .bg(ui::color(tokens::SURFACE))
         .flex()
         .flex_col()
         .gap_2()
@@ -2274,14 +2276,14 @@ fn render_turn(index: usize, turn: &PanelTurn) -> impl IntoElement {
             div()
                 .p_2()
                 .rounded_md()
-                .bg(crate::theme_rgb(0xf2f6ff))
+                .bg(ui::color(tokens::ACCENT_SOFT))
                 .flex()
                 .flex_col()
                 .gap_1()
                 .child(
                     div()
                         .text_xs()
-                        .text_color(crate::theme_rgb(0x66718a))
+                        .text_color(ui::color(tokens::ACCENT_TEXT))
                         .child("Question"),
                 )
                 .child(div().text_sm().child(turn.question.clone())),
@@ -2294,7 +2296,7 @@ fn render_turn(index: usize, turn: &PanelTurn) -> impl IntoElement {
                 .child(
                     div()
                         .text_xs()
-                        .text_color(crate::theme_rgb(0x777770))
+                        .text_color(ui::color(tokens::TEXT_SECONDARY))
                         .child("Analyst"),
                 )
                 .child(div().text_sm().child(turn.answer.clone())),
@@ -2304,7 +2306,7 @@ fn render_turn(index: usize, turn: &PanelTurn) -> impl IntoElement {
         let mut tools = div().flex().flex_col().gap_2().child(
             div()
                 .text_xs()
-                .text_color(crate::theme_rgb(0x777770))
+                .text_color(ui::color(tokens::TEXT_SECONDARY))
                 .child(format!("Evidence calls · {}", turn.tool_calls.len())),
         );
         for call in &turn.tool_calls {
@@ -2315,7 +2317,7 @@ fn render_turn(index: usize, turn: &PanelTurn) -> impl IntoElement {
                 div()
                     .p_2()
                     .rounded_md()
-                    .bg(crate::theme_rgb(0xf7f7f3))
+                    .bg(ui::color(tokens::WARNING_SOFT))
                     .flex()
                     .flex_col()
                     .gap_1()
@@ -2323,13 +2325,13 @@ fn render_turn(index: usize, turn: &PanelTurn) -> impl IntoElement {
                     .child(
                         div()
                             .text_xs()
-                            .text_color(crate::theme_rgb(0x777770))
+                            .text_color(ui::color(tokens::TEXT_SECONDARY))
                             .child(format!("{input_label}  {}", call.input.text)),
                     )
                     .child(
                         div()
                             .text_xs()
-                            .text_color(crate::theme_rgb(0x555550))
+                            .text_color(ui::color(tokens::TEXT_SECONDARY))
                             .child(format!("{output_label} {}", call.output.text)),
                     ),
             );
@@ -2343,7 +2345,7 @@ fn render_turn(index: usize, turn: &PanelTurn) -> impl IntoElement {
             errors = errors.child(
                 div()
                     .text_xs()
-                    .text_color(crate::theme_rgb(0x9b4a42))
+                    .text_color(ui::color(tokens::DANGER))
                     .child(format!("Runtime error · {error}")),
             );
         }
