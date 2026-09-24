@@ -21,7 +21,7 @@ use world_persistence::{PersistenceError, WorldArchive, WorldPackRef};
 use world_projection::{ProjectionIntent, ProjectionSnapshot};
 
 pub const POCKET_UNIVERSE_PACK_ID: &str = "world-machine.pocket-universe";
-pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.18.0";
+pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.19.0";
 
 pub const SEED_MARS_COLONY_COMMAND: &str = "pocket-universe.seed-mars-colony";
 pub const SEED_1980S_TOWN_COMMAND: &str = "pocket-universe.seed-1980s-town";
@@ -940,7 +940,7 @@ fn mind_action_draft(
         AGENT_EXPLORE_COUNT
     };
     let next = integer_component(state, actor, count_key)? + 1;
-    let (target, key, value, change) = mind_outcome(&seed, actor, care, next)?;
+    let (target, key, value, change) = mind_outcome(&seed, actor, care)?;
     let mut draft = EventDraft::new(if care {
         "agent_cared_for_world"
     } else {
@@ -987,80 +987,79 @@ fn mind_outcome(
     seed: &str,
     actor: EntityId,
     care: bool,
-    turn: i64,
 ) -> Result<(EntityId, &'static str, String, String), ActionError> {
     let outcome = match (seed, actor, care) {
         ("mars-colony", SLOT_B, true) => (
             SLOT_C,
             "crop",
-            format!("Nia tending cycle {turn}"),
-            format!("Nia tuned the hydroponics loop for care cycle {turn}."),
+            "Nia's tending".into(),
+            "Nia tuned the hydroponics loop.".into(),
         ),
         ("mars-colony", SLOT_B, false) => (
             SLOT_D,
             "range",
-            format!("Nia survey route {turn}"),
-            format!("Nia sent Kestrel onto survey route {turn} beyond the familiar markers."),
+            "Nia's survey route".into(),
+            "Nia sent Kestrel past the familiar markers.".into(),
         ),
         ("mars-colony", SLOT_E, true) => (
             SLOT_D,
             "status",
-            format!("Tomas service cycle {turn}"),
-            format!("Tomas serviced Kestrel after Nia's latest move, closing out maintenance cycle {turn}."),
+            "Tomas's service round".into(),
+            "Tomas serviced Kestrel after Nia's latest move.".into(),
         ),
         ("mars-colony", SLOT_E, false) => (
             SLOT_A,
             "survey_report",
-            format!("ridge trace {turn}"),
-            format!("Tomas followed Nia's lead and returned with ridge trace {turn} for Ares Habitat."),
+            "Tomas's ridge trace".into(),
+            "Tomas followed Nia's lead and brought Ares Habitat a new trace of the ridge.".into(),
         ),
         ("1980s-town", SLOT_B, true) => (
             SLOT_A,
             "status",
-            format!("Lena's community night {turn}"),
-            format!("Lena kept Maple Arcade open for community night {turn}."),
+            "Lena's community night".into(),
+            "Lena kept Maple Arcade open for community night.".into(),
         ),
         ("1980s-town", SLOT_B, false) => (
             SLOT_D,
             "route",
-            format!("Lena's late loop {turn}"),
-            format!("Lena rode Night Bus 6 through late loop {turn} and came back with a new story."),
+            "Lena's late loop".into(),
+            "Lena rode Night Bus 6 on its late loop and came back with a new story.".into(),
         ),
         ("1980s-town", SLOT_E, true) => (
             SLOT_C,
             "format",
-            format!("Max community set {turn}"),
-            format!("Max answered Lena's latest move with community set {turn} on K-88."),
+            "Max's community set".into(),
+            "Max answered Lena with a community set on K-88.".into(),
         ),
         ("1980s-town", SLOT_E, false) => (
             SLOT_D,
             "route",
-            format!("Max signal chase {turn}"),
-            format!("Max followed the thread from Lena's night and mapped signal chase {turn} along Bus 6."),
+            "Max's signal chase".into(),
+            "Max followed the thread from Lena's night and chased a signal along Bus 6.".into(),
         ),
         ("penguin-civilization", SLOT_B, true) => (
             SLOT_A,
             "status",
-            format!("Piko reinforced span {turn}"),
-            format!("Piko reinforced Icebridge span {turn} before the next cold tide."),
+            "Piko's reinforced span".into(),
+            "Piko reinforced a span of the Icebridge before the next cold tide.".into(),
         ),
         ("penguin-civilization", SLOT_B, false) => (
             SLOT_D,
             "custom",
-            format!("Piko's edge report {turn}"),
-            format!("Piko returned from edge scout {turn} with a new route under the aurora."),
+            "Piko's edge report".into(),
+            "Piko came back from the edge with a new route under the aurora.".into(),
         ),
         ("penguin-civilization", SLOT_E, true) => (
             SLOT_C,
             "reserve",
-            format!("Miri reserve cycle {turn}"),
-            format!("Miri answered Piko's latest move by balancing Fish Vault reserve cycle {turn}."),
+            "Miri's reserve count".into(),
+            "Miri answered Piko by balancing the Fish Vault's reserve.".into(),
         ),
         ("penguin-civilization", SLOT_E, false) => (
             SLOT_D,
             "custom",
-            format!("Miri tide map {turn}"),
-            format!("Miri followed Piko's trail and brought the Aurora Council tide map {turn}."),
+            "Miri's tide map".into(),
+            "Miri followed Piko's trail and brought the Aurora Council a new tide map.".into(),
         ),
         _ => {
             return Err(ActionError::Invalid(format!(
@@ -1124,7 +1123,10 @@ impl Action for UpdateRelationship {
 
         let next_trust = (trust + trust_delta).clamp(0, 10);
         let next_tension = (tension + tension_delta).clamp(0, 10);
-        let summary = format!("{dynamic} Trust is {next_trust}; tension is {next_tension}.");
+        let summary = format!(
+            "{dynamic}{}",
+            bond_change(trust, next_trust, tension, next_tension)
+        );
         let mut draft = EventDraft::new("relationship_shifted");
         draft.targets = vec![RELATIONSHIP, SLOT_B, SLOT_E];
         draft
@@ -1976,7 +1978,7 @@ fn growth_message(
     let social_consequence = match (seed, social_arc) {
         (_, "forming") => None,
         ("mars-colony", "partnership") => {
-            Some("Nia and Tomas now plan each rover cycle as one crew.")
+            Some("Nia and Tomas now plan each rover run as one crew.")
         }
         ("mars-colony", "fracture") => {
             Some("Nia and Tomas now divide rover access into competing routes.")
@@ -2002,26 +2004,26 @@ fn growth_message(
     let posture_consequence = match (seed, posture) {
         (_, "none") => None,
         ("mars-colony", "outward") => Some(
-            "The outward posture keeps pushing attention and infrastructure beyond the known ridge.",
+            "Looking outward keeps pushing attention and infrastructure beyond the known ridge.",
         ),
-        ("mars-colony", "rooted") => Some(
-            "The rooted posture keeps pulling effort back toward a stronger home base.",
-        ),
+        ("mars-colony", "rooted") => {
+            Some("Staying rooted keeps pulling effort back toward a stronger home base.")
+        }
         ("1980s-town", "outward") => Some(
-            "The outward posture keeps bringing unfamiliar faces into Maple Street's late-night life.",
+            "Looking outward keeps bringing unfamiliar faces into Maple Street's late-night life.",
         ),
         ("1980s-town", "rooted") => Some(
-            "The rooted posture keeps turning familiar places into deeper neighborhood institutions.",
+            "Staying rooted keeps turning familiar places into deeper neighborhood institutions.",
         ),
-        ("penguin-civilization", "outward") => Some(
-            "The outward posture keeps widening Icebridge's circle under the aurora.",
-        ),
-        ("penguin-civilization", "rooted") => Some(
-            "The rooted posture keeps investing in winter systems that make home resilient.",
-        ),
+        ("penguin-civilization", "outward") => {
+            Some("Looking outward keeps widening Icebridge's circle under the aurora.")
+        }
+        ("penguin-civilization", "rooted") => {
+            Some("Staying rooted keeps investing in winter systems that make home resilient.")
+        }
         (_, "outward") => Some("The outward posture keeps carrying the World toward new edges."),
         (_, "rooted") => Some("The rooted posture keeps deepening the World it already has."),
-        (_, _) => Some("The World's chosen posture is shaping what happens next."),
+        (_, _) => Some("The direction you chose is shaping what happens next."),
     };
     if let Some(posture_consequence) = posture_consequence {
         story.push(' ');
@@ -2034,12 +2036,45 @@ fn growth_message(
     story
 }
 
+/// How a relationship moved, in words: the numbers stay in the World for
+/// anything that wants to draw them, and out of the sentences.
+fn bond_change(trust: i64, next_trust: i64, tension: i64, next_tension: i64) -> String {
+    let trust = match next_trust.cmp(&trust) {
+        std::cmp::Ordering::Greater => " Trust between them grew.",
+        std::cmp::Ordering::Less => " Trust between them slipped.",
+        std::cmp::Ordering::Equal => "",
+    };
+    let tension = match next_tension.cmp(&tension) {
+        std::cmp::Ordering::Greater => " Tension rose.",
+        std::cmp::Ordering::Less => " Tension eased.",
+        std::cmp::Ordering::Equal => "",
+    };
+    format!("{trust}{tension}")
+}
+
+/// Where two people stand, in words, from trust and tension out of ten.
+pub(crate) fn bond_phrase(trust: i64, tension: i64) -> String {
+    let trust = match trust {
+        i64::MIN..=2 => "They barely trust each other",
+        3..=5 => "They are learning to trust each other",
+        6..=8 => "They trust each other",
+        _ => "They trust each other completely",
+    };
+    let tension = match tension {
+        i64::MIN..=1 => "",
+        2..=4 => ", with some friction",
+        5..=7 => ", despite real tension",
+        _ => ", though tension runs high",
+    };
+    format!("{trust}{tension}.")
+}
+
 fn anchor_pulse(seed: &str, generation: i64) -> String {
     match seed {
-        "mars-colony" => format!("sol-cycle {generation}"),
-        "1980s-town" => format!("after-school night {generation}"),
-        "penguin-civilization" => format!("aurora cycle {generation}"),
-        _ => format!("cycle {generation}"),
+        "mars-colony" => format!("Sol {generation}"),
+        "1980s-town" => format!("Night {generation}"),
+        "penguin-civilization" => format!("Aurora {generation}"),
+        _ => format!("Moment {generation}"),
     }
 }
 
@@ -3156,7 +3191,7 @@ mod tests {
             Some(Value::Text(change)) => change,
             other => panic!("expected growth change text, got {other:?}"),
         };
-        assert!(change.contains("outward posture"));
+        assert!(change.contains("Looking outward"));
         assert!(reopened
             .projection_snapshot()
             .briefing
@@ -3206,7 +3241,9 @@ mod tests {
         let steered = universe.projection_snapshot();
         assert!(steered.briefing.as_ref().unwrap().items.iter().any(|item| {
             item.title == "Relationship · Shared project"
-                && item.detail.contains("Trust 4 · tension 0")
+                && item
+                    .detail
+                    .contains("They are learning to trust each other.")
         }));
 
         universe.invoke_projection_command(NUDGE_COMMAND).unwrap();
@@ -3320,7 +3357,11 @@ mod tests {
             .timeline
             .items
             .iter()
-            .find(|item| item.title == "Universe Intervened")
+            .find(|item| {
+                chosen
+                    .inspector(item.id)
+                    .is_some_and(|inspector| inspector.title == "Universe Intervened")
+            })
             .and_then(|item| match item.id {
                 world_projection::SelectionId::Event(id) => Some(id),
                 _ => None,

@@ -61,6 +61,7 @@ fn directly_changed_entities_inverts_only_visible_recorded_entity_history() {
                 title: "Target event".into(),
                 subtitle: "Visible recorded event".into(),
                 caused_by: Vec::new(),
+                routine: false,
             }],
         },
         inspectors: BTreeMap::from([

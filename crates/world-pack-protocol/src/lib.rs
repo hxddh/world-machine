@@ -752,6 +752,13 @@ pub struct TimelineItemWire {
     pub title: String,
     pub subtitle: String,
     pub caused_by: Vec<u64>,
+    /// Optional in both directions, like the other presentation hints.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub routine: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 impl From<&TimelineItem> for TimelineItemWire {
@@ -762,6 +769,7 @@ impl From<&TimelineItem> for TimelineItemWire {
             title: item.title.clone(),
             subtitle: item.subtitle.clone(),
             caused_by: item.caused_by.iter().map(|event| event.0).collect(),
+            routine: item.routine,
         }
     }
 }
@@ -774,6 +782,7 @@ impl From<TimelineItemWire> for TimelineItem {
             title: item.title,
             subtitle: item.subtitle,
             caused_by: item.caused_by.into_iter().map(EventId::new).collect(),
+            routine: item.routine,
         }
     }
 }
@@ -1292,6 +1301,7 @@ mod tests {
                     title: "Changed".into(),
                     subtitle: "Event nine".into(),
                     caused_by: vec![EventId::new(8)],
+                    routine: false,
                 }],
             },
             canvas: CanvasProjection {

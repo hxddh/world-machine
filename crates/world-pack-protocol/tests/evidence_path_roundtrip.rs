@@ -26,6 +26,7 @@ fn protocol_v2_preserves_typed_shortest_evidence_path_across_json_wire_round_tri
                 title: "Changed".into(),
                 subtitle: "External Pack recorded change".into(),
                 caused_by: Vec::new(),
+                routine: false,
             }],
         },
         inspectors: BTreeMap::from([

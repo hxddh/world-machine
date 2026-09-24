@@ -164,7 +164,7 @@ fn return_compass_explains_why_world_direction_is_open() -> Result<(), Box<dyn E
     assert!(
         compass
             .detail
-            .contains("The first arc has settled as partnership"),
+            .contains("The first chapter has settled into a partnership"),
         "posture context should reuse the durable social arc"
     );
     assert!(
@@ -243,9 +243,10 @@ fn return_compass_explains_how_to_continue_a_living_legacy() -> Result<(), Box<d
         !compass.detail.contains("Choice signal"),
         "the compass says why the choice is open; what each answer does is the choice's own line"
     );
-    assert!(compass.detail.contains("World legacy · Ridge Network"));
-    assert!(compass.detail.contains("1 later cycle"));
-    assert!(compass.detail.contains("adaptive cycle 1"));
+    assert!(compass
+        .detail
+        .contains("Ridge Network keeps growing stronger"));
+    assert!(compass.detail.contains("shared upkeep"));
     assert!(
         !compass.detail.contains(&continuation.detail),
         "the continuation explains itself; the compass says why it matters now"

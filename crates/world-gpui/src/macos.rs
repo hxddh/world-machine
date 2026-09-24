@@ -47,6 +47,8 @@ pub struct ProjectionView {
     /// The choice under the pointer, whose consequences the scene shows
     /// before it is made.
     previewing: Option<String>,
+    /// Moments whose everyday round the reader has unfolded in History.
+    routine_open: std::collections::BTreeSet<u64>,
 }
 
 impl ProjectionView {
@@ -60,6 +62,7 @@ impl ProjectionView {
             status_is_error: false,
             show_header: true,
             previewing: None,
+            routine_open: Default::default(),
         }
     }
 
@@ -577,35 +580,45 @@ impl ProjectionView {
     }
 
     /// Everything that happened, newest first, grouped by the moment it
-    /// happened in rather than stamped on every line.
+    /// happened in rather than stamped on every line. Each moment tells
+    /// its story; its everyday round folds into one line that opens.
     fn render_history(&self, cx: &mut Context<Self>) -> Option<Div> {
         if !has_timeline_panel(&self.snapshot) {
             return None;
         }
-        let items = &self.snapshot.timeline.items;
-        let mut history = div().flex().flex_col().gap_1();
-        for group in history_groups(items.iter().take(HISTORY_LIMIT)) {
-            let mut rows = div().flex().flex_col().gap(px(2.0));
-            for item in group.items {
+        let (shown, hidden) = history_window(&self.snapshot.timeline.items, HISTORY_LIMIT);
+        // Wrapped lines need a width to wrap in, all the way down.
+        let mut history = div().w_full().flex().flex_col().gap_1();
+        for section in history_sections(history_groups(shown.into_iter())) {
+            let key = section.newest;
+            let mut rows = div().w_full().flex().flex_col().gap(px(2.0));
+            for item in &section.story {
                 rows = rows.child(self.history_row(item, cx));
             }
+            if !section.routine.is_empty() {
+                if self.routine_open.contains(&key) {
+                    for item in &section.routine {
+                        rows = rows.child(self.history_row(item, cx));
+                    }
+                } else {
+                    rows = rows.child(self.routine_row(key, &section.routine, cx));
+                }
+            }
             history = history
-                .child(
-                    div()
-                        .px_3()
-                        .pt_2()
-                        .child(ui::caption(world_time_label(group.world_time))),
-                )
+                .child(div().px_3().pt_2().child(ui::caption(section.label())))
                 .child(rows);
         }
-        if items.len() > HISTORY_LIMIT {
-            history = history.child(div().px_3().pt_2().child(ui::caption(format!(
-                "{} earlier moments",
-                items.len() - HISTORY_LIMIT
-            ))));
+        if hidden > 0 {
+            history = history.child(
+                div()
+                    .px_3()
+                    .pt_2()
+                    .child(ui::caption(format!("{hidden} earlier moments"))),
+            );
         }
         Some(
             div()
+                .w_full()
                 .flex()
                 .flex_col()
                 .gap_1()
@@ -614,8 +627,9 @@ impl ProjectionView {
         )
     }
 
-    /// One moment in the history rail: a face or a dot, the headline, and
-    /// one line of what it said. The full account is one click away.
+    /// One thing that happened: the face of whoever it happened to and
+    /// what happened, in the World's own words. The full account is one
+    /// click away.
     fn history_row(&self, item: &TimelineItem, cx: &mut Context<Self>) -> impl IntoElement {
         let selection = item.id;
         let selected = self.selected == Some(selection);
@@ -634,14 +648,22 @@ impl ProjectionView {
                         .bg(color(tokens::TEXT_TERTIARY)),
                 ),
         };
+        // The line is what happened; the summary under it only when it
+        // says something the line did not.
+        let summary = history_summary(&item.subtitle, actor.as_deref());
         let mut text = div()
             .min_w(px(0.0))
             .flex_1()
+            .overflow_hidden()
             .flex()
             .flex_col()
-            .child(ui::row_title(item.title.clone()).truncate());
-        let summary = history_summary(&item.subtitle, actor.as_deref());
-        if !summary.is_empty() {
+            .child(
+                ui::body(item.title.clone())
+                    .w_full()
+                    .line_clamp(2)
+                    .text_ellipsis(),
+            );
+        if !summary.is_empty() && !item.title.contains(summary.as_str()) {
             text = text.child(ui::caption(summary).truncate());
         }
         ui::list_row(
@@ -655,6 +677,41 @@ impl ProjectionView {
         .child(face)
         .child(text)
         .on_click(cx.listener(move |this, _, _, cx| this.select(selection, cx)))
+    }
+
+    /// A moment's everyday round, folded: the faces of those it involved
+    /// and how much of it there was. Clicking unfolds it.
+    fn routine_row(
+        &self,
+        world_time: u64,
+        items: &[&TimelineItem],
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let mut faces = div().flex().flex_row();
+        let mut seen = Vec::new();
+        for item in items {
+            if let Some(name) = scene::event_actor(&self.snapshot, item.id) {
+                if !seen.contains(&name) && seen.len() < 4 {
+                    faces = faces.child(
+                        div()
+                            .when(!seen.is_empty(), |face| face.ml(px(-6.0)))
+                            .child(ui::avatar(&name, 16.0)),
+                    );
+                    seen.push(name);
+                }
+            }
+        }
+        ui::list_row(SharedString::from(format!("routine-{world_time}")), false)
+            .py(px(4.0))
+            .flex_row()
+            .items_center()
+            .gap_2()
+            .child(faces)
+            .child(ui::caption(everyday_label(items.len())))
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.routine_open.insert(world_time);
+                cx.notify();
+            }))
     }
 
     // ---- Look closer ------------------------------------------------------
@@ -1301,6 +1358,77 @@ struct HistoryGroup<'a> {
     items: Vec<&'a TimelineItem>,
 }
 
+/// The newest part of History: items up to the `limit`th thing that
+/// happened to someone, with the everyday round in between riding along
+/// free, since it folds away. Also how many stories were left out.
+fn history_window(items: &[TimelineItem], limit: usize) -> (Vec<&TimelineItem>, usize) {
+    let mut stories = 0;
+    let mut shown = Vec::new();
+    for item in items {
+        if !item.routine {
+            if stories == limit {
+                break;
+            }
+            stories += 1;
+        }
+        shown.push(item);
+    }
+    let hidden = items[shown.len()..]
+        .iter()
+        .filter(|item| !item.routine)
+        .count();
+    (shown, hidden)
+}
+
+/// A stretch of History under one heading: a moment where something
+/// happened, or several quiet moments in a row folded into one.
+struct HistorySection<'a> {
+    newest: u64,
+    oldest: u64,
+    story: Vec<&'a TimelineItem>,
+    routine: Vec<&'a TimelineItem>,
+}
+
+impl HistorySection<'_> {
+    fn label(&self) -> String {
+        if self.newest == self.oldest {
+            world_time_label(self.newest)
+        } else {
+            format!("Time {}–{}", self.oldest, self.newest)
+        }
+    }
+}
+
+/// Moments where nothing happened to anyone run together, so a long quiet
+/// stretch reads as one line rather than a column of identical ones.
+fn history_sections<'a>(groups: Vec<HistoryGroup<'a>>) -> Vec<HistorySection<'a>> {
+    let mut sections: Vec<HistorySection<'a>> = Vec::new();
+    for group in groups {
+        let (routine, story): (Vec<_>, Vec<_>) =
+            group.items.into_iter().partition(|item| item.routine);
+        match sections.last_mut() {
+            Some(quiet) if story.is_empty() && quiet.story.is_empty() => {
+                quiet.oldest = group.world_time;
+                quiet.routine.extend(routine);
+            }
+            _ => sections.push(HistorySection {
+                newest: group.world_time,
+                oldest: group.world_time,
+                story,
+                routine,
+            }),
+        }
+    }
+    sections
+}
+
+fn everyday_label(count: usize) -> String {
+    match count {
+        1 => "Everyday life".to_string(),
+        count => format!("Everyday life · {count} things"),
+    }
+}
+
 /// Consecutive timeline items that share a moment, in the order given.
 fn history_groups<'a>(items: impl Iterator<Item = &'a TimelineItem>) -> Vec<HistoryGroup<'a>> {
     let mut groups: Vec<HistoryGroup<'a>> = Vec::new();
@@ -1439,7 +1567,8 @@ fn inspector_panel(inspector: &InspectorProjection) -> Div {
 mod focus_hierarchy_tests {
     use super::{
         command_panel_title, default_selection, has_collection_panel, has_exploration,
-        has_timeline_panel, selection_for_snapshot,
+        has_timeline_panel, history_groups, history_sections, history_window,
+        selection_for_snapshot,
     };
     use world_projection::{
         CollectionItem, InspectorProjection, ProjectionSnapshot, SelectionId, TimelineItem,
@@ -1447,6 +1576,60 @@ mod focus_hierarchy_tests {
 
     fn entity_selection() -> SelectionId {
         SelectionId::Entity(Default::default())
+    }
+
+    #[test]
+    fn quiet_moments_run_together_and_a_story_starts_a_new_heading() {
+        let item = |world_time: u64, routine: bool| TimelineItem {
+            id: entity_selection(),
+            world_time,
+            title: String::new(),
+            subtitle: String::new(),
+            caused_by: Vec::new(),
+            routine,
+        };
+        // Newest first: quiet at 30 and 20, a story at 10, quiet at 5 and 0.
+        let items = [
+            item(30, true),
+            item(20, true),
+            item(10, false),
+            item(10, true),
+            item(5, true),
+            item(0, true),
+        ];
+        let sections = history_sections(history_groups(items.iter()));
+        let shape = sections
+            .iter()
+            .map(|section| (section.label(), section.story.len(), section.routine.len()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            shape,
+            [
+                ("Time 20–30".to_string(), 0, 2),
+                ("Time 10".to_string(), 1, 1),
+                ("Time 0–5".to_string(), 0, 2),
+            ]
+        );
+    }
+
+    #[test]
+    fn history_counts_stories_and_lets_the_everyday_round_ride_along() {
+        let item = |routine: bool| TimelineItem {
+            id: entity_selection(),
+            world_time: 1,
+            title: String::new(),
+            subtitle: String::new(),
+            caused_by: Vec::new(),
+            routine,
+        };
+        // Newest first: a story, three routine things, two stories, routine.
+        let items = [false, true, true, true, false, false, true].map(item);
+        let (shown, hidden) = history_window(&items, 2);
+        // Up to the second story, with the routine between them included.
+        assert_eq!(shown.len(), 5);
+        assert_eq!(hidden, 1);
+        let (shown, hidden) = history_window(&items, 10);
+        assert_eq!((shown.len(), hidden), (items.len(), 0));
     }
 
     fn event_selection() -> SelectionId {
@@ -1477,6 +1660,7 @@ mod focus_hierarchy_tests {
             title: "Changed".into(),
             subtitle: String::new(),
             caused_by: Vec::new(),
+            routine: false,
         });
         snapshot.inspectors.insert(entity, inspector(entity));
         snapshot.inspectors.insert(event, inspector(event));
@@ -1556,6 +1740,7 @@ mod focus_hierarchy_tests {
             title: "Changed".into(),
             subtitle: String::new(),
             caused_by: Vec::new(),
+            routine: false,
         });
         snapshot.inspectors.insert(event, inspector(event));
         assert_eq!(default_selection(&snapshot), Some(event));

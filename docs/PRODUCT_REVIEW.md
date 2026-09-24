@@ -109,6 +109,10 @@ Tiny Society, with thirteen things on stage, stays readable:
 
 ![Returning to Tiny Society](review/world-return.png)
 
+**History** tells what happened, in the World's words, with the face of whoever it happened to. The everyday round folds into one line per moment, and quiet stretches run together. It used to be "Agent Decision Recorded", "Agent Cared For World" and "Work Shift Completed", a hundred lines deep. Pocket Universe on the left, Tiny Society on the right:
+
+![History](review/history.png)
+
 **What if…** shows two futures side by side, each with the thing that happened only there as its headline, and its scene with the differences haloed. It used to say "Strategy Comparison · Two independent futures evaluated from the same durable World" above two identical cards, then "FIRST RECORDED DIFFERENCE" and "2 recorded causal steps … 1 supporting record folded".
 
 ![What if after](review/what-if-after.png)
@@ -150,6 +154,6 @@ Tiny Society, with thirteen things on stage, stays readable:
 2. **Add the rest of the projection fields above**: meters, then Pack art. Tone, effects and deltas since the last visit are done.
 3. **More motion.** News, the decision panel, the activity strip and trouble on the scene already move. Next is scene nodes easing to their new state when a choice lands, and numbers counting to their new value.
 4. **Settings, the Analyst panel and Pack review** are on the tokens but still laid out as they were. They need the same pass the World window had; after that, `adapt()` can go. Scrubbing through a World's time would complete the branching story.
-5. **History shows every internal step.** "Agent Decision Recorded" twice per visit tells the reader nothing. The projection should mark bookkeeping events so History can fold them.
-6. **Recorded prose still has engine words.** *"Legacy cycle 8 is now a durable adaptive pattern."* is written into each event, so fixing it needs a Pack-version decision, or the narrator seam.
+5. ~~**History shows every internal step.**~~ *(done: Packs tell each Event's line and mark the everyday round, which History folds)*
+6. ~~**Recorded prose still has engine words.**~~ *(done: Pocket Universe 0.19.0 records plain words; old Worlds of that Pack no longer open)*
 7. **The usability test** in `NEXT_TASK.md`. None of the above replaces five strangers and five minutes each.

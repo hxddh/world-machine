@@ -1748,6 +1748,7 @@ mod tests {
                     title: "Changed".into(),
                     subtitle: "Recorded change".into(),
                     caused_by: Vec::new(),
+                    routine: false,
                 }],
             },
             inspectors: BTreeMap::from([
@@ -2068,6 +2069,7 @@ mod tests {
                 title: "Final effect".into(),
                 subtitle: "Final".into(),
                 caused_by: vec![EventId::new(2)],
+                routine: false,
             },
             TimelineItem {
                 id: SelectionId::Event(EventId::new(2)),
@@ -2075,6 +2077,7 @@ mod tests {
                 title: "Intermediate effect".into(),
                 subtitle: "Middle".into(),
                 caused_by: vec![EventId::new(1)],
+                routine: false,
             },
             TimelineItem {
                 id: SelectionId::Event(EventId::new(1)),
@@ -2082,6 +2085,7 @@ mod tests {
                 title: "Root cause".into(),
                 subtitle: "Root".into(),
                 caused_by: Vec::new(),
+                routine: false,
             },
         ];
 
@@ -2121,6 +2125,7 @@ mod tests {
                 title: "Final".into(),
                 subtitle: "Root".into(),
                 caused_by: vec![EventId::new(2), EventId::new(1)],
+                routine: false,
             },
             TimelineItem {
                 id: SelectionId::Event(EventId::new(2)),
@@ -2128,6 +2133,7 @@ mod tests {
                 title: "First direct cause".into(),
                 subtitle: "Also points at event 1".into(),
                 caused_by: vec![EventId::new(1)],
+                routine: false,
             },
             TimelineItem {
                 id: SelectionId::Event(EventId::new(1)),
@@ -2135,6 +2141,7 @@ mod tests {
                 title: "Second direct cause".into(),
                 subtitle: "Direct and indirect".into(),
                 caused_by: Vec::new(),
+                routine: false,
             },
         ];
 
@@ -2160,6 +2167,7 @@ mod tests {
                 title: "Final".into(),
                 subtitle: "Visible".into(),
                 caused_by: vec![EventId::new(2), EventId::new(99)],
+                routine: false,
             },
             TimelineItem {
                 id: SelectionId::Event(EventId::new(2)),
@@ -2167,6 +2175,7 @@ mod tests {
                 title: "Cycle".into(),
                 subtitle: "Visible".into(),
                 caused_by: vec![EventId::new(3)],
+                routine: false,
             },
         ];
 

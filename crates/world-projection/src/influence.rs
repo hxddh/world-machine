@@ -425,6 +425,7 @@ mod tests {
             title: title.into(),
             subtitle: format!("Event #{id}"),
             caused_by: caused_by.iter().copied().map(EventId::new).collect(),
+            routine: false,
         }
     }
 

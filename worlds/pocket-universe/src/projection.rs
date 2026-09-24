@@ -51,7 +51,7 @@ pub(crate) fn snapshot_since(
             })
             .collect(),
         collection: collection(world),
-        timeline: timeline_from_world(world),
+        timeline: told_timeline(world),
         canvas: with_changes(world, canvas(world), since_event_count),
         inspectors: inspectors_from_world(world),
         why: why_map_from_world(world),
@@ -402,7 +402,7 @@ fn succession_nudge_copy(world: &World) -> Option<(&'static str, &'static str)> 
     Some(match succession::standing_for_patience(patience) {
         SuccessorStanding::NewHands => (
             "Let the successor keep learning",
-            "Nothing is decided yet. Every cycle you wait, they do more of the work their own way.",
+            "Nothing is decided yet. The longer you wait, the more they do the work their own way.",
         ),
         SuccessorStanding::OwnHabits => (
             "Let their habits settle further",
@@ -561,11 +561,11 @@ fn pressure_nudge_copy(pressure: &str) -> Option<(&'static str, &'static str)> {
     match pressure {
         "warning" => Some((
             "Watch the pressure build",
-            "Let one more cycle pass without answering. The World will not wait forever.",
+            "Wait without answering. The World will not wait forever.",
         )),
         "crisis" => Some((
-            "Risk one more cycle",
-            "Let one more cycle pass in crisis. If the window closes, what this World depends on is lost.",
+            "Risk waiting longer",
+            "Wait while the crisis runs. If the window closes, what this World depends on is lost.",
         )),
         "lost" => Some((
             "Let the loss settle",
@@ -648,7 +648,7 @@ fn second_arc_stage_copy(seed: &str) -> (String, Option<(&'static str, &'static 
             "Icebridge now has history and a settled central relationship. Decide whether its next chapter widens the colony network or deepens winter life at home."
         }
         _ => {
-            "The first arc has settled. Decide whether the next chapter reaches outward or deepens the home this World already made."
+            "The first chapter has settled. Decide whether the next one reaches outward or deepens the home this World already made."
         }
     };
     (
@@ -684,7 +684,7 @@ fn pressure_stage_copy(
             format!("{anchor} is in crisis"),
             Some((
                 "Your turn · Decide before it is lost",
-                "The window is closing. Hold or reach now; a few more cycles of waiting and this loss becomes durable.",
+                "The window is closing. Hold or reach now; wait much longer and the loss will be permanent.",
             )),
         )),
         "lost" => Some((
@@ -781,7 +781,7 @@ fn legacy_nudge_copy(seed: &str, legacy: &str) -> (&'static str, &'static str) {
     match (seed, legacy) {
         ("mars-colony", "ridge-network") => (
             "Let the ridge network carry on",
-            "Let another sol move through the ridge routes and see what this durable expedition network changes next.",
+            "Let another sol move through the ridge routes and see what the expedition network changes next.",
         ),
         ("mars-colony", "competing-frontiers") => (
             "Let the competing frontiers advance",
@@ -789,7 +789,7 @@ fn legacy_nudge_copy(seed: &str, legacy: &str) -> (&'static str, &'static str) {
         ),
         ("mars-colony", "habitat-commons") => (
             "Let the habitat commons deepen",
-            "Let another sol move through the commons and see what shared life inside Ares makes durable next.",
+            "Let another sol move through the commons and see what shared life inside Ares builds next.",
         ),
         ("mars-colony", "sealed-districts") => (
             "Let the sealed districts settle",
@@ -885,12 +885,12 @@ fn nudge_copy(
             "Give Icebridge one more aurora; its central relationship is starting to take shape.",
         ),
         (_, 0) => (
-            "Let the first cycle unfold",
+            "Let time begin",
             "Watch the World move once before deciding how much to shape it.",
         ),
         (_, 1) => (
-            "See what the next cycle changes",
-            "Give the World one more cycle; its central relationship is starting to take shape.",
+            "See what comes next",
+            "Give the World a little more time; its central relationship is starting to take shape.",
         ),
         _ => (
             "Let the world move",
@@ -909,7 +909,7 @@ fn briefing(world: &World, seeded: bool, since_event_count: Option<usize>) -> Br
                     kind: BriefingItemKind::Status,
                     selection: Some(SelectionId::Entity(UNIVERSE)),
                     title: "Create".into(),
-                    detail: "Choose one seed. The choice becomes the first durable event in this World."
+                    detail: "Choose where this World begins. Whatever you pick is where its history starts."
                         .into(), tone: world_projection::Tone::Neutral,
 },
                 BriefingItem {
@@ -1048,7 +1048,7 @@ fn live_stage_copy(
                 "penguin-civilization" => {
                     "Let the first aurora unfold and see how Piko and Miri settle into Icebridge."
                 }
-                _ => "Let the first cycle unfold before deciding how much to shape this World.",
+                _ => "Watch it move once before deciding how much to shape this World.",
             };
             ("The world is alive".into(), Some(("Next · Watch", detail)))
         }
@@ -1056,7 +1056,7 @@ fn live_stage_copy(
             "Patterns are forming".into(),
             Some((
                 "Next · Notice",
-                "Let one more cycle pass. After that, you can steer the relationship at the center of this World.",
+                "Give it a little more time. After that, you can steer the relationship at the center of this World.",
             )),
         ),
         // Past the opening chapter with nothing open: the World simply goes
@@ -1421,7 +1421,7 @@ fn legacy_consequence_item(world: &World) -> Option<BriefingItem> {
             text_component(
                 world.state().entity(UNIVERSE),
                 LEGACY_SUMMARY,
-                "This World now carries a durable legacy from its earlier choices.",
+                "This World now carries a legacy of its earlier choices.",
             )
         });
     let selection = latest_reinforcement
@@ -1488,13 +1488,8 @@ fn relationship_consequence_item(world: &World) -> Option<BriefingItem> {
     };
     // The latest shift already states trust and tension; saying them twice
     // in one card is how it ended up reading like a readout.
-    let detail = if last_dynamic.trim().is_empty() {
-        format!("{meaning} Trust {trust} · tension {tension}.")
-    } else if last_dynamic.contains("Trust is") {
-        format!("{meaning} {last_dynamic}")
-    } else {
-        format!("{meaning} Trust {trust} · tension {tension}. {last_dynamic}")
-    };
+    let _ = last_dynamic;
+    let detail = format!("{meaning} {}", crate::bond_phrase(trust, tension));
     Some(BriefingItem {
         kind: BriefingItemKind::Status,
         selection: Some(SelectionId::Entity(RELATIONSHIP)),
@@ -1649,8 +1644,8 @@ fn posture_return_context(world: &World) -> String {
         "forming",
     );
     let social_arc = match social_arc.as_str() {
-        "partnership" => "partnership".into(),
-        "fracture" => "fracture".into(),
+        "partnership" => "a partnership".into(),
+        "fracture" => "a rift".into(),
         other => other.replace('-', " "),
     };
     let decision = text_component(world.state().entity(UNIVERSE), DECISION, "none");
@@ -1663,7 +1658,7 @@ fn posture_return_context(world: &World) -> String {
         })
         .unwrap_or_else(|| decision.replace('-', " "));
     format!(
-        "The first arc has settled as {social_arc}, and {influence} is already durable. The next choice now decides whether this World reaches outward or deepens home."
+        "The first chapter has settled into {social_arc}, and {influence} is here to stay. The next choice decides whether this World reaches outward or deepens home."
     )
 }
 
@@ -1674,11 +1669,9 @@ fn legacy_return_context(world: &World, legacy: &str) -> String {
         let summary = text_component(
             world.state().entity(UNIVERSE),
             LEGACY_SUMMARY,
-            "This World now carries a durable legacy from its earlier choices.",
+            "This World now carries a legacy of its earlier choices.",
         );
-        return format!(
-            "World legacy · {legacy} has formed but has not yet reinforced through a later cycle. {summary}"
-        );
+        return format!("{legacy} has formed. {summary}");
     }
 
     let pattern = world
@@ -1690,15 +1683,61 @@ fn legacy_return_context(world: &World, legacy: &str) -> String {
             Some(Value::Text(pattern)) => Some(pattern.as_str()),
             _ => None,
         });
-    let cycle_word = if cycles == 1 { "cycle" } else { "cycles" };
     match pattern {
         Some(pattern) => format!(
-            "World legacy · {legacy} has reinforced through {cycles} later {cycle_word}; its current pattern is {pattern}. Another continuation feeds that established pattern back into the World."
+            "{legacy} keeps growing stronger, carried by {pattern}. Letting time pass feeds it further."
         ),
-        None => format!(
-            "World legacy · {legacy} has reinforced through {cycles} later {cycle_word}. Another continuation feeds that established pattern back into the World."
-        ),
+        None => format!("{legacy} keeps growing stronger. Letting time pass feeds it further."),
     }
+}
+
+/// History in the World's own words. What happened to somebody is a story;
+/// the everyday round (each day's tending and exploring, a decision logged,
+/// the small shifts between two people, a legacy renewing itself) folds
+/// under the moment it happened in.
+fn told_timeline(world: &World) -> world_projection::TimelineProjection {
+    let mut timeline = timeline_from_world(world);
+    world_projection::retell_timeline(&mut timeline, world, |event| {
+        let summary =
+            ["summary", "change"]
+                .into_iter()
+                .find_map(|key| match event.payload.get(key) {
+                    Some(Value::Text(text)) if !text.trim().is_empty() => Some(text.clone()),
+                    _ => None,
+                });
+        let actor = event
+            .actor
+            .and_then(|id| world.state().entity(id))
+            .map(entity_title);
+        match event.kind.as_str() {
+            "agent_decision_recorded" => world_projection::Telling::Routine(
+                actor.map(|name| format!("{name} decided what to do next")),
+            ),
+            kind if is_routine(kind) => world_projection::Telling::Routine(None),
+            "universe_seeded" => {
+                world_projection::Telling::Story(format!("{} began", universe_name(world)))
+            }
+            _ => match summary {
+                Some(summary) => world_projection::Telling::Story(summary),
+                None => world_projection::Telling::Routine(None),
+            },
+        }
+    });
+    timeline
+}
+
+/// The everyday round: what happens every period whatever anyone chooses.
+/// History folds it and a return leads with anything else first.
+pub(crate) fn is_routine(kind: &str) -> bool {
+    matches!(
+        kind,
+        "agent_decision_recorded"
+            | "agent_cared_for_world"
+            | "agent_explored_world"
+            | "relationship_shifted"
+            | "legacy_reinforced"
+            | "successor_waited"
+    )
 }
 
 /// The Events a return digest will show, and how many of that kind it stands
@@ -1750,6 +1789,10 @@ fn return_digest_priority(kind: &str) -> u8 {
         | "pressure_held"
         | "pressure_reached"
         | "anchor_recovered" => 0,
+        // The everyday round fills whatever room the story leaves, people's
+        // own doings first.
+        "agent_cared_for_world" | "agent_explored_world" => 2,
+        kind if is_routine(kind) => 3,
         _ => 1,
     }
 }
@@ -1772,7 +1815,7 @@ fn extend_with_persistent_consequences(world: &World, items: &mut Vec<BriefingIt
     );
 }
 
-fn return_item(events: &[Event], event: &Event, occurrences: usize) -> BriefingItem {
+fn return_item(events: &[Event], event: &Event, _occurrences: usize) -> BriefingItem {
     // This World's own words if it has them for this Event, and the table line
     // otherwise. The table is the floor: a World with no narrator, or one whose
     // narrator said nothing usable, reads exactly as it always did.
@@ -1786,46 +1829,33 @@ fn return_item(events: &[Event], event: &Event, occurrences: usize) -> BriefingI
                     _ => None,
                 })
         })
-        .unwrap_or_else(|| event.kind.replace('_', " "));
-    let base_title: String = match event.kind.as_str() {
+        .unwrap_or_else(|| event_kind_words(&event.kind));
+    // How often something happened is not what happened; the title says what.
+    let title: String = match event.kind.as_str() {
         "universe_grew" => "The world moved".into(),
         "universe_intervened" => "Your choice took hold".into(),
         "universe_seeded" => "A world began".into(),
-        "agent_cared_for_world" => "Someone cared for the world".into(),
-        "agent_explored_world" => "Someone explored beyond routine".into(),
-        "relationship_shifted" => "Their relationship changed".into(),
+        "agent_cared_for_world" => "Looking after home".into(),
+        "agent_explored_world" => "Out exploring".into(),
+        "relationship_shifted" => "Between the two of them".into(),
         "relationship_steered" => "You steered their relationship".into(),
         "partnership_formed" => "A partnership formed".into(),
         "relationship_fractured" => "Their relationship fractured".into(),
         "world_legacy_formed" => "A world legacy formed".into(),
-        "legacy_reinforced" => "A legacy reinforced itself".into(),
+        "legacy_reinforced" => "The legacy grew stronger".into(),
         "pressure_rising" => "Pressure is rising".into(),
         "pressure_peaked" => "The pressure peaked".into(),
         "anchor_lost" => "Something was lost".into(),
         "pressure_held" => "You held through the pressure".into(),
         "pressure_reached" => "You reached beyond the pressure".into(),
         "anchor_recovered" => "You recovered what was lost".into(),
-        _ => event.kind.replace('_', " "),
-    };
-    let title = if occurrences <= 1 {
-        base_title
-    } else {
-        match event.kind.as_str() {
-            "universe_grew" => format!("The world moved · {occurrences} cycles"),
-            "legacy_reinforced" => {
-                format!("A legacy reinforced itself · {occurrences} cycles")
-            }
-            "relationship_shifted" => {
-                format!("Their relationship changed · {occurrences} times")
-            }
-            "agent_cared_for_world" => {
-                format!("Someone cared for the world · {occurrences} times")
-            }
-            "agent_explored_world" => {
-                format!("Someone explored beyond routine · {occurrences} times")
-            }
-            _ => format!("{base_title} · {occurrences} updates"),
-        }
+        "world_posture_chosen" => "A direction was chosen".into(),
+        "successor_emerged" => "A successor stepped in".into(),
+        "successor_waited" => "The successor carried on".into(),
+        "legacy_entrusted" => "The legacy was handed on".into(),
+        "legacy_released" => "The legacy was set aside".into(),
+        "era_began" => "A new era began".into(),
+        other => event_kind_words(other),
     };
     BriefingItem {
         kind: BriefingItemKind::Beat,
@@ -1833,6 +1863,16 @@ fn return_item(events: &[Event], event: &Event, occurrences: usize) -> BriefingI
         title,
         detail,
         tone: world_projection::Tone::Neutral,
+    }
+}
+
+/// Last resort for an Event nobody named: its kind, as a sentence.
+fn event_kind_words(kind: &str) -> String {
+    let words = kind.replace('_', " ");
+    let mut chars = words.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => words,
     }
 }
 

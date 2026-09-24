@@ -21,6 +21,7 @@ fn evidence_snapshot() -> ProjectionSnapshot {
                 title: "Changed".into(),
                 subtitle: "Recorded change".into(),
                 caused_by: Vec::new(),
+                routine: false,
             }],
         },
         inspectors: BTreeMap::from([
@@ -170,6 +171,7 @@ fn path_snapshot() -> ProjectionSnapshot {
                 title: "Changed".into(),
                 subtitle: "Recorded change".into(),
                 caused_by: Vec::new(),
+                routine: false,
             }],
         },
         inspectors: BTreeMap::from([

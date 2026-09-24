@@ -727,6 +727,10 @@ pub struct TimelineItem {
     pub title: String,
     pub subtitle: String,
     pub caused_by: Vec<EventId>,
+    /// Part of the World's everyday round (a shift worked, a decision
+    /// logged) rather than something that happened to anyone. History
+    /// folds these so they never crowd out the story.
+    pub routine: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -892,8 +896,52 @@ pub fn timeline_from_world(world: &World) -> TimelineProjection {
                 title: humanize(&event.kind),
                 subtitle: event_summary(event, world),
                 caused_by: event.caused_by.clone(),
+                routine: false,
             })
             .collect(),
+    }
+}
+
+/// How a Pack tells one Event in its history.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Telling {
+    /// Something that happened to someone, in the World's own words.
+    Story(String),
+    /// Part of the everyday round, folded in History; with the line to show
+    /// when it is unfolded, or `None` for the Event's own summary.
+    Routine(Option<String>),
+}
+
+/// Lets a Pack tell its own history: the line History shows for each
+/// Event, and which Events are the everyday round it folds away.
+pub fn retell_timeline(
+    timeline: &mut TimelineProjection,
+    world: &World,
+    tell: impl Fn(&Event) -> Telling,
+) {
+    let events = world
+        .events()
+        .iter()
+        .map(|event| (event.id, event))
+        .collect::<BTreeMap<_, _>>();
+    for item in &mut timeline.items {
+        let SelectionId::Event(id) = item.id else {
+            continue;
+        };
+        let Some(event) = events.get(&id) else {
+            continue;
+        };
+        match tell(event) {
+            Telling::Story(line) => item.title = line,
+            Telling::Routine(line) => {
+                item.routine = true;
+                if let Some(line) =
+                    line.or_else(|| semantic_event_summary(event).map(str::to_string))
+                {
+                    item.title = line;
+                }
+            }
+        }
     }
 }
 
@@ -1546,6 +1594,20 @@ mod tests {
             "Workspace"
         );
         assert!(inspectors.contains_key(&SelectionId::Event(EventId::new(1))));
+    }
+
+    #[test]
+    fn a_pack_tells_its_story_and_what_it_does_not_tell_is_routine() {
+        let world = sample_world();
+        let mut told = timeline_from_world(&world);
+        retell_timeline(&mut told, &world, |_| Telling::Story("Work began".into()));
+        assert_eq!(told.items[0].title, "Work began");
+        assert!(!told.items[0].routine);
+
+        let mut untold = timeline_from_world(&world);
+        retell_timeline(&mut untold, &world, |_| Telling::Routine(None));
+        assert!(untold.items[0].routine);
+        assert_eq!(untold.items[0].title, "Work Started");
     }
 
     #[test]

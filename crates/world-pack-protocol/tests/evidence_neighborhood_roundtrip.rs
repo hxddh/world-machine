@@ -27,6 +27,7 @@ fn protocol_v2_preserves_bounded_evidence_neighborhood_across_json_wire_round_tr
                 title: "Changed".into(),
                 subtitle: "External Pack recorded change".into(),
                 caused_by: Vec::new(),
+                routine: false,
             }],
         },
         inspectors: BTreeMap::from([

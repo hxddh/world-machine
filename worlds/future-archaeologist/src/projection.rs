@@ -118,6 +118,7 @@ fn timeline(
                     .copied()
                     .filter(|cause| visible_events.contains(cause))
                     .collect(),
+                routine: false,
             })
             .collect(),
     }

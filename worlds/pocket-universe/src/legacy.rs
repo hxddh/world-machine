@@ -86,7 +86,7 @@ pub(crate) fn growth_consequence(seed: &str, legacy: &str) -> Option<&'static st
             "The sealed districts now shape how safety and trust are distributed inside Ares."
         }
         ("1980s-town", "night-network") => {
-            "The night network now links Maple Street's institutions beyond any one event."
+            "The night network now links Maple Street's institutions beyond any one night."
         }
         ("1980s-town", "rival-scenes") => {
             "The rival scenes now shape where Maple Street's late-night life gathers."
@@ -195,17 +195,16 @@ fn reinforcement_semantics(
             "expansion",
             "repeated exploration, route expansion, and experimentation",
         ),
-        "balanced" => ("adaptive", "coordinated upkeep and expansion"),
+        "balanced" => ("shared upkeep", "coordinated upkeep and expansion"),
         other => {
             return Err(ActionError::Invalid(format!(
                 "unknown Pocket Universe legacy behavior: {other}"
             )))
         }
     };
-    let pattern = format!("{pattern_kind} cycle {cycle}");
-    let summary = format!(
-        "The {label} reinforced itself through {behavior_phrase}. Legacy cycle {cycle} is now a durable {pattern_kind} pattern."
-    );
+    let _ = cycle;
+    let pattern = pattern_kind.to_string();
+    let summary = format!("The {label} grew stronger through {behavior_phrase}.");
     Ok((pattern, summary))
 }
 
@@ -280,8 +279,13 @@ fn legacy_candidate(state: &WorldState) -> Result<Option<LegacyCandidate>, Actio
             ))
         })?;
     let summary = format!(
-        "{base} {} Across its two central actors, the durable pattern is now {behavior} ({care} care / {explore} explore).",
-        decision_memory(&decision)
+        "{base} {} {}",
+        decision_memory(&decision),
+        match behavior {
+            "care-led" => "Care has done more to hold it together than exploring.",
+            "explore-led" => "Exploring has done more to carry it than care.",
+            _ => "Care and exploring have carried it in equal measure.",
+        }
     );
     Ok(Some(LegacyCandidate {
         id,
@@ -526,14 +530,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn repeated_behavior_produces_distinct_durable_reinforcement_patterns() {
+    fn repeated_behavior_produces_distinct_reinforcement_patterns() {
         let care = reinforcement_semantics("ridge-network", "care-led", 1).unwrap();
         let explore = reinforcement_semantics("ridge-network", "explore-led", 1).unwrap();
         let balanced = reinforcement_semantics("ridge-network", "balanced", 1).unwrap();
 
-        assert_eq!(care.0, "stewardship cycle 1");
-        assert_eq!(explore.0, "expansion cycle 1");
-        assert_eq!(balanced.0, "adaptive cycle 1");
+        assert_eq!(care.0, "stewardship");
+        assert_eq!(explore.0, "expansion");
+        assert_eq!(balanced.0, "shared upkeep");
         assert_ne!(care, explore);
         assert_ne!(care, balanced);
         assert_ne!(explore, balanced);

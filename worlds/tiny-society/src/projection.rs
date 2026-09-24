@@ -11,7 +11,7 @@ use world_projection::{
     entity_title, inspectors_from_world, timeline_from_world, why_map_from_world, BriefingItem,
     BriefingItemKind, BriefingProjection, CanvasChange, CanvasItem, CanvasItemKind,
     CanvasProjection, CollectionItem, CollectionProjection, CommandEffect, EffectChange,
-    ProjectionCapabilities, ProjectionCommand, ProjectionSnapshot, SelectionId, Tone,
+    ProjectionCapabilities, ProjectionCommand, ProjectionSnapshot, SelectionId, Telling, Tone,
 };
 
 const RESIDENTS: [EntityId; 8] = [JONAS, MARA, LEO, EMMA, MIA, NOAH, EVAN, SOFIA];
@@ -37,7 +37,7 @@ pub(crate) fn snapshot_since(
                 .filter_map(|id| resident_item(world, *id))
                 .collect(),
         },
-        timeline: timeline_from_world(world),
+        timeline: told_timeline(world),
         canvas: CanvasProjection {
             items: canvas_items(world)
                 .into_iter()
@@ -466,6 +466,41 @@ fn narrated_title(world: &World, event: &Event) -> Option<String> {
         "counter_help_hired" => "Mara took Mia on at the bakery counter",
         _ => return None,
     }))
+}
+
+/// History in the town's words: every headline the briefing would use, a
+/// few more things that happened to somebody, and the everyday round (shifts,
+/// bread, the cost of a day) folded under the moment it happened in.
+fn told_timeline(world: &World) -> world_projection::TimelineProjection {
+    let mut timeline = timeline_from_world(world);
+    world_projection::retell_timeline(&mut timeline, world, |event| telling(world, event));
+    timeline
+}
+
+fn telling(world: &World, event: &Event) -> Telling {
+    if let Some(title) = narrated_title(world, event) {
+        return Telling::Story(title);
+    }
+    let name = |id: Option<&EntityId>| {
+        id.and_then(|id| world.state().entity(*id))
+            .map(entity_title)
+            .unwrap_or_else(|| "Someone".into())
+    };
+    let actor = name(event.actor.as_ref());
+    let place = name(event.targets.last());
+    match event.kind.as_str() {
+        "boat_damaged" => Telling::Story("The storm damaged Sea Finch".into()),
+        "income_lost" => Telling::Story(format!("{actor}'s income stopped")),
+        "shift_missed" => Telling::Story(format!("{actor} missed a shift at {place}")),
+        "catch_landed" => Telling::Routine(Some(format!("{actor} landed a catch"))),
+        "work_shift_completed" => {
+            Telling::Routine(Some(format!("{actor} worked a shift at {place}")))
+        }
+        "bread_purchased" => Telling::Routine(Some(format!("{actor} bought bread"))),
+        "living_cost_paid" => Telling::Routine(Some(format!("{actor} paid for the day"))),
+        "agent_decision_recorded" => Telling::Routine(Some(format!("{actor} decided"))),
+        _ => Telling::Routine(None),
+    }
 }
 
 /// How many of these Events the briefing would tell, before the cap. One per

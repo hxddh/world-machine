@@ -18,6 +18,7 @@ fn entity_evidence_edges_survive_pack_json_wire_round_trip() {
         title: "Changed".into(),
         subtitle: "External Pack event".into(),
         caused_by: vec![EventId::new(8)],
+        routine: false,
     };
 
     let snapshot = ProjectionSnapshot {
