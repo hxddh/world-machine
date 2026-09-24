@@ -50,9 +50,9 @@ A World Machine World is a small persistent world you leave and come back to, sh
 | Product | What it does best | What we take | Where we stand |
 | --- | --- | --- | --- |
 | **Animal Crossing: New Horizons** | Coming back. The town has visibly moved on, and the news comes from the villagers themselves, on the morning announcement and in letters. | The return is a place that changed, not a list: the scene, a halo on whoever the news is about, the actor's face on each beat. | Halos and faces, yes. No before/after of the scene, and characters don't speak. |
-| **RimWorld** | The map is the screen. Colonist portraits run across the top; events stack at the edge, coloured by how serious they are. | The scene as the hero, a cast with faces, history as a rail beside it. | Severity is not coloured, because a briefing item carries no tone. That needs a projection field. |
-| **Crusader Kings III** | Decisions are event windows with a portrait, and each option shows its consequences as icons (+prestige, −stress). | Choices as cards, not paragraphs. | No consequence chips. Commands carry no structured effects, so we could only describe them in prose, which we removed. That needs a projection field. |
-| **Reigns** | Hover over a choice and the meters it will move light up before you commit. | Preview before commit. | Not started; it needs the same effects data. |
+| **RimWorld** | The map is the screen. Colonist portraits run across the top; events stack at the edge, coloured by how serious they are. | The scene as the hero, a cast with faces, history as a rail beside it, news coloured by severity. | News carries a tone (good, warning, bad): faces, dots, standing cards and scene tiles wear its colour. |
+| **Crusader Kings III** | Decisions are event windows with a portrait, and each option shows its consequences as icons (+prestige, −stress). | Choices as cards with consequence chips. | Each choice lists what it changes ("↑ Trust", "Sea Finch → repaired", "Against the World's direction"), coloured by tone. |
+| **Reigns** | Hover over a choice and the meters it will move light up before you commit. | Preview before commit. | Hovering a choice rings what it would change on the scene. It still can't show *how much*. |
 | **The Sims** | Relationships and needs are bars and colours, never sentences like "Trust is 7". | A relationship as a line whose weight is its strength and whose colour is its tone. | Link weight and tone are done. Inspector values are still label/value rows, not meters. |
 | **Townscaper / Islanders** | Restraint: almost nothing on screen but the world, and every interaction feels good. | Calm palette, one accent, the world first. | No motion anywhere: no transitions, no easing, no sense of time passing. This is the biggest craft gap left. |
 | **Wildermyth** | A procedurally generated story told as illustrated comic panels with the characters in them. | Beats as moments with people in them. | Faces are initials. There is no art pipeline, and Packs can't supply any. |
@@ -62,9 +62,9 @@ A World Machine World is a small persistent world you leave and come back to, sh
 
 | Dimension | v0.5.2 | Now | What moves it next |
 | --- | :-: | :-: | --- |
-| World legible at a glance | 1 | 3 | State meters and severity on the scene; Pack-supplied art |
+| World legible at a glance | 1 | 3 | State meters on the scene; Pack-supplied art |
 | Return payoff ("what changed") | 2 | 3 | Before/after of the scene; state deltas since last visit ("cash 85 → 37") |
-| Decision clarity | 1 | 3 | Consequence chips per choice; hover preview; real choices before "wait" |
+| Decision clarity | 1 | 4 | Magnitudes in the preview; real choices before "wait" |
 | Why / causality | 3 | 3 | A visual causal chain in *Why it happened* instead of an indented list |
 | Characters you care about | 1 | 2 | Portraits, moods, a voice for each person |
 | Branching / What if… | 2 | 3 | A branch graph for lineage; scrubbing through time |
@@ -78,13 +78,13 @@ The honest reading: this change takes the app from "not a product" to a credible
 
 A renderer can only show what a projection gives it. The generic, kernel-safe additions that unblock the rows above are:
 
-1. **`BriefingItem.tone`** (calm / notable / alarming): severity colour on beats and scene nodes, as RimWorld does.
-2. **`ProjectionCommand.effects`** (target, what moves, direction): consequence chips and hover previews, as Crusader Kings and Reigns do.
+1. ~~**`BriefingItem.tone`**~~ *(done: neutral / good / warning / bad)*: severity colour on beats and scene nodes, as RimWorld does.
+2. ~~**`ProjectionCommand.effects`**~~ *(done: target, label, up / down / to a value, tone)*: consequence chips and hover previews, as Crusader Kings and Reigns do.
 3. **State deltas since the visit cursor**: a numeric "what changed" on the scene and on cards.
 4. **`CanvasItem` meters** (named values in a known range): bars instead of numbers.
 5. **Pack art hooks** (palette, cover, portrait images): Worlds that look like their setting. Today a Mars colony's cover can be green.
 
-This change already made the first such addition, `CanvasProjection.links`. It is optional on the wire in both directions, so old Packs and hosts are unaffected.
+This change makes three of these additions: `CanvasProjection.links`, `BriefingItem.tone` and `ProjectionCommand.effects`. Pocket Universe and Tiny Society fill all three in. A test holds each choice to the consequences it shows. It is optional on the wire in both directions, so old Packs and hosts are unaffected.
 
 ## What this change does
 
@@ -94,7 +94,9 @@ This change already made the first such addition, `CanvasProjection.links`. It i
 
 - **A drawn scene is the hero.** Places are tiles, people are faces (initials on a colour that is always theirs), relations are lines, and whoever the latest news is about has a halo. A deterministic layout pass keeps nodes from overlapping. A crowded World draws smaller on a taller stage.
 - **An activity strip** next to the title shows when things happened across the World's life, with the stretch the news covers picked out.
-- **Your turn** sits beside **What happened**: choices are numbered cards, and each beat carries the face of whoever it happened to.
+- **Your turn** sits beside **What happened**. Choices are numbered cards that list what they change as coloured chips. Pointing at a choice rings what it would change on the scene before you commit. Each beat carries the face of whoever it happened to, edged in the colour of the news: amber for trouble rising, red for loss, green for good news.
+
+![Pointing at a choice](review/choice-preview.png)
 - **The sidebar** holds People and places with faces, and History as a rail of one-line moments with faces, grouped by time.
 - **The details panel** uses plain words: *Connected to*, *What changed it*, *Between*, *What this changed*. It no longer shows tables of internal ids.
 - **The desktop window** has one title bar, with **Branch** and a primary **What if…**.
@@ -137,7 +139,7 @@ Tiny Society, with thirteen things on stage, stays readable:
 ## What is still not good enough, in order
 
 1. **Check on a real Mac.** San Francisco has real weights. The Linux fallback font here does not, so headings look lighter in these screenshots than they will on a Mac. Capture `docs/screenshots/` in light and dark.
-2. **Add the projection fields above**, in this order: tone, command effects, deltas. Each one turns a sentence into something shown.
+2. **Add the rest of the projection fields above**: deltas since the last visit, then meters. Tone and effects are done.
 3. **Motion.** Animate time advancing and choices landing: nodes easing to new states, halos fading in, the activity strip growing. No product in the table above feels static.
 4. **Lineage as a picture**: a branch graph you can scrub, as What if… now shows futures. Settings, the Analyst panel and Pack review are on the tokens but still laid out as they were; they need the same pass the World window had, then `adapt()` can go.
 5. **History shows every internal step.** "Agent Decision Recorded" twice per visit tells the reader nothing. The projection should mark bookkeeping events so History can fold them.

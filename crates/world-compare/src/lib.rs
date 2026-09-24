@@ -982,6 +982,7 @@ mod tests {
                 id: "world.act".into(),
                 title: "Act".into(),
                 detail: "Do something".into(),
+                effects: Vec::new(),
             }],
         );
 
@@ -1285,6 +1286,7 @@ mod tests {
                 id: "left.action".into(),
                 title: "Left".into(),
                 detail: "left".into(),
+                effects: Vec::new(),
             }],
         );
         let right = snapshot(
@@ -1295,6 +1297,7 @@ mod tests {
                 id: "right.action".into(),
                 title: "Right".into(),
                 detail: "right".into(),
+                effects: Vec::new(),
             }],
         );
 

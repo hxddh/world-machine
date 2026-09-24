@@ -26,6 +26,7 @@
 # "scroll N" turns the mouse wheel N notches over the newest window. Opening
 # the third World on Home, pressing What if…, and scrolling down is
 #   scripts/linux-preview.sh shots 688 489 @1035 25 scroll 15
+# and "hover @X Y" rests the pointer on the newest window to capture a hover.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -87,6 +88,16 @@ newest_window() {
 HOME_WINDOW=$(home_window)
 set -- $CLICKS
 while [ "$#" -ge 2 ]; do
+    # "hover @X Y" rests the pointer on the newest window without clicking,
+    # so a screenshot can show what the app previews under the pointer.
+    if [ "$1" = hover ]; then
+        read -r X Y < <(origin "$(newest_window)")
+        xdotool mousemove $((X + ${2#@})) $((Y + $3))
+        sleep 2
+        HOLD_POINTER=1
+        shift 3
+        continue
+    fi
     # "scroll N" turns the wheel N notches down over the newest window.
     if [ "$1" = scroll ]; then
         read -r X Y < <(origin "$(newest_window)")
@@ -114,7 +125,10 @@ for WINDOW in $(xwininfo -root -tree | awk '/"/ && $0 ~ /[0-9]{3,}x[0-9]{3,}\+/ 
     # A GPUI window under Xvfb only paints once something happens to it, so
     # nudge the pointer until the capture has content.
     for attempt in 1 2 3 4 5 6; do
-        xdotool mousemove $((X + 10 + attempt)) $((Y + 5))
+        # Keep a resting hover in place; otherwise wake the window up.
+        if [ -z "${HOLD_POINTER:-}" ]; then
+            xdotool mousemove $((X + 10 + attempt)) $((Y + 5))
+        fi
         sleep 1.5
         xwd -id "$WINDOW" -silent > "$WORK/window.xwd"
         convert "$WORK/window.xwd" -alpha off "$OUT_DIR/$WINDOW.png"

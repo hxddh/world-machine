@@ -14,7 +14,7 @@ use gpui::{
 use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 use world_projection::{
-    CanvasItem, CanvasItemKind, CanvasLinkTone, ProjectionSnapshot, SelectionId,
+    CanvasItem, CanvasItemKind, CanvasLinkTone, ProjectionSnapshot, SelectionId, Tone,
 };
 use world_theme::tokens;
 
@@ -86,15 +86,44 @@ pub fn event_actor(snapshot: &ProjectionSnapshot, selection: SelectionId) -> Opt
         .map(|row| row.value.clone())
 }
 
-/// Everyone and everything the current news is about: the actors and
-/// targets of the events the briefing reports.
-pub fn in_the_news(snapshot: &ProjectionSnapshot, latest: usize) -> BTreeSet<String> {
-    let mut names = BTreeSet::new();
+/// How loudly a tone should be drawn: trouble outranks good news, which
+/// outranks neither.
+fn severity(tone: Tone) -> u8 {
+    match tone {
+        Tone::Neutral => 0,
+        Tone::Good => 1,
+        Tone::Warning => 2,
+        Tone::Bad => 3,
+    }
+}
+
+/// The colour a tone is drawn in; neutral news uses the accent.
+pub fn tone_token(tone: Tone) -> tokens::Token {
+    match tone {
+        Tone::Neutral => tokens::ACCENT,
+        Tone::Good => tokens::SUCCESS,
+        Tone::Warning => tokens::WARNING,
+        Tone::Bad => tokens::DANGER,
+    }
+}
+
+/// Everyone and everything the current news is about (the actors and
+/// targets of the events the briefing reports) with the most serious tone
+/// of the news about each.
+pub fn in_the_news(snapshot: &ProjectionSnapshot, latest: usize) -> BTreeMap<String, Tone> {
+    let mut names = BTreeMap::new();
+    let mut note = |name: String, tone: Tone| {
+        let entry = names.entry(name).or_insert(tone);
+        if severity(tone) > severity(*entry) {
+            *entry = tone;
+        }
+    };
     let Some(briefing) = snapshot.briefing.as_ref() else {
         return names;
     };
     let beats = briefing.beats();
     for beat in beats.iter().skip(beats.len().saturating_sub(latest)) {
+        let beat: &world_projection::BriefingItem = beat;
         let Some(selection) = beat.selection else {
             continue;
         };
@@ -103,14 +132,16 @@ pub fn in_the_news(snapshot: &ProjectionSnapshot, latest: usize) -> BTreeSet<Str
                 if let Some(inspector) = snapshot.inspector(selection) {
                     for row in inspector.sections.iter().flat_map(|s| s.rows.iter()) {
                         if row.label == "Actor" || row.label == "Targets" {
-                            names.extend(row.value.split(", ").map(str::to_string));
+                            for name in row.value.split(", ") {
+                                note(name.to_string(), beat.tone);
+                            }
                         }
                     }
                 }
             }
             SelectionId::Entity(_) | SelectionId::Relation(_) => {
                 if let Some(inspector) = snapshot.inspector(selection) {
-                    names.insert(inspector.title.clone());
+                    note(inspector.title.clone(), beat.tone);
                 }
             }
         }
@@ -267,9 +298,23 @@ pub fn scene(
         SCENE_HEIGHT
     };
     let news = in_the_news(snapshot, HALOED_BEATS);
-    let emphasised = |item: &CanvasItem| match emphasis {
-        Emphasis::News => news.contains(&item.label),
-        Emphasis::Only(items) => items.contains(&item.id),
+    // A preview can name a relationship that is drawn as a line rather than
+    // a node; lighting it up means lighting up the two ends.
+    let through_links = |targets: &BTreeSet<SelectionId>, id: SelectionId| {
+        snapshot.canvas.links.iter().any(|link| {
+            link.selection
+                .is_some_and(|selection| targets.contains(&selection))
+                && (link.from == id || link.to == id)
+        })
+    };
+    // What glows, and in what colour.
+    let glow_of = |item: &CanvasItem| -> Option<Tone> {
+        match emphasis {
+            Emphasis::News => news.get(&item.label).copied(),
+            Emphasis::Only(targets) => (targets.contains(&item.id)
+                || through_links(targets, item.id))
+            .then_some(Tone::Neutral),
+        }
     };
     let placed = layout(items, width.max(320.0), stage_height, compact);
     let positions = items
@@ -304,11 +349,15 @@ pub fn scene(
             width: 2.0 + 4.0 * link.strength,
         });
     }
+    // A preview is something the player is pointing at right now, so it is
+    // drawn stronger than news, with a ring as well as a glow.
+    let previewing = matches!(emphasis, Emphasis::Only(_));
     let halos = items
         .iter()
         .zip(&placed)
-        .filter(|(item, _)| emphasised(item))
-        .map(|(_, position)| *position)
+        .filter_map(|(item, position)| {
+            glow_of(item).map(|tone| (*position, hsla(tone_token(tone))))
+        })
         .collect::<Vec<_>>();
 
     let grid = hsla(tokens::SCENE_GRID);
@@ -321,7 +370,6 @@ pub fn scene(
         .into_iter()
         .map(|line| (line.from, line.to, tone_colour(line.tone), line.width))
         .collect::<Vec<_>>();
-    let glow = hsla(tokens::ACCENT);
     let backdrop = canvas(
         |_, _, _| (),
         move |bounds: Bounds<gpui::Pixels>, _, window, _| {
@@ -354,9 +402,28 @@ pub fn scene(
 
             // Whoever the news is about glows, so a returning player sees
             // where things happened before reading what happened.
-            for (x, y) in &halos {
+            for ((x, y), glow) in &halos {
                 let centre = at(*x, *y);
-                for (radius, alpha) in [(40.0, 0.08), (30.0, 0.12)] {
+                let layers: &[(f32, f32)] = if previewing {
+                    &[(44.0, 0.14), (32.0, 0.22)]
+                } else {
+                    &[(40.0, 0.10), (30.0, 0.16)]
+                };
+                if previewing {
+                    let radius = 46.0;
+                    window.paint_quad(quad(
+                        Bounds::new(
+                            point(centre.x - px(radius), centre.y - px(radius)),
+                            size(px(radius * 2.0), px(radius * 2.0)),
+                        ),
+                        px(radius),
+                        glow.opacity(0.0),
+                        px(2.0),
+                        glow.opacity(0.7),
+                        BorderStyle::default(),
+                    ));
+                }
+                for &(radius, alpha) in layers {
                     window.paint_quad(quad(
                         Bounds::new(
                             point(centre.x - px(radius), centre.y - px(radius)),
@@ -410,13 +477,11 @@ pub fn scene(
     for (item, (x, y)) in items.iter().zip(placed.iter().copied()) {
         let selection = item.id;
         let selected = selected == Some(selection);
-        let active = emphasised(item);
+        let glow = glow_of(item);
         let id = SharedString::from(format!("canvas-{}", selection.stable_key()));
         let node = match item.kind {
-            CanvasItemKind::Actor => {
-                actor_node(&item.label, &item.detail, selected, active, compact)
-            }
-            CanvasItemKind::Place => place_node(&item.label, &item.detail, selected, compact),
+            CanvasItemKind::Actor => actor_node(&item.label, &item.detail, selected, glow, compact),
+            CanvasItemKind::Place => place_node(&item.label, &item.detail, selected, glow, compact),
             CanvasItemKind::Object => object_node(&item.label, selected),
         };
         // Centre the node on its position, whatever its size.
@@ -569,7 +634,7 @@ pub fn activity(snapshot: &ProjectionSnapshot) -> Option<Div> {
     )
 }
 
-fn actor_node(name: &str, detail: &str, selected: bool, active: bool, compact: bool) -> Div {
+fn actor_node(name: &str, detail: &str, selected: bool, glow: Option<Tone>, compact: bool) -> Div {
     let size = if compact {
         COMPACT_ACTOR_SIZE
     } else {
@@ -580,8 +645,8 @@ fn actor_node(name: &str, detail: &str, selected: bool, active: bool, compact: b
         .border_color(ui::color(tokens::SURFACE));
     if selected {
         face = face.border_color(ui::color(tokens::ACCENT));
-    } else if active {
-        face = face.border_color(ui::color(tokens::ACCENT_SOFT));
+    } else if let Some(tone) = glow {
+        face = face.border_color(ui::color(tone_token(tone)));
     }
     div()
         .flex()
@@ -605,19 +670,29 @@ fn actor_node(name: &str, detail: &str, selected: bool, active: bool, compact: b
         })
 }
 
-fn place_node(name: &str, detail: &str, selected: bool, compact: bool) -> Div {
+fn place_node(name: &str, detail: &str, selected: bool, glow: Option<Tone>, compact: bool) -> Div {
     let (_, height, _) = footprint(CanvasItemKind::Place, compact);
+    // A place in the news wears the news's colour on its edge; a halo
+    // behind an opaque tile would not be seen.
+    // The news's colour wins the edge; being selected shows as a tint, so
+    // selecting a place in trouble never hides the trouble.
+    let edge = match (glow, selected) {
+        (Some(tone), _) => tone_token(tone),
+        (None, true) => tokens::ACCENT,
+        (None, false) => tokens::BORDER_STRONG,
+    };
     div()
         .h(px(height))
         .px_3()
         .rounded_lg()
-        .border_1()
-        .border_color(if selected {
-            ui::color(tokens::ACCENT)
+        .when(glow.is_some() || selected, |tile| tile.border_2())
+        .when(glow.is_none() && !selected, |tile| tile.border_1())
+        .border_color(ui::color(edge))
+        .bg(ui::color(if selected {
+            tokens::ACCENT_SOFT
         } else {
-            ui::color(tokens::BORDER_STRONG)
-        })
-        .bg(ui::color(tokens::SURFACE))
+            tokens::SURFACE
+        }))
         .shadow_sm()
         .hover(|style| style.border_color(ui::color(tokens::ACCENT)))
         .flex()

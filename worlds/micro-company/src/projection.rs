@@ -42,8 +42,8 @@ fn commands(world: &World) -> Vec<ProjectionCommand> {
     vec![ProjectionCommand {
         id: RUN_CYCLE_COMMAND.into(),
         title: "Run one company cycle".into(),
-        detail: "Pay the burn, let Maya and Jon act, then see whether product, customers, runway, and working trust move together.".into(),
-    }]
+        detail: "Pay the burn, let Maya and Jon act, then see whether product, customers, runway, and working trust move together.".into(), effects: Vec::new(),
+}]
 }
 
 fn briefing(world: &World, since_event_count: Option<usize>) -> BriefingProjection {
@@ -82,14 +82,14 @@ fn briefing(world: &World, since_event_count: Option<usize>) -> BriefingProjecti
                 kind: BriefingItemKind::Status,
                 selection: Some(SelectionId::Entity(COMPANY)),
                 title: format!("Cash {cash} · Quality {quality} · Customers {customers}"),
-                detail: last_change,
-            },
+                detail: last_change, tone: world_projection::Tone::Neutral,
+},
             BriefingItem {
                 kind: BriefingItemKind::Status,
                 selection: Some(SelectionId::Entity(RELATIONSHIP)),
                 title: format!("Working trust {trust} · Tension {tension}"),
-                detail: "The leads' choices are ordinary World events, so their working pattern is inspectable, causal, and forkable.".into(),
-            },
+                detail: "The leads' choices are ordinary World events, so their working pattern is inspectable, causal, and forkable.".into(), tone: world_projection::Tone::Neutral,
+},
         ],
     }
 }
@@ -115,6 +115,7 @@ fn return_item(event: &Event) -> BriefingItem {
             _ => event.kind.replace('_', " "),
         },
         detail,
+        tone: world_projection::Tone::Neutral,
     }
 }
 

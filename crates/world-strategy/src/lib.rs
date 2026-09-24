@@ -218,11 +218,13 @@ mod tests {
                         id: "mock.advance".into(),
                         title: "Advance".into(),
                         detail: "Advance mock state".into(),
+                        effects: Vec::new(),
                     },
                     ProjectionCommand {
                         id: "mock.fail".into(),
                         title: "Fail".into(),
                         detail: "Fail without mutation".into(),
+                        effects: Vec::new(),
                     },
                 ],
                 ..ProjectionSnapshot::default()

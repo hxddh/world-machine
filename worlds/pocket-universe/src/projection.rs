@@ -17,8 +17,8 @@ use world_core::{Entity, EntityId, Event, StateChange, Value, World};
 use world_projection::{
     entity_title, inspectors_from_world, timeline_from_world, value_text, why_map_from_world,
     BriefingItem, BriefingItemKind, BriefingProjection, CanvasItem, CanvasItemKind, CanvasLink,
-    CanvasLinkTone, CanvasProjection, CollectionItem, CollectionProjection, ProjectionCapabilities,
-    ProjectionCommand, ProjectionSnapshot, SelectionId,
+    CanvasLinkTone, CanvasProjection, CollectionItem, CollectionProjection, CommandEffect,
+    EffectChange, ProjectionCapabilities, ProjectionCommand, ProjectionSnapshot, SelectionId, Tone,
 };
 
 pub(crate) fn snapshot(world: &World) -> ProjectionSnapshot {
@@ -41,13 +41,189 @@ pub(crate) fn snapshot_since(
         capabilities: ProjectionCapabilities {
             fork: !world.events().is_empty(),
         },
-        briefing: Some(briefing(world, seeded, since_event_count)),
-        commands: commands(world, seeded),
+        briefing: Some(toned(world, briefing(world, seeded, since_event_count))),
+        commands: commands(world, seeded)
+            .into_iter()
+            .map(|mut command| {
+                command.effects = command_effects(world, &command.id);
+                command
+            })
+            .collect(),
         collection: collection(world),
         timeline: timeline_from_world(world),
         canvas: canvas(world),
         inspectors: inspectors_from_world(world),
         why: why_map_from_world(world),
+    }
+}
+
+/// Good news, bad news, or neither, for each briefing line, read from the
+/// kind of event the line reports.
+fn toned(world: &World, mut briefing: BriefingProjection) -> BriefingProjection {
+    for item in &mut briefing.items {
+        item.tone = match item.selection {
+            Some(SelectionId::Event(id)) => world
+                .events()
+                .iter()
+                .find(|event| event.id == id)
+                .map(|event| tone_for_event(&event.kind))
+                .unwrap_or_default(),
+            Some(SelectionId::Entity(RELATIONSHIP)) => {
+                let relationship = world.state().entity(RELATIONSHIP);
+                match text_component(relationship, RELATIONSHIP_SOCIAL_ARC, "forming").as_str() {
+                    "partnership" => Tone::Good,
+                    "fracture" => Tone::Bad,
+                    _ => Tone::Neutral,
+                }
+            }
+            _ => Tone::Neutral,
+        };
+    }
+    briefing
+}
+
+fn tone_for_event(kind: &str) -> Tone {
+    match kind {
+        "pressure_rising" => Tone::Warning,
+        "pressure_peaked" | "anchor_lost" | "relationship_fractured" => Tone::Bad,
+        "pressure_held"
+        | "pressure_reached"
+        | "anchor_recovered"
+        | "partnership_formed"
+        | "world_legacy_formed"
+        | "legacy_reinforced" => Tone::Good,
+        _ => Tone::Neutral,
+    }
+}
+
+/// What each choice would change, as facts a screen can show beside it and
+/// point at on the scene before the choice is made.
+fn command_effects(world: &World, command_id: &str) -> Vec<CommandEffect> {
+    let effect =
+        |target: Option<EntityId>, label: &str, change: EffectChange, tone: Tone| CommandEffect {
+            target: target.map(SelectionId::Entity),
+            label: label.into(),
+            change,
+            tone,
+        };
+    let anchor = world
+        .state()
+        .entity(SLOT_A)
+        .map(entity_title)
+        .unwrap_or_else(|| "The anchor".into());
+    let pressure = pressure::pressure_id_from_state(world.state());
+    match command_id {
+        NUDGE_COMMAND if pressure::window_open(&pressure) => vec![effect(
+            Some(SLOT_A),
+            &anchor,
+            EffectChange::To("trouble grows".into()),
+            Tone::Warning,
+        )],
+        SHARED_PROJECT_COMMAND => vec![
+            effect(Some(RELATIONSHIP), "Trust", EffectChange::Up, Tone::Good),
+            effect(
+                Some(RELATIONSHIP),
+                "Tension",
+                EffectChange::Down,
+                Tone::Good,
+            ),
+        ],
+        RIVALRY_COMMAND => vec![effect(
+            Some(RELATIONSHIP),
+            "Tension",
+            EffectChange::Up,
+            Tone::Warning,
+        )],
+        BOLD_PATH_COMMAND | CAREFUL_PATH_COMMAND => {
+            let bold = command_id == BOLD_PATH_COMMAND;
+            crate::intervention_plan(seed_id(world), bold)
+                .and_then(|(_, _, target, _, value)| {
+                    let name = world.state().entity(target).map(entity_title)?;
+                    Some(vec![effect(
+                        Some(target),
+                        &name,
+                        EffectChange::To(value.into()),
+                        Tone::Neutral,
+                    )])
+                })
+                .unwrap_or_default()
+        }
+        OUTWARD_POSTURE_COMMAND => vec![effect(
+            None,
+            "World direction",
+            EffectChange::To("outward".into()),
+            Tone::Neutral,
+        )],
+        ROOTED_POSTURE_COMMAND => vec![effect(
+            None,
+            "World direction",
+            EffectChange::To("rooted".into()),
+            Tone::Neutral,
+        )],
+        HOLD_PRESSURE_COMMAND | REACH_PRESSURE_COMMAND => {
+            let hold = command_id == HOLD_PRESSURE_COMMAND;
+            let copy = pressure::copy_for_state(world.state());
+            let posture = text_component(world.state().entity(UNIVERSE), POSTURE, "none");
+            let fits = matches!(
+                (hold, posture.as_str()),
+                (true, "rooted") | (false, "outward")
+            );
+            vec![
+                effect(
+                    Some(SLOT_A),
+                    &anchor,
+                    EffectChange::To(
+                        if hold {
+                            copy.hold_status
+                        } else {
+                            copy.reach_status
+                        }
+                        .into(),
+                    ),
+                    Tone::Good,
+                ),
+                effect(
+                    None,
+                    if fits {
+                        "Fits the World's direction"
+                    } else {
+                        "Against the World's direction"
+                    },
+                    EffectChange::To(if fits { "aligned" } else { "strained" }.into()),
+                    if fits { Tone::Good } else { Tone::Warning },
+                ),
+            ]
+        }
+        RECOVER_ANCHOR_COMMAND => {
+            let copy = pressure::copy_for_state(world.state());
+            vec![
+                effect(
+                    Some(SLOT_A),
+                    &anchor,
+                    EffectChange::To(copy.recover_status.into()),
+                    Tone::Good,
+                ),
+                effect(
+                    None,
+                    "Legacy",
+                    EffectChange::To("starts over".into()),
+                    Tone::Warning,
+                ),
+            ]
+        }
+        ENTRUST_LEGACY_COMMAND => vec![effect(
+            None,
+            "Legacy",
+            EffectChange::To("carries on".into()),
+            Tone::Good,
+        )],
+        RELEASE_LEGACY_COMMAND => vec![effect(
+            None,
+            "Legacy",
+            EffectChange::To("starts over".into()),
+            Tone::Warning,
+        )],
+        _ => Vec::new(),
     }
 }
 
@@ -59,18 +235,21 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
                 title: "Start a Mars colony".into(),
                 detail: "A tiny habitat, one keeper, hydroponics, and a rover on a red horizon."
                     .into(),
+                effects: Vec::new(),
             },
             ProjectionCommand {
                 id: SEED_1980S_TOWN_COMMAND.into(),
                 title: "Start a town in 1987".into(),
                 detail: "An arcade, local radio, a night bus, and a neighborhood that remembers."
                     .into(),
+                effects: Vec::new(),
             },
             ProjectionCommand {
                 id: SEED_PENGUIN_CIVILIZATION_COMMAND.into(),
                 title: "Start a penguin civilization".into(),
                 detail: "An ice bridge, a fish vault, a moonrise council, and one bridge keeper."
                     .into(),
+                effects: Vec::new(),
             },
         ];
     }
@@ -107,19 +286,20 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
         id: NUDGE_COMMAND.into(),
         title: nudge_title.into(),
         detail: String::from(nudge_detail),
+        effects: Vec::new(),
     }];
 
     if relationship_choice_available {
         commands.push(ProjectionCommand {
             id: SHARED_PROJECT_COMMAND.into(),
             title: "Give them a shared project".into(),
-            detail: String::from("Create a goal that neither actor can complete alone; future interactions will lean toward trust."),
-        });
+            detail: String::from("Create a goal that neither actor can complete alone; future interactions will lean toward trust."), effects: Vec::new(),
+});
         commands.push(ProjectionCommand {
             id: RIVALRY_COMMAND.into(),
             title: "Let rivalry sharpen them".into(),
-            detail: String::from("Keep both actors independent and let competition add pressure to future interactions."),
-        });
+            detail: String::from("Keep both actors independent and let competition add pressure to future interactions."), effects: Vec::new(),
+});
     }
     if intervention_choice_available {
         let (bold_title, bold_detail, careful_title, careful_detail) =
@@ -128,11 +308,13 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             id: BOLD_PATH_COMMAND.into(),
             title: bold_title.into(),
             detail: String::from(bold_detail),
+            effects: Vec::new(),
         });
         commands.push(ProjectionCommand {
             id: CAREFUL_PATH_COMMAND.into(),
             title: careful_title.into(),
             detail: String::from(careful_detail),
+            effects: Vec::new(),
         });
     }
     if posture_choice_available {
@@ -142,11 +324,13 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             id: OUTWARD_POSTURE_COMMAND.into(),
             title: outward_title.into(),
             detail: String::from(outward_detail),
+            effects: Vec::new(),
         });
         commands.push(ProjectionCommand {
             id: ROOTED_POSTURE_COMMAND.into(),
             title: rooted_title.into(),
             detail: String::from(rooted_detail),
+            effects: Vec::new(),
         });
     }
     let copy = pressure::copy_for_state(world.state());
@@ -155,17 +339,20 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             id: HOLD_PRESSURE_COMMAND.into(),
             title: copy.hold_title.into(),
             detail: String::from(copy.hold_detail),
+            effects: Vec::new(),
         });
         commands.push(ProjectionCommand {
             id: REACH_PRESSURE_COMMAND.into(),
             title: copy.reach_title.into(),
             detail: String::from(copy.reach_detail),
+            effects: Vec::new(),
         });
     } else if pressure_stage == "lost" {
         commands.push(ProjectionCommand {
             id: RECOVER_ANCHOR_COMMAND.into(),
             title: copy.recover_title.into(),
             detail: String::from(copy.recover_detail),
+            effects: Vec::new(),
         });
     }
     let succession_stage = succession::succession_id_from_state(world.state());
@@ -175,11 +362,13 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             id: ENTRUST_LEGACY_COMMAND.into(),
             title: succession_copy.entrust_title.into(),
             detail: String::from(succession_copy.entrust_detail),
+            effects: Vec::new(),
         });
         commands.push(ProjectionCommand {
             id: RELEASE_LEGACY_COMMAND.into(),
             title: succession_copy.release_title.into(),
             detail: String::from(succession_copy.release_detail),
+            effects: Vec::new(),
         });
     }
     commands
@@ -249,6 +438,7 @@ fn eras_turned_item(world: &World, events: &[Event]) -> Option<BriefingItem> {
         detail: format!("You left during era {left_during}; this is era {era}. {summary}")
             .trim_end()
             .to_string(),
+        tone: world_projection::Tone::Neutral,
     })
 }
 
@@ -268,6 +458,7 @@ fn decided_without_you_item(events: &[Event]) -> Option<BriefingItem> {
         selection: Some(SelectionId::Event(last.id)),
         title: "Decided without you".into(),
         detail,
+        tone: world_projection::Tone::Neutral,
     })
 }
 
@@ -304,6 +495,7 @@ fn era_item(world: &World) -> Option<BriefingItem> {
         selection: Some(SelectionId::Event(event.id)),
         title: format!("Era {era} · {inherited}"),
         detail,
+        tone: world_projection::Tone::Neutral,
     })
 }
 
@@ -336,6 +528,7 @@ fn succession_consequence_item(world: &World) -> Option<BriefingItem> {
         selection: Some(SelectionId::Event(event.id)),
         title: format!("Succession · {label}"),
         detail: summary,
+        tone: world_projection::Tone::Neutral,
     })
 }
 
@@ -359,6 +552,7 @@ fn succession_choice_evidence(event: &Event) -> Option<BriefingItem> {
         selection: Some(SelectionId::Event(event.id)),
         title: format!("You chose · {label}"),
         detail: format!("{inheritance} {follow_on}").trim().to_string(),
+        tone: world_projection::Tone::Neutral,
     })
 }
 
@@ -534,6 +728,7 @@ fn pressure_consequence_item(world: &World) -> Option<BriefingItem> {
         selection: Some(SelectionId::Event(event.id)),
         title: format!("World pressure · {label}"),
         detail: summary,
+        tone: world_projection::Tone::Neutral,
     })
 }
 
@@ -577,6 +772,7 @@ fn pressure_choice_evidence(world: &World, event: &Event) -> Option<BriefingItem
             pressure_outcome_sentence(&outcome)
         )
         .replace("  ", " "),
+        tone: world_projection::Tone::Neutral,
     })
 }
 
@@ -713,15 +909,15 @@ fn briefing(world: &World, seeded: bool, since_event_count: Option<usize>) -> Br
                     selection: Some(SelectionId::Entity(UNIVERSE)),
                     title: "Create".into(),
                     detail: "Choose one seed. The choice becomes the first durable event in this World."
-                        .into(),
-                },
+                        .into(), tone: world_projection::Tone::Neutral,
+},
                 BriefingItem {
                     kind: BriefingItemKind::Status,
                     selection: None,
                     title: "Keep · Grow · Return".into(),
                     detail: "Save it like a document, let time move, then come back to a world with history."
-                        .into(),
-                },
+                        .into(), tone: world_projection::Tone::Neutral,
+},
             ],
         };
     }
@@ -776,6 +972,7 @@ fn briefing(world: &World, seeded: bool, since_event_count: Option<usize>) -> Br
         selection: Some(SelectionId::Entity(UNIVERSE)),
         title: "Current thread".into(),
         detail: last_change,
+        tone: world_projection::Tone::Neutral,
     }];
     if let Some((guidance_title, guidance_detail)) = guidance {
         items.push(BriefingItem {
@@ -783,6 +980,7 @@ fn briefing(world: &World, seeded: bool, since_event_count: Option<usize>) -> Br
             selection: None,
             title: guidance_title.into(),
             detail: guidance_detail.into(),
+            tone: world_projection::Tone::Neutral,
         });
     }
     items.extend(persistent_consequence_items(world));
@@ -876,6 +1074,7 @@ fn persistent_consequence_items(world: &World) -> Vec<BriefingItem> {
             selection: Some(SelectionId::Entity(UNIVERSE)),
             title: title.into(),
             detail: detail.into(),
+            tone: world_projection::Tone::Neutral,
         });
     }
     if let Some(item) = relationship_consequence_item(world) {
@@ -989,6 +1188,7 @@ fn relationship_choice_evidence(
             "{} {follow_on}",
             relationship_change_sentence(before_trust, after_trust, before_tension, after_tension)
         ),
+        tone: world_projection::Tone::Neutral,
     })
 }
 
@@ -1018,6 +1218,7 @@ fn intervention_choice_evidence(world: &World, event: &Event) -> Option<Briefing
         selection: Some(SelectionId::Event(event.id)),
         title: format!("You chose · {label}"),
         detail: format!("{effect} What grows next builds on it."),
+        tone: world_projection::Tone::Neutral,
     })
 }
 
@@ -1036,8 +1237,8 @@ fn posture_choice_evidence(event: &Event) -> Option<BriefingItem> {
         detail: format!(
             "This World now leans {}. What grows next, and what it leaves behind, follows that direction.",
             label.to_lowercase()
-        ),
-    })
+        ), tone: world_projection::Tone::Neutral,
+})
 }
 
 fn payload_text<'a>(event: &'a Event, key: &str) -> Option<&'a str> {
@@ -1193,6 +1394,7 @@ fn posture_consequence_item(world: &World) -> Option<BriefingItem> {
         selection: Some(SelectionId::Entity(UNIVERSE)),
         title: title.into(),
         detail: detail.into(),
+        tone: world_projection::Tone::Neutral,
     })
 }
 
@@ -1235,6 +1437,7 @@ fn legacy_consequence_item(world: &World) -> Option<BriefingItem> {
         selection: Some(selection),
         title: format!("World legacy · {}", legacy_label(&legacy)),
         detail: summary,
+        tone: world_projection::Tone::Neutral,
     })
 }
 
@@ -1294,6 +1497,7 @@ fn relationship_consequence_item(world: &World) -> Option<BriefingItem> {
         selection: Some(SelectionId::Entity(RELATIONSHIP)),
         title: title.into(),
         detail,
+        tone: world_projection::Tone::Neutral,
     })
 }
 
@@ -1347,6 +1551,7 @@ fn return_compass_item(world: &World) -> BriefingItem {
         selection: None,
         title: title.into(),
         detail,
+        tone: world_projection::Tone::Neutral,
     }
 }
 
@@ -1621,6 +1826,7 @@ fn return_item(events: &[Event], event: &Event, occurrences: usize) -> BriefingI
         selection: Some(SelectionId::Event(event.id)),
         title,
         detail,
+        tone: world_projection::Tone::Neutral,
     }
 }
 

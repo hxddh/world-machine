@@ -1403,6 +1403,67 @@ impl Action for ChooseCarefulPath {
     }
 }
 
+/// What each seed's first intervention does: its id, what the World records
+/// it as, and the one component it sets on one entity. Shared by the action
+/// and by the projection that shows the choice's consequence before it is
+/// made, so the two cannot disagree.
+pub(crate) fn intervention_plan(
+    seed: &str,
+    bold: bool,
+) -> Option<(
+    &'static str,
+    &'static str,
+    EntityId,
+    &'static str,
+    &'static str,
+)> {
+    match (seed, bold) {
+        ("mars-colony", true) => Some((
+            "follow-signal",
+            "Kestrel leaves the safe route to follow a repeating signal beyond the ridge.",
+            SLOT_D,
+            "status",
+            "signal expedition",
+        )),
+        ("mars-colony", false) => Some((
+            "fortify-habitat",
+            "The colony diverts its spare capacity into sealing Ares Habitat before the next dust front.",
+            SLOT_A,
+            "status",
+            "storm sealed",
+        )),
+        ("1980s-town", true) => Some((
+            "community-arcade",
+            "Maple Arcade turns its late hours into a neighborhood club instead of closing the shutters.",
+            SLOT_A,
+            "status",
+            "community nights",
+        )),
+        ("1980s-town", false) => Some((
+            "steady-business",
+            "Maple Arcade keeps a quieter commercial rhythm and protects its small cash buffer.",
+            SLOT_A,
+            "status",
+            "steady business",
+        )),
+        ("penguin-civilization", true) => Some((
+            "winter-feast",
+            "Icebridge opens the Fish Vault for a winter feast that brings distant colonies onto the bridge.",
+            SLOT_C,
+            "reserve",
+            "festival opened",
+        )),
+        ("penguin-civilization", false) => Some((
+            "conserve-reserves",
+            "The Aurora Council keeps the Fish Vault sealed and stores extra reserves for the dark season.",
+            SLOT_C,
+            "reserve",
+            "winter conserved",
+        )),
+        _ => None,
+    }
+}
+
 fn choice_draft(
     state: &WorldState,
     request: &ActionRequest,
@@ -1425,55 +1486,8 @@ fn choice_draft(
         ));
     }
 
-    let (choice, summary, target, key, value) = match (seed.as_str(), bold) {
-        ("mars-colony", true) => (
-            "follow-signal",
-            "Kestrel leaves the safe route to follow a repeating signal beyond the ridge.",
-            SLOT_D,
-            "status",
-            "signal expedition",
-        ),
-        ("mars-colony", false) => (
-            "fortify-habitat",
-            "The colony diverts its spare capacity into sealing Ares Habitat before the next dust front.",
-            SLOT_A,
-            "status",
-            "storm sealed",
-        ),
-        ("1980s-town", true) => (
-            "community-arcade",
-            "Maple Arcade turns its late hours into a neighborhood club instead of closing the shutters.",
-            SLOT_A,
-            "status",
-            "community nights",
-        ),
-        ("1980s-town", false) => (
-            "steady-business",
-            "Maple Arcade keeps a quieter commercial rhythm and protects its small cash buffer.",
-            SLOT_A,
-            "status",
-            "steady business",
-        ),
-        ("penguin-civilization", true) => (
-            "winter-feast",
-            "Icebridge opens the Fish Vault for a winter feast that brings distant colonies onto the bridge.",
-            SLOT_C,
-            "reserve",
-            "festival opened",
-        ),
-        ("penguin-civilization", false) => (
-            "conserve-reserves",
-            "The Aurora Council keeps the Fish Vault sealed and stores extra reserves for the dark season.",
-            SLOT_C,
-            "reserve",
-            "winter conserved",
-        ),
-        _ => {
-            return Err(ActionError::Invalid(format!(
-                "unsupported Pocket Universe seed: {seed}"
-            )))
-        }
-    };
+    let (choice, summary, target, key, value) = intervention_plan(&seed, bold)
+        .ok_or_else(|| ActionError::Invalid(format!("unsupported Pocket Universe seed: {seed}")))?;
 
     let mut draft = EventDraft::new("universe_intervened");
     draft.targets = vec![UNIVERSE, target];

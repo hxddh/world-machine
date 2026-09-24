@@ -6,8 +6,9 @@ use gpui::{
 };
 use std::rc::Rc;
 use world_projection::{
-    BriefingItem, BriefingItemKind, CanvasItemKind, CollectionItem, InspectorProjection,
-    ProjectionCommand, ProjectionIntent, ProjectionSnapshot, SelectionId, TimelineItem, WhyNode,
+    BriefingItem, BriefingItemKind, CanvasItemKind, CollectionItem, CommandEffect, EffectChange,
+    InspectorProjection, ProjectionCommand, ProjectionIntent, ProjectionSnapshot, SelectionId,
+    TimelineItem, Tone, WhyNode,
 };
 use world_theme::tokens;
 
@@ -43,6 +44,9 @@ pub struct ProjectionView {
     status: Option<String>,
     status_is_error: bool,
     show_header: bool,
+    /// The choice under the pointer, whose consequences the scene shows
+    /// before it is made.
+    previewing: Option<String>,
 }
 
 impl ProjectionView {
@@ -55,6 +59,7 @@ impl ProjectionView {
             status: None,
             status_is_error: false,
             show_header: true,
+            previewing: None,
         }
     }
 
@@ -133,6 +138,28 @@ impl ProjectionView {
             }
         }
         cx.notify();
+    }
+
+    /// What the scene lights up: the targets of the choice under the
+    /// pointer, or else whoever the news is about.
+    fn emphasis(&self) -> scene::Emphasis {
+        let targets = self
+            .previewing
+            .as_deref()
+            .and_then(|id| self.snapshot.command(id))
+            .map(|command| {
+                command
+                    .effects
+                    .iter()
+                    .filter_map(|effect| effect.target)
+                    .collect::<std::collections::BTreeSet<_>>()
+            })
+            .unwrap_or_default();
+        if targets.is_empty() {
+            scene::Emphasis::News
+        } else {
+            scene::Emphasis::Only(targets)
+        }
     }
 
     // ---- Reading column -------------------------------------------------
@@ -228,7 +255,21 @@ impl ProjectionView {
                 .flex()
                 .items_center()
                 .justify_center()
-                .child(div().size(px(8.0)).rounded_full().bg(color(tokens::ACCENT))),
+                .child(
+                    div()
+                        .size(px(8.0))
+                        .rounded_full()
+                        .bg(color(scene::tone_token(item.tone))),
+                ),
+        };
+        // Trouble and good news wear their colour on the face, the way a
+        // RimWorld letter wears it on its edge.
+        let face = if item.tone == Tone::Neutral {
+            face
+        } else {
+            face.rounded_full()
+                .border_2()
+                .border_color(color(scene::tone_token(item.tone)))
         };
         let marker = div()
             .flex()
@@ -345,8 +386,23 @@ impl ProjectionView {
                     .text_ellipsis(),
             );
         }
+        if !command.effects.is_empty() {
+            let mut chips = div().pt_1().flex().flex_wrap().gap_1();
+            for effect in &command.effects {
+                chips = chips.child(effect_chip(effect));
+            }
+            text = text.child(chips);
+        }
+        let hover_id = command.id.clone();
         div()
             .id(SharedString::from(format!("command-{}", command.id)))
+            .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
+                let previewing = hovered.then(|| hover_id.clone());
+                if this.previewing != previewing {
+                    this.previewing = previewing;
+                    cx.notify();
+                }
+            }))
             .w_full()
             .px_4()
             .py_3()
@@ -430,6 +486,10 @@ impl ProjectionView {
             .bg(color(tokens::SURFACE))
             .border_1()
             .border_color(color(tokens::BORDER))
+            .when(item.tone != Tone::Neutral, |card| {
+                card.border_l_4()
+                    .border_color(color(scene::tone_token(item.tone)))
+            })
             .flex()
             .flex_col()
             .gap_1()
@@ -1035,7 +1095,7 @@ impl Render for ProjectionView {
             &self.snapshot,
             stage_width,
             self.selected,
-            &scene::Emphasis::News,
+            &self.emphasis(),
             on_select,
         ) {
             column = column.child(scene);
@@ -1163,6 +1223,31 @@ fn history_summary(subtitle: &str, actor: Option<&str>) -> String {
         .and_then(|rest| rest.strip_prefix(" · "))
         .unwrap_or(subtitle)
         .to_string()
+}
+
+/// One consequence of a choice, as a small coloured chip: "↑ Trust",
+/// "Sea Finch → repaired".
+fn effect_chip(effect: &CommandEffect) -> Div {
+    let (text, ground) = match effect.tone {
+        Tone::Neutral => (tokens::TEXT_SECONDARY, tokens::ROW_HOVER),
+        Tone::Good => (tokens::SUCCESS, tokens::SUCCESS_SOFT),
+        Tone::Warning => (tokens::WARNING, tokens::WARNING_SOFT),
+        Tone::Bad => (tokens::DANGER, tokens::DANGER_SOFT),
+    };
+    let label = match &effect.change {
+        EffectChange::Up => format!("↑ {}", effect.label),
+        EffectChange::Down => format!("↓ {}", effect.label),
+        EffectChange::To(value) => format!("{} → {value}", effect.label),
+    };
+    div()
+        .px_2()
+        .py(px(1.0))
+        .rounded_full()
+        .bg(color(ground))
+        .text_xs()
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(color(text))
+        .child(label)
 }
 
 /// A moment in a World, named the way a person would say it.

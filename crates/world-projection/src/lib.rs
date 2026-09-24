@@ -150,6 +150,43 @@ pub struct ProjectionCommand {
     pub id: String,
     pub title: String,
     pub detail: String,
+    /// What choosing this would change, as short facts a screen can show
+    /// beside the choice and point at before it is made. Empty when the
+    /// Pack says nothing beyond the detail.
+    pub effects: Vec<CommandEffect>,
+}
+
+/// Whether something is good news, bad news, or neither.
+///
+/// A briefing line and a choice's consequence both carry one, so a screen
+/// can colour the same way RimWorld colours its letters: calm things quiet,
+/// trouble loud.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum Tone {
+    #[default]
+    Neutral,
+    Good,
+    Warning,
+    Bad,
+}
+
+/// One consequence of a choice: "Trust ↑", "Ares Habitat · rebuilt".
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CommandEffect {
+    /// What it changes, when that is something on the scene.
+    pub target: Option<SelectionId>,
+    /// A word or two: "Trust", "World direction", "Ares Habitat".
+    pub label: String,
+    /// Where it goes: "up", "down", or a new value such as "rebuilt".
+    pub change: EffectChange,
+    pub tone: Tone,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum EffectChange {
+    Up,
+    Down,
+    To(String),
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -649,6 +686,8 @@ pub struct BriefingItem {
     pub title: String,
     pub detail: String,
     pub kind: BriefingItemKind,
+    /// Good news, bad news, or neither.
+    pub tone: Tone,
 }
 
 impl BriefingProjection {
@@ -1663,6 +1702,7 @@ mod tests {
                 id: "world.continue".into(),
                 title: "Continue".into(),
                 detail: "Let the world keep running".into(),
+                effects: Vec::new(),
             }],
             ..ProjectionSnapshot::default()
         };

@@ -10,8 +10,8 @@ use world_core::{EntityId, Event, RelationId, Value, World};
 use world_projection::{
     entity_title, inspectors_from_world, timeline_from_world, why_map_from_world, BriefingItem,
     BriefingItemKind, BriefingProjection, CanvasItem, CanvasItemKind, CanvasProjection,
-    CollectionItem, CollectionProjection, ProjectionCapabilities, ProjectionCommand,
-    ProjectionSnapshot, SelectionId,
+    CollectionItem, CollectionProjection, CommandEffect, EffectChange, ProjectionCapabilities,
+    ProjectionCommand, ProjectionSnapshot, SelectionId, Tone,
 };
 
 const RESIDENTS: [EntityId; 8] = [JONAS, MARA, LEO, EMMA, MIA, NOAH, EVAN, SOFIA];
@@ -47,6 +47,73 @@ pub(crate) fn snapshot_since(
     }
 }
 
+/// Good news, bad news, or neither, for each kind of thing the harbour
+/// reports.
+fn tone_for_event(kind: &str) -> Tone {
+    match kind {
+        "bakery_closed"
+        | "payroll_shortfall"
+        | "worker_dismissed"
+        | "order_lost"
+        | "boat_sold"
+        | "living_cost_unmet"
+        | "income_disrupted"
+        | "payroll_reserve_exhausted"
+        | "backing_withdrawn" => Tone::Bad,
+        "storm_started" | "hardship_began" | "bread_budget_cut" | "loan_requested"
+        | "support_requested" | "work_sought" => Tone::Warning,
+        "support_repaid"
+        | "boat_repaired"
+        | "bakery_reopened_lean"
+        | "bakery_reopened"
+        | "hardship_eased"
+        | "support_received"
+        | "worker_retained"
+        | "jonas_taken_on"
+        | "counter_help_hired"
+        | "fish_sold" => Tone::Good,
+        _ => Tone::Neutral,
+    }
+}
+
+/// What each choice would change, for the screen to show beside it and
+/// point at on the scene before it is made.
+fn command_effects(command_id: &str) -> Vec<CommandEffect> {
+    let effect = |target: EntityId, label: &str, change: EffectChange, tone: Tone| CommandEffect {
+        target: Some(SelectionId::Entity(target)),
+        label: label.into(),
+        change,
+        tone,
+    };
+    let to = |value: &str| EffectChange::To(value.into());
+    match command_id {
+        crate::RETAIN_WORKER_COMMAND => {
+            vec![effect(JONAS, "Jonas", to("keeps his job"), Tone::Good)]
+        }
+        crate::REOPEN_BAKERY_COMMAND => vec![
+            effect(BAKERY, "Harbor Bakery", to("open"), Tone::Good),
+            effect(MARA, "Mara's savings", EffectChange::Down, Tone::Warning),
+        ],
+        crate::LEAN_REOPEN_BAKERY_COMMAND => vec![
+            effect(BAKERY, "Harbor Bakery", to("owner-run"), Tone::Good),
+            effect(MARA, "Mara's savings", EffectChange::Down, Tone::Warning),
+        ],
+        crate::REPAIR_BOAT_COMMAND => vec![
+            effect(JONAS_BOAT, "Sea Finch", to("repaired"), Tone::Good),
+            effect(LEO, "Leo's savings", EffectChange::Down, Tone::Neutral),
+        ],
+        crate::SELL_BOAT_COMMAND => vec![
+            effect(JONAS_BOAT, "Sea Finch", to("sold for scrap"), Tone::Bad),
+            effect(JONAS, "Jonas's cash", EffectChange::Up, Tone::Neutral),
+        ],
+        crate::TAKE_JONAS_ON_COMMAND => vec![
+            effect(JONAS, "Jonas", to("works the counter"), Tone::Good),
+            effect(BAKERY, "Bakery till", EffectChange::Down, Tone::Warning),
+        ],
+        _ => Vec::new(),
+    }
+}
+
 fn available_commands(world: &World) -> Vec<ProjectionCommand> {
     let mut commands = Vec::new();
     let has_order_loss = world
@@ -70,6 +137,7 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
             detail:
                 "Keep Jonas at the bakery and let this branch continue into a different future."
                     .into(),
+            effects: Vec::new(),
         });
     }
 
@@ -84,8 +152,8 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
             detail: format!(
                 "Invest {} of Mara's cash to reopen Harbor Bakery. Mara returns to work; former workers are not automatically rehired.",
                 crate::BAKERY_REOPEN_INVESTMENT
-            ),
-        });
+            ), effects: Vec::new(),
+});
     }
 
     let mara_can_reopen_lean = component_integer(world, MARA, CASH)
@@ -97,8 +165,8 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
             detail: format!(
                 "Invest {} of Mara's cash and reopen Harbor Bakery without a fixed daily Bakery wage. Lower overhead can survive weak demand, but Mara gives up predictable pay.",
                 crate::recovery::LEAN_REOPEN_INVESTMENT
-            ),
-        });
+            ), effects: Vec::new(),
+});
     }
 
     if repair_offer_is_open(world) {
@@ -108,8 +176,8 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
             detail: format!(
                 "Leo pays Evan {} to repair Sea Finch. Jonas returns to Harbor fishing once the boat is sound. Leo's backing does not stand indefinitely.",
                 crate::social::SEA_FINCH_REPAIR_COST
-            ),
-        });
+            ), effects: Vec::new(),
+});
     }
 
     if crate::drift::sea_finch_can_be_sold(world.state()) {
@@ -120,8 +188,8 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 "A broken boat fetches {}, against the {} it would take to make her sound. It ends the fishing life, and it is money today.",
                 crate::drift::SEA_FINCH_SCRAP_VALUE,
                 crate::social::SEA_FINCH_REPAIR_COST
-            ),
-        });
+            ), effects: Vec::new(),
+});
     }
 
     if crate::livelihood::work_ask_is_open(world.state()) {
@@ -131,10 +199,13 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
             detail: format!(
                 "Jonas works the counter for {} a day. It is a second wage against the same island trade, and the bakery has to carry it.",
                 crate::livelihood::COUNTER_WAGE
-            ),
-        });
+            ), effects: Vec::new(),
+});
     }
 
+    for command in &mut commands {
+        command.effects = command_effects(&command.id);
+    }
     commands
 }
 
@@ -204,6 +275,7 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
                 // history's to show, and an event number is nobody's.
                 detail: String::new(),
                 kind: BriefingItemKind::Beat,
+                tone: tone_for_event(&event.kind),
             })
         })
         .take(BEATS_PER_BRIEFING)
@@ -230,6 +302,7 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
             title: format!("{} more things happened", happened - told),
             detail: "The whole history is in the timeline.".into(),
             kind: BriefingItemKind::Status,
+            tone: world_projection::Tone::Neutral,
         });
     }
 
@@ -270,6 +343,7 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
             title: title.into(),
             detail,
             kind: BriefingItemKind::Status,
+            tone: world_projection::Tone::Neutral,
         });
     }
 
@@ -392,6 +466,7 @@ fn harbor_today(world: &World) -> BriefingItem {
         selection: Some(SelectionId::Entity(BAKERY)),
         title: "Harbor today".into(),
         detail: format!("{bakery}{bakery_cash}{counter} · {jonas}{jonas_cash}"),
+        tone: world_projection::Tone::Neutral,
     }
 }
 
@@ -437,8 +512,8 @@ fn bakery_sales_summary(world: &World, events: &[Event]) -> Option<BriefingItem>
             "{people} bought bread · {} {purchase_label} · {total_revenue} revenue · latest at World time {}",
             purchases.len(),
             latest.world_time
-        ),
-    })
+        ), tone: world_projection::Tone::Neutral,
+})
 }
 
 fn living_activity_summary(world: &World, events: &[Event]) -> Option<BriefingItem> {
@@ -479,8 +554,8 @@ fn living_activity_summary(world: &World, events: &[Event]) -> Option<BriefingIt
             "{people} worked · {} {shift_label} · {total_wages} total wages · latest at World time {}",
             shifts.len(),
             latest.world_time
-        ),
-    })
+        ), tone: world_projection::Tone::Neutral,
+})
 }
 
 fn resident_item(world: &World, id: EntityId) -> Option<CollectionItem> {
