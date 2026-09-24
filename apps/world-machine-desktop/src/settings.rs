@@ -163,7 +163,10 @@ impl SettingsView {
 
 /// The file name of a program, which is what anyone recognises it by.
 fn program_name(path: &str) -> &str {
-    path.rsplit('/').next().filter(|name| !name.is_empty()).unwrap_or(path)
+    path.rsplit('/')
+        .next()
+        .filter(|name| !name.is_empty())
+        .unwrap_or(path)
 }
 
 /// A switch drawn the way the system draws one: a track and a knob.

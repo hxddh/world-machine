@@ -2510,7 +2510,12 @@ impl WorldMachineHome {
                 .flex()
                 .gap_3()
                 .child(div().w(px(96.0)).flex_shrink_0().child(ui::caption(label)))
-                .child(div().min_w(px(0.0)).flex_1().child(ui::body(value).truncate()))
+                .child(
+                    div()
+                        .min_w(px(0.0))
+                        .flex_1()
+                        .child(ui::body(value).truncate()),
+                )
         };
 
         div()
