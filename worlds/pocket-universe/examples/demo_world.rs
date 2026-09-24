@@ -80,6 +80,9 @@ fn save(
         .ok_or("Pocket Universe sessions always have an archive")?;
     let id = WorldDocumentId::new(id)?;
     library.save(&id, &archive)?;
+    // The app names a World after its snapshot title when it saves one; do
+    // the same, or Home lists every demonstration World as "Pocket Universe".
+    library.set_display_title(&id, Some(session.snapshot().title.as_str()))?;
     println!(
         "{} · World time {} · {}",
         library.path(&id).display(),
