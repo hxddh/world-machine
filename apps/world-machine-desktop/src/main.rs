@@ -2479,9 +2479,9 @@ impl WorldMachineHome {
         let start_after_install =
             start_after_install_matches(self.pending_start_after_install.as_ref(), preview.pack());
         let review_title = if start_after_install {
-            "Review before starting"
+            "Before this World starts"
         } else {
-            "Review Pack Install"
+            "A new Pack wants to install"
         };
         let confirm_title = if start_after_install {
             "Trust & Start"
@@ -2490,76 +2490,110 @@ impl WorldMachineHome {
         };
         let format = preview.kind().label();
         let size = format_program_size(preview.program_bytes());
-        let source = preview.source_path().display().to_string();
-        let pack = format!("{} @ {}", preview.pack().id, preview.pack().version);
+        let source = preview.source_path();
+        let file = source
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| source.display().to_string());
+        let version = preview.pack().version.clone();
+        let identity = preview.pack().id.clone();
         let runtime = preview.runtime_name().to_owned();
         let sha = preview.program_sha256().to_owned();
+        // The first and last few characters are what anyone compares.
+        let fingerprint = if sha.len() > 16 {
+            format!("{}…{}", &sha[..8], &sha[sha.len() - 8..])
+        } else {
+            sha.clone()
+        };
+        let fact = |label: &'static str, value: String| {
+            div()
+                .flex()
+                .gap_3()
+                .child(div().w(px(96.0)).flex_shrink_0().child(ui::caption(label)))
+                .child(div().min_w(px(0.0)).flex_1().child(ui::body(value).truncate()))
+        };
 
         div()
             .id("pack-install-review")
             .w_full()
-            .p_4()
-            .rounded_md()
+            .p_5()
+            .rounded_lg()
             .border_1()
-            .border_color(ui::color(tokens::BORDER_STRONG))
-            .bg(ui::color(tokens::WARNING_SOFT))
+            .border_color(ui::color(tokens::BORDER))
+            .bg(ui::color(tokens::SURFACE))
+            .shadow_sm()
             .flex()
             .flex_col()
-            .gap_2()
-            .child(div().text_lg().child(review_title))
-            .child(div().text_lg().child(preview.title().to_owned()))
+            .gap_4()
             .child(
                 div()
-                    .text_sm()
-                    .text_color(ui::color(tokens::TEXT_SECONDARY))
-                    .child(preview.description().to_owned()),
+                    .flex()
+                    .gap_4()
+                    .items_center()
+                    .child(
+                        div()
+                            .size(px(64.0))
+                            .flex_shrink_0()
+                            .rounded_lg()
+                            .overflow_hidden()
+                            .child(ui::cover(preview.title(), &identity)),
+                    )
+                    .child(
+                        div()
+                            .min_w(px(0.0))
+                            .flex_1()
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .child(ui::section_label(review_title))
+                            .child(ui::heading(preview.title().to_owned()))
+                            .child(ui::caption(preview.description().to_owned())),
+                    ),
             )
-            .child(div().text_xs().child(format!("Identity · {pack}")))
-            .child(div().text_xs().child(format!("Format · {format}")))
-            .child(div().text_xs().child(format!("Will execute · {runtime}")))
-            .child(div().text_xs().child(format!("Executable · {size}")))
-            .child(div().text_xs().child(format!("SHA-256 · {sha}")))
             .child(
                 div()
-                    .text_xs()
-                    .text_color(ui::color(tokens::TEXT_SECONDARY))
-                    .child(format!("Source · {source}")),
-            )
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(ui::color(tokens::WARNING))
-                    .child(if start_after_install {
-                        "No Pack code has run. Trust & Start approves these exact executable bytes; after the durable self-test passes, World Machine will create and open your World."
-                    } else {
-                        "No Pack code has run. Install & Trust approves these exact executable bytes; any change before installation is rejected."
-                    }),
+                    .p_3()
+                    .rounded_md()
+                    .bg(ui::color(tokens::WINDOW))
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(fact("Version", version))
+                    .child(fact("Runs as", format!("{runtime} · {format} · {size}")))
+                    .child(fact("Fingerprint", fingerprint))
+                    .child(fact("From", file))
+                    .child(fact("Identity", identity)),
             )
             .child(
                 div()
                     .flex()
+                    .items_center()
                     .gap_2()
                     .child(
                         div()
-                            .id("confirm-pack-install")
-                            .cursor_pointer()
-                            .p_2()
-                            .rounded_md()
-                            .border_1()
-                            .border_color(ui::color(tokens::BORDER_STRONG))
-                            .child(confirm_title)
-                            .on_click(cx.listener(|this, _, _, cx| this.confirm_pack_install(cx))),
+                            .size(px(8.0))
+                            .flex_shrink_0()
+                            .rounded_full()
+                            .bg(ui::color(tokens::WARNING)),
+                    )
+                    .child(ui::body(if start_after_install {
+                        "Nothing from this Pack has run yet. Trusting it approves exactly these bytes, then your World opens once its self-test passes."
+                    } else {
+                        "Nothing from this Pack has run yet. Trusting it approves exactly these bytes; any other version is refused."
+                    })),
+            )
+            .child(
+                div()
+                    .flex()
+                    .justify_end()
+                    .gap_2()
+                    .child(
+                        ui::button("cancel-pack-install", "Cancel", ui::ButtonKind::Secondary)
+                            .on_click(cx.listener(|this, _, _, cx| this.cancel_pack_install(cx))),
                     )
                     .child(
-                        div()
-                            .id("cancel-pack-install")
-                            .cursor_pointer()
-                            .p_2()
-                            .rounded_md()
-                            .border_1()
-                            .border_color(ui::color(tokens::BORDER_STRONG))
-                            .child("Cancel")
-                            .on_click(cx.listener(|this, _, _, cx| this.cancel_pack_install(cx))),
+                        ui::button("confirm-pack-install", confirm_title, ui::ButtonKind::Primary)
+                            .on_click(cx.listener(|this, _, _, cx| this.confirm_pack_install(cx))),
                     ),
             )
     }

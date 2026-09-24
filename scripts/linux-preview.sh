@@ -26,6 +26,7 @@
 # "scroll N" turns the mouse wheel N notches over the newest window. Opening
 # the third World on Home, pressing What if…, and scrolling down is
 #   scripts/linux-preview.sh shots 688 489 @1035 25 scroll 15
+# "key K" presses a key chord (such as super+comma for Settings),
 # and "hover @X Y" rests the pointer on the newest window to capture a hover.
 # "frames N" right after a click captures N frames ~0.1s apart as
 # frame-N.png, to see an animation play.
@@ -113,6 +114,15 @@ while [ "$#" -ge 2 ]; do
             convert "$WORK/frame.xwd" -alpha off "$OUT_DIR/frame-$frame.png"
             sleep 0.08
         done
+        shift 2
+        continue
+    fi
+    # "key K" presses an xdotool key chord in the newest window, for example
+    # "key super+comma" for Settings (GPUI maps cmd to super on Linux).
+    if [ "$1" = key ]; then
+        xdotool windowactivate --sync "$(newest_window)" 2>/dev/null || true
+        xdotool key --window "$(newest_window)" "$2"
+        sleep 8
         shift 2
         continue
     fi

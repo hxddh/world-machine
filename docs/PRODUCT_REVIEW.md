@@ -123,6 +123,10 @@ Tiny Society, with thirteen things on stage, stays readable:
 
 **One design system everywhere.** Every window (What if…, lineage, Settings, About, the Analyst panel, Pack review) now draws its literal colours from the same tokens, mapped by role, hue and lightness. It went from 367 literals to none in those files; colours still chosen at runtime (a selected versus unselected chip) go through the old `adapt()`.
 
+**Settings** is a switch and two tiles instead of five paragraphs around two small toggles; `scripts/linux-preview.sh shots key super+comma` opens it:
+
+![Settings](review/settings.png)
+
 **Dark mode** uses a palette picked by hand, not computed:
 
 ![World window, dark](review/world-dark.png)
@@ -153,7 +157,7 @@ Tiny Society, with thirteen things on stage, stays readable:
 1. **Check on a real Mac.** San Francisco has real weights. The Linux fallback font here does not, so headings look lighter in these screenshots than they will on a Mac. Capture `docs/screenshots/` in light and dark.
 2. **Add the rest of the projection fields above**: meters, then Pack art. Tone, effects and deltas since the last visit are done.
 3. **More motion.** News, the decision panel, the activity strip and trouble on the scene already move. Next is scene nodes easing to their new state when a choice lands, and numbers counting to their new value.
-4. **Settings, the Analyst panel and Pack review** are on the tokens but still laid out as they were. They need the same pass the World window had; after that, `adapt()` can go. Scrubbing through a World's time would complete the branching story.
+4. **The Analyst panel** is on the tokens but still laid out as it was; after its pass, `adapt()` can go. Settings and Pack review are done (Pack review is checked by tests only: the preview cannot open a file picker). Scrubbing through a World's time would complete the branching story.
 5. ~~**History shows every internal step.**~~ *(done: Packs tell each Event's line and mark the everyday round, which History folds)*
 6. ~~**Recorded prose still has engine words.**~~ *(done: Pocket Universe 0.19.0 records plain words; old Worlds of that Pack no longer open)*
 7. **The usability test** in `NEXT_TASK.md`. None of the above replaces five strangers and five minutes each.
