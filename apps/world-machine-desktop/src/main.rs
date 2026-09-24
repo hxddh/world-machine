@@ -338,6 +338,8 @@ struct WorldDocumentView {
     /// this document opened. The Analyst entry stays hidden otherwise so a
     /// fresh install never surfaces a feature that needs extra software.
     analyst_available: bool,
+    /// "Branched from …", read once when the World opens.
+    lineage_label: Option<String>,
 }
 
 #[cfg(target_os = "macos")]
@@ -361,6 +363,7 @@ impl WorldDocumentView {
         let projection =
             cx.new(|_| world_gpui::ProjectionView::controlled(controller).without_header());
         let analyst_available = world_fork::analyst_available();
+        let lineage_label = world_fork::lineage_label(&document);
         Self {
             document_label,
             document_name,
@@ -368,6 +371,7 @@ impl WorldDocumentView {
             projection,
             status: None,
             analyst_available,
+            lineage_label,
         }
     }
 
@@ -562,12 +566,12 @@ impl Render for WorldDocumentView {
         window.set_window_title(&document_window_title(&self.document_name));
         let mut actions = div().flex_shrink_0().flex().items_center().gap_2();
         // Where this World came from is also the way to its family tree.
-        if let Some(badge) = world_fork::lineage_badge(&self.document) {
+        if let Some(label) = &self.lineage_label {
             actions = actions.child(
                 div()
                     .id("lineage-badge")
                     .cursor_pointer()
-                    .child(badge)
+                    .child(world_fork::lineage_badge(label))
                     .on_click(cx.listener(|this, _, _, cx| this.open_lineage(cx))),
             );
         }

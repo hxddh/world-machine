@@ -4,7 +4,7 @@ use gpui::{
     WindowOptions,
 };
 use std::sync::Arc;
-use world_document::{WorldBranchCause, WorldLineage};
+use world_document::WorldLineage;
 use world_gpui::ui;
 use world_library::{DurableWorldSession, WorldDocumentId, WorldLibrary};
 use world_lineage::LineageIndex;
@@ -56,39 +56,32 @@ pub(super) fn compare_with_parent(
     )
 }
 
-pub(super) fn lineage_badge(lineage: &WorldLineage) -> impl IntoElement {
-    div()
-        .w(px(190.0))
-        .overflow_hidden()
-        .p_2()
-        .rounded_md()
-        .border_1()
-        .border_color(ui::color(tokens::BORDER_STRONG))
-        .bg(ui::color(tokens::SURFACE))
-        .hover(|badge| badge.border_color(ui::color(tokens::ACCENT)))
-        .text_xs()
-        .text_color(ui::color(tokens::TEXT_SECONDARY))
-        .child(truncate_for_chrome(
-            &lineage_label(lineage),
-            LINEAGE_BADGE_MAX_CHARS,
-        ))
+/// Where a branch came from, as one line for the title bar: the parent's
+/// name when it is in My Worlds, its file name or Pack otherwise. The choice
+/// that made it is one click away, in Branches.
+pub(super) fn lineage_label(lineage: &WorldLineage, parent_title: Option<&str>) -> String {
+    let parent = parent_title
+        .map(str::trim)
+        .filter(|title| !title.is_empty())
+        .or(lineage.parent.document.as_deref())
+        .unwrap_or(lineage.parent.pack.id.as_str());
+    format!("Branched from {parent}")
 }
 
-fn lineage_label(lineage: &WorldLineage) -> String {
-    let parent = lineage
-        .parent
-        .document
-        .as_deref()
-        .unwrap_or(lineage.parent.pack.id.as_str());
-    match &lineage.branch {
-        WorldBranchCause::Strategy { choice_title, .. } => {
-            format!("Branch of {parent} · {choice_title}")
-        }
-        WorldBranchCause::Fork { label: Some(label) } => {
-            format!("Branch of {parent} · {label}")
-        }
-        WorldBranchCause::Fork { label: None } => format!("Branch of {parent}"),
-    }
+/// A quiet pill the height of the buttons beside it, linking to Branches.
+pub(super) fn lineage_badge(label: &str) -> impl IntoElement {
+    div()
+        .flex_shrink_0()
+        .max_w(px(260.0))
+        .px_3()
+        .py(px(6.0))
+        .rounded_full()
+        .bg(ui::color(tokens::ACCENT_SOFT))
+        .hover(|badge| badge.bg(ui::color(tokens::ROW_HOVER)))
+        .text_sm()
+        .font_weight(gpui::FontWeight::MEDIUM)
+        .text_color(ui::color(tokens::ACCENT_TEXT))
+        .child(truncate_for_chrome(label, LINEAGE_BADGE_MAX_CHARS))
 }
 
 fn truncate_for_chrome(label: &str, max_chars: usize) -> String {
@@ -221,7 +214,7 @@ impl LineageController for AppLineageController {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use world_document::WorldParent;
+    use world_document::{WorldBranchCause, WorldParent};
     use world_persistence::WorldPackRef;
 
     #[test]
@@ -240,7 +233,11 @@ mod tests {
             },
         };
 
-        assert_eq!(lineage_label(&lineage), "Branch of Source.world · Choose A");
+        assert_eq!(lineage_label(&lineage, None), "Branched from Source.world");
+        assert_eq!(
+            lineage_label(&lineage, Some(" Ares · Held on ")),
+            "Branched from Ares · Held on"
+        );
     }
 
     #[test]
@@ -258,8 +255,8 @@ mod tests {
         };
 
         assert_eq!(
-            lineage_label(&lineage),
-            "Branch of world-machine.parent · experiment"
+            lineage_label(&lineage, None),
+            "Branched from world-machine.parent"
         );
     }
 
