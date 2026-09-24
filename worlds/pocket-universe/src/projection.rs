@@ -10,13 +10,14 @@ use crate::{
     RECOVER_ANCHOR_COMMAND, RELATIONSHIP, RELATIONSHIP_DIRECTION, RELATIONSHIP_LAST_DYNAMIC,
     RELATIONSHIP_SOCIAL_ARC, RELATIONSHIP_TENSION, RELATIONSHIP_TRUST, RELEASE_LEGACY_COMMAND,
     RIVALRY_COMMAND, ROOTED_POSTURE_COMMAND, SEED_1980S_TOWN_COMMAND, SEED_MARS_COLONY_COMMAND,
-    SEED_PENGUIN_CIVILIZATION_COMMAND, SHARED_PROJECT_COMMAND, SLOT_A, UNIVERSE,
+    SEED_PENGUIN_CIVILIZATION_COMMAND, SHARED_PROJECT_COMMAND, SLOT_A, SLOT_B, SLOT_C, SLOT_D,
+    SLOT_E, UNIVERSE,
 };
 use world_core::{Entity, EntityId, Event, StateChange, Value, World};
 use world_projection::{
     entity_title, inspectors_from_world, timeline_from_world, value_text, why_map_from_world,
-    BriefingItem, BriefingItemKind, BriefingProjection, CanvasItem, CanvasItemKind,
-    CanvasProjection, CollectionItem, CollectionProjection, ProjectionCapabilities,
+    BriefingItem, BriefingItemKind, BriefingProjection, CanvasItem, CanvasItemKind, CanvasLink,
+    CanvasLinkTone, CanvasProjection, CollectionItem, CollectionProjection, ProjectionCapabilities,
     ProjectionCommand, ProjectionSnapshot, SelectionId,
 };
 
@@ -1640,32 +1641,89 @@ fn collection(world: &World) -> CollectionProjection {
 }
 
 fn canvas(world: &World) -> CanvasProjection {
-    const POSITIONS: [(f32, f32); 6] = [
-        (0.14, 0.24),
-        (0.72, 0.22),
-        (0.16, 0.78),
-        (0.78, 0.74),
-        (0.50, 0.48),
-        (0.50, 0.82),
+    // Every seed casts the same five roles in the same slots: the anchor
+    // everything depends on, a second place, the two people whose
+    // relationship is the story, and the thing that lets them range out.
+    // Placing by role rather than by list order lets the scene read the same
+    // way in every World: home on the left, the pair in the middle, the way
+    // out on the right.
+    const LAYOUT: [(EntityId, f32, f32); 5] = [
+        (SLOT_A, 0.12, 0.22),
+        (SLOT_C, 0.12, 0.86),
+        (SLOT_B, 0.42, 0.10),
+        (SLOT_E, 0.62, 0.84),
+        (SLOT_D, 0.90, 0.46),
     ];
-    let items = world
-        .state()
-        .entities()
-        .filter(|entity| entity.id != UNIVERSE)
-        .enumerate()
-        .map(|(index, entity)| {
-            let (x, y) = POSITIONS[index.min(POSITIONS.len() - 1)];
-            CanvasItem {
-                id: SelectionId::Entity(entity.id),
+    let items = LAYOUT
+        .iter()
+        .filter_map(|(id, x, y)| {
+            let entity = world.state().entity(*id)?;
+            Some(CanvasItem {
+                id: SelectionId::Entity(*id),
                 kind: canvas_kind(entity),
                 label: entity_title(entity),
-                detail: entity.kind.replace('_', " "),
-                x,
-                y,
-            }
+                detail: canvas_detail(world, entity),
+                x: *x,
+                y: *y,
+            })
         })
         .collect();
-    CanvasProjection { items }
+    CanvasProjection {
+        items,
+        links: relationship_link(world).into_iter().collect(),
+    }
+}
+
+/// What a scene node says under its name: how it is, not what it is.
+fn canvas_detail(world: &World, entity: &Entity) -> String {
+    if entity.id == SLOT_A {
+        let stage = pressure::pressure_id_from_state(world.state());
+        let trouble = match stage.as_str() {
+            "warning" => Some("trouble rising"),
+            "crisis" => Some("in crisis"),
+            "lost" => Some("lost"),
+            _ => None,
+        };
+        if let Some(trouble) = trouble {
+            return trouble.into();
+        }
+    }
+    for key in ["status", "role"] {
+        if let Some(Value::Text(value)) = entity.component(key) {
+            if !value.trim().is_empty() {
+                return value.clone();
+            }
+        }
+    }
+    entity.kind.replace('_', " ")
+}
+
+/// The relationship at the centre of the World, drawn between the two
+/// people it belongs to rather than as a third thing beside them.
+fn relationship_link(world: &World) -> Option<CanvasLink> {
+    let relationship = world.state().entity(RELATIONSHIP)?;
+    world.state().entity(SLOT_B)?;
+    world.state().entity(SLOT_E)?;
+    let trust = integer_entity_component(Some(relationship), RELATIONSHIP_TRUST).unwrap_or(0);
+    let tension = integer_entity_component(Some(relationship), RELATIONSHIP_TENSION).unwrap_or(0);
+    let arc = text_component(Some(relationship), RELATIONSHIP_SOCIAL_ARC, "forming");
+    let direction = text_component(Some(relationship), RELATIONSHIP_DIRECTION, "none");
+    let (label, tone) = match (arc.as_str(), direction.as_str()) {
+        ("partnership", _) => ("Partners", CanvasLinkTone::Warm),
+        ("fracture", _) => ("Estranged", CanvasLinkTone::Strained),
+        (_, "shared-project") => ("Working together", CanvasLinkTone::Warm),
+        (_, "rivalry") => ("Rivals", CanvasLinkTone::Strained),
+        _ if tension > trust => ("Uneasy", CanvasLinkTone::Strained),
+        _ => ("Getting to know each other", CanvasLinkTone::Neutral),
+    };
+    Some(CanvasLink {
+        from: SelectionId::Entity(SLOT_B),
+        to: SelectionId::Entity(SLOT_E),
+        label: label.into(),
+        tone,
+        strength: (trust.max(tension) as f32 / 10.0).clamp(0.15, 1.0),
+        selection: Some(SelectionId::Entity(RELATIONSHIP)),
+    })
 }
 
 fn canvas_kind(entity: &Entity) -> CanvasItemKind {

@@ -18,7 +18,7 @@
 # mesa-vulkan-drivers for a software renderer).
 #
 # Usage:
-#   scripts/linux-preview.sh [output-dir] [click-x click-y]...
+#   [APPEARANCE=dark] scripts/linux-preview.sh [output-dir] [click-x click-y]...
 #
 # Every window the app has open after start-up (and after each optional click,
 # given in pixels relative to Home's top-left corner) is written to
@@ -56,6 +56,7 @@ BIN="$CARGO_TARGET_DIR/debug"
 rm -rf "$STATE"
 mkdir -p "$STATE/home" "$STATE/Worlds" "$STATE/packs"
 (cd "$SRC" && cargo run -q -p pocket-universe --example demo_world -- "$STATE/Worlds")
+(cd "$SRC" && cargo run -q -p tiny-society --example demo_world -- "$STATE/Worlds")
 for pack in pocket-universe micro-company tiny-society; do
     "$BIN/$pack-pack" --write-bundle "$STATE/packs/$pack.worldpack"
 done
@@ -107,4 +108,6 @@ export HOME="$STATE/home"
 export WORLD_MACHINE_LIBRARY_DIR="$STATE/Worlds"
 export WORLD_MACHINE_INCLUDED_PACKS_DIR="$STATE/packs"
 export WORLD_MACHINE_NO_UPDATE_CHECK=1
+# APPEARANCE=dark checks the dark palette; Xvfb itself only ever reports light.
+export WORLD_MACHINE_APPEARANCE="${APPEARANCE:-light}"
 xvfb-run -a -s "-screen 0 1400x1000x24" bash "$WORK/session.sh"

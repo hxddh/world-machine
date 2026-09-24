@@ -40,6 +40,7 @@ pub(crate) fn snapshot_since(
         timeline: timeline_from_world(world),
         canvas: CanvasProjection {
             items: canvas_items(world),
+            links: Vec::new(),
         },
         inspectors: inspectors_from_world(world),
         why: why_map_from_world(world),
@@ -199,7 +200,9 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
             Some(BriefingItem {
                 selection: Some(SelectionId::Event(event.id)),
                 title,
-                detail: format!("World time {} · Event #{}", event.world_time, event.id),
+                // The headline is the news; when it happened is the
+                // history's to show, and an event number is nobody's.
+                detail: String::new(),
                 kind: BriefingItemKind::Beat,
             })
         })
@@ -379,7 +382,7 @@ fn harbor_today(world: &World) -> BriefingItem {
         _ => String::new(),
     };
     let jonas = component_text(world, JONAS, JOB)
-        .map(|job| format!("Jonas: {job}"))
+        .map(|job| format!("Jonas: {}", job.replace('_', " ")))
         .unwrap_or_else(|| "Jonas".to_string());
     let jonas_cash = component_integer(world, JONAS, CASH)
         .map(|cash| format!(", cash {cash}"))
@@ -388,10 +391,7 @@ fn harbor_today(world: &World) -> BriefingItem {
         kind: BriefingItemKind::Status,
         selection: Some(SelectionId::Entity(BAKERY)),
         title: "Harbor today".into(),
-        detail: format!(
-            "{bakery}{bakery_cash}{counter} · {jonas}{jonas_cash} · World time {}",
-            world.world_time()
-        ),
+        detail: format!("{bakery}{bakery_cash}{counter} · {jonas}{jonas_cash}"),
     }
 }
 
@@ -485,7 +485,9 @@ fn living_activity_summary(world: &World, events: &[Event]) -> Option<BriefingIt
 
 fn resident_item(world: &World, id: EntityId) -> Option<CollectionItem> {
     let entity = world.state().entity(id)?;
-    let job = component_text(world, id, JOB).unwrap_or_else(|| "unknown job".into());
+    let job = component_text(world, id, JOB)
+        .map(|job| capitalized(&job.replace('_', " ")))
+        .unwrap_or_else(|| "Unknown job".into());
     let cash = component_text(world, id, CASH).unwrap_or_else(|| "?".into());
     Some(CollectionItem {
         id: SelectionId::Entity(id),
@@ -541,7 +543,9 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                 id: SelectionId::Entity(id),
                 kind: CanvasItemKind::Actor,
                 label: entity_title(entity),
-                detail: component_text(world, id, JOB).unwrap_or_else(|| "Resident".into()),
+                detail: component_text(world, id, JOB)
+                    .map(|job| job.replace('_', " "))
+                    .unwrap_or_else(|| "Resident".into()),
                 x,
                 y,
             });
@@ -885,5 +889,13 @@ mod naming_tests {
             told.contains(&worker),
             "{told:?} is filed under {worker} and does not mention them"
         );
+    }
+}
+
+fn capitalized(text: &str) -> String {
+    let mut chars = text.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+        None => String::new(),
     }
 }

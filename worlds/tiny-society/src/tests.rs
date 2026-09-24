@@ -73,10 +73,15 @@ fn save_resume_restores_pending_world_and_briefs_only_new_events() {
         .items
         .iter()
         .any(|item| item.title == "Jonas asked Leo for a loan"));
-    assert!(briefing
-        .items
-        .iter()
-        .all(|item| item.detail.contains("World time 10")));
+    assert!(briefing.items.iter().all(|item| match item.selection {
+        Some(SelectionId::Event(event)) => snapshot
+            .timeline
+            .items
+            .iter()
+            .find(|moment| moment.id == SelectionId::Event(event))
+            .is_some_and(|moment| moment.world_time == 10),
+        _ => true,
+    }));
 }
 
 #[test]

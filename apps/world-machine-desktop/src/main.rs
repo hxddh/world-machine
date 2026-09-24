@@ -1174,18 +1174,21 @@ impl WorldMachineHome {
                                         probe.created_world_time,
                                         probe.reopened_world_time
                                     ));
-                                    this.status = Some(HomeStatus::success(
-                                        match this.included_pack_title(&pack) {
-                                            Some(title) => format!("{title} is ready to start."),
-                                            None => format!(
-                                                "Trusted and tested {} @ {} · durable Create/Archive/Open succeeded · World time {} → {}",
-                                                pack.id,
-                                                pack.version,
-                                                probe.created_world_time,
-                                                probe.reopened_world_time
-                                            ),
-                                        },
-                                    ));
+                                    // An included Pack getting ready in the background
+                                    // is not news; the log keeps the probe's numbers.
+                                    // A Pack the person installed themselves is.
+                                    this.status = if this.included_pack_title(&pack).is_some() {
+                                        None
+                                    } else {
+                                        let title = this
+                                            .registry
+                                            .descriptor_for(&pack)
+                                            .map(|descriptor| descriptor.title.clone())
+                                            .unwrap_or_else(|| pack.id.clone());
+                                        Some(HomeStatus::success(format!(
+                                            "{title} is installed and ready."
+                                        )))
+                                    };
                                 }
                                 Err(error) => {
                                     this.status = Some(HomeStatus::error(format!(
@@ -2302,6 +2305,15 @@ impl WorldMachineHome {
             .justify_between()
             .items_start()
             .gap_4()
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .w(px(112.0))
+                    .h(px(76.0))
+                    .rounded_md()
+                    .overflow_hidden()
+                    .child(ui::cover(&title, document.id.as_str()).size_full()),
+            )
             .child(details)
             .child(
                 ui::button(
@@ -2760,6 +2772,15 @@ impl WorldMachineHome {
             .flex()
             .flex_col()
             .gap_1()
+            .child(
+                div()
+                    .mb_2()
+                    .h(px(84.0))
+                    .w_full()
+                    .rounded_md()
+                    .overflow_hidden()
+                    .child(ui::cover(&descriptor.title, &pack_id).size_full()),
+            )
             .child(ui::row_title(descriptor.title))
             .child(ui::detail(descriptor.description).line_clamp(3))
             .child(

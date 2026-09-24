@@ -193,7 +193,10 @@ fn canvas(world: &World, artifacts: &[EntityId]) -> CanvasProjection {
         });
     }
 
-    CanvasProjection { items }
+    CanvasProjection {
+        items,
+        links: Vec::new(),
+    }
 }
 
 fn inspectors(
