@@ -1254,7 +1254,7 @@ fn inspector_for_event(event: &Event, world: &World) -> InspectorProjection {
     InspectorProjection {
         selection: SelectionId::Event(event.id),
         title: humanize(&event.kind),
-        subtitle: format!("World time {} · Event #{}", event.world_time, event.id),
+        subtitle: format!("Time {}", event.world_time),
         sections,
     }
 }
@@ -1346,7 +1346,6 @@ pub(crate) fn event_summary(event: &Event, world: &World) -> String {
     if let Some(summary) = semantic_event_summary(event) {
         parts.push(summary.to_string());
     }
-    parts.push(format!("Event #{}", event.id));
     parts.join(" · ")
 }
 
@@ -1403,7 +1402,7 @@ mod tests {
 
         assert_eq!(timeline.items.len(), 1);
         assert_eq!(timeline.items[0].title, "Work Started");
-        assert_eq!(timeline.items[0].subtitle, "Workspace · Event #1");
+        assert_eq!(timeline.items[0].subtitle, "Workspace");
         assert_eq!(
             inspectors
                 .get(&SelectionId::Entity(EntityId::new(1)))
@@ -1446,7 +1445,7 @@ mod tests {
         let timeline = timeline_from_world(&world);
         assert_eq!(
             timeline.items[0].subtitle,
-            "A durable direction was chosen. · Event #1"
+            "A durable direction was chosen."
         );
     }
 

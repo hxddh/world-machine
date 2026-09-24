@@ -3204,7 +3204,7 @@ mod tests {
             .items
             .iter()
             .any(|item| {
-                item.title == "Partnership formed" && item.detail.contains("durable partnership")
+                item.title == "Partnership formed" && item.detail.contains("lasting partnership")
             }));
         assert!(!resolved
             .briefing
@@ -4259,7 +4259,11 @@ mod tests {
             assert!(error.to_string().contains("no open pressure"));
             let briefing = universe.projection_snapshot().briefing.unwrap();
             assert!(briefing.items.iter().any(|item| {
-                item.title.starts_with("Choice evidence ·") && item.detail.contains(outcome)
+                item.title.starts_with("You chose ·")
+                    && item.detail.contains(match outcome {
+                        "aligned" => "fit the direction",
+                        _ => "ran against the direction",
+                    })
             }));
 
             // An answered pressure never escalates, and the legacy keeps living.

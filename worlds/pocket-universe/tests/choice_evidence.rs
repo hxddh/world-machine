@@ -32,7 +32,10 @@ fn relationship_choice_signal_is_verified_by_the_recorded_event() -> Result<(), 
         .expect("shared project should be available")
         .detail
         .clone();
-    assert!(signal.contains("trust 2 → 4 · tension 0 → 0"));
+    assert!(
+        !signal.contains("Choice signal") && !signal.contains("→"),
+        "a choice reads as a story; its mechanics are in the recorded Event: {signal}"
+    );
 
     let event_id = universe.invoke_projection_command(SHARED_PROJECT_COMMAND)?;
     let event = universe
@@ -57,13 +60,12 @@ fn relationship_choice_signal_is_verified_by_the_recorded_event() -> Result<(), 
     )));
 
     let after = universe.projection_snapshot();
-    let evidence = choice_evidence(&after, "Choice evidence · Shared project");
+    let evidence = choice_evidence(&after, "You chose · Shared project");
     assert_eq!(evidence.selection, Some(SelectionId::Event(event_id)));
-    assert!(evidence.detail.contains("trust 2 → 4 · tension 0 → 0"));
     assert!(evidence
         .detail
-        .contains("Durable direction = shared project"));
-    assert!(evidence.detail.contains("add +1 trust and -1 tension"));
+        .contains("Trust went from 2 to 4 and tension held at 0."));
+    assert!(evidence.detail.contains("leans toward trust"));
     assert!(after.inspector(SelectionId::Event(event_id)).is_some());
     assert!(after.why(event_id).is_some());
 
@@ -83,7 +85,7 @@ fn intervention_choice_evidence_uses_the_event_statechange_not_current_copy(
         .expect("bold intervention should be available")
         .detail
         .clone();
-    assert!(signal.contains("Kestrel's durable status becomes signal expedition"));
+    assert!(!signal.contains("durable status"), "{signal}");
 
     let event_id = universe.invoke_projection_command(BOLD_PATH_COMMAND)?;
     let event = universe
@@ -104,17 +106,11 @@ fn intervention_choice_evidence_uses_the_event_statechange_not_current_copy(
     )));
 
     let after = universe.projection_snapshot();
-    let evidence = choice_evidence(&after, "Choice evidence · Signal expedition");
+    let evidence = choice_evidence(&after, "You chose · Signal expedition");
     assert_eq!(evidence.selection, Some(SelectionId::Event(event_id)));
     assert!(evidence
         .detail
-        .contains("first intervention = Signal expedition"));
-    assert!(evidence
-        .detail
-        .contains("Kestrel Rover · status = signal expedition"));
-    assert!(evidence
-        .detail
-        .contains("Later growth reads this durable intervention"));
+        .contains("Kestrel Rover is now signal expedition."));
 
     Ok(())
 }
@@ -135,7 +131,7 @@ fn posture_choice_evidence_survives_archive_and_reopen() -> Result<(), Box<dyn E
         .expect("outward posture should be available")
         .detail
         .clone();
-    assert!(signal.contains("later growth and legacy formation read the outward posture"));
+    assert!(!signal.contains("legacy formation"), "{signal}");
 
     let event_id = universe.invoke_projection_command(OUTWARD_POSTURE_COMMAND)?;
     let event = universe
@@ -156,14 +152,9 @@ fn posture_choice_evidence_survives_archive_and_reopen() -> Result<(), Box<dyn E
     )));
 
     let after = universe.projection_snapshot();
-    let evidence = choice_evidence(&after, "Choice evidence · Outward");
+    let evidence = choice_evidence(&after, "You chose · Outward");
     assert_eq!(evidence.selection, Some(SelectionId::Event(event_id)));
-    assert!(evidence
-        .detail
-        .contains("World direction = Outward at generation 6"));
-    assert!(evidence
-        .detail
-        .contains("Later growth and legacy formation read this durable posture"));
+    assert!(evidence.detail.contains("This World now leans outward."));
 
     let archive = universe.archive()?;
     let reopened = PocketUniverse::resume_archive(&archive)?;
