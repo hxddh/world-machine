@@ -154,6 +154,7 @@ fn canvas(world: &World) -> CanvasProjection {
                     detail: entity.kind.replace('_', " "),
                     x,
                     y,
+                    changes: Vec::new(),
                 })
             })
             .collect(),

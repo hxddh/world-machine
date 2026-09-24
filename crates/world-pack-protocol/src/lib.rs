@@ -5,11 +5,11 @@ use std::fmt;
 use world_core::{EntityId, EventId, RelationId};
 use world_persistence::{WorldArchive, WorldPackRef};
 use world_projection::{
-    BriefingItem, BriefingItemKind, BriefingProjection, CanvasItem, CanvasItemKind, CanvasLink,
-    CanvasLinkTone, CanvasProjection, CollectionItem, CollectionProjection, CommandEffect,
-    EffectChange, InspectorProjection, InspectorRow, InspectorSection, ProjectionCapabilities,
-    ProjectionCommand, ProjectionIntent, ProjectionSnapshot, SelectionId, TimelineItem,
-    TimelineProjection, Tone, WhyNode, WhyProjection,
+    BriefingItem, BriefingItemKind, BriefingProjection, CanvasChange, CanvasItem, CanvasItemKind,
+    CanvasLink, CanvasLinkTone, CanvasProjection, CollectionItem, CollectionProjection,
+    CommandEffect, EffectChange, InspectorProjection, InspectorRow, InspectorSection,
+    ProjectionCapabilities, ProjectionCommand, ProjectionIntent, ProjectionSnapshot, SelectionId,
+    TimelineItem, TimelineProjection, Tone, WhyNode, WhyProjection,
 };
 
 pub const PACK_MANIFEST_FORMAT: &str = "world-machine-pack";
@@ -910,6 +910,17 @@ pub struct CanvasItemWire {
     pub detail: String,
     pub x: f32,
     pub y: f32,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub changes: Vec<CanvasChangeWire>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct CanvasChangeWire {
+    pub label: String,
+    pub before: String,
+    pub after: String,
+    #[serde(default)]
+    pub tone: ToneWire,
 }
 
 impl From<&CanvasItem> for CanvasItemWire {
@@ -921,6 +932,16 @@ impl From<&CanvasItem> for CanvasItemWire {
             detail: item.detail.clone(),
             x: item.x,
             y: item.y,
+            changes: item
+                .changes
+                .iter()
+                .map(|change| CanvasChangeWire {
+                    label: change.label.clone(),
+                    before: change.before.clone(),
+                    after: change.after.clone(),
+                    tone: change.tone.into(),
+                })
+                .collect(),
         }
     }
 }
@@ -934,6 +955,16 @@ impl From<CanvasItemWire> for CanvasItem {
             detail: item.detail,
             x: item.x,
             y: item.y,
+            changes: item
+                .changes
+                .into_iter()
+                .map(|change| CanvasChange {
+                    label: change.label,
+                    before: change.before,
+                    after: change.after,
+                    tone: change.tone.into(),
+                })
+                .collect(),
         }
     }
 }
@@ -1271,6 +1302,7 @@ mod tests {
                     detail: "On the canvas".into(),
                     x: 0.25,
                     y: 0.75,
+                    changes: Vec::new(),
                 }],
                 links: vec![CanvasLink {
                     from: entity,

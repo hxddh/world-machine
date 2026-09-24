@@ -18,7 +18,7 @@
 # mesa-vulkan-drivers for a software renderer).
 #
 # Usage:
-#   [APPEARANCE=dark] scripts/linux-preview.sh [output-dir] [click-x click-y]...
+#   [APPEARANCE=dark] [AWAY_HOURS=N] scripts/linux-preview.sh [output-dir] [click-x click-y]...
 #
 # Every window the app has open after start-up (and after each optional click,
 # given in pixels relative to Home's top-left corner, or to the newest window
@@ -65,6 +65,10 @@ mkdir -p "$STATE/home" "$STATE/Worlds" "$STATE/packs"
 for pack in pocket-universe micro-company tiny-society; do
     "$BIN/$pack-pack" --write-bundle "$STATE/packs/$pack.worldpack"
 done
+# AWAY_HOURS=N: open every World as a return after N hours away.
+if [ -n "${AWAY_HOURS:-}" ]; then
+    (cd "$SRC" && cargo run -q -p world-observer --example pretend_away -- "$STATE/Worlds" "$AWAY_HOURS")
+fi
 
 cat > "$WORK/session.sh" <<'SESSION'
 set -u

@@ -16,9 +16,10 @@ use crate::{
 use world_core::{Entity, EntityId, Event, StateChange, Value, World};
 use world_projection::{
     entity_title, inspectors_from_world, timeline_from_world, value_text, why_map_from_world,
-    BriefingItem, BriefingItemKind, BriefingProjection, CanvasItem, CanvasItemKind, CanvasLink,
-    CanvasLinkTone, CanvasProjection, CollectionItem, CollectionProjection, CommandEffect,
-    EffectChange, ProjectionCapabilities, ProjectionCommand, ProjectionSnapshot, SelectionId, Tone,
+    BriefingItem, BriefingItemKind, BriefingProjection, CanvasChange, CanvasItem, CanvasItemKind,
+    CanvasLink, CanvasLinkTone, CanvasProjection, CollectionItem, CollectionProjection,
+    CommandEffect, EffectChange, ProjectionCapabilities, ProjectionCommand, ProjectionSnapshot,
+    SelectionId, Tone,
 };
 
 pub(crate) fn snapshot(world: &World) -> ProjectionSnapshot {
@@ -51,7 +52,7 @@ pub(crate) fn snapshot_since(
             .collect(),
         collection: collection(world),
         timeline: timeline_from_world(world),
-        canvas: canvas(world),
+        canvas: with_changes(world, canvas(world), since_event_count),
         inspectors: inspectors_from_world(world),
         why: why_map_from_world(world),
     }
@@ -1876,6 +1877,7 @@ fn canvas(world: &World) -> CanvasProjection {
                 detail: canvas_detail(world, entity),
                 x: *x,
                 y: *y,
+                changes: Vec::new(),
             })
         })
         .collect();
@@ -1883,6 +1885,38 @@ fn canvas(world: &World) -> CanvasProjection {
         items,
         links: relationship_link(world).into_iter().collect(),
     }
+}
+
+/// On a return, what moved on each thing on stage since the visit.
+fn with_changes(
+    world: &World,
+    mut canvas: CanvasProjection,
+    since_event_count: Option<usize>,
+) -> CanvasProjection {
+    let Some(since) = since_event_count else {
+        return canvas;
+    };
+    for item in &mut canvas.items {
+        let SelectionId::Entity(id) = item.id else {
+            continue;
+        };
+        if let Some((then, now)) =
+            world_projection::component_change_since(world, since, id, "status")
+        {
+            let text = |value: Option<Value>| match value {
+                Some(Value::Text(text)) => text,
+                Some(other) => value_text(&other, world),
+                None => "—".into(),
+            };
+            item.changes.push(CanvasChange {
+                label: String::new(),
+                before: text(then),
+                after: text(now),
+                tone: Tone::Neutral,
+            });
+        }
+    }
+    canvas
 }
 
 /// What a scene node says under its name: how it is, not what it is.

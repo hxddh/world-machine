@@ -9,9 +9,9 @@ use society_basic::{CASH, JOB};
 use world_core::{EntityId, Event, RelationId, Value, World};
 use world_projection::{
     entity_title, inspectors_from_world, timeline_from_world, why_map_from_world, BriefingItem,
-    BriefingItemKind, BriefingProjection, CanvasItem, CanvasItemKind, CanvasProjection,
-    CollectionItem, CollectionProjection, CommandEffect, EffectChange, ProjectionCapabilities,
-    ProjectionCommand, ProjectionSnapshot, SelectionId, Tone,
+    BriefingItemKind, BriefingProjection, CanvasChange, CanvasItem, CanvasItemKind,
+    CanvasProjection, CollectionItem, CollectionProjection, CommandEffect, EffectChange,
+    ProjectionCapabilities, ProjectionCommand, ProjectionSnapshot, SelectionId, Tone,
 };
 
 const RESIDENTS: [EntityId; 8] = [JONAS, MARA, LEO, EMMA, MIA, NOAH, EVAN, SOFIA];
@@ -39,12 +39,57 @@ pub(crate) fn snapshot_since(
         },
         timeline: timeline_from_world(world),
         canvas: CanvasProjection {
-            items: canvas_items(world),
+            items: canvas_items(world)
+                .into_iter()
+                .map(|mut item| {
+                    if let (Some(since), SelectionId::Entity(id)) = (since_event_count, item.id) {
+                        item.changes = changes_since(world, since, id);
+                    }
+                    item
+                })
+                .collect(),
             links: Vec::new(),
         },
         inspectors: inspectors_from_world(world),
         why: why_map_from_world(world),
     }
+}
+
+/// What moved on one person, place or thing since the visit: money, work,
+/// whether a place is open, what shape a boat is in.
+fn changes_since(world: &World, since: usize, id: EntityId) -> Vec<CanvasChange> {
+    let text = |value: &Option<Value>| match value {
+        Some(Value::Integer(n)) => n.to_string(),
+        Some(Value::Text(t)) => t.replace('_', " "),
+        Some(Value::Bool(b)) => b.to_string(),
+        _ => "—".into(),
+    };
+    [
+        (CASH, "cash"),
+        (JOB, "work"),
+        (OPERATING_STATUS, ""),
+        (CONDITION, ""),
+    ]
+    .into_iter()
+    .filter_map(|(key, label)| {
+        let (then, now) = world_projection::component_change_since(world, since, id, key)?;
+        let tone = match (&then, &now) {
+            (Some(Value::Integer(a)), Some(Value::Integer(b))) if b > a => Tone::Good,
+            (Some(Value::Integer(a)), Some(Value::Integer(b))) if b < a => Tone::Warning,
+            (_, Some(Value::Text(t))) if t == "closed" || t == "unemployed" || t == "damaged" => {
+                Tone::Bad
+            }
+            (_, Some(Value::Text(t))) if t == "open" || t == "sound" => Tone::Good,
+            _ => Tone::Neutral,
+        };
+        Some(CanvasChange {
+            label: label.into(),
+            before: text(&then),
+            after: text(&now),
+            tone,
+        })
+    })
+    .collect()
 }
 
 /// Good news, bad news, or neither, for each kind of thing the harbour
@@ -599,6 +644,7 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                 detail,
                 x,
                 y,
+                changes: Vec::new(),
             });
         }
     }
@@ -623,6 +669,7 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                     .unwrap_or_else(|| "Resident".into()),
                 x,
                 y,
+                changes: Vec::new(),
             });
         }
     }
@@ -643,6 +690,7 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                 detail,
                 x,
                 y,
+                changes: Vec::new(),
             });
         }
     }

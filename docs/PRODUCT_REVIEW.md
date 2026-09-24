@@ -63,7 +63,7 @@ A World Machine World is a small persistent world you leave and come back to, sh
 | Dimension | v0.5.2 | Now | What moves it next |
 | --- | :-: | :-: | --- |
 | World legible at a glance | 1 | 3 | State meters on the scene; Pack-supplied art |
-| Return payoff ("what changed") | 2 | 3 | Before/after of the scene; state deltas since last visit ("cash 85 → 37") |
+| Return payoff ("what changed") | 2 | 4 | Scene nodes easing from where they were to where they are |
 | Decision clarity | 1 | 4 | Magnitudes in the preview; real choices before "wait" |
 | Why / causality | 3 | 3 | A visual causal chain in *Why it happened* instead of an indented list |
 | Characters you care about | 1 | 2 | Portraits, moods, a voice for each person |
@@ -80,11 +80,11 @@ A renderer can only show what a projection gives it. The generic, kernel-safe ad
 
 1. ~~**`BriefingItem.tone`**~~ *(done: neutral / good / warning / bad)*: severity colour on beats and scene nodes, as RimWorld does.
 2. ~~**`ProjectionCommand.effects`**~~ *(done: target, label, up / down / to a value, tone)*: consequence chips and hover previews, as Crusader Kings and Reigns do.
-3. **State deltas since the visit cursor**: a numeric "what changed" on the scene and on cards.
+3. ~~**State deltas since the visit cursor**~~ *(done: `CanvasItem.changes`, replayed from the log)*: a numeric "what changed" on the scene.
 4. **`CanvasItem` meters** (named values in a known range): bars instead of numbers.
 5. **Pack art hooks** (palette, cover, portrait images): Worlds that look like their setting. Today a Mars colony's cover can be green.
 
-This change makes three of these additions: `CanvasProjection.links`, `BriefingItem.tone` and `ProjectionCommand.effects`. Pocket Universe and Tiny Society fill all three in. A test holds each choice to the consequences it shows. It is optional on the wire in both directions, so old Packs and hosts are unaffected.
+This change makes four of these additions: `CanvasProjection.links`, `BriefingItem.tone`, `ProjectionCommand.effects` and `CanvasItem.changes`. Pocket Universe and Tiny Society fill them all in. A test holds each choice to the consequences it shows. It is optional on the wire in both directions, so old Packs and hosts are unaffected.
 
 ## What this change does
 
@@ -104,6 +104,10 @@ This change makes three of these additions: `CanvasProjection.links`, `BriefingI
 Tiny Society, with thirteen things on stage, stays readable:
 
 ![Tiny Society after](review/world-tiny-society.png)
+
+**Coming back** shows what moved on each person and place while you were away, on the scene itself: "cash ↓24" under Jonas, "cash ↑160" under Mara, a school whose till fell by 144. The Pack names the value and the direction's meaning; the numbers are replayed from the World's own log, so they never depend on anything the app remembered. `AWAY_HOURS=48 scripts/linux-preview.sh` opens every World as a return:
+
+![Returning to Tiny Society](review/world-return.png)
 
 **What if…** shows two futures side by side, each with the thing that happened only there as its headline, and its scene with the differences haloed. It used to say "Strategy Comparison · Two independent futures evaluated from the same durable World" above two identical cards, then "FIRST RECORDED DIFFERENCE" and "2 recorded causal steps … 1 supporting record folded".
 
@@ -143,7 +147,7 @@ Tiny Society, with thirteen things on stage, stays readable:
 ## What is still not good enough, in order
 
 1. **Check on a real Mac.** San Francisco has real weights. The Linux fallback font here does not, so headings look lighter in these screenshots than they will on a Mac. Capture `docs/screenshots/` in light and dark.
-2. **Add the rest of the projection fields above**: deltas since the last visit, then meters. Tone and effects are done.
+2. **Add the rest of the projection fields above**: meters, then Pack art. Tone, effects and deltas since the last visit are done.
 3. **More motion.** News, the decision panel, the activity strip and trouble on the scene already move. Next is scene nodes easing to their new state when a choice lands, and numbers counting to their new value.
 4. **Settings, the Analyst panel and Pack review** are on the tokens but still laid out as they were. They need the same pass the World window had; after that, `adapt()` can go. Scrubbing through a World's time would complete the branching story.
 5. **History shows every internal step.** "Agent Decision Recorded" twice per visit tells the reader nothing. The projection should mark bookkeeping events so History can fold them.

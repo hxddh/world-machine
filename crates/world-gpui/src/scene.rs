@@ -16,7 +16,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 use std::time::Duration;
 use world_projection::{
-    CanvasItem, CanvasItemKind, CanvasLinkTone, ProjectionSnapshot, SelectionId, Tone,
+    CanvasChange, CanvasItem, CanvasItemKind, CanvasLinkTone, ProjectionSnapshot, SelectionId, Tone,
 };
 use world_theme::tokens;
 
@@ -208,7 +208,17 @@ fn layout(items: &[CanvasItem], width: f32, height: f32, compact: bool) -> Vec<(
     const EDGE: f32 = 6.0;
     let boxes = items
         .iter()
-        .map(|item| footprint(item.kind, compact))
+        .map(|item| {
+            let (w, h, top) = footprint(item.kind, compact);
+            // A change chip under a name stands taller than the caption it
+            // replaces, and in a compact scene there was no caption at all.
+            let chip = match (item.kind, item.changes.is_empty(), compact) {
+                (CanvasItemKind::Actor, false, false) => 6.0,
+                (CanvasItemKind::Actor, false, true) => 20.0,
+                _ => 0.0,
+            };
+            (w, h + chip, top)
+        })
         .collect::<Vec<_>>();
     // Work in the centre of each node's box, in pixels.
     let mut centres = items
@@ -517,8 +527,22 @@ pub fn scene(
         let glow = glow_of(item);
         let id = SharedString::from(format!("canvas-{}", selection.stable_key()));
         let node = match item.kind {
-            CanvasItemKind::Actor => actor_node(&item.label, &item.detail, selected, glow, compact),
-            CanvasItemKind::Place => place_node(&item.label, &item.detail, selected, glow, compact),
+            CanvasItemKind::Actor => actor_node(
+                &item.label,
+                &item.detail,
+                &item.changes,
+                selected,
+                glow,
+                compact,
+            ),
+            CanvasItemKind::Place => place_node(
+                &item.label,
+                &item.detail,
+                &item.changes,
+                selected,
+                glow,
+                compact,
+            ),
             CanvasItemKind::Object => object_node(&item.label, selected),
         };
         // Centre the node on its position, whatever its size.
@@ -678,7 +702,14 @@ pub fn activity(snapshot: &ProjectionSnapshot) -> Option<Div> {
     )
 }
 
-fn actor_node(name: &str, detail: &str, selected: bool, glow: Option<Tone>, compact: bool) -> Div {
+fn actor_node(
+    name: &str,
+    detail: &str,
+    changes: &[CanvasChange],
+    selected: bool,
+    glow: Option<Tone>,
+    compact: bool,
+) -> Div {
     let size = if compact {
         COMPACT_ACTOR_SIZE
     } else {
@@ -709,12 +740,58 @@ fn actor_node(name: &str, detail: &str, selected: bool, glow: Option<Tone>, comp
                 .truncate()
                 .child(name.to_string()),
         )
-        .when(!compact, |node| {
+        // On a return, what changed stands where what they are would.
+        .when(!changes.is_empty(), |node| {
+            node.child(change_chip(&changes[0]))
+        })
+        .when(changes.is_empty() && !compact, |node| {
             node.child(ui::caption(crate::macos::capitalize(detail)).truncate())
         })
 }
 
-fn place_node(name: &str, detail: &str, selected: bool, glow: Option<Tone>, compact: bool) -> Div {
+/// "cash ↓48", tinted by whether the change is good or bad news.
+pub fn change_chip(change: &CanvasChange) -> Div {
+    let (text, ground) = match change.tone {
+        Tone::Neutral => (tokens::TEXT_SECONDARY, tokens::ROW_HOVER),
+        Tone::Good => (tokens::SUCCESS, tokens::SUCCESS_SOFT),
+        Tone::Warning => (tokens::WARNING, tokens::WARNING_SOFT),
+        Tone::Bad => (tokens::DANGER, tokens::DANGER_SOFT),
+    };
+    div()
+        .px_2()
+        .rounded_full()
+        .bg(ui::color(ground))
+        .text_xs()
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(ui::color(text))
+        .truncate()
+        .child(change_text(change))
+}
+
+/// The shortest honest reading of a change, sized for a chip under a name:
+/// a number becomes its difference ("cash ↓48"), anything else its new
+/// value ("→ repaired"), since the old one is what the player remembers.
+pub fn change_text(change: &CanvasChange) -> String {
+    let difference = match (change.before.parse::<i64>(), change.after.parse::<i64>()) {
+        (Ok(before), Ok(after)) if after > before => format!("↑{}", after - before),
+        (Ok(before), Ok(after)) => format!("↓{}", before - after),
+        _ => format!("→ {}", change.after),
+    };
+    if change.label.is_empty() {
+        difference
+    } else {
+        format!("{} {difference}", change.label)
+    }
+}
+
+fn place_node(
+    name: &str,
+    detail: &str,
+    changes: &[CanvasChange],
+    selected: bool,
+    glow: Option<Tone>,
+    compact: bool,
+) -> Div {
     let (_, height, _) = footprint(CanvasItemKind::Place, compact);
     // A place in the news wears the news's colour on its edge; a halo
     // behind an opaque tile would not be seen.
@@ -749,7 +826,10 @@ fn place_node(name: &str, detail: &str, selected: bool, glow: Option<Tone>, comp
                 .flex()
                 .flex_col()
                 .child(ui::row_title(name.to_string()).truncate())
-                .child(ui::caption(crate::macos::capitalize(detail)).truncate()),
+                .child(match changes.first() {
+                    Some(change) => change_chip(change),
+                    None => ui::caption(crate::macos::capitalize(detail)).truncate(),
+                }),
         )
 }
 
@@ -822,9 +902,22 @@ fn place_icon() -> Div {
 
 #[cfg(test)]
 mod tests {
-    use super::{differences, footprint, layout, CROWDED};
+    use super::{change_text, differences, footprint, layout, CROWDED};
     use world_projection::ProjectionSnapshot;
-    use world_projection::{CanvasItem, CanvasItemKind, SelectionId};
+    use world_projection::{CanvasChange, CanvasItem, CanvasItemKind, SelectionId, Tone};
+
+    #[test]
+    fn a_change_reads_as_its_difference_or_its_new_value() {
+        let change = |label: &str, before: &str, after: &str| CanvasChange {
+            label: label.into(),
+            before: before.into(),
+            after: after.into(),
+            tone: Tone::Neutral,
+        };
+        assert_eq!(change_text(&change("cash", "85", "37")), "cash ↓48");
+        assert_eq!(change_text(&change("cash", "37", "85")), "cash ↑48");
+        assert_eq!(change_text(&change("", "broken", "repaired")), "→ repaired");
+    }
 
     fn item(id: u64, kind: CanvasItemKind, x: f32, y: f32) -> CanvasItem {
         CanvasItem {
@@ -834,6 +927,7 @@ mod tests {
             detail: String::new(),
             x,
             y,
+            changes: Vec::new(),
         }
     }
 

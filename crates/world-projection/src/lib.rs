@@ -776,6 +776,74 @@ pub struct CanvasItem {
     pub detail: String,
     pub x: f32,
     pub y: f32,
+    /// What changed about it since the visit being reported, so a return
+    /// can show "cash 85 → 37" on the person rather than in a paragraph.
+    /// Empty on an ordinary snapshot.
+    pub changes: Vec<CanvasChange>,
+}
+
+/// One value that moved since the last visit.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CanvasChange {
+    pub label: String,
+    pub before: String,
+    pub after: String,
+    pub tone: Tone,
+}
+
+/// The value `key` had on `entity` once the first `event_count` events had
+/// happened, replayed from the log: what a returning player last saw.
+pub fn component_at(
+    world: &World,
+    event_count: usize,
+    entity: EntityId,
+    key: &str,
+) -> Option<Value> {
+    // Start from what the World began with, which a seeded World never
+    // recorded as an event.
+    let mut value = world
+        .baseline_state()
+        .entity(entity)
+        .and_then(|seeded| seeded.component(key))
+        .cloned();
+    for event in world.events().iter().take(event_count) {
+        for change in &event.changes {
+            match change {
+                StateChange::CreateEntity(created) if created.id == entity => {
+                    value = created.component(key).cloned();
+                }
+                StateChange::RemoveEntity(removed) if *removed == entity => value = None,
+                StateChange::SetComponent {
+                    entity: target,
+                    key: changed,
+                    value: new,
+                } if *target == entity && changed == key => value = Some(new.clone()),
+                StateChange::RemoveComponent {
+                    entity: target,
+                    key: removed,
+                } if *target == entity && removed == key => value = None,
+                _ => {}
+            }
+        }
+    }
+    value
+}
+
+/// How `key` on `entity` changed since the first `event_count` events, as
+/// (then, now), or nothing if it is the same.
+pub fn component_change_since(
+    world: &World,
+    event_count: usize,
+    entity: EntityId,
+    key: &str,
+) -> Option<(Option<Value>, Option<Value>)> {
+    let then = component_at(world, event_count, entity, key);
+    let now = world
+        .state()
+        .entity(entity)
+        .and_then(|current| current.component(key))
+        .cloned();
+    (then != now).then_some((then, now))
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1715,5 +1783,44 @@ mod tests {
         );
         assert!(snapshot.command("missing").is_none());
         assert!(!snapshot.capabilities.fork);
+    }
+
+    #[test]
+    fn a_value_is_replayed_from_the_seed_and_the_log() {
+        let entity = EntityId::new(1);
+        let mut state = WorldState::default();
+        state
+            .seed_entity(Entity::new(entity, "person").with_component("cash", 85_i64))
+            .unwrap();
+        let spend = |id: u64, cash: i64| Event {
+            id: EventId::new(id),
+            kind: "spent".into(),
+            world_time: id,
+            actor: Some(entity),
+            targets: vec![],
+            caused_by: vec![],
+            payload: BTreeMap::new(),
+            changes: vec![StateChange::SetComponent {
+                entity,
+                key: "cash".into(),
+                value: cash.into(),
+            }],
+        };
+        let world = World::from_history(state, &[spend(1, 60), spend(2, 37)]).unwrap();
+
+        assert_eq!(
+            component_at(&world, 0, entity, "cash"),
+            Some(Value::Integer(85))
+        );
+        assert_eq!(
+            component_at(&world, 1, entity, "cash"),
+            Some(Value::Integer(60))
+        );
+        assert_eq!(
+            component_change_since(&world, 0, entity, "cash"),
+            Some((Some(Value::Integer(85)), Some(Value::Integer(37))))
+        );
+        assert_eq!(component_change_since(&world, 2, entity, "cash"), None);
+        assert_eq!(component_change_since(&world, 0, entity, "name"), None);
     }
 }

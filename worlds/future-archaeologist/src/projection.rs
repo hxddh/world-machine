@@ -166,6 +166,7 @@ fn canvas(world: &World, artifacts: &[EntityId]) -> CanvasProjection {
                 detail: humanize(&entity.kind),
                 x,
                 y,
+                changes: Vec::new(),
             });
         }
     }
@@ -192,6 +193,7 @@ fn canvas(world: &World, artifacts: &[EntityId]) -> CanvasProjection {
                 .unwrap_or_else(|| "Artifact".into()),
             x,
             y,
+            changes: Vec::new(),
         });
     }
 
