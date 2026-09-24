@@ -63,6 +63,8 @@ use world_document::WorldBranchCause;
 #[cfg(target_os = "macos")]
 use world_fork::analyst_input::{self, AnalystTextInput};
 #[cfg(target_os = "macos")]
+use world_gpui::ui;
+#[cfg(target_os = "macos")]
 use world_library::{
     DurableWorldSession, LibraryError, UnreadableWorldFile, WorldDocumentId, WorldDocumentSummary,
     WorldLibrary, LEGACY_WORLD_DOCUMENT_SUFFIX, WORLD_DOCUMENT_SUFFIX,
@@ -77,6 +79,8 @@ use world_pack_bundle::PACK_BUNDLE_SUFFIX;
 use world_pack_catalog::{InstalledPack, PackAvailability, PackCatalog, PackInstallPreview};
 #[cfg(target_os = "macos")]
 use world_persistence::WorldPackRef;
+#[cfg(target_os = "macos")]
+use world_theme::tokens;
 
 #[cfg(target_os = "macos")]
 const LIBRARY_OVERRIDE_ENV: &str = "WORLD_MACHINE_LIBRARY_DIR";
@@ -354,7 +358,8 @@ impl WorldDocumentView {
         let controller = HostProjectionController {
             document: Rc::clone(&document),
         };
-        let projection = cx.new(|_| world_gpui::ProjectionView::controlled(controller));
+        let projection =
+            cx.new(|_| world_gpui::ProjectionView::controlled(controller).without_header());
         let analyst_available = world_fork::analyst_available();
         Self {
             document_label,
@@ -487,7 +492,8 @@ impl WorldDocumentView {
         let controller = HostProjectionController {
             document: Rc::clone(&self.document),
         };
-        self.projection = cx.new(|_| world_gpui::ProjectionView::controlled(controller));
+        self.projection =
+            cx.new(|_| world_gpui::ProjectionView::controlled(controller).without_header());
     }
 
     fn branch(&mut self, cx: &mut Context<Self>) {
@@ -560,32 +566,18 @@ impl Render for WorldDocumentView {
         }
         let actions = actions
             .child(
-                div()
-                    .id("branch-world-document")
-                    .cursor_pointer()
-                    .p_2()
-                    .rounded_md()
-                    .border_1()
-                    .border_color(crate::theme_rgb(0xb8b2d8))
-                    .bg(crate::theme_rgb(0xf7f5ff))
-                    .text_sm()
-                    .child("Branch")
+                ui::button("branch-world-document", "Branch", ui::ButtonKind::Secondary)
                     .on_click(cx.listener(|this, _, _, cx| this.branch(cx))),
             )
             .child(
-                div()
-                    .id("what-if-world-document")
-                    .cursor_pointer()
-                    .p_2()
-                    .rounded_md()
-                    .border_1()
-                    .border_color(crate::theme_rgb(0x9eb0d6))
-                    .bg(crate::theme_rgb(0xf4f7ff))
-                    .text_sm()
-                    .child("What if…")
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.open_compare(cx);
-                    })),
+                ui::button(
+                    "what-if-world-document",
+                    "What if…",
+                    ui::ButtonKind::Primary,
+                )
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.open_compare(cx);
+                })),
             );
 
         // The World is called by its name; the durable file identity stays
@@ -597,40 +589,43 @@ impl Render for WorldDocumentView {
             .gap_2()
             .items_center()
             .overflow_hidden()
-            .child(div().text_sm().child(self.document_name.clone()));
-        if self.document_name != self.document_label {
-            identity = identity.child(
+            .child(
                 div()
-                    .text_xs()
-                    .text_color(crate::theme_rgb(0x8a8a82))
-                    .child(self.document_label.clone()),
+                    .text_base()
+                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                    .truncate()
+                    .child(self.document_name.clone()),
             );
+        if self.document_name != self.document_label {
+            identity = identity.child(ui::caption(self.document_label.clone()).truncate());
         }
 
         let mut chrome = div()
-            .h(px(48.0))
+            .h(px(52.0))
             .w_full()
+            .flex_shrink_0()
             .flex()
             .items_center()
             .justify_between()
-            .px_4()
+            .px_5()
             .gap_3()
             .border_b_1()
-            .border_color(crate::theme_rgb(0xd9d9d3))
-            .bg(crate::theme_rgb(0xf7f7f3))
+            .border_color(ui::color(tokens::BORDER))
+            .bg(ui::color(tokens::WINDOW))
+            .text_color(ui::color(tokens::TEXT))
             .child(identity)
             .child(actions);
 
         if let Some(status) = &self.status {
             let foreground = match status.tone {
-                DocumentStatusTone::Info => 0x4e6fb3,
-                DocumentStatusTone::Success => 0x4d6748,
-                DocumentStatusTone::Error => 0x9b4a42,
+                DocumentStatusTone::Info => tokens::ACCENT_TEXT,
+                DocumentStatusTone::Success => tokens::SUCCESS,
+                DocumentStatusTone::Error => tokens::DANGER,
             };
             chrome = chrome.child(
                 div()
                     .text_xs()
-                    .text_color(crate::theme_rgb(foreground))
+                    .text_color(ui::color(foreground))
                     .child(status.message.clone()),
             );
         }
@@ -1233,6 +1228,14 @@ impl WorldMachineHome {
 
     fn ready_pack_descriptor(&self) -> Option<world_host::WorldDescriptor> {
         let pack = self.ready_pack_to_create.as_ref()?;
+        // "Start your first World" is untrue for someone who already has one.
+        if self
+            .documents
+            .iter()
+            .any(|document| document.pack.id == pack.id)
+        {
+            return None;
+        }
         let catalog = self.pack_catalog.as_ref()?;
         let installed = catalog.entry(pack)?;
         if !installed.enabled || !installed.active {
@@ -1471,19 +1474,28 @@ impl WorldMachineHome {
             _ => None,
         };
 
-        self.status = Some(match opened {
+        // A window opening is its own confirmation; Home only speaks up when
+        // there is something the window does not already say.
+        self.status = match opened {
             Ok(_) => match catch_up {
-                Ok(Some(outcome)) => HomeStatus::success(format!(
-                    "Opened {title} · {} period(s) passed while you were away",
-                    outcome.periods
-                )),
-                Ok(None) => HomeStatus::success(format!("Opened {title}")),
-                Err(error) => HomeStatus::info(format!(
-                    "Opened {title} · could not advance the time you were away: {error}"
-                )),
+                Ok(Some(outcome)) => Some(HomeStatus::success(format!(
+                    "{title} lived through {} {} while you were away",
+                    outcome.periods,
+                    if outcome.periods == 1 {
+                        "period"
+                    } else {
+                        "periods"
+                    }
+                ))),
+                Ok(None) => None,
+                Err(error) => Some(HomeStatus::info(format!(
+                    "Opened {title}, but the time you were away could not be caught up: {error}"
+                ))),
             },
-            Err(error) => HomeStatus::error(format!("Could not open {title}: {error}")),
-        });
+            Err(error) => Some(HomeStatus::error(format!(
+                "Could not open {title}: {error}"
+            ))),
+        };
         if let Some(status) = sync_error {
             self.status = Some(status);
         }
@@ -1505,9 +1517,13 @@ impl WorldMachineHome {
                 return;
             }
         }
+        // Called by the name Home shows for it, not by its World Pack's name.
         let title = summary
-            .and_then(|document| self.registry.descriptor_for(&document.pack))
-            .map(|descriptor| descriptor.title.clone())
+            .and_then(|document| {
+                self.registry
+                    .descriptor_for(&document.pack)
+                    .map(|descriptor| world_summary_title(document, &descriptor.title))
+            })
             .unwrap_or_else(|| document_id.to_string());
         let session = match DurableWorldSession::open(document_id, &self.registry, &self.library) {
             Ok(session) => session,
@@ -1998,38 +2014,18 @@ impl WorldMachineHome {
             .flex()
             .flex_col()
             .gap_1()
-            .child(div().text_lg().child(title.clone()));
+            .child(ui::heading(title.clone()).truncate());
         if let Some(summary) = world_summary_description(&document) {
-            details = details.child(
-                div()
-                    .text_sm()
-                    .text_color(crate::theme_rgb(0x4f5968))
-                    .child(summary),
-            );
+            details = details.child(ui::body(summary).line_clamp(2));
         }
-        details = details
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(crate::theme_rgb(0x666666))
-                    .child(if title == pack_title {
-                        format!(
-                            "World time {} · {} events",
-                            document.world_time, document.event_count
-                        )
-                    } else {
-                        format!(
-                            "{} · World time {} · {} events",
-                            pack_title, document.world_time, document.event_count
-                        )
-                    }),
-            )
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(crate::theme_rgb(0x8a8a82))
-                    .child(document_label.clone()),
-            );
+        // What a person needs to tell their Worlds apart: which kind of World
+        // it is and how far it has lived. Event counts and file ids are the
+        // archive's business; the World's own window still shows the file.
+        details = details.child(ui::caption(world_card_meta(
+            &title,
+            &pack_title,
+            document.world_time,
+        )));
 
         let renaming_this_world = self
             .renaming
@@ -2141,28 +2137,35 @@ impl WorldMachineHome {
         } else {
             details = details.child(
                 div()
+                    .pt_1()
                     .flex()
-                    .gap_3()
-                    .text_xs()
+                    .flex_wrap()
+                    .gap_4()
                     .child(
-                        div()
-                            .id(SharedString::from(format!("rename-{document_label}")))
-                            .cursor_pointer()
-                            .text_color(crate::theme_rgb(0x4e6fb3))
-                            .child("Rename")
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.begin_rename(rename_id.clone(), cx)
-                            })),
+                        card_link(format!("compare-{compare_id}"), "What if…").on_click(
+                            cx.listener(move |this, _, _, cx| {
+                                this.compare_document(compare_id.clone(), cx)
+                            }),
+                        ),
                     )
                     .child(
-                        div()
-                            .id(SharedString::from(format!("remove-{document_label}")))
-                            .cursor_pointer()
-                            .text_color(crate::theme_rgb(0x4e6fb3))
-                            .child("Remove")
-                            .on_click(cx.listener(move |this, _, _, cx| {
+                        card_link(format!("rename-{document_label}"), "Rename").on_click(
+                            cx.listener(move |this, _, _, cx| {
+                                this.begin_rename(rename_id.clone(), cx)
+                            }),
+                        ),
+                    )
+                    .child(
+                        card_link(format!("export-{export_id}"), "Export…").on_click(cx.listener(
+                            move |this, _, _, cx| this.export_document(export_id.clone(), cx),
+                        )),
+                    )
+                    .child(
+                        card_link(format!("remove-{document_label}"), "Remove").on_click(
+                            cx.listener(move |this, _, _, cx| {
                                 this.request_removal(remove_id.clone(), cx)
-                            })),
+                            }),
+                        ),
                     ),
             );
         }
@@ -2290,65 +2293,25 @@ impl WorldMachineHome {
             .id(SharedString::from(format!("document-{document_label}")))
             .w_full()
             .p_4()
-            .rounded_md()
+            .rounded_lg()
             .border_1()
-            .border_color(crate::theme_rgb(0xd9d9d3))
-            .bg(crate::theme_rgb(0xffffff))
+            .border_color(ui::color(tokens::BORDER))
+            .bg(ui::color(tokens::SURFACE))
+            .hover(|style| style.border_color(ui::color(tokens::BORDER_STRONG)))
             .flex()
             .justify_between()
-            .items_center()
-            .gap_3()
+            .items_start()
+            .gap_4()
             .child(details)
             .child(
-                div()
-                    .flex_shrink_0()
-                    .flex()
-                    .flex_col()
-                    .items_end()
-                    .gap_2()
-                    .child(
-                        div()
-                            .id(SharedString::from(format!("open-{open_id}")))
-                            .cursor_pointer()
-                            .p_2()
-                            .rounded_md()
-                            .border_1()
-                            .border_color(crate::theme_rgb(0x657da7))
-                            .bg(crate::theme_rgb(0xf4f7ff))
-                            .text_sm()
-                            .child("Open")
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.open_document(open_id.clone(), cx)
-                            })),
-                    )
-                    .child(
-                        div()
-                            .id(SharedString::from(format!("compare-{compare_id}")))
-                            .cursor_pointer()
-                            .p_2()
-                            .rounded_md()
-                            .border_1()
-                            .border_color(crate::theme_rgb(0xd9d9d3))
-                            .text_sm()
-                            .child("What if…")
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.compare_document(compare_id.clone(), cx)
-                            })),
-                    )
-                    .child(
-                        div()
-                            .id(SharedString::from(format!("export-{export_id}")))
-                            .cursor_pointer()
-                            .p_2()
-                            .rounded_md()
-                            .border_1()
-                            .border_color(crate::theme_rgb(0xd9d9d3))
-                            .text_sm()
-                            .child("Export…")
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.export_document(export_id.clone(), cx)
-                            })),
-                    ),
+                ui::button(
+                    SharedString::from(format!("open-{open_id}")),
+                    "Open",
+                    ui::ButtonKind::Primary,
+                )
+                .on_click(
+                    cx.listener(move |this, _, _, cx| this.open_document(open_id.clone(), cx)),
+                ),
             )
     }
 
@@ -2511,8 +2474,9 @@ impl WorldMachineHome {
             .p_4()
             .rounded_md()
             .border_1()
-            .border_color(crate::theme_rgb(0x8eb58a))
-            .bg(crate::theme_rgb(0xf1f8ee))
+            .rounded_lg()
+            .border_color(ui::color(tokens::ACCENT))
+            .bg(ui::color(tokens::ACCENT_SOFT))
             .flex()
             .justify_between()
             .items_center()
@@ -2531,14 +2495,10 @@ impl WorldMachineHome {
                     .flex()
                     .flex_col()
                     .gap_1()
-                    .child(div().text_lg().child(format!("{title} is ready")))
-                    .child(div().text_sm().text_color(crate::theme_rgb(0x52604d)).child(
+                    .child(ui::heading(format!("{title} is ready")))
+                    .child(ui::body(
                         "Start your first World. It keeps living between visits, and you can always create another.",
-                    ))
-                    .child(div().text_xs().text_color(crate::theme_rgb(0x75806f)).child(format!(
-                        "Version {} · no World created yet",
-                        descriptor.pack.version
-                    ))),
+                    )),
             )
             .child(
                 div()
@@ -2546,29 +2506,13 @@ impl WorldMachineHome {
                     .flex()
                     .gap_2()
                     .child(
-                        div()
-                            .id("create-ready-pack-world")
-                            .cursor_pointer()
-                            .p_2()
-                            .rounded_md()
-                            .border_1()
-                            .border_color(crate::theme_rgb(0x6f966b))
-                            .text_sm()
-                            .child(button_title)
+                        ui::button("create-ready-pack-world", button_title, ui::ButtonKind::Primary)
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.create_world(pack_id.clone(), cx)
                             })),
                     )
                     .child(
-                        div()
-                            .id("dismiss-ready-pack-world")
-                            .cursor_pointer()
-                            .p_2()
-                            .rounded_md()
-                            .border_1()
-                            .border_color(crate::theme_rgb(0xcbd8c7))
-                            .text_sm()
-                            .child("Not now")
+                        ui::button("dismiss-ready-pack-world", "Not now", ui::ButtonKind::Secondary)
                             .on_click(cx.listener(|this, _, _, cx| this.dismiss_ready_pack(cx))),
                     ),
             )
@@ -2800,25 +2744,31 @@ impl WorldMachineHome {
         let pack_id = descriptor.pack.id.clone();
         div()
             .id(SharedString::from(format!("new-world-{pack_id}")))
-            .w_full()
+            .min_w(px(260.0))
+            .flex_1()
             .p_4()
-            .rounded_md()
+            .rounded_lg()
             .border_1()
-            .border_color(crate::theme_rgb(0xd9d9d3))
-            .bg(crate::theme_rgb(0xffffff))
+            .border_color(ui::color(tokens::BORDER))
+            .bg(ui::color(tokens::SURFACE))
             .cursor_pointer()
-            .child(div().text_lg().child(descriptor.title))
+            .hover(|style| {
+                style
+                    .border_color(ui::color(tokens::ACCENT))
+                    .bg(ui::color(tokens::SURFACE_HOVER))
+            })
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(ui::row_title(descriptor.title))
+            .child(ui::detail(descriptor.description).line_clamp(3))
             .child(
                 div()
+                    .pt_2()
                     .text_sm()
-                    .text_color(crate::theme_rgb(0x666666))
-                    .child(descriptor.description),
-            )
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(crate::theme_rgb(0x8a8a82))
-                    .child(format!("Version {}", descriptor.pack.version)),
+                    .font_weight(gpui::FontWeight::MEDIUM)
+                    .text_color(ui::color(tokens::ACCENT_TEXT))
+                    .child("Start a World →"),
             )
             .on_click(cx.listener(move |this, _, _, cx| this.create_world(pack_id.clone(), cx)))
     }
@@ -2890,11 +2840,11 @@ impl Render for WorldMachineHome {
             saved = saved.child(
                 div()
                     .p_4()
-                    .rounded_md()
+                    .rounded_lg()
                     .border_1()
-                    .border_color(crate::theme_rgb(0xe1e1dc))
+                    .border_color(ui::color(tokens::BORDER))
                     .text_sm()
-                    .text_color(crate::theme_rgb(0x777770))
+                    .text_color(ui::color(tokens::TEXT_SECONDARY))
                     .child("No Worlds yet. Start one below; it keeps living while you are away."),
             );
         } else if visible_documents.is_empty() {
@@ -2906,11 +2856,11 @@ impl Render for WorldMachineHome {
             saved = saved.child(
                 div()
                     .p_4()
-                    .rounded_md()
+                    .rounded_lg()
                     .border_1()
-                    .border_color(crate::theme_rgb(0xe1e1dc))
+                    .border_color(ui::color(tokens::BORDER))
                     .text_sm()
-                    .text_color(crate::theme_rgb(0x777770))
+                    .text_color(ui::color(tokens::TEXT_SECONDARY))
                     .child(empty),
             );
         } else {
@@ -2995,7 +2945,15 @@ impl Render for WorldMachineHome {
             installed = installed.child(self.installed_pack_card(pack, cx));
         }
 
-        let mut available = div().w_full().flex().flex_col().gap_3();
+        let mut available = div().w_full().flex().flex_wrap().gap_3();
+        // The World a newcomer should try first leads the list.
+        let mut descriptors = descriptors;
+        descriptors.sort_by_key(|descriptor| {
+            !self
+                .included_packs
+                .iter()
+                .any(|included| included.featured && included.pack.id == descriptor.pack.id)
+        });
         for descriptor in descriptors {
             available = available.child(self.new_world_card(descriptor, cx));
         }
@@ -3003,36 +2961,25 @@ impl Render for WorldMachineHome {
         let header = div()
             .id("world-machine-home-chrome")
             .w_full()
-            .p_4()
-            .flex()
-            .justify_between()
-            .items_center()
-            .gap_3()
-            .child(
-                div()
-                    .flex_1()
-                    .min_w(px(0.0))
-                    .flex()
-                    .flex_col()
-                    .gap_1()
-                    .child(div().text_lg().child("World Machine"))
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(crate::theme_rgb(0x666666))
-                            .child("Persistent worlds that remember, evolve, and branch."),
-                    ),
-            );
-
-        let mut body = div()
-            .id("world-machine-home-scroll")
-            .w_full()
-            .flex_1()
-            .overflow_y_scroll()
             .flex()
             .flex_col()
-            .gap_3()
-            .p_4();
+            .gap_1()
+            .child(ui::page_title("World Machine"))
+            .child(ui::body(
+                "Small worlds that keep living while you are away.",
+            ));
+
+        let mut body = div()
+            .w_full()
+            .max_w(px(760.0))
+            .mx_auto()
+            .flex()
+            .flex_col()
+            .gap_4()
+            .px_6()
+            .pt_8()
+            .pb_10()
+            .child(header);
 
         if let Some(update) = self.available_update.clone() {
             body = body.child(self.update_banner(update, cx));
@@ -3049,16 +2996,15 @@ impl Render for WorldMachineHome {
         if show_featured {
             let featured = featured_included.expect("show_featured requires a featured Pack");
             body = body
-                .child(div().text_sm().child("Start here"))
+                .child(home_section_title("Start here"))
                 .child(self.featured_included_pack_card(featured, cx));
         }
 
         if has_documents || self.included_packs.is_empty() {
-            body = body.child(
-                div()
-                    .text_sm()
-                    .child(my_worlds_title(visible_document_count, documents.len())),
-            );
+            body = body.child(home_section_title(my_worlds_title(
+                visible_document_count,
+                documents.len(),
+            )));
             if show_world_controls {
                 body = body.child(self.world_controls(cx));
             }
@@ -3084,7 +3030,7 @@ impl Render for WorldMachineHome {
 
         if !visible_included_packs.is_empty() {
             body = body
-                .child(div().text_sm().child(if first_run {
+                .child(home_section_title(if first_run {
                     "More worlds"
                 } else {
                     "Included Worlds"
@@ -3093,7 +3039,7 @@ impl Render for WorldMachineHome {
         }
 
         body = body
-            .child(div().text_sm().child("New World"))
+            .child(home_section_title("Start a new World"))
             .child(available);
 
         if !installed_packs.is_empty() {
@@ -3120,52 +3066,82 @@ impl Render for WorldMachineHome {
         }
 
         let mut shell = div()
+            .relative()
             .size_full()
-            .bg(crate::theme_rgb(0xf7f7f3))
-            .text_color(crate::theme_rgb(0x202020))
+            .bg(ui::color(tokens::WINDOW))
+            .text_color(ui::color(tokens::TEXT))
             .flex()
             .flex_col()
-            .child(header);
+            .child(
+                div()
+                    .id("world-machine-home-scroll")
+                    .w_full()
+                    .flex_1()
+                    .overflow_y_scroll()
+                    .child(body),
+            );
 
+        // Status floats over the bottom of the window instead of being
+        // inserted above the page, so a Pack finishing its start-up never
+        // moves the card under the pointer.
         if let Some(status) = &self.status {
-            let (background, foreground) = match status.tone {
-                HomeStatusTone::Info => (0xf1f5fb, 0x4e6fb3),
-                HomeStatusTone::Success => (0xeef2ea, 0x4d6748),
-                HomeStatusTone::Error => (0xfbf0ee, 0x9b4a42),
+            let tone = match status.tone {
+                HomeStatusTone::Info => tokens::ACCENT_TEXT,
+                HomeStatusTone::Success => tokens::SUCCESS,
+                HomeStatusTone::Error => tokens::DANGER,
             };
             shell = shell.child(
-                div().id("world-machine-home-status").w_full().px_4().child(
-                    div()
-                        .p_3()
-                        .rounded_md()
-                        .bg(crate::theme_rgb(background))
-                        .text_color(crate::theme_rgb(foreground))
-                        .text_sm()
-                        .flex()
-                        .items_center()
-                        .justify_between()
-                        .gap_3()
-                        .child(div().flex_1().child(status.message.clone()))
-                        .child(
-                            div()
-                                .id("dismiss-world-machine-home-status")
-                                .cursor_pointer()
-                                .p_2()
-                                .rounded_md()
-                                .border_1()
-                                .border_color(crate::theme_rgb(foreground))
-                                .text_xs()
-                                .child("Dismiss")
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.status = None;
-                                    cx.notify();
-                                })),
-                        ),
-                ),
+                div()
+                    .id("world-machine-home-status")
+                    .absolute()
+                    .bottom_4()
+                    .left_0()
+                    .right_0()
+                    .flex()
+                    .justify_center()
+                    .px_6()
+                    .child(
+                        div()
+                            .max_w(px(640.0))
+                            .w_full()
+                            .pl_4()
+                            .pr_2()
+                            .py_2()
+                            .rounded_lg()
+                            .border_1()
+                            .border_color(ui::color(tokens::BORDER_STRONG))
+                            .bg(ui::color(tokens::SURFACE))
+                            .shadow_md()
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .gap_3()
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w(px(0.0))
+                                    .text_sm()
+                                    .text_color(ui::color(tone))
+                                    .child(status.message.clone()),
+                            )
+                            .child(
+                                ui::button(
+                                    "dismiss-world-machine-home-status",
+                                    "Dismiss",
+                                    ui::ButtonKind::Secondary,
+                                )
+                                .on_click(cx.listener(
+                                    |this, _, _, cx| {
+                                        this.status = None;
+                                        cx.notify();
+                                    },
+                                )),
+                            ),
+                    ),
             );
         }
 
-        shell.child(body)
+        shell
     }
 }
 
@@ -3305,6 +3281,40 @@ fn report_unreadable_documents(unreadable: &[UnreadableWorldFile]) {
             file.file_name, file.reason
         ));
     }
+}
+
+/// A heading over one group of cards on Home.
+#[cfg(target_os = "macos")]
+fn home_section_title(text: impl Into<SharedString>) -> gpui::Div {
+    div().pt_4().child(ui::heading(text))
+}
+
+/// The line under a World's name on Home.
+#[cfg(target_os = "macos")]
+fn world_card_meta(title: &str, pack_title: &str, world_time: u64) -> String {
+    let age = if world_time == 0 {
+        "just begun".to_string()
+    } else {
+        format!("time {world_time}")
+    };
+    if title == pack_title {
+        age
+    } else {
+        format!("{pack_title} · {age}")
+    }
+}
+
+/// A quiet text action on a card: present, but never louder than the card.
+#[cfg(target_os = "macos")]
+fn card_link(id: String, label: &'static str) -> gpui::Stateful<gpui::Div> {
+    div()
+        .id(SharedString::from(id))
+        .cursor_pointer()
+        .text_xs()
+        .font_weight(gpui::FontWeight::MEDIUM)
+        .text_color(ui::color(tokens::TEXT_SECONDARY))
+        .hover(|style| style.text_color(ui::color(tokens::ACCENT_TEXT)))
+        .child(label)
 }
 
 #[cfg(target_os = "macos")]
