@@ -561,8 +561,15 @@ impl Render for WorldDocumentView {
         remember_window_geometry(window, RememberedWindow::World);
         window.set_window_title(&document_window_title(&self.document_name));
         let mut actions = div().flex_shrink_0().flex().items_center().gap_2();
+        // Where this World came from is also the way to its family tree.
         if let Some(badge) = world_fork::lineage_badge(&self.document) {
-            actions = actions.child(badge);
+            actions = actions.child(
+                div()
+                    .id("lineage-badge")
+                    .cursor_pointer()
+                    .child(badge)
+                    .on_click(cx.listener(|this, _, _, cx| this.open_lineage(cx))),
+            );
         }
         let actions = actions
             .child(
@@ -2148,123 +2155,79 @@ impl WorldMachineHome {
             );
         }
 
+        // Where this World came from and what branched from it, as links
+        // in a sentence rather than file ids and "+10".
         if let Some(node) = lineage_node {
             if let Some(parent) = node.parent.as_ref() {
-                let branch_label = node.branch.as_ref().map(lineage_branch_label);
-                let mut origin = div().flex().items_center().gap_2().text_xs().child(
-                    div()
-                        .text_color(ui::color(tokens::TEXT_SECONDARY))
-                        .child("Origin"),
-                );
-
-                if let Some(parent_id) = parent.resolved.clone() {
-                    let parent_label = parent_id.to_string();
-                    let parent_title = self
-                        .document_title_for_id(&parent_id)
-                        .unwrap_or_else(|| parent_label.clone());
-                    let open_parent = parent_id.clone();
-                    origin = origin.child(
-                        div()
-                            .id(SharedString::from(format!(
-                                "lineage-parent-{document_label}-{parent_label}"
-                            )))
-                            .cursor_pointer()
-                            .flex()
-                            .flex_col()
-                            .gap_1()
-                            .child(
-                                div()
-                                    .text_color(ui::color(tokens::ACCENT_TEXT))
-                                    .child(parent_title),
+                let choice = node.branch.as_ref().and_then(lineage_choice);
+                let mut origin = div()
+                    .flex()
+                    .flex_wrap()
+                    .items_center()
+                    .gap_1()
+                    .text_xs()
+                    .text_color(ui::color(tokens::TEXT_SECONDARY))
+                    .child("Branched from");
+                match parent.resolved.clone() {
+                    Some(parent_id) => {
+                        let parent_title = self
+                            .document_title_for_id(&parent_id)
+                            .unwrap_or_else(|| parent_id.to_string());
+                        let open_parent = parent_id.clone();
+                        origin = origin.child(
+                            card_link_text(
+                                format!("lineage-parent-{document_label}-{parent_id}"),
+                                parent_title,
                             )
-                            .child(
-                                div()
-                                    .text_color(ui::color(tokens::TEXT_TERTIARY))
-                                    .child(parent_label),
-                            )
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.open_document(open_parent.clone(), cx)
-                            })),
-                    );
-                } else {
-                    let parent_label = parent
-                        .document
-                        .clone()
-                        .unwrap_or_else(|| parent.pack.id.clone());
-                    origin = origin.child(
-                        div()
-                            .text_color(ui::color(tokens::TEXT_SECONDARY))
-                            .child(format!("{parent_label} · outside My Worlds")),
-                    );
+                            .on_click(cx.listener(
+                                move |this, _, _, cx| this.open_document(open_parent.clone(), cx),
+                            )),
+                        );
+                    }
+                    None => {
+                        origin = origin.child("a World that is no longer here");
+                    }
                 }
-
-                if let Some(branch_label) = branch_label {
-                    origin = origin.child(
-                        div()
-                            .text_color(ui::color(tokens::TEXT_SECONDARY))
-                            .child(format!("· {branch_label}")),
-                    );
+                if let Some(choice) = choice {
+                    origin = origin.child(format!("by choosing “{choice}”"));
                 }
                 details = details.child(origin);
             }
 
             if !node.children.is_empty() {
-                let mut branches = div().flex().flex_col().gap_1().child(
-                    div()
-                        .text_xs()
-                        .text_color(ui::color(tokens::TEXT_SECONDARY))
-                        .child(format!("Branches · {}", node.children.len())),
-                );
+                let mut branches = div()
+                    .flex()
+                    .flex_wrap()
+                    .items_center()
+                    .gap_1()
+                    .text_xs()
+                    .text_color(ui::color(tokens::TEXT_SECONDARY))
+                    .child(if node.children.len() == 1 {
+                        "Branch:"
+                    } else {
+                        "Branches:"
+                    });
                 let (visible_children, hidden_children) = lineage_child_preview(&node.children);
-                for child_id in visible_children {
-                    let child_label = child_id.to_string();
+                for (position, child_id) in visible_children.iter().enumerate() {
+                    if position > 0 {
+                        branches = branches.child("·");
+                    }
                     let child_title = self
                         .document_title_for_id(child_id)
-                        .unwrap_or_else(|| child_label.clone());
-                    let child_branch = self
-                        .lineage
-                        .as_ref()
-                        .and_then(|lineage| lineage.node(child_id))
-                        .and_then(|child| child.branch.as_ref())
-                        .map(lineage_branch_label);
-                    let identity = child_branch
-                        .map(|branch| format!("{child_label} · {branch}"))
-                        .unwrap_or_else(|| child_label.clone());
+                        .unwrap_or_else(|| child_id.to_string());
                     let open_child = child_id.clone();
                     branches = branches.child(
-                        div()
-                            .id(SharedString::from(format!(
-                                "lineage-child-{document_label}-{child_label}"
-                            )))
-                            .cursor_pointer()
-                            .flex()
-                            .flex_col()
-                            .gap_1()
-                            .text_xs()
-                            .child(
-                                div()
-                                    .text_color(ui::color(tokens::ACCENT_TEXT))
-                                    .child(child_title),
-                            )
-                            .child(
-                                div()
-                                    .text_color(ui::color(tokens::TEXT_TERTIARY))
-                                    .child(identity),
-                            )
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.open_document(open_child.clone(), cx)
-                            })),
+                        card_link_text(
+                            format!("lineage-child-{document_label}-{child_id}"),
+                            child_title,
+                        )
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.open_document(open_child.clone(), cx)
+                        })),
                     );
                 }
                 if hidden_children > 0 {
-                    branches = branches.child(
-                        div()
-                            .text_xs()
-                            .text_color(ui::color(tokens::TEXT_SECONDARY))
-                            .child(format!(
-                                "+{hidden_children} more branches · listed as their own Worlds"
-                            )),
-                    );
+                    branches = branches.child(format!("and {hidden_children} more"));
                 }
                 details = details.child(branches);
             }
@@ -3299,6 +3262,18 @@ fn world_card_meta(title: &str, pack_title: &str, world_time: u64) -> String {
     }
 }
 
+/// A World's name as a link inside a sentence on a card.
+#[cfg(target_os = "macos")]
+fn card_link_text(id: String, text: String) -> gpui::Stateful<gpui::Div> {
+    div()
+        .id(SharedString::from(id))
+        .cursor_pointer()
+        .font_weight(gpui::FontWeight::MEDIUM)
+        .text_color(ui::color(tokens::ACCENT_TEXT))
+        .hover(|link| link.text_color(ui::color(tokens::ACCENT_HOVER)))
+        .child(text)
+}
+
 /// A quiet text action on a card: present, but never louder than the card.
 #[cfg(target_os = "macos")]
 fn card_link(id: String, label: &'static str) -> gpui::Stateful<gpui::Div> {
@@ -3409,15 +3384,10 @@ fn format_program_size(bytes: u64) -> String {
 }
 
 #[cfg(target_os = "macos")]
-fn lineage_branch_label(branch: &WorldBranchCause) -> String {
+fn lineage_choice(branch: &WorldBranchCause) -> Option<String> {
     match branch {
-        WorldBranchCause::Strategy {
-            choice_title,
-            horizon,
-            ..
-        } => format!("{choice_title} · +{horizon}"),
-        WorldBranchCause::Fork { label: Some(label) } => format!("Fork · {label}"),
-        WorldBranchCause::Fork { label: None } => "Fork".into(),
+        WorldBranchCause::Strategy { choice_title, .. } => Some(choice_title.clone()),
+        WorldBranchCause::Fork { label } => label.clone(),
     }
 }
 

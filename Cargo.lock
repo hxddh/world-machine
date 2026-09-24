@@ -3871,6 +3871,7 @@ dependencies = [
  "world-agent",
  "world-compare",
  "world-core",
+ "world-document",
  "world-host",
  "world-library",
  "world-persistence",

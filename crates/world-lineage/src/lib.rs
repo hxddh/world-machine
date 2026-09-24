@@ -12,6 +12,8 @@ pub struct LineageRecord {
     pub world_time: u64,
     pub event_count: usize,
     pub lineage: Option<WorldLineage>,
+    /// The name the World is known by, when it has been given one.
+    pub title: Option<String>,
 }
 
 impl LineageRecord {
@@ -22,6 +24,7 @@ impl LineageRecord {
             world_time: document.archive.world_time,
             event_count: document.archive.events.len(),
             lineage: document.metadata.lineage.clone(),
+            title: document.metadata.display_title.clone(),
         }
     }
 }
@@ -44,6 +47,8 @@ pub struct LineageNode {
     pub branch: Option<WorldBranchCause>,
     pub parent: Option<LineageParent>,
     pub children: Vec<WorldDocumentId>,
+    /// The name the World is known by, when it has been given one.
+    pub title: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -147,6 +152,7 @@ pub fn build_index(
                 branch,
                 parent,
                 children: Vec::new(),
+                title: record.title.clone(),
             },
         );
     }

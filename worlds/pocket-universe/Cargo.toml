@@ -16,3 +16,4 @@ world-projection = { path = "../../crates/world-projection" }
 [dev-dependencies]
 world-compare = { path = "../../crates/world-compare" }
 world-library = { path = "../../crates/world-library" }
+world-document = { path = "../../crates/world-document" }

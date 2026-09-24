@@ -64,7 +64,8 @@ pub(super) fn lineage_badge(lineage: &WorldLineage) -> impl IntoElement {
         .rounded_md()
         .border_1()
         .border_color(ui::color(tokens::BORDER_STRONG))
-        .bg(ui::color(tokens::WINDOW))
+        .bg(ui::color(tokens::SURFACE))
+        .hover(|badge| badge.border_color(ui::color(tokens::ACCENT)))
         .text_xs()
         .text_color(ui::color(tokens::TEXT_SECONDARY))
         .child(truncate_for_chrome(
@@ -80,24 +81,13 @@ fn lineage_label(lineage: &WorldLineage) -> String {
         .as_deref()
         .unwrap_or(lineage.parent.pack.id.as_str());
     match &lineage.branch {
-        WorldBranchCause::Strategy {
-            choice_title,
-            horizon,
-            ..
-        } => format!(
-            "From {parent} · {choice_title} · +{horizon} · parent t{}",
-            lineage.parent.world_time
-        ),
-        WorldBranchCause::Fork { label: Some(label) } => format!(
-            "From {parent} · Fork {label} · parent t{}",
-            lineage.parent.world_time
-        ),
-        WorldBranchCause::Fork { label: None } => {
-            format!(
-                "From {parent} · Fork · parent t{}",
-                lineage.parent.world_time
-            )
+        WorldBranchCause::Strategy { choice_title, .. } => {
+            format!("Branch of {parent} · {choice_title}")
         }
+        WorldBranchCause::Fork { label: Some(label) } => {
+            format!("Branch of {parent} · {label}")
+        }
+        WorldBranchCause::Fork { label: None } => format!("Branch of {parent}"),
     }
 }
 
@@ -250,10 +240,7 @@ mod tests {
             },
         };
 
-        assert_eq!(
-            lineage_label(&lineage),
-            "From Source.world · Choose A · +20 · parent t42"
-        );
+        assert_eq!(lineage_label(&lineage), "Branch of Source.world · Choose A");
     }
 
     #[test]
@@ -272,7 +259,7 @@ mod tests {
 
         assert_eq!(
             lineage_label(&lineage),
-            "From world-machine.parent · Fork experiment · parent t7"
+            "Branch of world-machine.parent · experiment"
         );
     }
 
