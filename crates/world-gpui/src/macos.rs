@@ -140,6 +140,16 @@ impl ProjectionView {
         cx.notify();
     }
 
+    /// Changes whenever the World moves on, so what is new animates in and
+    /// what is not stays put.
+    fn revision(&self) -> String {
+        format!(
+            "{}-{}",
+            self.snapshot.world_time,
+            self.snapshot.timeline.items.len()
+        )
+    }
+
     /// What the scene lights up: the targets of the choice under the
     /// pointer, or else whoever the news is about.
     fn emphasis(&self) -> scene::Emphasis {
@@ -226,7 +236,11 @@ impl ProjectionView {
         let count = beats.len();
         let mut story = div().flex().flex_col();
         for (index, item) in beats.into_iter().enumerate() {
-            story = story.child(self.story_beat(item, index + 1 == count, cx));
+            story = story.child(ui::arrive(
+                self.story_beat(item, index + 1 == count, cx),
+                format!("beat-{}-{index}", self.revision()),
+                index,
+            ));
         }
         Some(
             div()
@@ -416,6 +430,7 @@ impl ProjectionView {
                     .border_color(color(tokens::ACCENT))
                     .bg(color(tokens::SURFACE_HOVER))
             })
+            .active(|style| style.bg(color(tokens::ROW_SELECTED)))
             .flex()
             .items_center()
             .gap_3()
@@ -1113,7 +1128,11 @@ impl Render for ProjectionView {
             pair.flex_col()
         };
         if let Some(decision) = decision {
-            pair = pair.child(div().flex_1().min_w(px(0.0)).child(decision));
+            pair = pair.child(div().flex_1().min_w(px(0.0)).child(ui::arrive(
+                decision,
+                format!("decision-{}", self.revision()),
+                1,
+            )));
         }
         if let Some(story) = story {
             pair = pair.child(div().flex_1().min_w(px(0.0)).child(story));

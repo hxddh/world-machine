@@ -32,12 +32,13 @@ fn return_compass_names_every_current_relationship_action() -> Result<(), Box<dy
         "the compass says why the choice is open; what each answer does is the choice's own line"
     );
     assert!(
-        compass.detail.contains("trust ") && compass.detail.contains("tension "),
-        "relationship context should expose the current durable relationship pressure"
+        compass.detail.contains("finding their footing")
+            || compass.detail.contains("rely on each other")
+            || compass.detail.contains("not easy with each other"),
+        "relationship context says how they stand, in words: {}",
+        compass.detail
     );
-    assert!(compass
-        .detail
-        .contains("Its durable direction is still open."));
+    assert!(compass.detail.contains("Where it goes is still open."));
     let shared = snapshot
         .commands
         .iter()
@@ -100,10 +101,14 @@ fn return_compass_surfaces_all_simultaneously_open_shaping_choices() -> Result<(
     assert!(
         compass
             .detail
-            .contains("Generation 3 has reached a larger intervention point."),
+            .contains("The World has grown enough for a bigger choice."),
         "the compass should explain why the larger intervention is open now"
     );
-    assert!(compass.detail.contains("Current thread:"));
+    assert!(
+        compass.detail.len() > "The World has grown enough for a bigger choice.".len(),
+        "the compass also says what the World is doing now: {}",
+        compass.detail
+    );
     let bold = snapshot
         .commands
         .iter()

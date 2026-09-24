@@ -54,7 +54,7 @@ A World Machine World is a small persistent world you leave and come back to, sh
 | **Crusader Kings III** | Decisions are event windows with a portrait, and each option shows its consequences as icons (+prestige, −stress). | Choices as cards with consequence chips. | Each choice lists what it changes ("↑ Trust", "Sea Finch → repaired", "Against the World's direction"), coloured by tone. |
 | **Reigns** | Hover over a choice and the meters it will move light up before you commit. | Preview before commit. | Hovering a choice rings what it would change on the scene. It still can't show *how much*. |
 | **The Sims** | Relationships and needs are bars and colours, never sentences like "Trust is 7". | A relationship as a line whose weight is its strength and whose colour is its tone. | Link weight and tone are done. Inspector values are still label/value rows, not meters. |
-| **Townscaper / Islanders** | Restraint: almost nothing on screen but the world, and every interaction feels good. | Calm palette, one accent, the world first. | No motion anywhere: no transitions, no easing, no sense of time passing. This is the biggest craft gap left. |
+| **Townscaper / Islanders** | Restraint: almost nothing on screen but the world, and every interaction feels good. | Calm palette, one accent, the world first, motion that means something. | News eases in, in order, when time moves; trouble breathes on the scene; the World's history grows in. Things on the scene still jump to their new state instead of easing there. |
 | **Wildermyth** | A procedurally generated story told as illustrated comic panels with the characters in them. | Beats as moments with people in them. | Faces are initials. There is no art pipeline, and Packs can't supply any. |
 | **Git graph / Time Machine** | Branches and time as a picture you can scrub. | What if… as two futures side by side, drawn. | What if… now shows both futures as scenes with the differences picked out. Lineage is still a list, and there is no scrubbing. |
 
@@ -69,7 +69,7 @@ A World Machine World is a small persistent world you leave and come back to, sh
 | Characters you care about | 1 | 2 | Portraits, moods, a voice for each person |
 | Branching / What if… | 2 | 3 | A branch graph for lineage; scrubbing through time |
 | Visual craft (type, colour, space) | 1 | 3 | Mac verification; motion; icon set |
-| Motion and feedback | 1 | 1 | Transitions when time advances and choices land |
+| Motion and feedback | 1 | 2 | Nodes easing to their new state; numbers counting to their new value |
 | First run | 2 | 3 | A seeded scene on the very first screen instead of a card list |
 
 The honest reading: this change takes the app from "not a product" to a credible, consistent base. It is not top tier. The biggest gaps left are motion, art, and structured data that would let choices and changes be shown rather than described.
@@ -140,7 +140,7 @@ Tiny Society, with thirteen things on stage, stays readable:
 
 1. **Check on a real Mac.** San Francisco has real weights. The Linux fallback font here does not, so headings look lighter in these screenshots than they will on a Mac. Capture `docs/screenshots/` in light and dark.
 2. **Add the rest of the projection fields above**: deltas since the last visit, then meters. Tone and effects are done.
-3. **Motion.** Animate time advancing and choices landing: nodes easing to new states, halos fading in, the activity strip growing. No product in the table above feels static.
+3. **More motion.** News, the decision panel, the activity strip and trouble on the scene already move. Next is scene nodes easing to their new state when a choice lands, and numbers counting to their new value.
 4. **Lineage as a picture**: a branch graph you can scrub, as What if… now shows futures. Settings, the Analyst panel and Pack review are on the tokens but still laid out as they were; they need the same pass the World window had, then `adapt()` can go.
 5. **History shows every internal step.** "Agent Decision Recorded" twice per visit tells the reader nothing. The projection should mark bookkeeping events so History can fold them.
 6. **Recorded prose still has engine words.** *"Legacy cycle 8 is now a durable adaptive pattern."* is written into each event, so fixing it needs a Pack-version decision, or the narrator seam.

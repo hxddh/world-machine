@@ -1058,7 +1058,9 @@ fn live_stage_copy(
                 "Let one more cycle pass. After that, you can steer the relationship at the center of this World.",
             )),
         ),
-        _ => (format!("Generation {generation}"), None),
+        // Past the opening chapter with nothing open: the World simply goes
+        // on. The generation number is the engine's count, not a headline.
+        _ => ("Life goes on".into(), None),
     }
 }
 
@@ -1592,7 +1594,8 @@ fn return_compass_context(
         LAST_CHANGE,
         "The world is quiet.",
     );
-    format!("Generation {generation} is still carrying its current thread: {last_change}")
+    let _ = generation;
+    last_change
 }
 
 fn pressure_return_context(world: &World, pressure: &str) -> String {
@@ -1620,9 +1623,12 @@ fn relationship_return_context(world: &World) -> String {
     } else {
         format!(" {last_dynamic}")
     };
-    format!(
-        "The central relationship is still forming at trust {trust} · tension {tension}.{dynamic} Its durable direction is still open."
-    )
+    let footing = match (trust, tension) {
+        (t, n) if n > t => "They are not easy with each other yet.",
+        (t, _) if t >= 4 => "They are starting to rely on each other.",
+        _ => "They are still finding their footing with each other.",
+    };
+    format!("{footing}{dynamic} Where it goes is still open.")
 }
 
 fn intervention_return_context(world: &World, generation: i64) -> String {
@@ -1631,9 +1637,8 @@ fn intervention_return_context(world: &World, generation: i64) -> String {
         LAST_CHANGE,
         "The world is quiet.",
     );
-    format!(
-        "Generation {generation} has reached a larger intervention point. Current thread: {last_change}"
-    )
+    let _ = generation;
+    format!("The World has grown enough for a bigger choice. {last_change}")
 }
 
 fn posture_return_context(world: &World) -> String {

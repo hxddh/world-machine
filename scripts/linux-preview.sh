@@ -27,6 +27,8 @@
 # the third World on Home, pressing What if…, and scrolling down is
 #   scripts/linux-preview.sh shots 688 489 @1035 25 scroll 15
 # and "hover @X Y" rests the pointer on the newest window to capture a hover.
+# "frames N" right after a click captures N frames ~0.1s apart as
+# frame-N.png, to see an animation play.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -98,6 +100,18 @@ while [ "$#" -ge 2 ]; do
         shift 3
         continue
     fi
+    # "frames N" captures N frames of the newest window in quick succession,
+    # to check that something animates rather than only where it ends up.
+    if [ "$1" = frames ]; then
+        FRAME_WINDOW=$(newest_window)
+        for frame in $(seq "$2"); do
+            xwd -id "$FRAME_WINDOW" -silent > "$WORK/frame.xwd"
+            convert "$WORK/frame.xwd" -alpha off "$OUT_DIR/frame-$frame.png"
+            sleep 0.08
+        done
+        shift 2
+        continue
+    fi
     # "scroll N" turns the wheel N notches down over the newest window.
     if [ "$1" = scroll ]; then
         read -r X Y < <(origin "$(newest_window)")
@@ -116,7 +130,8 @@ while [ "$#" -ge 2 ]; do
     xdotool mousemove $((X + $1 - 2)) $((Y + $2 - 2))
     sleep 0.5
     xdotool mousemove $((X + $1)) $((Y + $2)) click 1
-    sleep 10
+    # Right before "frames", capture straight away instead of waiting.
+    if [ "${3:-}" = frames ]; then sleep 0.05; else sleep 10; fi
     shift 2
 done
 

@@ -261,9 +261,56 @@ pub fn cover(name: &str, identity: &str) -> gpui::Canvas<()> {
     )
 }
 
+/// How long something new takes to settle into place.
+pub const ENTRANCE: std::time::Duration = std::time::Duration::from_millis(620);
+
+/// An easing for the `index`th of several things arriving together: each
+/// waits a little longer than the one before it, then settles quickly and
+/// softly, so a list reads as arriving in order rather than all at once.
+pub fn staggered(index: usize) -> impl Fn(f32) -> f32 {
+    let delay = (index as f32 * 0.11).min(0.55);
+    move |t| {
+        if t <= delay {
+            return 0.0;
+        }
+        let u = ((t - delay) / (1.0 - delay)).clamp(0.0, 1.0);
+        1.0 - (1.0 - u).powi(4)
+    }
+}
+
+/// Something new arriving: it fades in and rises the last few pixels into
+/// place. Keyed by `key`, so it plays again only when what it shows changes.
+/// Honours the system's reduce-motion setting, as every GPUI animation does.
+pub fn arrive<E>(
+    element: E,
+    key: impl Into<SharedString>,
+    index: usize,
+) -> gpui::AnimationElement<E>
+where
+    E: IntoElement + Styled + 'static,
+{
+    use gpui::{Animation, AnimationExt};
+    element.with_animation(
+        ElementId::Name(key.into()),
+        Animation::new(ENTRANCE).with_easing(staggered(index)),
+        |element, t| element.opacity(t).mt(px((1.0 - t) * 10.0)),
+    )
+}
+
 #[cfg(test)]
 mod tests {
-    use super::initials;
+    use super::{initials, staggered};
+
+    #[test]
+    fn later_arrivals_wait_their_turn_and_everything_settles() {
+        let first = staggered(0);
+        let fourth = staggered(3);
+        assert_eq!(fourth(0.2), 0.0);
+        assert!(first(0.2) > 0.0);
+        for ease in [first, fourth, staggered(20)] {
+            assert!((ease(1.0) - 1.0).abs() < 1e-6);
+        }
+    }
 
     #[test]
     fn initials_take_the_first_and_last_word() {

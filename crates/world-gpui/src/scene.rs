@@ -11,8 +11,10 @@ use gpui::{
     canvas, div, linear_color_stop, linear_gradient, point, prelude::*, px, quad, relative, rgb,
     size, App, BorderStyle, Bounds, Div, FontWeight, Hsla, PathBuilder, SharedString, Window,
 };
+use gpui::{Animation, AnimationExt};
 use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
+use std::time::Duration;
 use world_projection::{
     CanvasItem, CanvasItemKind, CanvasLinkTone, ProjectionSnapshot, SelectionId, Tone,
 };
@@ -474,6 +476,41 @@ pub fn scene(
         ))
         .child(backdrop);
 
+    // Trouble breathes: a ring that slowly swells and fades around anything
+    // whose news is a warning or worse, so it is seen before it is read.
+    for (item, (x, y)) in items.iter().zip(placed.iter().copied()) {
+        let Some(tone @ (Tone::Warning | Tone::Bad)) = glow_of(item) else {
+            continue;
+        };
+        let ring = hsla(tone_token(tone));
+        let size_px = 76.0;
+        scene = scene.child(
+            div()
+                .absolute()
+                .left(relative(x))
+                .top(relative(y))
+                .ml(px(-size_px / 2.0))
+                .mt(px(-size_px / 2.0))
+                .size(px(size_px))
+                .rounded_full()
+                .border_2()
+                .border_color(ring)
+                .with_animation(
+                    SharedString::from(format!("trouble-{}", item.id.stable_key())),
+                    Animation::new(Duration::from_millis(2400)).repeat(),
+                    move |ring_div, t| {
+                        // Swell outward while fading, then start again.
+                        let grow = 0.72 + 0.28 * t;
+                        ring_div
+                            .opacity(0.75 * (1.0 - t))
+                            .size(px(size_px * grow))
+                            .ml(px(-size_px * grow / 2.0))
+                            .mt(px(-size_px * grow / 2.0))
+                    },
+                ),
+        );
+    }
+
     for (item, (x, y)) in items.iter().zip(placed.iter().copied()) {
         let selection = item.id;
         let selected = selected == Some(selection);
@@ -611,12 +648,19 @@ pub fn activity(snapshot: &ProjectionSnapshot) -> Option<Div> {
         } else {
             tokens::BORDER_STRONG
         };
+        // The bars grow in from the left when the strip first appears, so
+        // the World's life reads as something that unfolded.
         bars = bars.child(
             div()
                 .w(px(4.0))
                 .h(px(height))
                 .rounded_sm()
-                .bg(ui::color(colour)),
+                .bg(ui::color(colour))
+                .with_animation(
+                    SharedString::from(format!("activity-{}-{index}", times.len())),
+                    Animation::new(ui::ENTRANCE).with_easing(ui::staggered(index / 4)),
+                    move |bar, t| bar.h(px(2.0 + (height - 2.0) * t)),
+                ),
         );
     }
 
