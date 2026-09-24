@@ -10,6 +10,8 @@ use world_projection::{
 };
 use world_theme::tokens;
 
+mod scene;
+
 const ENTITY_HISTORY_LIMIT: usize = 6;
 const RELATION_HISTORY_LIMIT: usize = 6;
 const ENTITY_RELATION_LIMIT: usize = 6;
@@ -19,9 +21,9 @@ const EVENT_RELATION_EFFECT_LIMIT: usize = 6;
 /// How much of the history the sidebar lists. Older moments stay reachable
 /// through Why and each person's own history.
 const HISTORY_LIMIT: usize = 40;
-/// The reading column never grows past a comfortable line length, however
-/// wide the window is.
-const READING_WIDTH: f32 = 700.0;
+/// The page never grows past a comfortable width, however wide the window
+/// is: wide enough for the scene, narrow enough to read.
+const PAGE_WIDTH: f32 = 980.0;
 const SIDEBAR_WIDTH: f32 = 300.0;
 /// Below this width the sidebar folds under the reading column instead of
 /// squeezing it.
@@ -169,11 +171,20 @@ impl ProjectionView {
         if self.snapshot.world_time > 0 {
             meta.push(world_time_label(self.snapshot.world_time));
         }
-        let mut masthead = div().flex().flex_col().gap_1();
+        let mut heading = div().flex_1().min_w(px(0.0)).flex().flex_col().gap_1();
         if !meta.is_empty() {
-            masthead = masthead.child(ui::section_label(meta.join(" · ")));
+            heading = heading.child(ui::section_label(meta.join(" · ")));
         }
-        masthead.child(ui::page_title(title))
+        let mut masthead = div()
+            .flex()
+            .items_end()
+            .justify_between()
+            .gap_6()
+            .child(heading.child(ui::page_title(title)));
+        if let Some(activity) = self.render_activity() {
+            masthead = masthead.child(activity);
+        }
+        masthead
     }
 
     /// What happened, told in order as a short story rather than a grid of
@@ -189,23 +200,42 @@ impl ProjectionView {
         for (index, item) in beats.into_iter().enumerate() {
             story = story.child(self.story_beat(item, index + 1 == count, cx));
         }
-        Some(story)
+        Some(
+            div()
+                .flex()
+                .flex_col()
+                .gap_3()
+                .child(ui::section_label(if count == 1 {
+                    "What happened".to_string()
+                } else {
+                    format!("What happened · {count}")
+                }))
+                .child(story),
+        )
     }
 
     fn story_beat(&self, item: &BriefingItem, last: bool, cx: &mut Context<Self>) -> Div {
+        // Whoever it happened to, when the World says: a face is read
+        // before a sentence.
+        let actor = item
+            .selection
+            .and_then(|selection| scene::event_actor(&self.snapshot, selection));
+        let face = match actor {
+            Some(name) => ui::avatar(&name, 26.0),
+            None => div()
+                .size(px(26.0))
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(div().size(px(8.0)).rounded_full().bg(color(tokens::ACCENT))),
+        };
         let marker = div()
             .flex()
             .flex_col()
             .items_center()
-            .w(px(12.0))
+            .w(px(26.0))
             .flex_shrink_0()
-            .child(
-                div()
-                    .mt(px(7.0))
-                    .size(px(8.0))
-                    .rounded_full()
-                    .bg(color(tokens::ACCENT)),
-            )
+            .child(face)
             .child(if last {
                 div()
             } else {
@@ -223,9 +253,14 @@ impl ProjectionView {
             .flex()
             .flex_col()
             .gap_1()
-            .child(ui::heading(item.title.clone()));
+            .pt(px(2.0))
+            .child(ui::row_title(item.title.clone()));
         if !item.detail.is_empty() {
-            text = text.child(ui::body(item.detail.clone()));
+            text = text.child(
+                ui::detail(item.detail.clone())
+                    .line_clamp(3)
+                    .text_ellipsis(),
+            );
         }
         if let Some(selection) = item.selection {
             let id = SharedString::from(format!("story-{}", selection.stable_key()));
@@ -254,8 +289,8 @@ impl ProjectionView {
         }
 
         let mut choices = div().flex().flex_col().gap_2();
-        for command in &self.snapshot.commands {
-            choices = choices.child(self.choice(command, cx));
+        for (index, command) in self.snapshot.commands.iter().enumerate() {
+            choices = choices.child(self.choice(index, command, cx));
         }
 
         Some(
@@ -288,7 +323,12 @@ impl ProjectionView {
         )
     }
 
-    fn choice(&self, command: &ProjectionCommand, cx: &mut Context<Self>) -> impl IntoElement {
+    fn choice(
+        &self,
+        index: usize,
+        command: &ProjectionCommand,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let command_id = command.id.clone();
         let mut text = div()
             .flex_1()
@@ -298,7 +338,11 @@ impl ProjectionView {
             .gap_1()
             .child(ui::row_title(command.title.clone()));
         if !command.detail.is_empty() {
-            text = text.child(ui::detail(command.detail.clone()));
+            text = text.child(
+                ui::detail(command.detail.clone())
+                    .line_clamp(3)
+                    .text_ellipsis(),
+            );
         }
         div()
             .id(SharedString::from(format!("command-{}", command.id)))
@@ -318,6 +362,20 @@ impl ProjectionView {
             .flex()
             .items_center()
             .gap_3()
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .size(px(28.0))
+                    .rounded_full()
+                    .bg(color(tokens::ACCENT_SOFT))
+                    .text_color(color(tokens::ACCENT_TEXT))
+                    .text_sm()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(format!("{}", index + 1)),
+            )
             .child(text)
             .child(
                 div()
@@ -412,15 +470,34 @@ impl ProjectionView {
     fn cast_row(&self, item: &CollectionItem, cx: &mut Context<Self>) -> impl IntoElement {
         let selection = item.id;
         let selected = self.selected == Some(selection);
-        let mut row = ui::list_row(
+        let is_actor = self
+            .snapshot
+            .canvas
+            .items
+            .iter()
+            .any(|canvas| canvas.id == selection && canvas.kind == CanvasItemKind::Actor);
+        let mut face = ui::avatar(&item.title, 30.0);
+        if !is_actor {
+            face = face.rounded_md();
+        }
+        let mut text = div()
+            .min_w(px(0.0))
+            .flex()
+            .flex_col()
+            .child(ui::row_title(item.title.clone()).truncate());
+        if !item.subtitle.is_empty() {
+            text = text.child(ui::caption(capitalize(&item.subtitle)));
+        }
+        ui::list_row(
             SharedString::from(format!("collection-{}", selection.stable_key())),
             selected,
         )
-        .child(ui::row_title(item.title.clone()));
-        if !item.subtitle.is_empty() {
-            row = row.child(ui::caption(capitalize(&item.subtitle)));
-        }
-        row.on_click(cx.listener(move |this, _, _, cx| this.select(selection, cx)))
+        .flex_row()
+        .items_center()
+        .gap_3()
+        .child(face)
+        .child(text)
+        .on_click(cx.listener(move |this, _, _, cx| this.select(selection, cx)))
     }
 
     /// Everything that happened, newest first, grouped by the moment it
@@ -461,91 +538,50 @@ impl ProjectionView {
         )
     }
 
+    /// One moment in the history rail: a face or a dot, the headline, and
+    /// one line of what it said. The full account is one click away.
     fn history_row(&self, item: &TimelineItem, cx: &mut Context<Self>) -> impl IntoElement {
         let selection = item.id;
         let selected = self.selected == Some(selection);
-        let mut row = ui::list_row(
+        let actor = scene::event_actor(&self.snapshot, selection);
+        let face = match &actor {
+            Some(name) => ui::avatar(name, 20.0),
+            None => div()
+                .size(px(20.0))
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(
+                    div()
+                        .size(px(6.0))
+                        .rounded_full()
+                        .bg(color(tokens::TEXT_TERTIARY)),
+                ),
+        };
+        let mut text = div()
+            .min_w(px(0.0))
+            .flex_1()
+            .flex()
+            .flex_col()
+            .child(ui::row_title(item.title.clone()).truncate());
+        let summary = history_summary(&item.subtitle, actor.as_deref());
+        if !summary.is_empty() {
+            text = text.child(ui::caption(summary).truncate());
+        }
+        ui::list_row(
             SharedString::from(format!("timeline-{}", selection.stable_key())),
             selected,
         )
-        .child(ui::row_title(item.title.clone()));
-        if !item.subtitle.is_empty() {
-            row = row.child(
-                ui::detail(item.subtitle.clone())
-                    .line_clamp(3)
-                    .text_ellipsis(),
-            );
-        }
-        row.on_click(cx.listener(move |this, _, _, cx| this.select(selection, cx)))
+        .py(px(6.0))
+        .flex_row()
+        .items_start()
+        .gap_2()
+        .child(face)
+        .child(text)
+        .on_click(cx.listener(move |this, _, _, cx| this.select(selection, cx)))
     }
 
     // ---- Look closer ------------------------------------------------------
-
-    fn render_canvas(&self, cx: &mut Context<Self>) -> Div {
-        let mut canvas = div()
-            .relative()
-            .flex_shrink_0()
-            .h(px(330.0))
-            .w_full()
-            .rounded_lg()
-            .border_1()
-            .border_color(color(tokens::BORDER))
-            .bg(color(tokens::SIDEBAR));
-
-        for item in &self.snapshot.canvas.items {
-            let selection = item.id;
-            let selected = self.selected == Some(selection);
-            let tint = match item.kind {
-                CanvasItemKind::Place => tokens::SUCCESS,
-                CanvasItemKind::Actor => tokens::WARNING,
-                CanvasItemKind::Object => tokens::TEXT_TERTIARY,
-            };
-            canvas = canvas.child(
-                div()
-                    .id(SharedString::from(format!(
-                        "canvas-{}",
-                        selection.stable_key()
-                    )))
-                    .absolute()
-                    .left(px(18.0 + item.x * 480.0))
-                    .top(px(14.0 + item.y * 250.0))
-                    .w(px(140.0))
-                    .px_3()
-                    .py_2()
-                    .rounded_md()
-                    .border_1()
-                    .border_color(if selected {
-                        color(tokens::ACCENT)
-                    } else {
-                        color(tokens::BORDER)
-                    })
-                    .bg(color(tokens::SURFACE))
-                    .cursor_pointer()
-                    .hover(|style| style.border_color(color(tokens::BORDER_STRONG)))
-                    .flex()
-                    .flex_col()
-                    .gap(px(2.0))
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap_2()
-                            .child(
-                                div()
-                                    .flex_shrink_0()
-                                    .size(px(6.0))
-                                    .rounded_full()
-                                    .bg(color(tint)),
-                            )
-                            .child(ui::row_title(item.label.clone()).truncate()),
-                    )
-                    .child(ui::caption(item.detail.clone()).truncate())
-                    .on_click(cx.listener(move |this, _, _, cx| this.select(selection, cx))),
-            );
-        }
-
-        canvas
-    }
 
     fn render_inspector(&self, cx: &mut Context<Self>) -> Option<Div> {
         let selection = self.selected?;
@@ -940,22 +976,24 @@ impl ProjectionView {
         if !has_exploration(&self.snapshot, self.selected) {
             return None;
         }
+        let parts = [
+            self.render_inspector(cx),
+            self.render_why(cx),
+            self.render_influence(cx),
+        ]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
+        if parts.is_empty() {
+            return None;
+        }
         let mut section = div()
             .flex()
             .flex_col()
             .gap_3()
             .child(ui::section_label("Look closer"));
-        if !self.snapshot.canvas.items.is_empty() {
-            section = section.child(self.render_canvas(cx));
-        }
-        if let Some(inspector) = self.render_inspector(cx) {
-            section = section.child(inspector);
-        }
-        if let Some(why) = self.render_why(cx) {
-            section = section.child(why);
-        }
-        if let Some(influence) = self.render_influence(cx) {
-            section = section.child(influence);
+        for part in parts {
+            section = section.child(part);
         }
         Some(section)
     }
@@ -971,28 +1009,44 @@ impl Render for ProjectionView {
 
         let mut column = div()
             .w_full()
-            .max_w(px(READING_WIDTH))
+            .max_w(px(PAGE_WIDTH))
             .mx_auto()
             .px_8()
             .py_8()
             .flex()
             .flex_col()
-            .gap_8();
+            .gap_6();
         if let Some(status) = self.render_status() {
             column = column.child(status);
         }
-        let mut lead = div()
-            .flex()
-            .flex_col()
-            .gap_6()
-            .child(self.render_masthead());
-        if let Some(story) = self.render_story(cx) {
-            lead = lead.child(story);
+        column = column.child(self.render_masthead());
+        // The stage is laid out in pixels so nothing overlaps at the width
+        // it will actually be drawn at.
+        let main_width =
+            f32::from(window.viewport_size().width) - if two_columns { SIDEBAR_WIDTH } else { 0.0 };
+        let stage_width = main_width.min(PAGE_WIDTH) - 64.0 - 2.0;
+        if let Some(scene) = self.render_scene(stage_width, cx) {
+            column = column.child(scene);
         }
-        column = column.child(lead);
-        if let Some(decision) = self.render_decision(cx) {
-            column = column.child(decision);
+
+        // The decision and the news that led to it sit side by side under
+        // the scene when there is room, and stack when there is not.
+        let decision = self.render_decision(cx);
+        let story = self.render_story(cx);
+        let side_by_side = two_columns && decision.is_some() && story.is_some();
+        let mut pair = div().flex().gap_6();
+        pair = if side_by_side {
+            pair.items_start()
+        } else {
+            pair.flex_col()
+        };
+        if let Some(decision) = decision {
+            pair = pair.child(div().flex_1().min_w(px(0.0)).child(decision));
         }
+        if let Some(story) = story {
+            pair = pair.child(div().flex_1().min_w(px(0.0)).child(story));
+        }
+        column = column.child(pair);
         if let Some(standing) = self.render_standing(cx) {
             column = column.child(standing);
         }
@@ -1081,6 +1135,22 @@ impl Render for ProjectionView {
         }
         root.child(workspace)
     }
+}
+
+/// A timeline line without the actor's name in front of it: the face beside
+/// it already says who.
+fn history_summary(subtitle: &str, actor: Option<&str>) -> String {
+    let Some(actor) = actor else {
+        return subtitle.to_string();
+    };
+    if subtitle == actor {
+        return String::new();
+    }
+    subtitle
+        .strip_prefix(actor)
+        .and_then(|rest| rest.strip_prefix(" · "))
+        .unwrap_or(subtitle)
+        .to_string()
 }
 
 /// A moment in a World, named the way a person would say it.

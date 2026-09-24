@@ -14,8 +14,23 @@ use std::sync::atomic::{AtomicBool, Ordering};
 static DARK: AtomicBool = AtomicBool::new(false);
 
 /// Records whether windows currently render in the dark appearance.
+///
+/// `WORLD_MACHINE_APPEARANCE=dark` or `=light` overrides what the system
+/// reports, so either appearance can be checked on a machine that only
+/// offers one (the Linux preview under Xvfb reports light, always).
 pub fn set_dark(dark: bool) {
-    DARK.store(dark, Ordering::Relaxed);
+    DARK.store(forced_appearance().unwrap_or(dark), Ordering::Relaxed);
+}
+
+fn forced_appearance() -> Option<bool> {
+    static FORCED: std::sync::OnceLock<Option<bool>> = std::sync::OnceLock::new();
+    *FORCED.get_or_init(
+        || match std::env::var("WORLD_MACHINE_APPEARANCE").ok()?.as_str() {
+            "dark" => Some(true),
+            "light" => Some(false),
+            _ => None,
+        },
+    )
 }
 
 pub fn is_dark() -> bool {

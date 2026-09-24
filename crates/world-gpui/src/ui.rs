@@ -153,3 +153,124 @@ pub fn list_row(id: impl Into<ElementId>, selected: bool) -> Stateful<Div> {
         row.hover(|style| style.bg(color(tokens::ROW_HOVER)))
     }
 }
+
+/// Up to two initials for a name: "Nia Chen" → "NC", "K-88 Radio" → "KR".
+pub fn initials(name: &str) -> String {
+    let words = name
+        .split(|c: char| c.is_whitespace() || c == '-' || c == '·' || c == '↔')
+        .filter_map(|word| word.chars().find(|c| c.is_alphanumeric()))
+        .collect::<Vec<_>>();
+    match words.as_slice() {
+        [] => "?".into(),
+        [only] => only.to_uppercase().collect(),
+        [first, .., last] => first.to_uppercase().chain(last.to_uppercase()).collect(),
+    }
+}
+
+/// A person's face until there are faces: their initials on a colour that
+/// is always theirs.
+pub fn avatar(name: &str, size: f32) -> Div {
+    let (background, foreground) = tokens::avatar(tokens::seed(name));
+    div()
+        .flex_shrink_0()
+        .size(px(size))
+        .rounded_full()
+        .bg(color(background))
+        .text_color(color(foreground))
+        .flex()
+        .items_center()
+        .justify_center()
+        .text_size(px((size * 0.38).round()))
+        .font_weight(FontWeight::SEMIBOLD)
+        .child(initials(name))
+}
+
+/// A small landscape that stands for one World. Its name picks the colours
+/// and its identity the shape of the hills and where the sun sits, so a
+/// Mars colony and a 1987 town from the same Pack never look alike, and the
+/// same World always looks the same.
+pub fn cover(name: &str, identity: &str) -> gpui::Canvas<()> {
+    let hue = (tokens::seed(name) % 360) as f32 / 360.0;
+    let shape = tokens::seed(identity);
+    let dark = world_theme::is_dark();
+    let bit = |shift: u32, range: f32| ((shape >> shift) & 0xff) as f32 / 255.0 * range;
+    let (sky_top, sky_bottom, far, near, sun) = if dark {
+        (
+            gpui::hsla(hue, 0.30, 0.20, 1.0),
+            gpui::hsla(hue, 0.28, 0.28, 1.0),
+            gpui::hsla((hue + 0.08) % 1.0, 0.25, 0.32, 1.0),
+            gpui::hsla((hue + 0.12) % 1.0, 0.30, 0.24, 1.0),
+            gpui::hsla((hue + 0.5) % 1.0, 0.55, 0.70, 0.9),
+        )
+    } else {
+        (
+            gpui::hsla(hue, 0.45, 0.90, 1.0),
+            gpui::hsla(hue, 0.40, 0.82, 1.0),
+            gpui::hsla((hue + 0.08) % 1.0, 0.26, 0.74, 1.0),
+            gpui::hsla((hue + 0.12) % 1.0, 0.28, 0.60, 1.0),
+            gpui::hsla((hue + 0.5) % 1.0, 0.75, 0.80, 0.95),
+        )
+    };
+    let sun_x = 0.2 + bit(0, 0.6);
+    let far_rise = 0.42 + bit(8, 0.18);
+    let far_fall = 0.50 + bit(16, 0.18);
+    let near_rise = 0.62 + bit(24, 0.14);
+    let near_fall = 0.70 + bit(32, 0.14);
+    gpui::canvas(
+        |_, _, _| (),
+        move |bounds: gpui::Bounds<gpui::Pixels>, _, window, _| {
+            use gpui::{point, px, PathBuilder};
+            let o = bounds.origin;
+            let w = bounds.size.width;
+            let h = bounds.size.height;
+            let at = |x: f32, y: f32| point(o.x + w * x, o.y + h * y);
+            window.paint_quad(gpui::fill(
+                bounds,
+                gpui::linear_gradient(
+                    180.0,
+                    gpui::linear_color_stop(sky_top, 0.0),
+                    gpui::linear_color_stop(sky_bottom, 1.0),
+                ),
+            ));
+            let radius = f32::from(h) * 0.14;
+            let centre = at(sun_x, 0.30);
+            window.paint_quad(gpui::quad(
+                gpui::Bounds::new(
+                    point(centre.x - px(radius), centre.y - px(radius)),
+                    gpui::size(px(radius * 2.0), px(radius * 2.0)),
+                ),
+                px(radius),
+                sun,
+                px(0.0),
+                sun,
+                gpui::BorderStyle::default(),
+            ));
+            for (rise, fall, colour) in [(far_rise, far_fall, far), (near_rise, near_fall, near)] {
+                let mut hill = PathBuilder::fill();
+                hill.move_to(at(0.0, rise));
+                hill.curve_to(at(0.5, (rise + fall) / 2.0), at(0.25, rise - 0.16));
+                hill.curve_to(at(1.0, fall), at(0.75, fall + 0.12));
+                hill.line_to(at(1.0, 1.0));
+                hill.line_to(at(0.0, 1.0));
+                hill.close();
+                if let Ok(path) = hill.build() {
+                    window.paint_path(path, colour);
+                }
+            }
+        },
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::initials;
+
+    #[test]
+    fn initials_take_the_first_and_last_word() {
+        assert_eq!(initials("Nia Chen"), "NC");
+        assert_eq!(initials("Kestrel"), "K");
+        assert_eq!(initials("K-88 Radio"), "KR");
+        assert_eq!(initials("Nia ↔ Tomas"), "NT");
+        assert_eq!(initials(""), "?");
+    }
+}

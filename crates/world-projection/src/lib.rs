@@ -692,6 +692,33 @@ pub struct TimelineItem {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct CanvasProjection {
     pub items: Vec<CanvasItem>,
+    /// Connections a Pack wants drawn between two items, beyond the
+    /// relations the World records. A Pack that models a relationship as an
+    /// entity of its own uses this to draw it as a line between the two
+    /// people rather than as a third thing standing beside them.
+    pub links: Vec<CanvasLink>,
+}
+
+/// How a connection reads: warm, strained, or neither.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum CanvasLinkTone {
+    #[default]
+    Neutral,
+    Warm,
+    Strained,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct CanvasLink {
+    pub from: SelectionId,
+    pub to: SelectionId,
+    /// A word or two drawn on the line, such as "Partnership".
+    pub label: String,
+    pub tone: CanvasLinkTone,
+    /// How strong the connection is, 0 to 1; drawn as line weight.
+    pub strength: f32,
+    /// What selecting the line selects, if anything.
+    pub selection: Option<SelectionId>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

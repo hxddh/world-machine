@@ -5,9 +5,9 @@ use std::fmt;
 use world_core::{EntityId, EventId, RelationId};
 use world_persistence::{WorldArchive, WorldPackRef};
 use world_projection::{
-    BriefingItem, BriefingItemKind, BriefingProjection, CanvasItem, CanvasItemKind,
-    CanvasProjection, CollectionItem, CollectionProjection, InspectorProjection, InspectorRow,
-    InspectorSection, ProjectionCapabilities, ProjectionCommand, ProjectionIntent,
+    BriefingItem, BriefingItemKind, BriefingProjection, CanvasItem, CanvasItemKind, CanvasLink,
+    CanvasLinkTone, CanvasProjection, CollectionItem, CollectionProjection, InspectorProjection,
+    InspectorRow, InspectorSection, ProjectionCapabilities, ProjectionCommand, ProjectionIntent,
     ProjectionSnapshot, SelectionId, TimelineItem, TimelineProjection, WhyNode, WhyProjection,
 };
 
@@ -362,6 +362,13 @@ impl ProjectionSnapshotWire {
         for item in &self.canvas.items {
             validate_selection_for_protocol(protocol_version, item.id)?;
         }
+        for link in &self.canvas.links {
+            validate_selection_for_protocol(protocol_version, link.from)?;
+            validate_selection_for_protocol(protocol_version, link.to)?;
+            if let Some(selection) = link.selection {
+                validate_selection_for_protocol(protocol_version, selection)?;
+            }
+        }
         for inspector in &self.inspectors {
             validate_selection_for_protocol(protocol_version, inspector.selection)?;
         }
@@ -671,12 +678,17 @@ impl From<TimelineItemWire> for TimelineItem {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct CanvasProjectionWire {
     pub items: Vec<CanvasItemWire>,
+    /// Optional in both directions: a Pack that predates links sends none,
+    /// and a host that predates them ignores the field.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub links: Vec<CanvasLinkWire>,
 }
 
 impl From<&CanvasProjection> for CanvasProjectionWire {
     fn from(canvas: &CanvasProjection) -> Self {
         Self {
             items: canvas.items.iter().map(Into::into).collect(),
+            links: canvas.links.iter().map(Into::into).collect(),
         }
     }
 }
@@ -685,6 +697,76 @@ impl From<CanvasProjectionWire> for CanvasProjection {
     fn from(canvas: CanvasProjectionWire) -> Self {
         Self {
             items: canvas.items.into_iter().map(Into::into).collect(),
+            links: canvas.links.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CanvasLinkToneWire {
+    #[default]
+    Neutral,
+    Warm,
+    Strained,
+}
+
+impl From<CanvasLinkTone> for CanvasLinkToneWire {
+    fn from(tone: CanvasLinkTone) -> Self {
+        match tone {
+            CanvasLinkTone::Neutral => Self::Neutral,
+            CanvasLinkTone::Warm => Self::Warm,
+            CanvasLinkTone::Strained => Self::Strained,
+        }
+    }
+}
+
+impl From<CanvasLinkToneWire> for CanvasLinkTone {
+    fn from(tone: CanvasLinkToneWire) -> Self {
+        match tone {
+            CanvasLinkToneWire::Neutral => Self::Neutral,
+            CanvasLinkToneWire::Warm => Self::Warm,
+            CanvasLinkToneWire::Strained => Self::Strained,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CanvasLinkWire {
+    pub from: SelectionIdWire,
+    pub to: SelectionIdWire,
+    #[serde(default)]
+    pub label: String,
+    #[serde(default)]
+    pub tone: CanvasLinkToneWire,
+    #[serde(default)]
+    pub strength: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selection: Option<SelectionIdWire>,
+}
+
+impl From<&CanvasLink> for CanvasLinkWire {
+    fn from(link: &CanvasLink) -> Self {
+        Self {
+            from: link.from.into(),
+            to: link.to.into(),
+            label: link.label.clone(),
+            tone: link.tone.into(),
+            strength: link.strength,
+            selection: link.selection.map(Into::into),
+        }
+    }
+}
+
+impl From<CanvasLinkWire> for CanvasLink {
+    fn from(link: CanvasLinkWire) -> Self {
+        Self {
+            from: link.from.into(),
+            to: link.to.into(),
+            label: link.label,
+            tone: link.tone.into(),
+            strength: link.strength.clamp(0.0, 1.0),
+            selection: link.selection.map(Into::into),
         }
     }
 }
@@ -1010,10 +1092,10 @@ impl Error for ProtocolDecodeError {
 mod tests {
     use super::*;
     use world_projection::{
-        BriefingItem, BriefingProjection, CanvasItem, CanvasItemKind, CanvasProjection,
-        CollectionItem, CollectionProjection, InspectorProjection, InspectorRow, InspectorSection,
-        ProjectionCapabilities, ProjectionCommand, TimelineItem, TimelineProjection, WhyNode,
-        WhyProjection,
+        BriefingItem, BriefingProjection, CanvasItem, CanvasItemKind, CanvasLink, CanvasLinkTone,
+        CanvasProjection, CollectionItem, CollectionProjection, InspectorProjection, InspectorRow,
+        InspectorSection, ProjectionCapabilities, ProjectionCommand, TimelineItem,
+        TimelineProjection, WhyNode, WhyProjection,
     };
 
     fn descriptor() -> PackDescriptor {
@@ -1071,6 +1153,14 @@ mod tests {
                     detail: "On the canvas".into(),
                     x: 0.25,
                     y: 0.75,
+                }],
+                links: vec![CanvasLink {
+                    from: entity,
+                    to: entity,
+                    label: "Partnership".into(),
+                    tone: CanvasLinkTone::Warm,
+                    strength: 0.8,
+                    selection: Some(entity),
                 }],
             },
             inspectors: BTreeMap::from([(

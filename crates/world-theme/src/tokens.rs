@@ -71,6 +71,62 @@ pub const SUCCESS: Token = Token::new(0x3d7550, 0x7fc195);
 pub const WARNING: Token = Token::new(0xa46a12, 0xe0ad5c);
 pub const DANGER: Token = Token::new(0xa93f3a, 0xe58a84);
 
+/// The ground a World's scene is drawn on: a soft sky fading into land.
+pub const SCENE_TOP: Token = Token::new(0xeef1f4, 0x1f2328);
+pub const SCENE_BOTTOM: Token = Token::new(0xe9ebe2, 0x1c1f1b);
+/// The faint dot grid over the scene.
+pub const SCENE_GRID: Token = Token::new(0xd6d9d0, 0x2f332e);
+/// Lines between things that are connected in the scene.
+pub const SCENE_LINK: Token = Token::new(0xa9b3c7, 0x56627a);
+
+/// Background and foreground for a person's avatar, picked from a fixed set
+/// of hues by `seed` so the same person always wears the same colour.
+pub fn avatar(seed: u64) -> (Token, Token) {
+    const PAIRS: [(Token, Token); 8] = [
+        (
+            Token::new(0xdbe6fb, 0x2b3a5c),
+            Token::new(0x2c4a86, 0xc3d4f7),
+        ),
+        (
+            Token::new(0xf8e0d6, 0x5a3327),
+            Token::new(0x8a3b22, 0xf3c7b6),
+        ),
+        (
+            Token::new(0xdcf0e2, 0x24452f),
+            Token::new(0x2f6b43, 0xbfe6cb),
+        ),
+        (
+            Token::new(0xf3e4f7, 0x4a2f55),
+            Token::new(0x6e3a82, 0xe5c7f0),
+        ),
+        (
+            Token::new(0xfbefcf, 0x4f4220),
+            Token::new(0x7a5a10, 0xf1dca0),
+        ),
+        (
+            Token::new(0xd8f1f3, 0x21474b),
+            Token::new(0x1f6970, 0xb6e5e9),
+        ),
+        (
+            Token::new(0xf8dde6, 0x552735),
+            Token::new(0x8c2f4e, 0xf2c1d1),
+        ),
+        (
+            Token::new(0xe6e8ee, 0x353841),
+            Token::new(0x454b5c, 0xd3d7e2),
+        ),
+    ];
+    PAIRS[(seed % PAIRS.len() as u64) as usize]
+}
+
+/// A stable seed for a name, so colours do not change between launches.
+pub fn seed(text: &str) -> u64 {
+    // FNV-1a: tiny, dependency-free, and stable across platforms.
+    text.bytes().fold(0xcbf29ce484222325, |hash, byte| {
+        (hash ^ byte as u64).wrapping_mul(0x100000001b3)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -131,6 +187,22 @@ mod tests {
         for ratio in both(ON_ACCENT, ACCENT) {
             assert!(ratio >= 4.5, "{ratio}");
         }
+    }
+
+    #[test]
+    fn avatar_initials_are_legible_in_every_hue() {
+        for seed in 0..8 {
+            let (bg, fg) = avatar(seed);
+            for ratio in both(fg, bg) {
+                assert!(ratio >= 4.5, "hue {seed}: {ratio}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_name_always_gets_the_same_colour() {
+        assert_eq!(seed("Nia Chen"), seed("Nia Chen"));
+        assert_ne!(seed("Nia Chen"), seed("Tomas Vale"));
     }
 
     #[test]
