@@ -2366,6 +2366,9 @@ mod tests {
             display_title: title.map(str::to_owned),
             display_summary: None,
             display_scenery: None,
+            display_calendar: None,
+            display_marks: Vec::new(),
+            display_moves_alone: false,
             world_time: 0,
             event_count: 0,
         }

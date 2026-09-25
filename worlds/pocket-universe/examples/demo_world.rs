@@ -136,6 +136,7 @@ fn branch(
             },
         });
     library.save_document(&WorldDocumentId::new(id)?, &document)?;
+    library.describe(&WorldDocumentId::new(id)?, &session.snapshot())?;
     println!("{id} · branched from {parent} · {title}");
     Ok(archive)
 }
@@ -158,10 +159,13 @@ fn save(
     // The app names a World after its snapshot title when it saves one; do
     // the same, or Home lists every demonstration World as "Pocket Universe".
     library.set_display_title(&id, Some(session.snapshot().title.as_str()))?;
+    library.describe(&id, &session.snapshot())?;
     println!(
-        "{} · World time {} · {}",
+        "{} · {} · {}",
         library.path(&id).display(),
-        session.snapshot().world_time,
+        session
+            .snapshot()
+            .moment_label(session.snapshot().world_time),
         session.snapshot().title
     );
     Ok(())

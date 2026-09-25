@@ -31,6 +31,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let id = WorldDocumentId::new("harbour-town")?;
     library.save(&id, &archive)?;
     library.set_display_title(&id, Some(harbour.snapshot().title.as_str()))?;
+    library.describe(&id, &harbour.snapshot())?;
     println!(
         "{} · {}",
         library.path(&id).display(),

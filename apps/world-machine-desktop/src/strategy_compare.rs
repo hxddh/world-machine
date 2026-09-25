@@ -11,8 +11,9 @@ use std::sync::Arc;
 use world_document::{WorldBranchCause, WorldDocument, WorldLineage, WorldParent};
 use world_gpui::ui;
 use world_host::WorldRegistry;
-use world_library::{snapshot_display_summary, DurableWorldSession, WorldDocumentId, WorldLibrary};
+use world_library::{describe_from_snapshot, DurableWorldSession, WorldDocumentId, WorldLibrary};
 use world_persistence::WorldArchive;
+use world_projection::ProjectionSnapshot;
 use world_strategy_document::{available_choices, evaluate_choices, StrategyChoice};
 use world_strategy_gpui::StrategyComparisonView;
 use world_theme::tokens;
@@ -250,14 +251,14 @@ fn open_result(
         .right
         .outcome()
         .and_then(|outcome| strategy_future_display_title(&outcome.snapshot.title));
-    let left_display_summary = evaluation
+    let left_snapshot = evaluation
         .left
         .outcome()
-        .and_then(|outcome| snapshot_display_summary(&outcome.snapshot));
-    let right_display_summary = evaluation
+        .map(|outcome| outcome.snapshot.clone());
+    let right_snapshot = evaluation
         .right
         .outcome()
-        .and_then(|outcome| snapshot_display_summary(&outcome.snapshot));
+        .map(|outcome| outcome.snapshot.clone());
     let left_archive = evaluation
         .left
         .outcome()
@@ -298,8 +299,8 @@ fn open_result(
                 right_archive,
                 left_display_title,
                 right_display_title,
-                left_display_summary,
-                right_display_summary,
+                left_snapshot,
+                right_snapshot,
                 left_lineage,
                 right_lineage,
                 left_saved: None,
@@ -414,8 +415,9 @@ struct StrategyResultView {
     right_archive: Option<WorldArchive>,
     left_display_title: Option<String>,
     right_display_title: Option<String>,
-    left_display_summary: Option<String>,
-    right_display_summary: Option<String>,
+    /// Each future as it ends, which its saved World describes itself by.
+    left_snapshot: Option<ProjectionSnapshot>,
+    right_snapshot: Option<ProjectionSnapshot>,
     left_lineage: WorldLineage,
     right_lineage: WorldLineage,
     left_saved: Option<WorldDocumentId>,
@@ -425,14 +427,14 @@ struct StrategyResultView {
 
 impl StrategyResultView {
     fn save_future(&mut self, side: FutureSide) -> Result<WorldDocumentId, String> {
-        let (archive, lineage, display_title, display_summary, label, side_label) = match side {
+        let (archive, lineage, display_title, snapshot, label, side_label) = match side {
             FutureSide::Left => (
                 self.left_archive
                     .clone()
                     .ok_or_else(|| "Future A has no durable archive".to_string())?,
                 self.left_lineage.clone(),
                 self.left_display_title.clone(),
-                self.left_display_summary.clone(),
+                self.left_snapshot.clone(),
                 self.left_label.clone(),
                 "Future A",
             ),
@@ -442,7 +444,7 @@ impl StrategyResultView {
                     .ok_or_else(|| "Future B has no durable archive".to_string())?,
                 self.right_lineage.clone(),
                 self.right_display_title.clone(),
-                self.right_display_summary.clone(),
+                self.right_snapshot.clone(),
                 self.right_label.clone(),
                 "Future B",
             ),
@@ -452,7 +454,7 @@ impl StrategyResultView {
         let base = sanitize_document_base(&format!("{source}-{label}"));
         let id = unique_document_id(base, Some(self.library.as_ref()))
             .map_err(|error| error.to_string())?;
-        let future = strategy_future_document(archive, lineage, display_title, display_summary);
+        let future = strategy_future_document(archive, lineage, display_title, snapshot.as_ref());
         let summary = self
             .library
             .create_from_document(id, &future)
@@ -676,14 +678,14 @@ fn strategy_future_document(
     archive: WorldArchive,
     lineage: WorldLineage,
     display_title: Option<String>,
-    display_summary: Option<String>,
+    snapshot: Option<&ProjectionSnapshot>,
 ) -> WorldDocument {
     let mut document = WorldDocument::new(archive).with_lineage(lineage);
     if let Some(title) = display_title {
         document = document.with_display_title(title);
     }
-    if let Some(summary) = display_summary {
-        document = document.with_display_summary(summary);
+    if let Some(snapshot) = snapshot {
+        describe_from_snapshot(&mut document.metadata, snapshot);
     }
     document
 }
@@ -754,12 +756,21 @@ mod tests {
         );
 
         let title = strategy_future_display_title("  Ares Pocket Colony  ");
-        let document = strategy_future_document(
-            archive,
-            lineage,
-            title,
-            Some("World legacy · Ridge Network".into()),
-        );
+        let snapshot = ProjectionSnapshot {
+            briefing: Some(world_projection::BriefingProjection {
+                eyebrow: String::new(),
+                title: String::new(),
+                items: vec![world_projection::BriefingItem {
+                    selection: None,
+                    title: "World legacy · Ridge Network".into(),
+                    detail: String::new(),
+                    kind: world_projection::BriefingItemKind::Status,
+                    tone: world_projection::Tone::Neutral,
+                }],
+            }),
+            ..ProjectionSnapshot::default()
+        };
+        let document = strategy_future_document(archive, lineage, title, Some(&snapshot));
 
         assert_eq!(
             document.metadata.display_title.as_deref(),

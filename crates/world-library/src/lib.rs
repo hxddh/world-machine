@@ -64,6 +64,12 @@ pub struct WorldDocumentSummary {
     pub display_summary: Option<String>,
     /// The World's own colours, if its Pack gave any.
     pub display_scenery: Option<world_projection::Scenery>,
+    /// What the World counts its time in, if its Pack says.
+    pub display_calendar: Option<world_projection::Calendar>,
+    /// The shapes of what it has built, oldest first.
+    pub display_marks: Vec<world_projection::MarkShape>,
+    /// Whether it moves on by itself between visits.
+    pub display_moves_alone: bool,
     pub world_time: u64,
     pub event_count: usize,
 }
@@ -308,6 +314,22 @@ impl WorldLibrary {
         Ok(summary(id.clone(), &document))
     }
 
+    /// Refresh what Home shows about a World (colours, time, what it built,
+    /// its latest line) from a snapshot of it, the way the app does after
+    /// every change.
+    pub fn describe(
+        &self,
+        id: &WorldDocumentId,
+        snapshot: &ProjectionSnapshot,
+    ) -> Result<WorldDocumentSummary, LibraryError> {
+        let mut document = self
+            .load_document(id)?
+            .ok_or_else(|| LibraryError::UnknownDocument(id.clone()))?;
+        describe_from_snapshot(&mut document.metadata, snapshot);
+        self.save_document(id, &document)?;
+        Ok(summary(id.clone(), &document))
+    }
+
     /// Take a World out of the Library without destroying it: its file moves
     /// into the `Removed` folder next to the Worlds, so a removal made by
     /// mistake is a drag back in the Finder rather than lost history.
@@ -480,8 +502,7 @@ impl DurableWorldSession {
         let archive = required_archive(session.as_ref())?;
         let mut document = WorldDocument::new(archive);
         document.metadata.display_title = snapshot_display_title(&snapshot);
-        document.metadata.display_scenery = snapshot_display_scenery(&snapshot);
-        document.metadata.display_summary = snapshot_display_summary(&snapshot);
+        describe_from_snapshot(&mut document.metadata, &snapshot);
         let revision = library.save_document_with_revision(&document_id, &document)?;
         Ok(Self {
             target: WorldDocumentTarget::Library(document_id),
@@ -576,9 +597,13 @@ impl DurableWorldSession {
         let replacement = registry.open_archive(&document.archive)?;
         let snapshot = replacement.snapshot();
 
+        // The file's own line is kept; everything else Home draws from is
+        // refreshed, so Worlds saved before it was recorded gain it.
         let mut metadata = document.metadata;
-        if metadata.display_summary.is_none() {
-            metadata.display_summary = snapshot_display_summary(&snapshot);
+        let saved_summary = metadata.display_summary.clone();
+        describe_from_snapshot(&mut metadata, &snapshot);
+        if saved_summary.is_some() {
+            metadata.display_summary = saved_summary;
         }
         self.revision = revision;
         self.metadata = metadata;
@@ -602,8 +627,7 @@ impl DurableWorldSession {
         let mut next_metadata = self.metadata.clone();
         next_metadata.display_title =
             next_display_title(self.metadata.display_title.as_deref(), &before, &snapshot);
-        next_metadata.display_scenery = snapshot_display_scenery(&snapshot);
-        next_metadata.display_summary = snapshot_display_summary(&snapshot);
+        describe_from_snapshot(&mut next_metadata, &snapshot);
         let next_document = WorldDocument {
             archive: next_archive,
             metadata: next_metadata.clone(),
@@ -635,6 +659,59 @@ pub(crate) fn next_display_title(
     snapshot_display_title(after).or_else(|| current.map(str::to_owned))
 }
 
+/// Everything a list of Worlds shows about one without opening it, as its
+/// latest snapshot says: its colours, what it counts time in, what it has
+/// built, whether it moves on alone, and one line of what is going on. Its
+/// name is left alone, because an owner may have renamed it.
+pub fn describe_from_snapshot(
+    metadata: &mut world_document::WorldDocumentMetadata,
+    snapshot: &ProjectionSnapshot,
+) {
+    metadata.display_scenery = snapshot_display_scenery(snapshot);
+    metadata.display_summary = snapshot_display_summary(snapshot);
+    metadata.display_calendar =
+        snapshot
+            .calendar
+            .as_ref()
+            .map(|calendar| world_document::DocumentCalendar {
+                unit: calendar.unit.clone(),
+                length: calendar.length,
+            });
+    metadata.display_marks = snapshot
+        .canvas
+        .marks
+        .iter()
+        .map(|mark| mark_shape_name(mark.shape).to_owned())
+        .collect();
+    metadata.display_moves_alone = snapshot.capabilities.background;
+}
+
+fn mark_shape_name(shape: world_projection::MarkShape) -> &'static str {
+    use world_projection::MarkShape;
+    match shape {
+        MarkShape::House => "house",
+        MarkShape::Dome => "dome",
+        MarkShape::Tower => "tower",
+        MarkShape::Tree => "tree",
+        MarkShape::Lamp => "lamp",
+        MarkShape::Shop => "shop",
+        MarkShape::Bridge => "bridge",
+    }
+}
+
+fn mark_shape_from_name(name: &str) -> world_projection::MarkShape {
+    use world_projection::MarkShape;
+    match name {
+        "dome" => MarkShape::Dome,
+        "tower" => MarkShape::Tower,
+        "tree" => MarkShape::Tree,
+        "lamp" => MarkShape::Lamp,
+        "shop" => MarkShape::Shop,
+        "bridge" => MarkShape::Bridge,
+        _ => MarkShape::House,
+    }
+}
+
 pub(crate) fn snapshot_display_scenery(
     snapshot: &ProjectionSnapshot,
 ) -> Option<world_document::DocumentScenery> {
@@ -654,9 +731,21 @@ fn snapshot_display_title(snapshot: &ProjectionSnapshot) -> Option<String> {
     (!title.is_empty()).then(|| title.to_owned())
 }
 
-const DISPLAY_SUMMARY_MAX_CHARS: usize = 220;
+const DISPLAY_SUMMARY_MAX_CHARS: usize = 160;
 
+/// One line of what is going on in a World: the latest thing that happened
+/// to someone, as History tells it, or failing that the page's first line.
 pub fn snapshot_display_summary(snapshot: &ProjectionSnapshot) -> Option<String> {
+    let latest_story = snapshot
+        .timeline
+        .items
+        .iter()
+        .rev()
+        .find(|item| !item.routine && !item.title.trim().is_empty())
+        .map(|item| normalize_summary_text(&item.title));
+    if let Some(story) = latest_story {
+        return Some(truncate_summary(story));
+    }
     let item = snapshot.briefing.as_ref()?.items.first()?;
     let title = normalize_summary_text(&item.title);
     let detail = normalize_summary_text(&item.detail);
@@ -674,6 +763,7 @@ fn normalize_summary_text(value: &str) -> String {
     value.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+/// Shorten at a word, never mid-word, and say so with an ellipsis.
 fn truncate_summary(value: String) -> String {
     if value.chars().count() <= DISPLAY_SUMMARY_MAX_CHARS {
         return value;
@@ -682,8 +772,17 @@ fn truncate_summary(value: String) -> String {
         .chars()
         .take(DISPLAY_SUMMARY_MAX_CHARS - 1)
         .collect::<String>();
-    compact.push('…');
-    compact
+    // Break at the last word if one ends near the limit; a line with no
+    // break in sight is cut where it stands rather than emptied.
+    if let Some(space) = compact.rfind(' ') {
+        if compact[space..].chars().count() <= 30 {
+            compact.truncate(space);
+        }
+    }
+    let compact = compact
+        .trim_end_matches([',', ';', ':', '·', ' '])
+        .to_owned();
+    compact + "…"
 }
 
 fn summary(id: WorldDocumentId, document: &WorldDocument) -> WorldDocumentSummary {
@@ -701,6 +800,19 @@ fn summary(id: WorldDocumentId, document: &WorldDocument) -> WorldDocumentSummar
             }
         }),
         display_summary: document.metadata.display_summary.clone(),
+        display_calendar: document.metadata.display_calendar.as_ref().map(|calendar| {
+            world_projection::Calendar {
+                unit: calendar.unit.clone(),
+                length: calendar.length,
+            }
+        }),
+        display_marks: document
+            .metadata
+            .display_marks
+            .iter()
+            .map(|name| mark_shape_from_name(name))
+            .collect(),
+        display_moves_alone: document.metadata.display_moves_alone,
         world_time: document.archive.world_time,
         event_count: document.archive.events.len(),
     }
@@ -1435,6 +1547,81 @@ mod tests {
 
         assert_eq!(summary.chars().count(), DISPLAY_SUMMARY_MAX_CHARS);
         assert!(summary.ends_with('…'));
+    }
+
+    #[test]
+    fn a_long_line_breaks_at_a_word_and_the_latest_story_leads() {
+        let long = format!("{} tail", "word ".repeat(40));
+        let cut = truncate_summary(long);
+        assert!(cut.ends_with("word…"), "{cut}");
+        assert!(cut.chars().count() <= DISPLAY_SUMMARY_MAX_CHARS);
+
+        let told = |title: &str, routine: bool| world_projection::TimelineItem {
+            id: world_projection::SelectionId::from_stable_key("event-1").unwrap(),
+            world_time: 10,
+            title: title.into(),
+            subtitle: String::new(),
+            caused_by: Vec::new(),
+            routine,
+        };
+        let snapshot = ProjectionSnapshot {
+            timeline: world_projection::TimelineProjection {
+                items: vec![
+                    told("The colony opened a new water-recovery loop.", false),
+                    told("Everyday rounds", true),
+                ],
+            },
+            ..ProjectionSnapshot::default()
+        };
+        assert_eq!(
+            snapshot_display_summary(&snapshot).as_deref(),
+            Some("The colony opened a new water-recovery loop.")
+        );
+    }
+
+    #[test]
+    fn home_learns_a_worlds_time_buildings_and_rhythm_from_its_snapshot() {
+        let snapshot = ProjectionSnapshot {
+            capabilities: world_projection::ProjectionCapabilities {
+                fork: true,
+                background: true,
+            },
+            calendar: Some(world_projection::Calendar {
+                unit: "Sol".into(),
+                length: 10,
+            }),
+            canvas: world_projection::CanvasProjection {
+                marks: vec![world_projection::CanvasMark {
+                    label: "A dome".into(),
+                    shape: world_projection::MarkShape::Dome,
+                    selection: None,
+                }],
+                ..Default::default()
+            },
+            ..ProjectionSnapshot::default()
+        };
+        let mut metadata = world_document::WorldDocumentMetadata::default();
+        describe_from_snapshot(&mut metadata, &snapshot);
+        assert!(metadata.display_moves_alone);
+        assert_eq!(metadata.display_marks, vec!["dome".to_string()]);
+        let document = WorldDocument {
+            archive: world_persistence::WorldArchive {
+                format: world_persistence::WORLD_ARCHIVE_FORMAT.into(),
+                format_version: world_persistence::WORLD_ARCHIVE_VERSION,
+                pack: world_persistence::WorldPackRef::new("mock", "1"),
+                world_time: 50,
+                events: Vec::new(),
+                pending: Vec::new(),
+            },
+            metadata,
+        };
+        let listed = summary(WorldDocumentId::new("ares").unwrap(), &document);
+        assert_eq!(
+            listed.display_marks,
+            vec![world_projection::MarkShape::Dome]
+        );
+        assert_eq!(listed.display_calendar.unwrap().unit, "Sol");
+        assert!(listed.display_moves_alone);
     }
 
     #[test]

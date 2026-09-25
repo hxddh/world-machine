@@ -31,6 +31,10 @@ const SIDEBAR_WIDTH: f32 = 300.0;
 /// squeezing it.
 const TWO_COLUMN_MIN_WIDTH: f32 = 920.0;
 
+/// How tall a place to begin is drawn side by side, and stacked.
+const BEGINNING_TALL: f32 = 360.0;
+const BEGINNING_SHORT: f32 = 170.0;
+
 pub struct ProjectionView {
     snapshot: ProjectionSnapshot,
     selected: Option<SelectionId>,
@@ -370,7 +374,14 @@ impl ProjectionView {
                 .child(
                     div()
                         .w_full()
-                        .h(px(170.0))
+                        // Side by side the places are the whole first
+                        // screen, so their pictures take the room; stacked
+                        // on a narrow window they stay short enough to scroll.
+                        .h(px(if two_columns {
+                            BEGINNING_TALL
+                        } else {
+                            BEGINNING_SHORT
+                        }))
                         .child(ui::scenery_cover(&scenery, &command.id).size_full()),
                 )
                 .child(

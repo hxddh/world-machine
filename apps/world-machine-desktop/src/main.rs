@@ -373,6 +373,18 @@ impl WorldDocumentView {
         cx.observe(&projection, |_, _, cx| cx.notify()).detach();
         let analyst_available = world_fork::analyst_available();
         let lineage_label = world_fork::lineage_label(&document);
+        // Closing the last World brings Home back rather than leaving the
+        // app running with no window.
+        cx.on_release(|_, cx| {
+            cx.defer(|cx| {
+                if cx.windows().is_empty() {
+                    if let Some(home) = cx.try_global::<HomeEntity>().map(|home| home.0.clone()) {
+                        open_home_window(home, cx);
+                    }
+                }
+            });
+        })
+        .detach();
         Self {
             document_label,
             document_name,
@@ -811,6 +823,9 @@ struct WorldMachineHome {
     world_sort: WorldSort,
     /// What was typed into Find a World.
     world_search: Entity<AnalystTextInput>,
+    /// On a first launch Home steps aside once the first World opens, so a
+    /// new player meets one window, not two.
+    step_aside_for_first_world: bool,
 }
 
 /// A World name being typed on Home. Only one World is renamed at a time, so
@@ -1069,6 +1084,7 @@ impl WorldMachineHome {
                     // into its first World once the featured Pack is ready;
                     // otherwise Home offers the Create handoff.
                     let create_now = pack.featured && self.documents.is_empty();
+                    self.step_aside_for_first_world |= create_now;
                     self.start_pack_probe(
                         installed.pack,
                         true,
@@ -1505,6 +1521,11 @@ impl WorldMachineHome {
     ) {
         let is_library_world = session.document_id().is_some();
         let catch_up = observer::catch_up(&mut session, &self.registry, &self.library);
+        let unit_after_catch_up = session
+            .snapshot()
+            .calendar
+            .map(|calendar| calendar.unit.to_lowercase())
+            .unwrap_or_else(|| "day".into());
         let sync_error = if is_library_world && matches!(&catch_up, Ok(Some(_))) {
             self.refresh_documents().err()
         } else {
@@ -1538,13 +1559,8 @@ impl WorldMachineHome {
         self.status = match opened {
             Ok(_) => match catch_up {
                 Ok(Some(outcome)) => Some(HomeStatus::success(format!(
-                    "{title} lived through {} {} while you were away",
-                    outcome.periods,
-                    if outcome.periods == 1 {
-                        "period"
-                    } else {
-                        "periods"
-                    }
+                    "{title} lived {} while you were away",
+                    count_of(outcome.periods, &unit_after_catch_up)
                 ))),
                 Ok(None) => None,
                 Err(error) => Some(HomeStatus::info(format!(
@@ -1598,6 +1614,18 @@ impl WorldMachineHome {
     }
 
     fn create_world(&mut self, pack_id: String, cx: &mut Context<Self>) {
+        // A World of this kind that was opened but never begun is picked up
+        // where it was left rather than joined by another empty one.
+        if let Some(unbegun) = self
+            .documents
+            .iter()
+            .find(|document| document.pack.id == pack_id && !has_begun(document))
+            .map(|document| document.id.clone())
+        {
+            self.open_document(unbegun, cx);
+            self.step_aside_if_first_world(cx);
+            return;
+        }
         let title = self
             .registry
             .descriptor(&pack_id)
@@ -1634,10 +1662,33 @@ impl WorldMachineHome {
             self.ready_pack_to_create = None;
         }
         self.open_session(session, title, cx);
+        self.step_aside_if_first_world(cx);
         if let Some(status) = sync_error {
             self.status = Some(status);
             cx.notify();
         }
+    }
+
+    /// Close Home once the first World of a first launch is open; it comes
+    /// back when that World's window closes.
+    fn step_aside_if_first_world(&mut self, cx: &mut Context<Self>) {
+        if !std::mem::take(&mut self.step_aside_for_first_world) {
+            return;
+        }
+        cx.defer(|cx| {
+            let world_open = cx
+                .windows()
+                .iter()
+                .any(|window| window.downcast::<WorldDocumentView>().is_some());
+            if !world_open {
+                return;
+            }
+            for window in cx.windows() {
+                if let Some(home) = window.downcast::<WorldMachineHome>() {
+                    let _ = home.update(cx, |_, window, _| window.remove_window());
+                }
+            }
+        });
     }
 
     fn open_document(&mut self, document_id: WorldDocumentId, cx: &mut Context<Self>) {
@@ -2084,6 +2135,7 @@ impl WorldMachineHome {
             &title,
             &pack_title,
             document.world_time,
+            document.display_calendar.as_ref(),
         )));
 
         let renaming_this_world = self
@@ -2184,41 +2236,34 @@ impl WorldMachineHome {
                             ),
                     ),
             );
-        } else {
-            details = details.child(
-                div()
-                    .pt_1()
-                    .flex()
-                    .flex_wrap()
-                    .gap_4()
-                    .child(
-                        card_link(format!("compare-{compare_id}"), "What if…").on_click(
-                            cx.listener(move |this, _, _, cx| {
-                                this.compare_document(compare_id.clone(), cx)
-                            }),
-                        ),
-                    )
-                    .child(
-                        card_link(format!("rename-{document_label}"), "Rename").on_click(
-                            cx.listener(move |this, _, _, cx| {
-                                this.begin_rename(rename_id.clone(), cx)
-                            }),
-                        ),
-                    )
-                    .child(
-                        card_link(format!("export-{export_id}"), "Export…").on_click(cx.listener(
-                            move |this, _, _, cx| this.export_document(export_id.clone(), cx),
-                        )),
-                    )
-                    .child(
-                        card_link(format!("remove-{document_label}"), "Remove").on_click(
-                            cx.listener(move |this, _, _, cx| {
-                                this.request_removal(remove_id.clone(), cx)
-                            }),
-                        ),
-                    ),
-            );
         }
+        let actions = (!renaming_this_world && !removing_this_world).then(|| {
+            div()
+                .flex()
+                .flex_wrap()
+                .items_center()
+                .gap_3()
+                .child(
+                    card_link(format!("compare-{compare_id}"), "What if…").on_click(cx.listener(
+                        move |this, _, _, cx| this.compare_document(compare_id.clone(), cx),
+                    )),
+                )
+                .child(
+                    card_link(format!("rename-{document_label}"), "Rename").on_click(
+                        cx.listener(move |this, _, _, cx| this.begin_rename(rename_id.clone(), cx)),
+                    ),
+                )
+                .child(
+                    card_link(format!("export-{export_id}"), "Export…").on_click(cx.listener(
+                        move |this, _, _, cx| this.export_document(export_id.clone(), cx),
+                    )),
+                )
+                .child(
+                    card_link(format!("remove-{document_label}"), "Remove").on_click(cx.listener(
+                        move |this, _, _, cx| this.request_removal(remove_id.clone(), cx),
+                    )),
+                )
+        });
 
         // Where this World came from and what branched from it, as links
         // in a sentence rather than file ids and "+10".
@@ -2232,7 +2277,7 @@ impl WorldMachineHome {
                     .gap_1()
                     .text_xs()
                     .text_color(ui::color(tokens::TEXT_SECONDARY))
-                    .child("Branched from");
+                    .child("A branch of");
                 match parent.resolved.clone() {
                     Some(parent_id) => {
                         let parent_title = self
@@ -2258,86 +2303,101 @@ impl WorldMachineHome {
                 }
                 details = details.child(origin);
             }
-
-            if !node.children.is_empty() {
-                let mut branches = div()
-                    .flex()
-                    .flex_wrap()
-                    .items_center()
-                    .gap_1()
-                    .text_xs()
-                    .text_color(ui::color(tokens::TEXT_SECONDARY))
-                    .child(if node.children.len() == 1 {
-                        "Branch:"
-                    } else {
-                        "Branches:"
-                    });
-                let (visible_children, hidden_children) = lineage_child_preview(&node.children);
-                for (position, child_id) in visible_children.iter().enumerate() {
-                    if position > 0 {
-                        branches = branches.child("·");
-                    }
-                    let child_title = self
-                        .document_title_for_id(child_id)
-                        .unwrap_or_else(|| child_id.to_string());
-                    let open_child = child_id.clone();
-                    branches = branches.child(
-                        card_link_text(
-                            format!("lineage-child-{document_label}-{child_id}"),
-                            child_title,
-                        )
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.open_document(open_child.clone(), cx)
-                        })),
-                    );
-                }
-                if hidden_children > 0 {
-                    branches = branches.child(format!("and {hidden_children} more"));
-                }
-                details = details.child(branches);
-            }
         }
 
-        div()
-            .id(SharedString::from(format!("document-{document_label}")))
+        // What else can be done with it, along the card's foot.
+        if let Some(actions) = actions {
+            details = details.child(div().pt_2().child(actions));
+        }
+
+        // How long the World has been living without you, when it lives on
+        // its own: what opening it will catch up on.
+        let waiting = document
+            .display_moves_alone
+            .then(|| observer::periods_waiting(&document.id, &self.library))
+            .flatten()
+            .filter(|periods| *periods > 0);
+        let unit = document
+            .display_calendar
+            .as_ref()
+            .map(|calendar| calendar.unit.to_lowercase())
+            .unwrap_or_else(|| "day".into());
+        let mut cover = div()
+            .id(SharedString::from(format!("cover-{document_label}")))
+            .relative()
             .w_full()
-            .p_4()
-            .rounded_lg()
-            .border_1()
-            .border_color(ui::color(tokens::BORDER))
-            .bg(ui::color(tokens::SURFACE))
-            .hover(|style| style.border_color(ui::color(tokens::BORDER_STRONG)))
-            .flex()
-            .justify_between()
-            .items_start()
-            .gap_4()
+            .h(px(WORLD_COVER_HEIGHT))
+            .cursor_pointer()
             .child(
-                div()
-                    .flex_shrink_0()
-                    .w(px(112.0))
-                    .h(px(76.0))
-                    .rounded_md()
-                    .overflow_hidden()
-                    .child(
-                        ui::cover_for(
-                            document.display_scenery.as_ref(),
-                            &title,
-                            document.id.as_str(),
-                        )
-                        .size_full(),
-                    ),
+                ui::living_cover(
+                    document.display_scenery.as_ref(),
+                    &title,
+                    document.id.as_str(),
+                    &document.display_marks,
+                )
+                .size_full(),
             )
-            .child(details)
-            .child(
+            .on_click(cx.listener({
+                let open_id = open_id.clone();
+                move |this, _, _, cx| this.open_document(open_id.clone(), cx)
+            }));
+        // The way in sits on the picture, the way a game shelf has it.
+        cover = cover.child(
+            div().absolute().bottom_3().right_3().child(
                 ui::button(
                     SharedString::from(format!("open-{open_id}")),
                     "Open",
                     ui::ButtonKind::Primary,
                 )
-                .on_click(
-                    cx.listener(move |this, _, _, cx| this.open_document(open_id.clone(), cx)),
-                ),
-            )
+                .on_click(cx.listener({
+                    let open_id = open_id.clone();
+                    move |this, _, _, cx| this.open_document(open_id.clone(), cx)
+                })),
+            ),
+        );
+        if let Some(periods) = waiting {
+            cover = cover.child(
+                div()
+                    .absolute()
+                    .top_2()
+                    .left_2()
+                    .px_2()
+                    .py_1()
+                    .rounded_full()
+                    .bg(ui::color(tokens::SURFACE))
+                    .shadow_sm()
+                    .flex()
+                    .items_center()
+                    .gap_1()
+                    .child(
+                        div()
+                            .size(px(6.0))
+                            .rounded_full()
+                            .bg(ui::color(tokens::SUCCESS)),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(ui::color(tokens::TEXT))
+                            .child(time_waiting_line(periods, &unit)),
+                    ),
+            );
+        }
+
+        div()
+            .id(SharedString::from(format!("document-{document_label}")))
+            .w_full()
+            .min_w(px(0.0))
+            .rounded_xl()
+            .overflow_hidden()
+            .border_1()
+            .border_color(ui::color(tokens::BORDER))
+            .bg(ui::color(tokens::SURFACE))
+            .hover(|style| style.border_color(ui::color(tokens::BORDER_STRONG)))
+            .flex()
+            .flex_col()
+            .child(cover)
+            .child(div().p_4().child(details))
     }
 
     fn included_pack_is_installed(&self, pack: &WorldPackRef) -> bool {
@@ -2853,7 +2913,14 @@ impl Render for WorldMachineHome {
         remember_window_geometry(window, RememberedWindow::Home);
         window.set_window_title("World Machine");
 
-        let documents = self.documents.clone();
+        // A World where nothing has happened yet is not one of My Worlds;
+        // starting that kind of World again picks it back up.
+        let documents = self
+            .documents
+            .iter()
+            .filter(|document| has_begun(document))
+            .cloned()
+            .collect::<Vec<_>>();
         let has_documents = !documents.is_empty();
         let pack_filters = world_pack_filter_counts(&documents);
         let selected_world_pack = self.selected_world_pack.clone();
@@ -2935,9 +3002,26 @@ impl Render for WorldMachineHome {
                     .child(empty),
             );
         } else {
-            for document in visible_documents {
-                saved = saved.child(self.document_card(document, cx));
+            // Two columns that each stack their own cards, so a tall card
+            // never leaves a hole beside a short one.
+            let mut columns = [
+                div().flex_1().min_w(px(0.0)).flex().flex_col().gap_4(),
+                div().flex_1().min_w(px(0.0)).flex().flex_col().gap_4(),
+            ];
+            for (index, document) in visible_documents.into_iter().enumerate() {
+                let column = std::mem::replace(&mut columns[index % 2], div());
+                columns[index % 2] = column.child(self.document_card(document, cx));
             }
+            let [left, right] = columns;
+            saved = saved.child(
+                div()
+                    .w_full()
+                    .flex()
+                    .items_start()
+                    .gap_4()
+                    .child(left)
+                    .child(right),
+            );
         }
 
         let mut world_filters = div().w_full().flex().gap_2();
@@ -3361,13 +3445,49 @@ fn home_section_title(text: impl Into<SharedString>) -> gpui::Div {
     div().pt_4().child(ui::heading(text))
 }
 
+/// Whether anything has happened in a World yet.
+#[cfg(target_os = "macos")]
+fn has_begun(document: &WorldDocumentSummary) -> bool {
+    document.event_count > 0 || document.world_time > 0
+}
+
+/// How tall a World's cover stands on Home.
+#[cfg(target_os = "macos")]
+const WORLD_COVER_HEIGHT: f32 = 150.0;
+
+/// How long a World has been living without you, in its own unit:
+/// "1 sol has passed", "3 nights have passed".
+fn time_waiting_line(periods: u64, unit: &str) -> String {
+    let verb = if periods == 1 { "has" } else { "have" };
+    format!("{} {verb} passed", count_of(periods, unit))
+}
+
+/// "1 sol", "3 nights".
+fn count_of(count: u64, unit: &str) -> String {
+    if count == 1 {
+        format!("1 {unit}")
+    } else {
+        format!("{count} {unit}s")
+    }
+}
+
 /// The line under a World's name on Home.
 #[cfg(target_os = "macos")]
-fn world_card_meta(title: &str, pack_title: &str, world_time: u64) -> String {
+fn world_card_meta(
+    title: &str,
+    pack_title: &str,
+    world_time: u64,
+    calendar: Option<&world_projection::Calendar>,
+) -> String {
+    // The World's own count ("Sol 5"), the way its window says it.
     let age = if world_time == 0 {
         "just begun".to_string()
     } else {
-        format!("time {world_time}")
+        world_projection::ProjectionSnapshot {
+            calendar: calendar.cloned(),
+            ..world_projection::ProjectionSnapshot::default()
+        }
+        .moment_label(world_time)
     };
     if title == pack_title {
         age
@@ -3796,6 +3916,9 @@ mod file_type_tests {
             display_title: None,
             display_summary: None,
             display_scenery: None,
+            display_calendar: None,
+            display_marks: Vec::new(),
+            display_moves_alone: false,
             world_time: 0,
             event_count: 0,
         };
@@ -3847,6 +3970,44 @@ mod file_type_tests {
     }
 
     #[test]
+    fn home_counts_a_world_in_its_own_time_and_says_what_waits() {
+        let sols = world_projection::Calendar {
+            unit: "Sol".into(),
+            length: 10,
+        };
+        assert_eq!(
+            world_card_meta("Ares Pocket Colony", "Pocket Universe", 50, Some(&sols)),
+            "Pocket Universe · Sol 5"
+        );
+        assert_eq!(
+            world_card_meta("Pocket Universe", "Pocket Universe", 0, Some(&sols)),
+            "just begun"
+        );
+        assert_eq!(time_waiting_line(1, "sol"), "1 sol has passed");
+        assert_eq!(time_waiting_line(3, "night"), "3 nights have passed");
+        assert_eq!(count_of(2, "day"), "2 days");
+    }
+
+    #[test]
+    fn a_world_nothing_has_happened_in_is_not_listed_yet() {
+        let mut summary = WorldDocumentSummary {
+            id: WorldDocumentId::new("fresh").unwrap(),
+            pack: WorldPackRef::new("world-machine.pocket-universe", "0.20.0"),
+            display_title: None,
+            display_summary: None,
+            display_scenery: None,
+            display_calendar: None,
+            display_marks: Vec::new(),
+            display_moves_alone: false,
+            world_time: 0,
+            event_count: 0,
+        };
+        assert!(!has_begun(&summary));
+        summary.event_count = 3;
+        assert!(has_begun(&summary));
+    }
+
+    #[test]
     fn a_world_says_when_it_next_moves_on_its_own() {
         assert_eq!(
             keeps_going_line(5 * 3600 + 10, "sol"),
@@ -3884,6 +4045,9 @@ mod file_type_tests {
             display_title: Some("  Ares Pocket Colony  ".into()),
             display_summary: Some("  Current thread · Ridge Network  ".into()),
             display_scenery: None,
+            display_calendar: None,
+            display_marks: Vec::new(),
+            display_moves_alone: false,
             world_time: 3,
             event_count: 7,
         };
@@ -3954,6 +4118,9 @@ mod file_type_tests {
                     display_title: Some(title.to_owned()),
                     display_summary: None,
                     display_scenery: None,
+                    display_calendar: None,
+                    display_marks: Vec::new(),
+                    display_moves_alone: false,
                     world_time: 0,
                     event_count: 0,
                 },
@@ -4248,6 +4415,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 pending_removal: None,
                 world_sort: WorldSort::Recent,
                 world_search,
+                step_aside_for_first_world: false,
             };
             home.start_system_open_listener(cx);
             home.activate_included_packs(cx);

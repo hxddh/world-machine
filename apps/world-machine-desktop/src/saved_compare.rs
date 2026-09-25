@@ -443,6 +443,9 @@ mod tests {
             display_title: display_title.map(str::to_owned),
             display_summary: Some("Current durable branch state".into()),
             display_scenery: None,
+            display_calendar: None,
+            display_marks: Vec::new(),
+            display_moves_alone: false,
             world_time: 10,
             event_count: 2,
         }
