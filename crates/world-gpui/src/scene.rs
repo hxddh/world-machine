@@ -34,9 +34,8 @@ const PLACE_HEIGHT: f32 = 58.0;
 const ACTOR_SIZE: f32 = 46.0;
 const COMPACT_ACTOR_SIZE: f32 = 36.0;
 const ACTOR_LABEL_WIDTH: f32 = 120.0;
-const OBJECT_WIDTH: f32 = 132.0;
+const OBJECT_WIDTH: f32 = 164.0;
 const OBJECT_HEIGHT: f32 = 30.0;
-const LINK_LABEL_WIDTH: f32 = 180.0;
 
 /// One line to draw: where it runs, how it reads, and how heavy it is.
 struct Line {
@@ -44,6 +43,8 @@ struct Line {
     to: (f32, f32),
     tone: CanvasLinkTone,
     width: f32,
+    /// Dotted: a connection between people who are not together.
+    dotted: bool,
 }
 
 /// Where a Pack's 0..1 position lands inside the scene, leaving a margin so
@@ -365,48 +366,201 @@ fn footprint(kind: CanvasItemKind, compact: bool) -> (f32, f32, f32) {
     }
 }
 
-/// Where each item is drawn, as fractions of the stage. Starts from where
-/// the Pack put it, then nudges overlapping nodes apart a little at a time
-/// until nothing covers anything else, so a Pack's rough positions never
-/// produce a pile. Deterministic: the same World always lays out the same.
+/// How much room an item takes on the stage, a change chip included: its
+/// width, its height, and how far its top sits above the point it is
+/// placed at.
+fn item_box(item: &CanvasItem, compact: bool) -> (f32, f32, f32) {
+    let (w, h, top) = footprint(item.kind, compact);
+    // A thing's label is as wide as its name, so no name is cut off.
+    let w = if item.kind == CanvasItemKind::Object {
+        object_width(&item.label)
+    } else {
+        w
+    };
+    // A change chip under a name stands taller than the caption it
+    // replaces, and in a compact scene there was no caption at all.
+    let chip = match (item.kind, item.changes.is_empty(), compact) {
+        (CanvasItemKind::Actor, false, false) => 6.0,
+        (CanvasItemKind::Actor, false, true) | (CanvasItemKind::Object, false, _) => 20.0,
+        _ => 0.0,
+    };
+    (w, h + chip, top)
+}
+
+/// Where each item is drawn, as fractions of the stage, with nobody
+/// standing together: what a scene without whereabouts gets.
+#[cfg(test)]
 fn layout(items: &[CanvasItem], width: f32, height: f32, compact: bool) -> Vec<(f32, f32)> {
-    const GAP: f32 = 10.0;
+    arrange(items, &[], width, height, compact)
+}
+
+/// Gap between people standing side by side, and between a place and the
+/// people standing at it.
+const SIDE_BY_SIDE: f32 = 6.0;
+const AT_THE_DOOR: f32 = 8.0;
+/// How low on the stage a thing that stands on the ground stands.
+const GROUND: f32 = 0.9;
+
+/// Who stands with whom: for each item, the index of the place (or thing)
+/// it is at, when that is on the stage and is not itself somewhere else.
+fn hosts(items: &[CanvasItem]) -> Vec<Option<usize>> {
+    let index = items
+        .iter()
+        .enumerate()
+        .map(|(position, item)| (item.id, position))
+        .collect::<BTreeMap<_, _>>();
+    items
+        .iter()
+        .enumerate()
+        .map(|(position, item)| {
+            let host = *index.get(&item.at?)?;
+            (host != position && items[host].at.is_none()).then_some(host)
+        })
+        .collect()
+}
+
+/// Where each item is drawn, as fractions of the stage.
+///
+/// A place and everyone at it are laid out together: the place, and under
+/// it a row of the people (and things) there, pairs who belong together
+/// side by side. Things that stand nowhere in particular stand on the
+/// ground. Groups start where the Pack put their place and are then nudged
+/// apart until nothing covers anything else. Deterministic: the same World
+/// always lays out the same.
+fn arrange(
+    items: &[CanvasItem],
+    pairs: &[(SelectionId, SelectionId)],
+    width: f32,
+    height: f32,
+    compact: bool,
+) -> Vec<(f32, f32)> {
+    const GAP: f32 = 12.0;
     const EDGE: f32 = 6.0;
     let boxes = items
         .iter()
-        .map(|item| {
-            let (w, h, top) = footprint(item.kind, compact);
-            // A change chip under a name stands taller than the caption it
-            // replaces, and in a compact scene there was no caption at all.
-            let chip = match (item.kind, item.changes.is_empty(), compact) {
-                (CanvasItemKind::Actor, false, false) => 6.0,
-                (CanvasItemKind::Actor, false, true) | (CanvasItemKind::Object, false, _) => 20.0,
-                _ => 0.0,
+        .map(|item| item_box(item, compact))
+        .collect::<Vec<_>>();
+    let host_of = hosts(items);
+    let is_host = |position: usize| host_of.contains(&Some(position));
+
+    // Each group: its host (or lone item) and the rows standing under it.
+    struct Group {
+        lead: usize,
+        rows: Vec<Vec<usize>>,
+        /// A thing on the ground with people beside it, rather than a place
+        /// with people at its door.
+        beside: bool,
+        w: f32,
+        h: f32,
+        cx: f32,
+        cy: f32,
+    }
+    let row_limit = if compact { 280.0 } else { 300.0 };
+    let mut groups = Vec::new();
+    for (position, item) in items.iter().enumerate() {
+        if host_of[position].is_some() {
+            continue;
+        }
+        let mut members = (0..items.len())
+            .filter(|member| host_of[*member] == Some(position))
+            .collect::<Vec<_>>();
+        // Pairs who belong together stand next to each other.
+        for (a, b) in pairs {
+            let find = |id: &SelectionId, members: &[usize]| {
+                members.iter().position(|member| items[*member].id == *id)
             };
-            (w, h + chip, top)
-        })
-        .collect::<Vec<_>>();
-    // Work in the centre of each node's box, in pixels.
-    let mut centres = items
-        .iter()
-        .zip(&boxes)
-        .map(|(item, (_, h, top))| {
-            (
-                scene_x(item.x) * width,
-                scene_y(item.y) * height - top + h / 2.0,
-            )
-        })
-        .collect::<Vec<_>>();
-    for _ in 0..160 {
+            if let (Some(first), Some(second)) = (find(a, &members), find(b, &members)) {
+                let partner = members.remove(second);
+                let first = if second < first { first - 1 } else { first };
+                members.insert(first + 1, partner);
+            }
+        }
+        let mut rows: Vec<Vec<usize>> = Vec::new();
+        let mut row_width = 0.0;
+        for member in members {
+            let w = boxes[member].0;
+            if rows.is_empty() || row_width + SIDE_BY_SIDE + w > row_limit {
+                rows.push(Vec::new());
+                row_width = 0.0;
+            }
+            row_width += if row_width > 0.0 { SIDE_BY_SIDE + w } else { w };
+            rows.last_mut().expect("a row was just pushed").push(member);
+        }
+        let (lead_w, lead_h, lead_top) = boxes[position];
+        // A thing people are with (a rover, a boat) stands on the ground
+        // with them beside it, all on one line.
+        if item.kind == CanvasItemKind::Object {
+            let row = rows.concat();
+            let w = row
+                .iter()
+                .map(|member| boxes[*member].0 + SIDE_BY_SIDE)
+                .sum::<f32>()
+                + lead_w;
+            let h = row
+                .iter()
+                .map(|member| boxes[*member].1)
+                .fold(lead_h, f32::max);
+            groups.push(Group {
+                lead: position,
+                rows: vec![row],
+                beside: true,
+                w,
+                h,
+                cx: scene_x(item.x) * width,
+                cy: height * GROUND - h / 2.0,
+            });
+            continue;
+        }
+        let rows_w = rows
+            .iter()
+            .map(|row| {
+                row.iter().map(|member| boxes[*member].0).sum::<f32>()
+                    + SIDE_BY_SIDE * row.len().saturating_sub(1) as f32
+            })
+            .fold(0.0_f32, f32::max);
+        let rows_h = rows
+            .iter()
+            .map(|row| {
+                row.iter()
+                    .map(|member| boxes[*member].1)
+                    .fold(0.0_f32, f32::max)
+                    + SIDE_BY_SIDE
+            })
+            .sum::<f32>();
+        let w = lead_w.max(rows_w);
+        let h = lead_h
+            + if rows.is_empty() {
+                0.0
+            } else {
+                AT_THE_DOOR + rows_h
+            };
+        let cx = scene_x(item.x) * width;
+        // A thing standing nowhere in particular stands on the ground;
+        // anything else starts where the Pack put it.
+        let top = if item.kind == CanvasItemKind::Object && !is_host(position) {
+            height * GROUND - h
+        } else {
+            scene_y(item.y) * height - lead_top
+        };
+        groups.push(Group {
+            lead: position,
+            rows,
+            beside: false,
+            w,
+            h,
+            cx,
+            cy: top + h / 2.0,
+        });
+    }
+
+    for _ in 0..200 {
         let mut moved = false;
-        for i in 0..centres.len() {
-            for j in (i + 1)..centres.len() {
-                let (wi, hi, _) = boxes[i];
-                let (wj, hj, _) = boxes[j];
-                let dx = centres[j].0 - centres[i].0;
-                let dy = centres[j].1 - centres[i].1;
-                let overlap_x = (wi + wj) / 2.0 + GAP - dx.abs();
-                let overlap_y = (hi + hj) / 2.0 + GAP - dy.abs();
+        for i in 0..groups.len() {
+            for j in (i + 1)..groups.len() {
+                let dx = groups[j].cx - groups[i].cx;
+                let dy = groups[j].cy - groups[i].cy;
+                let overlap_x = (groups[i].w + groups[j].w) / 2.0 + GAP - dx.abs();
+                let overlap_y = (groups[i].h + groups[j].h) / 2.0 + GAP - dy.abs();
                 if overlap_x <= 0.0 || overlap_y <= 0.0 {
                     continue;
                 }
@@ -415,34 +569,63 @@ fn layout(items: &[CanvasItem], width: f32, height: f32, compact: bool) -> Vec<(
                 // break by list order so the result never depends on luck.
                 if overlap_x / width < overlap_y / height {
                     let push = overlap_x / 2.0 * if dx < 0.0 { -1.0 } else { 1.0 };
-                    centres[i].0 -= push;
-                    centres[j].0 += push;
+                    groups[i].cx -= push;
+                    groups[j].cx += push;
                 } else {
                     let push = overlap_y / 2.0 * if dy < 0.0 { -1.0 } else { 1.0 };
-                    centres[i].1 -= push;
-                    centres[j].1 += push;
+                    groups[i].cy -= push;
+                    groups[j].cy += push;
                 }
             }
         }
-        for (centre, (w, h, _)) in centres.iter_mut().zip(&boxes) {
-            centre.0 = centre
-                .0
-                .clamp(EDGE + w / 2.0, (width - EDGE - w / 2.0).max(EDGE + w / 2.0));
-            centre.1 = centre.1.clamp(
-                EDGE + h / 2.0,
-                (height - EDGE - h / 2.0).max(EDGE + h / 2.0),
+        for group in &mut groups {
+            group.cx = group.cx.clamp(
+                EDGE + group.w / 2.0,
+                (width - EDGE - group.w / 2.0).max(EDGE + group.w / 2.0),
+            );
+            group.cy = group.cy.clamp(
+                EDGE + group.h / 2.0,
+                (height - EDGE - group.h / 2.0).max(EDGE + group.h / 2.0),
             );
         }
         if !moved {
             break;
         }
     }
+
     // Back to the anchor point each node is drawn from, as fractions.
-    centres
-        .iter()
-        .zip(&boxes)
-        .map(|((x, y), (_, h, top))| (x / width, (y - h / 2.0 + top) / height))
-        .collect()
+    let mut placed = vec![(0.0, 0.0); items.len()];
+    for group in &groups {
+        let top = group.cy - group.h / 2.0;
+        if group.beside {
+            // Left to right: the people, then the thing, feet on one line.
+            let bottom = top + group.h;
+            let mut left = group.cx - group.w / 2.0;
+            for member in group.rows.concat().into_iter().chain([group.lead]) {
+                let (w, h, member_top) = boxes[member];
+                placed[member] = ((left + w / 2.0) / width, (bottom - h + member_top) / height);
+                left += w + SIDE_BY_SIDE;
+            }
+            continue;
+        }
+        let (_, lead_h, lead_top) = boxes[group.lead];
+        placed[group.lead] = (group.cx / width, (top + lead_top) / height);
+        let mut row_top = top + lead_h + AT_THE_DOOR;
+        for row in &group.rows {
+            let row_w = row.iter().map(|member| boxes[*member].0).sum::<f32>()
+                + SIDE_BY_SIDE * row.len().saturating_sub(1) as f32;
+            let mut left = group.cx - row_w / 2.0;
+            let mut row_h = 0.0_f32;
+            for member in row {
+                let (w, h, member_top) = boxes[*member];
+                placed[*member] = ((left + w / 2.0) / width, (row_top + member_top) / height);
+                left += w + SIDE_BY_SIDE;
+                row_h = row_h.max(h);
+            }
+            row_top += row_h + SIDE_BY_SIDE;
+        }
+    }
+    placed
 }
 
 /// What a scene draws attention to.
@@ -460,6 +643,66 @@ pub enum Emphasis {
 /// none. `selected` is ringed; clicking anything calls `on_select`.
 pub fn scene(
     snapshot: &ProjectionSnapshot,
+    width: f32,
+    selected: Option<SelectionId>,
+    emphasis: &Emphasis,
+    on_select: SelectHandler,
+) -> Option<Div> {
+    scene_walking(snapshot, None, width, selected, emphasis, on_select)
+}
+
+/// How long it takes someone to walk to where a turn put them.
+const WALK: Duration = Duration::from_millis(900);
+
+/// Pixels an item moved between two layouts, keyed by what it is.
+fn walked(
+    before: &ProjectionSnapshot,
+    after: &[CanvasItem],
+    placed: &[(f32, f32)],
+    width: f32,
+    height: f32,
+) -> BTreeMap<SelectionId, (f32, f32)> {
+    let items = &before.canvas.items;
+    let compact = items.len() > CROWDED;
+    let old_height = if compact {
+        CROWDED_SCENE_HEIGHT
+    } else {
+        SCENE_HEIGHT
+    };
+    let pairs = pack_pairs(before);
+    let old = arrange(items, &pairs, width, old_height, compact);
+    let old = items
+        .iter()
+        .zip(old)
+        .map(|(item, position)| (item.id, position))
+        .collect::<BTreeMap<_, _>>();
+    after
+        .iter()
+        .zip(placed)
+        .filter_map(|(item, (x, y))| {
+            let (old_x, old_y) = old.get(&item.id)?;
+            let dx = (old_x - x) * width;
+            let dy = (old_y * old_height) - y * height;
+            (dx.abs() + dy.abs() > 2.0).then_some((item.id, (dx, dy)))
+        })
+        .collect()
+}
+
+/// The pairs a Pack draws a connection between.
+fn pack_pairs(snapshot: &ProjectionSnapshot) -> Vec<(SelectionId, SelectionId)> {
+    snapshot
+        .canvas
+        .links
+        .iter()
+        .map(|link| (link.from, link.to))
+        .collect()
+}
+
+/// The scene as it stands after a turn, with whoever the turn moved
+/// walking over from where they were in `previous`.
+pub fn scene_walking(
+    snapshot: &ProjectionSnapshot,
+    previous: Option<&ProjectionSnapshot>,
     width: f32,
     selected: Option<SelectionId>,
     emphasis: &Emphasis,
@@ -494,22 +737,75 @@ pub fn scene(
             .then_some(Tone::Neutral),
         }
     };
-    let placed = layout(items, width.max(320.0), stage_height, compact);
+    let stage_width = width.max(320.0);
+    let placed = arrange(
+        items,
+        &pack_pairs(snapshot),
+        stage_width,
+        stage_height,
+        compact,
+    );
+    let walks = previous
+        .map(|before| walked(before, items, &placed, stage_width, stage_height))
+        .unwrap_or_default();
+    let walk_key = format!("{}-{}", snapshot.world_time, snapshot.timeline.items.len());
+    let host_of = hosts(items);
+    let host_by_id = items
+        .iter()
+        .zip(&host_of)
+        .map(|(item, host)| (item.id, *host))
+        .collect::<BTreeMap<_, _>>();
+    let kind_by_id = items
+        .iter()
+        .map(|item| (item.id, item.kind))
+        .collect::<BTreeMap<_, _>>();
+    // Two people at the same place are together.
+    let together = |a: SelectionId, b: SelectionId| {
+        matches!(
+            (host_by_id.get(&a), host_by_id.get(&b)),
+            (Some(Some(first)), Some(Some(second))) if first == second
+        )
+    };
     let positions = items
         .iter()
         .zip(&placed)
         .map(|(item, position)| (item.id, *position))
         .collect::<BTreeMap<_, _>>();
-    // Relations the World records, drawn thin; connections the Pack
-    // asks for, drawn with their tone and weight.
+    // Relations the World records between people, drawn faint and dotted.
+    // Where someone works or what they own needs no line: they stand there.
+    let pack_linked = snapshot
+        .canvas
+        .links
+        .iter()
+        .flat_map(|link| [(link.from, link.to), (link.to, link.from)])
+        .collect::<BTreeSet<_>>();
     let mut lines = links(snapshot)
         .into_iter()
+        .filter(|(from, to)| {
+            let places = [from, to]
+                .iter()
+                .any(|end| kind_by_id.get(end) == Some(&CanvasItemKind::Place));
+            let standing_with = host_by_id
+                .get(from)
+                .copied()
+                .flatten()
+                .map(|host| items[host].id)
+                == Some(*to)
+                || host_by_id
+                    .get(to)
+                    .copied()
+                    .flatten()
+                    .map(|host| items[host].id)
+                    == Some(*from);
+            !places && !standing_with && !pack_linked.contains(&(*from, *to))
+        })
         .filter_map(|(from, to)| {
             Some(Line {
                 from: *positions.get(&from)?,
                 to: *positions.get(&to)?,
                 tone: CanvasLinkTone::Neutral,
                 width: 1.5,
+                dotted: true,
             })
         })
         .collect::<Vec<_>>();
@@ -519,12 +815,18 @@ pub fn scene(
         .iter()
         .filter_map(|link| Some((link, *positions.get(&link.from)?, *positions.get(&link.to)?)))
         .collect::<Vec<_>>();
+    // A pair who are together need no line between them; a pair apart are
+    // joined by a dotted one, weighted by how much there is between them.
     for (link, from, to) in &pack_links {
+        if together(link.from, link.to) {
+            continue;
+        }
         lines.push(Line {
             from: *from,
             to: *to,
             tone: link.tone,
-            width: 2.0 + 4.0 * link.strength,
+            width: 1.5 + 2.5 * link.strength,
+            dotted: true,
         });
     }
     // A preview is something the player is pointing at right now, so it is
@@ -546,7 +848,15 @@ pub fn scene(
     };
     let lines = lines
         .into_iter()
-        .map(|line| (line.from, line.to, tone_colour(line.tone), line.width))
+        .map(|line| {
+            (
+                line.from,
+                line.to,
+                tone_colour(line.tone),
+                line.width,
+                line.dotted,
+            )
+        })
         .collect::<Vec<_>>();
     let backdrop = canvas(
         |_, _, _| (),
@@ -616,17 +926,25 @@ pub fn scene(
                 }
             }
 
-            // Relations as gently bowed lines, so crossing links stay
-            // distinguishable.
-            for ((x1, y1), (x2, y2), colour, width) in &lines {
+            // Connections as dotted lines: people apart, not wires.
+            for ((x1, y1), (x2, y2), colour, width, dotted) in &lines {
                 let from = at(*x1, *y1);
                 let to = at(*x2, *y2);
-                let control = point((from.x + to.x) / 2.0, (from.y + to.y) / 2.0);
-                let mut path = PathBuilder::stroke(px(*width));
-                path.move_to(from);
-                path.curve_to(to, control);
-                if let Ok(path) = path.build() {
-                    window.paint_path(path, *colour);
+                let steps = 28;
+                for step in 0..steps {
+                    if *dotted && step % 2 == 1 {
+                        continue;
+                    }
+                    let t0 = step as f32 / steps as f32;
+                    let t1 = (step + 1) as f32 / steps as f32;
+                    let lerp =
+                        |t: f32| point(from.x + (to.x - from.x) * t, from.y + (to.y - from.y) * t);
+                    let mut path = PathBuilder::stroke(px(*width));
+                    path.move_to(lerp(t0));
+                    path.line_to(lerp(t1));
+                    if let Ok(path) = path.build() {
+                        window.paint_path(path, *colour);
+                    }
                 }
             }
         },
@@ -755,8 +1073,22 @@ pub fn scene(
             ),
             CanvasItemKind::Object => object_node(&item.label, &item.changes, selected),
         };
+        // Someone a turn moved walks over from where they were: the box is
+        // placed where they are now and the picture inside it starts back
+        // where they stood.
+        let node = match walks.get(&selection).copied() {
+            Some((dx, dy)) => div()
+                .child(node)
+                .with_animation(
+                    SharedString::from(format!("walk-{}-{walk_key}", selection.stable_key())),
+                    Animation::new(WALK).with_easing(ui::staggered(0)),
+                    move |walker, t| walker.ml(px(dx * (1.0 - t))).mt(px(dy * (1.0 - t))),
+                )
+                .into_any_element(),
+            None => node.into_any_element(),
+        };
         // Centre the node on its position, whatever its size.
-        let (width, _, top_offset) = footprint(item.kind, compact);
+        let (width, _, top_offset) = item_box(item, compact);
         scene = scene.child(
             div()
                 .id(id)
@@ -775,50 +1107,126 @@ pub fn scene(
         );
     }
 
-    // Each connection's name sits on its line and selects what it stands
-    // for, so the relationship is reached by clicking between the people.
+    // Each connection is a small bubble: between the two when they stand
+    // together, half way along the dotted line when they do not. Its name
+    // shows while it is selected or in the news; its mark always does.
     for (index, (link, (x1, y1), (x2, y2))) in pack_links.iter().enumerate() {
-        if link.label.is_empty() {
-            continue;
-        }
-        let (text, border) = match link.tone {
-            CanvasLinkTone::Neutral => (tokens::TEXT_SECONDARY, tokens::BORDER),
-            CanvasLinkTone::Warm => (tokens::SUCCESS, tokens::SUCCESS),
-            CanvasLinkTone::Strained => (tokens::DANGER, tokens::DANGER),
-        };
-        let mut pill = div()
+        let named = link.selection.is_some_and(|selection| {
+            selected == Some(selection)
+                || matches!(emphasis, Emphasis::Only(targets) if targets.contains(&selection))
+        });
+        let mut bubble = div()
             .id(SharedString::from(format!("scene-link-{index}")))
             .absolute()
             .left(relative((x1 + x2) / 2.0))
             .top(relative((y1 + y2) / 2.0))
-            .ml(px(-LINK_LABEL_WIDTH / 2.0))
-            .mt(px(-12.0))
-            .w(px(LINK_LABEL_WIDTH))
+            .ml(px(-BUBBLE_ROOM / 2.0))
+            .mt(px(-BUBBLE / 2.0))
+            .w(px(BUBBLE_ROOM))
             .flex()
-            .justify_center()
-            .child(
+            .flex_col()
+            .items_center()
+            .gap_1()
+            .child(relationship_bubble(link.tone));
+        if named && !link.label.is_empty() {
+            bubble = bubble.child(
                 div()
                     .px_2()
-                    .py(px(2.0))
+                    .py(px(1.0))
                     .rounded_full()
-                    .border_1()
-                    .border_color(ui::color(border).opacity(0.6))
                     .bg(ui::color(tokens::SURFACE))
                     .text_xs()
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(ui::color(text))
+                    .text_color(ui::color(tokens::TEXT_SECONDARY))
                     .child(link.label.clone()),
             );
+        }
         if let Some(selection) = link.selection {
             let on_select = on_select.clone();
-            pill = pill
+            bubble = bubble
                 .cursor_pointer()
                 .on_click(move |_, window, cx| on_select(selection, window, cx));
         }
-        scene = scene.child(pill);
+        scene = scene.child(bubble);
     }
 
     Some(scene)
+}
+
+/// How big a relationship's bubble is, and the room left around it for
+/// its name.
+const BUBBLE: f32 = 26.0;
+const BUBBLE_ROOM: f32 = 180.0;
+
+/// A relationship's mark: a heart for warmth, a jagged crack for strain,
+/// three dots for not yet either.
+fn relationship_bubble(tone: CanvasLinkTone) -> Div {
+    let (ink, ground) = match tone {
+        CanvasLinkTone::Warm => (tokens::SUCCESS, tokens::SUCCESS_SOFT),
+        CanvasLinkTone::Strained => (tokens::DANGER, tokens::DANGER_SOFT),
+        CanvasLinkTone::Neutral => (tokens::TEXT_SECONDARY, tokens::SURFACE),
+    };
+    let ink: Hsla = ui::color(ink).into();
+    div()
+        .size(px(BUBBLE))
+        .rounded_full()
+        .border_1()
+        .border_color(ui::color(tokens::BORDER))
+        .bg(ui::color(ground))
+        .shadow_sm()
+        .p(px(6.0))
+        .child(
+            canvas(
+                |_, _, _| (),
+                move |bounds: Bounds<gpui::Pixels>, _, window, _| {
+                    let o = bounds.origin;
+                    let w = bounds.size.width;
+                    let h = bounds.size.height;
+                    let at = |x: f32, y: f32| point(o.x + w * x, o.y + h * y);
+                    match tone {
+                        CanvasLinkTone::Warm => {
+                            let mut heart = PathBuilder::fill();
+                            heart.move_to(at(0.5, 0.95));
+                            heart.curve_to(at(0.0, 0.35), at(0.02, 0.62));
+                            heart.curve_to(at(0.5, 0.25), at(0.18, 0.0));
+                            heart.curve_to(at(1.0, 0.35), at(0.82, 0.0));
+                            heart.curve_to(at(0.5, 0.95), at(0.98, 0.62));
+                            heart.close();
+                            if let Ok(path) = heart.build() {
+                                window.paint_path(path, ink);
+                            }
+                        }
+                        CanvasLinkTone::Strained => {
+                            let mut crack = PathBuilder::stroke(px(2.0));
+                            crack.move_to(at(0.3, 0.0));
+                            crack.line_to(at(0.6, 0.4));
+                            crack.line_to(at(0.35, 0.55));
+                            crack.line_to(at(0.7, 1.0));
+                            if let Ok(path) = crack.build() {
+                                window.paint_path(path, ink);
+                            }
+                        }
+                        CanvasLinkTone::Neutral => {
+                            for x in [0.15, 0.5, 0.85] {
+                                let radius = f32::from(w) * 0.1;
+                                let centre = at(x, 0.5);
+                                window.paint_quad(quad(
+                                    Bounds::new(
+                                        point(centre.x - px(radius), centre.y - px(radius)),
+                                        size(px(radius * 2.0), px(radius * 2.0)),
+                                    ),
+                                    px(radius),
+                                    ink,
+                                    px(0.0),
+                                    ink,
+                                    BorderStyle::default(),
+                                ));
+                            }
+                        }
+                    }
+                },
+            )
+            .size_full(),
+        )
 }
 
 /// What the World keeps score of, as a row of meters that is always on
@@ -1190,6 +1598,11 @@ fn object_node(name: &str, changes: &[CanvasChange], selected: bool) -> Div {
         })
 }
 
+/// How wide a thing's label is drawn: room for its whole name.
+fn object_width(name: &str) -> f32 {
+    (name.chars().count() as f32 * 7.4 + 48.0).clamp(96.0, 240.0)
+}
+
 fn object_pill(name: &str, selected: bool) -> Div {
     div()
         .w_full()
@@ -1249,8 +1662,8 @@ fn place_icon(shape: Option<MarkShape>) -> Div {
 #[cfg(test)]
 mod tests {
     use super::{
-        change_text, differences, event_actor, footprint, layout, mark_positions, near_ridge_top,
-        CROWDED, MARK_LIMIT, NEAR_FALL, NEAR_RISE,
+        arrange, change_text, differences, event_actor, item_box, layout, mark_positions,
+        near_ridge_top, CROWDED, MARK_LIMIT, NEAR_FALL, NEAR_RISE,
     };
     use world_projection::ProjectionSnapshot;
     use world_projection::{CanvasChange, CanvasItem, CanvasItemKind, SelectionId, Tone};
@@ -1296,6 +1709,7 @@ mod tests {
             y,
             changes: Vec::new(),
             shape: None,
+            at: None,
         }
     }
 
@@ -1321,6 +1735,49 @@ mod tests {
     }
 
     #[test]
+    fn people_stand_at_their_place_and_a_pair_stands_together() {
+        use CanvasItemKind::{Actor, Object, Place};
+        let id = |n: u64| SelectionId::from_stable_key(&format!("entity-{n}")).unwrap();
+        let mut items = vec![
+            item(1, Place, 0.2, 0.2),
+            item(2, Actor, 0.8, 0.8),
+            item(3, Actor, 0.1, 0.9),
+            item(4, Actor, 0.5, 0.5),
+            item(5, Object, 0.7, 0.3),
+            item(6, Actor, 0.3, 0.3),
+        ];
+        items[1].at = Some(id(1));
+        items[2].at = Some(id(1));
+        items[3].at = Some(id(1));
+        items[5].at = Some(id(5));
+        let (width, height) = (700.0, 340.0);
+        // Ask for 2 and 4 to stand together although 3 comes between them.
+        let placed = arrange(&items, &[(id(2), id(4))], width, height, false);
+        let (place_x, place_y) = placed[0];
+        for member in [1, 2, 3] {
+            assert!(
+                placed[member].1 > place_y,
+                "everyone at a place stands below it"
+            );
+            assert!((placed[member].0 - place_x).abs() * width < 200.0);
+        }
+        // Three do not fit on one line: the pair share the first, side by
+        // side, and whoever comes between them in the list waits behind.
+        assert_eq!(placed[1].1, placed[3].1, "the pair stand in one row");
+        assert!(placed[2].1 > placed[1].1);
+        let gap = (placed[1].0 - placed[3].0).abs() * width;
+        assert!(gap < 140.0, "and next to each other: {gap}");
+        // Someone with a thing on the ground stands beside it, feet level.
+        let (thing_x, thing_y) = placed[4];
+        let (person_x, _) = placed[5];
+        assert!(person_x < thing_x);
+        assert!(
+            thing_y > 0.8,
+            "a thing someone is with stands on the ground"
+        );
+    }
+
+    #[test]
     fn a_crowded_world_lays_out_without_overlaps() {
         let items = harbour();
         assert!(items.len() > CROWDED);
@@ -1330,7 +1787,7 @@ mod tests {
             .iter()
             .zip(&placed)
             .map(|(item, (x, y))| {
-                let (w, h, top) = footprint(item.kind, true);
+                let (w, h, top) = item_box(item, true);
                 let left = x * width - w / 2.0;
                 let top = y * height - top;
                 (left, top, left + w, top + h)

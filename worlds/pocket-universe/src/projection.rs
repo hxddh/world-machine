@@ -2003,12 +2003,15 @@ fn growth_marks(world: &World) -> Vec<world_projection::CanvasMark> {
 /// greenhouse a tree, the arcade a shopfront, the colony the bridge it is
 /// named for.
 fn place_shape(world: &World, id: EntityId) -> Option<world_projection::MarkShape> {
-    use world_projection::MarkShape::{Bridge, Dome, Shop, Tree};
+    use world_projection::MarkShape::{Bridge, Dome, House, Shop, Tower, Tree};
     match (seed_id(world), id) {
         ("mars-colony", SLOT_A) => Some(Dome),
         ("mars-colony", SLOT_C) => Some(Tree),
         ("1980s-town", SLOT_A) => Some(Shop),
+        ("1980s-town", SLOT_C) => Some(Tower),
         ("penguin-civilization", SLOT_A) => Some(Bridge),
+        ("penguin-civilization", SLOT_C) => Some(Dome),
+        ("penguin-civilization", SLOT_D) => Some(House),
         _ => None,
     }
 }
@@ -2040,6 +2043,7 @@ fn canvas(world: &World) -> CanvasProjection {
                 y: *y,
                 changes: Vec::new(),
                 shape: place_shape(world, *id),
+                at: whereabouts(world, entity),
             })
         })
         .collect();
@@ -2359,9 +2363,30 @@ fn relationship_link(world: &World) -> Option<CanvasLink> {
 fn canvas_kind(entity: &Entity) -> CanvasItemKind {
     match entity.kind.as_str() {
         "person" | "penguin" => CanvasItemKind::Actor,
-        "place" | "habitat" | "colony" => CanvasItemKind::Place,
+        "place" | "habitat" | "colony" | "radio_station" | "storehouse" | "council" => {
+            CanvasItemKind::Place
+        }
         _ => CanvasItemKind::Object,
     }
+}
+
+/// Where someone is, as they last left things: looking after the others
+/// keeps them at home; exploring takes them out with the thing that lets
+/// them range (the rover, the night bus, the council's ice runs). Before
+/// either has done anything they are both at home.
+fn whereabouts(world: &World, entity: &Entity) -> Option<SelectionId> {
+    if canvas_kind(entity) != CanvasItemKind::Actor {
+        return None;
+    }
+    let out_exploring = matches!(
+        entity.component("last_intent"),
+        Some(Value::Text(intent)) if intent == "explore"
+    );
+    let place = if out_exploring { SLOT_D } else { SLOT_A };
+    world
+        .state()
+        .entity(place)
+        .map(|_| SelectionId::Entity(place))
 }
 
 fn universe_name(world: &World) -> String {

@@ -746,6 +746,7 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                 y,
                 changes: Vec::new(),
                 shape: Some(place_shape(id)),
+                at: None,
             });
         }
     }
@@ -772,6 +773,7 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                 y,
                 changes: Vec::new(),
                 shape: None,
+                at: workplace(world, id).map(SelectionId::Entity),
             });
         }
     }
@@ -794,6 +796,13 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                 y,
                 changes: Vec::new(),
                 shape: None,
+                // The boat is moored at the harbour; the order waits at
+                // the bakery that has to fill it.
+                at: Some(SelectionId::Entity(if id == JONAS_BOAT {
+                    HARBOR
+                } else {
+                    BAKERY
+                })),
             });
         }
     }
@@ -809,6 +818,17 @@ fn component_text(world: &World, id: EntityId, key: &str) -> Option<String> {
         Value::Entity(value) => world.state().entity(*value).map(entity_title),
         Value::Null | Value::List(_) | Value::Map(_) => None,
     }
+}
+
+/// Where someone works, which is where they are found: the place their
+/// job ties them to, if they have one.
+fn workplace(world: &World, person: EntityId) -> Option<EntityId> {
+    world
+        .state()
+        .relations()
+        .find(|relation| relation.kind == "works_at" && relation.from == person)
+        .map(|relation| relation.to)
+        .filter(|place| world.state().entity(*place).is_some())
 }
 
 /// What the harbour town keeps score of: how many of its working people

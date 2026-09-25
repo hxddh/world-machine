@@ -47,6 +47,9 @@ pub struct ProjectionView {
     previewing: Option<String>,
     /// Moments whose everyday round the reader has unfolded in History.
     routine_open: std::collections::BTreeSet<u64>,
+    /// How the World stood before the last turn, so whoever the turn moved
+    /// can be seen walking to where they are now.
+    before_turn: Option<ProjectionSnapshot>,
 }
 
 impl ProjectionView {
@@ -61,6 +64,7 @@ impl ProjectionView {
             show_header: true,
             previewing: None,
             routine_open: Default::default(),
+            before_turn: None,
         }
     }
 
@@ -113,6 +117,7 @@ impl ProjectionView {
             Ok(snapshot) => {
                 let previous = self.selected;
                 self.snapshot = snapshot;
+                self.before_turn = None;
                 self.selected = selection_for_snapshot(previous, &self.snapshot);
                 self.status = Some(format!("Branched before “{event_title}”"));
                 self.status_is_error = false;
@@ -133,7 +138,7 @@ impl ProjectionView {
         match controller.handle(ProjectionIntent::InvokeCommand(command_id)) {
             Ok(snapshot) => {
                 let previous = self.selected;
-                self.snapshot = snapshot;
+                self.before_turn = Some(std::mem::replace(&mut self.snapshot, snapshot));
                 self.selected = selection_for_snapshot(previous, &self.snapshot);
                 self.status = None;
                 self.status_is_error = false;
@@ -1273,8 +1278,9 @@ impl Render for ProjectionView {
         if let Some(gauges) = scene::gauges(&self.snapshot, previewing) {
             column = column.child(gauges);
         }
-        if let Some(scene) = scene::scene(
+        if let Some(scene) = scene::scene_walking(
             &self.snapshot,
+            self.before_turn.as_ref(),
             stage_width,
             self.selected,
             &self.emphasis(),

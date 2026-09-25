@@ -161,6 +161,7 @@ fn canvas(world: &World) -> CanvasProjection {
                     y,
                     changes: Vec::new(),
                     shape: None,
+                    at: None,
                 })
             })
             .collect(),

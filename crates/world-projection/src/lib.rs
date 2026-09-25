@@ -1100,6 +1100,10 @@ pub struct CanvasItem {
     /// What a place looks like, so a dome reads as a dome and a bridge as a
     /// bridge. `None` draws the plain house every place used to be.
     pub shape: Option<MarkShape>,
+    /// Where a person or thing is: the place (or thing) on the scene they
+    /// are with, which they are drawn standing beside. `None` leaves them
+    /// where the Pack put them.
+    pub at: Option<SelectionId>,
 }
 
 /// One value that moved since the last visit.

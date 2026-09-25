@@ -1144,6 +1144,8 @@ pub struct CanvasItemWire {
     pub changes: Vec<CanvasChangeWire>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shape: Option<MarkShapeWire>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at: Option<SelectionIdWire>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -1175,6 +1177,7 @@ impl From<&CanvasItem> for CanvasItemWire {
                 })
                 .collect(),
             shape: item.shape.map(Into::into),
+            at: item.at.map(Into::into),
         }
     }
 }
@@ -1199,6 +1202,7 @@ impl From<CanvasItemWire> for CanvasItem {
                 })
                 .collect(),
             shape: item.shape.map(Into::into),
+            at: item.at.map(Into::into),
         }
     }
 }
@@ -1545,6 +1549,7 @@ mod tests {
                     y: 0.75,
                     changes: Vec::new(),
                     shape: None,
+                    at: None,
                 }],
                 links: vec![CanvasLink {
                     from: entity,
