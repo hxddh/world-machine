@@ -225,7 +225,14 @@ fn bubble(
     strong: bool,
 ) -> Div {
     const ROOM: f32 = 300.0;
-    let x = x.clamp(ROOM / 2.0 + 8.0, stage.width - ROOM / 2.0 - 8.0);
+    // Keep the bubble inside the stage; on a stage too narrow for it,
+    // centre it (clamp would panic with its bounds the wrong way round).
+    let (low, high) = (ROOM / 2.0 + 8.0, stage.width - ROOM / 2.0 - 8.0);
+    let x = if high >= low {
+        x.clamp(low, high)
+    } else {
+        stage.width / 2.0
+    };
     let ink: Hsla = color(tokens::TEXT).into();
     let ground: Hsla = gpui::white();
     let tail = canvas(

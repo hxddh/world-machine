@@ -707,9 +707,39 @@ pub fn describe_from_snapshot(
                 hair: look.hair,
                 skin: look.skin,
                 bird: look.bird,
+                carries: look.carries.map(|carry| carry_name(carry).to_owned()),
             }
         })
         .collect();
+}
+
+fn carry_name(carry: world_projection::Carry) -> &'static str {
+    use world_projection::Carry;
+    match carry {
+        Carry::Tool => "tool",
+        Carry::Book => "book",
+        Carry::Bread => "bread",
+        Carry::Fish => "fish",
+        Carry::Basket => "basket",
+        Carry::Satchel => "satchel",
+        Carry::Plant => "plant",
+        Carry::Mug => "mug",
+    }
+}
+
+fn carry_from_name(name: &str) -> Option<world_projection::Carry> {
+    use world_projection::Carry;
+    Some(match name {
+        "tool" => Carry::Tool,
+        "book" => Carry::Book,
+        "bread" => Carry::Bread,
+        "fish" => Carry::Fish,
+        "basket" => Carry::Basket,
+        "satchel" => Carry::Satchel,
+        "plant" => Carry::Plant,
+        "mug" => Carry::Mug,
+        _ => return None,
+    })
 }
 
 /// A World's stage as its file remembers it, ready to draw.
@@ -725,17 +755,19 @@ fn cast_from_document(
                 "thing" => CanvasItemKind::Object,
                 _ => return None,
             };
+            let carries = figure.carries.as_deref().and_then(carry_from_name);
             let look = (figure.clothes.is_some()
                 || figure.hair.is_some()
                 || figure.skin.is_some()
-                || figure.bird)
-                .then_some(Look {
-                    clothes: figure.clothes,
-                    hair: figure.hair,
-                    skin: figure.skin,
-                    carries: None,
-                    bird: figure.bird,
-                });
+                || figure.bird
+                || carries.is_some())
+            .then_some(Look {
+                clothes: figure.clothes,
+                hair: figure.hair,
+                skin: figure.skin,
+                carries,
+                bird: figure.bird,
+            });
             Some(CanvasItem {
                 id: SelectionId::from_stable_key(&figure.id)?,
                 kind,
@@ -1674,6 +1706,38 @@ mod tests {
                     shape: world_projection::MarkShape::Dome,
                     selection: None,
                 }],
+                items: vec![
+                    world_projection::CanvasItem {
+                        id: world_projection::SelectionId::from_stable_key("entity-10").unwrap(),
+                        kind: world_projection::CanvasItemKind::Place,
+                        label: "Ares Habitat".into(),
+                        detail: String::new(),
+                        x: 0.12,
+                        y: 0.2,
+                        changes: Vec::new(),
+                        shape: Some(world_projection::MarkShape::Dome),
+                        at: None,
+                        look: None,
+                    },
+                    world_projection::CanvasItem {
+                        id: world_projection::SelectionId::from_stable_key("entity-11").unwrap(),
+                        kind: world_projection::CanvasItemKind::Actor,
+                        label: "Nia Chen".into(),
+                        detail: String::new(),
+                        x: 0.4,
+                        y: 0.5,
+                        changes: Vec::new(),
+                        shape: None,
+                        at: world_projection::SelectionId::from_stable_key("entity-10"),
+                        look: Some(world_projection::Look {
+                            clothes: Some(0x2f7f86),
+                            hair: None,
+                            skin: Some(0xc68a5f),
+                            carries: Some(world_projection::Carry::Tool),
+                            bird: false,
+                        }),
+                    },
+                ],
                 ..Default::default()
             },
             ..ProjectionSnapshot::default()
@@ -1700,6 +1764,21 @@ mod tests {
         );
         assert_eq!(listed.display_calendar.unwrap().unit, "Sol");
         assert!(listed.display_moves_alone);
+        // Its cover remembers who stands where and how they look, down to
+        // what they carry; names stay in the World.
+        assert_eq!(listed.display_cast.len(), 2);
+        let place = &listed.display_cast[0];
+        assert_eq!(place.shape, Some(world_projection::MarkShape::Dome));
+        let nia = &listed.display_cast[1];
+        assert_eq!(
+            nia.at,
+            world_projection::SelectionId::from_stable_key("entity-10")
+        );
+        assert_eq!(nia.x, 0.4);
+        assert_eq!(
+            nia.look, snapshot.canvas.items[1].look,
+            "a look survives the file whole"
+        );
     }
 
     #[test]

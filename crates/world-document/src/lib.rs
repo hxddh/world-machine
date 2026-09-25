@@ -56,6 +56,9 @@ pub struct DocumentFigure {
     pub skin: Option<u32>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub bird: bool,
+    /// What they carry, such as `fish` or `bread`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub carries: Option<String>,
 }
 
 impl WorldDocumentMetadata {
