@@ -2,7 +2,9 @@
 
 Releases live on the [Releases page](https://github.com/hxddh/world-machine/releases). `0.2.0` is the first release intended to be usable without reading the repository; the `v0.1.0-pre.N` tags below were its pre-releases.
 
-## Unreleased
+## v0.7.0 (2026-09-25)
+
+**Pocket Universe Worlds created before this release will not open.** Pocket Universe moves to `0.20.0` because a turn now moves the World's clock. Export anything you want to keep before updating; Tiny Society, Future Archaeologist and Micro Company Worlds are unaffected.
 
 - **A new World starts with a picture.** The first screen is three illustrated places to begin (a Mars colony on red dust, a 1987 street at dusk, an ice bridge under the aurora) instead of a form with three lines of text and two cards of instructions.
 - **Every World looks like where it is.** A Pack can give a World its own colours: sky, ridges and sun. Pocket Universe gives each of its three places theirs and Tiny Society its harbour; the scene stands on that ground, and Home draws each World's cover in the same colours. Each place is drawn as what it is: a dome for the Mars habitat, a shopfront for the arcade, a bridge for Icebridge, a lighthouse for the harbour, where every place used to be the same green house.
