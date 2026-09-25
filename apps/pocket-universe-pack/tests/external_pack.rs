@@ -120,6 +120,20 @@ fn pocket_universe_is_a_real_external_pack_with_durable_seed_and_growth() {
         ))
         .unwrap();
     assert_eq!(seeded.title, "Ares Pocket Colony");
+    // What it keeps score of, and how its choices move it, cross the
+    // process boundary too.
+    assert_eq!(
+        seeded
+            .gauges
+            .iter()
+            .map(|gauge| gauge.id.as_str())
+            .collect::<Vec<_>>(),
+        ["trust", "tension", "anchor"]
+    );
+    assert!(seeded
+        .commands
+        .iter()
+        .any(|command| !command.moves.is_empty()));
     assert!(seeded.scenery.is_some(), "a started World keeps its look");
     assert!(
         seeded
@@ -288,7 +302,7 @@ fn pocket_universe_is_a_real_external_pack_with_durable_seed_and_growth() {
             .sections
             .iter()
             .flat_map(|section| &section.rows)
-            .any(|row| row.label == "Social Arc" && row.value == "fracture"));
+            .any(|row| row.label == "Where it stands" && row.value == "Estranged"));
         let rover = reopened_snapshot
             .inspectors
             .values()
@@ -298,7 +312,7 @@ fn pocket_universe_is_a_real_external_pack_with_durable_seed_and_growth() {
             .sections
             .iter()
             .flat_map(|section| &section.rows)
-            .any(|row| row.label == "Social Status" && row.value == "split survey routes"));
+            .any(|row| row.label == "Social status" && row.value == "Split survey routes"));
 
         for actor_title in ["Nia Chen", "Tomas Vale"] {
             let actor = reopened_snapshot
@@ -310,7 +324,7 @@ fn pocket_universe_is_a_real_external_pack_with_durable_seed_and_growth() {
                 .sections
                 .iter()
                 .flat_map(|section| &section.rows)
-                .any(|row| { row.label == "Last Mind Profile" && row.value == "pi" }));
+                .any(|row| { row.label == "Guided by" && row.value == "Pi" }));
         }
 
         let error = reopened_without_pi.advance_background(1).unwrap_err();

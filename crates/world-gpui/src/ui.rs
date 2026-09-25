@@ -210,13 +210,21 @@ pub fn cover(name: &str, identity: &str) -> gpui::Canvas<()> {
             gpui::hsla((hue + 0.5) % 1.0, 0.75, 0.80, 0.95),
         )
     };
-    landscape([sky_top, sky_bottom, far, near, sun], shape)
+    landscape([sky_top, sky_bottom, far, near, sun], shape, Vec::new())
 }
 
 /// A World's own landscape, in the colours its Pack chose for it: red dust
 /// for a Mars colony, a street at night for 1987. Art rather than interface,
 /// so it looks the same in either appearance.
 pub fn scenery_cover(scenery: &world_projection::Scenery, identity: &str) -> gpui::Canvas<()> {
+    scenery_landscape(scenery, identity, Vec::new())
+}
+
+fn scenery_landscape(
+    scenery: &world_projection::Scenery,
+    identity: &str,
+    marks: Vec<world_projection::MarkShape>,
+) -> gpui::Canvas<()> {
     let colour = |hex: u32| -> gpui::Hsla { gpui::rgb(hex).into() };
     landscape(
         [
@@ -227,7 +235,31 @@ pub fn scenery_cover(scenery: &world_projection::Scenery, identity: &str) -> gpu
             colour(scenery.sun),
         ],
         tokens::seed(identity),
+        marks,
     )
+}
+
+/// The most a cover shows of what a World has built: the newest, so a
+/// long-lived World still reads as a skyline, not a fence.
+const COVER_MARKS: usize = 10;
+
+/// A World's cover as it stands now: its own landscape with what it has
+/// built standing on the near ridge, so a colony a week old looks it on
+/// Home too.
+pub fn living_cover(
+    scenery: Option<&world_projection::Scenery>,
+    name: &str,
+    identity: &str,
+    marks: &[world_projection::MarkShape],
+) -> gpui::Canvas<()> {
+    match scenery {
+        Some(scenery) => scenery_landscape(
+            scenery,
+            identity,
+            marks[marks.len().saturating_sub(COVER_MARKS)..].to_vec(),
+        ),
+        None => cover(name, identity),
+    }
 }
 
 /// A cover in a World's own colours when its Pack gives them, and in
@@ -244,7 +276,11 @@ pub fn cover_for(
 }
 
 /// Sky, sun and two ridges; `shape` places the sun and shapes the hills.
-fn landscape(colours: [gpui::Hsla; 5], shape: u64) -> gpui::Canvas<()> {
+fn landscape(
+    colours: [gpui::Hsla; 5],
+    shape: u64,
+    marks: Vec<world_projection::MarkShape>,
+) -> gpui::Canvas<()> {
     let [sky_top, sky_bottom, far, near, sun] = colours;
     let bit = |shift: u32, range: f32| ((shape >> shift) & 0xff) as f32 / 255.0 * range;
     let sun_x = 0.2 + bit(0, 0.6);
@@ -268,7 +304,8 @@ fn landscape(colours: [gpui::Hsla; 5], shape: u64) -> gpui::Canvas<()> {
                     gpui::linear_color_stop(sky_bottom, 1.0),
                 ),
             ));
-            let radius = f32::from(h) * 0.14;
+            // Sized by the smaller side, so a tall picture keeps a sun.
+            let radius = f32::from(h.min(w * 0.6)) * 0.14;
             let centre = at(sun_x, 0.30);
             window.paint_quad(gpui::quad(
                 gpui::Bounds::new(
@@ -293,8 +330,137 @@ fn landscape(colours: [gpui::Hsla; 5], shape: u64) -> gpui::Canvas<()> {
                     window.paint_path(path, colour);
                 }
             }
+            // What the World built stands on the near ridge, spread evenly
+            // along it, a little sunk so it stands in the ground.
+            let count = marks.len();
+            let mark_height = f32::from(h) * 0.2;
+            let mark_width = mark_height * 0.75;
+            for (index, shape) in marks.iter().enumerate() {
+                let x = 0.08 + 0.84 * (index as f32 + 0.5) / count as f32;
+                let ground = ridge_y(near_rise, near_fall, x) + 0.02;
+                let foot = at(x, ground);
+                paint_mark(
+                    window,
+                    gpui::Bounds::new(
+                        point(foot.x - px(mark_width / 2.0), foot.y - px(mark_height)),
+                        gpui::size(px(mark_width), px(mark_height)),
+                    ),
+                    *shape,
+                    near,
+                    sun,
+                );
+            }
         },
     )
+}
+
+/// Where a ridge drawn by `landscape` is at `x`: two quadratic curves
+/// meeting half way, from `rise` on the left to `fall` on the right.
+fn ridge_y(rise: f32, fall: f32, x: f32) -> f32 {
+    let quadratic = |start: f32, control: f32, end: f32, t: f32| {
+        (1.0 - t) * (1.0 - t) * start + 2.0 * t * (1.0 - t) * control + t * t * end
+    };
+    let middle = (rise + fall) / 2.0;
+    if x <= 0.5 {
+        quadratic(rise, rise - 0.16, middle, x / 0.5)
+    } else {
+        quadratic(middle, fall + 0.12, fall, (x - 0.5) / 0.5)
+    }
+}
+
+/// A built thing as a small silhouette standing on the bottom edge of
+/// `bounds`: a house, a dome, a mast, a tree, a lamp, a shopfront or a
+/// bridge. A mast has a light at its tip and a lamp its lamp.
+pub fn paint_mark(
+    window: &mut gpui::Window,
+    bounds: gpui::Bounds<gpui::Pixels>,
+    shape: world_projection::MarkShape,
+    colour: gpui::Hsla,
+    light: gpui::Hsla,
+) {
+    use gpui::{point, px, quad, size, BorderStyle, Bounds, PathBuilder};
+    use world_projection::MarkShape;
+
+    let origin = bounds.origin;
+    let width = bounds.size.width;
+    let height = bounds.size.height;
+    let at = |x: f32, y: f32| point(origin.x + width * x, origin.y + height * y);
+    let mut body = PathBuilder::fill();
+    match shape {
+        MarkShape::House => {
+            body.move_to(at(0.15, 1.0));
+            body.line_to(at(0.15, 0.55));
+            body.line_to(at(0.5, 0.25));
+            body.line_to(at(0.85, 0.55));
+            body.line_to(at(0.85, 1.0));
+        }
+        MarkShape::Dome => {
+            body.move_to(at(0.0, 1.0));
+            body.curve_to(at(0.5, 0.45), at(0.02, 0.45));
+            body.curve_to(at(1.0, 1.0), at(0.98, 0.45));
+        }
+        MarkShape::Tower => {
+            body.move_to(at(0.38, 1.0));
+            body.line_to(at(0.46, 0.2));
+            body.line_to(at(0.54, 0.2));
+            body.line_to(at(0.62, 1.0));
+        }
+        MarkShape::Tree => {
+            body.move_to(at(0.45, 1.0));
+            body.line_to(at(0.45, 0.8));
+            body.line_to(at(0.15, 0.8));
+            body.line_to(at(0.5, 0.15));
+            body.line_to(at(0.85, 0.8));
+            body.line_to(at(0.55, 0.8));
+            body.line_to(at(0.55, 1.0));
+        }
+        MarkShape::Lamp => {
+            body.move_to(at(0.46, 1.0));
+            body.line_to(at(0.46, 0.3));
+            body.line_to(at(0.54, 0.3));
+            body.line_to(at(0.54, 1.0));
+        }
+        MarkShape::Shop => {
+            // A flat-roofed front with an awning that overhangs it.
+            body.move_to(at(0.15, 1.0));
+            body.line_to(at(0.15, 0.55));
+            body.line_to(at(0.05, 0.55));
+            body.line_to(at(0.15, 0.35));
+            body.line_to(at(0.85, 0.35));
+            body.line_to(at(0.95, 0.55));
+            body.line_to(at(0.85, 0.55));
+            body.line_to(at(0.85, 1.0));
+        }
+        MarkShape::Bridge => {
+            // A deck on two piers with an arch between them.
+            body.move_to(at(0.0, 1.0));
+            body.line_to(at(0.0, 0.5));
+            body.line_to(at(1.0, 0.5));
+            body.line_to(at(1.0, 1.0));
+            body.line_to(at(0.84, 1.0));
+            body.curve_to(at(0.16, 1.0), at(0.5, 0.45));
+        }
+    }
+    body.close();
+    if let Ok(path) = body.build() {
+        window.paint_path(path, colour);
+    }
+    // A mast has a light at its tip and a lamp its lamp.
+    if matches!(shape, MarkShape::Lamp | MarkShape::Tower) {
+        let radius = f32::from(width) * if shape == MarkShape::Lamp { 0.16 } else { 0.1 };
+        let centre = at(0.5, if shape == MarkShape::Lamp { 0.24 } else { 0.16 });
+        window.paint_quad(quad(
+            Bounds::new(
+                point(centre.x - px(radius), centre.y - px(radius)),
+                size(px(radius * 2.0), px(radius * 2.0)),
+            ),
+            px(radius),
+            light,
+            px(0.0),
+            light,
+            BorderStyle::default(),
+        ));
+    }
 }
 
 /// How long something new takes to settle into place.

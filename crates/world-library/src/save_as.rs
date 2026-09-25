@@ -159,6 +159,7 @@ mod tests {
                 },
             }),
             display_scenery: None,
+            ..Default::default()
         }
     }
 

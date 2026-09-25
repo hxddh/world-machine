@@ -93,7 +93,7 @@ fn visit_cursor_reports_when_nothing_changed() {
     assert_eq!(briefing.title, "While you were away");
     assert_eq!(briefing.items.len(), 2);
     assert_eq!(briefing.items[0].title, "Harbor today");
-    assert_eq!(briefing.items[1].title, "No new events");
+    assert_eq!(briefing.items[1].title, "A quiet stretch");
 }
 
 #[test]
@@ -496,8 +496,15 @@ fn projection_snapshot_is_self_contained_selectable_and_causal() {
 
     let why = snapshot.why(dismissal.id).unwrap();
     assert_eq!(why.nodes.first().unwrap().event, dismissal.id);
-    assert!(why.nodes.iter().any(|node| node.title == "Storm Started"));
-    assert!(why.nodes.iter().any(|node| node.title == "Order Lost"));
+    // The chain reads the way History tells it, not as event kinds.
+    assert!(why
+        .nodes
+        .iter()
+        .all(|node| node.title != "Storm Started" && node.title != "Order Lost"));
+    assert!(why
+        .nodes
+        .iter()
+        .any(|node| node.title.to_lowercase().contains("storm")));
 }
 
 #[test]

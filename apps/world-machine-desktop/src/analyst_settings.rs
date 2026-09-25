@@ -32,6 +32,10 @@ pub struct DesktopAnalystSettings {
     /// settings file written before it keeps behaving as it did.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub world_voice_source: Option<VoiceSource>,
+    /// Whether a World's window plays its landscape's quiet sound. Off
+    /// unless somebody turns it on, and omitted from the file while off.
+    #[serde(default, skip_serializing_if = "is_off")]
+    pub ambient_sound: bool,
 }
 
 fn is_off(value: &bool) -> bool {
@@ -66,6 +70,7 @@ impl DesktopAnalystSettings {
             pi_program: None,
             world_voice: false,
             world_voice_source: None,
+            ambient_sound: false,
         }
     }
 
@@ -259,6 +264,11 @@ pub fn save_world_voice(root: &Path, on: bool) -> Result<(), DesktopAnalystSetti
     update_settings(root, move |settings| settings.world_voice = on)
 }
 
+/// Whether World windows play their landscape's sound.
+pub fn save_ambient_sound(root: &Path, on: bool) -> Result<(), DesktopAnalystSettingsError> {
+    update_settings(root, move |settings| settings.ambient_sound = on)
+}
+
 /// Which way the voice reaches a model.
 pub fn save_world_voice_source(
     root: &Path,
@@ -426,6 +436,7 @@ mod tests {
             pi_program: Some(PathBuf::from("/usr/local/bin/pi")),
             world_voice: false,
             world_voice_source: None,
+            ambient_sound: false,
         };
         save(&fixture.root, &settings).unwrap();
         assert_eq!(load(&fixture.root).unwrap(), settings);
@@ -491,6 +502,7 @@ mod tests {
             pi_program: Some(PathBuf::from("/persisted/pi")),
             world_voice: false,
             world_voice_source: None,
+            ambient_sound: false,
         };
         let selected = selections(&settings, Some(PathBuf::from("/env/node")), None);
         assert_eq!(selected.node.program, PathBuf::from("/env/node"));
@@ -637,6 +649,7 @@ mod tests {
                 pi_program: Some(PathBuf::from("/saved/pi")),
                 world_voice: false,
                 world_voice_source: None,
+                ambient_sound: false,
             }
         );
 

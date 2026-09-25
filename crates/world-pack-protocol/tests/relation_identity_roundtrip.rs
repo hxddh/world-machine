@@ -76,7 +76,8 @@ fn protocol_v2_preserves_removed_relation_identity_without_visible_endpoints() {
     assert_eq!(
         inspector
             .display_sections()
-            .map(|section| section.title.as_str())
+            .into_iter()
+            .map(|section| section.title)
             .collect::<Vec<_>>(),
         vec!["Relation"]
     );

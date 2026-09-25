@@ -24,7 +24,7 @@ pub(crate) fn snapshot_since(
     world: &World,
     since_event_count: Option<usize>,
 ) -> ProjectionSnapshot {
-    ProjectionSnapshot {
+    let mut snapshot = ProjectionSnapshot {
         title: "Tiny Society".into(),
         world_time: world.world_time(),
         capabilities: ProjectionCapabilities {
@@ -32,7 +32,13 @@ pub(crate) fn snapshot_since(
             background: true,
         },
         briefing: Some(society_briefing(world, since_event_count)),
-        commands: available_commands(world),
+        commands: available_commands(world)
+            .into_iter()
+            .map(|mut command| {
+                command.asker = asker(&command.id);
+                command
+            })
+            .collect(),
         collection: CollectionProjection {
             title: "Residents".into(),
             items: RESIDENTS
@@ -68,7 +74,10 @@ pub(crate) fn snapshot_since(
             unit: "Day".into(),
             length: crate::persistence::WORLD_DAY_TICKS,
         }),
-    }
+        gauges: gauges(world),
+    };
+    snapshot.tell_events_as_history_does();
+    snapshot
 }
 
 /// What moved on one person, place or thing since the visit: money, work,
@@ -175,6 +184,20 @@ fn command_effects(command_id: &str) -> Vec<CommandEffect> {
     }
 }
 
+/// Whose choice it is: Jonas's for his job and his boat, Mara's for her
+/// bakery.
+fn asker(command_id: &str) -> Option<SelectionId> {
+    let who = match command_id {
+        crate::RETAIN_WORKER_COMMAND
+        | crate::REPAIR_BOAT_COMMAND
+        | crate::SELL_BOAT_COMMAND
+        | crate::TAKE_JONAS_ON_COMMAND => JONAS,
+        crate::REOPEN_BAKERY_COMMAND | crate::LEAN_REOPEN_BAKERY_COMMAND => MARA,
+        _ => return None,
+    };
+    Some(SelectionId::Entity(who))
+}
+
 fn available_commands(world: &World) -> Vec<ProjectionCommand> {
     let mut commands = Vec::new();
     let has_order_loss = world
@@ -200,6 +223,8 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                     .into(),
             effects: Vec::new(),
             scenery: None,
+            asker: None,
+            moves: Vec::new(),
         });
     }
 
@@ -215,7 +240,7 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 "Invest {} of Mara's cash to reopen Harbor Bakery. Mara returns to work; former workers are not automatically rehired.",
                 crate::BAKERY_REOPEN_INVESTMENT
             ), effects: Vec::new(),
-            scenery: None,
+            scenery: None, asker: None, moves: Vec::new(),
 });
     }
 
@@ -229,7 +254,7 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 "Invest {} of Mara's cash and reopen Harbor Bakery without a fixed daily Bakery wage. Lower overhead can survive weak demand, but Mara gives up predictable pay.",
                 crate::recovery::LEAN_REOPEN_INVESTMENT
             ), effects: Vec::new(),
-            scenery: None,
+            scenery: None, asker: None, moves: Vec::new(),
 });
     }
 
@@ -241,7 +266,7 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 "Leo pays Evan {} to repair Sea Finch. Jonas returns to Harbor fishing once the boat is sound. Leo's backing does not stand indefinitely.",
                 crate::social::SEA_FINCH_REPAIR_COST
             ), effects: Vec::new(),
-            scenery: None,
+            scenery: None, asker: None, moves: Vec::new(),
 });
     }
 
@@ -254,7 +279,7 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 crate::drift::SEA_FINCH_SCRAP_VALUE,
                 crate::social::SEA_FINCH_REPAIR_COST
             ), effects: Vec::new(),
-            scenery: None,
+            scenery: None, asker: None, moves: Vec::new(),
 });
     }
 
@@ -266,7 +291,7 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 "Jonas works the counter for {} a day. It is a second wage against the same island trade, and the bakery has to carry it.",
                 crate::livelihood::COUNTER_WAGE
             ), effects: Vec::new(),
-            scenery: None,
+            scenery: None, asker: None, moves: Vec::new(),
 });
     }
 
@@ -393,16 +418,16 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
     if since_event_count.is_some() && items.len() == 1 {
         let (title, detail) = if relevant_events.is_empty() {
             (
-                "No new events",
-                "Nothing changed in the world since your last visit.".to_string(),
+                "A quiet stretch",
+                "Nothing changed in the town since your last visit.".to_string(),
             )
         } else {
             (
-                "The world moved forward",
-                format!(
-                    "{} new event(s) occurred, but none are highlighted in Society Today.",
-                    relevant_events.len()
-                ),
+                "The town kept working",
+                match relevant_events.len() {
+                    1 => "One small thing happened, and nothing stood out.".to_string(),
+                    count => format!("{count} small things happened, and nothing stood out."),
+                },
             )
         };
         items.push(BriefingItem {
@@ -422,6 +447,7 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
             "Life happened while you were away".into()
         },
         items,
+        returned: since_event_count.is_some(),
     }
 }
 
@@ -611,11 +637,19 @@ fn bakery_sales_summary(world: &World, events: &[Event]) -> Option<BriefingItem>
         selection: Some(SelectionId::Event(latest.id)),
         title: "Harbor Bakery had customers".into(),
         detail: format!(
-            "{people} bought bread · {} {purchase_label} · {total_revenue} revenue · latest at World time {}",
+            "{people} bought bread · {} {purchase_label} · {total_revenue} earned · last on day {}",
             purchases.len(),
-            latest.world_time
-        ), tone: world_projection::Tone::Neutral,
-})
+            town_day(latest.world_time)
+        ),
+        tone: world_projection::Tone::Neutral,
+    })
+}
+
+/// The day a moment falls on, counted the way the town's calendar counts.
+fn town_day(world_time: u64) -> u64 {
+    world_time
+        .div_ceil(crate::persistence::WORLD_DAY_TICKS)
+        .max(1)
 }
 
 fn living_activity_summary(world: &World, events: &[Event]) -> Option<BriefingItem> {
@@ -651,13 +685,14 @@ fn living_activity_summary(world: &World, events: &[Event]) -> Option<BriefingIt
     Some(BriefingItem {
         kind: BriefingItemKind::Status,
         selection: Some(SelectionId::Event(latest.id)),
-        title: "The world moved forward".into(),
+        title: "The town kept working".into(),
         detail: format!(
-            "{people} worked · {} {shift_label} · {total_wages} total wages · latest at World time {}",
+            "{people} worked · {} {shift_label} · {total_wages} paid in wages · last on day {}",
             shifts.len(),
-            latest.world_time
-        ), tone: world_projection::Tone::Neutral,
-})
+            town_day(latest.world_time)
+        ),
+        tone: world_projection::Tone::Neutral,
+    })
 }
 
 fn resident_item(world: &World, id: EntityId) -> Option<CollectionItem> {
@@ -712,6 +747,7 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                 y,
                 changes: Vec::new(),
                 shape: Some(place_shape(id)),
+                at: None,
             });
         }
     }
@@ -738,6 +774,7 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                 y,
                 changes: Vec::new(),
                 shape: None,
+                at: workplace(world, id).map(SelectionId::Entity),
             });
         }
     }
@@ -760,6 +797,13 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                 y,
                 changes: Vec::new(),
                 shape: None,
+                // The boat is moored at the harbour; the order waits at
+                // the bakery that has to fill it.
+                at: Some(SelectionId::Entity(if id == JONAS_BOAT {
+                    HARBOR
+                } else {
+                    BAKERY
+                })),
             });
         }
     }
@@ -774,6 +818,108 @@ fn component_text(world: &World, id: EntityId, key: &str) -> Option<String> {
         Value::Bool(value) => Some(value.to_string()),
         Value::Entity(value) => world.state().entity(*value).map(entity_title),
         Value::Null | Value::List(_) | Value::Map(_) => None,
+    }
+}
+
+/// Where someone works, which is where they are found: the place their
+/// job ties them to, if they have one.
+fn workplace(world: &World, person: EntityId) -> Option<EntityId> {
+    world
+        .state()
+        .relations()
+        .find(|relation| relation.kind == "works_at" && relation.from == person)
+        .map(|relation| relation.to)
+        .filter(|place| world.state().entity(*place).is_some())
+}
+
+/// What the harbour town keeps score of: how many of its working people
+/// have work, how much money its people hold against what they started
+/// with, and whether the bakery at its heart is open.
+pub(crate) fn gauges(world: &World) -> Vec<world_projection::Gauge> {
+    use world_projection::Gauge;
+    let workforce = RESIDENTS
+        .iter()
+        .filter(|id| component_text(world, **id, JOB).as_deref() != Some("student"))
+        .count();
+    let out_of_work = RESIDENTS
+        .iter()
+        .filter(|id| component_text(world, **id, JOB).as_deref() == Some("unemployed"))
+        .count();
+    let working = workforce - out_of_work;
+    let money: i64 = RESIDENTS
+        .iter()
+        .filter_map(|id| component_integer(world, *id, CASH))
+        .sum();
+    let started_with: i64 = RESIDENTS
+        .iter()
+        .filter_map(
+            |id| match world_projection::component_at(world, 0, *id, CASH) {
+                Some(Value::Integer(cash)) => Some(cash),
+                _ => None,
+            },
+        )
+        .sum();
+    let started_with = started_with.max(1);
+    let bakery = component_text(world, BAKERY, OPERATING_STATUS).unwrap_or_default();
+    vec![
+        Gauge {
+            id: "work".into(),
+            label: "In work".into(),
+            value: working as f32 / workforce.max(1) as f32,
+            reading: format!("{working} of {workforce}"),
+            tone: match out_of_work {
+                0 => Tone::Good,
+                1 => Tone::Warning,
+                _ => Tone::Bad,
+            },
+        },
+        Gauge {
+            id: "money".into(),
+            label: "Money in town".into(),
+            // Half full is what the town started with.
+            value: (money as f32 / (started_with * 2) as f32).clamp(0.0, 1.0),
+            reading: with_thousands(money),
+            tone: if money * 10 < started_with * 7 {
+                Tone::Bad
+            } else if money < started_with {
+                Tone::Warning
+            } else {
+                Tone::Good
+            },
+        },
+        Gauge {
+            id: "bakery".into(),
+            label: "Harbor Bakery".into(),
+            value: if bakery == "open" { 1.0 } else { 0.0 },
+            reading: capitalized(&bakery.replace('_', " ")),
+            tone: if bakery == "open" {
+                Tone::Good
+            } else {
+                Tone::Bad
+            },
+        },
+    ]
+}
+
+#[cfg(test)]
+pub(crate) fn with_thousands_for_test(amount: i64) -> String {
+    with_thousands(amount)
+}
+
+/// "1,372", the way money is written.
+fn with_thousands(amount: i64) -> String {
+    let digits = amount.unsigned_abs().to_string();
+    let mut grouped = String::new();
+    for (index, digit) in digits.chars().enumerate() {
+        if index > 0 && (digits.len() - index).is_multiple_of(3) {
+            grouped.push(',');
+        }
+        grouped.push(digit);
+    }
+    if amount < 0 {
+        format!("-{grouped}")
+    } else {
+        grouped
     }
 }
 
@@ -835,7 +981,7 @@ mod tests {
         let quiet = snapshot_since(society.world(), Some(society.world().events().len()));
         let items = quiet.briefing.expect("briefing").items;
         assert_eq!(items[0].title, "Harbor today");
-        assert_eq!(items[1].title, "No new events");
+        assert_eq!(items[1].title, "A quiet stretch");
     }
 }
 

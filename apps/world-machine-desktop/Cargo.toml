@@ -1,6 +1,6 @@
 [package]
 name = "world-machine-desktop"
-version = "0.7.0"
+version = "0.8.0"
 edition = "2021"
 license = "Apache-2.0"
 publish = false
@@ -32,5 +32,6 @@ world-pack-bundle = { path = "../../crates/world-pack-bundle" }
 world-pack-catalog = { path = "../../crates/world-pack-catalog" }
 world-pack-process = { path = "../../crates/world-pack-process" }
 world-persistence = { path = "../../crates/world-persistence" }
+world-projection = { path = "../../crates/world-projection" }
 world-strategy-document = { path = "../../crates/world-strategy-document" }
 world-strategy-gpui = { path = "../../crates/world-strategy-gpui" }

@@ -199,7 +199,7 @@ fn posture_forks_compound_into_different_emergent_legacies() -> Result<(), Box<d
         .expect("generic comparison should expose the changed World entity");
     assert_eq!(
         row(universe, "Legacy"),
-        Some(("ridge-network", "habitat-commons"))
+        Some(("Ridge network", "Habitat commons"))
     );
 
     assert!(comparison.timeline.changed.iter().any(|event| {

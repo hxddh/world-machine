@@ -6699,6 +6699,7 @@ dependencies = [
 name = "world-gpui"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "gpui",
  "world-projection",
  "world-theme",
@@ -6786,7 +6787,7 @@ dependencies = [
 
 [[package]]
 name = "world-machine-desktop"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "gpui",
  "gpui_platform",

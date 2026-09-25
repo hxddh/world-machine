@@ -1,6 +1,6 @@
 # Known issues
 
-Current as of `v0.7.0` in the [changelog](../CHANGELOG.md). Report anything else with **Help → Report a Problem…** in the app.
+Current as of `v0.8.0` in the [changelog](../CHANGELOG.md). Report anything else with **Help → Report a Problem…** in the app.
 
 ## Installation
 
@@ -10,12 +10,14 @@ Current as of `v0.7.0` in the [changelog](../CHANGELOG.md). Report anything else
 
 ## Using Worlds
 
-- **A Pack version change closes older Worlds.** A `.world` file records the exact World Pack version it was created with, and the app ships one version of each included Pack. When a Pack's rules change its version moves, and Worlds pinned to the older version report that they need a Pack this build does not have. Each release's section of the [changelog](../CHANGELOG.md) says which Packs moved; in `v0.7.0` Pocket Universe moved to `0.20.0`. Export a World you want to keep before updating; nothing is deleted, and the file still holds its whole history.
+- **A Pack version change closes older Worlds.** A `.world` file records the exact World Pack version it was created with, and the app ships one version of each included Pack. When a Pack's rules change its version moves, and Worlds pinned to the older version report that they need a Pack this build does not have. Each release's section of the [changelog](../CHANGELOG.md) says which Packs moved; `v0.8.0` moved none, and in `v0.7.0` Pocket Universe moved to `0.20.0`. Export a World you want to keep before updating; nothing is deleted, and the file still holds its whole history.
 
 - **Renaming or removing a World that is open in a window.** Both write the World's file, so the open window is a step behind: after a rename choose **World → Reload** in that window, and after a removal close the window rather than saving from it, or the save writes the World back into the Library.
 - **Removed Worlds are not deleted.** **Remove** moves the file into a `Removed` folder inside `~/Library/Application Support/World Machine/Worlds`. Emptying that folder is a Finder step; the app never deletes World files.
 - **Compare Futures needs a choice.** **What if…** opens the comparison only when the World currently offers at least two choices; otherwise it opens the World with a note saying so.
 - **Background time is bounded.** A World advances at most seven periods per return, however long you were away; the return briefing says how many.
+- **Ambient sound is unheard.** Settings → Sound plays a quiet loop made from a World's landscape through macOS's own player. It is tested as sound data, but has not been listened to on a Mac.
+- **The sky follows your clock, not the World's.** Dawn, dusk and night are drawn from the Mac's local time, like a window onto the same sky; a World records nothing about them.
 - **No notification while a World is closed.** A World keeps going without you and its window says when it next moves, but nothing tells you from outside the app. macOS delivers notifications reliably only to a signed app, so this waits on notarization.
 - **Home offers two Packs to start.** *Future Archaeologist* and *Micro Company* are engine test Packs and are hidden from Home; Worlds already made with them still open, and launching with `WORLD_MACHINE_DEVELOPER=1` offers them again.
 - **World Analyst is experimental** and needs Node and the Pi runtime on your PATH. The entry stays hidden otherwise. See [PI_ANALYST.md](PI_ANALYST.md).

@@ -31,11 +31,9 @@ const SIDEBAR_WIDTH: f32 = 300.0;
 /// squeezing it.
 const TWO_COLUMN_MIN_WIDTH: f32 = 920.0;
 
-/// Event inspector sections that only restate the raw record. What an event
-/// changed is already listed by name under "What this changed", and why it
-/// happened has its own panel, so neither is repeated as a table of ids.
-const RAW_EVENT_SECTIONS: [&str; 2] = ["Payload", "Changes"];
-const RAW_EVENT_ROWS: [&str; 1] = ["Caused by"];
+/// How tall a place to begin is drawn side by side, and stacked.
+const BEGINNING_TALL: f32 = 360.0;
+const BEGINNING_SHORT: f32 = 170.0;
 
 pub struct ProjectionView {
     snapshot: ProjectionSnapshot,
@@ -49,11 +47,18 @@ pub struct ProjectionView {
     previewing: Option<String>,
     /// Moments whose everyday round the reader has unfolded in History.
     routine_open: std::collections::BTreeSet<u64>,
+    /// How the World stood before the last turn, so whoever the turn moved
+    /// can be seen walking to where they are now.
+    before_turn: Option<ProjectionSnapshot>,
+    /// On a return, which of the things that happened is being told, one at
+    /// a time, before the page hands over to the player's turn.
+    retelling: Option<usize>,
 }
 
 impl ProjectionView {
     pub fn new(snapshot: ProjectionSnapshot) -> Self {
         let selected = default_selection(&snapshot);
+        let retelling = starts_retelling(&snapshot);
         Self {
             snapshot,
             selected,
@@ -63,6 +68,8 @@ impl ProjectionView {
             show_header: true,
             previewing: None,
             routine_open: Default::default(),
+            before_turn: None,
+            retelling,
         }
     }
 
@@ -115,6 +122,8 @@ impl ProjectionView {
             Ok(snapshot) => {
                 let previous = self.selected;
                 self.snapshot = snapshot;
+                self.before_turn = None;
+                self.retelling = None;
                 self.selected = selection_for_snapshot(previous, &self.snapshot);
                 self.status = Some(format!("Branched before “{event_title}”"));
                 self.status_is_error = false;
@@ -135,7 +144,8 @@ impl ProjectionView {
         match controller.handle(ProjectionIntent::InvokeCommand(command_id)) {
             Ok(snapshot) => {
                 let previous = self.selected;
-                self.snapshot = snapshot;
+                self.before_turn = Some(std::mem::replace(&mut self.snapshot, snapshot));
+                self.retelling = None;
                 self.selected = selection_for_snapshot(previous, &self.snapshot);
                 self.status = None;
                 self.status_is_error = false;
@@ -161,6 +171,12 @@ impl ProjectionView {
     /// What the scene lights up: the targets of the choice under the
     /// pointer, or else whoever the news is about.
     fn emphasis(&self) -> scene::Emphasis {
+        if let Some(beat) = self.current_beat() {
+            let targets = beat_targets(&self.snapshot, beat);
+            if !targets.is_empty() {
+                return scene::Emphasis::Only(targets);
+            }
+        }
         let targets = self
             .previewing
             .as_deref()
@@ -202,6 +218,145 @@ impl ProjectionView {
                 .text_color(color(tone))
                 .child(status.clone()),
         )
+    }
+
+    /// The beat being told on a return, if one is.
+    fn current_beat(&self) -> Option<&BriefingItem> {
+        let index = self.retelling?;
+        self.snapshot.briefing.as_ref()?.beats().get(index).copied()
+    }
+
+    fn step_retelling(&mut self, cx: &mut Context<Self>) {
+        let count = self
+            .snapshot
+            .briefing
+            .as_ref()
+            .map(|briefing| briefing.beats().len())
+            .unwrap_or(0);
+        self.retelling = self
+            .retelling
+            .map(|index| index + 1)
+            .filter(|index| *index < count);
+        cx.notify();
+    }
+
+    fn end_retelling(&mut self, cx: &mut Context<Self>) {
+        self.retelling = None;
+        cx.notify();
+    }
+
+    /// One thing that happened while the player was away, told big: whose
+    /// it was, what happened, and how far through the telling this is. The
+    /// scene above lights up whoever it is about.
+    fn render_retelling(&self, cx: &mut Context<Self>) -> Option<Div> {
+        let index = self.retelling?;
+        let beats = self.snapshot.briefing.as_ref()?.beats();
+        let beat = *beats.get(index)?;
+        let count = beats.len();
+        let last = index + 1 == count;
+        let faces = beat
+            .selection
+            .and_then(|selection| scene::event_actor(&self.snapshot, selection))
+            .into_iter()
+            .collect::<Vec<_>>();
+        let mut dots = div().flex().items_center().gap(px(6.0));
+        for step in 0..count {
+            dots = dots.child(
+                div()
+                    .size(px(if step == index { 8.0 } else { 6.0 }))
+                    .rounded_full()
+                    .bg(color(if step <= index {
+                        tokens::ACCENT
+                    } else {
+                        tokens::BORDER_STRONG
+                    })),
+            );
+        }
+        let mut body = div()
+            .flex_1()
+            .min_w(px(0.0))
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(
+                div()
+                    .text_xl()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(beat.title.clone()),
+            );
+        if !beat.detail.is_empty() {
+            body = body.child(ui::body(beat.detail.clone()));
+        }
+        let mut telling = div().flex().items_start().gap_4();
+        if !faces.is_empty() {
+            let face = ui::avatar(&faces[0], 52.0);
+            telling = telling.child(if beat.tone == Tone::Neutral {
+                face
+            } else {
+                face.border_2()
+                    .border_color(color(scene::tone_token(beat.tone)))
+            });
+        }
+        telling = telling.child(body);
+        let card = div()
+            .p_6()
+            .rounded_xl()
+            .border_1()
+            .border_color(color(scene::tone_token(beat.tone)))
+            .bg(color(tokens::SURFACE))
+            .shadow_md()
+            .flex()
+            .flex_col()
+            .gap_5()
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .gap_3()
+                    .child(ui::section_label(format!(
+                        "While you were away · {} of {count}",
+                        index + 1
+                    )))
+                    .child(
+                        div()
+                            .id("retelling-skip")
+                            .text_sm()
+                            .text_color(color(tokens::TEXT_SECONDARY))
+                            .cursor_pointer()
+                            .hover(|style| style.text_color(color(tokens::ACCENT_TEXT)))
+                            .child("Skip to your turn")
+                            .on_click(cx.listener(|this, _, _, cx| this.end_retelling(cx))),
+                    ),
+            )
+            .child(ui::arrive(
+                telling,
+                format!("retelling-{}-{index}", self.revision()),
+                0,
+            ))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .gap_3()
+                    .child(dots)
+                    .child(
+                        ui::button(
+                            "retelling-next",
+                            if last { "Your turn →" } else { "Next →" },
+                            ButtonKind::Primary,
+                        )
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            if last {
+                                this.end_retelling(cx)
+                            } else {
+                                this.step_retelling(cx)
+                            }
+                        })),
+                    ),
+            );
+        Some(card)
     }
 
     /// Where the page starts: which World, what moment, and the headline.
@@ -376,7 +531,14 @@ impl ProjectionView {
                 .child(
                     div()
                         .w_full()
-                        .h(px(170.0))
+                        // Side by side the places are the whole first
+                        // screen, so their pictures take the room; stacked
+                        // on a narrow window they stay short enough to scroll.
+                        .h(px(if two_columns {
+                            BEGINNING_TALL
+                        } else {
+                            BEGINNING_SHORT
+                        }))
                         .child(ui::scenery_cover(&scenery, &command.id).size_full()),
                 )
                 .child(
@@ -415,8 +577,8 @@ impl ProjectionView {
         }
 
         let mut choices = div().flex().flex_col().gap_2();
-        for (index, command) in self.snapshot.commands.iter().enumerate() {
-            choices = choices.child(self.choice(index, command, cx));
+        for command in &self.snapshot.commands {
+            choices = choices.child(self.choice(command, cx));
         }
 
         Some(
@@ -449,39 +611,77 @@ impl ProjectionView {
         )
     }
 
-    fn choice(
-        &self,
-        index: usize,
-        command: &ProjectionCommand,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    fn choice(&self, command: &ProjectionCommand, cx: &mut Context<Self>) -> impl IntoElement {
         let command_id = command.id.clone();
-        let mut text = div()
-            .flex_1()
-            .min_w(px(0.0))
-            .flex()
-            .flex_col()
-            .gap_1()
-            .child(ui::row_title(command.title.clone()));
+        let considering = self.previewing.as_deref() == Some(command.id.as_str());
+        let faces = asker_faces(&self.snapshot, command.asker);
+        let mut text = div().flex_1().min_w(px(0.0)).flex().flex_col().gap_1();
+        // Who is asking, above what they ask.
+        if !faces.is_empty() {
+            text = text.child(ui::caption(faces.join(" & ")));
+        }
+        text = text.child(ui::row_title(command.title.clone()));
+        // One line until the choice is being considered; then all of it.
         if !command.detail.is_empty() {
             text = text.child(
                 ui::detail(command.detail.clone())
-                    .line_clamp(3)
+                    .line_clamp(if considering { 4 } else { 1 })
                     .text_ellipsis(),
             );
         }
-        if !command.effects.is_empty() {
-            let mut chips = div().pt_1().flex().flex_wrap().gap_1();
-            for effect in &command.effects {
-                chips = chips.child(effect_chip(effect));
+        // What it moves: the measured gauge marks first, then any other
+        // fact the Pack gives. An up or down the gauges already show is not
+        // said twice.
+        let mut chips = div().pt_1().flex().flex_wrap().gap_1();
+        let mut has_chips = false;
+        for step in &command.moves {
+            if let Some(gauge) = self
+                .snapshot
+                .gauges
+                .iter()
+                .find(|gauge| gauge.id == step.gauge)
+            {
+                chips = chips.child(move_chip(&gauge.label, step.by));
+                has_chips = true;
             }
+        }
+        for effect in &command.effects {
+            let said_by_gauges = !command.moves.is_empty()
+                && matches!(effect.change, EffectChange::Up | EffectChange::Down);
+            if !said_by_gauges {
+                chips = chips.child(effect_chip(effect));
+                has_chips = true;
+            }
+        }
+        if has_chips {
             text = text.child(chips);
         }
+        // A choice nobody asks is time passing: a clock, not a number.
+        let marker = if faces.is_empty() {
+            div()
+                .flex_shrink_0()
+                .size(px(40.0))
+                .rounded_full()
+                .bg(color(tokens::ACCENT_SOFT))
+                .p(px(10.0))
+                .child(clock_glyph().size_full())
+        } else {
+            face_stack(&faces)
+        };
         let hover_id = command.id.clone();
         div()
             .id(SharedString::from(format!("command-{}", command.id)))
             .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
-                let previewing = hovered.then(|| hover_id.clone());
+                // Moving straight from one choice to the next can report
+                // leaving the first after entering the second; leaving only
+                // clears the preview if it is still this choice's.
+                let previewing = if *hovered {
+                    Some(hover_id.clone())
+                } else if this.previewing.as_deref() == Some(hover_id.as_str()) {
+                    None
+                } else {
+                    return;
+                };
                 if this.previewing != previewing {
                     this.previewing = previewing;
                     cx.notify();
@@ -504,20 +704,7 @@ impl ProjectionView {
             .flex()
             .items_center()
             .gap_3()
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .size(px(28.0))
-                    .rounded_full()
-                    .bg(color(tokens::ACCENT_SOFT))
-                    .text_color(color(tokens::ACCENT_TEXT))
-                    .text_sm()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .child(format!("{}", index + 1)),
-            )
+            .child(marker)
             .child(text)
             .child(
                 div()
@@ -1235,8 +1422,17 @@ impl Render for ProjectionView {
         let on_select: scene::SelectHandler = Rc::new(move |selection, _, cx| {
             view.update(cx, |this, cx| this.select(selection, cx)).ok();
         });
-        if let Some(scene) = scene::scene(
+        // The stakes sit right above the place they are about.
+        let previewing = self
+            .previewing
+            .as_deref()
+            .and_then(|id| self.snapshot.command(id));
+        if let Some(gauges) = scene::gauges(&self.snapshot, previewing) {
+            column = column.child(gauges);
+        }
+        if let Some(scene) = scene::scene_walking(
             &self.snapshot,
+            self.before_turn.as_ref(),
             stage_width,
             self.selected,
             &self.emphasis(),
@@ -1248,10 +1444,16 @@ impl Render for ProjectionView {
         if let Some(beginning) = self.render_beginning(two_columns, cx) {
             column = column.child(beginning);
         }
+        // Coming back, what happened is told first, one thing at a time,
+        // and only then does the page hand over to the player's turn.
+        if let Some(retelling) = self.render_retelling(cx) {
+            column = column.child(retelling);
+        }
+        let retelling = self.retelling.is_some();
         // The decision and the news that led to it sit side by side under
         // the scene when there is room, and stack when there is not.
-        let decision = self.render_decision(cx);
-        let story = self.render_story(cx);
+        let decision = self.render_decision(cx).filter(|_| !retelling);
+        let story = self.render_story(cx).filter(|_| !retelling);
         let side_by_side = two_columns && decision.is_some() && story.is_some();
         let mut pair = div().flex().gap_6();
         pair = if side_by_side {
@@ -1270,7 +1472,7 @@ impl Render for ProjectionView {
             pair = pair.child(div().flex_1().min_w(px(0.0)).child(story));
         }
         column = column.child(pair);
-        if let Some(standing) = self.render_standing(cx) {
+        if let Some(standing) = self.render_standing(cx).filter(|_| !retelling) {
             column = column.child(standing);
         }
 
@@ -1378,6 +1580,169 @@ fn history_summary(subtitle: &str, actor: Option<&str>) -> String {
 
 /// One consequence of a choice, as a small coloured chip: "↑ Trust",
 /// "Sea Finch → repaired".
+/// A return is told as a sequence when the Pack says it is one and there
+/// is something to tell.
+fn starts_retelling(snapshot: &ProjectionSnapshot) -> Option<usize> {
+    let briefing = snapshot.briefing.as_ref()?;
+    (briefing.returned && !briefing.beats().is_empty()).then_some(0)
+}
+
+/// Who and where a beat is about, as things on the scene: the people its
+/// event names, or the person, place or relationship it points at.
+fn beat_targets(
+    snapshot: &ProjectionSnapshot,
+    beat: &BriefingItem,
+) -> std::collections::BTreeSet<SelectionId> {
+    let mut targets = std::collections::BTreeSet::new();
+    let Some(selection) = beat.selection else {
+        return targets;
+    };
+    let names = match selection {
+        SelectionId::Event(_) => snapshot
+            .inspector(selection)
+            .map(|inspector| {
+                inspector
+                    .sections
+                    .iter()
+                    .flat_map(|section| section.rows.iter())
+                    .filter(|row| {
+                        [
+                            world_projection::EVENT_WHO_ROW,
+                            world_projection::EVENT_WITH_ROW,
+                            "Actor",
+                            "Targets",
+                        ]
+                        .contains(&row.label.as_str())
+                    })
+                    .flat_map(|row| row.value.split(", ").map(str::to_owned).collect::<Vec<_>>())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default(),
+        _ => {
+            targets.insert(selection);
+            Vec::new()
+        }
+    };
+    for item in &snapshot.canvas.items {
+        if names.contains(&item.label) {
+            targets.insert(item.id);
+        }
+    }
+    targets
+}
+
+/// The people a choice concerns, by name: the asker, or both ends of the
+/// relationship it is about.
+fn asker_faces(snapshot: &ProjectionSnapshot, asker: Option<SelectionId>) -> Vec<String> {
+    let Some(asker) = asker else {
+        return Vec::new();
+    };
+    let name_of = |id: SelectionId| {
+        snapshot
+            .canvas
+            .items
+            .iter()
+            .find(|item| item.id == id)
+            .map(|item| item.label.clone())
+    };
+    if let Some(link) = snapshot
+        .canvas
+        .links
+        .iter()
+        .find(|link| link.selection == Some(asker))
+    {
+        return [link.from, link.to]
+            .into_iter()
+            .filter_map(name_of)
+            .collect();
+    }
+    name_of(asker)
+        .or_else(|| {
+            snapshot
+                .inspector(asker)
+                .map(|inspector| inspector.title.clone())
+        })
+        .into_iter()
+        .collect()
+}
+
+/// A small clock face, for letting time pass.
+fn clock_glyph() -> gpui::Canvas<()> {
+    gpui::canvas(
+        |_, _, _| (),
+        move |bounds: gpui::Bounds<gpui::Pixels>, _, window, _| {
+            use gpui::{point, px, PathBuilder};
+            let ink: gpui::Hsla = color(tokens::ACCENT_TEXT).into();
+            let o = bounds.origin;
+            let side = f32::from(bounds.size.width.min(bounds.size.height));
+            let centre = point(o.x + px(side / 2.0), o.y + px(side / 2.0));
+            let mut ring = PathBuilder::stroke(px(2.0));
+            let radius = side / 2.0 - 1.0;
+            let steps = 24;
+            for step in 0..=steps {
+                let angle = step as f32 / steps as f32 * std::f32::consts::TAU;
+                let at = point(
+                    centre.x + px(radius * angle.cos()),
+                    centre.y + px(radius * angle.sin()),
+                );
+                if step == 0 {
+                    ring.move_to(at);
+                } else {
+                    ring.line_to(at);
+                }
+            }
+            if let Ok(path) = ring.build() {
+                window.paint_path(path, ink);
+            }
+            let mut hands = PathBuilder::stroke(px(2.0));
+            hands.move_to(point(centre.x, centre.y - px(radius * 0.6)));
+            hands.line_to(centre);
+            hands.line_to(point(centre.x + px(radius * 0.45), centre.y));
+            if let Ok(path) = hands.build() {
+                window.paint_path(path, ink);
+            }
+        },
+    )
+}
+
+/// One or two faces, the second tucked behind the first.
+fn face_stack(names: &[String]) -> Div {
+    const FACE: f32 = 40.0;
+    const TUCK: f32 = 14.0;
+    let shown = names.len().clamp(1, 2);
+    let mut stack = div()
+        .relative()
+        .flex_shrink_0()
+        .w(px(FACE + (shown - 1) as f32 * (FACE - TUCK)))
+        .h(px(FACE));
+    for (index, name) in names.iter().take(2).enumerate().rev() {
+        stack = stack.child(
+            div()
+                .absolute()
+                .top_0()
+                .left(px(index as f32 * (FACE - TUCK)))
+                .rounded_full()
+                .border_2()
+                .border_color(color(tokens::SURFACE))
+                .child(ui::avatar(name, FACE - 4.0)),
+        );
+    }
+    stack
+}
+
+/// How a choice moves one gauge: "Trust ▲▲".
+fn move_chip(label: &str, by: i32) -> Div {
+    div()
+        .px_2()
+        .py(px(1.0))
+        .rounded_full()
+        .bg(color(tokens::ACCENT_SOFT))
+        .text_xs()
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(color(tokens::ACCENT_TEXT))
+        .child(format!("{label} {}", scene::movement_arrows(by)))
+}
+
 fn effect_chip(effect: &CommandEffect) -> Div {
     let (text, ground) = match effect.tone {
         Tone::Neutral => (tokens::TEXT_SECONDARY, tokens::ROW_HOVER),
@@ -1574,7 +1939,6 @@ fn selection_for_snapshot(
 }
 
 fn inspector_panel(inspector: &InspectorProjection) -> Div {
-    let is_event = matches!(inspector.selection, SelectionId::Event(_));
     let mut header = div()
         .flex()
         .flex_col()
@@ -1586,15 +1950,9 @@ fn inspector_panel(inspector: &InspectorProjection) -> Div {
     let mut body = div().flex().flex_col().gap_4().child(header);
 
     for section in inspector.display_sections() {
-        if is_event && RAW_EVENT_SECTIONS.contains(&section.title.as_str()) {
-            continue;
-        }
         let mut rows = div().flex().flex_col();
         let mut shown = 0;
         for row in &section.rows {
-            if is_event && RAW_EVENT_ROWS.contains(&row.label.as_str()) {
-                continue;
-            }
             shown += 1;
             rows = rows.child(
                 div()
@@ -1642,7 +2000,7 @@ mod focus_hierarchy_tests {
     use super::{
         command_panel_title, default_selection, has_collection_panel, has_exploration,
         has_timeline_panel, history_groups, history_sections, history_window,
-        selection_for_snapshot,
+        selection_for_snapshot, starts_retelling,
     };
     use world_projection::{
         CollectionItem, InspectorProjection, ProjectionSnapshot, SelectionId, TimelineItem,
@@ -1650,6 +2008,39 @@ mod focus_hierarchy_tests {
 
     fn entity_selection() -> SelectionId {
         SelectionId::Entity(Default::default())
+    }
+
+    #[test]
+    fn only_a_return_with_something_to_tell_is_told_as_a_sequence() {
+        use world_projection::{BriefingItem, BriefingItemKind, BriefingProjection, Tone};
+        let briefing = |returned: bool, kind: BriefingItemKind| ProjectionSnapshot {
+            briefing: Some(BriefingProjection {
+                eyebrow: String::new(),
+                title: String::new(),
+                items: vec![BriefingItem {
+                    selection: None,
+                    title: "Jonas asked Leo for help".into(),
+                    detail: String::new(),
+                    kind,
+                    tone: Tone::Neutral,
+                }],
+                returned,
+            }),
+            ..ProjectionSnapshot::default()
+        };
+        assert_eq!(
+            starts_retelling(&briefing(true, BriefingItemKind::Beat)),
+            Some(0)
+        );
+        assert_eq!(
+            starts_retelling(&briefing(false, BriefingItemKind::Beat)),
+            None
+        );
+        assert_eq!(
+            starts_retelling(&briefing(true, BriefingItemKind::Status)),
+            None,
+            "a quiet stretch has nothing to tell"
+        );
     }
 
     #[test]

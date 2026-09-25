@@ -37,6 +37,7 @@ pub(crate) fn snapshot(world: &World) -> ProjectionSnapshot {
         why: why_map(world, &visible_events, &visible_artifacts),
         scenery: None,
         calendar: None,
+        gauges: Vec::new(),
     }
 }
 
@@ -50,6 +51,8 @@ fn commands(world: &World) -> Vec<ProjectionCommand> {
             detail: "Scan unallocated message storage for a recoverable fragment.".into(),
             effects: Vec::new(),
             scenery: None,
+            asker: None,
+            moves: Vec::new(),
         }]
     }
 }
@@ -153,6 +156,7 @@ fn briefing(world: &World, artifacts: &[EntityId]) -> BriefingProjection {
         eyebrow: "Future Archaeologist".into(),
         title: format!("{} artifacts are readable", artifacts.len()),
         items,
+        returned: false,
     }
 }
 
@@ -175,6 +179,7 @@ fn canvas(world: &World, artifacts: &[EntityId]) -> CanvasProjection {
                 y,
                 changes: Vec::new(),
                 shape: None,
+                at: None,
             });
         }
     }
@@ -203,6 +208,7 @@ fn canvas(world: &World, artifacts: &[EntityId]) -> CanvasProjection {
             y,
             changes: Vec::new(),
             shape: None,
+            at: None,
         });
     }
 
@@ -321,13 +327,13 @@ fn event_inspector(
         .map(entity_name)
     {
         rows.push(InspectorRow {
-            label: "Actor".into(),
+            label: world_projection::EVENT_WHO_ROW.into(),
             value: actor,
         });
     }
     if !event.targets.is_empty() {
         rows.push(InspectorRow {
-            label: "Targets".into(),
+            label: world_projection::EVENT_WITH_ROW.into(),
             value: event
                 .targets
                 .iter()

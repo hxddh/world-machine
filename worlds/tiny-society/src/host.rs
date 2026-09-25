@@ -78,7 +78,7 @@ pub fn tiny_society_registration() -> WorldRegistration {
             pack: tiny_society_pack_ref(),
             title: "Tiny Society".into(),
             description:
-                "A persistent harbor town where relationships and consequences become history."
+                "A small harbour town that keeps living while you are away, where friendships, money and luck become its history."
                     .into(),
         },
         TinySocietySession::fresh,
@@ -90,6 +90,76 @@ pub fn tiny_society_registration() -> WorldRegistration {
 mod tests {
     use super::*;
     use world_projection::{ProjectionIntent, SelectionId};
+
+    /// Everything a player reads in the harbour town, over a first session
+    /// and a return, speaks about the town and never about the engine.
+    #[test]
+    fn nothing_a_player_reads_is_in_engine_words() {
+        let mut registry = world_host::WorldRegistry::new();
+        registry.register(tiny_society_registration()).unwrap();
+        let mut session = registry.create(crate::TINY_SOCIETY_PACK_ID).unwrap();
+        let mut found = std::collections::BTreeSet::new();
+        let mut snapshot = session.snapshot();
+        for turn in 0..16 {
+            for line in snapshot.visible_text() {
+                for word in world_projection::engine_words_in(line) {
+                    found.insert(format!("{word:?} in {line:?}"));
+                }
+            }
+            snapshot = if turn % 4 == 3 || snapshot.commands.is_empty() {
+                session.advance_background(3).unwrap()
+            } else {
+                let command = snapshot.commands[turn % snapshot.commands.len()].id.clone();
+                session
+                    .handle(ProjectionIntent::InvokeCommand(command))
+                    .unwrap()
+            };
+        }
+        assert!(
+            found.is_empty(),
+            "engine words:\n{}",
+            found.into_iter().collect::<Vec<_>>().join("\n")
+        );
+    }
+
+    #[test]
+    fn the_town_keeps_score_and_its_choices_say_whose_they_are() {
+        let mut registry = world_host::WorldRegistry::new();
+        registry.register(tiny_society_registration()).unwrap();
+        let session = registry.create(crate::TINY_SOCIETY_PACK_ID).unwrap();
+        let snapshot = session.snapshot();
+        let ids: Vec<&str> = snapshot
+            .gauges
+            .iter()
+            .map(|gauge| gauge.id.as_str())
+            .collect();
+        assert_eq!(ids, ["work", "money", "bakery"]);
+        assert!(snapshot
+            .gauges
+            .iter()
+            .all(|gauge| (0.0..=1.0).contains(&gauge.value)));
+        for command in &snapshot.commands {
+            assert!(
+                command.asker.is_some(),
+                "{} is somebody's choice",
+                command.id
+            );
+        }
+        assert_eq!(crate::projection::with_thousands_for_test(1372), "1,372");
+        assert_eq!(crate::projection::with_thousands_for_test(-5), "-5");
+    }
+
+    #[test]
+    fn a_return_is_marked_as_one() {
+        let mut registry = world_host::WorldRegistry::new();
+        registry.register(tiny_society_registration()).unwrap();
+        let mut session = registry.create(crate::TINY_SOCIETY_PACK_ID).unwrap();
+        assert!(!session.snapshot().briefing.unwrap().returned);
+        let back = session.advance_background(3).unwrap();
+        let briefing = back.briefing.unwrap();
+        assert!(briefing.returned, "{}", briefing.title);
+        assert!(session.snapshot().briefing.unwrap().returned);
+    }
 
     #[test]
     fn registration_creates_and_reopens_the_same_world_history() {
@@ -134,7 +204,7 @@ mod tests {
         assert!(briefing
             .items
             .iter()
-            .any(|item| item.title == "The world moved forward"));
+            .any(|item| item.title == "The town kept working"));
         assert_eq!(
             session
                 .snapshot()

@@ -10,6 +10,14 @@ pub use causal::{why_from_world, why_map_from_world, WhyNode, WhyProjection};
 pub use influence::effect_headline;
 
 pub const ENTITY_HISTORY_SECTION: &str = "Recorded entity changes";
+/// The row of an event's context naming who did it.
+pub const EVENT_WHO_ROW: &str = "Who";
+/// The row of an event's context naming who else it concerned.
+pub const EVENT_WITH_ROW: &str = "With";
+/// Sections of an event's inspector that restate the raw record; what it
+/// changed and why it happened are told elsewhere in words.
+const RAW_EVENT_SECTIONS: [&str; 2] = ["Payload", "Changes"];
+const RAW_EVENT_ROWS: [&str; 1] = ["Caused by"];
 pub const RELATION_HISTORY_SECTION: &str = "Recorded relation changes";
 pub const RELATION_ENDPOINTS_SECTION: &str = "Active relation endpoints";
 pub const RELATION_IDENTITY_SECTION: &str = "Relation identity endpoints";
@@ -157,6 +165,51 @@ pub struct ProjectionCommand {
     /// How the World this choice starts would look, for a choice that
     /// starts one; a screen can show it as a picture rather than a line.
     pub scenery: Option<Scenery>,
+    /// How this choice would move the World's gauges, measured by playing
+    /// it on a copy of the World: never guessed. Empty when it moves none,
+    /// or when the Pack cannot know without asking someone it cannot ask.
+    pub moves: Vec<GaugeMove>,
+    /// Whose choice this is to put to the player: the person it concerns,
+    /// whose face a screen can show asking it.
+    pub asker: Option<SelectionId>,
+}
+
+/// Something a World keeps score of, always on screen: trust between two
+/// people, how safe the colony is, how many people have work.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Gauge {
+    /// Stable within a World, so a choice can say which gauge it moves.
+    pub id: String,
+    pub label: String,
+    /// How full it is, from 0 to 1.
+    pub value: f32,
+    /// The value in the World's own words: "3 of 10", "Safe", "1,470".
+    pub reading: String,
+    pub tone: Tone,
+}
+
+/// How far a choice would move one gauge, in thousandths of its range:
+/// 100 is a tenth of the way up, -250 a quarter of the way down.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GaugeMove {
+    pub gauge: String,
+    pub by: i32,
+}
+
+/// What moved between two readings of the same gauges, ignoring moves too
+/// small to see.
+pub fn gauge_moves(before: &[Gauge], after: &[Gauge]) -> Vec<GaugeMove> {
+    before
+        .iter()
+        .filter_map(|old| {
+            let new = after.iter().find(|gauge| gauge.id == old.id)?;
+            let by = ((new.value - old.value) * 1000.0).round() as i32;
+            (by.abs() >= 10).then(|| GaugeMove {
+                gauge: old.id.clone(),
+                by,
+            })
+        })
+        .collect()
 }
 
 /// How a World looks from a distance: a sky, a far ridge, a near ridge and
@@ -231,6 +284,8 @@ pub struct ProjectionSnapshot {
     pub scenery: Option<Scenery>,
     /// What this World counts its time in, if its Pack says.
     pub calendar: Option<Calendar>,
+    /// What it keeps score of, in the order a screen should show them.
+    pub gauges: Vec<Gauge>,
 }
 
 /// A World's own unit of time: a Mars colony counts sols, a town counts
@@ -241,7 +296,170 @@ pub struct Calendar {
     pub length: u64,
 }
 
+/// Words that describe the machinery rather than the World. A player never
+/// reads about actors, entities or events; they read about people, places
+/// and what happened.
+pub const ENGINE_WORDS: &[&str] = &[
+    "actor",
+    "actors",
+    "entity",
+    "entities",
+    "event",
+    "events",
+    "intervention",
+    "intervene",
+    "intervening",
+    "dynamics",
+    "persistent",
+    "projection",
+    "payload",
+    "component",
+    "components",
+    "command",
+    "commands",
+    "seed",
+    "seeded",
+    "tick",
+    "ticks",
+    "simulation",
+    "world time",
+    "world state",
+    "larger choice",
+    "generation",
+    "deterministic",
+    "profile",
+    "intent",
+];
+
+/// The engine words in `text`, matched as whole words regardless of case.
+pub fn engine_words_in(text: &str) -> Vec<&'static str> {
+    let lower = text.to_lowercase();
+    let words: Vec<&str> = lower
+        .split(|character: char| !character.is_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .collect();
+    let joined = format!(" {} ", words.join(" "));
+    ENGINE_WORDS
+        .iter()
+        .copied()
+        .filter(|banned| joined.contains(&format!(" {banned} ")))
+        .collect()
+}
+
 impl ProjectionSnapshot {
+    /// Title every event the way History tells it, everywhere a player can
+    /// meet it: its detail panel and the "why" chains that pass through it
+    /// say "The colony opened a new water-recovery loop", not "Universe
+    /// Grew", and date it "Sol 4", not "Time 40". Call it once the timeline
+    /// and calendar are in place.
+    pub fn tell_events_as_history_does(&mut self) {
+        let told: BTreeMap<EventId, (String, u64)> = self
+            .timeline
+            .items
+            .iter()
+            .filter_map(|item| match item.id {
+                SelectionId::Event(id) if !item.title.trim().is_empty() => {
+                    Some((id, (item.title.clone(), item.world_time)))
+                }
+                _ => None,
+            })
+            .collect();
+        let moments: BTreeMap<EventId, String> = told
+            .iter()
+            .map(|(id, (_, world_time))| (*id, self.moment_label(*world_time)))
+            .collect();
+        for (selection, inspector) in &mut self.inspectors {
+            let SelectionId::Event(id) = selection else {
+                continue;
+            };
+            if let Some((title, _)) = told.get(id) {
+                inspector.title = title.clone();
+            }
+            if let Some(moment) = moments.get(id) {
+                inspector.subtitle = moment.clone();
+            }
+        }
+        for why in self.why.values_mut() {
+            for node in &mut why.nodes {
+                if let Some((title, _)) = told.get(&node.event) {
+                    node.title = title.clone();
+                }
+            }
+        }
+    }
+
+    /// Every piece of text this snapshot can put in front of a player, so a
+    /// Pack can check that none of it speaks in engine words.
+    pub fn visible_text(&self) -> Vec<&str> {
+        let mut text = vec![self.title.as_str()];
+        for gauge in &self.gauges {
+            text.push(&gauge.label);
+            text.push(&gauge.reading);
+        }
+        if let Some(briefing) = &self.briefing {
+            text.push(&briefing.eyebrow);
+            text.push(&briefing.title);
+            for item in &briefing.items {
+                text.push(&item.title);
+                text.push(&item.detail);
+            }
+        }
+        for command in &self.commands {
+            text.push(&command.title);
+            text.push(&command.detail);
+            for effect in &command.effects {
+                text.push(&effect.label);
+                if let EffectChange::To(value) = &effect.change {
+                    text.push(value);
+                }
+            }
+        }
+        for item in &self.collection.items {
+            text.push(&item.title);
+            text.push(&item.subtitle);
+        }
+        for item in &self.timeline.items {
+            text.push(&item.title);
+            text.push(&item.subtitle);
+        }
+        for item in &self.canvas.items {
+            text.push(&item.label);
+            text.push(&item.detail);
+        }
+        for link in &self.canvas.links {
+            text.push(&link.label);
+        }
+        for mark in &self.canvas.marks {
+            text.push(&mark.label);
+        }
+        for inspector in self.inspectors.values() {
+            text.push(&inspector.title);
+            text.push(&inspector.subtitle);
+            for section in &inspector.sections {
+                let shown = inspector
+                    .display_sections()
+                    .into_iter()
+                    .find(|display| display.title == section.title);
+                let Some(shown) = shown else {
+                    continue;
+                };
+                text.push(&section.title);
+                for row in section.rows.iter().filter(|row| shown.rows.contains(row)) {
+                    text.push(&row.label);
+                    text.push(&row.value);
+                }
+            }
+        }
+        for why in self.why.values() {
+            for node in &why.nodes {
+                text.push(&node.title);
+                text.push(&node.subtitle);
+            }
+        }
+        text.retain(|line| !line.trim().is_empty());
+        text
+    }
+
     /// A moment in this World's own words: "Sol 3" where the Pack counts
     /// sols, "Time 30" where it does not, and "The beginning" at the start.
     pub fn moment_label(&self, world_time: u64) -> String {
@@ -727,6 +945,9 @@ pub struct BriefingProjection {
     pub eyebrow: String,
     pub title: String,
     pub items: Vec<BriefingItem>,
+    /// This briefing reports a return: what happened while the player was
+    /// away, which a screen can tell as a sequence before handing over.
+    pub returned: bool,
 }
 
 /// Whether a briefing line is something that happened or something that is
@@ -882,6 +1103,10 @@ pub struct CanvasItem {
     /// What a place looks like, so a dome reads as a dome and a bridge as a
     /// bridge. `None` draws the plain house every place used to be.
     pub shape: Option<MarkShape>,
+    /// Where a person or thing is: the place (or thing) on the scene they
+    /// are with, which they are drawn standing beside. `None` leaves them
+    /// where the Pack put them.
+    pub at: Option<SelectionId>,
 }
 
 /// One value that moved since the last visit.
@@ -957,16 +1182,32 @@ pub struct InspectorProjection {
 }
 
 impl InspectorProjection {
-    pub fn display_sections(&self) -> impl Iterator<Item = &InspectorSection> {
-        self.sections.iter().filter(|section| {
-            !matches!(
-                section.title.as_str(),
-                ENTITY_HISTORY_SECTION
-                    | RELATION_HISTORY_SECTION
-                    | RELATION_ENDPOINTS_SECTION
-                    | RELATION_IDENTITY_SECTION
-            )
-        })
+    /// The sections a player reads: without the raw record of ids, payloads
+    /// and causes, which other panels tell in words.
+    pub fn display_sections(&self) -> Vec<InspectorSection> {
+        let is_event = matches!(self.selection, SelectionId::Event(_));
+        self.sections
+            .iter()
+            .filter(|section| {
+                !matches!(
+                    section.title.as_str(),
+                    ENTITY_HISTORY_SECTION
+                        | RELATION_HISTORY_SECTION
+                        | RELATION_ENDPOINTS_SECTION
+                        | RELATION_IDENTITY_SECTION
+                ) && !(is_event && RAW_EVENT_SECTIONS.contains(&section.title.as_str()))
+            })
+            .map(|section| InspectorSection {
+                title: section.title.clone(),
+                rows: section
+                    .rows
+                    .iter()
+                    .filter(|row| !(is_event && RAW_EVENT_ROWS.contains(&row.label.as_str())))
+                    .cloned()
+                    .collect(),
+            })
+            .filter(|section| !section.rows.is_empty())
+            .collect()
     }
 }
 
@@ -1440,8 +1681,8 @@ fn relation_endpoint_text(entity: EntityId, world: &World) -> String {
     world
         .state()
         .entity(entity)
-        .map(|entity| format!("{} · Entity #{}", entity_title(entity), entity.id))
-        .unwrap_or_else(|| format!("Entity #{entity}"))
+        .map(entity_title)
+        .unwrap_or_else(|| "Someone no longer here".into())
 }
 
 fn recorded_relation_change_rows(
@@ -1468,7 +1709,7 @@ fn inspector_for_event(event: &Event, world: &World) -> InspectorProjection {
     let mut context = Vec::new();
     if let Some(actor) = event.actor {
         context.push(InspectorRow {
-            label: "Actor".into(),
+            label: EVENT_WHO_ROW.into(),
             value: world
                 .state()
                 .entity(actor)
@@ -1478,7 +1719,7 @@ fn inspector_for_event(event: &Event, world: &World) -> InspectorProjection {
     }
     if !event.targets.is_empty() {
         context.push(InspectorRow {
-            label: "Targets".into(),
+            label: EVENT_WITH_ROW.into(),
             value: event
                 .targets
                 .iter()
@@ -1949,6 +2190,8 @@ mod tests {
                 detail: "Let the world keep running".into(),
                 effects: Vec::new(),
                 scenery: None,
+                asker: None,
+                moves: Vec::new(),
             }],
             ..ProjectionSnapshot::default()
         };

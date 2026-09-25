@@ -17,6 +17,16 @@ pub struct WorldDocumentMetadata {
     /// draw each one in its own colours without opening it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub display_scenery: Option<DocumentScenery>,
+    /// What the World counts its time in, so a list can say "Sol 5".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_calendar: Option<DocumentCalendar>,
+    /// The shapes of what the World has built, oldest first, so its cover
+    /// can show it filling up.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub display_marks: Vec<String>,
+    /// Whether the World moves on by itself between visits.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub display_moves_alone: bool,
 }
 
 impl WorldDocumentMetadata {
@@ -25,7 +35,17 @@ impl WorldDocumentMetadata {
             && self.display_summary.is_none()
             && self.lineage.is_none()
             && self.display_scenery.is_none()
+            && self.display_calendar.is_none()
+            && self.display_marks.is_empty()
+            && !self.display_moves_alone
     }
+}
+
+/// A World's unit of time and how much world time one of them is.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct DocumentCalendar {
+    pub unit: String,
+    pub length: u64,
 }
 
 /// A World's colours as `0xRRGGBB`: sky, far ridge, near ridge, sun.

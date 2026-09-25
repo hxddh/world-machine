@@ -4,6 +4,7 @@
 //! instead of owning Pi, Node, child-process, PATH resolution, filesystem persistence, or
 //! protocol lifecycle details directly.
 
+pub mod ambience;
 pub mod analyst_readiness;
 pub mod analyst_session;
 pub mod analyst_settings;

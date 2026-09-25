@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
-use world_library::{DurableWorldSession, WorldLibrary};
+use world_library::{DurableWorldSession, WorldDocumentId, WorldLibrary};
 use world_observer::{CatchUpPolicy, ObserverKey, ObserverStore};
 
 /// How much World time one wall-clock stretch is worth, and how much of a long
@@ -84,6 +84,26 @@ pub fn next_move_in(session: &DurableWorldSession, library: &WorldLibrary) -> Op
     ))
 }
 
+/// How many of its periods a library World has lived without being looked
+/// at, as far as the next opening will catch it up: none if it was never
+/// opened here.
+pub fn periods_waiting(document: &WorldDocumentId, library: &WorldLibrary) -> Option<u64> {
+    let store = ObserverStore::new(observer_root(library));
+    let key = ObserverKey::new(format!("library:{}", document.as_str())).ok()?;
+    let last = store.last_seen(&key).ok()??;
+    let now = current_unix_seconds().ok()?;
+    Some(periods_between(
+        last,
+        now,
+        DEFAULT_SECONDS_PER_PERIOD,
+        DEFAULT_MAX_PERIODS,
+    ))
+}
+
+fn periods_between(last: u64, now: u64, period: u64, most: u64) -> u64 {
+    (now.saturating_sub(last) / period.max(1)).min(most)
+}
+
 fn seconds_until_next_period(last: u64, now: u64, period: u64) -> u64 {
     period.saturating_sub(now.saturating_sub(last))
 }
@@ -135,6 +155,14 @@ mod tests {
         assert_eq!(seconds_until_next_period(1_000, 1_000, 600), 600);
         assert_eq!(seconds_until_next_period(1_000, 1_450, 600), 150);
         assert_eq!(seconds_until_next_period(1_000, 5_000, 600), 0);
+    }
+
+    #[test]
+    fn time_waiting_counts_whole_periods_up_to_what_a_return_catches_up() {
+        assert_eq!(periods_between(1_000, 1_500, 600, 7), 0);
+        assert_eq!(periods_between(1_000, 2_300, 600, 7), 2);
+        assert_eq!(periods_between(1_000, 100_000, 600, 7), 7);
+        assert_eq!(periods_between(5_000, 1_000, 600, 7), 0);
     }
     use std::process;
     use world_host::{HostError, WorldDescriptor, WorldRegistration, WorldRegistry, WorldSession};

@@ -59,7 +59,10 @@ impl TinySociety {
     }
 
     pub fn projection_snapshot_since(&self, cursor: VisitCursor) -> ProjectionSnapshot {
-        projection::snapshot_since(&self.world, Some(cursor.event_count))
+        crate::with_previews(
+            &self.world,
+            projection::snapshot_since(&self.world, Some(cursor.event_count)),
+        )
     }
 }
 
@@ -77,7 +80,10 @@ impl TinySocietyBranch {
     }
 
     pub fn projection_snapshot_since(&self, cursor: VisitCursor) -> ProjectionSnapshot {
-        projection::snapshot_since(&self.world, Some(cursor.event_count))
+        crate::with_previews(
+            &self.world,
+            projection::snapshot_since(&self.world, Some(cursor.event_count)),
+        )
     }
 
     pub fn advance_days(&mut self, days: u64) -> Result<Vec<EventId>, Box<dyn Error>> {
@@ -370,7 +376,7 @@ mod tests {
         assert!(briefing
             .items
             .iter()
-            .any(|item| item.title == "The world moved forward"));
+            .any(|item| item.title == "The town kept working"));
     }
 
     #[test]

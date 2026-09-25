@@ -6,13 +6,28 @@ use std::error::Error;
 use world_compare::{compare_divergence, compare_snapshots, DifferenceKind, EntityDifference};
 
 /// What kind of Event an item is, independent of how the Pack words it.
-fn kind(
-    snapshot: &world_projection::ProjectionSnapshot,
-    id: world_projection::SelectionId,
-) -> String {
-    snapshot
-        .inspector(id)
-        .map(|inspector| inspector.title.clone())
+/// What kind of event an item is, by its recorded kind rather than how the
+/// Pack tells it.
+fn kind(world: &world_core::World, id: world_projection::SelectionId) -> String {
+    let world_projection::SelectionId::Event(event) = id else {
+        return String::new();
+    };
+    world
+        .event(event)
+        .map(|event| {
+            event
+                .kind
+                .split('_')
+                .map(|part| {
+                    let mut chars = part.chars();
+                    chars
+                        .next()
+                        .map(|first| first.to_uppercase().collect::<String>() + chars.as_str())
+                        .unwrap_or_default()
+                })
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
         .unwrap_or_default()
 }
 
@@ -81,7 +96,7 @@ fn second_arc_is_a_durable_generic_strategy_fork() -> Result<(), Box<dyn Error>>
                     == Some("Ares Pocket Colony")
         })
         .expect("generic comparison should expose the changed World entity");
-    assert_eq!(row(universe, "Posture"), Some(("outward", "rooted")));
+    assert_eq!(row(universe, "Direction"), Some(("Outward", "Rooted")));
 
     let nia = comparison
         .entities
@@ -91,8 +106,9 @@ fn second_arc_is_a_durable_generic_strategy_fork() -> Result<(), Box<dyn Error>>
                 && entity.left.as_ref().map(|view| view.title.as_str()) == Some("Nia Chen")
         })
         .expect("posture should produce a visible behavioral difference for Nia");
-    let care_count = row(nia, "Care Count").expect("Nia's care count should differ");
-    let explore_count = row(nia, "Explore Count").expect("Nia's explore count should differ");
+    let care_count =
+        row(nia, "Looked after the others").expect("how often Nia cared should differ");
+    let explore_count = row(nia, "Went exploring").expect("how often Nia explored should differ");
     assert_ne!(care_count.0, care_count.1);
     assert_ne!(explore_count.0, explore_count.1);
 
@@ -110,7 +126,10 @@ fn second_arc_is_a_durable_generic_strategy_fork() -> Result<(), Box<dyn Error>>
         .shared_frontier
         .as_ref()
         .expect("both futures share the full history before the posture choice");
-    assert_ne!(kind(&left, shared_frontier.id), "World Posture Chosen");
+    assert_ne!(
+        kind(outward.world(), shared_frontier.id),
+        "World Posture Chosen"
+    );
     let left_first = divergence
         .left
         .first_difference
@@ -121,8 +140,8 @@ fn second_arc_is_a_durable_generic_strategy_fork() -> Result<(), Box<dyn Error>>
         .first_difference
         .as_ref()
         .expect("rooted future has a first difference");
-    assert_eq!(kind(&left, left_first.id), "World Posture Chosen");
-    assert_eq!(kind(&right, right_first.id), "World Posture Chosen");
+    assert_eq!(kind(outward.world(), left_first.id), "World Posture Chosen");
+    assert_eq!(kind(rooted.world(), right_first.id), "World Posture Chosen");
     assert_ne!(left_first.title, right_first.title);
     assert!(!divergence.left.impact.is_empty());
     assert!(!divergence.right.impact.is_empty());
@@ -130,12 +149,12 @@ fn second_arc_is_a_durable_generic_strategy_fork() -> Result<(), Box<dyn Error>>
         .left
         .impact
         .iter()
-        .all(|stage| kind(&left, stage.event.id) != "Agent Decision Recorded"));
+        .all(|stage| kind(outward.world(), stage.event.id) != "Agent Decision Recorded"));
     assert!(divergence
         .right
         .impact
         .iter()
-        .all(|stage| kind(&right, stage.event.id) != "Agent Decision Recorded"));
+        .all(|stage| kind(rooted.world(), stage.event.id) != "Agent Decision Recorded"));
     assert_ne!(
         divergence
             .left

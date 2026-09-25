@@ -95,7 +95,8 @@ fn protocol_v2_preserves_typed_relation_evidence_across_json_wire_round_trip() {
     assert_eq!(
         inspector
             .display_sections()
-            .map(|section| section.title.as_str())
+            .into_iter()
+            .map(|section| section.title)
             .collect::<Vec<_>>(),
         vec!["Relation"]
     );

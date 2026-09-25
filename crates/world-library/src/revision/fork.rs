@@ -1,6 +1,6 @@
 use crate::{
-    required_archive, snapshot_display_summary, snapshot_display_title, DurableWorldSession,
-    LibraryError, WorldDocumentId, WorldDocumentSummary, WorldLibrary,
+    required_archive, snapshot_display_title, DurableWorldSession, LibraryError, WorldDocumentId,
+    WorldDocumentSummary, WorldLibrary,
 };
 use world_document::{WorldBranchCause, WorldDocument, WorldLineage, WorldParent};
 
@@ -34,8 +34,10 @@ impl DurableWorldSession {
         let mut fork = WorldDocument::new(archive).with_lineage(lineage);
         fork.metadata.display_title =
             snapshot_display_title(&snapshot).or_else(|| self.metadata.display_title.clone());
-        fork.metadata.display_summary =
-            snapshot_display_summary(&snapshot).or_else(|| self.metadata.display_summary.clone());
+        crate::describe_from_snapshot(&mut fork.metadata, &snapshot);
+        if fork.metadata.display_summary.is_none() {
+            fork.metadata.display_summary = self.metadata.display_summary.clone();
+        }
 
         // Re-check after materializing the live archive so a concurrent source
         // edit cannot be ignored between the first revision check and creation.
@@ -286,6 +288,7 @@ mod tests {
             display_summary: Some("Fork source summary".into()),
             lineage: Some(inherited_lineage()),
             display_scenery: None,
+            ..Default::default()
         };
         let source = WorldDocument {
             archive: archive(8),

@@ -13,13 +13,14 @@ use crate::{
     SEED_PENGUIN_CIVILIZATION_COMMAND, SHARED_PROJECT_COMMAND, SLOT_A, SLOT_B, SLOT_C, SLOT_D,
     SLOT_E, UNIVERSE,
 };
+use std::collections::BTreeMap;
 use world_core::{Entity, EntityId, Event, StateChange, Value, World};
 use world_projection::{
     entity_title, inspectors_from_world, timeline_from_world, value_text, why_map_from_world,
     BriefingItem, BriefingItemKind, BriefingProjection, CanvasChange, CanvasItem, CanvasItemKind,
     CanvasLink, CanvasLinkTone, CanvasProjection, CollectionItem, CollectionProjection,
-    CommandEffect, EffectChange, ProjectionCapabilities, ProjectionCommand, ProjectionSnapshot,
-    SelectionId, Tone,
+    CommandEffect, EffectChange, InspectorProjection, InspectorRow, InspectorSection,
+    ProjectionCapabilities, ProjectionCommand, ProjectionSnapshot, SelectionId, Tone,
 };
 
 pub(crate) fn snapshot(world: &World) -> ProjectionSnapshot {
@@ -32,7 +33,7 @@ pub(crate) fn snapshot_since(
 ) -> ProjectionSnapshot {
     let seed = seed_id(world);
     let seeded = seed != "unseeded";
-    ProjectionSnapshot {
+    let mut snapshot = ProjectionSnapshot {
         title: if seeded {
             universe_name(world)
         } else {
@@ -48,20 +49,24 @@ pub(crate) fn snapshot_since(
             .into_iter()
             .map(|mut command| {
                 command.effects = command_effects(world, &command.id);
+                command.asker = asker(&command.id);
                 command
             })
             .collect(),
         collection: collection(world),
         timeline: told_timeline(world),
         canvas: with_changes(world, canvas(world), since_event_count),
-        inspectors: inspectors_from_world(world),
+        inspectors: told_inspectors(world),
         why: why_map_from_world(world),
         scenery: seeded.then(|| seed_scenery(seed_id(world))).flatten(),
         calendar: seeded.then(|| world_projection::Calendar {
             unit: seed_time_unit(seed_id(world)).into(),
             length: crate::BACKGROUND_PERIOD,
         }),
-    }
+        gauges: gauges(world),
+    };
+    snapshot.tell_events_as_history_does();
+    snapshot
 }
 
 /// Good news, bad news, or neither, for each briefing line, read from the
@@ -105,6 +110,24 @@ fn tone_for_event(kind: &str) -> Tone {
 
 /// What each choice would change, as facts a screen can show beside it and
 /// point at on the scene before the choice is made.
+/// Whose choice it is to put to the player. A choice about the pair is the
+/// pair's; a bold or outward one is the explorer's, who would go; a careful
+/// or rooted one the keeper's, who would stay. Letting time pass is nobody's.
+fn asker(command_id: &str) -> Option<SelectionId> {
+    let who = match command_id {
+        SHARED_PROJECT_COMMAND | RIVALRY_COMMAND => RELATIONSHIP,
+        BOLD_PATH_COMMAND | OUTWARD_POSTURE_COMMAND | REACH_PRESSURE_COMMAND => SLOT_E,
+        CAREFUL_PATH_COMMAND
+        | ROOTED_POSTURE_COMMAND
+        | HOLD_PRESSURE_COMMAND
+        | RECOVER_ANCHOR_COMMAND
+        | ENTRUST_LEGACY_COMMAND
+        | RELEASE_LEGACY_COMMAND => SLOT_B,
+        _ => return None,
+    };
+    Some(SelectionId::Entity(who))
+}
+
 fn command_effects(world: &World, command_id: &str) -> Vec<CommandEffect> {
     let effect =
         |target: Option<EntityId>, label: &str, change: EffectChange, tone: Tone| CommandEffect {
@@ -244,6 +267,8 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
                     .into(),
                 effects: Vec::new(),
                 scenery: seed_scenery("mars-colony"),
+                asker: None,
+                moves: Vec::new(),
             },
             ProjectionCommand {
                 id: SEED_1980S_TOWN_COMMAND.into(),
@@ -252,6 +277,8 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
                     .into(),
                 effects: Vec::new(),
                 scenery: seed_scenery("1980s-town"),
+                asker: None,
+                moves: Vec::new(),
             },
             ProjectionCommand {
                 id: SEED_PENGUIN_CIVILIZATION_COMMAND.into(),
@@ -260,6 +287,8 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
                     .into(),
                 effects: Vec::new(),
                 scenery: seed_scenery("penguin-civilization"),
+                asker: None,
+                moves: Vec::new(),
             },
         ];
     }
@@ -298,6 +327,8 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
         detail: String::from(nudge_detail),
         effects: Vec::new(),
         scenery: None,
+        asker: None,
+        moves: Vec::new(),
     }];
 
     if relationship_choice_available {
@@ -305,13 +336,13 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             id: SHARED_PROJECT_COMMAND.into(),
             title: "Give them a shared project".into(),
             detail: String::from("Give them something neither can finish alone. From here on they lean toward trusting each other."), effects: Vec::new(),
-            scenery: None,
+            scenery: None, asker: None, moves: Vec::new(),
 });
         commands.push(ProjectionCommand {
             id: RIVALRY_COMMAND.into(),
             title: "Let rivalry sharpen them".into(),
             detail: String::from("Keep them apart and let competition sharpen how they deal with each other from now on."), effects: Vec::new(),
-            scenery: None,
+            scenery: None, asker: None, moves: Vec::new(),
 });
     }
     if intervention_choice_available {
@@ -323,6 +354,8 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             detail: String::from(bold_detail),
             effects: Vec::new(),
             scenery: None,
+            asker: None,
+            moves: Vec::new(),
         });
         commands.push(ProjectionCommand {
             id: CAREFUL_PATH_COMMAND.into(),
@@ -330,6 +363,8 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             detail: String::from(careful_detail),
             effects: Vec::new(),
             scenery: None,
+            asker: None,
+            moves: Vec::new(),
         });
     }
     if posture_choice_available {
@@ -341,6 +376,8 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             detail: String::from(outward_detail),
             effects: Vec::new(),
             scenery: None,
+            asker: None,
+            moves: Vec::new(),
         });
         commands.push(ProjectionCommand {
             id: ROOTED_POSTURE_COMMAND.into(),
@@ -348,6 +385,8 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             detail: String::from(rooted_detail),
             effects: Vec::new(),
             scenery: None,
+            asker: None,
+            moves: Vec::new(),
         });
     }
     let copy = pressure::copy_for_state(world.state());
@@ -358,6 +397,8 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             detail: String::from(copy.hold_detail),
             effects: Vec::new(),
             scenery: None,
+            asker: None,
+            moves: Vec::new(),
         });
         commands.push(ProjectionCommand {
             id: REACH_PRESSURE_COMMAND.into(),
@@ -365,6 +406,8 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             detail: String::from(copy.reach_detail),
             effects: Vec::new(),
             scenery: None,
+            asker: None,
+            moves: Vec::new(),
         });
     } else if pressure_stage == "lost" {
         commands.push(ProjectionCommand {
@@ -373,6 +416,8 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             detail: String::from(copy.recover_detail),
             effects: Vec::new(),
             scenery: None,
+            asker: None,
+            moves: Vec::new(),
         });
     }
     let succession_stage = succession::succession_id_from_state(world.state());
@@ -384,6 +429,8 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             detail: String::from(succession_copy.entrust_detail),
             effects: Vec::new(),
             scenery: None,
+            asker: None,
+            moves: Vec::new(),
         });
         commands.push(ProjectionCommand {
             id: RELEASE_LEGACY_COMMAND.into(),
@@ -391,6 +438,8 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             detail: String::from(succession_copy.release_detail),
             effects: Vec::new(),
             scenery: None,
+            asker: None,
+            moves: Vec::new(),
         });
     }
     commands
@@ -874,10 +923,24 @@ fn nudge_copy(
         );
     }
     if intervention_choice_available {
-        return (
-            "Let it unfold without intervening",
-            "Leave the larger intervention alone for now and let existing dynamics keep working.",
-        );
+        return match seed {
+            "mars-colony" => (
+                "Not yet",
+                "Leave the decision open; Nia and Tomas carry on as they are for another sol.",
+            ),
+            "1980s-town" => (
+                "Not yet",
+                "Leave the decision open; Lena and Max carry on as they are for another night.",
+            ),
+            "penguin-civilization" => (
+                "Not yet",
+                "Leave the decision open; Piko and Miri carry on as they are for another aurora.",
+            ),
+            _ => (
+                "Not yet",
+                "Leave the decision open and let everyone carry on as they are.",
+            ),
+        };
     }
 
     match (seed, generation) {
@@ -928,6 +991,7 @@ fn briefing(world: &World, seeded: bool, since_event_count: Option<usize>) -> Br
             // The three places to begin are pictures; nothing needs saying
             // beside them.
             items: Vec::new(),
+            returned: false,
         };
     }
 
@@ -950,6 +1014,7 @@ fn briefing(world: &World, seeded: bool, since_event_count: Option<usize>) -> Br
             eyebrow: format!("Pocket Universe · {}", seed_label(seed_id(world))),
             title: "While you were away".into(),
             items,
+            returned: true,
         };
     }
 
@@ -998,6 +1063,7 @@ fn briefing(world: &World, seeded: bool, since_event_count: Option<usize>) -> Br
         eyebrow: format!("Pocket Universe · {}", seed_label(seed_id(world))),
         title,
         items,
+        returned: false,
     }
 }
 
@@ -1012,7 +1078,7 @@ fn live_stage_copy(
             "Two choices are open".into(),
             Some((
                 "Your turn · Shape the world",
-                "You can steer the central relationship and make a larger intervention—or leave both alone and watch what happens.",
+                "Steer what happens between the two of them, decide where this place goes next, or leave both alone and watch.",
             )),
         );
     }
@@ -1026,22 +1092,25 @@ fn live_stage_copy(
         );
     }
     if intervention_choice_available {
-        let detail = match seed {
-            "mars-colony" => {
-                "A larger choice is ready: follow the rover signal or fortify the habitat. You can also leave the colony alone."
-            }
-            "1980s-town" => {
-                "A larger choice is ready: turn the arcade into a community hub or keep it a steady business. You can also leave the town alone."
-            }
-            "penguin-civilization" => {
-                "A larger choice is ready: open the Fish Vault for a feast or conserve the winter reserves. You can also leave Icebridge alone."
-            }
-            _ => "A larger intervention is available, but the World can keep moving without it.",
+        let (title, detail) = match seed {
+            "mars-colony" => (
+                "Ares has a decision to make",
+                "Follow the rover signal or fortify the habitat, or leave the colony as it is.",
+            ),
+            "1980s-town" => (
+                "Maple Street has a decision to make",
+                "Turn the arcade into a community hub or keep it a steady business, or leave the town as it is.",
+            ),
+            "penguin-civilization" => (
+                "Icebridge has a decision to make",
+                "Open the Fish Vault for a feast or save the winter reserves, or leave Icebridge as it is.",
+            ),
+            _ => (
+                "A decision is waiting",
+                "Decide where this place goes next, or leave it as it is.",
+            ),
         };
-        return (
-            "A larger choice is here".into(),
-            Some(("Your turn · Future", detail)),
-        );
+        return (title.into(), Some(("Your turn · Future", detail)));
     }
 
     match generation {
@@ -1058,10 +1127,16 @@ fn live_stage_copy(
                 }
                 _ => "Watch it move once before deciding how much to shape this World.",
             };
-            ("The world is alive".into(), Some(("Next · Watch", detail)))
+            let title = match seed {
+                "mars-colony" => "Ares is waking up",
+                "1980s-town" => "Maple Street is waking up",
+                "penguin-civilization" => "Icebridge is waking up",
+                _ => "A World is waking up",
+            };
+            (title.into(), Some(("Next · Watch", detail)))
         }
         1 => (
-            "Patterns are forming".into(),
+            "They are finding their rhythm".into(),
             Some((
                 "Next · Notice",
                 "Give it a little more time. After that, you can steer the relationship at the center of this World.",
@@ -1353,7 +1428,7 @@ fn intervention_influence_copy(decision: &str) -> Option<(&'static str, &'static
         "none" => None,
         _ => Some((
             "Your influence",
-            "An earlier intervention is still shaping what this World becomes.",
+            "An earlier choice is still shaping what this World becomes.",
         )),
     }
 }
@@ -1931,12 +2006,15 @@ fn growth_marks(world: &World) -> Vec<world_projection::CanvasMark> {
 /// greenhouse a tree, the arcade a shopfront, the colony the bridge it is
 /// named for.
 fn place_shape(world: &World, id: EntityId) -> Option<world_projection::MarkShape> {
-    use world_projection::MarkShape::{Bridge, Dome, Shop, Tree};
+    use world_projection::MarkShape::{Bridge, Dome, House, Shop, Tower, Tree};
     match (seed_id(world), id) {
         ("mars-colony", SLOT_A) => Some(Dome),
         ("mars-colony", SLOT_C) => Some(Tree),
         ("1980s-town", SLOT_A) => Some(Shop),
+        ("1980s-town", SLOT_C) => Some(Tower),
         ("penguin-civilization", SLOT_A) => Some(Bridge),
+        ("penguin-civilization", SLOT_C) => Some(Dome),
+        ("penguin-civilization", SLOT_D) => Some(House),
         _ => None,
     }
 }
@@ -1968,6 +2046,7 @@ fn canvas(world: &World) -> CanvasProjection {
                 y: *y,
                 changes: Vec::new(),
                 shape: place_shape(world, *id),
+                at: whereabouts(world, entity),
             })
         })
         .collect();
@@ -2036,6 +2115,228 @@ fn canvas_detail(world: &World, entity: &Entity) -> String {
 
 /// The relationship at the centre of the World, drawn between the two
 /// people it belongs to rather than as a third thing beside them.
+/// What a Pocket Universe keeps score of: how much the two people trust
+/// each other, how strained they are, and how safe the place everyone
+/// depends on is. Nothing before the World begins.
+pub(crate) fn gauges(world: &World) -> Vec<world_projection::Gauge> {
+    use world_projection::Gauge;
+    if seed_id(world) == "unseeded" {
+        return Vec::new();
+    }
+    let relationship = world.state().entity(RELATIONSHIP);
+    let out_of_ten = |key: &str| {
+        integer_entity_component(relationship, key)
+            .unwrap_or(0)
+            .clamp(0, 10)
+    };
+    let trust = out_of_ten(RELATIONSHIP_TRUST);
+    let tension = out_of_ten(RELATIONSHIP_TENSION);
+    let anchor = world
+        .state()
+        .entity(SLOT_A)
+        .map(entity_title)
+        .unwrap_or_else(|| "Home".into());
+    let (safety, reading, tone) = match pressure::pressure_id_from_state(world.state()).as_str() {
+        "warning" => (0.6, "Trouble rising", Tone::Warning),
+        "crisis" => (0.3, "In crisis", Tone::Bad),
+        "lost" => (0.0, "Lost", Tone::Bad),
+        "held" | "reached" => (1.0, "Weathered it", Tone::Good),
+        "recovered" => (0.8, "Rebuilt", Tone::Good),
+        _ => (1.0, "Safe", Tone::Neutral),
+    };
+    vec![
+        Gauge {
+            id: "trust".into(),
+            label: "Trust".into(),
+            value: trust as f32 / 10.0,
+            reading: format!("{trust} of 10"),
+            tone: if trust >= 5 {
+                Tone::Good
+            } else {
+                Tone::Neutral
+            },
+        },
+        Gauge {
+            id: "tension".into(),
+            label: "Tension".into(),
+            value: tension as f32 / 10.0,
+            reading: format!("{tension} of 10"),
+            tone: match tension {
+                7.. => Tone::Bad,
+                4..=6 => Tone::Warning,
+                _ => Tone::Neutral,
+            },
+        },
+        Gauge {
+            id: "anchor".into(),
+            label: anchor,
+            value: safety,
+            reading: reading.into(),
+            tone,
+        },
+    ]
+}
+
+/// Each thing's detail panel in the World's words: what a person does and
+/// has been doing, where a relationship stands, how a place is. The
+/// counters, generations and bookkeeping the rules keep stay out of sight.
+fn told_inspectors(world: &World) -> BTreeMap<SelectionId, InspectorProjection> {
+    let mut inspectors = inspectors_from_world(world);
+    for (selection, inspector) in &mut inspectors {
+        let SelectionId::Entity(id) = selection else {
+            continue;
+        };
+        let Some(entity) = world.state().entity(*id) else {
+            continue;
+        };
+        let (subtitle, rows) = told_state(world, entity);
+        if let Some(subtitle) = subtitle {
+            inspector.subtitle = subtitle;
+        }
+        inspector
+            .sections
+            .retain(|section| section.title != "State");
+        if !rows.is_empty() {
+            inspector.sections.insert(
+                0,
+                InspectorSection {
+                    title: "Now".into(),
+                    rows,
+                },
+            );
+        }
+    }
+    inspectors
+}
+
+fn told_state(world: &World, entity: &Entity) -> (Option<String>, Vec<InspectorRow>) {
+    let text = |key: &str| match entity.component(key) {
+        Some(Value::Text(value)) if !value.trim().is_empty() => Some(value.clone()),
+        _ => None,
+    };
+    let row = |label: &str, value: String| InspectorRow {
+        label: label.into(),
+        value,
+    };
+    let mut rows = Vec::new();
+    if entity.id == UNIVERSE {
+        let trouble = match pressure::pressure_id_from_state(world.state()).as_str() {
+            "warning" => Some("Rising"),
+            "crisis" => Some("A crisis"),
+            "lost" => Some("Lost"),
+            _ => None,
+        };
+        if let Some(trouble) = trouble {
+            rows.push(row("Trouble", trouble.into()));
+        }
+        let decision = text(DECISION).unwrap_or_default();
+        if let Some((title, _)) = intervention_influence_copy(&decision) {
+            let choice = title
+                .trim_start_matches("Your influence")
+                .trim_start_matches(" · ");
+            if !choice.is_empty() {
+                rows.push(row("Your choice", choice.into()));
+            }
+        }
+        if let Some(posture) = text(POSTURE).filter(|posture| posture != "none") {
+            rows.push(row("Direction", capitalize_first(&posture)));
+        }
+        if let Some(legacy) = text(LEGACY).filter(|legacy| legacy != "none" && legacy != "forming")
+        {
+            rows.push(row("Legacy", capitalize_first(&legacy.replace('-', " "))));
+        }
+        if let Some(summary) = text(LEGACY_SUMMARY) {
+            rows.push(row("What it is becoming", summary));
+        }
+        return (Some(seed_label(seed_id(world)).into()), rows);
+    }
+    if entity.id == RELATIONSHIP {
+        let number = |key: &str| integer_entity_component(Some(entity), key).unwrap_or(0);
+        rows.push(row("Trust", number(RELATIONSHIP_TRUST).to_string()));
+        rows.push(row("Tension", number(RELATIONSHIP_TENSION).to_string()));
+        if let Some(link) = relationship_link(world) {
+            rows.push(row("Where it stands", link.label));
+        }
+        if let Some(lately) = text(RELATIONSHIP_LAST_DYNAMIC) {
+            rows.push(row("Lately", lately));
+        }
+        return (None, rows);
+    }
+    if matches!(entity.kind.as_str(), "person" | "penguin") {
+        if let Some(role) = text("role") {
+            rows.push(row("Role", capitalize_first(&role)));
+        }
+        let lately = match text("last_intent").as_deref() {
+            Some("care") => Some("Looking after the others"),
+            Some("explore") => Some("Out exploring"),
+            _ => None,
+        };
+        if let Some(lately) = lately {
+            rows.push(row("Lately", lately.into()));
+        }
+        let times = |key: &str| match entity.component(key) {
+            Some(Value::Integer(count)) if *count > 0 => Some(match count {
+                1 => "Once".to_string(),
+                count => format!("{count} times"),
+            }),
+            _ => None,
+        };
+        if let Some(count) = times("care_count") {
+            rows.push(row("Looked after the others", count));
+        }
+        if let Some(count) = times("explore_count") {
+            rows.push(row("Went exploring", count));
+        }
+        // Someone guided by an outside mind says so; the built-in one goes
+        // without saying.
+        if let Some(mind) = text("last_mind_profile").filter(|mind| mind != "deterministic") {
+            rows.push(row("Guided by", capitalize_first(&mind)));
+        }
+        return (None, rows);
+    }
+    // A place or a thing: what it says about itself, minus the rules'
+    // bookkeeping.
+    for (key, value) in &entity.components {
+        if key == "name" || is_bookkeeping(key) {
+            continue;
+        }
+        let value = match value {
+            Value::Text(value) if !value.trim().is_empty() => value.clone(),
+            Value::Integer(value) => value.to_string(),
+            _ => continue,
+        };
+        let label = match key.as_str() {
+            "pulse" => "Latest".to_string(),
+            "water_cycles" => "Water loops".to_string(),
+            other => capitalize_first(&other.replace('_', " ")),
+        };
+        rows.push(row(&label, capitalize_first(&value)));
+    }
+    (None, rows)
+}
+
+/// Components the rules keep for themselves.
+fn is_bookkeeping(key: &str) -> bool {
+    key.starts_with("legacy")
+        || key.starts_with("pressure")
+        || key.starts_with("posture")
+        || key.starts_with("succession")
+        || key.ends_with("_count")
+        || key.ends_with("generation")
+        || matches!(
+            key,
+            "seed" | "decision" | "era" | "custom" | "last_intent" | "last_mind_profile"
+        )
+}
+
+fn capitalize_first(text: &str) -> String {
+    let mut chars = text.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+        None => String::new(),
+    }
+}
+
 fn relationship_link(world: &World) -> Option<CanvasLink> {
     let relationship = world.state().entity(RELATIONSHIP)?;
     world.state().entity(SLOT_B)?;
@@ -2065,9 +2366,46 @@ fn relationship_link(world: &World) -> Option<CanvasLink> {
 fn canvas_kind(entity: &Entity) -> CanvasItemKind {
     match entity.kind.as_str() {
         "person" | "penguin" => CanvasItemKind::Actor,
-        "place" | "habitat" | "colony" => CanvasItemKind::Place,
+        "place" | "habitat" | "colony" | "radio_station" | "storehouse" | "council" => {
+            CanvasItemKind::Place
+        }
         _ => CanvasItemKind::Object,
     }
+}
+
+/// Where someone is, as they last left things: looking after the others
+/// keeps them at home; exploring takes them out with the thing that lets
+/// them range (the rover, the night bus, the council's ice runs). Before
+/// either has done anything they are both at home. Partners go together,
+/// out if either of them is exploring; a pair who have fallen out keep
+/// apart, the explorer at the second place.
+fn whereabouts(world: &World, entity: &Entity) -> Option<SelectionId> {
+    if canvas_kind(entity) != CanvasItemKind::Actor {
+        return None;
+    }
+    let explores = |id: EntityId| {
+        matches!(
+            world.state().entity(id).and_then(|person| person.component("last_intent")),
+            Some(Value::Text(intent)) if intent == "explore"
+        )
+    };
+    let arc = text_component(
+        world.state().entity(RELATIONSHIP),
+        RELATIONSHIP_SOCIAL_ARC,
+        "forming",
+    );
+    let place = match arc.as_str() {
+        "partnership" if explores(SLOT_B) || explores(SLOT_E) => SLOT_D,
+        "partnership" => SLOT_A,
+        "fracture" if entity.id == SLOT_B => SLOT_A,
+        "fracture" => SLOT_C,
+        _ if explores(entity.id) => SLOT_D,
+        _ => SLOT_A,
+    };
+    world
+        .state()
+        .entity(place)
+        .map(|_| SelectionId::Entity(place))
 }
 
 fn universe_name(world: &World) -> String {
@@ -2183,11 +2521,11 @@ mod first_story_copy_tests {
         );
         assert_eq!(
             live_stage_copy("mars-colony", 0, false, false).0,
-            "The world is alive"
+            "Ares is waking up"
         );
         assert_eq!(
             live_stage_copy("mars-colony", 1, false, false).0,
-            "Patterns are forming"
+            "They are finding their rhythm"
         );
     }
 

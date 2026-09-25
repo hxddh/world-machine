@@ -242,14 +242,47 @@ where
     }
 
     pub fn projection_snapshot(&self) -> ProjectionSnapshot {
-        projection::snapshot(&self.world)
+        self.with_previews(projection::snapshot(&self.world))
     }
 
     pub fn projection_snapshot_since(
         &self,
         since_event_count: Option<usize>,
     ) -> ProjectionSnapshot {
-        projection::snapshot_since(&self.world, since_event_count)
+        self.with_previews(projection::snapshot_since(&self.world, since_event_count))
+    }
+
+    /// Mark each choice with how it would move the gauges, by playing it on a
+    /// copy of this World and reading them again: the same rules, so the
+    /// same result. A choice that asks the people what they do is only
+    /// previewed while their minds are this Pack's own, which answer the same
+    /// way twice; an outside mind is never asked a question just to preview.
+    fn with_previews(&self, mut snapshot: ProjectionSnapshot) -> ProjectionSnapshot {
+        let before = snapshot.gauges.clone();
+        if before.is_empty() {
+            return snapshot;
+        }
+        for command in &mut snapshot.commands {
+            let asks_the_minds = command.id == NUDGE_COMMAND;
+            if asks_the_minds && self.mind_profile != DETERMINISTIC_MIND_PROFILE {
+                continue;
+            }
+            let Ok(actions) = build_action_registry() else {
+                continue;
+            };
+            let mut copy = PocketUniverse {
+                world: self.world.clone(),
+                actions,
+                mind: PocketMind,
+                mind_profile: DETERMINISTIC_MIND_PROFILE.into(),
+                narrator: Box::new(narrator::NoNarrator),
+            };
+            if copy.invoke_projection_command(&command.id).is_ok() {
+                command.moves =
+                    world_projection::gauge_moves(&before, &projection::gauges(&copy.world));
+            }
+        }
+        snapshot
     }
 
     pub fn invoke_projection_command(
@@ -545,7 +578,7 @@ pub fn pocket_universe_descriptor() -> WorldDescriptor {
         pack: pocket_universe_pack_ref(),
         title: "Pocket Universe".into(),
         description:
-            "Create a tiny persistent world, let it grow, then return to see what changed.".into(),
+            "A tiny world that keeps living while you are away: begin it, let it grow, then come back to see what changed.".into(),
     }
 }
 
@@ -2094,6 +2127,101 @@ mod tests {
     use super::*;
     use world_agent::MockAgentRuntime;
 
+    /// Everything a player reads in this World, over a first session and a
+    /// return, speaks about the World and never about the engine.
+    #[test]
+    fn nothing_a_player_reads_is_in_engine_words() {
+        let registry = registry();
+        let mut found = std::collections::BTreeSet::new();
+        let mut check = |snapshot: &ProjectionSnapshot| {
+            for line in snapshot.visible_text() {
+                for word in world_projection::engine_words_in(line) {
+                    found.insert(format!("{word:?} in {line:?}"));
+                }
+            }
+        };
+        let empty = registry.create(POCKET_UNIVERSE_PACK_ID).unwrap();
+        check(&empty.snapshot());
+        for seed in [
+            SEED_MARS_COLONY_COMMAND,
+            SEED_1980S_TOWN_COMMAND,
+            SEED_PENGUIN_CIVILIZATION_COMMAND,
+        ] {
+            let mut session = registry.create(POCKET_UNIVERSE_PACK_ID).unwrap();
+            let mut snapshot = session
+                .handle(ProjectionIntent::InvokeCommand(seed.into()))
+                .unwrap();
+            check(&snapshot);
+            for turn in 0..12 {
+                if turn % 4 == 3 {
+                    snapshot = session.advance_background(3).unwrap();
+                } else {
+                    let Some(command) = snapshot
+                        .commands
+                        .get(turn % snapshot.commands.len().max(1))
+                        .map(|command| command.id.clone())
+                    else {
+                        break;
+                    };
+                    snapshot = session
+                        .handle(ProjectionIntent::InvokeCommand(command))
+                        .unwrap();
+                }
+                check(&snapshot);
+            }
+        }
+        assert!(
+            found.is_empty(),
+            "engine words:\n{}",
+            found.into_iter().collect::<Vec<_>>().join("\n")
+        );
+    }
+
+    /// A choice's gauge marks are what making it actually does: play it for
+    /// real and the gauges move exactly as marked.
+    #[test]
+    fn a_choice_marks_the_gauges_it_will_move_and_they_move_that_way() {
+        let registry = registry();
+        let mut session = registry.create(POCKET_UNIVERSE_PACK_ID).unwrap();
+        assert!(
+            session.snapshot().gauges.is_empty(),
+            "nothing to keep score of yet"
+        );
+        session
+            .handle(ProjectionIntent::InvokeCommand(
+                SEED_MARS_COLONY_COMMAND.into(),
+            ))
+            .unwrap();
+        session.advance_background(2).unwrap();
+        let before = session.snapshot();
+        let ids: Vec<&str> = before
+            .gauges
+            .iter()
+            .map(|gauge| gauge.id.as_str())
+            .collect();
+        assert_eq!(ids, ["trust", "tension", "anchor"]);
+        let shared = before
+            .commands
+            .iter()
+            .find(|command| command.id == SHARED_PROJECT_COMMAND)
+            .expect("the pair can be given something to share");
+        assert!(!shared.moves.is_empty(), "sharing a project moves trust");
+        assert_eq!(
+            shared.asker,
+            Some(world_projection::SelectionId::Entity(RELATIONSHIP)),
+            "a choice about the pair is theirs to ask"
+        );
+        let after = session
+            .handle(ProjectionIntent::InvokeCommand(
+                SHARED_PROJECT_COMMAND.into(),
+            ))
+            .unwrap();
+        assert_eq!(
+            world_projection::gauge_moves(&before.gauges, &after.gauges),
+            shared.moves
+        );
+    }
+
     fn registry() -> world_host::WorldRegistry {
         let mut registry = world_host::WorldRegistry::new();
         registry.register(pocket_universe_registration()).unwrap();
@@ -2472,10 +2600,10 @@ mod tests {
         let profile = actor
             .inspector_rows
             .iter()
-            .find(|row| row.key.label == "Last Mind Profile")
+            .find(|row| row.key.label == "Guided by")
             .unwrap();
-        assert_eq!(profile.left.as_deref(), Some(DETERMINISTIC_MIND_PROFILE));
-        assert_eq!(profile.right.as_deref(), Some("pi"));
+        assert_eq!(profile.left.as_deref(), None);
+        assert_eq!(profile.right.as_deref(), Some("Pi"));
     }
 
     #[test]
@@ -3075,9 +3203,9 @@ mod tests {
             .unwrap();
         assert_eq!(relationship.kind, DifferenceKind::Changed);
         assert!(relationship.inspector_rows.iter().any(|row| {
-            row.key.label == "Direction"
-                && row.left.as_deref() == Some("shared-project")
-                && row.right.as_deref() == Some("rivalry")
+            row.key.label == "Where it stands"
+                && row.left.as_deref() == Some("Working together")
+                && row.right.as_deref() == Some("Rivals")
         }));
 
         let steer_event = shared
@@ -3352,7 +3480,7 @@ mod tests {
             .sections
             .iter()
             .flat_map(|section| &section.rows)
-            .any(|row| { row.label == "Decision" && row.value == "community-arcade" }));
+            .any(|row| { row.label == "Your choice" && row.value == "Community arcade" }));
 
         let archive = session.archive().unwrap().unwrap();
         drop(session);
@@ -3383,9 +3511,9 @@ mod tests {
             .items
             .iter()
             .find(|item| {
-                chosen
-                    .inspector(item.id)
-                    .is_some_and(|inspector| inspector.title == "Universe Intervened")
+                let archive = session.archive().unwrap().unwrap();
+                matches!(item.id, world_projection::SelectionId::Event(id)
+                    if archive.events.iter().any(|event| event.id == id.0 && event.kind == "universe_intervened"))
             })
             .and_then(|item| match item.id {
                 world_projection::SelectionId::Event(id) => Some(id),

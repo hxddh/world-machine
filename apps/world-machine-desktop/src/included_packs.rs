@@ -32,8 +32,8 @@ const INCLUDED_PACKS: &[IncludedPackSpec] = &[
         id: "world-machine.pocket-universe",
         version: "0.20.0",
         title: "Pocket Universe",
-        description: "Seed a tiny persistent world, let its inhabitants act, and watch choices, relationships, and habits grow into legacies.",
-        experience: "Seed a place · Let it live · Branch what happens next",
+        description: "Begin a tiny world, let the people in it live, and watch their choices, friendships and habits become what that place is known for.",
+        experience: "Pick a place · Let it live · Branch what happens next",
         featured: true,
         file_name: "pocket-universe.worldpack",
     },
@@ -41,7 +41,7 @@ const INCLUDED_PACKS: &[IncludedPackSpec] = &[
         id: "world-machine.micro-company",
         version: "0.1.0",
         title: "Micro Company",
-        description: "Run a tiny product company where two actors make bounded decisions and the business can find traction or run out of cash.",
+        description: "Run a tiny product company where two founders make small decisions and the business either finds its customers or runs out of cash.",
         experience: "Choose a direction · Watch demand and cash · Adapt",
         featured: false,
         file_name: "micro-company.worldpack",
@@ -50,8 +50,8 @@ const INCLUDED_PACKS: &[IncludedPackSpec] = &[
         id: "world-machine.tiny-society",
         version: "0.3.0",
         title: "Tiny Society",
-        description: "A persistent harbour town where money circulates between neighbours. One durable choice about a fishing boat decides whether local spending recovers, whether the bakery reopens, and whether the job the closure cost comes back.",
-        experience: "Make one durable choice · Watch the money circulate · Live with what closed",
+        description: "A harbour town that keeps living while you are away, where money passes between neighbours. One choice about a fishing boat decides whether spending recovers, whether the bakery reopens, and whether a lost job comes back.",
+        experience: "Make one choice · Watch the money move · Live with what closed",
         featured: false,
         file_name: "tiny-society.worldpack",
     },
@@ -148,7 +148,7 @@ mod tests {
         assert!(packs[0].featured);
         assert_eq!(
             packs[0].experience,
-            "Seed a place · Let it live · Branch what happens next"
+            "Pick a place · Let it live · Branch what happens next"
         );
         assert_eq!(packs[0].path, root.join("pocket-universe.worldpack"));
 
