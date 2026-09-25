@@ -60,9 +60,13 @@ fn hsla(token: tokens::Token) -> Hsla {
 }
 
 /// The items in `this` scene that are not the same in `other`: gone, new,
-/// or saying something different about themselves.
+/// or saying something different about themselves. A connection that
+/// differs (new, gone, relabelled, retoned or much stronger or weaker)
+/// marks both of its ends, since two people can change toward each other
+/// while each stays the same alone.
 pub fn differences(this: &ProjectionSnapshot, other: &ProjectionSnapshot) -> BTreeSet<SelectionId> {
-    this.canvas
+    let mut different = this
+        .canvas
         .items
         .iter()
         .filter(|item| {
@@ -71,21 +75,53 @@ pub fn differences(this: &ProjectionSnapshot, other: &ProjectionSnapshot) -> BTr
             })
         })
         .map(|item| item.id)
-        .collect()
+        .collect::<BTreeSet<_>>();
+    let same = |link: &world_projection::CanvasLink, twin: &world_projection::CanvasLink| {
+        twin.from == link.from
+            && twin.to == link.to
+            && twin.label == link.label
+            && twin.tone == link.tone
+            && (twin.strength - link.strength).abs() < 0.1
+    };
+    let changed_links = this
+        .canvas
+        .links
+        .iter()
+        .filter(|link| !other.canvas.links.iter().any(|twin| same(link, twin)))
+        .chain(
+            other
+                .canvas
+                .links
+                .iter()
+                .filter(|link| !this.canvas.links.iter().any(|twin| same(link, twin))),
+        );
+    let here = |id: SelectionId| this.canvas.items.iter().any(|item| item.id == id);
+    for link in changed_links {
+        different.extend([link.from, link.to].into_iter().filter(|id| here(*id)));
+    }
+    different
 }
 
 /// What happens when something in a scene is clicked.
 pub type SelectHandler = Rc<dyn Fn(SelectionId, &mut Window, &mut App)>;
 
-/// The name of whoever an event was done by, as the projection records it.
+/// Whose face an event wears: whoever did it, or, when nobody did (a
+/// payroll that failed, a storm that damaged a boat), the first thing it
+/// happened to.
 pub fn event_actor(snapshot: &ProjectionSnapshot, selection: SelectionId) -> Option<String> {
     let inspector = snapshot.inspector(selection)?;
-    inspector
-        .sections
-        .iter()
-        .flat_map(|section| section.rows.iter())
-        .find(|row| row.label == "Actor")
-        .map(|row| row.value.clone())
+    let row = |label: &str| {
+        inspector
+            .sections
+            .iter()
+            .flat_map(|section| section.rows.iter())
+            .find(|row| row.label == label)
+            .map(|row| row.value.as_str())
+    };
+    row("Actor")
+        .or_else(|| row("Targets").and_then(|targets| targets.split(", ").next()))
+        .filter(|name| !name.trim().is_empty())
+        .map(str::to_string)
 }
 
 /// How loudly a tone should be drawn: trouble outranks good news, which
@@ -214,7 +250,7 @@ fn layout(items: &[CanvasItem], width: f32, height: f32, compact: bool) -> Vec<(
             // replaces, and in a compact scene there was no caption at all.
             let chip = match (item.kind, item.changes.is_empty(), compact) {
                 (CanvasItemKind::Actor, false, false) => 6.0,
-                (CanvasItemKind::Actor, false, true) => 20.0,
+                (CanvasItemKind::Actor, false, true) | (CanvasItemKind::Object, false, _) => 20.0,
                 _ => 0.0,
             };
             (w, h + chip, top)
@@ -543,7 +579,7 @@ pub fn scene(
                 glow,
                 compact,
             ),
-            CanvasItemKind::Object => object_node(&item.label, selected),
+            CanvasItemKind::Object => object_node(&item.label, &item.changes, selected),
         };
         // Centre the node on its position, whatever its size.
         let (width, _, top_offset) = footprint(item.kind, compact);
@@ -833,8 +869,23 @@ fn place_node(
         )
 }
 
-fn object_node(name: &str, selected: bool) -> Div {
+fn object_node(name: &str, changes: &[CanvasChange], selected: bool) -> Div {
+    // On a return, what changed hangs under the pill, as it does under a
+    // person's name.
     div()
+        .flex()
+        .flex_col()
+        .items_center()
+        .gap_1()
+        .child(object_pill(name, selected))
+        .when_some(changes.first(), |node, change| {
+            node.child(change_chip(change))
+        })
+}
+
+fn object_pill(name: &str, selected: bool) -> Div {
+    div()
+        .w_full()
         .h(px(OBJECT_HEIGHT))
         .px_3()
         .rounded_full()
@@ -902,7 +953,7 @@ fn place_icon() -> Div {
 
 #[cfg(test)]
 mod tests {
-    use super::{change_text, differences, footprint, layout, CROWDED};
+    use super::{change_text, differences, event_actor, footprint, layout, CROWDED};
     use world_projection::ProjectionSnapshot;
     use world_projection::{CanvasChange, CanvasItem, CanvasItemKind, SelectionId, Tone};
 
@@ -1013,5 +1064,74 @@ mod tests {
             differences(&lost, &held).into_iter().collect::<Vec<_>>(),
             vec![first, newcomer]
         );
+    }
+
+    #[test]
+    fn a_relationship_that_differs_marks_both_people_even_when_they_do_not() {
+        use world_projection::{CanvasLink, CanvasLinkTone};
+        let mut partners = ProjectionSnapshot::default();
+        partners.canvas.items = vec![
+            item(1, CanvasItemKind::Actor, 0.2, 0.2),
+            item(2, CanvasItemKind::Actor, 0.8, 0.8),
+            item(3, CanvasItemKind::Place, 0.5, 0.1),
+        ];
+        let (nia, tomas) = (partners.canvas.items[0].id, partners.canvas.items[1].id);
+        partners.canvas.links = vec![CanvasLink {
+            from: nia,
+            to: tomas,
+            label: "Shared project".into(),
+            tone: CanvasLinkTone::Warm,
+            strength: 0.6,
+            selection: None,
+        }];
+        let mut rivals = partners.clone();
+        rivals.canvas.links[0].label = "Rivals".into();
+        rivals.canvas.links[0].tone = CanvasLinkTone::Strained;
+
+        let expected = vec![nia, tomas];
+        assert_eq!(
+            differences(&partners, &rivals)
+                .into_iter()
+                .collect::<Vec<_>>(),
+            expected
+        );
+        assert_eq!(
+            differences(&rivals, &partners)
+                .into_iter()
+                .collect::<Vec<_>>(),
+            expected
+        );
+        assert!(differences(&partners, &partners.clone()).is_empty());
+    }
+
+    #[test]
+    fn an_event_nobody_did_wears_the_face_of_whoever_it_happened_to() {
+        use world_projection::{InspectorProjection, InspectorRow, InspectorSection};
+        let event = SelectionId::from_stable_key("event-7").expect("an event key");
+        let inspector = |rows: Vec<(&str, &str)>| InspectorProjection {
+            selection: event,
+            title: String::new(),
+            subtitle: String::new(),
+            sections: vec![InspectorSection {
+                title: String::new(),
+                rows: rows
+                    .into_iter()
+                    .map(|(label, value)| InspectorRow {
+                        label: label.into(),
+                        value: value.into(),
+                    })
+                    .collect(),
+            }],
+        };
+        let mut snapshot = ProjectionSnapshot::default();
+        snapshot
+            .inspectors
+            .insert(event, inspector(vec![("Targets", "Jonas, Harbor Bakery")]));
+        assert_eq!(event_actor(&snapshot, event).as_deref(), Some("Jonas"));
+        snapshot.inspectors.insert(
+            event,
+            inspector(vec![("Actor", "Mara"), ("Targets", "Jonas")]),
+        );
+        assert_eq!(event_actor(&snapshot, event).as_deref(), Some("Mara"));
     }
 }
