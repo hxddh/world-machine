@@ -225,9 +225,52 @@ pub struct ProjectionSnapshot {
     pub why: BTreeMap<EventId, WhyProjection>,
     /// How this World looks, if its Pack says.
     pub scenery: Option<Scenery>,
+    /// What this World counts its time in, if its Pack says.
+    pub calendar: Option<Calendar>,
+}
+
+/// A World's own unit of time: a Mars colony counts sols, a town counts
+/// nights. `length` is how much world time one of them is.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Calendar {
+    pub unit: String,
+    pub length: u64,
 }
 
 impl ProjectionSnapshot {
+    /// A moment in this World's own words: "Sol 3" where the Pack counts
+    /// sols, "Time 30" where it does not, and "The beginning" at the start.
+    pub fn moment_label(&self, world_time: u64) -> String {
+        if world_time == 0 {
+            return "The beginning".into();
+        }
+        match &self.calendar {
+            Some(calendar) if calendar.length > 0 => {
+                format!("{} {}", calendar.unit, world_time.div_ceil(calendar.length))
+            }
+            _ => format!("Time {world_time}"),
+        }
+    }
+
+    /// A stretch of this World's time: "Sol 2–5", or one moment when the
+    /// two ends fall in the same one.
+    pub fn span_label(&self, from: u64, to: u64) -> String {
+        let (from, to) = (from.min(to), from.max(to));
+        match &self.calendar {
+            Some(calendar) if calendar.length > 0 => {
+                let first = from.div_ceil(calendar.length).max(1);
+                let last = to.div_ceil(calendar.length).max(1);
+                if first == last {
+                    self.moment_label(to)
+                } else {
+                    format!("{} {first}–{last}", calendar.unit)
+                }
+            }
+            _ if from == to => self.moment_label(to),
+            _ => format!("Time {from}–{to}"),
+        }
+    }
+
     pub fn inspector(&self, selection: SelectionId) -> Option<&InspectorProjection> {
         self.inspectors.get(&selection)
     }
@@ -1613,6 +1656,23 @@ mod tests {
             "Workspace"
         );
         assert!(inspectors.contains_key(&SelectionId::Event(EventId::new(1))));
+    }
+
+    #[test]
+    fn time_reads_in_the_worlds_own_unit() {
+        let mut snapshot = ProjectionSnapshot::default();
+        assert_eq!(snapshot.moment_label(0), "The beginning");
+        assert_eq!(snapshot.moment_label(30), "Time 30");
+        assert_eq!(snapshot.span_label(20, 30), "Time 20–30");
+        snapshot.calendar = Some(Calendar {
+            unit: "Sol".into(),
+            length: 10,
+        });
+        assert_eq!(snapshot.moment_label(0), "The beginning");
+        assert_eq!(snapshot.moment_label(10), "Sol 1");
+        assert_eq!(snapshot.moment_label(35), "Sol 4");
+        assert_eq!(snapshot.span_label(10, 50), "Sol 1–5");
+        assert_eq!(snapshot.span_label(0, 10), "Sol 1");
     }
 
     #[test]

@@ -781,8 +781,9 @@ pub fn activity(snapshot: &ProjectionSnapshot) -> Option<Div> {
             .gap_1()
             .child(bars)
             .child(ui::caption(format!(
-                "{} moments · time {first}–{last}",
-                times.len()
+                "{} moments · {}",
+                times.len(),
+                snapshot.span_label(first, last)
             ))),
     )
 }

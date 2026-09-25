@@ -21,7 +21,7 @@ use world_persistence::{PersistenceError, WorldArchive, WorldPackRef};
 use world_projection::{ProjectionIntent, ProjectionSnapshot};
 
 pub const POCKET_UNIVERSE_PACK_ID: &str = "world-machine.pocket-universe";
-pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.19.0";
+pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.20.0";
 
 pub const SEED_MARS_COLONY_COMMAND: &str = "pocket-universe.seed-mars-colony";
 pub const SEED_1980S_TOWN_COMMAND: &str = "pocket-universe.seed-1980s-town";
@@ -64,7 +64,7 @@ const RELATIONSHIP_LAST_DYNAMIC: &str = "last_dynamic";
 const RELATIONSHIP_SOCIAL_ARC: &str = "social_arc";
 const ANCHOR_PULSE: &str = "pulse";
 const UNSEEDED: &str = "unseeded";
-const BACKGROUND_PERIOD: u64 = 10;
+pub(crate) const BACKGROUND_PERIOD: u64 = 10;
 const AGENT_CARE_ACTION: &str = "pocket_agent.care";
 const AGENT_EXPLORE_ACTION: &str = "pocket_agent.explore";
 const AGENT_CARE_COUNT: &str = "care_count";
@@ -259,8 +259,19 @@ where
         if command_id == NUDGE_COMMAND {
             let since = self.world.events().len();
             let mut candidate = self.world.clone();
-            let growth_request = growth_request(&candidate);
-            let growth = candidate.execute(&self.actions, &growth_request)?.id;
+            // A turn is a period passing: "let the first sol unfold" moves
+            // the clock by one sol, the same as a sol passing while nobody
+            // watches, so History can tell one day from the next.
+            let target = candidate
+                .world_time()
+                .checked_add(BACKGROUND_PERIOD)
+                .ok_or_else(|| std::io::Error::other("Pocket Universe time overflow"))?;
+            candidate.schedule_at(target, growth_request(&candidate))?;
+            let growth = candidate
+                .advance_to(&self.actions, target)?
+                .last()
+                .copied()
+                .ok_or_else(|| std::io::Error::other("Pocket Universe growth did not run"))?;
             let primary_causes = agent_turn_causes(&candidate, SLOT_B, growth);
             let primary_outcome = Self::run_agent_turn_on(
                 &mut self.mind,
@@ -1949,7 +1960,7 @@ fn growth_message(
         "mars-colony" => messages[0][cycle],
         "1980s-town" => messages[1][cycle],
         "penguin-civilization" => messages[2][cycle],
-        _ => "The world changed in a small but persistent way.",
+        _ => "Something small changed, and it stayed changed.",
     };
     let mut story = base.to_owned();
     if decision != "none" {
@@ -1995,7 +2006,7 @@ fn growth_message(
         ("penguin-civilization", "fracture") => {
             Some("Piko and Miri now bring rival priorities to each moonrise council.")
         }
-        (_, _) => Some("The relationship between the world's actors is now shaping later events."),
+        (_, _) => Some("How the two of them get along is now shaping what happens next."),
     };
     if let Some(social_consequence) = social_consequence {
         story.push(' ');
@@ -2484,7 +2495,7 @@ mod tests {
     }
 
     #[test]
-    fn deterministic_mind_uses_durable_actor_memory_even_without_time_advancing() {
+    fn deterministic_mind_uses_durable_actor_memory_across_turns() {
         let mut universe = PocketUniverse::new().unwrap();
         universe
             .invoke_projection_command(SEED_MARS_COLONY_COMMAND)
@@ -2519,7 +2530,8 @@ mod tests {
             };
             assert_eq!(decisions, expected);
         }
-        assert_eq!(universe.world().world_time(), 0);
+        // Each turn is one period of the World's own time.
+        assert_eq!(universe.world().world_time(), 2 * BACKGROUND_PERIOD);
     }
 
     #[test]

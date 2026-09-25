@@ -33,6 +33,7 @@ pub(crate) fn snapshot(world: &World) -> ProjectionSnapshot {
         inspectors: inspectors(world, &visible_artifacts, &visible_events),
         why: why_map(world, &visible_events, &visible_artifacts),
         scenery: None,
+        calendar: None,
     }
 }
 

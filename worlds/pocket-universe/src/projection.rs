@@ -56,6 +56,10 @@ pub(crate) fn snapshot_since(
         inspectors: inspectors_from_world(world),
         why: why_map_from_world(world),
         scenery: seeded.then(|| seed_scenery(seed_id(world))).flatten(),
+        calendar: seeded.then(|| world_projection::Calendar {
+            unit: seed_time_unit(seed_id(world)).into(),
+            length: crate::BACKGROUND_PERIOD,
+        }),
     }
 }
 
@@ -299,13 +303,13 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
         commands.push(ProjectionCommand {
             id: SHARED_PROJECT_COMMAND.into(),
             title: "Give them a shared project".into(),
-            detail: String::from("Create a goal that neither actor can complete alone; future interactions will lean toward trust."), effects: Vec::new(),
+            detail: String::from("Give them something neither can finish alone. From here on they lean toward trusting each other."), effects: Vec::new(),
             scenery: None,
 });
         commands.push(ProjectionCommand {
             id: RIVALRY_COMMAND.into(),
             title: "Let rivalry sharpen them".into(),
-            detail: String::from("Keep both actors independent and let competition add pressure to future interactions."), effects: Vec::new(),
+            detail: String::from("Keep them apart and let competition sharpen how they deal with each other from now on."), effects: Vec::new(),
             scenery: None,
 });
     }
@@ -845,7 +849,7 @@ fn legacy_nudge_copy(seed: &str, legacy: &str) -> (&'static str, &'static str) {
         ),
         _ => (
             "Let this legacy carry on",
-            "Let one more persistent change unfold inside the World this legacy has already shaped.",
+            "Let a little more time pass in the World this legacy has already shaped.",
         ),
     }
 }
@@ -859,13 +863,13 @@ fn nudge_copy(
     if relationship_choice_available && intervention_choice_available {
         return (
             "Let it unfold without choosing",
-            "Leave both open choices alone for now and let one more persistent change happen.",
+            "Leave both choices open for now and let a little more time pass.",
         );
     }
     if relationship_choice_available {
         return (
             "Let it unfold without steering",
-            "Skip the relationship choice for now and let the two actors keep finding their own direction.",
+            "Leave them to it for now; the two of them keep finding their own way.",
         );
     }
     if intervention_choice_available {
@@ -910,7 +914,7 @@ fn nudge_copy(
         ),
         _ => (
             "Let the world move",
-            "Let one small, persistent change happen without making a larger choice.",
+            "Let a little more time pass without making a bigger choice.",
         ),
     }
 }
@@ -2064,6 +2068,16 @@ pub(crate) fn seed_scenery(seed: &str) -> Option<world_projection::Scenery> {
         "1980s-town" => Some(scenery(0x241d45, 0x6b4a7a, 0x3a2f55, 0x1b1630, 0xf4bf5c)),
         "penguin-civilization" => Some(scenery(0x14305a, 0x3f8f95, 0xa9cbdb, 0xe6f1f6, 0xb9f3d3)),
         _ => None,
+    }
+}
+
+/// What each place counts its days in.
+fn seed_time_unit(seed: &str) -> &'static str {
+    match seed {
+        "mars-colony" => "Sol",
+        "1980s-town" => "Night",
+        "penguin-civilization" => "Aurora",
+        _ => "Day",
     }
 }
 

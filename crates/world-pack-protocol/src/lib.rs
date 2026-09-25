@@ -201,6 +201,10 @@ pub enum PackRequest {
     Shutdown,
 }
 
+// One response is built per message and serialized at once, so how much
+// larger a snapshot is than an acknowledgement costs nothing worth an extra
+// indirection at every one of the call sites that build one.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum PackResponse {
@@ -346,6 +350,16 @@ pub struct ProjectionSnapshotWire {
     /// Optional both ways, like every presentation hint.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scenery: Option<SceneryWire>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub calendar: Option<CalendarWire>,
+}
+
+/// What a World counts its time in: `unit` names one, `length` is how much
+/// world time it is.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct CalendarWire {
+    pub unit: String,
+    pub length: u64,
 }
 
 /// How a World looks from a distance, as `0xRRGGBB` colours.
@@ -437,6 +451,10 @@ impl From<&ProjectionSnapshot> for ProjectionSnapshotWire {
             inspectors: snapshot.inspectors.values().map(Into::into).collect(),
             why: snapshot.why.values().map(Into::into).collect(),
             scenery: snapshot.scenery.map(Into::into),
+            calendar: snapshot.calendar.as_ref().map(|calendar| CalendarWire {
+                unit: calendar.unit.clone(),
+                length: calendar.length,
+            }),
         }
     }
 }
@@ -480,6 +498,15 @@ impl TryFrom<ProjectionSnapshotWire> for ProjectionSnapshot {
             inspectors,
             why,
             scenery: snapshot.scenery.map(Into::into),
+            // A calendar that cannot count (no name, or no length) is no
+            // calendar: time falls back to plain numbers.
+            calendar: snapshot
+                .calendar
+                .filter(|calendar| calendar.length > 0 && !calendar.unit.trim().is_empty())
+                .map(|calendar| world_projection::Calendar {
+                    unit: calendar.unit,
+                    length: calendar.length,
+                }),
         })
     }
 }
@@ -1399,6 +1426,7 @@ mod tests {
                 },
             )]),
             scenery: None,
+            calendar: None,
         }
     }
 

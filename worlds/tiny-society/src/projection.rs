@@ -60,6 +60,10 @@ pub(crate) fn snapshot_since(
             near: 0x2f6a86,
             sun: 0xffe2a0,
         }),
+        calendar: Some(world_projection::Calendar {
+            unit: "Day".into(),
+            length: crate::persistence::WORLD_DAY_TICKS,
+        }),
     }
 }
 

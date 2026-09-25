@@ -215,7 +215,7 @@ impl ProjectionView {
             meta.push(eyebrow);
         }
         if self.snapshot.world_time > 0 {
-            meta.push(world_time_label(self.snapshot.world_time));
+            meta.push(self.snapshot.moment_label(self.snapshot.world_time));
         }
         let mut heading = div().flex_1().min_w(px(0.0)).flex().flex_col().gap_1();
         if !meta.is_empty() {
@@ -672,7 +672,12 @@ impl ProjectionView {
                 }
             }
             history = history
-                .child(div().px_3().pt_2().child(ui::caption(section.label())))
+                .child(
+                    div()
+                        .px_3()
+                        .pt_2()
+                        .child(ui::caption(section.label(&self.snapshot))),
+                )
                 .child(rows);
         }
         if hidden > 0 {
@@ -930,7 +935,7 @@ impl ProjectionView {
                 .justify_between()
                 .gap_3()
                 .child(ui::row_title(item.title.clone()))
-                .child(ui::caption(world_time_label(item.world_time))),
+                .child(ui::caption(self.snapshot.moment_label(item.world_time))),
         );
         if !item.subtitle.is_empty() {
             row = row.child(
@@ -1101,7 +1106,7 @@ impl ProjectionView {
                 .justify_between()
                 .gap_3()
                 .child(ui::row_title(item.title.clone()))
-                .child(ui::caption(world_time_label(item.world_time))),
+                .child(ui::caption(self.snapshot.moment_label(item.world_time))),
         );
         let effect = world_projection::effect_headline(effect);
         if !effect.is_empty() {
@@ -1397,14 +1402,6 @@ fn effect_chip(effect: &CommandEffect) -> Div {
 }
 
 /// A moment in a World, named the way a person would say it.
-fn world_time_label(world_time: u64) -> String {
-    if world_time == 0 {
-        "The beginning".into()
-    } else {
-        format!("Time {world_time}")
-    }
-}
-
 fn collection_title(title: &str) -> String {
     // "World Contents" is what the projection layer calls a list of everything
     // in a World; to someone reading it, those are the people and places.
@@ -1471,12 +1468,8 @@ struct HistorySection<'a> {
 }
 
 impl HistorySection<'_> {
-    fn label(&self) -> String {
-        if self.newest == self.oldest {
-            world_time_label(self.newest)
-        } else {
-            format!("Time {}–{}", self.oldest, self.newest)
-        }
+    fn label(&self, snapshot: &ProjectionSnapshot) -> String {
+        snapshot.span_label(self.oldest, self.newest)
     }
 }
 
@@ -1681,7 +1674,13 @@ mod focus_hierarchy_tests {
         let sections = history_sections(history_groups(items.iter()));
         let shape = sections
             .iter()
-            .map(|section| (section.label(), section.story.len(), section.routine.len()))
+            .map(|section| {
+                (
+                    section.label(&ProjectionSnapshot::default()),
+                    section.story.len(),
+                    section.routine.len(),
+                )
+            })
             .collect::<Vec<_>>();
         assert_eq!(
             shape,

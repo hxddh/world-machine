@@ -25,6 +25,7 @@ pub(crate) fn snapshot(world: &World, since_event_count: Option<usize>) -> Proje
         inspectors: inspectors_from_world(world),
         why: why_map_from_world(world),
         scenery: None,
+        calendar: None,
     }
 }
 
