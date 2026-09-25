@@ -2,6 +2,17 @@
 
 Releases live on the [Releases page](https://github.com/hxddh/world-machine/releases). `0.2.0` is the first release intended to be usable without reading the repository; the `v0.1.0-pre.N` tags below were its pre-releases.
 
+## Unreleased
+
+- **The scene is a place, not a diagram.** People stand at the place they are at, a pair side by side, and walk over when a turn moves them. A relationship is a small bubble (a heart, a crack, three dots) between two faces, not a labelled line; a dotted line joins a pair only when they are apart. The rover, the night bus and the boat stand on the ground. Places never cover each other and no name is cut off. Partners go together; a pair who fell out keep apart.
+- **Coming back is a moment.** A return tells what happened one thing at a time, big, with the face of whoever it happened to and the people it is about lit up on the scene ("While you were away · 1 of 2"), then hands over to your turn. Every beat is a recorded event.
+- **The stakes are always on screen.** A row of gauges sits above the scene: trust and tension between the pair and how safe their home is in Pocket Universe; people in work, money in town and the bakery in Tiny Society. Hovering a choice lights the gauges it moves and shows where each would end up (▲, ▲▲, ▼). The marks are measured by making the choice on a copy of the World, never guessed.
+- **A choice is someone asking.** Each choice shows the face of whoever it concerns (both, for the pair), one line, and the gauges it moves; the rest opens while you consider it. Letting time pass shows a clock.
+- **Home is a shelf of living Worlds.** Each World is a large cover in its own landscape with what it has built on its ridge, a badge for how long it has been living without you ("5 sols have passed"), its age in its own unit ("Sol 5", not "time 50"), and its latest line cut at a word. Branches keep their colours. A first launch opens one window, and a World nothing has happened in yet is not listed.
+- **Time you can see.** The sky follows your clock: warm at dawn and dusk, dark blue with stars at night. Optional ambient sound (Settings → Sound, off by default) plays a quiet loop made from the World's own landscape.
+- **Nothing a player reads is in engine words.** Detail panels, why chains, headings and choices lost "Care Count", "Universe Grew", "latest at World time 105", "A larger choice is here" and the like, and a test now fails if any comes back.
+- Opening a World from Home's cover opened it twice; moving the pointer from one choice straight to the next dropped the preview.
+
 ## v0.7.0 (2026-09-25)
 
 **Pocket Universe Worlds created before this release will not open.** Pocket Universe moves to `0.20.0` because a turn now moves the World's clock. Export anything you want to keep before updating; Tiny Society, Future Archaeologist and Micro Company Worlds are unaffected.

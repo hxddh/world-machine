@@ -48,18 +48,51 @@ Three lessons matter more than the rest:
 
 In order. Each item is something a player would notice in the first session.
 
-1. **The scene is a place.** People stand at the place they are in, next to whoever they are with, and walk there when a turn moves them. A pair's relationship reads from how close they stand, with a small bubble (a heart, a spark, a frown), not a labelled line. Things like the rover stand on the ground. A Pack says where each person is (`at` a place). The scene lays places out without overlapping and never cuts a name off.
-2. **The return is a moment.** Coming back opens a short sequence of big beats, one per thing that happened. Each beat puts that thing's people and place in the middle of the scene with one sentence, and *Next* steps to the next beat. The last beat hands over to your turn. The sequence is replayed from recorded events, never made up.
-3. **Stakes are always on screen.** A Pack declares two or three gauges per World (air and morale on Mars; cash and trust in the harbour), and they sit on the scene. Hovering a choice marks which gauges it moves and which way, the way Reigns does.
-4. **A choice is someone asking.** Each choice shows the face of whoever it concerns, a short line, and its gauge marks. The paragraph moves to a detail view.
-5. **Time you can see.** The sky follows the time of day within a period. People and lights move a little between turns. Each landscape has a quiet ambient sound, off by default and switched on in Settings.
-6. **Home is a shelf of living Worlds.** Covers are drawn from each World's actual scene (its landscape and what it has built), with a badge for what is new since you left. Age reads in the World's own unit ("Sol 5"). Branch history moves into the Branches view. First launch opens one window, and a World appears on Home only once it has begun.
-7. **Nothing written in engine words.** Rewrite the headings and choices that still describe the machinery ("A larger choice is here", "let existing dynamics keep working"). Add a test that fails if any player-facing text uses a word from a small banned list.
+1. ~~**The scene is a place.**~~ *(done)* People stand at the place they are in, next to whoever they are with, and walk there when a turn moves them. A pair's relationship reads from how close they stand, with a small bubble (a heart, a spark, a frown), not a labelled line. Things like the rover stand on the ground. A Pack says where each person is (`at` a place). The scene lays places out without overlapping and never cuts a name off.
+2. ~~**The return is a moment.**~~ *(done)* Coming back opens a short sequence of big beats, one per thing that happened. Each beat puts that thing's people and place in the middle of the scene with one sentence, and *Next* steps to the next beat. The last beat hands over to your turn. The sequence is replayed from recorded events, never made up.
+3. ~~**Stakes are always on screen.**~~ *(done)* A Pack declares two or three gauges per World (air and morale on Mars; cash and trust in the harbour), and they sit on the scene. Hovering a choice marks which gauges it moves and which way, the way Reigns does.
+4. ~~**A choice is someone asking.**~~ *(done)* Each choice shows the face of whoever it concerns, a short line, and its gauge marks. The paragraph moves to a detail view.
+5. ~~**Time you can see.**~~ *(done; the sky follows your clock, sound is optional)* The sky follows the time of day within a period. People and lights move a little between turns. Each landscape has a quiet ambient sound, off by default and switched on in Settings.
+6. ~~**Home is a shelf of living Worlds.**~~ *(done)* Covers are drawn from each World's actual scene (its landscape and what it has built), with a badge for what is new since you left. Age reads in the World's own unit ("Sol 5"). Branch history moves into the Branches view. First launch opens one window, and a World appears on Home only once it has begun.
+7. ~~**Nothing written in engine words.**~~ *(done)* Rewrite the headings and choices that still describe the machinery ("A larger choice is here", "let existing dynamics keep working"). Add a test that fails if any player-facing text uses a word from a small banned list.
 8. **Being told, and a signed app.** Notarization, then a notification when a World you care about changes. Both still wait on the five secrets in `RELEASE_SIGNING.md`.
 
 Items 1 to 3 change the World Pack protocol. As with `Scenery` and `CanvasMark`, every new field is optional, so older Packs keep working. Each item is built in both Pocket Universe and Tiny Society before it counts, because a concept that works in only one World doesn't belong in the protocol.
 
+## Progress
+
+**The World is a place.** Nia stays at the habitat when she looks after the others and Tomas goes out with the rover when he explores; once they are partners they go together, a heart between them. The stakes sit above the scene.
+
+![Ares, five sols in](review/v08-ares.png)
+
+**People walk.** A turn that moves someone shows them walking over, here Tomas leaving the habitat for the rover on the first sol:
+
+![Walking](review/v08-walk.png)
+
+**The harbour stands people at their work.** Nothing covers anything else and no name is cut off:
+
+![Harbour](review/v08-harbour.png)
+
+**Coming back is a moment.** One beat at a time, the people it is about lit up, then your turn:
+
+![Return](review/v08-return.png)
+
+**A choice shows what it moves, measured.** Hovering "Give them a shared project" lights Trust ▲▲ and shows where it would end up; the pair it concerns are lit on the scene and asking on the card:
+
+![Gauges](review/v08-gauges.png)
+
+![Choice](review/v08-choice.png)
+
+**Home is a shelf of living Worlds:**
+
+![Home](review/v08-home.png)
+
+**Night and dusk follow the player's clock:**
+
+![Night](review/v08-night.png)
+
 ## Not verifiable from here
 
 - A real Mac: fonts, window chrome, full screen, and every keyboard shortcut.
+- The ambient sound. It is made and tested here, but plays through macOS's own player, so nobody has heard it yet.
 - Whether a stranger understands the first session without help. Nothing replaces three people playing it for ten minutes while someone watches.
