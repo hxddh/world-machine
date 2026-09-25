@@ -2,6 +2,23 @@
 
 Releases live on the [Releases page](https://github.com/hxddh/world-machine/releases). `0.2.0` is the first release intended to be usable without reading the repository; the `v0.1.0-pre.N` tags below were its pre-releases.
 
+## v0.7.0 (2026-09-25)
+
+**Pocket Universe Worlds created before this release will not open.** Pocket Universe moves to `0.20.0` because a turn now moves the World's clock. Export anything you want to keep before updating; Tiny Society, Future Archaeologist and Micro Company Worlds are unaffected.
+
+- **A new World starts with a picture.** The first screen is three illustrated places to begin (a Mars colony on red dust, a 1987 street at dusk, an ice bridge under the aurora) instead of a form with three lines of text and two cards of instructions.
+- **Every World looks like where it is.** A Pack can give a World its own colours: sky, ridges and sun. Pocket Universe gives each of its three places theirs and Tiny Society its harbour; the scene stands on that ground, and Home draws each World's cover in the same colours. Each place is drawn as what it is: a dome for the Mars habitat, a shopfront for the arcade, a bridge for Icebridge, a lighthouse for the harbour, where every place used to be the same green house.
+- **A World is called by its name.** A new World is "A new World" until it begins and then takes its place's name ("Ares Pocket Colony", "Maple Street · 1987") in its window and on Home; it used to be "Pocket Universe · Empty World" forever. A World you rename keeps your name; the next turn used to overwrite it. The window no longer shows the file's id beside the name.
+- **A World grows on screen.** Every time a World builds something (a water-recovery loop, a tournament bracket at the arcade, a span of the ice bridge) a small shape joins its horizon and stays: domes and masts on Mars, houses and street lamps on Maple Street, igloos and ice trees on Icebridge. After a week a colony looks lived in. Clicking one opens the moment it was built.
+- **A World says it keeps going.** Beside its name, every World window says so and says when: "Keeps going without you · next sol in 6 h". Nothing in the app used to mention that a World moves on while it is closed.
+- **Home offers only Worlds a person would play.** *Future Archaeologist* and *Micro Company* exercise the engine and read like it ("recover fragments … without exposing the hidden ground truth"); Home no longer offers them to start. Worlds already made with them still open, and `WORLD_MACHINE_DEVELOPER=1` offers them again.
+- **The window's title bar keeps up with the page.** After a few turns it could still show the actions of an earlier moment, because it only redrew when something else made it.
+- **Time is counted the World's own way.** A Mars colony counts sols, Maple Street nights, Icebridge auroras and the harbour days: the page, History, the activity strip and What if… say "Sol 3" and "Sol 1–5" instead of "Time 30" and "time 10–50".
+- **A turn is a day passing.** "Let the first sol unfold" now moves the clock by one sol, exactly as a sol passing while you are away does, so History files each turn under its own sol instead of piling every turn of a session under *The beginning*. Pocket Universe moves to `0.20.0` for it; Worlds from `0.19.0` do not open.
+- **Choices speak plainly.** "Create a goal that neither actor can complete alone; future interactions will lean toward trust" is now "Give them something neither can finish alone. From here on they lean toward trusting each other", and no choice asks to "let one more persistent change happen".
+- **Branch and What if… appear when they mean something**: once a World has a history to branch, and once it has two choices to compare.
+- **The Pack install review shows the Pack's picture.** It was drawn with no size and came out blank in `v0.6.0`.
+
 ## v0.6.0 (2026-09-25)
 
 **Worlds created before this release will not open.** Tiny Society moves to `0.3.0` because it now records things it used to leave unrecorded, and Pocket Universe moves to `0.19.0` because what it writes into a World's history is now in plain words. A `.world` file records the Pack version it was created with. Export anything you want to keep before updating; Micro Company Worlds are unaffected.

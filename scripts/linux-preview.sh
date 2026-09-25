@@ -18,7 +18,7 @@
 # mesa-vulkan-drivers for a software renderer).
 #
 # Usage:
-#   [APPEARANCE=dark] [AWAY_HOURS=N] scripts/linux-preview.sh [output-dir] [click-x click-y]...
+#   [APPEARANCE=dark] [AWAY_HOURS=N] [FRESH=1] scripts/linux-preview.sh [output-dir] [click-x click-y]...
 #
 # Every window the app has open after start-up (and after each optional click,
 # given in pixels relative to Home's top-left corner, or to the newest window
@@ -61,8 +61,11 @@ BIN="$CARGO_TARGET_DIR/debug"
 
 rm -rf "$STATE"
 mkdir -p "$STATE/home" "$STATE/Worlds" "$STATE/packs"
-(cd "$SRC" && cargo run -q -p pocket-universe --example demo_world -- "$STATE/Worlds")
-(cd "$SRC" && cargo run -q -p tiny-society --example demo_world -- "$STATE/Worlds")
+# FRESH=1 starts with an empty library: what a new user sees on first launch.
+if [ -z "${FRESH:-}" ]; then
+    (cd "$SRC" && cargo run -q -p pocket-universe --example demo_world -- "$STATE/Worlds")
+    (cd "$SRC" && cargo run -q -p tiny-society --example demo_world -- "$STATE/Worlds")
+fi
 for pack in pocket-universe micro-company tiny-society; do
     "$BIN/$pack-pack" --write-bundle "$STATE/packs/$pack.worldpack"
 done

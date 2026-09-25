@@ -10,7 +10,7 @@ use world_core::{EntityId, Event, RelationId, Value, World};
 use world_projection::{
     entity_title, inspectors_from_world, timeline_from_world, why_map_from_world, BriefingItem,
     BriefingItemKind, BriefingProjection, CanvasChange, CanvasItem, CanvasItemKind,
-    CanvasProjection, CollectionItem, CollectionProjection, CommandEffect, EffectChange,
+    CanvasProjection, CollectionItem, CollectionProjection, CommandEffect, EffectChange, MarkShape,
     ProjectionCapabilities, ProjectionCommand, ProjectionSnapshot, SelectionId, Telling, Tone,
 };
 
@@ -27,7 +27,10 @@ pub(crate) fn snapshot_since(
     ProjectionSnapshot {
         title: "Tiny Society".into(),
         world_time: world.world_time(),
-        capabilities: ProjectionCapabilities { fork: true },
+        capabilities: ProjectionCapabilities {
+            fork: true,
+            background: true,
+        },
         briefing: Some(society_briefing(world, since_event_count)),
         commands: available_commands(world),
         collection: CollectionProjection {
@@ -49,9 +52,22 @@ pub(crate) fn snapshot_since(
                 })
                 .collect(),
             links: Vec::new(),
+            marks: Vec::new(),
         },
         inspectors: inspectors_from_world(world),
         why: why_map_from_world(world),
+        // A small island harbour on a clear morning: sea, low hills, sun.
+        scenery: Some(world_projection::Scenery {
+            sky_top: 0xa9cfe6,
+            sky_bottom: 0xe9f1ef,
+            far: 0x7f9f8a,
+            near: 0x2f6a86,
+            sun: 0xffe2a0,
+        }),
+        calendar: Some(world_projection::Calendar {
+            unit: "Day".into(),
+            length: crate::persistence::WORLD_DAY_TICKS,
+        }),
     }
 }
 
@@ -183,6 +199,7 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 "Keep Jonas at the bakery and let this branch continue into a different future."
                     .into(),
             effects: Vec::new(),
+            scenery: None,
         });
     }
 
@@ -198,6 +215,7 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 "Invest {} of Mara's cash to reopen Harbor Bakery. Mara returns to work; former workers are not automatically rehired.",
                 crate::BAKERY_REOPEN_INVESTMENT
             ), effects: Vec::new(),
+            scenery: None,
 });
     }
 
@@ -211,6 +229,7 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 "Invest {} of Mara's cash and reopen Harbor Bakery without a fixed daily Bakery wage. Lower overhead can survive weak demand, but Mara gives up predictable pay.",
                 crate::recovery::LEAN_REOPEN_INVESTMENT
             ), effects: Vec::new(),
+            scenery: None,
 });
     }
 
@@ -222,6 +241,7 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 "Leo pays Evan {} to repair Sea Finch. Jonas returns to Harbor fishing once the boat is sound. Leo's backing does not stand indefinitely.",
                 crate::social::SEA_FINCH_REPAIR_COST
             ), effects: Vec::new(),
+            scenery: None,
 });
     }
 
@@ -234,6 +254,7 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 crate::drift::SEA_FINCH_SCRAP_VALUE,
                 crate::social::SEA_FINCH_REPAIR_COST
             ), effects: Vec::new(),
+            scenery: None,
 });
     }
 
@@ -245,6 +266,7 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 "Jonas works the counter for {} a day. It is a second wage against the same island trade, and the bakery has to carry it.",
                 crate::livelihood::COUNTER_WAGE
             ), effects: Vec::new(),
+            scenery: None,
 });
     }
 
@@ -651,6 +673,15 @@ fn resident_item(world: &World, id: EntityId) -> Option<CollectionItem> {
     })
 }
 
+/// What each of the harbour town's places looks like on its tile.
+fn place_shape(id: EntityId) -> MarkShape {
+    match id {
+        HARBOR => MarkShape::Tower,
+        BAKERY => MarkShape::Shop,
+        _ => MarkShape::House,
+    }
+}
+
 fn canvas_items(world: &World) -> Vec<CanvasItem> {
     let mut items = Vec::new();
 
@@ -680,6 +711,7 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                 x,
                 y,
                 changes: Vec::new(),
+                shape: Some(place_shape(id)),
             });
         }
     }
@@ -705,6 +737,7 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                 x,
                 y,
                 changes: Vec::new(),
+                shape: None,
             });
         }
     }
@@ -726,6 +759,7 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                 x,
                 y,
                 changes: Vec::new(),
+                shape: None,
             });
         }
     }

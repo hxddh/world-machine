@@ -70,6 +70,24 @@ fn catch_up_at(
     }
 }
 
+/// How many seconds until this World next moves on its own: a period after
+/// it was last caught up to. It moves when it is next opened after that.
+pub fn next_move_in(session: &DurableWorldSession, library: &WorldLibrary) -> Option<u64> {
+    let store = ObserverStore::new(observer_root(library));
+    let key = observer_key(session).ok()?;
+    let last = store.last_seen(&key).ok()??;
+    let now = current_unix_seconds().ok()?;
+    Some(seconds_until_next_period(
+        last,
+        now,
+        DEFAULT_SECONDS_PER_PERIOD,
+    ))
+}
+
+fn seconds_until_next_period(last: u64, now: u64, period: u64) -> u64 {
+    period.saturating_sub(now.saturating_sub(last))
+}
+
 fn default_policy() -> CatchUpPolicy {
     CatchUpPolicy::new(DEFAULT_SECONDS_PER_PERIOD, DEFAULT_MAX_PERIODS)
         .expect("desktop observer policy is valid")
@@ -111,6 +129,13 @@ mod tests {
     use super::*;
     use std::env;
     use std::fs;
+
+    #[test]
+    fn the_next_period_is_counted_from_the_last_catch_up() {
+        assert_eq!(seconds_until_next_period(1_000, 1_000, 600), 600);
+        assert_eq!(seconds_until_next_period(1_000, 1_450, 600), 150);
+        assert_eq!(seconds_until_next_period(1_000, 5_000, 600), 0);
+    }
     use std::process;
     use world_host::{HostError, WorldDescriptor, WorldRegistration, WorldRegistry, WorldSession};
     use world_persistence::{
@@ -134,7 +159,10 @@ mod tests {
             ProjectionSnapshot {
                 title: "Observer Test".into(),
                 world_time: self.time,
-                capabilities: ProjectionCapabilities { fork: false },
+                capabilities: ProjectionCapabilities {
+                    fork: false,
+                    background: false,
+                },
                 ..ProjectionSnapshot::default()
             }
         }
@@ -169,7 +197,10 @@ mod tests {
             ProjectionSnapshot {
                 title: "Static Observer Test".into(),
                 world_time: self.time,
-                capabilities: ProjectionCapabilities { fork: false },
+                capabilities: ProjectionCapabilities {
+                    fork: false,
+                    background: false,
+                },
                 ..ProjectionSnapshot::default()
             }
         }

@@ -16,7 +16,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 use std::time::Duration;
 use world_projection::{
-    CanvasChange, CanvasItem, CanvasItemKind, CanvasLinkTone, ProjectionSnapshot, SelectionId, Tone,
+    CanvasChange, CanvasItem, CanvasItemKind, CanvasLinkTone, MarkShape, ProjectionSnapshot,
+    SelectionId, Tone,
 };
 use world_theme::tokens;
 
@@ -104,6 +105,198 @@ pub fn differences(this: &ProjectionSnapshot, other: &ProjectionSnapshot) -> BTr
 
 /// What happens when something in a scene is clicked.
 pub type SelectHandler = Rc<dyn Fn(SelectionId, &mut Window, &mut App)>;
+
+/// The near ridge: where it starts on the left, ends on the right, and how
+/// far its curve swells between.
+const NEAR_RISE: f32 = 0.93;
+const NEAR_FALL: f32 = 0.90;
+const NEAR_LIFT: f32 = 0.04;
+
+/// How high the near ridge stands at `x` (both as fractions of the stage),
+/// following the same two curves `horizon` draws it with, so built things
+/// stand on it rather than sinking into it where it rises.
+fn near_ridge_top(x: f32) -> f32 {
+    let quad = |a: (f32, f32), c: (f32, f32), b: (f32, f32), t: f32| {
+        let u = 1.0 - t;
+        (
+            u * u * a.0 + 2.0 * u * t * c.0 + t * t * b.0,
+            u * u * a.1 + 2.0 * u * t * c.1 + t * t * b.1,
+        )
+    };
+    let middle = (0.45, (NEAR_RISE + NEAR_FALL) / 2.0);
+    let (a, c, b) = if x <= middle.0 {
+        ((0.0, NEAR_RISE), (0.2, NEAR_RISE - NEAR_LIFT), middle)
+    } else {
+        (middle, (0.75, NEAR_FALL + NEAR_LIFT), (1.0, NEAR_FALL))
+    };
+    // Find the point on the curve above x; a few halvings are plenty.
+    let (mut low, mut high) = (0.0_f32, 1.0_f32);
+    for _ in 0..24 {
+        let mid = (low + high) / 2.0;
+        if quad(a, c, b, mid).0 < x {
+            low = mid;
+        } else {
+            high = mid;
+        }
+    }
+    quad(a, c, b, (low + high) / 2.0).1
+}
+
+/// How big built things are, and how far into the ridge they are set.
+const MARK_SINK: f32 = 0.012;
+const MARK_WIDTH: f32 = 26.0;
+const MARK_HEIGHT: f32 = 36.0;
+/// Past this many, the oldest fall off the left edge.
+const MARK_LIMIT: usize = 16;
+
+/// Where each of the newest `count` built things stands along the horizon,
+/// as fractions of the stage's width, evenly spaced from left to right.
+fn mark_positions(count: usize) -> Vec<f32> {
+    let shown = count.min(MARK_LIMIT);
+    (0..shown)
+        .map(|index| 0.06 + 0.88 * (index as f32 + 0.5) / MARK_LIMIT as f32)
+        .collect()
+}
+
+/// A built thing as a small silhouette standing on the ground line at the
+/// bottom of its box: a house, a dome, a mast, a tree, a lamp, a shopfront
+/// or a bridge.
+fn mark_silhouette(shape: MarkShape, colour: Hsla, light: Hsla) -> gpui::Canvas<()> {
+    canvas(
+        |_, _, _| (),
+        move |bounds: Bounds<gpui::Pixels>, _, window, _| {
+            let origin = bounds.origin;
+            let width = bounds.size.width;
+            let height = bounds.size.height;
+            let at = |x: f32, y: f32| point(origin.x + width * x, origin.y + height * y);
+            let mut body = PathBuilder::fill();
+            match shape {
+                MarkShape::House => {
+                    body.move_to(at(0.15, 1.0));
+                    body.line_to(at(0.15, 0.55));
+                    body.line_to(at(0.5, 0.25));
+                    body.line_to(at(0.85, 0.55));
+                    body.line_to(at(0.85, 1.0));
+                }
+                MarkShape::Dome => {
+                    body.move_to(at(0.0, 1.0));
+                    body.curve_to(at(0.5, 0.45), at(0.02, 0.45));
+                    body.curve_to(at(1.0, 1.0), at(0.98, 0.45));
+                }
+                MarkShape::Tower => {
+                    body.move_to(at(0.38, 1.0));
+                    body.line_to(at(0.46, 0.2));
+                    body.line_to(at(0.54, 0.2));
+                    body.line_to(at(0.62, 1.0));
+                }
+                MarkShape::Tree => {
+                    body.move_to(at(0.45, 1.0));
+                    body.line_to(at(0.45, 0.8));
+                    body.line_to(at(0.15, 0.8));
+                    body.line_to(at(0.5, 0.15));
+                    body.line_to(at(0.85, 0.8));
+                    body.line_to(at(0.55, 0.8));
+                    body.line_to(at(0.55, 1.0));
+                }
+                MarkShape::Lamp => {
+                    body.move_to(at(0.46, 1.0));
+                    body.line_to(at(0.46, 0.3));
+                    body.line_to(at(0.54, 0.3));
+                    body.line_to(at(0.54, 1.0));
+                }
+                MarkShape::Shop => {
+                    // A flat-roofed front with an awning that overhangs it.
+                    body.move_to(at(0.15, 1.0));
+                    body.line_to(at(0.15, 0.55));
+                    body.line_to(at(0.05, 0.55));
+                    body.line_to(at(0.15, 0.35));
+                    body.line_to(at(0.85, 0.35));
+                    body.line_to(at(0.95, 0.55));
+                    body.line_to(at(0.85, 0.55));
+                    body.line_to(at(0.85, 1.0));
+                }
+                MarkShape::Bridge => {
+                    // A deck on two piers with an arch between them.
+                    body.move_to(at(0.0, 1.0));
+                    body.line_to(at(0.0, 0.5));
+                    body.line_to(at(1.0, 0.5));
+                    body.line_to(at(1.0, 1.0));
+                    body.line_to(at(0.84, 1.0));
+                    body.curve_to(at(0.16, 1.0), at(0.5, 0.45));
+                }
+            }
+            body.close();
+            if let Ok(path) = body.build() {
+                window.paint_path(path, colour);
+            }
+            // A mast has a light at its tip and a lamp its lamp.
+            if matches!(shape, MarkShape::Lamp | MarkShape::Tower) {
+                let radius = f32::from(width) * if shape == MarkShape::Lamp { 0.16 } else { 0.1 };
+                let centre = at(0.5, if shape == MarkShape::Lamp { 0.24 } else { 0.16 });
+                window.paint_quad(quad(
+                    Bounds::new(
+                        point(centre.x - px(radius), centre.y - px(radius)),
+                        size(px(radius * 2.0), px(radius * 2.0)),
+                    ),
+                    px(radius),
+                    light,
+                    px(0.0),
+                    light,
+                    BorderStyle::default(),
+                ));
+            }
+        },
+    )
+}
+
+/// Where a World is, behind everything on its stage: its sky washed faintly
+/// over the ground, and its two ridges along the bottom edge, so a Mars
+/// colony stands on red dust and Icebridge on ice without anything on
+/// stage becoming harder to read.
+fn horizon(scenery: world_projection::Scenery) -> impl IntoElement {
+    let colour = |hex: u32| -> Hsla { rgb(hex).into() };
+    let wash = if world_theme::is_dark() { 0.30 } else { 0.22 };
+    let sky_top = colour(scenery.sky_top).opacity(wash);
+    let sky_bottom = colour(scenery.sky_bottom).opacity(wash);
+    let far = colour(scenery.far).opacity(0.55);
+    let near = colour(scenery.near).opacity(0.8);
+    canvas(
+        |_, _, _| (),
+        move |bounds: Bounds<gpui::Pixels>, _, window, _| {
+            let origin = bounds.origin;
+            let width = bounds.size.width;
+            let height = bounds.size.height;
+            let at = |x: f32, y: f32| point(origin.x + width * x, origin.y + height * y);
+            window.paint_quad(gpui::fill(
+                bounds,
+                linear_gradient(
+                    180.0,
+                    linear_color_stop(sky_top, 0.0),
+                    linear_color_stop(sky_bottom, 1.0),
+                ),
+            ));
+            for (rise, fall, lift, colour) in [
+                (0.86, 0.82, 0.05, far),
+                (NEAR_RISE, NEAR_FALL, NEAR_LIFT, near),
+            ] {
+                let mut ridge = PathBuilder::fill();
+                ridge.move_to(at(0.0, rise));
+                ridge.curve_to(at(0.45, (rise + fall) / 2.0), at(0.2, rise - lift));
+                ridge.curve_to(at(1.0, fall), at(0.75, fall + lift));
+                ridge.line_to(at(1.0, 1.0));
+                ridge.line_to(at(0.0, 1.0));
+                ridge.close();
+                if let Ok(path) = ridge.build() {
+                    window.paint_path(path, colour);
+                }
+            }
+        },
+    )
+    .absolute()
+    .top_0()
+    .left_0()
+    .size_full()
+}
 
 /// Whose face an event wears: whoever did it, or, when nobody did (a
 /// payroll that failed, a storm that damaged a boat), the first thing it
@@ -520,7 +713,50 @@ pub fn scene(
             linear_color_stop(hsla(tokens::SCENE_TOP), 0.0),
             linear_color_stop(hsla(tokens::SCENE_BOTTOM), 1.0),
         ))
+        .when_some(snapshot.scenery, |stage, scenery| {
+            stage.child(horizon(scenery))
+        })
         .child(backdrop);
+
+    // What the World has built stands on its horizon, oldest on the left,
+    // so a colony a week old looks lived in. The newest rises into place.
+    let shown = mark_positions(snapshot.canvas.marks.len());
+    let marks_start = snapshot.canvas.marks.len() - shown.len();
+    let (silhouette, light) = match snapshot.scenery {
+        Some(scenery) => (rgb(scenery.near).into(), rgb(scenery.sun).into()),
+        None => (hsla(tokens::BORDER_STRONG), hsla(tokens::WARNING)),
+    };
+    for (offset, x) in shown.into_iter().enumerate() {
+        let index = marks_start + offset;
+        let mark = &snapshot.canvas.marks[index];
+        let newest = index + 1 == snapshot.canvas.marks.len();
+        // The entrance animation moves its element by margin, so it moves
+        // the picture inside the positioned box, never the box itself.
+        let picture = div()
+            .size_full()
+            .child(mark_silhouette(mark.shape, silhouette, light).size_full());
+        let mut node = div()
+            .id(SharedString::from(format!("mark-{index}")))
+            .absolute()
+            .left(relative(x))
+            .top(relative(near_ridge_top(x) + MARK_SINK))
+            .ml(px(-MARK_WIDTH / 2.0))
+            .mt(px(-MARK_HEIGHT))
+            .w(px(MARK_WIDTH))
+            .h(px(MARK_HEIGHT))
+            .child(if newest {
+                ui::arrive(picture, format!("mark-{index}"), 0).into_any_element()
+            } else {
+                picture.into_any_element()
+            });
+        if let Some(selection) = mark.selection {
+            let on_select = on_select.clone();
+            node = node
+                .cursor_pointer()
+                .on_click(move |_, window, cx| on_select(selection, window, cx));
+        }
+        scene = scene.child(node);
+    }
 
     // Trouble breathes: a ring that slowly swells and fades around anything
     // whose news is a warning or worse, so it is seen before it is read.
@@ -573,6 +809,7 @@ pub fn scene(
             ),
             CanvasItemKind::Place => place_node(
                 &item.label,
+                item.shape,
                 &item.detail,
                 &item.changes,
                 selected,
@@ -732,8 +969,9 @@ pub fn activity(snapshot: &ProjectionSnapshot) -> Option<Div> {
             .gap_1()
             .child(bars)
             .child(ui::caption(format!(
-                "{} moments · time {first}–{last}",
-                times.len()
+                "{} moments · {}",
+                times.len(),
+                snapshot.span_label(first, last)
             ))),
     )
 }
@@ -781,7 +1019,15 @@ fn actor_node(
             node.child(change_chip(&changes[0]))
         })
         .when(changes.is_empty() && !compact, |node| {
-            node.child(ui::caption(crate::macos::capitalize(detail)).truncate())
+            // Backed like the name above it, so it reads over any ground,
+            // night-time streets and red dust included.
+            node.child(
+                ui::caption(crate::macos::capitalize(detail))
+                    .px_1()
+                    .rounded_sm()
+                    .bg(ui::color(tokens::SURFACE).opacity(0.72))
+                    .truncate(),
+            )
         })
 }
 
@@ -822,6 +1068,7 @@ pub fn change_text(change: &CanvasChange) -> String {
 
 fn place_node(
     name: &str,
+    shape: Option<MarkShape>,
     detail: &str,
     changes: &[CanvasChange],
     selected: bool,
@@ -855,7 +1102,7 @@ fn place_node(
         .flex()
         .items_center()
         .gap_2()
-        .child(place_icon())
+        .child(place_icon(shape))
         .child(
             div()
                 .min_w(px(0.0))
@@ -920,32 +1167,20 @@ fn object_pill(name: &str, selected: bool) -> Div {
 }
 
 /// A small drawn house: a place, whatever the World calls it.
-fn place_icon() -> Div {
-    let roof = hsla(tokens::SUCCESS);
+/// A place's own silhouette on a small tile of ground: a dome for a
+/// habitat, a shopfront for an arcade, a span for a bridge.
+fn place_icon(shape: Option<MarkShape>) -> Div {
     div()
         .flex_shrink_0()
         .size(px(28.0))
+        .p(px(5.0))
         .rounded_md()
         .bg(ui::color(tokens::SCENE_BOTTOM))
         .child(
-            canvas(
-                |_, _, _| (),
-                move |bounds: Bounds<gpui::Pixels>, _, window, _| {
-                    let o = bounds.origin;
-                    let at = |x: f32, y: f32| point(o.x + px(x), o.y + px(y));
-                    let mut house = PathBuilder::fill();
-                    house.move_to(at(14.0, 6.0));
-                    house.line_to(at(23.0, 13.0));
-                    house.line_to(at(21.0, 13.0));
-                    house.line_to(at(21.0, 22.0));
-                    house.line_to(at(7.0, 22.0));
-                    house.line_to(at(7.0, 13.0));
-                    house.line_to(at(5.0, 13.0));
-                    house.close();
-                    if let Ok(path) = house.build() {
-                        window.paint_path(path, roof);
-                    }
-                },
+            mark_silhouette(
+                shape.unwrap_or_default(),
+                hsla(tokens::SUCCESS),
+                hsla(tokens::WARNING),
             )
             .size_full(),
         )
@@ -953,9 +1188,30 @@ fn place_icon() -> Div {
 
 #[cfg(test)]
 mod tests {
-    use super::{change_text, differences, event_actor, footprint, layout, CROWDED};
+    use super::{
+        change_text, differences, event_actor, footprint, layout, mark_positions, near_ridge_top,
+        CROWDED, MARK_LIMIT, NEAR_FALL, NEAR_RISE,
+    };
     use world_projection::ProjectionSnapshot;
     use world_projection::{CanvasChange, CanvasItem, CanvasItemKind, SelectionId, Tone};
+
+    #[test]
+    fn the_ridge_is_highest_where_it_swells_and_meets_its_ends() {
+        assert!((near_ridge_top(0.0) - NEAR_RISE).abs() < 0.001);
+        assert!((near_ridge_top(1.0) - NEAR_FALL).abs() < 0.001);
+        assert!(near_ridge_top(0.2) < NEAR_RISE);
+    }
+
+    #[test]
+    fn built_things_stand_in_order_and_the_oldest_give_way() {
+        assert!(mark_positions(0).is_empty());
+        let three = mark_positions(3);
+        assert_eq!(three.len(), 3);
+        assert!(three.windows(2).all(|pair| pair[0] < pair[1]));
+        let many = mark_positions(40);
+        assert_eq!(many.len(), MARK_LIMIT);
+        assert!(many.iter().all(|x| (0.0..=1.0).contains(x)));
+    }
 
     #[test]
     fn a_change_reads_as_its_difference_or_its_new_value() {
@@ -979,6 +1235,7 @@ mod tests {
             x,
             y,
             changes: Vec::new(),
+            shape: None,
         }
     }
 

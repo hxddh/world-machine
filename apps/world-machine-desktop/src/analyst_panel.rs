@@ -2365,6 +2365,7 @@ mod tests {
             pack: WorldPackRef::new(pack, "1"),
             display_title: title.map(str::to_owned),
             display_summary: None,
+            display_scenery: None,
             world_time: 0,
             event_count: 0,
         }

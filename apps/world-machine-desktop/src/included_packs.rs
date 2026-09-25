@@ -30,7 +30,7 @@ struct IncludedPackSpec {
 const INCLUDED_PACKS: &[IncludedPackSpec] = &[
     IncludedPackSpec {
         id: "world-machine.pocket-universe",
-        version: "0.19.0",
+        version: "0.20.0",
         title: "Pocket Universe",
         description: "Seed a tiny persistent world, let its inhabitants act, and watch choices, relationships, and habits grow into legacies.",
         experience: "Seed a place · Let it live · Branch what happens next",
@@ -143,7 +143,7 @@ mod tests {
         let packs = discover_in(&root);
         assert_eq!(packs.len(), 1);
         assert_eq!(packs[0].pack.id, "world-machine.pocket-universe");
-        assert_eq!(packs[0].pack.version, "0.19.0");
+        assert_eq!(packs[0].pack.version, "0.20.0");
         assert_eq!(packs[0].title, "Pocket Universe");
         assert!(packs[0].featured);
         assert_eq!(

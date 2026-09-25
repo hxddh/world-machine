@@ -1,5 +1,5 @@
 use crate::{
-    required_archive, snapshot_display_summary, snapshot_display_title, DurableWorldSession,
+    next_display_title, required_archive, snapshot_display_summary, DurableWorldSession,
     LibraryError, WorldLibrary,
 };
 use world_document::WorldDocument;
@@ -43,6 +43,7 @@ impl DurableWorldSession {
         self.target.verify_revision(self.revision, library)?;
 
         let current_archive = required_archive(self.session.as_ref())?;
+        let before = self.session.snapshot();
         let mut candidate = registry.open_archive(&current_archive)?;
         let snapshot = candidate.advance_background(periods)?;
         let next_archive = required_archive(candidate.as_ref())?;
@@ -52,9 +53,9 @@ impl DurableWorldSession {
         }
 
         let mut next_metadata = self.metadata.clone();
-        if let Some(title) = snapshot_display_title(&snapshot) {
-            next_metadata.display_title = Some(title);
-        }
+        next_metadata.display_title =
+            next_display_title(self.metadata.display_title.as_deref(), &before, &snapshot);
+        next_metadata.display_scenery = crate::snapshot_display_scenery(&snapshot);
         next_metadata.display_summary = snapshot_display_summary(&snapshot);
         let next_document = WorldDocument {
             archive: next_archive,
@@ -101,7 +102,10 @@ mod tests {
             ProjectionSnapshot {
                 title: format!("Mock {}", self.count),
                 world_time: self.count,
-                capabilities: ProjectionCapabilities { fork: false },
+                capabilities: ProjectionCapabilities {
+                    fork: false,
+                    background: false,
+                },
                 ..ProjectionSnapshot::default()
             }
         }
@@ -133,7 +137,10 @@ mod tests {
             ProjectionSnapshot {
                 title: format!("Static {}", self.count),
                 world_time: self.count,
-                capabilities: ProjectionCapabilities { fork: false },
+                capabilities: ProjectionCapabilities {
+                    fork: false,
+                    background: false,
+                },
                 ..ProjectionSnapshot::default()
             }
         }

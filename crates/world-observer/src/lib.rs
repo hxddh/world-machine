@@ -106,6 +106,16 @@ impl ObserverStore {
         })
     }
 
+    /// When the World was last caught up to, in Unix seconds, if it ever
+    /// was: the clock its next period is counted from.
+    pub fn last_seen(&self, key: &ObserverKey) -> Result<Option<u64>, ObserverError> {
+        match fs::read(self.stamp_path(key)) {
+            Ok(bytes) => Ok(parse_stamp(&bytes)),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(ObserverError::Io(error)),
+        }
+    }
+
     pub fn rollback(&self, claim: &CatchUpClaim) -> Result<(), ObserverError> {
         let Some(previous) = claim.rollback_bytes.as_deref() else {
             return Ok(());
@@ -274,6 +284,20 @@ mod tests {
 
     fn policy() -> CatchUpPolicy {
         CatchUpPolicy::new(60, 3).unwrap()
+    }
+
+    #[test]
+    fn last_seen_is_where_the_next_period_is_counted_from() {
+        let root = temp_root("last-seen");
+        let store = ObserverStore::new(root.clone());
+        let key = key();
+        assert_eq!(store.last_seen(&key).unwrap(), None);
+        store.claim_due(&key, 100, policy()).unwrap();
+        assert_eq!(store.last_seen(&key).unwrap(), Some(100));
+        // A look before a whole period passes leaves the clock alone.
+        store.claim_due(&key, 130, policy()).unwrap();
+        assert_eq!(store.last_seen(&key).unwrap(), Some(100));
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

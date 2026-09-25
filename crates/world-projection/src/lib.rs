@@ -154,6 +154,23 @@ pub struct ProjectionCommand {
     /// beside the choice and point at before it is made. Empty when the
     /// Pack says nothing beyond the detail.
     pub effects: Vec<CommandEffect>,
+    /// How the World this choice starts would look, for a choice that
+    /// starts one; a screen can show it as a picture rather than a line.
+    pub scenery: Option<Scenery>,
+}
+
+/// How a World looks from a distance: a sky, a far ridge, a near ridge and
+/// a sun or moon, as `0xRRGGBB` colours. A Pack gives each World its own so
+/// a Mars colony is red dust and a 1987 town is a street at night; a screen
+/// draws covers and the scene's backdrop from it. Art, not interface: the
+/// same in light and dark appearance.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Scenery {
+    pub sky_top: u32,
+    pub sky_bottom: u32,
+    pub far: u32,
+    pub near: u32,
+    pub sun: u32,
 }
 
 /// Whether something is good news, bad news, or neither.
@@ -192,6 +209,10 @@ pub enum EffectChange {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ProjectionCapabilities {
     pub fork: bool,
+    /// The World moves on its own between visits, so the app can promise
+    /// that it keeps going. A Pack whose World only moves when a player
+    /// acts leaves this off.
+    pub background: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -206,9 +227,54 @@ pub struct ProjectionSnapshot {
     pub canvas: CanvasProjection,
     pub inspectors: BTreeMap<SelectionId, InspectorProjection>,
     pub why: BTreeMap<EventId, WhyProjection>,
+    /// How this World looks, if its Pack says.
+    pub scenery: Option<Scenery>,
+    /// What this World counts its time in, if its Pack says.
+    pub calendar: Option<Calendar>,
+}
+
+/// A World's own unit of time: a Mars colony counts sols, a town counts
+/// nights. `length` is how much world time one of them is.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Calendar {
+    pub unit: String,
+    pub length: u64,
 }
 
 impl ProjectionSnapshot {
+    /// A moment in this World's own words: "Sol 3" where the Pack counts
+    /// sols, "Time 30" where it does not, and "The beginning" at the start.
+    pub fn moment_label(&self, world_time: u64) -> String {
+        if world_time == 0 {
+            return "The beginning".into();
+        }
+        match &self.calendar {
+            Some(calendar) if calendar.length > 0 => {
+                format!("{} {}", calendar.unit, world_time.div_ceil(calendar.length))
+            }
+            _ => format!("Time {world_time}"),
+        }
+    }
+
+    /// A stretch of this World's time: "Sol 2–5", or one moment when the
+    /// two ends fall in the same one.
+    pub fn span_label(&self, from: u64, to: u64) -> String {
+        let (from, to) = (from.min(to), from.max(to));
+        match &self.calendar {
+            Some(calendar) if calendar.length > 0 => {
+                let first = from.div_ceil(calendar.length).max(1);
+                let last = to.div_ceil(calendar.length).max(1);
+                if first == last {
+                    self.moment_label(to)
+                } else {
+                    format!("{} {first}–{last}", calendar.unit)
+                }
+            }
+            _ if from == to => self.moment_label(to),
+            _ => format!("Time {from}–{to}"),
+        }
+    }
+
     pub fn inspector(&self, selection: SelectionId) -> Option<&InspectorProjection> {
         self.inspectors.get(&selection)
     }
@@ -741,6 +807,35 @@ pub struct CanvasProjection {
     /// entity of its own uses this to draw it as a line between the two
     /// people rather than as a third thing standing beside them.
     pub links: Vec<CanvasLink>,
+    /// What the World has built so far, oldest first, drawn as small shapes
+    /// standing on its horizon so the place visibly fills up as time passes.
+    pub marks: Vec<CanvasMark>,
+}
+
+/// One thing a World built: a new water loop, a tournament bracket, a span
+/// of bridge. `label` says what it is; selecting it opens the moment it was
+/// made.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CanvasMark {
+    pub label: String,
+    pub shape: MarkShape,
+    pub selection: Option<SelectionId>,
+}
+
+/// The silhouette a built thing is drawn as on the horizon, and a place as
+/// on its tile.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum MarkShape {
+    #[default]
+    House,
+    Dome,
+    Tower,
+    Tree,
+    Lamp,
+    /// A shopfront under an awning.
+    Shop,
+    /// An arched span.
+    Bridge,
 }
 
 /// How a connection reads: warm, strained, or neither.
@@ -784,6 +879,9 @@ pub struct CanvasItem {
     /// can show "cash 85 → 37" on the person rather than in a paragraph.
     /// Empty on an ordinary snapshot.
     pub changes: Vec<CanvasChange>,
+    /// What a place looks like, so a dome reads as a dome and a bridge as a
+    /// bridge. `None` draws the plain house every place used to be.
+    pub shape: Option<MarkShape>,
 }
 
 /// One value that moved since the last visit.
@@ -1597,6 +1695,23 @@ mod tests {
     }
 
     #[test]
+    fn time_reads_in_the_worlds_own_unit() {
+        let mut snapshot = ProjectionSnapshot::default();
+        assert_eq!(snapshot.moment_label(0), "The beginning");
+        assert_eq!(snapshot.moment_label(30), "Time 30");
+        assert_eq!(snapshot.span_label(20, 30), "Time 20–30");
+        snapshot.calendar = Some(Calendar {
+            unit: "Sol".into(),
+            length: 10,
+        });
+        assert_eq!(snapshot.moment_label(0), "The beginning");
+        assert_eq!(snapshot.moment_label(10), "Sol 1");
+        assert_eq!(snapshot.moment_label(35), "Sol 4");
+        assert_eq!(snapshot.span_label(10, 50), "Sol 1–5");
+        assert_eq!(snapshot.span_label(0, 10), "Sol 1");
+    }
+
+    #[test]
     fn a_pack_tells_its_story_and_what_it_does_not_tell_is_routine() {
         let world = sample_world();
         let mut told = timeline_from_world(&world);
@@ -1833,6 +1948,7 @@ mod tests {
                 title: "Continue".into(),
                 detail: "Let the world keep running".into(),
                 effects: Vec::new(),
+                scenery: None,
             }],
             ..ProjectionSnapshot::default()
         };

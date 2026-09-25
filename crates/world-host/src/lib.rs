@@ -436,12 +436,16 @@ mod tests {
         fn snapshot(&self) -> ProjectionSnapshot {
             ProjectionSnapshot {
                 title: format!("Mock {}", self.count),
-                capabilities: ProjectionCapabilities { fork: false },
+                capabilities: ProjectionCapabilities {
+                    fork: false,
+                    background: false,
+                },
                 commands: vec![ProjectionCommand {
                     id: "mock.advance".into(),
                     title: "Advance".into(),
                     detail: "Advance the mock world".into(),
                     effects: Vec::new(),
+                    scenery: None,
                 }],
                 ..ProjectionSnapshot::default()
             }

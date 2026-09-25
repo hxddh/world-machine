@@ -78,6 +78,11 @@ impl ProjectionView {
 
     /// Leaves the title bar to the window that embeds this view, so a World
     /// is not named twice, one bar above the other.
+    /// What the view is showing now.
+    pub fn snapshot(&self) -> &ProjectionSnapshot {
+        &self.snapshot
+    }
+
     pub fn without_header(mut self) -> Self {
         self.show_header = false;
         self
@@ -210,7 +215,7 @@ impl ProjectionView {
             meta.push(eyebrow);
         }
         if self.snapshot.world_time > 0 {
-            meta.push(world_time_label(self.snapshot.world_time));
+            meta.push(self.snapshot.moment_label(self.snapshot.world_time));
         }
         let mut heading = div().flex_1().min_w(px(0.0)).flex().flex_col().gap_1();
         if !meta.is_empty() {
@@ -340,10 +345,72 @@ impl ProjectionView {
         div().flex().gap_3().child(marker).child(text)
     }
 
+    /// Where a World begins: before anything is on stage, when every choice
+    /// comes with a picture of the World it starts, the choices are the
+    /// pictures. A new game screen, not a form.
+    fn render_beginning(&self, two_columns: bool, cx: &mut Context<Self>) -> Option<Div> {
+        if !is_beginning(&self.snapshot) || self.controller.is_none() {
+            return None;
+        }
+        let mut cards = div().w_full().flex().gap_4();
+        cards = if two_columns { cards } else { cards.flex_col() };
+        for (index, command) in self.snapshot.commands.iter().enumerate() {
+            let Some(scenery) = command.scenery else {
+                continue;
+            };
+            let command_id = command.id.clone();
+            let card = div()
+                .id(SharedString::from(format!("begin-{}", command.id)))
+                .flex_1()
+                .min_w(px(0.0))
+                .rounded_xl()
+                .overflow_hidden()
+                .border_1()
+                .border_color(color(tokens::BORDER))
+                .bg(color(tokens::SURFACE))
+                .cursor_pointer()
+                .hover(|style| style.border_color(color(tokens::ACCENT)).shadow_md())
+                .active(|style| style.bg(color(tokens::ROW_SELECTED)))
+                .flex()
+                .flex_col()
+                .child(
+                    div()
+                        .w_full()
+                        .h(px(170.0))
+                        .child(ui::scenery_cover(&scenery, &command.id).size_full()),
+                )
+                .child(
+                    div()
+                        .p_4()
+                        .flex()
+                        .flex_col()
+                        .gap_2()
+                        .child(ui::heading(command.title.clone()))
+                        .child(ui::detail(command.detail.clone()))
+                        .child(
+                            div()
+                                .pt_1()
+                                .text_sm()
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(color(tokens::ACCENT_TEXT))
+                                .child("Begin here →"),
+                        ),
+                )
+                .on_click(
+                    cx.listener(move |this, _, _, cx| this.invoke_command(command_id.clone(), cx)),
+                );
+            cards = cards.child(ui::arrive(card, format!("begin-{index}"), index));
+        }
+        Some(cards)
+    }
+
     /// The decision in front of you, drawn as the one thing on the page that
     /// is plainly meant to be pressed.
     fn render_decision(&self, cx: &mut Context<Self>) -> Option<Div> {
-        if self.controller.is_none() || self.snapshot.commands.is_empty() {
+        if self.controller.is_none()
+            || self.snapshot.commands.is_empty()
+            || is_beginning(&self.snapshot)
+        {
             return None;
         }
 
@@ -605,7 +672,12 @@ impl ProjectionView {
                 }
             }
             history = history
-                .child(div().px_3().pt_2().child(ui::caption(section.label())))
+                .child(
+                    div()
+                        .px_3()
+                        .pt_2()
+                        .child(ui::caption(section.label(&self.snapshot))),
+                )
                 .child(rows);
         }
         if hidden > 0 {
@@ -863,7 +935,7 @@ impl ProjectionView {
                 .justify_between()
                 .gap_3()
                 .child(ui::row_title(item.title.clone()))
-                .child(ui::caption(world_time_label(item.world_time))),
+                .child(ui::caption(self.snapshot.moment_label(item.world_time))),
         );
         if !item.subtitle.is_empty() {
             row = row.child(
@@ -1034,7 +1106,7 @@ impl ProjectionView {
                 .justify_between()
                 .gap_3()
                 .child(ui::row_title(item.title.clone()))
-                .child(ui::caption(world_time_label(item.world_time))),
+                .child(ui::caption(self.snapshot.moment_label(item.world_time))),
         );
         let effect = world_projection::effect_headline(effect);
         if !effect.is_empty() {
@@ -1173,6 +1245,9 @@ impl Render for ProjectionView {
             column = column.child(scene);
         }
 
+        if let Some(beginning) = self.render_beginning(two_columns, cx) {
+            column = column.child(beginning);
+        }
         // The decision and the news that led to it sit side by side under
         // the scene when there is room, and stack when there is not.
         let decision = self.render_decision(cx);
@@ -1327,14 +1402,6 @@ fn effect_chip(effect: &CommandEffect) -> Div {
 }
 
 /// A moment in a World, named the way a person would say it.
-fn world_time_label(world_time: u64) -> String {
-    if world_time == 0 {
-        "The beginning".into()
-    } else {
-        format!("Time {world_time}")
-    }
-}
-
 fn collection_title(title: &str) -> String {
     // "World Contents" is what the projection layer calls a list of everything
     // in a World; to someone reading it, those are the people and places.
@@ -1356,6 +1423,17 @@ pub(crate) fn capitalize(text: &str) -> String {
 struct HistoryGroup<'a> {
     world_time: u64,
     items: Vec<&'a TimelineItem>,
+}
+
+/// A World with nothing on stage yet whose every choice shows the World it
+/// would start.
+pub fn is_beginning(snapshot: &ProjectionSnapshot) -> bool {
+    snapshot.canvas.items.is_empty()
+        && !snapshot.commands.is_empty()
+        && snapshot
+            .commands
+            .iter()
+            .all(|command| command.scenery.is_some())
 }
 
 /// The newest part of History: items up to the `limit`th thing that
@@ -1390,12 +1468,8 @@ struct HistorySection<'a> {
 }
 
 impl HistorySection<'_> {
-    fn label(&self) -> String {
-        if self.newest == self.oldest {
-            world_time_label(self.newest)
-        } else {
-            format!("Time {}–{}", self.oldest, self.newest)
-        }
+    fn label(&self, snapshot: &ProjectionSnapshot) -> String {
+        snapshot.span_label(self.oldest, self.newest)
     }
 }
 
@@ -1600,7 +1674,13 @@ mod focus_hierarchy_tests {
         let sections = history_sections(history_groups(items.iter()));
         let shape = sections
             .iter()
-            .map(|section| (section.label(), section.story.len(), section.routine.len()))
+            .map(|section| {
+                (
+                    section.label(&ProjectionSnapshot::default()),
+                    section.story.len(),
+                    section.routine.len(),
+                )
+            })
             .collect::<Vec<_>>();
         assert_eq!(
             shape,

@@ -1032,7 +1032,10 @@ mod tests {
         ProjectionSnapshotWire {
             title: title.into(),
             world_time,
-            capabilities: ProjectionCapabilitiesWire { fork: false },
+            capabilities: ProjectionCapabilitiesWire {
+                fork: false,
+                background: false,
+            },
             ..ProjectionSnapshotWire::default()
         }
     }

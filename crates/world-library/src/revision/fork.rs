@@ -75,7 +75,10 @@ mod tests {
             ProjectionSnapshot {
                 title: format!("Fork Mock {}", self.world_time),
                 world_time: self.world_time,
-                capabilities: ProjectionCapabilities { fork: true },
+                capabilities: ProjectionCapabilities {
+                    fork: true,
+                    background: false,
+                },
                 ..ProjectionSnapshot::default()
             }
         }
@@ -282,6 +285,7 @@ mod tests {
             display_title: Some("Fork Source".into()),
             display_summary: Some("Fork source summary".into()),
             lineage: Some(inherited_lineage()),
+            display_scenery: None,
         };
         let source = WorldDocument {
             archive: archive(8),

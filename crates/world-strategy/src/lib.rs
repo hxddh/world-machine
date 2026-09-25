@@ -212,19 +212,24 @@ mod tests {
             ProjectionSnapshot {
                 title: format!("Mock {}", self.count),
                 world_time: self.count as u64,
-                capabilities: ProjectionCapabilities { fork: false },
+                capabilities: ProjectionCapabilities {
+                    fork: false,
+                    background: false,
+                },
                 commands: vec![
                     ProjectionCommand {
                         id: "mock.advance".into(),
                         title: "Advance".into(),
                         detail: "Advance mock state".into(),
                         effects: Vec::new(),
+                        scenery: None,
                     },
                     ProjectionCommand {
                         id: "mock.fail".into(),
                         title: "Fail".into(),
                         detail: "Fail without mutation".into(),
                         effects: Vec::new(),
+                        scenery: None,
                     },
                 ],
                 ..ProjectionSnapshot::default()

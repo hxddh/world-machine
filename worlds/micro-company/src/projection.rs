@@ -16,6 +16,7 @@ pub(crate) fn snapshot(world: &World, since_event_count: Option<usize>) -> Proje
         world_time: world.world_time(),
         capabilities: ProjectionCapabilities {
             fork: !world.events().is_empty(),
+            background: true,
         },
         briefing: Some(briefing(world, since_event_count)),
         commands: commands(world),
@@ -24,6 +25,8 @@ pub(crate) fn snapshot(world: &World, since_event_count: Option<usize>) -> Proje
         canvas: canvas(world),
         inspectors: inspectors_from_world(world),
         why: why_map_from_world(world),
+        scenery: None,
+        calendar: None,
     }
 }
 
@@ -43,6 +46,7 @@ fn commands(world: &World) -> Vec<ProjectionCommand> {
         id: RUN_CYCLE_COMMAND.into(),
         title: "Run one company cycle".into(),
         detail: "Pay the burn, let Maya and Jon act, then see whether product, customers, runway, and working trust move together.".into(), effects: Vec::new(),
+        scenery: None,
 }]
 }
 
@@ -155,10 +159,12 @@ fn canvas(world: &World) -> CanvasProjection {
                     x,
                     y,
                     changes: Vec::new(),
+                    shape: None,
                 })
             })
             .collect(),
         links: Vec::new(),
+        marks: Vec::new(),
     }
 }
 

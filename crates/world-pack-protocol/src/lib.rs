@@ -6,10 +6,10 @@ use world_core::{EntityId, EventId, RelationId};
 use world_persistence::{WorldArchive, WorldPackRef};
 use world_projection::{
     BriefingItem, BriefingItemKind, BriefingProjection, CanvasChange, CanvasItem, CanvasItemKind,
-    CanvasLink, CanvasLinkTone, CanvasProjection, CollectionItem, CollectionProjection,
-    CommandEffect, EffectChange, InspectorProjection, InspectorRow, InspectorSection,
-    ProjectionCapabilities, ProjectionCommand, ProjectionIntent, ProjectionSnapshot, SelectionId,
-    TimelineItem, TimelineProjection, Tone, WhyNode, WhyProjection,
+    CanvasLink, CanvasLinkTone, CanvasMark, CanvasProjection, CollectionItem, CollectionProjection,
+    CommandEffect, EffectChange, InspectorProjection, InspectorRow, InspectorSection, MarkShape,
+    ProjectionCapabilities, ProjectionCommand, ProjectionIntent, ProjectionSnapshot, Scenery,
+    SelectionId, TimelineItem, TimelineProjection, Tone, WhyNode, WhyProjection,
 };
 
 pub const PACK_MANIFEST_FORMAT: &str = "world-machine-pack";
@@ -201,6 +201,10 @@ pub enum PackRequest {
     Shutdown,
 }
 
+// One response is built per message and serialized at once, so how much
+// larger a snapshot is than an acknowledgement costs nothing worth an extra
+// indirection at every one of the call sites that build one.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum PackResponse {
@@ -343,6 +347,55 @@ pub struct ProjectionSnapshotWire {
     pub canvas: CanvasProjectionWire,
     pub inspectors: Vec<InspectorProjectionWire>,
     pub why: Vec<WhyProjectionWire>,
+    /// Optional both ways, like every presentation hint.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scenery: Option<SceneryWire>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub calendar: Option<CalendarWire>,
+}
+
+/// What a World counts its time in: `unit` names one, `length` is how much
+/// world time it is.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct CalendarWire {
+    pub unit: String,
+    pub length: u64,
+}
+
+/// How a World looks from a distance, as `0xRRGGBB` colours.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct SceneryWire {
+    pub sky_top: u32,
+    pub sky_bottom: u32,
+    pub far: u32,
+    pub near: u32,
+    pub sun: u32,
+}
+
+impl From<Scenery> for SceneryWire {
+    fn from(scenery: Scenery) -> Self {
+        Self {
+            sky_top: scenery.sky_top,
+            sky_bottom: scenery.sky_bottom,
+            far: scenery.far,
+            near: scenery.near,
+            sun: scenery.sun,
+        }
+    }
+}
+
+impl From<SceneryWire> for Scenery {
+    fn from(scenery: SceneryWire) -> Self {
+        // Anything above 24 bits is not a colour; keep the colour part.
+        let colour = |value: u32| value & 0x00ff_ffff;
+        Self {
+            sky_top: colour(scenery.sky_top),
+            sky_bottom: colour(scenery.sky_bottom),
+            far: colour(scenery.far),
+            near: colour(scenery.near),
+            sun: colour(scenery.sun),
+        }
+    }
 }
 
 impl ProjectionSnapshotWire {
@@ -397,6 +450,11 @@ impl From<&ProjectionSnapshot> for ProjectionSnapshotWire {
             canvas: (&snapshot.canvas).into(),
             inspectors: snapshot.inspectors.values().map(Into::into).collect(),
             why: snapshot.why.values().map(Into::into).collect(),
+            scenery: snapshot.scenery.map(Into::into),
+            calendar: snapshot.calendar.as_ref().map(|calendar| CalendarWire {
+                unit: calendar.unit.clone(),
+                length: calendar.length,
+            }),
         }
     }
 }
@@ -439,6 +497,16 @@ impl TryFrom<ProjectionSnapshotWire> for ProjectionSnapshot {
             canvas: snapshot.canvas.into(),
             inspectors,
             why,
+            scenery: snapshot.scenery.map(Into::into),
+            // A calendar that cannot count (no name, or no length) is no
+            // calendar: time falls back to plain numbers.
+            calendar: snapshot
+                .calendar
+                .filter(|calendar| calendar.length > 0 && !calendar.unit.trim().is_empty())
+                .map(|calendar| world_projection::Calendar {
+                    unit: calendar.unit,
+                    length: calendar.length,
+                }),
         })
     }
 }
@@ -446,12 +514,15 @@ impl TryFrom<ProjectionSnapshotWire> for ProjectionSnapshot {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ProjectionCapabilitiesWire {
     pub fork: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub background: bool,
 }
 
 impl From<ProjectionCapabilities> for ProjectionCapabilitiesWire {
     fn from(capabilities: ProjectionCapabilities) -> Self {
         Self {
             fork: capabilities.fork,
+            background: capabilities.background,
         }
     }
 }
@@ -460,6 +531,7 @@ impl From<ProjectionCapabilitiesWire> for ProjectionCapabilities {
     fn from(capabilities: ProjectionCapabilitiesWire) -> Self {
         Self {
             fork: capabilities.fork,
+            background: capabilities.background,
         }
     }
 }
@@ -473,6 +545,8 @@ pub struct ProjectionCommandWire {
     /// host that predates them ignores the field.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub effects: Vec<CommandEffectWire>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scenery: Option<SceneryWire>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -562,6 +636,7 @@ impl From<&ProjectionCommand> for ProjectionCommandWire {
             title: command.title.clone(),
             detail: command.detail.clone(),
             effects: command.effects.iter().map(Into::into).collect(),
+            scenery: command.scenery.map(Into::into),
         }
     }
 }
@@ -573,6 +648,7 @@ impl From<ProjectionCommandWire> for ProjectionCommand {
             title: command.title,
             detail: command.detail,
             effects: command.effects.into_iter().map(Into::into).collect(),
+            scenery: command.scenery.map(Into::into),
         }
     }
 }
@@ -794,6 +870,62 @@ pub struct CanvasProjectionWire {
     /// and a host that predates them ignores the field.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub links: Vec<CanvasLinkWire>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub marks: Vec<CanvasMarkWire>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CanvasMarkWire {
+    pub label: String,
+    #[serde(default)]
+    pub shape: MarkShapeWire,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selection: Option<SelectionIdWire>,
+}
+
+/// Unknown shapes from a newer Pack read as the default rather than
+/// failing the whole snapshot.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MarkShapeWire {
+    #[default]
+    House,
+    Dome,
+    Tower,
+    Tree,
+    Lamp,
+    Shop,
+    Bridge,
+    #[serde(other)]
+    Unknown,
+}
+
+impl From<MarkShape> for MarkShapeWire {
+    fn from(shape: MarkShape) -> Self {
+        match shape {
+            MarkShape::House => Self::House,
+            MarkShape::Dome => Self::Dome,
+            MarkShape::Tower => Self::Tower,
+            MarkShape::Tree => Self::Tree,
+            MarkShape::Lamp => Self::Lamp,
+            MarkShape::Shop => Self::Shop,
+            MarkShape::Bridge => Self::Bridge,
+        }
+    }
+}
+
+impl From<MarkShapeWire> for MarkShape {
+    fn from(shape: MarkShapeWire) -> Self {
+        match shape {
+            MarkShapeWire::House | MarkShapeWire::Unknown => Self::House,
+            MarkShapeWire::Dome => Self::Dome,
+            MarkShapeWire::Tower => Self::Tower,
+            MarkShapeWire::Tree => Self::Tree,
+            MarkShapeWire::Lamp => Self::Lamp,
+            MarkShapeWire::Shop => Self::Shop,
+            MarkShapeWire::Bridge => Self::Bridge,
+        }
+    }
 }
 
 impl From<&CanvasProjection> for CanvasProjectionWire {
@@ -801,6 +933,15 @@ impl From<&CanvasProjection> for CanvasProjectionWire {
         Self {
             items: canvas.items.iter().map(Into::into).collect(),
             links: canvas.links.iter().map(Into::into).collect(),
+            marks: canvas
+                .marks
+                .iter()
+                .map(|mark| CanvasMarkWire {
+                    label: mark.label.clone(),
+                    shape: mark.shape.into(),
+                    selection: mark.selection.map(Into::into),
+                })
+                .collect(),
         }
     }
 }
@@ -810,6 +951,15 @@ impl From<CanvasProjectionWire> for CanvasProjection {
         Self {
             items: canvas.items.into_iter().map(Into::into).collect(),
             links: canvas.links.into_iter().map(Into::into).collect(),
+            marks: canvas
+                .marks
+                .into_iter()
+                .map(|mark| CanvasMark {
+                    label: mark.label,
+                    shape: mark.shape.into(),
+                    selection: mark.selection.map(Into::into),
+                })
+                .collect(),
         }
     }
 }
@@ -921,6 +1071,8 @@ pub struct CanvasItemWire {
     pub y: f32,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub changes: Vec<CanvasChangeWire>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shape: Option<MarkShapeWire>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -951,6 +1103,7 @@ impl From<&CanvasItem> for CanvasItemWire {
                     tone: change.tone.into(),
                 })
                 .collect(),
+            shape: item.shape.map(Into::into),
         }
     }
 }
@@ -974,6 +1127,7 @@ impl From<CanvasItemWire> for CanvasItem {
                     tone: change.tone.into(),
                 })
                 .collect(),
+            shape: item.shape.map(Into::into),
         }
     }
 }
@@ -1255,7 +1409,10 @@ mod tests {
         ProjectionSnapshot {
             title: "External World".into(),
             world_time: 42,
-            capabilities: ProjectionCapabilities { fork: true },
+            capabilities: ProjectionCapabilities {
+                fork: true,
+                background: false,
+            },
             briefing: Some(BriefingProjection {
                 eyebrow: "Status".into(),
                 title: "World briefing".into(),
@@ -1285,6 +1442,7 @@ mod tests {
                         tone: Tone::Neutral,
                     },
                 ],
+                scenery: None,
             }],
             collection: CollectionProjection {
                 title: "Entities".into(),
@@ -1313,6 +1471,7 @@ mod tests {
                     x: 0.25,
                     y: 0.75,
                     changes: Vec::new(),
+                    shape: None,
                 }],
                 links: vec![CanvasLink {
                     from: entity,
@@ -1322,6 +1481,7 @@ mod tests {
                     strength: 0.8,
                     selection: Some(entity),
                 }],
+                marks: Vec::new(),
             },
             inspectors: BTreeMap::from([(
                 entity,
@@ -1352,6 +1512,8 @@ mod tests {
                     }],
                 },
             )]),
+            scenery: None,
+            calendar: None,
         }
     }
 
@@ -1478,5 +1640,31 @@ mod tests {
             encoded.get("effects").is_none(),
             "an old host never sees the new field when there is nothing to say"
         );
+    }
+
+    #[test]
+    fn a_place_keeps_its_shape_and_an_unknown_shape_reads_as_a_house() {
+        let item: CanvasItemWire = serde_json::from_str(
+            r#"{"id":{"type":"entity","id":1},"kind":"place","label":"Icebridge","detail":"","x":0.1,"y":0.2,"shape":"bridge"}"#,
+        )
+        .expect("a shaped place decodes");
+        assert_eq!(item.shape, Some(MarkShapeWire::Bridge));
+        assert_eq!(CanvasItem::from(item).shape, Some(MarkShape::Bridge));
+        let newer: MarkShapeWire =
+            serde_json::from_str(r#""lighthouse""#).expect("a newer shape still decodes");
+        assert_eq!(MarkShape::from(newer), MarkShape::House);
+    }
+
+    #[test]
+    fn moving_on_its_own_is_declared_and_absent_means_it_does_not() {
+        let old: ProjectionCapabilitiesWire =
+            serde_json::from_str(r#"{"fork":true}"#).expect("an older Pack decodes");
+        assert!(!ProjectionCapabilities::from(old).background);
+        let live = ProjectionCapabilities {
+            fork: false,
+            background: true,
+        };
+        let wire = ProjectionCapabilitiesWire::from(live);
+        assert_eq!(ProjectionCapabilities::from(wire), live);
     }
 }

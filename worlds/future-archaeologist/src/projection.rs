@@ -24,7 +24,10 @@ pub(crate) fn snapshot(world: &World) -> ProjectionSnapshot {
     ProjectionSnapshot {
         title: "Future Archaeologist · Terminal 17".into(),
         world_time: world.world_time(),
-        capabilities: ProjectionCapabilities { fork: false },
+        capabilities: ProjectionCapabilities {
+            fork: false,
+            background: false,
+        },
         briefing: Some(briefing(world, &visible_artifacts)),
         commands: commands(world),
         collection: collection(world, &visible_artifacts),
@@ -32,6 +35,8 @@ pub(crate) fn snapshot(world: &World) -> ProjectionSnapshot {
         canvas: canvas(world, &visible_artifacts),
         inspectors: inspectors(world, &visible_artifacts, &visible_events),
         why: why_map(world, &visible_events, &visible_artifacts),
+        scenery: None,
+        calendar: None,
     }
 }
 
@@ -44,6 +49,7 @@ fn commands(world: &World) -> Vec<ProjectionCommand> {
             title: "Recover deleted message".into(),
             detail: "Scan unallocated message storage for a recoverable fragment.".into(),
             effects: Vec::new(),
+            scenery: None,
         }]
     }
 }
@@ -168,6 +174,7 @@ fn canvas(world: &World, artifacts: &[EntityId]) -> CanvasProjection {
                 x,
                 y,
                 changes: Vec::new(),
+                shape: None,
             });
         }
     }
@@ -195,12 +202,14 @@ fn canvas(world: &World, artifacts: &[EntityId]) -> CanvasProjection {
             x,
             y,
             changes: Vec::new(),
+            shape: None,
         });
     }
 
     CanvasProjection {
         items,
         links: Vec::new(),
+        marks: Vec::new(),
     }
 }
 

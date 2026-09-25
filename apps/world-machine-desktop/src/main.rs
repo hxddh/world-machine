@@ -340,6 +340,9 @@ struct WorldDocumentView {
     analyst_available: bool,
     /// "Branched from …", read once when the World opens.
     lineage_label: Option<String>,
+    /// When, in Unix seconds, this World next moves on its own; read once
+    /// when it opens, since it only moves between visits.
+    next_move_at: Option<u64>,
 }
 
 #[cfg(target_os = "macos")]
@@ -352,6 +355,9 @@ impl WorldDocumentView {
     ) -> Self {
         let document_label = session.display_name();
         let document_name = session_display_name(&session);
+        let next_move_at = observer::next_move_in(&session, &library)
+            .zip(unix_now())
+            .map(|(remaining, now)| now + remaining);
         let document = Rc::new(RefCell::new(SharedDocumentState {
             session,
             registry,
@@ -362,6 +368,9 @@ impl WorldDocumentView {
         };
         let projection =
             cx.new(|_| world_gpui::ProjectionView::controlled(controller).without_header());
+        // The title bar reads the World's name and what it can do from the
+        // page, so it redraws whenever the page does.
+        cx.observe(&projection, |_, _, cx| cx.notify()).detach();
         let analyst_available = world_fork::analyst_available();
         let lineage_label = world_fork::lineage_label(&document);
         Self {
@@ -372,6 +381,7 @@ impl WorldDocumentView {
             status: None,
             analyst_available,
             lineage_label,
+            next_move_at,
         }
     }
 
@@ -563,7 +573,19 @@ impl Render for WorldDocumentView {
             gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark
         ));
         remember_window_geometry(window, RememberedWindow::World);
+        // A World's name follows it as it changes ("A new World" becomes
+        // "Ares Pocket Colony" when it is seeded), so read it every time.
+        self.document_name = session_display_name(&self.document.borrow().session);
         window.set_window_title(&document_window_title(&self.document_name));
+        // Branching and comparing mean something only once a World has a
+        // history and a choice to make; before that they are noise.
+        let (can_branch, can_compare) = {
+            let snapshot = self.projection.read(cx).snapshot();
+            (
+                snapshot.capabilities.fork,
+                snapshot.commands.len() >= 2 && !world_gpui::is_beginning(snapshot),
+            )
+        };
         let mut actions = div().flex_shrink_0().flex().items_center().gap_2();
         // Where this World came from is also the way to its family tree.
         if let Some(label) = &self.lineage_label {
@@ -575,12 +597,14 @@ impl Render for WorldDocumentView {
                     .on_click(cx.listener(|this, _, _, cx| this.open_lineage(cx))),
             );
         }
-        let actions = actions
-            .child(
+        if can_branch {
+            actions = actions.child(
                 ui::button("branch-world-document", "Branch", ui::ButtonKind::Secondary)
                     .on_click(cx.listener(|this, _, _, cx| this.branch(cx))),
-            )
-            .child(
+            );
+        }
+        if can_compare {
+            actions = actions.child(
                 ui::button(
                     "what-if-world-document",
                     "What if…",
@@ -590,10 +614,30 @@ impl Render for WorldDocumentView {
                     this.open_compare(cx);
                 })),
             );
+        }
 
-        // The World is called by its name; the durable file identity stays
-        // beside it, so renaming never hides which file this window edits.
-        let mut identity = div()
+        // Beside its name, the one thing the app is about: this World goes on
+        // without you, and when it next will.
+        // Only a World that moves on its own may promise to keep going.
+        let (moves_alone, unit) = {
+            let snapshot = self.projection.read(cx).snapshot();
+            (
+                snapshot.capabilities.background,
+                snapshot
+                    .calendar
+                    .as_ref()
+                    .map(|calendar| calendar.unit.to_lowercase())
+                    .unwrap_or_else(|| "day".into()),
+            )
+        };
+        let keeps_going = self
+            .next_move_at
+            .filter(|_| moves_alone)
+            .zip(unix_now())
+            .map(|(at, now)| keeps_going_line(at.saturating_sub(now), &unit));
+        // The World is called by its name, and only by its name; which file
+        // it lives in is for Export and Show in Finder to say.
+        let identity = div()
             .flex_1()
             .min_w(px(0.0))
             .flex()
@@ -602,14 +646,29 @@ impl Render for WorldDocumentView {
             .overflow_hidden()
             .child(
                 div()
+                    .flex_shrink_0()
                     .text_base()
                     .font_weight(gpui::FontWeight::SEMIBOLD)
                     .truncate()
                     .child(self.document_name.clone()),
-            );
-        if self.document_name != self.document_label {
-            identity = identity.child(ui::caption(self.document_label.clone()).truncate());
-        }
+            )
+            .when_some(keeps_going, |identity, line| {
+                identity.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_1()
+                        .min_w(px(0.0))
+                        .child(
+                            div()
+                                .flex_shrink_0()
+                                .size(px(6.0))
+                                .rounded_full()
+                                .bg(ui::color(tokens::SUCCESS)),
+                        )
+                        .child(ui::caption(line).truncate()),
+                )
+            });
 
         let mut chrome = div()
             .h(px(52.0))
@@ -2257,7 +2316,14 @@ impl WorldMachineHome {
                     .h(px(76.0))
                     .rounded_md()
                     .overflow_hidden()
-                    .child(ui::cover(&title, document.id.as_str()).size_full()),
+                    .child(
+                        ui::cover_for(
+                            document.display_scenery.as_ref(),
+                            &title,
+                            document.id.as_str(),
+                        )
+                        .size_full(),
+                    ),
             )
             .child(details)
             .child(
@@ -2541,7 +2607,7 @@ impl WorldMachineHome {
                             .flex_shrink_0()
                             .rounded_lg()
                             .overflow_hidden()
-                            .child(ui::cover(preview.title(), &identity)),
+                            .child(ui::cover(preview.title(), &identity).size_full()),
                     )
                     .child(
                         div()
@@ -2814,10 +2880,12 @@ impl Render for WorldMachineHome {
             .map(|(_title, document)| document)
             .collect::<Vec<_>>();
         let visible_document_count = visible_documents.len();
+        let developer = developer_mode();
         let descriptors = self
             .registry
             .descriptors()
             .into_iter()
+            .filter(|descriptor| offered_to_start(&descriptor.pack.id, developer))
             .cloned()
             .collect::<Vec<_>>();
         let first_run = !has_documents;
@@ -2924,6 +2992,7 @@ impl Render for WorldMachineHome {
             .included_packs
             .iter()
             .filter(|included| !self.included_pack_is_installed(&included.pack))
+            .filter(|included| offered_to_start(&included.pack.id, developer))
             .filter(|included| {
                 featured_included.as_ref().is_none_or(|featured| {
                     featured.pack != included.pack || (!show_featured && !featured_review_pending)
@@ -3497,6 +3566,51 @@ fn build_registry(catalog: Option<&PackCatalog>) -> Result<world_host::WorldRegi
     Ok(registry)
 }
 
+/// Packs that exercise the engine rather than make a World a person would
+/// choose to play. Home does not offer them to start; Worlds already made
+/// with them still open, and `WORLD_MACHINE_DEVELOPER=1` offers them again.
+/// Now, in Unix seconds.
+#[cfg(target_os = "macos")]
+fn unix_now() -> Option<u64> {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .map(|elapsed| elapsed.as_secs())
+}
+
+/// "Keeps going without you · next sol in 5 h": what the app is about, in
+/// one line, with the one number that makes it true.
+#[cfg(target_os = "macos")]
+fn keeps_going_line(remaining_seconds: u64, unit: &str) -> String {
+    if remaining_seconds == 0 {
+        return format!("Keeps going without you · a new {unit} waits for your next visit");
+    }
+    let wait = if remaining_seconds >= 3600 {
+        format!("{} h", remaining_seconds.div_ceil(3600))
+    } else {
+        format!("{} min", remaining_seconds.div_ceil(60).max(1))
+    };
+    format!("Keeps going without you · next {unit} in {wait}")
+}
+
+#[cfg(target_os = "macos")]
+const DEVELOPER_PACKS: &[&str] = &[
+    "world-machine.future-archaeologist",
+    "world-machine.micro-company",
+];
+#[cfg(target_os = "macos")]
+const DEVELOPER_ENV: &str = "WORLD_MACHINE_DEVELOPER";
+
+#[cfg(target_os = "macos")]
+fn developer_mode() -> bool {
+    env::var_os(DEVELOPER_ENV).is_some_and(|value| value == "1")
+}
+
+#[cfg(target_os = "macos")]
+fn offered_to_start(pack_id: &str, developer: bool) -> bool {
+    developer || !DEVELOPER_PACKS.contains(&pack_id)
+}
+
 #[cfg(target_os = "macos")]
 fn new_document_id(pack_id: &str, library: &WorldLibrary) -> Result<WorldDocumentId, LibraryError> {
     unique_document_id(sanitize_document_base(pack_id), Some(library))
@@ -3679,6 +3793,7 @@ mod file_type_tests {
             pack: WorldPackRef::new(pack_id, "1.0.0"),
             display_title: None,
             display_summary: None,
+            display_scenery: None,
             world_time: 0,
             event_count: 0,
         };
@@ -3730,6 +3845,35 @@ mod file_type_tests {
     }
 
     #[test]
+    fn a_world_says_when_it_next_moves_on_its_own() {
+        assert_eq!(
+            keeps_going_line(5 * 3600 + 10, "sol"),
+            "Keeps going without you · next sol in 6 h"
+        );
+        assert_eq!(
+            keeps_going_line(20 * 60, "night"),
+            "Keeps going without you · next night in 20 min"
+        );
+        assert_eq!(
+            keeps_going_line(0, "day"),
+            "Keeps going without you · a new day waits for your next visit"
+        );
+    }
+
+    #[test]
+    fn home_offers_only_worlds_a_person_would_play_unless_developing() {
+        assert!(offered_to_start("world-machine.pocket-universe", false));
+        assert!(offered_to_start("world-machine.tiny-society", false));
+        assert!(!offered_to_start("world-machine.micro-company", false));
+        assert!(!offered_to_start(
+            "world-machine.future-archaeologist",
+            false
+        ));
+        assert!(offered_to_start("world-machine.micro-company", true));
+        assert!(offered_to_start("someone.else.pack", false));
+    }
+
+    #[test]
     fn world_summary_title_prefers_semantic_title_and_falls_back_cleanly() {
         let pack = WorldPackRef::new("pocket-universe", "0.10.0");
         let mut summary = WorldDocumentSummary {
@@ -3737,6 +3881,7 @@ mod file_type_tests {
             pack,
             display_title: Some("  Ares Pocket Colony  ".into()),
             display_summary: Some("  Current thread · Ridge Network  ".into()),
+            display_scenery: None,
             world_time: 3,
             event_count: 7,
         };
@@ -3806,6 +3951,7 @@ mod file_type_tests {
                     pack: WorldPackRef::new("pocket-universe", "1.0.0"),
                     display_title: Some(title.to_owned()),
                     display_summary: None,
+                    display_scenery: None,
                     world_time: 0,
                     event_count: 0,
                 },
