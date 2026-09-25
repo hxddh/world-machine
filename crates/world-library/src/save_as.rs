@@ -155,6 +155,7 @@ mod tests {
                     label: Some("saved branch".into()),
                 },
             }),
+            display_scenery: None,
         }
     }
 

@@ -443,6 +443,7 @@ mod tests {
             pack,
             display_title: display_title.map(str::to_owned),
             display_summary: Some("Current durable branch state".into()),
+            display_scenery: None,
             world_time: 10,
             event_count: 2,
         }

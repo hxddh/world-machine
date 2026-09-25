@@ -2123,7 +2123,7 @@ mod tests {
             .map(|command| command.id.as_str())
             .collect::<Vec<_>>();
 
-        assert_eq!(snapshot.title, "Pocket Universe · Empty World");
+        assert_eq!(snapshot.title, "A new World");
         assert!(commands.contains(&SEED_MARS_COLONY_COMMAND));
         assert!(commands.contains(&SEED_1980S_TOWN_COMMAND));
         assert!(commands.contains(&SEED_PENGUIN_CIVILIZATION_COMMAND));
@@ -3404,7 +3404,7 @@ mod tests {
             .handle(ProjectionIntent::ForkBeforeEvent(seed_event))
             .unwrap();
 
-        assert_eq!(forked.title, "Pocket Universe · Empty World");
+        assert_eq!(forked.title, "A new World");
         assert!(forked.collection.items.is_empty());
         assert_eq!(forked.commands.len(), 3);
     }

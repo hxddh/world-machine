@@ -154,6 +154,23 @@ pub struct ProjectionCommand {
     /// beside the choice and point at before it is made. Empty when the
     /// Pack says nothing beyond the detail.
     pub effects: Vec<CommandEffect>,
+    /// How the World this choice starts would look, for a choice that
+    /// starts one; a screen can show it as a picture rather than a line.
+    pub scenery: Option<Scenery>,
+}
+
+/// How a World looks from a distance: a sky, a far ridge, a near ridge and
+/// a sun or moon, as `0xRRGGBB` colours. A Pack gives each World its own so
+/// a Mars colony is red dust and a 1987 town is a street at night; a screen
+/// draws covers and the scene's backdrop from it. Art, not interface: the
+/// same in light and dark appearance.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Scenery {
+    pub sky_top: u32,
+    pub sky_bottom: u32,
+    pub far: u32,
+    pub near: u32,
+    pub sun: u32,
 }
 
 /// Whether something is good news, bad news, or neither.
@@ -206,6 +223,8 @@ pub struct ProjectionSnapshot {
     pub canvas: CanvasProjection,
     pub inspectors: BTreeMap<SelectionId, InspectorProjection>,
     pub why: BTreeMap<EventId, WhyProjection>,
+    /// How this World looks, if its Pack says.
+    pub scenery: Option<Scenery>,
 }
 
 impl ProjectionSnapshot {
@@ -1833,6 +1852,7 @@ mod tests {
                 title: "Continue".into(),
                 detail: "Let the world keep running".into(),
                 effects: Vec::new(),
+                scenery: None,
             }],
             ..ProjectionSnapshot::default()
         };

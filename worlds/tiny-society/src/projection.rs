@@ -52,6 +52,14 @@ pub(crate) fn snapshot_since(
         },
         inspectors: inspectors_from_world(world),
         why: why_map_from_world(world),
+        // A small island harbour on a clear morning: sea, low hills, sun.
+        scenery: Some(world_projection::Scenery {
+            sky_top: 0xa9cfe6,
+            sky_bottom: 0xe9f1ef,
+            far: 0x7f9f8a,
+            near: 0x2f6a86,
+            sun: 0xffe2a0,
+        }),
     }
 }
 
@@ -183,6 +191,7 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 "Keep Jonas at the bakery and let this branch continue into a different future."
                     .into(),
             effects: Vec::new(),
+            scenery: None,
         });
     }
 
@@ -198,6 +207,7 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 "Invest {} of Mara's cash to reopen Harbor Bakery. Mara returns to work; former workers are not automatically rehired.",
                 crate::BAKERY_REOPEN_INVESTMENT
             ), effects: Vec::new(),
+            scenery: None,
 });
     }
 
@@ -211,6 +221,7 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 "Invest {} of Mara's cash and reopen Harbor Bakery without a fixed daily Bakery wage. Lower overhead can survive weak demand, but Mara gives up predictable pay.",
                 crate::recovery::LEAN_REOPEN_INVESTMENT
             ), effects: Vec::new(),
+            scenery: None,
 });
     }
 
@@ -222,6 +233,7 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 "Leo pays Evan {} to repair Sea Finch. Jonas returns to Harbor fishing once the boat is sound. Leo's backing does not stand indefinitely.",
                 crate::social::SEA_FINCH_REPAIR_COST
             ), effects: Vec::new(),
+            scenery: None,
 });
     }
 
@@ -234,6 +246,7 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 crate::drift::SEA_FINCH_SCRAP_VALUE,
                 crate::social::SEA_FINCH_REPAIR_COST
             ), effects: Vec::new(),
+            scenery: None,
 });
     }
 
@@ -245,6 +258,7 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 "Jonas works the counter for {} a day. It is a second wage against the same island trade, and the bakery has to carry it.",
                 crate::livelihood::COUNTER_WAGE
             ), effects: Vec::new(),
+            scenery: None,
 });
     }
 

@@ -442,6 +442,7 @@ mod tests {
                     title: "Advance".into(),
                     detail: "Advance the mock world".into(),
                     effects: Vec::new(),
+                    scenery: None,
                 }],
                 ..ProjectionSnapshot::default()
             }

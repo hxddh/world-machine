@@ -161,12 +161,14 @@ mod tests {
                         title: "Left choice".into(),
                         detail: "Advance once".into(),
                         effects: Vec::new(),
+                        scenery: None,
                     },
                     ProjectionCommand {
                         id: "mock.right".into(),
                         title: "Right choice".into(),
                         detail: "Advance twice".into(),
                         effects: Vec::new(),
+                        scenery: None,
                     },
                 ],
                 ..ProjectionSnapshot::default()

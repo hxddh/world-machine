@@ -8,8 +8,8 @@ use world_projection::{
     BriefingItem, BriefingItemKind, BriefingProjection, CanvasChange, CanvasItem, CanvasItemKind,
     CanvasLink, CanvasLinkTone, CanvasProjection, CollectionItem, CollectionProjection,
     CommandEffect, EffectChange, InspectorProjection, InspectorRow, InspectorSection,
-    ProjectionCapabilities, ProjectionCommand, ProjectionIntent, ProjectionSnapshot, SelectionId,
-    TimelineItem, TimelineProjection, Tone, WhyNode, WhyProjection,
+    ProjectionCapabilities, ProjectionCommand, ProjectionIntent, ProjectionSnapshot, Scenery,
+    SelectionId, TimelineItem, TimelineProjection, Tone, WhyNode, WhyProjection,
 };
 
 pub const PACK_MANIFEST_FORMAT: &str = "world-machine-pack";
@@ -343,6 +343,45 @@ pub struct ProjectionSnapshotWire {
     pub canvas: CanvasProjectionWire,
     pub inspectors: Vec<InspectorProjectionWire>,
     pub why: Vec<WhyProjectionWire>,
+    /// Optional both ways, like every presentation hint.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scenery: Option<SceneryWire>,
+}
+
+/// How a World looks from a distance, as `0xRRGGBB` colours.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct SceneryWire {
+    pub sky_top: u32,
+    pub sky_bottom: u32,
+    pub far: u32,
+    pub near: u32,
+    pub sun: u32,
+}
+
+impl From<Scenery> for SceneryWire {
+    fn from(scenery: Scenery) -> Self {
+        Self {
+            sky_top: scenery.sky_top,
+            sky_bottom: scenery.sky_bottom,
+            far: scenery.far,
+            near: scenery.near,
+            sun: scenery.sun,
+        }
+    }
+}
+
+impl From<SceneryWire> for Scenery {
+    fn from(scenery: SceneryWire) -> Self {
+        // Anything above 24 bits is not a colour; keep the colour part.
+        let colour = |value: u32| value & 0x00ff_ffff;
+        Self {
+            sky_top: colour(scenery.sky_top),
+            sky_bottom: colour(scenery.sky_bottom),
+            far: colour(scenery.far),
+            near: colour(scenery.near),
+            sun: colour(scenery.sun),
+        }
+    }
 }
 
 impl ProjectionSnapshotWire {
@@ -397,6 +436,7 @@ impl From<&ProjectionSnapshot> for ProjectionSnapshotWire {
             canvas: (&snapshot.canvas).into(),
             inspectors: snapshot.inspectors.values().map(Into::into).collect(),
             why: snapshot.why.values().map(Into::into).collect(),
+            scenery: snapshot.scenery.map(Into::into),
         }
     }
 }
@@ -439,6 +479,7 @@ impl TryFrom<ProjectionSnapshotWire> for ProjectionSnapshot {
             canvas: snapshot.canvas.into(),
             inspectors,
             why,
+            scenery: snapshot.scenery.map(Into::into),
         })
     }
 }
@@ -473,6 +514,8 @@ pub struct ProjectionCommandWire {
     /// host that predates them ignores the field.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub effects: Vec<CommandEffectWire>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scenery: Option<SceneryWire>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -562,6 +605,7 @@ impl From<&ProjectionCommand> for ProjectionCommandWire {
             title: command.title.clone(),
             detail: command.detail.clone(),
             effects: command.effects.iter().map(Into::into).collect(),
+            scenery: command.scenery.map(Into::into),
         }
     }
 }
@@ -573,6 +617,7 @@ impl From<ProjectionCommandWire> for ProjectionCommand {
             title: command.title,
             detail: command.detail,
             effects: command.effects.into_iter().map(Into::into).collect(),
+            scenery: command.scenery.map(Into::into),
         }
     }
 }
@@ -1285,6 +1330,7 @@ mod tests {
                         tone: Tone::Neutral,
                     },
                 ],
+                scenery: None,
             }],
             collection: CollectionProjection {
                 title: "Entities".into(),
@@ -1352,6 +1398,7 @@ mod tests {
                     }],
                 },
             )]),
+            scenery: None,
         }
     }
 

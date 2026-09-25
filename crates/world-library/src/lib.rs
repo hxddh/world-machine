@@ -62,6 +62,8 @@ pub struct WorldDocumentSummary {
     pub pack: WorldPackRef,
     pub display_title: Option<String>,
     pub display_summary: Option<String>,
+    /// The World's own colours, if its Pack gave any.
+    pub display_scenery: Option<world_projection::Scenery>,
     pub world_time: u64,
     pub event_count: usize,
 }
@@ -478,6 +480,7 @@ impl DurableWorldSession {
         let archive = required_archive(session.as_ref())?;
         let mut document = WorldDocument::new(archive);
         document.metadata.display_title = snapshot_display_title(&snapshot);
+        document.metadata.display_scenery = snapshot_display_scenery(&snapshot);
         document.metadata.display_summary = snapshot_display_summary(&snapshot);
         let revision = library.save_document_with_revision(&document_id, &document)?;
         Ok(Self {
@@ -592,13 +595,14 @@ impl DurableWorldSession {
         self.target.verify_revision(self.revision, library)?;
 
         let current_archive = required_archive(self.session.as_ref())?;
+        let before = self.session.snapshot();
         let mut candidate = registry.open_archive(&current_archive)?;
         let snapshot = candidate.handle(intent)?;
         let next_archive = required_archive(candidate.as_ref())?;
         let mut next_metadata = self.metadata.clone();
-        if let Some(title) = snapshot_display_title(&snapshot) {
-            next_metadata.display_title = Some(title);
-        }
+        next_metadata.display_title =
+            next_display_title(self.metadata.display_title.as_deref(), &before, &snapshot);
+        next_metadata.display_scenery = snapshot_display_scenery(&snapshot);
         next_metadata.display_summary = snapshot_display_summary(&snapshot);
         let next_document = WorldDocument {
             archive: next_archive,
@@ -613,6 +617,36 @@ impl DurableWorldSession {
         self.session = candidate;
         Ok(snapshot)
     }
+}
+
+/// What a World is called after it changes. A World that goes by its own
+/// name follows it ("A new World" becomes "Ares Pocket Colony" once it is
+/// seeded); a World its owner renamed keeps the owner's name.
+pub(crate) fn next_display_title(
+    current: Option<&str>,
+    before: &ProjectionSnapshot,
+    after: &ProjectionSnapshot,
+) -> Option<String> {
+    let own_name_before = snapshot_display_title(before);
+    let renamed = current.is_some() && current != own_name_before.as_deref();
+    if renamed {
+        return current.map(str::to_owned);
+    }
+    snapshot_display_title(after).or_else(|| current.map(str::to_owned))
+}
+
+pub(crate) fn snapshot_display_scenery(
+    snapshot: &ProjectionSnapshot,
+) -> Option<world_document::DocumentScenery> {
+    snapshot
+        .scenery
+        .map(|scenery| world_document::DocumentScenery {
+            sky_top: scenery.sky_top,
+            sky_bottom: scenery.sky_bottom,
+            far: scenery.far,
+            near: scenery.near,
+            sun: scenery.sun,
+        })
 }
 
 fn snapshot_display_title(snapshot: &ProjectionSnapshot) -> Option<String> {
@@ -657,6 +691,15 @@ fn summary(id: WorldDocumentId, document: &WorldDocument) -> WorldDocumentSummar
         id,
         pack: document.archive.pack.clone(),
         display_title: document.metadata.display_title.clone(),
+        display_scenery: document.metadata.display_scenery.map(|scenery| {
+            world_projection::Scenery {
+                sky_top: scenery.sky_top,
+                sky_bottom: scenery.sky_bottom,
+                far: scenery.far,
+                near: scenery.near,
+                sun: scenery.sun,
+            }
+        }),
         display_summary: document.metadata.display_summary.clone(),
         world_time: document.archive.world_time,
         event_count: document.archive.events.len(),
@@ -883,6 +926,7 @@ mod tests {
                     title: "Advance".into(),
                     detail: "Advance the mock World".into(),
                     effects: Vec::new(),
+                    scenery: None,
                 }],
                 ..ProjectionSnapshot::default()
             }
@@ -1388,6 +1432,27 @@ mod tests {
 
         assert_eq!(summary.chars().count(), DISPLAY_SUMMARY_MAX_CHARS);
         assert!(summary.ends_with('…'));
+    }
+
+    #[test]
+    fn a_world_follows_its_own_name_until_its_owner_renames_it() {
+        let titled = |title: &str| ProjectionSnapshot {
+            title: title.into(),
+            ..Default::default()
+        };
+        let (new, seeded) = (titled("A new World"), titled("Ares Pocket Colony"));
+        assert_eq!(
+            next_display_title(Some("A new World"), &new, &seeded).as_deref(),
+            Some("Ares Pocket Colony")
+        );
+        assert_eq!(
+            next_display_title(Some("Our colony"), &new, &seeded).as_deref(),
+            Some("Our colony")
+        );
+        assert_eq!(
+            next_display_title(None, &new, &seeded).as_deref(),
+            Some("Ares Pocket Colony")
+        );
     }
 
     #[test]

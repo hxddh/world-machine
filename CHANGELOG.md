@@ -2,6 +2,14 @@
 
 Releases live on the [Releases page](https://github.com/hxddh/world-machine/releases). `0.2.0` is the first release intended to be usable without reading the repository; the `v0.1.0-pre.N` tags below were its pre-releases.
 
+## Unreleased
+
+- **A new World starts with a picture.** The first screen is three illustrated places to begin (a Mars colony on red dust, a 1987 street at dusk, an ice bridge under the aurora) instead of a form with three lines of text and two cards of instructions.
+- **Every World looks like where it is.** A Pack can give a World its own colours: sky, ridges and sun. Pocket Universe gives each of its three places theirs and Tiny Society its harbour; the scene stands on that ground, and Home draws each World's cover in the same colours.
+- **A World is called by its name.** A new World is "A new World" until it begins and then takes its place's name ("Ares Pocket Colony", "Maple Street · 1987") in its window and on Home; it used to be "Pocket Universe · Empty World" forever. A World you rename keeps your name; the next turn used to overwrite it. The window no longer shows the file's id beside the name.
+- **Branch and What if… appear when they mean something**: once a World has a history to branch, and once it has two choices to compare.
+- **The Pack install review shows the Pack's picture.** It was drawn with no size and came out blank in `v0.6.0`.
+
 ## v0.6.0 (2026-09-25)
 
 **Worlds created before this release will not open.** Tiny Society moves to `0.3.0` because it now records things it used to leave unrecorded, and Pocket Universe moves to `0.19.0` because what it writes into a World's history is now in plain words. A `.world` file records the Pack version it was created with. Export anything you want to keep before updating; Micro Company Worlds are unaffected.

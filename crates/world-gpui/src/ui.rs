@@ -193,7 +193,6 @@ pub fn cover(name: &str, identity: &str) -> gpui::Canvas<()> {
     let hue = (tokens::seed(name) % 360) as f32 / 360.0;
     let shape = tokens::seed(identity);
     let dark = world_theme::is_dark();
-    let bit = |shift: u32, range: f32| ((shape >> shift) & 0xff) as f32 / 255.0 * range;
     let (sky_top, sky_bottom, far, near, sun) = if dark {
         (
             gpui::hsla(hue, 0.30, 0.20, 1.0),
@@ -211,6 +210,43 @@ pub fn cover(name: &str, identity: &str) -> gpui::Canvas<()> {
             gpui::hsla((hue + 0.5) % 1.0, 0.75, 0.80, 0.95),
         )
     };
+    landscape([sky_top, sky_bottom, far, near, sun], shape)
+}
+
+/// A World's own landscape, in the colours its Pack chose for it: red dust
+/// for a Mars colony, a street at night for 1987. Art rather than interface,
+/// so it looks the same in either appearance.
+pub fn scenery_cover(scenery: &world_projection::Scenery, identity: &str) -> gpui::Canvas<()> {
+    let colour = |hex: u32| -> gpui::Hsla { gpui::rgb(hex).into() };
+    landscape(
+        [
+            colour(scenery.sky_top),
+            colour(scenery.sky_bottom),
+            colour(scenery.far),
+            colour(scenery.near),
+            colour(scenery.sun),
+        ],
+        tokens::seed(identity),
+    )
+}
+
+/// A cover in a World's own colours when its Pack gives them, and in
+/// colours picked from its name otherwise.
+pub fn cover_for(
+    scenery: Option<&world_projection::Scenery>,
+    name: &str,
+    identity: &str,
+) -> gpui::Canvas<()> {
+    match scenery {
+        Some(scenery) => scenery_cover(scenery, identity),
+        None => cover(name, identity),
+    }
+}
+
+/// Sky, sun and two ridges; `shape` places the sun and shapes the hills.
+fn landscape(colours: [gpui::Hsla; 5], shape: u64) -> gpui::Canvas<()> {
+    let [sky_top, sky_bottom, far, near, sun] = colours;
+    let bit = |shift: u32, range: f32| ((shape >> shift) & 0xff) as f32 / 255.0 * range;
     let sun_x = 0.2 + bit(0, 0.6);
     let far_rise = 0.42 + bit(8, 0.18);
     let far_fall = 0.50 + bit(16, 0.18);

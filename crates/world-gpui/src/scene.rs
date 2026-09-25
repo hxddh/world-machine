@@ -105,6 +105,52 @@ pub fn differences(this: &ProjectionSnapshot, other: &ProjectionSnapshot) -> BTr
 /// What happens when something in a scene is clicked.
 pub type SelectHandler = Rc<dyn Fn(SelectionId, &mut Window, &mut App)>;
 
+/// Where a World is, behind everything on its stage: its sky washed faintly
+/// over the ground, and its two ridges along the bottom edge, so a Mars
+/// colony stands on red dust and Icebridge on ice without anything on
+/// stage becoming harder to read.
+fn horizon(scenery: world_projection::Scenery) -> impl IntoElement {
+    let colour = |hex: u32| -> Hsla { rgb(hex).into() };
+    let wash = if world_theme::is_dark() { 0.30 } else { 0.22 };
+    let sky_top = colour(scenery.sky_top).opacity(wash);
+    let sky_bottom = colour(scenery.sky_bottom).opacity(wash);
+    let far = colour(scenery.far).opacity(0.55);
+    let near = colour(scenery.near).opacity(0.8);
+    canvas(
+        |_, _, _| (),
+        move |bounds: Bounds<gpui::Pixels>, _, window, _| {
+            let origin = bounds.origin;
+            let width = bounds.size.width;
+            let height = bounds.size.height;
+            let at = |x: f32, y: f32| point(origin.x + width * x, origin.y + height * y);
+            window.paint_quad(gpui::fill(
+                bounds,
+                linear_gradient(
+                    180.0,
+                    linear_color_stop(sky_top, 0.0),
+                    linear_color_stop(sky_bottom, 1.0),
+                ),
+            ));
+            for (rise, fall, lift, colour) in [(0.86, 0.82, 0.05, far), (0.93, 0.90, 0.04, near)] {
+                let mut ridge = PathBuilder::fill();
+                ridge.move_to(at(0.0, rise));
+                ridge.curve_to(at(0.45, (rise + fall) / 2.0), at(0.2, rise - lift));
+                ridge.curve_to(at(1.0, fall), at(0.75, fall + lift));
+                ridge.line_to(at(1.0, 1.0));
+                ridge.line_to(at(0.0, 1.0));
+                ridge.close();
+                if let Ok(path) = ridge.build() {
+                    window.paint_path(path, colour);
+                }
+            }
+        },
+    )
+    .absolute()
+    .top_0()
+    .left_0()
+    .size_full()
+}
+
 /// Whose face an event wears: whoever did it, or, when nobody did (a
 /// payroll that failed, a storm that damaged a boat), the first thing it
 /// happened to.
@@ -520,6 +566,9 @@ pub fn scene(
             linear_color_stop(hsla(tokens::SCENE_TOP), 0.0),
             linear_color_stop(hsla(tokens::SCENE_BOTTOM), 1.0),
         ))
+        .when_some(snapshot.scenery, |stage, scenery| {
+            stage.child(horizon(scenery))
+        })
         .child(backdrop);
 
     // Trouble breathes: a ring that slowly swells and fades around anything
@@ -781,7 +830,15 @@ fn actor_node(
             node.child(change_chip(&changes[0]))
         })
         .when(changes.is_empty() && !compact, |node| {
-            node.child(ui::caption(crate::macos::capitalize(detail)).truncate())
+            // Backed like the name above it, so it reads over any ground,
+            // night-time streets and red dust included.
+            node.child(
+                ui::caption(crate::macos::capitalize(detail))
+                    .px_1()
+                    .rounded_sm()
+                    .bg(ui::color(tokens::SURFACE).opacity(0.72))
+                    .truncate(),
+            )
         })
 }
 

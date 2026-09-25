@@ -13,12 +13,29 @@ pub struct WorldDocumentMetadata {
     pub display_summary: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lineage: Option<WorldLineage>,
+    /// How the World looks, as its Pack last said, so a list of Worlds can
+    /// draw each one in its own colours without opening it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_scenery: Option<DocumentScenery>,
 }
 
 impl WorldDocumentMetadata {
     pub fn is_empty(&self) -> bool {
-        self.display_title.is_none() && self.display_summary.is_none() && self.lineage.is_none()
+        self.display_title.is_none()
+            && self.display_summary.is_none()
+            && self.lineage.is_none()
+            && self.display_scenery.is_none()
     }
+}
+
+/// A World's colours as `0xRRGGBB`: sky, far ridge, near ridge, sun.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct DocumentScenery {
+    pub sky_top: u32,
+    pub sky_bottom: u32,
+    pub far: u32,
+    pub near: u32,
+    pub sun: u32,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]

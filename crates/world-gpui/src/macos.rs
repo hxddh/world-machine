@@ -78,6 +78,11 @@ impl ProjectionView {
 
     /// Leaves the title bar to the window that embeds this view, so a World
     /// is not named twice, one bar above the other.
+    /// What the view is showing now.
+    pub fn snapshot(&self) -> &ProjectionSnapshot {
+        &self.snapshot
+    }
+
     pub fn without_header(mut self) -> Self {
         self.show_header = false;
         self
@@ -340,10 +345,72 @@ impl ProjectionView {
         div().flex().gap_3().child(marker).child(text)
     }
 
+    /// Where a World begins: before anything is on stage, when every choice
+    /// comes with a picture of the World it starts, the choices are the
+    /// pictures. A new game screen, not a form.
+    fn render_beginning(&self, two_columns: bool, cx: &mut Context<Self>) -> Option<Div> {
+        if !is_beginning(&self.snapshot) || self.controller.is_none() {
+            return None;
+        }
+        let mut cards = div().w_full().flex().gap_4();
+        cards = if two_columns { cards } else { cards.flex_col() };
+        for (index, command) in self.snapshot.commands.iter().enumerate() {
+            let Some(scenery) = command.scenery else {
+                continue;
+            };
+            let command_id = command.id.clone();
+            let card = div()
+                .id(SharedString::from(format!("begin-{}", command.id)))
+                .flex_1()
+                .min_w(px(0.0))
+                .rounded_xl()
+                .overflow_hidden()
+                .border_1()
+                .border_color(color(tokens::BORDER))
+                .bg(color(tokens::SURFACE))
+                .cursor_pointer()
+                .hover(|style| style.border_color(color(tokens::ACCENT)).shadow_md())
+                .active(|style| style.bg(color(tokens::ROW_SELECTED)))
+                .flex()
+                .flex_col()
+                .child(
+                    div()
+                        .w_full()
+                        .h(px(170.0))
+                        .child(ui::scenery_cover(&scenery, &command.id).size_full()),
+                )
+                .child(
+                    div()
+                        .p_4()
+                        .flex()
+                        .flex_col()
+                        .gap_2()
+                        .child(ui::heading(command.title.clone()))
+                        .child(ui::detail(command.detail.clone()))
+                        .child(
+                            div()
+                                .pt_1()
+                                .text_sm()
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(color(tokens::ACCENT_TEXT))
+                                .child("Begin here →"),
+                        ),
+                )
+                .on_click(
+                    cx.listener(move |this, _, _, cx| this.invoke_command(command_id.clone(), cx)),
+                );
+            cards = cards.child(ui::arrive(card, format!("begin-{index}"), index));
+        }
+        Some(cards)
+    }
+
     /// The decision in front of you, drawn as the one thing on the page that
     /// is plainly meant to be pressed.
     fn render_decision(&self, cx: &mut Context<Self>) -> Option<Div> {
-        if self.controller.is_none() || self.snapshot.commands.is_empty() {
+        if self.controller.is_none()
+            || self.snapshot.commands.is_empty()
+            || is_beginning(&self.snapshot)
+        {
             return None;
         }
 
@@ -1173,6 +1240,9 @@ impl Render for ProjectionView {
             column = column.child(scene);
         }
 
+        if let Some(beginning) = self.render_beginning(two_columns, cx) {
+            column = column.child(beginning);
+        }
         // The decision and the news that led to it sit side by side under
         // the scene when there is room, and stack when there is not.
         let decision = self.render_decision(cx);
@@ -1356,6 +1426,17 @@ pub(crate) fn capitalize(text: &str) -> String {
 struct HistoryGroup<'a> {
     world_time: u64,
     items: Vec<&'a TimelineItem>,
+}
+
+/// A World with nothing on stage yet whose every choice shows the World it
+/// would start.
+fn is_beginning(snapshot: &ProjectionSnapshot) -> bool {
+    snapshot.canvas.items.is_empty()
+        && !snapshot.commands.is_empty()
+        && snapshot
+            .commands
+            .iter()
+            .all(|command| command.scenery.is_some())
 }
 
 /// The newest part of History: items up to the `limit`th thing that

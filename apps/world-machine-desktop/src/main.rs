@@ -563,7 +563,19 @@ impl Render for WorldDocumentView {
             gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark
         ));
         remember_window_geometry(window, RememberedWindow::World);
+        // A World's name follows it as it changes ("A new World" becomes
+        // "Ares Pocket Colony" when it is seeded), so read it every time.
+        self.document_name = session_display_name(&self.document.borrow().session);
         window.set_window_title(&document_window_title(&self.document_name));
+        // Branching and comparing mean something only once a World has a
+        // history and a choice to make; before that they are noise.
+        let (can_branch, can_compare) = {
+            let snapshot = self.projection.read(cx).snapshot();
+            (
+                snapshot.capabilities.fork,
+                snapshot.commands.len() >= 2 && !snapshot.canvas.items.is_empty(),
+            )
+        };
         let mut actions = div().flex_shrink_0().flex().items_center().gap_2();
         // Where this World came from is also the way to its family tree.
         if let Some(label) = &self.lineage_label {
@@ -575,12 +587,14 @@ impl Render for WorldDocumentView {
                     .on_click(cx.listener(|this, _, _, cx| this.open_lineage(cx))),
             );
         }
-        let actions = actions
-            .child(
+        if can_branch {
+            actions = actions.child(
                 ui::button("branch-world-document", "Branch", ui::ButtonKind::Secondary)
                     .on_click(cx.listener(|this, _, _, cx| this.branch(cx))),
-            )
-            .child(
+            );
+        }
+        if can_compare {
+            actions = actions.child(
                 ui::button(
                     "what-if-world-document",
                     "What if…",
@@ -590,10 +604,11 @@ impl Render for WorldDocumentView {
                     this.open_compare(cx);
                 })),
             );
+        }
 
-        // The World is called by its name; the durable file identity stays
-        // beside it, so renaming never hides which file this window edits.
-        let mut identity = div()
+        // The World is called by its name, and only by its name; which file
+        // it lives in is for Export and Show in Finder to say.
+        let identity = div()
             .flex_1()
             .min_w(px(0.0))
             .flex()
@@ -607,9 +622,6 @@ impl Render for WorldDocumentView {
                     .truncate()
                     .child(self.document_name.clone()),
             );
-        if self.document_name != self.document_label {
-            identity = identity.child(ui::caption(self.document_label.clone()).truncate());
-        }
 
         let mut chrome = div()
             .h(px(52.0))
@@ -2257,7 +2269,14 @@ impl WorldMachineHome {
                     .h(px(76.0))
                     .rounded_md()
                     .overflow_hidden()
-                    .child(ui::cover(&title, document.id.as_str()).size_full()),
+                    .child(
+                        ui::cover_for(
+                            document.display_scenery.as_ref(),
+                            &title,
+                            document.id.as_str(),
+                        )
+                        .size_full(),
+                    ),
             )
             .child(details)
             .child(
@@ -2541,7 +2560,7 @@ impl WorldMachineHome {
                             .flex_shrink_0()
                             .rounded_lg()
                             .overflow_hidden()
-                            .child(ui::cover(preview.title(), &identity)),
+                            .child(ui::cover(preview.title(), &identity).size_full()),
                     )
                     .child(
                         div()
@@ -3679,6 +3698,7 @@ mod file_type_tests {
             pack: WorldPackRef::new(pack_id, "1.0.0"),
             display_title: None,
             display_summary: None,
+            display_scenery: None,
             world_time: 0,
             event_count: 0,
         };
@@ -3737,6 +3757,7 @@ mod file_type_tests {
             pack,
             display_title: Some("  Ares Pocket Colony  ".into()),
             display_summary: Some("  Current thread · Ridge Network  ".into()),
+            display_scenery: None,
             world_time: 3,
             event_count: 7,
         };
@@ -3806,6 +3827,7 @@ mod file_type_tests {
                     pack: WorldPackRef::new("pocket-universe", "1.0.0"),
                     display_title: Some(title.to_owned()),
                     display_summary: None,
+                    display_scenery: None,
                     world_time: 0,
                     event_count: 0,
                 },

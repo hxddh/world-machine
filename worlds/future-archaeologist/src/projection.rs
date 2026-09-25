@@ -32,6 +32,7 @@ pub(crate) fn snapshot(world: &World) -> ProjectionSnapshot {
         canvas: canvas(world, &visible_artifacts),
         inspectors: inspectors(world, &visible_artifacts, &visible_events),
         why: why_map(world, &visible_events, &visible_artifacts),
+        scenery: None,
     }
 }
 
@@ -44,6 +45,7 @@ fn commands(world: &World) -> Vec<ProjectionCommand> {
             title: "Recover deleted message".into(),
             detail: "Scan unallocated message storage for a recoverable fragment.".into(),
             effects: Vec::new(),
+            scenery: None,
         }]
     }
 }

@@ -985,6 +985,7 @@ mod tests {
                 title: "Act".into(),
                 detail: "Do something".into(),
                 effects: Vec::new(),
+                scenery: None,
             }],
         );
 
@@ -1289,6 +1290,7 @@ mod tests {
                 title: "Left".into(),
                 detail: "left".into(),
                 effects: Vec::new(),
+                scenery: None,
             }],
         );
         let right = snapshot(
@@ -1300,6 +1302,7 @@ mod tests {
                 title: "Right".into(),
                 detail: "right".into(),
                 effects: Vec::new(),
+                scenery: None,
             }],
         );
 

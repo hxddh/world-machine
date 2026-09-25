@@ -40,8 +40,8 @@
 
 In order. Each item is something a stranger would notice within one session.
 
-1. **A World is named, and starts with a picture.** First launch opens on three illustrated start cards (Mars colony, 1987 town, penguin civilization), each with its own palette and landscape, not a text form. Picking one names the World after its place ("Ares", "Maple Street", "Icebridge") everywhere, and *Branch* and *What if…* appear only once a World has history worth branching.
-2. **Every seed looks like where it is.** A Pack supplies a palette and a backdrop per World (red dust and a ridge for Ares, sodium-lit night for Maple Street, ice and aurora for Icebridge), and a glyph per kind of place (dome, arcade, bridge) instead of one house. This is the "Pack art" item from the last review, now justified by six real Worlds across two Packs.
+1. ~~**A World is named, and starts with a picture.**~~ *(done, below)* First launch opens on three illustrated start cards (Mars colony, 1987 town, penguin civilization), each with its own palette and landscape, not a text form. Picking one names the World after its place ("Ares", "Maple Street", "Icebridge") everywhere, and *Branch* and *What if…* appear only once a World has history worth branching.
+2. **Every seed looks like where it is.** *(palette and backdrop done; glyphs per kind of place still to come)* A Pack supplies a palette and a backdrop per World (red dust and a ridge for Ares, sodium-lit night for Maple Street, ice and aurora for Icebridge), and a glyph per kind of place (dome, arcade, bridge) instead of one house. This is the "Pack art" item from the last review, now justified by six real Worlds across two Packs.
 3. **The World grows on screen.** What a turn builds (a water-recovery loop, a tournament bracket, a new span of the bridge) appears in the scene as a small new thing that stays, so after a week the colony looks lived in. *Townscaper*'s one lesson: every action visibly adds.
 4. **Time the player can read.** History and the page say "Sol 3" / "Night 12" / "Aurora 4", the World's own unit, not "Time 70" or *The beginning*; a turn that moves time says so.
 5. **Ending a session, and being called back.** A clear "Leave them to it" moment that says when the World next moves ("Next sol in 5 h"), and a macOS notification when something that matters happened while the app was closed ("Nia and Tomas formed a partnership"). Off by default until asked, never more than one a day.
@@ -50,3 +50,15 @@ In order. Each item is something a stranger would notice within one session.
 8. **Notarization.** A product opens on double-click. The pipeline is ready; it needs the five secrets in `RELEASE_SIGNING.md`, which only the repository owner can add.
 
 Still open from before: a check on a real Mac, the Analyst panel's layout, and five strangers for five minutes each, which this list is designed to make worth running.
+
+## Progress
+
+**Where a World begins** is now three pictures, each in its place's own colours:
+
+![Where a World begins](review/v07-beginning.png)
+
+**Ares** stands on red dust under a peach sky and is called Ares Pocket Colony in its window and on Home; **Maple Street** is a street at dusk. *Branch* appears once there is history, *What if…* once there are two choices.
+
+![Ares](review/v07-ares.png)
+
+![Maple Street](review/v07-maple-street.png)

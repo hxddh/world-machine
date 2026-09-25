@@ -46,6 +46,7 @@ impl WorldSession for MockSession {
                 title: "Advance".into(),
                 detail: "Advance the metadata regression World".into(),
                 effects: Vec::new(),
+                scenery: None,
             }],
             ..ProjectionSnapshot::default()
         }
@@ -264,6 +265,7 @@ fn metadata_only_external_changes_participate_in_revision_conflicts() {
         display_title: first.metadata.display_title.clone(),
         display_summary: first.metadata.display_summary.clone(),
         lineage: Some(lineage("second")),
+        display_scenery: None,
     };
     library.create_from_document(id.clone(), &first).unwrap();
     let mut session = DurableWorldSession::open(id.clone(), &registry, &library).unwrap();

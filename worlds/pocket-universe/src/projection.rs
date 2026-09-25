@@ -36,7 +36,7 @@ pub(crate) fn snapshot_since(
         title: if seeded {
             universe_name(world)
         } else {
-            "Pocket Universe · Empty World".into()
+            "A new World".into()
         },
         world_time: world.world_time(),
         capabilities: ProjectionCapabilities {
@@ -55,6 +55,7 @@ pub(crate) fn snapshot_since(
         canvas: with_changes(world, canvas(world), since_event_count),
         inspectors: inspectors_from_world(world),
         why: why_map_from_world(world),
+        scenery: seeded.then(|| seed_scenery(seed_id(world))).flatten(),
     }
 }
 
@@ -237,6 +238,7 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
                 detail: "A tiny habitat, one keeper, hydroponics, and a rover on a red horizon."
                     .into(),
                 effects: Vec::new(),
+                scenery: seed_scenery("mars-colony"),
             },
             ProjectionCommand {
                 id: SEED_1980S_TOWN_COMMAND.into(),
@@ -244,6 +246,7 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
                 detail: "An arcade, local radio, a night bus, and a neighborhood that remembers."
                     .into(),
                 effects: Vec::new(),
+                scenery: seed_scenery("1980s-town"),
             },
             ProjectionCommand {
                 id: SEED_PENGUIN_CIVILIZATION_COMMAND.into(),
@@ -251,6 +254,7 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
                 detail: "An ice bridge, a fish vault, a moonrise council, and one bridge keeper."
                     .into(),
                 effects: Vec::new(),
+                scenery: seed_scenery("penguin-civilization"),
             },
         ];
     }
@@ -288,6 +292,7 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
         title: nudge_title.into(),
         detail: String::from(nudge_detail),
         effects: Vec::new(),
+        scenery: None,
     }];
 
     if relationship_choice_available {
@@ -295,11 +300,13 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             id: SHARED_PROJECT_COMMAND.into(),
             title: "Give them a shared project".into(),
             detail: String::from("Create a goal that neither actor can complete alone; future interactions will lean toward trust."), effects: Vec::new(),
+            scenery: None,
 });
         commands.push(ProjectionCommand {
             id: RIVALRY_COMMAND.into(),
             title: "Let rivalry sharpen them".into(),
             detail: String::from("Keep both actors independent and let competition add pressure to future interactions."), effects: Vec::new(),
+            scenery: None,
 });
     }
     if intervention_choice_available {
@@ -310,12 +317,14 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             title: bold_title.into(),
             detail: String::from(bold_detail),
             effects: Vec::new(),
+            scenery: None,
         });
         commands.push(ProjectionCommand {
             id: CAREFUL_PATH_COMMAND.into(),
             title: careful_title.into(),
             detail: String::from(careful_detail),
             effects: Vec::new(),
+            scenery: None,
         });
     }
     if posture_choice_available {
@@ -326,12 +335,14 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             title: outward_title.into(),
             detail: String::from(outward_detail),
             effects: Vec::new(),
+            scenery: None,
         });
         commands.push(ProjectionCommand {
             id: ROOTED_POSTURE_COMMAND.into(),
             title: rooted_title.into(),
             detail: String::from(rooted_detail),
             effects: Vec::new(),
+            scenery: None,
         });
     }
     let copy = pressure::copy_for_state(world.state());
@@ -341,12 +352,14 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             title: copy.hold_title.into(),
             detail: String::from(copy.hold_detail),
             effects: Vec::new(),
+            scenery: None,
         });
         commands.push(ProjectionCommand {
             id: REACH_PRESSURE_COMMAND.into(),
             title: copy.reach_title.into(),
             detail: String::from(copy.reach_detail),
             effects: Vec::new(),
+            scenery: None,
         });
     } else if pressure_stage == "lost" {
         commands.push(ProjectionCommand {
@@ -354,6 +367,7 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             title: copy.recover_title.into(),
             detail: String::from(copy.recover_detail),
             effects: Vec::new(),
+            scenery: None,
         });
     }
     let succession_stage = succession::succession_id_from_state(world.state());
@@ -364,12 +378,14 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             title: succession_copy.entrust_title.into(),
             detail: String::from(succession_copy.entrust_detail),
             effects: Vec::new(),
+            scenery: None,
         });
         commands.push(ProjectionCommand {
             id: RELEASE_LEGACY_COMMAND.into(),
             title: succession_copy.release_title.into(),
             detail: String::from(succession_copy.release_detail),
             effects: Vec::new(),
+            scenery: None,
         });
     }
     commands
@@ -903,23 +919,10 @@ fn briefing(world: &World, seeded: bool, since_event_count: Option<usize>) -> Br
     if !seeded {
         return BriefingProjection {
             eyebrow: "Pocket Universe".into(),
-            title: "What kind of world should exist here?".into(),
-            items: vec![
-                BriefingItem {
-                    kind: BriefingItemKind::Status,
-                    selection: Some(SelectionId::Entity(UNIVERSE)),
-                    title: "Create".into(),
-                    detail: "Choose where this World begins. Whatever you pick is where its history starts."
-                        .into(), tone: world_projection::Tone::Neutral,
-},
-                BriefingItem {
-                    kind: BriefingItemKind::Status,
-                    selection: None,
-                    title: "Keep · Grow · Return".into(),
-                    detail: "Save it like a document, let time move, then come back to a world with history."
-                        .into(), tone: world_projection::Tone::Neutral,
-},
-            ],
+            title: "Where should this World begin?".into(),
+            // The three places to begin are pictures; nothing needs saying
+            // beside them.
+            items: Vec::new(),
         };
     }
 
@@ -2042,6 +2045,25 @@ fn text_component(entity: Option<&Entity>, key: &str, fallback: &str) -> String 
     match entity.and_then(|entity| entity.component(key)) {
         Some(Value::Text(value)) => value.clone(),
         _ => fallback.into(),
+    }
+}
+
+/// What each place looks like from a distance: red dust and a pale sun for
+/// Ares, a sodium-lit street at dusk for Maple Street, ice under the aurora
+/// for Icebridge.
+pub(crate) fn seed_scenery(seed: &str) -> Option<world_projection::Scenery> {
+    let scenery = |sky_top, sky_bottom, far, near, sun| world_projection::Scenery {
+        sky_top,
+        sky_bottom,
+        far,
+        near,
+        sun,
+    };
+    match seed {
+        "mars-colony" => Some(scenery(0xe7b089, 0xf5d9bd, 0xc2663f, 0x8a3a22, 0xfff3dc)),
+        "1980s-town" => Some(scenery(0x241d45, 0x6b4a7a, 0x3a2f55, 0x1b1630, 0xf4bf5c)),
+        "penguin-civilization" => Some(scenery(0x14305a, 0x3f8f95, 0xa9cbdb, 0xe6f1f6, 0xb9f3d3)),
+        _ => None,
     }
 }
 

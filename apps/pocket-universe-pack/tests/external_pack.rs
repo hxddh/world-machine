@@ -107,13 +107,20 @@ fn pocket_universe_is_a_real_external_pack_with_durable_seed_and_growth() {
 
     let mut session = registry.create(POCKET_UNIVERSE_PACK_ID).unwrap();
     let empty = session.snapshot();
-    assert_eq!(empty.title, "Pocket Universe · Empty World");
+    assert_eq!(empty.title, "A new World");
+    // Each place to begin crosses the process boundary with its picture.
+    assert!(!empty.commands.is_empty());
+    assert!(empty
+        .commands
+        .iter()
+        .all(|command| command.scenery.is_some()));
     let seeded = session
         .handle(ProjectionIntent::InvokeCommand(
             SEED_MARS_COLONY_COMMAND.into(),
         ))
         .unwrap();
     assert_eq!(seeded.title, "Ares Pocket Colony");
+    assert!(seeded.scenery.is_some(), "a started World keeps its look");
     assert!(seeded
         .collection
         .items

@@ -282,6 +282,7 @@ mod tests {
             display_title: Some("Fork Source".into()),
             display_summary: Some("Fork source summary".into()),
             lineage: Some(inherited_lineage()),
+            display_scenery: None,
         };
         let source = WorldDocument {
             archive: archive(8),
