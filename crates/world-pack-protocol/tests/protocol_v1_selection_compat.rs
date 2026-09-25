@@ -32,8 +32,12 @@ fn protocol_v1_snapshot_keeps_typed_evidence_derived_not_wire_encoded() {
     };
 
     assert!(!snapshot.contains_key("entity_event_evidence"));
+    // Which keys, not in what order: serde_json keeps insertion order when
+    // another crate in the build turns on its `preserve_order` feature.
+    let mut keys = snapshot.keys().map(String::as_str).collect::<Vec<_>>();
+    keys.sort_unstable();
     assert_eq!(
-        snapshot.keys().map(String::as_str).collect::<Vec<_>>(),
+        keys,
         vec![
             "briefing",
             "canvas",
