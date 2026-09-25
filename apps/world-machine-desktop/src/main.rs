@@ -2836,10 +2836,12 @@ impl Render for WorldMachineHome {
             .map(|(_title, document)| document)
             .collect::<Vec<_>>();
         let visible_document_count = visible_documents.len();
+        let developer = developer_mode();
         let descriptors = self
             .registry
             .descriptors()
             .into_iter()
+            .filter(|descriptor| offered_to_start(&descriptor.pack.id, developer))
             .cloned()
             .collect::<Vec<_>>();
         let first_run = !has_documents;
@@ -2946,6 +2948,7 @@ impl Render for WorldMachineHome {
             .included_packs
             .iter()
             .filter(|included| !self.included_pack_is_installed(&included.pack))
+            .filter(|included| offered_to_start(&included.pack.id, developer))
             .filter(|included| {
                 featured_included.as_ref().is_none_or(|featured| {
                     featured.pack != included.pack || (!show_featured && !featured_review_pending)
@@ -3519,6 +3522,27 @@ fn build_registry(catalog: Option<&PackCatalog>) -> Result<world_host::WorldRegi
     Ok(registry)
 }
 
+/// Packs that exercise the engine rather than make a World a person would
+/// choose to play. Home does not offer them to start; Worlds already made
+/// with them still open, and `WORLD_MACHINE_DEVELOPER=1` offers them again.
+#[cfg(target_os = "macos")]
+const DEVELOPER_PACKS: &[&str] = &[
+    "world-machine.future-archaeologist",
+    "world-machine.micro-company",
+];
+#[cfg(target_os = "macos")]
+const DEVELOPER_ENV: &str = "WORLD_MACHINE_DEVELOPER";
+
+#[cfg(target_os = "macos")]
+fn developer_mode() -> bool {
+    env::var_os(DEVELOPER_ENV).is_some_and(|value| value == "1")
+}
+
+#[cfg(target_os = "macos")]
+fn offered_to_start(pack_id: &str, developer: bool) -> bool {
+    developer || !DEVELOPER_PACKS.contains(&pack_id)
+}
+
 #[cfg(target_os = "macos")]
 fn new_document_id(pack_id: &str, library: &WorldLibrary) -> Result<WorldDocumentId, LibraryError> {
     unique_document_id(sanitize_document_base(pack_id), Some(library))
@@ -3750,6 +3774,19 @@ mod file_type_tests {
         assert_eq!(visible[0].as_str(), "child-0");
         assert_eq!(visible[3].as_str(), "child-3");
         assert_eq!(hidden, 2);
+    }
+
+    #[test]
+    fn home_offers_only_worlds_a_person_would_play_unless_developing() {
+        assert!(offered_to_start("world-machine.pocket-universe", false));
+        assert!(offered_to_start("world-machine.tiny-society", false));
+        assert!(!offered_to_start("world-machine.micro-company", false));
+        assert!(!offered_to_start(
+            "world-machine.future-archaeologist",
+            false
+        ));
+        assert!(offered_to_start("world-machine.micro-company", true));
+        assert!(offered_to_start("someone.else.pack", false));
     }
 
     #[test]
