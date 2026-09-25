@@ -447,6 +447,7 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
             "Life happened while you were away".into()
         },
         items,
+        returned: since_event_count.is_some(),
     }
 }
 

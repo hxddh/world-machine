@@ -50,11 +50,15 @@ pub struct ProjectionView {
     /// How the World stood before the last turn, so whoever the turn moved
     /// can be seen walking to where they are now.
     before_turn: Option<ProjectionSnapshot>,
+    /// On a return, which of the things that happened is being told, one at
+    /// a time, before the page hands over to the player's turn.
+    retelling: Option<usize>,
 }
 
 impl ProjectionView {
     pub fn new(snapshot: ProjectionSnapshot) -> Self {
         let selected = default_selection(&snapshot);
+        let retelling = starts_retelling(&snapshot);
         Self {
             snapshot,
             selected,
@@ -65,6 +69,7 @@ impl ProjectionView {
             previewing: None,
             routine_open: Default::default(),
             before_turn: None,
+            retelling,
         }
     }
 
@@ -118,6 +123,7 @@ impl ProjectionView {
                 let previous = self.selected;
                 self.snapshot = snapshot;
                 self.before_turn = None;
+                self.retelling = None;
                 self.selected = selection_for_snapshot(previous, &self.snapshot);
                 self.status = Some(format!("Branched before “{event_title}”"));
                 self.status_is_error = false;
@@ -139,6 +145,7 @@ impl ProjectionView {
             Ok(snapshot) => {
                 let previous = self.selected;
                 self.before_turn = Some(std::mem::replace(&mut self.snapshot, snapshot));
+                self.retelling = None;
                 self.selected = selection_for_snapshot(previous, &self.snapshot);
                 self.status = None;
                 self.status_is_error = false;
@@ -164,6 +171,12 @@ impl ProjectionView {
     /// What the scene lights up: the targets of the choice under the
     /// pointer, or else whoever the news is about.
     fn emphasis(&self) -> scene::Emphasis {
+        if let Some(beat) = self.current_beat() {
+            let targets = beat_targets(&self.snapshot, beat);
+            if !targets.is_empty() {
+                return scene::Emphasis::Only(targets);
+            }
+        }
         let targets = self
             .previewing
             .as_deref()
@@ -205,6 +218,145 @@ impl ProjectionView {
                 .text_color(color(tone))
                 .child(status.clone()),
         )
+    }
+
+    /// The beat being told on a return, if one is.
+    fn current_beat(&self) -> Option<&BriefingItem> {
+        let index = self.retelling?;
+        self.snapshot.briefing.as_ref()?.beats().get(index).copied()
+    }
+
+    fn step_retelling(&mut self, cx: &mut Context<Self>) {
+        let count = self
+            .snapshot
+            .briefing
+            .as_ref()
+            .map(|briefing| briefing.beats().len())
+            .unwrap_or(0);
+        self.retelling = self
+            .retelling
+            .map(|index| index + 1)
+            .filter(|index| *index < count);
+        cx.notify();
+    }
+
+    fn end_retelling(&mut self, cx: &mut Context<Self>) {
+        self.retelling = None;
+        cx.notify();
+    }
+
+    /// One thing that happened while the player was away, told big: whose
+    /// it was, what happened, and how far through the telling this is. The
+    /// scene above lights up whoever it is about.
+    fn render_retelling(&self, cx: &mut Context<Self>) -> Option<Div> {
+        let index = self.retelling?;
+        let beats = self.snapshot.briefing.as_ref()?.beats();
+        let beat = *beats.get(index)?;
+        let count = beats.len();
+        let last = index + 1 == count;
+        let faces = beat
+            .selection
+            .and_then(|selection| scene::event_actor(&self.snapshot, selection))
+            .into_iter()
+            .collect::<Vec<_>>();
+        let mut dots = div().flex().items_center().gap(px(6.0));
+        for step in 0..count {
+            dots = dots.child(
+                div()
+                    .size(px(if step == index { 8.0 } else { 6.0 }))
+                    .rounded_full()
+                    .bg(color(if step <= index {
+                        tokens::ACCENT
+                    } else {
+                        tokens::BORDER_STRONG
+                    })),
+            );
+        }
+        let mut body = div()
+            .flex_1()
+            .min_w(px(0.0))
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(
+                div()
+                    .text_xl()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(beat.title.clone()),
+            );
+        if !beat.detail.is_empty() {
+            body = body.child(ui::body(beat.detail.clone()));
+        }
+        let mut telling = div().flex().items_start().gap_4();
+        if !faces.is_empty() {
+            let face = ui::avatar(&faces[0], 52.0);
+            telling = telling.child(if beat.tone == Tone::Neutral {
+                face
+            } else {
+                face.border_2()
+                    .border_color(color(scene::tone_token(beat.tone)))
+            });
+        }
+        telling = telling.child(body);
+        let card = div()
+            .p_6()
+            .rounded_xl()
+            .border_1()
+            .border_color(color(scene::tone_token(beat.tone)))
+            .bg(color(tokens::SURFACE))
+            .shadow_md()
+            .flex()
+            .flex_col()
+            .gap_5()
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .gap_3()
+                    .child(ui::section_label(format!(
+                        "While you were away · {} of {count}",
+                        index + 1
+                    )))
+                    .child(
+                        div()
+                            .id("retelling-skip")
+                            .text_sm()
+                            .text_color(color(tokens::TEXT_SECONDARY))
+                            .cursor_pointer()
+                            .hover(|style| style.text_color(color(tokens::ACCENT_TEXT)))
+                            .child("Skip to your turn")
+                            .on_click(cx.listener(|this, _, _, cx| this.end_retelling(cx))),
+                    ),
+            )
+            .child(ui::arrive(
+                telling,
+                format!("retelling-{}-{index}", self.revision()),
+                0,
+            ))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .gap_3()
+                    .child(dots)
+                    .child(
+                        ui::button(
+                            "retelling-next",
+                            if last { "Your turn →" } else { "Next →" },
+                            ButtonKind::Primary,
+                        )
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            if last {
+                                this.end_retelling(cx)
+                            } else {
+                                this.step_retelling(cx)
+                            }
+                        })),
+                    ),
+            );
+        Some(card)
     }
 
     /// Where the page starts: which World, what moment, and the headline.
@@ -1292,10 +1444,16 @@ impl Render for ProjectionView {
         if let Some(beginning) = self.render_beginning(two_columns, cx) {
             column = column.child(beginning);
         }
+        // Coming back, what happened is told first, one thing at a time,
+        // and only then does the page hand over to the player's turn.
+        if let Some(retelling) = self.render_retelling(cx) {
+            column = column.child(retelling);
+        }
+        let retelling = self.retelling.is_some();
         // The decision and the news that led to it sit side by side under
         // the scene when there is room, and stack when there is not.
-        let decision = self.render_decision(cx);
-        let story = self.render_story(cx);
+        let decision = self.render_decision(cx).filter(|_| !retelling);
+        let story = self.render_story(cx).filter(|_| !retelling);
         let side_by_side = two_columns && decision.is_some() && story.is_some();
         let mut pair = div().flex().gap_6();
         pair = if side_by_side {
@@ -1314,7 +1472,7 @@ impl Render for ProjectionView {
             pair = pair.child(div().flex_1().min_w(px(0.0)).child(story));
         }
         column = column.child(pair);
-        if let Some(standing) = self.render_standing(cx) {
+        if let Some(standing) = self.render_standing(cx).filter(|_| !retelling) {
             column = column.child(standing);
         }
 
@@ -1422,6 +1580,57 @@ fn history_summary(subtitle: &str, actor: Option<&str>) -> String {
 
 /// One consequence of a choice, as a small coloured chip: "↑ Trust",
 /// "Sea Finch → repaired".
+/// A return is told as a sequence when the Pack says it is one and there
+/// is something to tell.
+fn starts_retelling(snapshot: &ProjectionSnapshot) -> Option<usize> {
+    let briefing = snapshot.briefing.as_ref()?;
+    (briefing.returned && !briefing.beats().is_empty()).then_some(0)
+}
+
+/// Who and where a beat is about, as things on the scene: the people its
+/// event names, or the person, place or relationship it points at.
+fn beat_targets(
+    snapshot: &ProjectionSnapshot,
+    beat: &BriefingItem,
+) -> std::collections::BTreeSet<SelectionId> {
+    let mut targets = std::collections::BTreeSet::new();
+    let Some(selection) = beat.selection else {
+        return targets;
+    };
+    let names = match selection {
+        SelectionId::Event(_) => snapshot
+            .inspector(selection)
+            .map(|inspector| {
+                inspector
+                    .sections
+                    .iter()
+                    .flat_map(|section| section.rows.iter())
+                    .filter(|row| {
+                        [
+                            world_projection::EVENT_WHO_ROW,
+                            world_projection::EVENT_WITH_ROW,
+                            "Actor",
+                            "Targets",
+                        ]
+                        .contains(&row.label.as_str())
+                    })
+                    .flat_map(|row| row.value.split(", ").map(str::to_owned).collect::<Vec<_>>())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default(),
+        _ => {
+            targets.insert(selection);
+            Vec::new()
+        }
+    };
+    for item in &snapshot.canvas.items {
+        if names.contains(&item.label) {
+            targets.insert(item.id);
+        }
+    }
+    targets
+}
+
 /// The people a choice concerns, by name: the asker, or both ends of the
 /// relationship it is about.
 fn asker_faces(snapshot: &ProjectionSnapshot, asker: Option<SelectionId>) -> Vec<String> {
@@ -1791,7 +2000,7 @@ mod focus_hierarchy_tests {
     use super::{
         command_panel_title, default_selection, has_collection_panel, has_exploration,
         has_timeline_panel, history_groups, history_sections, history_window,
-        selection_for_snapshot,
+        selection_for_snapshot, starts_retelling,
     };
     use world_projection::{
         CollectionItem, InspectorProjection, ProjectionSnapshot, SelectionId, TimelineItem,
@@ -1799,6 +2008,39 @@ mod focus_hierarchy_tests {
 
     fn entity_selection() -> SelectionId {
         SelectionId::Entity(Default::default())
+    }
+
+    #[test]
+    fn only_a_return_with_something_to_tell_is_told_as_a_sequence() {
+        use world_projection::{BriefingItem, BriefingItemKind, BriefingProjection, Tone};
+        let briefing = |returned: bool, kind: BriefingItemKind| ProjectionSnapshot {
+            briefing: Some(BriefingProjection {
+                eyebrow: String::new(),
+                title: String::new(),
+                items: vec![BriefingItem {
+                    selection: None,
+                    title: "Jonas asked Leo for help".into(),
+                    detail: String::new(),
+                    kind,
+                    tone: Tone::Neutral,
+                }],
+                returned,
+            }),
+            ..ProjectionSnapshot::default()
+        };
+        assert_eq!(
+            starts_retelling(&briefing(true, BriefingItemKind::Beat)),
+            Some(0)
+        );
+        assert_eq!(
+            starts_retelling(&briefing(false, BriefingItemKind::Beat)),
+            None
+        );
+        assert_eq!(
+            starts_retelling(&briefing(true, BriefingItemKind::Status)),
+            None,
+            "a quiet stretch has nothing to tell"
+        );
     }
 
     #[test]

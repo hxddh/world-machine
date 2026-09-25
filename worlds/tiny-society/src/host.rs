@@ -150,6 +150,18 @@ mod tests {
     }
 
     #[test]
+    fn a_return_is_marked_as_one() {
+        let mut registry = world_host::WorldRegistry::new();
+        registry.register(tiny_society_registration()).unwrap();
+        let mut session = registry.create(crate::TINY_SOCIETY_PACK_ID).unwrap();
+        assert!(!session.snapshot().briefing.unwrap().returned);
+        let back = session.advance_background(3).unwrap();
+        let briefing = back.briefing.unwrap();
+        assert!(briefing.returned, "{}", briefing.title);
+        assert!(session.snapshot().briefing.unwrap().returned);
+    }
+
+    #[test]
     fn registration_creates_and_reopens_the_same_world_history() {
         let registration = tiny_society_registration();
         let mut registry = world_host::WorldRegistry::new();

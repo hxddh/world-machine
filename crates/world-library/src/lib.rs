@@ -1035,6 +1035,7 @@ mod tests {
                         detail: format!("Current durable count {}", self.count),
                         tone: world_projection::Tone::Neutral,
                     }],
+                    returned: false,
                 }),
                 commands: vec![ProjectionCommand {
                     id: "mock.advance".into(),
@@ -1519,6 +1520,7 @@ mod tests {
                     detail: "  Routes   now   persist.  ".into(),
                     tone: world_projection::Tone::Neutral,
                 }],
+                returned: false,
             }),
             ..ProjectionSnapshot::default()
         };
@@ -1542,6 +1544,7 @@ mod tests {
                     detail: "x".repeat(400),
                     tone: world_projection::Tone::Neutral,
                 }],
+                returned: false,
             }),
             ..ProjectionSnapshot::default()
         };

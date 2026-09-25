@@ -156,6 +156,7 @@ fn briefing(world: &World, artifacts: &[EntityId]) -> BriefingProjection {
         eyebrow: "Future Archaeologist".into(),
         title: format!("{} artifacts are readable", artifacts.len()),
         items,
+        returned: false,
     }
 }
 

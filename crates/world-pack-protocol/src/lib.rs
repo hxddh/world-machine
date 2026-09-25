@@ -729,6 +729,8 @@ pub struct BriefingProjectionWire {
     pub eyebrow: String,
     pub title: String,
     pub items: Vec<BriefingItemWire>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub returned: bool,
 }
 
 impl From<&BriefingProjection> for BriefingProjectionWire {
@@ -737,6 +739,7 @@ impl From<&BriefingProjection> for BriefingProjectionWire {
             eyebrow: briefing.eyebrow.clone(),
             title: briefing.title.clone(),
             items: briefing.items.iter().map(Into::into).collect(),
+            returned: briefing.returned,
         }
     }
 }
@@ -747,6 +750,7 @@ impl From<BriefingProjectionWire> for BriefingProjection {
             eyebrow: briefing.eyebrow,
             title: briefing.title,
             items: briefing.items.into_iter().map(Into::into).collect(),
+            returned: briefing.returned,
         }
     }
 }
@@ -1498,6 +1502,7 @@ mod tests {
                     detail: "A selected entity".into(),
                     tone: Tone::Warning,
                 }],
+                returned: false,
             }),
             commands: vec![ProjectionCommand {
                 id: "external.advance".into(),

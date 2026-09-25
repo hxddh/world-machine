@@ -2341,7 +2341,9 @@ impl WorldMachineHome {
                 let open_id = open_id.clone();
                 move |this, _, _, cx| this.open_document(open_id.clone(), cx)
             }));
-        // The way in sits on the picture, the way a game shelf has it.
+        // The way in sits on the picture, the way a game shelf has it. The
+        // click stops at the button, or the picture under it would open
+        // the World a second time.
         cover = cover.child(
             div().absolute().bottom_3().right_3().child(
                 ui::button(
@@ -2351,7 +2353,10 @@ impl WorldMachineHome {
                 )
                 .on_click(cx.listener({
                     let open_id = open_id.clone();
-                    move |this, _, _, cx| this.open_document(open_id.clone(), cx)
+                    move |this, _, _, cx| {
+                        cx.stop_propagation();
+                        this.open_document(open_id.clone(), cx)
+                    }
                 })),
             ),
         );

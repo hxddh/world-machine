@@ -63,6 +63,7 @@ fn briefing(world: &World, since_event_count: Option<usize>) -> BriefingProjecti
                 .take(4)
                 .map(return_item)
                 .collect(),
+            returned: false,
         };
     }
 
@@ -95,7 +96,7 @@ fn briefing(world: &World, since_event_count: Option<usize>) -> BriefingProjecti
                 title: format!("Working trust {trust} · Tension {tension}"),
                 detail: "The leads' choices are ordinary World events, so their working pattern is inspectable, causal, and forkable.".into(), tone: world_projection::Tone::Neutral,
 },
-        ],
+        ], returned: false,
     }
 }
 

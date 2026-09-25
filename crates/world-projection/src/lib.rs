@@ -945,6 +945,9 @@ pub struct BriefingProjection {
     pub eyebrow: String,
     pub title: String,
     pub items: Vec<BriefingItem>,
+    /// This briefing reports a return: what happened while the player was
+    /// away, which a screen can tell as a sequence before handing over.
+    pub returned: bool,
 }
 
 /// Whether a briefing line is something that happened or something that is

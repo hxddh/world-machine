@@ -767,6 +767,7 @@ mod tests {
                     kind: world_projection::BriefingItemKind::Status,
                     tone: world_projection::Tone::Neutral,
                 }],
+                returned: false,
             }),
             ..ProjectionSnapshot::default()
         };

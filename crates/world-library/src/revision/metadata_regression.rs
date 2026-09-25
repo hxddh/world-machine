@@ -43,6 +43,7 @@ impl WorldSession for MockSession {
                     detail: format!("Durable summary {}", self.count),
                     tone: world_projection::Tone::Neutral,
                 }],
+                returned: false,
             }),
             commands: vec![ProjectionCommand {
                 id: "mock.advance".into(),

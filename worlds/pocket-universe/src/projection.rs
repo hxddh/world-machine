@@ -991,6 +991,7 @@ fn briefing(world: &World, seeded: bool, since_event_count: Option<usize>) -> Br
             // The three places to begin are pictures; nothing needs saying
             // beside them.
             items: Vec::new(),
+            returned: false,
         };
     }
 
@@ -1013,6 +1014,7 @@ fn briefing(world: &World, seeded: bool, since_event_count: Option<usize>) -> Br
             eyebrow: format!("Pocket Universe · {}", seed_label(seed_id(world))),
             title: "While you were away".into(),
             items,
+            returned: true,
         };
     }
 
@@ -1061,6 +1063,7 @@ fn briefing(world: &World, seeded: bool, since_event_count: Option<usize>) -> Br
         eyebrow: format!("Pocket Universe · {}", seed_label(seed_id(world))),
         title,
         items,
+        returned: false,
     }
 }
 
