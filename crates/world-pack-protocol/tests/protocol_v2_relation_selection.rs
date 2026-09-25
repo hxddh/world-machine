@@ -78,3 +78,63 @@ fn decoding_a_v1_relation_snapshot_fails_at_protocol_validation_not_json_parsing
         }) if selection == "relation-5"
     ));
 }
+
+#[test]
+fn protocol_v1_rejects_a_relation_as_who_asks_or_where_someone_stands() {
+    let with = |patch: serde_json::Value| {
+        let mut snapshot = serde_json::to_value(ProjectionSnapshotWire::default()).unwrap();
+        for (key, value) in patch.as_object().unwrap() {
+            snapshot[key] = value.clone();
+        }
+        serde_json::from_value::<ProjectionSnapshotWire>(snapshot).unwrap()
+    };
+    let asked = with(serde_json::json!({
+        "commands": [{
+            "id": "together",
+            "title": "Together",
+            "detail": "",
+            "asker": { "type": "relation", "id": 5 }
+        }]
+    }));
+    let standing = with(serde_json::json!({
+        "canvas": { "links": [], "items": [{
+            "id": { "type": "entity", "id": 1 },
+            "kind": "actor",
+            "label": "Nia",
+            "detail": "",
+            "x": 0.0,
+            "y": 0.0,
+            "at": { "type": "relation", "id": 5 }
+        }]}
+    }));
+    let marked = with(serde_json::json!({
+        "canvas": { "items": [], "links": [], "marks": [{
+            "label": "Loop",
+            "selection": { "type": "relation", "id": 5 }
+        }]}
+    }));
+
+    for snapshot in [asked, standing, marked] {
+        let error = PackResponseEnvelope::for_version(
+            PACK_PROTOCOL_VERSION_V1,
+            1,
+            PackResponse::Snapshot {
+                snapshot: snapshot.clone(),
+            },
+        )
+        .expect_err("v1 must reject a Relation wherever it appears");
+        assert_eq!(
+            error,
+            ProtocolError::SelectionNotSupportedInProtocol {
+                protocol_version: PACK_PROTOCOL_VERSION_V1,
+                selection: "relation-5".into(),
+            }
+        );
+        PackResponseEnvelope::for_version(
+            PACK_PROTOCOL_VERSION_V2,
+            1,
+            PackResponse::Snapshot { snapshot },
+        )
+        .expect("v2 allows it");
+    }
+}

@@ -437,8 +437,14 @@ impl ProjectionSnapshotWire {
         }
         for item in &self.canvas.items {
             validate_selection_for_protocol(protocol_version, item.id)?;
+            if let Some(at) = item.at {
+                validate_selection_for_protocol(protocol_version, at)?;
+            }
         }
         for command in &self.commands {
+            if let Some(asker) = command.asker {
+                validate_selection_for_protocol(protocol_version, asker)?;
+            }
             for effect in &command.effects {
                 if let Some(target) = effect.target {
                     validate_selection_for_protocol(protocol_version, target)?;
@@ -449,6 +455,11 @@ impl ProjectionSnapshotWire {
             validate_selection_for_protocol(protocol_version, link.from)?;
             validate_selection_for_protocol(protocol_version, link.to)?;
             if let Some(selection) = link.selection {
+                validate_selection_for_protocol(protocol_version, selection)?;
+            }
+        }
+        for mark in &self.canvas.marks {
+            if let Some(selection) = mark.selection {
                 validate_selection_for_protocol(protocol_version, selection)?;
             }
         }

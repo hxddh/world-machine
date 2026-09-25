@@ -375,13 +375,18 @@ impl WorldDocumentView {
         cx.observe(&projection, |_, _, cx| cx.notify()).detach();
         let analyst_available = world_fork::analyst_available();
         let lineage_label = world_fork::lineage_label(&document);
-        // Closing the last World brings Home back rather than leaving the
-        // app running with no window, and silences its sound.
+        // Closing the last World brings Home back, even with Settings or
+        // another small window still open, and silences its sound.
         let sound_owner = cx.entity_id().as_u64();
         cx.on_release(move |_, cx| {
             ambience::player::release(sound_owner);
             cx.defer(|cx| {
-                if cx.windows().is_empty() {
+                let windows = cx.windows();
+                let world_or_home_open = windows.iter().any(|window| {
+                    window.downcast::<WorldDocumentView>().is_some()
+                        || window.downcast::<WorldMachineHome>().is_some()
+                });
+                if !world_or_home_open {
                     if let Some(home) = cx.try_global::<HomeEntity>().map(|home| home.0.clone()) {
                         open_home_window(home, cx);
                     }

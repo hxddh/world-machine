@@ -172,6 +172,8 @@ pub mod player {
     }
 
     static PLAYING: Mutex<Option<Playing>> = Mutex::new(None);
+    /// How often the player checks whether its loop has ended.
+    const POLL: std::time::Duration = std::time::Duration::from_millis(100);
 
     fn sound_file(palette: Palette) -> Option<PathBuf> {
         let root = crate::analyst_settings::application_support_root().ok()?;
@@ -232,11 +234,23 @@ pub mod player {
                 if let Ok(mut slot) = thread_child.lock() {
                     *slot = Some(spawned);
                 }
-                let finished = thread_child
-                    .lock()
-                    .ok()
-                    .and_then(|mut slot| slot.as_mut().map(|child| child.wait()));
-                if !matches!(finished, Some(Ok(status)) if status.success()) {
+                // Poll rather than wait, so the lock is only ever held for
+                // a moment and stopping never waits on a loop to finish.
+                let finished = loop {
+                    if thread_stop.load(Ordering::Relaxed) {
+                        return;
+                    }
+                    let polled = thread_child
+                        .lock()
+                        .ok()
+                        .and_then(|mut slot| slot.as_mut().map(|child| child.try_wait()));
+                    match polled {
+                        Some(Ok(Some(status))) => break status,
+                        Some(Ok(None)) => std::thread::sleep(POLL),
+                        _ => return,
+                    }
+                };
+                if !finished.success() {
                     return;
                 }
             }
