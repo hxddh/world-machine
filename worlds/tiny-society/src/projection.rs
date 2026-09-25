@@ -24,7 +24,7 @@ pub(crate) fn snapshot_since(
     world: &World,
     since_event_count: Option<usize>,
 ) -> ProjectionSnapshot {
-    ProjectionSnapshot {
+    let mut snapshot = ProjectionSnapshot {
         title: "Tiny Society".into(),
         world_time: world.world_time(),
         capabilities: ProjectionCapabilities {
@@ -68,7 +68,9 @@ pub(crate) fn snapshot_since(
             unit: "Day".into(),
             length: crate::persistence::WORLD_DAY_TICKS,
         }),
-    }
+    };
+    snapshot.tell_events_as_history_does();
+    snapshot
 }
 
 /// What moved on one person, place or thing since the visit: money, work,
@@ -393,16 +395,16 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
     if since_event_count.is_some() && items.len() == 1 {
         let (title, detail) = if relevant_events.is_empty() {
             (
-                "No new events",
-                "Nothing changed in the world since your last visit.".to_string(),
+                "A quiet stretch",
+                "Nothing changed in the town since your last visit.".to_string(),
             )
         } else {
             (
-                "The world moved forward",
-                format!(
-                    "{} new event(s) occurred, but none are highlighted in Society Today.",
-                    relevant_events.len()
-                ),
+                "The town kept working",
+                match relevant_events.len() {
+                    1 => "One small thing happened, and nothing stood out.".to_string(),
+                    count => format!("{count} small things happened, and nothing stood out."),
+                },
             )
         };
         items.push(BriefingItem {
@@ -611,11 +613,19 @@ fn bakery_sales_summary(world: &World, events: &[Event]) -> Option<BriefingItem>
         selection: Some(SelectionId::Event(latest.id)),
         title: "Harbor Bakery had customers".into(),
         detail: format!(
-            "{people} bought bread · {} {purchase_label} · {total_revenue} revenue · latest at World time {}",
+            "{people} bought bread · {} {purchase_label} · {total_revenue} earned · last on day {}",
             purchases.len(),
-            latest.world_time
-        ), tone: world_projection::Tone::Neutral,
-})
+            town_day(latest.world_time)
+        ),
+        tone: world_projection::Tone::Neutral,
+    })
+}
+
+/// The day a moment falls on, counted the way the town's calendar counts.
+fn town_day(world_time: u64) -> u64 {
+    world_time
+        .div_ceil(crate::persistence::WORLD_DAY_TICKS)
+        .max(1)
 }
 
 fn living_activity_summary(world: &World, events: &[Event]) -> Option<BriefingItem> {
@@ -651,13 +661,14 @@ fn living_activity_summary(world: &World, events: &[Event]) -> Option<BriefingIt
     Some(BriefingItem {
         kind: BriefingItemKind::Status,
         selection: Some(SelectionId::Event(latest.id)),
-        title: "The world moved forward".into(),
+        title: "The town kept working".into(),
         detail: format!(
-            "{people} worked · {} {shift_label} · {total_wages} total wages · latest at World time {}",
+            "{people} worked · {} {shift_label} · {total_wages} paid in wages · last on day {}",
             shifts.len(),
-            latest.world_time
-        ), tone: world_projection::Tone::Neutral,
-})
+            town_day(latest.world_time)
+        ),
+        tone: world_projection::Tone::Neutral,
+    })
 }
 
 fn resident_item(world: &World, id: EntityId) -> Option<CollectionItem> {
@@ -835,7 +846,7 @@ mod tests {
         let quiet = snapshot_since(society.world(), Some(society.world().events().len()));
         let items = quiet.briefing.expect("briefing").items;
         assert_eq!(items[0].title, "Harbor today");
-        assert_eq!(items[1].title, "No new events");
+        assert_eq!(items[1].title, "A quiet stretch");
     }
 }
 

@@ -650,6 +650,7 @@ fn selection_kind_name(kind: EvidenceSelectionKind) -> &'static str {
 fn visible_detail_sections(inspector: &InspectorProjection) -> Vec<EvidenceDetailSection> {
     inspector
         .display_sections()
+        .into_iter()
         .map(|section| EvidenceDetailSection {
             title: section.title.clone(),
             rows: section

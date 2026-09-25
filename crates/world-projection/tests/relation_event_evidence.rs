@@ -93,15 +93,12 @@ fn relation_evidence_resets_when_the_same_relation_id_starts_a_new_incarnation()
     assert_eq!(inspector.title, "Supports");
     let relation_rows = &inspector
         .display_sections()
+        .into_iter()
         .find(|section| section.title == "Relation")
         .expect("relation section")
         .rows;
-    assert!(relation_rows
-        .iter()
-        .any(|row| row.value.contains("Entity #2")));
-    assert!(relation_rows
-        .iter()
-        .any(|row| row.value.contains("Entity #3")));
+    assert!(relation_rows.iter().any(|row| row.value == "Person #2"));
+    assert!(relation_rows.iter().any(|row| row.value == "Person #3"));
 
     assert_eq!(
         snapshot

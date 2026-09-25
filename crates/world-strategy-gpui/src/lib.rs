@@ -622,12 +622,12 @@ impl StrategyComparisonView {
                     ));
                 }
                 if let Some(notice) =
-                    hidden_notice(relations.len(), ENTITY_RELATION_LIMIT, "current relations")
+                    hidden_notice(relations.len(), ENTITY_RELATION_LIMIT, "connections")
                 {
                     relation_list = relation_list.child(truncation_notice(notice));
                 }
                 panel = panel
-                    .child(div().text_sm().child("Current relations"))
+                    .child(div().text_sm().child("Connections"))
                     .child(
                         div()
                             .text_xs()
@@ -677,7 +677,7 @@ impl StrategyComparisonView {
                 if let Some(notice) = hidden_notice(
                     endpoints.len(),
                     RELATION_ENDPOINT_LIMIT,
-                    "current relation endpoints",
+                    "people it connects",
                 ) {
                     endpoint_list = endpoint_list.child(truncation_notice(notice));
                 }
@@ -733,12 +733,12 @@ impl StrategyComparisonView {
                 if let Some(notice) = hidden_notice(
                     changed_entities.len(),
                     EVENT_ENTITY_EFFECT_LIMIT,
-                    "directly changed entities",
+                    "things it changed",
                 ) {
                     entities = entities.child(truncation_notice(notice));
                 }
                 panel = panel
-                    .child(div().text_sm().child("Entities changed by this event"))
+                    .child(div().text_sm().child("What this changed"))
                     .child(
                         div()
                             .text_xs()
@@ -761,12 +761,12 @@ impl StrategyComparisonView {
                 if let Some(notice) = hidden_notice(
                     changed_relations.len(),
                     EVENT_RELATION_EFFECT_LIMIT,
-                    "directly changed relations",
+                    "connections it changed",
                 ) {
                     relations = relations.child(truncation_notice(notice));
                 }
                 panel = panel
-                    .child(div().text_sm().child("Relations changed by this event"))
+                    .child(div().text_sm().child("Connections this changed"))
                     .child(
                         div()
                             .text_xs()
@@ -869,7 +869,7 @@ impl StrategyComparisonView {
             .snapshot(side)
             .and_then(|snapshot| snapshot.inspector(selection))
             .map(|inspector| (inspector.title.clone(), inspector.subtitle.clone()))
-            .unwrap_or_else(|| ("Relation".into(), "Active relation".into()));
+            .unwrap_or_else(|| ("Relation".into(), "Still connected".into()));
         let selected = self.is_selected(side, selection);
         div()
             .id(SharedString::from(format!(
@@ -951,7 +951,7 @@ impl StrategyComparisonView {
             .snapshot(side)
             .and_then(|snapshot| snapshot.inspector(selection))
             .map(|inspector| (inspector.title.clone(), inspector.subtitle.clone()))
-            .unwrap_or_else(|| ("Relation".into(), "Recorded relation".into()));
+            .unwrap_or_else(|| ("Relation".into(), "A past connection".into()));
         let selected = self.is_selected(side, selection);
         div()
             .id(SharedString::from(format!(
@@ -1099,8 +1099,8 @@ impl StrategyComparisonView {
                     .text_xs()
                     .text_color(ui::color(tokens::TEXT_SECONDARY))
                     .child(format!(
-                        "Within {} hops of this selection: {} node-distance changes and {} typed edge changes between futures.",
-                        comparison.max_depth, node_count, edge_count
+                        "Close to this, the two futures differ in {} places and {} connections.",
+                        node_count, edge_count
                     )),
             );
 
@@ -1268,7 +1268,7 @@ impl StrategyComparisonView {
                 div()
                     .text_xs()
                     .text_color(ui::color(tokens::TEXT_TERTIARY))
-                    .child("No side-only typed edges"),
+                    .child("No connection exists in only one future"),
             );
         }
         for edge in edges.iter().take(LOCAL_EVIDENCE_EDGE_LIMIT_PER_SIDE) {
@@ -1282,7 +1282,7 @@ impl StrategyComparisonView {
         if let Some(notice) = hidden_notice(
             edges.len(),
             LOCAL_EVIDENCE_EDGE_LIMIT_PER_SIDE,
-            "typed edges",
+            "connections",
         ) {
             column = column.child(truncation_notice(notice));
         }
@@ -1297,7 +1297,7 @@ impl StrategyComparisonView {
                 self.selection_title(side, SelectionId::Event(evidence.event)),
             ),
             StateEvidenceEdge::RelationEvent(evidence) => format!(
-                "Recorded relation change: {} ↔ {}",
+                "A change between {} and {}",
                 self.selection_title(side, SelectionId::Relation(evidence.relation)),
                 self.selection_title(side, SelectionId::Event(evidence.event)),
             ),
@@ -1341,8 +1341,7 @@ impl StrategyComparisonView {
                         .child(div().flex_1().child(row.value.clone())),
                 );
             }
-            if let Some(notice) =
-                hidden_notice(section.rows.len(), INSPECTOR_ROW_LIMIT, "inspector rows")
+            if let Some(notice) = hidden_notice(section.rows.len(), INSPECTOR_ROW_LIMIT, "details")
             {
                 rows = rows.child(truncation_notice(notice));
             }
@@ -1448,12 +1447,12 @@ impl StrategyComparisonView {
                 div()
                     .text_sm()
                     .text_color(ui::color(tokens::TEXT_TERTIARY))
-                    .child("No relation state differences"),
+                    .child("Their connections are the same in both"),
             );
         } else if let Some(notice) = hidden_notice(
             comparison.relations.len(),
             RELATION_DIFFERENCE_LIMIT,
-            "relation differences",
+            "differences in connections",
         ) {
             relations = relations.child(truncation_notice(notice));
         }
@@ -1580,7 +1579,7 @@ impl StrategyComparisonView {
             )
             .child(div().text_sm().child("People, places and things"))
             .child(entities)
-            .child(div().text_sm().child("Relation state"))
+            .child(div().text_sm().child("How they stand"))
             .child(relations)
             .child(div().text_sm().child("Moments"))
             .child(timeline)
@@ -2204,7 +2203,7 @@ impl Render for StrategyComparisonView {
                         .rounded_md()
                         .bg(ui::color(tokens::ACCENT_SOFT))
                         .text_sm()
-                        .child(format!("Lineage relation · {relation}")),
+                        .child(format!("Branch · {relation}")),
                 );
             }
         }

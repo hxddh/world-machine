@@ -31,12 +31,6 @@ const SIDEBAR_WIDTH: f32 = 300.0;
 /// squeezing it.
 const TWO_COLUMN_MIN_WIDTH: f32 = 920.0;
 
-/// Event inspector sections that only restate the raw record. What an event
-/// changed is already listed by name under "What this changed", and why it
-/// happened has its own panel, so neither is repeated as a table of ids.
-const RAW_EVENT_SECTIONS: [&str; 2] = ["Payload", "Changes"];
-const RAW_EVENT_ROWS: [&str; 1] = ["Caused by"];
-
 pub struct ProjectionView {
     snapshot: ProjectionSnapshot,
     selected: Option<SelectionId>,
@@ -1574,7 +1568,6 @@ fn selection_for_snapshot(
 }
 
 fn inspector_panel(inspector: &InspectorProjection) -> Div {
-    let is_event = matches!(inspector.selection, SelectionId::Event(_));
     let mut header = div()
         .flex()
         .flex_col()
@@ -1586,15 +1579,9 @@ fn inspector_panel(inspector: &InspectorProjection) -> Div {
     let mut body = div().flex().flex_col().gap_4().child(header);
 
     for section in inspector.display_sections() {
-        if is_event && RAW_EVENT_SECTIONS.contains(&section.title.as_str()) {
-            continue;
-        }
         let mut rows = div().flex().flex_col();
         let mut shown = 0;
         for row in &section.rows {
-            if is_event && RAW_EVENT_ROWS.contains(&row.label.as_str()) {
-                continue;
-            }
             shown += 1;
             rows = rows.child(
                 div()

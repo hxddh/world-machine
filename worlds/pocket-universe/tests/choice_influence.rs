@@ -4,11 +4,29 @@ use pocket_universe::{
 };
 use std::error::Error;
 
-/// What kind of thing an item is, independent of how the Pack words it.
+/// What kind of thing an item is, independent of how the Pack words it:
+/// an event's recorded kind, or a thing's name.
 fn kind(
+    world: &world_core::World,
     snapshot: &world_projection::ProjectionSnapshot,
     id: world_projection::SelectionId,
 ) -> String {
+    if let world_projection::SelectionId::Event(event) = id {
+        if let Some(event) = world.event(event) {
+            return event
+                .kind
+                .split('_')
+                .map(|part| {
+                    let mut chars = part.chars();
+                    chars
+                        .next()
+                        .map(|first| first.to_uppercase().collect::<String>() + chars.as_str())
+                        .unwrap_or_default()
+                })
+                .collect::<Vec<_>>()
+                .join(" ");
+        }
+    }
     snapshot
         .inspector(id)
         .map(|inspector| inspector.title.clone())
@@ -16,46 +34,50 @@ fn kind(
 }
 
 fn influence_signature(
+    world: &world_core::World,
     snapshot: &world_projection::ProjectionSnapshot,
     event: world_core::EventId,
 ) -> Vec<(usize, world_projection::SelectionId, String)> {
     snapshot
         .influence(event)
         .into_iter()
-        .map(|(depth, item)| (depth, item.id, kind(snapshot, item.id)))
+        .map(|(depth, item)| (depth, item.id, kind(world, snapshot, item.id)))
         .collect()
 }
 
 fn semantic_influence_signature(
+    world: &world_core::World,
     snapshot: &world_projection::ProjectionSnapshot,
     event: world_core::EventId,
 ) -> Vec<(usize, world_projection::SelectionId, String)> {
     snapshot
         .semantic_influence(event)
         .into_iter()
-        .map(|(depth, item)| (depth, item.id, kind(snapshot, item.id)))
+        .map(|(depth, item)| (depth, item.id, kind(world, snapshot, item.id)))
         .collect()
 }
 
 fn semantic_path_signature(
+    world: &world_core::World,
     snapshot: &world_projection::ProjectionSnapshot,
     event: world_core::EventId,
 ) -> Vec<(world_projection::SelectionId, String)> {
     snapshot
         .semantic_path(event)
         .into_iter()
-        .map(|item| (item.id, kind(snapshot, item.id)))
+        .map(|item| (item.id, kind(world, snapshot, item.id)))
         .collect()
 }
 
 fn semantic_path_detail_signature(
+    world: &world_core::World,
     snapshot: &world_projection::ProjectionSnapshot,
     event: world_core::EventId,
 ) -> Vec<(usize, world_projection::SelectionId, String, String)> {
     snapshot
         .semantic_path_details(event)
         .into_iter()
-        .map(|(steps, item, effect)| (steps, item.id, kind(snapshot, item.id), effect))
+        .map(|(steps, item, effect)| (steps, item.id, kind(world, snapshot, item.id), effect))
         .collect()
 }
 
@@ -69,8 +91,10 @@ fn old_choices_expose_semantic_world_effects_without_erasing_supporting_history(
 
     universe.invoke_projection_command(NUDGE_COMMAND)?;
     let relationship_snapshot = universe.projection_snapshot();
-    let raw_relationship = influence_signature(&relationship_snapshot, relationship);
-    let semantic_relationship = semantic_influence_signature(&relationship_snapshot, relationship);
+    let raw_relationship =
+        influence_signature(universe.world(), &relationship_snapshot, relationship);
+    let semantic_relationship =
+        semantic_influence_signature(universe.world(), &relationship_snapshot, relationship);
 
     assert!(raw_relationship
         .iter()
@@ -83,7 +107,8 @@ fn old_choices_expose_semantic_world_effects_without_erasing_supporting_history(
         .any(|(_, _, title)| title == "Relationship Shifted"));
     assert!(semantic_relationship.len() < raw_relationship.len());
 
-    let relationship_path = semantic_path_signature(&relationship_snapshot, relationship);
+    let relationship_path =
+        semantic_path_signature(universe.world(), &relationship_snapshot, relationship);
     assert!(relationship_path.len() >= 3);
     assert!(relationship_path
         .iter()
@@ -98,7 +123,8 @@ fn old_choices_expose_semantic_world_effects_without_erasing_supporting_history(
         .expect("the latest relationship thread should reach the resolved social arc");
     assert!(shifted < partnership);
 
-    let relationship_details = semantic_path_detail_signature(&relationship_snapshot, relationship);
+    let relationship_details =
+        semantic_path_detail_signature(universe.world(), &relationship_snapshot, relationship);
     assert_eq!(relationship_details.len(), relationship_path.len());
     assert!(relationship_details
         .iter()
@@ -127,8 +153,10 @@ fn old_choices_expose_semantic_world_effects_without_erasing_supporting_history(
     let intervention = universe.invoke_projection_command(BOLD_PATH_COMMAND)?;
     universe.advance_periods(2)?;
     let intervention_snapshot = universe.projection_snapshot();
-    let raw_intervention = influence_signature(&intervention_snapshot, intervention);
-    let semantic_intervention = semantic_influence_signature(&intervention_snapshot, intervention);
+    let raw_intervention =
+        influence_signature(universe.world(), &intervention_snapshot, intervention);
+    let semantic_intervention =
+        semantic_influence_signature(universe.world(), &intervention_snapshot, intervention);
     assert!(semantic_intervention
         .iter()
         .any(|(_, _, title)| title == "Universe Grew"));
@@ -138,22 +166,22 @@ fn old_choices_expose_semantic_world_effects_without_erasing_supporting_history(
     let reopened = PocketUniverse::resume_archive(&archive)?;
     let reopened_snapshot = reopened.projection_snapshot();
     assert_eq!(
-        semantic_influence_signature(&reopened_snapshot, intervention),
+        semantic_influence_signature(reopened.world(), &reopened_snapshot, intervention),
         semantic_intervention,
         "archive/reopen must reconstruct the same semantic influence from persisted Events"
     );
     assert_eq!(
-        semantic_path_signature(&reopened_snapshot, relationship),
-        semantic_path_signature(&intervention_snapshot, relationship),
+        semantic_path_signature(reopened.world(), &reopened_snapshot, relationship),
+        semantic_path_signature(universe.world(), &intervention_snapshot, relationship),
         "archive/reopen must reconstruct the same compressed causal thread from persisted Events"
     );
     assert_eq!(
-        semantic_path_detail_signature(&reopened_snapshot, relationship),
-        semantic_path_detail_signature(&intervention_snapshot, relationship),
+        semantic_path_detail_signature(reopened.world(), &reopened_snapshot, relationship),
+        semantic_path_detail_signature(universe.world(), &intervention_snapshot, relationship),
         "archive/reopen must reconstruct the same recorded causal explanation"
     );
     assert_eq!(
-        influence_signature(&reopened_snapshot, intervention),
+        influence_signature(reopened.world(), &reopened_snapshot, intervention),
         raw_intervention,
         "semantic folding must not mutate or discard the raw causal history"
     );

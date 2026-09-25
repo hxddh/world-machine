@@ -298,6 +298,10 @@ fn horizon(scenery: world_projection::Scenery) -> impl IntoElement {
     .size_full()
 }
 
+/// What Packs built before the rows were named in plain words still send.
+const LEGACY_WHO_ROW: &str = "Actor";
+const LEGACY_WITH_ROW: &str = "Targets";
+
 /// Whose face an event wears: whoever did it, or, when nobody did (a
 /// payroll that failed, a storm that damaged a boat), the first thing it
 /// happened to.
@@ -311,8 +315,13 @@ pub fn event_actor(snapshot: &ProjectionSnapshot, selection: SelectionId) -> Opt
             .find(|row| row.label == label)
             .map(|row| row.value.as_str())
     };
-    row("Actor")
-        .or_else(|| row("Targets").and_then(|targets| targets.split(", ").next()))
+    row(world_projection::EVENT_WHO_ROW)
+        .or_else(|| row(LEGACY_WHO_ROW))
+        .or_else(|| {
+            row(world_projection::EVENT_WITH_ROW)
+                .or_else(|| row(LEGACY_WITH_ROW))
+                .and_then(|targets| targets.split(", ").next())
+        })
         .filter(|name| !name.trim().is_empty())
         .map(str::to_string)
 }
@@ -362,7 +371,14 @@ pub fn in_the_news(snapshot: &ProjectionSnapshot, latest: usize) -> BTreeMap<Str
             SelectionId::Event(_) => {
                 if let Some(inspector) = snapshot.inspector(selection) {
                     for row in inspector.sections.iter().flat_map(|s| s.rows.iter()) {
-                        if row.label == "Actor" || row.label == "Targets" {
+                        if [
+                            world_projection::EVENT_WHO_ROW,
+                            world_projection::EVENT_WITH_ROW,
+                            LEGACY_WHO_ROW,
+                            LEGACY_WITH_ROW,
+                        ]
+                        .contains(&row.label.as_str())
+                        {
                             for name in row.value.split(", ") {
                                 note(name.to_string(), beat.tone);
                             }

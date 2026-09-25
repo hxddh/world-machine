@@ -33,7 +33,7 @@ pub trait LineageController {
         _right: &str,
         _cx: &mut Context<LineageExplorerView>,
     ) -> Result<(), String> {
-        Err("This lineage view cannot compare saved Worlds".into())
+        Err("This view cannot compare saved Worlds".into())
     }
 }
 
@@ -109,7 +109,7 @@ impl LineageExplorerView {
         let controller = self
             .controller
             .as_mut()
-            .ok_or_else(|| "This lineage view cannot open Worlds".to_string())?;
+            .ok_or_else(|| "This view cannot open Worlds".to_string())?;
         controller.open_document(&document, cx)?;
         let notice = controller.take_open_notice();
         Ok((document, notice))
@@ -139,9 +139,9 @@ impl LineageExplorerView {
         let controller = self
             .controller
             .as_mut()
-            .ok_or_else(|| "This lineage view cannot compare saved Worlds".to_string())?;
+            .ok_or_else(|| "This view cannot compare saved Worlds".to_string())?;
         if !controller.can_compare() {
-            return Err("This lineage view cannot compare saved Worlds".into());
+            return Err("This view cannot compare saved Worlds".into());
         }
         controller.compare_documents(&left, &right, cx)?;
         Ok((left, right))

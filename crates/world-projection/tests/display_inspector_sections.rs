@@ -34,7 +34,7 @@ fn display_sections_hide_only_machine_entity_history() {
         ],
     };
 
-    let sections = inspector.display_sections().collect::<Vec<_>>();
+    let sections = inspector.display_sections();
     assert_eq!(
         sections
             .iter()

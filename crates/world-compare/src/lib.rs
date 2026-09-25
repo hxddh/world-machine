@@ -512,7 +512,7 @@ fn same_relation_state(
 
 fn indexed_relation_state_rows(
     inspector: &InspectorProjection,
-) -> BTreeMap<InspectorRowKey, &String> {
+) -> BTreeMap<InspectorRowKey, String> {
     indexed_rows_filter(inspector, |section, row| {
         !(section == "Relation" && matches!(row, "From" | "To"))
     })
@@ -584,14 +584,14 @@ fn compare_inspector_rows(
         .collect()
 }
 
-fn indexed_rows(inspector: &InspectorProjection) -> BTreeMap<InspectorRowKey, &String> {
+fn indexed_rows(inspector: &InspectorProjection) -> BTreeMap<InspectorRowKey, String> {
     indexed_rows_filter(inspector, |_, _| true)
 }
 
 fn indexed_rows_filter(
     inspector: &InspectorProjection,
     mut include: impl FnMut(&str, &str) -> bool,
-) -> BTreeMap<InspectorRowKey, &String> {
+) -> BTreeMap<InspectorRowKey, String> {
     let mut rows = BTreeMap::new();
     let mut duplicates = BTreeMap::<(String, String), usize>::new();
 
@@ -608,7 +608,7 @@ fn indexed_rows_filter(
                 ordinal: *ordinal,
             };
             *ordinal += 1;
-            rows.insert(key, &row.value);
+            rows.insert(key, row.value.clone());
         }
     }
 

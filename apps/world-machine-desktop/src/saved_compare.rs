@@ -160,10 +160,7 @@ impl SavedWorldSetupView {
                             div()
                                 .text_xs()
                                 .text_color(ui::color(tokens::TEXT_SECONDARY))
-                                .child(format!(
-                                    "t={} · {} events",
-                                    document.world_time, document.event_count
-                                )),
+                                .child(format!("{} things have happened", document.event_count)),
                         ),
                 )
                 .child(
@@ -279,7 +276,7 @@ impl gpui::Render for SavedWorldSetupView {
                 div()
                     .text_sm()
                     .text_color(ui::color(tokens::TEXT_SECONDARY))
-                    .child("Choose any two Worlds from My Worlds. Comparison reads their current durable state, never advances either World, and requires the same Pack version."),
+                    .child("Choose any two Worlds from My Worlds to see them side by side as they stand now. Neither moves on while you compare them, and both need to come from the same version of their World Pack."),
             )
             .child(
                 div()
@@ -398,12 +395,14 @@ fn relation_label(relation: &SavedWorldRelation) -> String {
             format!("Related branches · common ancestor {common_ancestor}")
         }
         SavedWorldRelation::UnresolvedAncestry { left, right } => format!(
-            "Unresolved ancestry · left {} · right {}",
+            "Where these two came from is unclear · left {} · right {}",
             optional_document(left),
             optional_document(right)
         ),
-        SavedWorldRelation::Unrelated => "Unrelated saved Worlds".into(),
-        SavedWorldRelation::Unavailable(reason) => format!("Relation unavailable · {reason}"),
+        SavedWorldRelation::Unrelated => "Two unrelated Worlds".into(),
+        SavedWorldRelation::Unavailable(reason) => {
+            format!("Could not tell how these two are related · {reason}")
+        }
     }
 }
 
@@ -422,8 +421,8 @@ fn branch_label(branch: Option<&WorldBranchCause>) -> Option<String> {
             ..
         } => format!("Strategy · {choice_title} · {horizon} periods"),
         WorldBranchCause::Fork { label } => match label {
-            Some(label) => format!("Fork · {label}"),
-            None => "Fork".into(),
+            Some(label) => format!("Branch · {label}"),
+            None => "Branch".into(),
         },
     })
 }

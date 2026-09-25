@@ -438,8 +438,9 @@ impl WorldDocumentView {
                 self.refresh_document_identity();
                 self.rebuild_projection(cx);
                 self.status = Some(DocumentStatus::success(format!(
-                    "Reloaded {} · World time {}",
-                    self.document_name, snapshot.world_time
+                    "Reloaded {} · {}",
+                    self.document_name,
+                    snapshot.moment_label(snapshot.world_time)
                 )));
             }
             Err(error) => {
@@ -487,8 +488,9 @@ impl WorldDocumentView {
                         this.refresh_document_identity();
                         this.rebuild_projection(cx);
                         this.status = Some(DocumentStatus::success(format!(
-                            "Saved As {} · World time {}",
-                            this.document_name, snapshot.world_time
+                            "Saved As {} · {}",
+                            this.document_name,
+                            snapshot.moment_label(snapshot.world_time)
                         )));
                     }
                     Err(error) => {
@@ -543,8 +545,8 @@ impl WorldDocumentView {
 
     fn open_lineage(&mut self, cx: &mut Context<Self>) {
         self.status = Some(match world_fork::open_lineage(&self.document, cx) {
-            Ok(count) => DocumentStatus::success(format!("Opened lineage · {count} World(s)")),
-            Err(error) => DocumentStatus::info(format!("Could not open lineage: {error}")),
+            Ok(count) => DocumentStatus::success(format!("Opened Branches · {count} Worlds")),
+            Err(error) => DocumentStatus::info(format!("Could not open Branches: {error}")),
         });
         cx.notify();
     }
@@ -1465,7 +1467,7 @@ impl WorldMachineHome {
             Err(error) => {
                 self.lineage = None;
                 Err(HomeStatus::error(format!(
-                    "Could not build World lineage: {error}"
+                    "Could not show this World's branches: {error}"
                 )))
             }
         }
@@ -2375,7 +2377,7 @@ impl WorldMachineHome {
                         div()
                             .text_xs()
                             .text_color(ui::color(tokens::ACCENT_TEXT))
-                            .child("START HERE · PERSISTENT SOCIAL WORLD"),
+                            .child("START HERE · A WORLD THAT KEEPS LIVING"),
                     )
                     .child(div().text_lg().child(pack.title))
                     .child(
@@ -4177,7 +4179,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 listing.documents,
                 listing.unreadable,
                 None,
-                Some(format!("Could not build World lineage: {error}")),
+                Some(format!("Could not show this World's branches: {error}")),
             ),
         },
         Err(error) => (

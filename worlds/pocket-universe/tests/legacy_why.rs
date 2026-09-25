@@ -45,18 +45,33 @@ fn legacy_briefing_selects_its_event_and_exposes_why() -> Result<(), Box<dyn Err
         .why(legacy_event_id)
         .expect("the selected legacy event should already have a generic Why projection");
     assert_eq!(why.event, legacy_event_id);
-    assert_eq!(why.nodes[0].title, "World Legacy Formed");
+    // The chain opens on the legacy as History tells it.
+    assert!(why.nodes[0].title.contains("ridge network"));
     assert!(why.nodes[0].subtitle.contains("ridge network"));
 
-    let titles = why
-        .nodes
-        .iter()
-        .map(|node| node.title.as_str())
-        .collect::<Vec<_>>();
-    assert!(titles.contains(&"World Posture Chosen"));
-    assert!(titles.contains(&"Partnership Formed"));
-    assert!(titles.contains(&"Universe Intervened"));
-    assert!(titles.contains(&"Relationship Shifted"));
+    // What the chain passes through, by recorded kind rather than wording.
+    let kinds_in = |archive: &world_persistence::WorldArchive,
+                    why: &world_projection::WhyProjection| {
+        why.nodes
+            .iter()
+            .filter_map(|node| {
+                archive
+                    .events
+                    .iter()
+                    .find(|event| event.id == node.event.0)
+                    .map(|event| event.kind.clone())
+            })
+            .collect::<Vec<_>>()
+    };
+    let kinds = kinds_in(&archive, why);
+    for kind in [
+        "world_posture_chosen",
+        "partnership_formed",
+        "universe_intervened",
+        "relationship_shifted",
+    ] {
+        assert!(kinds.iter().any(|seen| seen == kind), "missing {kind}");
+    }
 
     let mut reopened = PocketUniverse::resume_archive(&archive)?;
     let reopened_snapshot = reopened.projection_snapshot();
@@ -106,14 +121,14 @@ fn legacy_briefing_selects_its_event_and_exposes_why() -> Result<(), Box<dyn Err
     let reinforced_why = reinforced_snapshot
         .why(reinforced_event_id)
         .expect("legacy reinforcement should have a generic Why projection");
-    assert_eq!(reinforced_why.nodes[0].title, "Legacy Reinforced");
-    let reinforced_titles = reinforced_why
-        .nodes
+    let reinforced_kinds = kinds_in(&reinforced_archive, reinforced_why);
+    assert_eq!(reinforced_kinds[0], "legacy_reinforced");
+    assert!(reinforced_kinds
         .iter()
-        .map(|node| node.title.as_str())
-        .collect::<Vec<_>>();
-    assert!(reinforced_titles.contains(&"World Legacy Formed"));
-    assert!(reinforced_titles.contains(&"Relationship Shifted"));
+        .any(|kind| kind == "world_legacy_formed"));
+    assert!(reinforced_kinds
+        .iter()
+        .any(|kind| kind == "relationship_shifted"));
 
     let reopened_again = PocketUniverse::resume_archive(&reinforced_archive)?;
     let reopened_again_snapshot = reopened_again.projection_snapshot();

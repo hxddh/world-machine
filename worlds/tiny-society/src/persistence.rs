@@ -370,7 +370,7 @@ mod tests {
         assert!(briefing
             .items
             .iter()
-            .any(|item| item.title == "The world moved forward"));
+            .any(|item| item.title == "The town kept working"));
     }
 
     #[test]

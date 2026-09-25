@@ -321,13 +321,13 @@ fn event_inspector(
         .map(entity_name)
     {
         rows.push(InspectorRow {
-            label: "Actor".into(),
+            label: world_projection::EVENT_WHO_ROW.into(),
             value: actor,
         });
     }
     if !event.targets.is_empty() {
         rows.push(InspectorRow {
-            label: "Targets".into(),
+            label: world_projection::EVENT_WITH_ROW.into(),
             value: event
                 .targets
                 .iter()
