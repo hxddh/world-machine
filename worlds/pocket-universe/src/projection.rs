@@ -41,6 +41,7 @@ pub(crate) fn snapshot_since(
         world_time: world.world_time(),
         capabilities: ProjectionCapabilities {
             fork: !world.events().is_empty(),
+            background: seeded,
         },
         briefing: Some(toned(world, briefing(world, seeded, since_event_count))),
         commands: commands(world, seeded)

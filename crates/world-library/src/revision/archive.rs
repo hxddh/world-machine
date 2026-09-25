@@ -39,7 +39,10 @@ mod tests {
             ProjectionSnapshot {
                 title: "Archive Source Mock".into(),
                 world_time: self.world_time,
-                capabilities: ProjectionCapabilities { fork: false },
+                capabilities: ProjectionCapabilities {
+                    fork: false,
+                    background: false,
+                },
                 ..ProjectionSnapshot::default()
             }
         }

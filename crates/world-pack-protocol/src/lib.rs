@@ -514,12 +514,15 @@ impl TryFrom<ProjectionSnapshotWire> for ProjectionSnapshot {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ProjectionCapabilitiesWire {
     pub fork: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub background: bool,
 }
 
 impl From<ProjectionCapabilities> for ProjectionCapabilitiesWire {
     fn from(capabilities: ProjectionCapabilities) -> Self {
         Self {
             fork: capabilities.fork,
+            background: capabilities.background,
         }
     }
 }
@@ -528,6 +531,7 @@ impl From<ProjectionCapabilitiesWire> for ProjectionCapabilities {
     fn from(capabilities: ProjectionCapabilitiesWire) -> Self {
         Self {
             fork: capabilities.fork,
+            background: capabilities.background,
         }
     }
 }
@@ -1405,7 +1409,10 @@ mod tests {
         ProjectionSnapshot {
             title: "External World".into(),
             world_time: 42,
-            capabilities: ProjectionCapabilities { fork: true },
+            capabilities: ProjectionCapabilities {
+                fork: true,
+                background: false,
+            },
             briefing: Some(BriefingProjection {
                 eyebrow: "Status".into(),
                 title: "World briefing".into(),
@@ -1646,5 +1653,18 @@ mod tests {
         let newer: MarkShapeWire =
             serde_json::from_str(r#""lighthouse""#).expect("a newer shape still decodes");
         assert_eq!(MarkShape::from(newer), MarkShape::House);
+    }
+
+    #[test]
+    fn moving_on_its_own_is_declared_and_absent_means_it_does_not() {
+        let old: ProjectionCapabilitiesWire =
+            serde_json::from_str(r#"{"fork":true}"#).expect("an older Pack decodes");
+        assert!(!ProjectionCapabilities::from(old).background);
+        let live = ProjectionCapabilities {
+            fork: false,
+            background: true,
+        };
+        let wire = ProjectionCapabilitiesWire::from(live);
+        assert_eq!(ProjectionCapabilities::from(wire), live);
     }
 }

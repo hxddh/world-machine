@@ -159,7 +159,10 @@ mod tests {
             ProjectionSnapshot {
                 title: "Observer Test".into(),
                 world_time: self.time,
-                capabilities: ProjectionCapabilities { fork: false },
+                capabilities: ProjectionCapabilities {
+                    fork: false,
+                    background: false,
+                },
                 ..ProjectionSnapshot::default()
             }
         }
@@ -194,7 +197,10 @@ mod tests {
             ProjectionSnapshot {
                 title: "Static Observer Test".into(),
                 world_time: self.time,
-                capabilities: ProjectionCapabilities { fork: false },
+                capabilities: ProjectionCapabilities {
+                    fork: false,
+                    background: false,
+                },
                 ..ProjectionSnapshot::default()
             }
         }

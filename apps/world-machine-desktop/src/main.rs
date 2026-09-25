@@ -583,7 +583,7 @@ impl Render for WorldDocumentView {
             let snapshot = self.projection.read(cx).snapshot();
             (
                 snapshot.capabilities.fork,
-                snapshot.commands.len() >= 2 && !snapshot.canvas.items.is_empty(),
+                snapshot.commands.len() >= 2 && !world_gpui::is_beginning(snapshot),
             )
         };
         let mut actions = div().flex_shrink_0().flex().items_center().gap_2();
@@ -618,16 +618,21 @@ impl Render for WorldDocumentView {
 
         // Beside its name, the one thing the app is about: this World goes on
         // without you, and when it next will.
-        let unit = self
-            .projection
-            .read(cx)
-            .snapshot()
-            .calendar
-            .as_ref()
-            .map(|calendar| calendar.unit.to_lowercase())
-            .unwrap_or_else(|| "day".into());
+        // Only a World that moves on its own may promise to keep going.
+        let (moves_alone, unit) = {
+            let snapshot = self.projection.read(cx).snapshot();
+            (
+                snapshot.capabilities.background,
+                snapshot
+                    .calendar
+                    .as_ref()
+                    .map(|calendar| calendar.unit.to_lowercase())
+                    .unwrap_or_else(|| "day".into()),
+            )
+        };
         let keeps_going = self
             .next_move_at
+            .filter(|_| moves_alone)
             .zip(unix_now())
             .map(|(at, now)| keeps_going_line(at.saturating_sub(now), &unit));
         // The World is called by its name, and only by its name; which file

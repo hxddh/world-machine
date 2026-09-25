@@ -24,7 +24,10 @@ pub(crate) fn snapshot(world: &World) -> ProjectionSnapshot {
     ProjectionSnapshot {
         title: "Future Archaeologist · Terminal 17".into(),
         world_time: world.world_time(),
-        capabilities: ProjectionCapabilities { fork: false },
+        capabilities: ProjectionCapabilities {
+            fork: false,
+            background: false,
+        },
         briefing: Some(briefing(world, &visible_artifacts)),
         commands: commands(world),
         collection: collection(world, &visible_artifacts),

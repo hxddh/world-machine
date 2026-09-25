@@ -115,7 +115,10 @@ mod tests {
             ProjectionSnapshot {
                 title: format!("Mock {}", self.count),
                 world_time: self.count,
-                capabilities: ProjectionCapabilities { fork: false },
+                capabilities: ProjectionCapabilities {
+                    fork: false,
+                    background: false,
+                },
                 ..ProjectionSnapshot::default()
             }
         }

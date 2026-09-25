@@ -209,6 +209,10 @@ pub enum EffectChange {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ProjectionCapabilities {
     pub fork: bool,
+    /// The World moves on its own between visits, so the app can promise
+    /// that it keeps going. A Pack whose World only moves when a player
+    /// acts leaves this off.
+    pub background: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]

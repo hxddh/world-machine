@@ -154,7 +154,10 @@ mod tests {
             ProjectionSnapshot {
                 title: format!("Strategy Document Mock {}", self.count),
                 world_time: self.count,
-                capabilities: ProjectionCapabilities { fork: false },
+                capabilities: ProjectionCapabilities {
+                    fork: false,
+                    background: false,
+                },
                 commands: vec![
                     ProjectionCommand {
                         id: "mock.left".into(),

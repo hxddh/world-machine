@@ -29,7 +29,10 @@ impl WorldSession for MockSession {
         ProjectionSnapshot {
             title: format!("Metadata Mock {}", self.count),
             world_time: self.count,
-            capabilities: ProjectionCapabilities { fork: false },
+            capabilities: ProjectionCapabilities {
+                fork: false,
+                background: false,
+            },
             briefing: Some(BriefingProjection {
                 eyebrow: "Metadata".into(),
                 title: "Current state".into(),

@@ -75,7 +75,10 @@ mod tests {
             ProjectionSnapshot {
                 title: format!("Fork Mock {}", self.world_time),
                 world_time: self.world_time,
-                capabilities: ProjectionCapabilities { fork: true },
+                capabilities: ProjectionCapabilities {
+                    fork: true,
+                    background: false,
+                },
                 ..ProjectionSnapshot::default()
             }
         }

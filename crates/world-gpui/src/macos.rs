@@ -1427,7 +1427,7 @@ struct HistoryGroup<'a> {
 
 /// A World with nothing on stage yet whose every choice shows the World it
 /// would start.
-fn is_beginning(snapshot: &ProjectionSnapshot) -> bool {
+pub fn is_beginning(snapshot: &ProjectionSnapshot) -> bool {
     snapshot.canvas.items.is_empty()
         && !snapshot.commands.is_empty()
         && snapshot

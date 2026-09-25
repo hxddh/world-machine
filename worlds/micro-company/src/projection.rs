@@ -16,6 +16,7 @@ pub(crate) fn snapshot(world: &World, since_event_count: Option<usize>) -> Proje
         world_time: world.world_time(),
         capabilities: ProjectionCapabilities {
             fork: !world.events().is_empty(),
+            background: true,
         },
         briefing: Some(briefing(world, since_event_count)),
         commands: commands(world),

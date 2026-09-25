@@ -2142,6 +2142,19 @@ mod tests {
     }
 
     #[test]
+    fn only_a_begun_world_says_it_moves_on_its_own() {
+        let registry = registry();
+        let mut session = registry.create(POCKET_UNIVERSE_PACK_ID).unwrap();
+        assert!(!session.snapshot().capabilities.background);
+        let seeded = session
+            .handle(ProjectionIntent::InvokeCommand(
+                SEED_MARS_COLONY_COMMAND.into(),
+            ))
+            .unwrap();
+        assert!(seeded.capabilities.background);
+    }
+
+    #[test]
     fn one_pack_can_seed_distinct_world_shapes() {
         let registry = registry();
         let mut mars = registry.create(POCKET_UNIVERSE_PACK_ID).unwrap();

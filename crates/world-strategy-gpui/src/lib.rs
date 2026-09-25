@@ -356,7 +356,7 @@ impl StrategyComparisonView {
                     div()
                         .text_xs()
                         .text_color(ui::color(tokens::TEXT_TERTIARY))
-                        .child(self.moment(frontier.world_time)),
+                        .child(self.moment(ComparisonSide::Left, frontier.world_time)),
                 ),
             None => div()
                 .p_3()
@@ -471,7 +471,7 @@ impl StrategyComparisonView {
                         div()
                             .text_xs()
                             .text_color(ui::color(tokens::TEXT_TERTIARY))
-                            .child(self.moment(first.world_time)),
+                            .child(self.moment(comparison_side, first.world_time)),
                     )
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.select(comparison_side, selection, cx)
@@ -1020,7 +1020,7 @@ impl StrategyComparisonView {
                 div()
                     .text_xs()
                     .text_color(ui::color(tokens::TEXT_TERTIARY))
-                    .child(self.moment(item.world_time)),
+                    .child(self.moment(side, item.world_time)),
             )
             .on_click(cx.listener(move |this, _, _, cx| this.select(side, selection, cx)))
     }
@@ -1062,7 +1062,7 @@ impl StrategyComparisonView {
                 div()
                     .text_xs()
                     .text_color(ui::color(tokens::TEXT_TERTIARY))
-                    .child(self.moment(item.world_time)),
+                    .child(self.moment(side, item.world_time)),
             )
             .on_click(cx.listener(move |this, _, _, cx| this.select(side, selection, cx)))
     }
@@ -1407,7 +1407,7 @@ impl StrategyComparisonView {
                 div()
                     .text_xs()
                     .text_color(ui::color(tokens::TEXT_TERTIARY))
-                    .child(self.moment(node.world_time)),
+                    .child(self.moment(side, node.world_time)),
             )
             .on_click(cx.listener(move |this, _, _, cx| this.select(side, selection, cx)))
     }
@@ -2138,16 +2138,17 @@ impl StrategyComparisonView {
             .on_click(cx.listener(move |this, _, _, cx| this.select(side, selection, cx)))
     }
 
-    /// A moment in the compared World's own time ("Sol 3"): both futures
-    /// are the same World, so either side's calendar reads for both.
-    fn moment(&self, world_time: u64) -> String {
+    /// A moment in one side's own time ("Sol 3"). Two futures are the same
+    /// World, so either side's calendar reads for both; two saved Worlds may
+    /// come from different Packs, so each reads in its own.
+    fn moment(&self, side: ComparisonSide, world_time: u64) -> String {
         let snapshot = match &self.source {
             ComparisonSource::Strategies(evaluation) => evaluation
                 .left
                 .outcome()
                 .or_else(|| evaluation.right.outcome())
                 .map(|outcome| &outcome.snapshot),
-            ComparisonSource::Saved { left, .. } => Some(left),
+            ComparisonSource::Saved { .. } => self.snapshot(side),
         };
         match snapshot {
             Some(snapshot) => snapshot.moment_label(world_time),
