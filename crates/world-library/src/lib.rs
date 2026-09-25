@@ -696,6 +696,9 @@ fn mark_shape_name(shape: world_projection::MarkShape) -> &'static str {
         MarkShape::Lamp => "lamp",
         MarkShape::Shop => "shop",
         MarkShape::Bridge => "bridge",
+        MarkShape::Rover => "rover",
+        MarkShape::Boat => "boat",
+        MarkShape::Parcel => "parcel",
     }
 }
 
@@ -708,6 +711,9 @@ fn mark_shape_from_name(name: &str) -> world_projection::MarkShape {
         "lamp" => MarkShape::Lamp,
         "shop" => MarkShape::Shop,
         "bridge" => MarkShape::Bridge,
+        "rover" => MarkShape::Rover,
+        "boat" => MarkShape::Boat,
+        "parcel" => MarkShape::Parcel,
         _ => MarkShape::House,
     }
 }

@@ -354,6 +354,119 @@ pub struct ProjectionSnapshotWire {
     pub calendar: Option<CalendarWire>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub gauges: Vec<GaugeWire>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub voices: Vec<VoiceWire>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub talks: Vec<TalkWire>,
+}
+
+/// Something someone said aloud at a moment. Narration only.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct VoiceWire {
+    pub moment: SelectionIdWire,
+    pub speaker: SelectionIdWire,
+    pub line: String,
+}
+
+/// A question a player can put to someone, and the answer; `asks_for` names
+/// one of the snapshot's commands.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct TalkWire {
+    pub who: SelectionIdWire,
+    pub question: String,
+    pub answer: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asks_for: Option<String>,
+}
+
+/// How someone looks. Every part is optional; colours are 0xRRGGBB.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub struct LookWire {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clothes: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hair: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skin: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub carries: Option<CarryWire>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub bird: bool,
+}
+
+/// What someone carries. Something a newer Pack names and this build does
+/// not know is carried as nothing.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CarryWire {
+    Tool,
+    Book,
+    Bread,
+    Fish,
+    Basket,
+    Satchel,
+    Plant,
+    Mug,
+    #[serde(other)]
+    Unknown,
+}
+
+impl From<world_projection::Carry> for CarryWire {
+    fn from(carry: world_projection::Carry) -> Self {
+        use world_projection::Carry;
+        match carry {
+            Carry::Tool => Self::Tool,
+            Carry::Book => Self::Book,
+            Carry::Bread => Self::Bread,
+            Carry::Fish => Self::Fish,
+            Carry::Basket => Self::Basket,
+            Carry::Satchel => Self::Satchel,
+            Carry::Plant => Self::Plant,
+            Carry::Mug => Self::Mug,
+        }
+    }
+}
+
+impl CarryWire {
+    fn carried(self) -> Option<world_projection::Carry> {
+        use world_projection::Carry;
+        Some(match self {
+            Self::Tool => Carry::Tool,
+            Self::Book => Carry::Book,
+            Self::Bread => Carry::Bread,
+            Self::Fish => Carry::Fish,
+            Self::Basket => Carry::Basket,
+            Self::Satchel => Carry::Satchel,
+            Self::Plant => Carry::Plant,
+            Self::Mug => Carry::Mug,
+            Self::Unknown => return None,
+        })
+    }
+}
+
+impl From<world_projection::Look> for LookWire {
+    fn from(look: world_projection::Look) -> Self {
+        Self {
+            clothes: look.clothes,
+            hair: look.hair,
+            skin: look.skin,
+            carries: look.carries.map(Into::into),
+            bird: look.bird,
+        }
+    }
+}
+
+impl From<LookWire> for world_projection::Look {
+    fn from(look: LookWire) -> Self {
+        let colour = |value: Option<u32>| value.filter(|value| *value <= 0xff_ffff);
+        Self {
+            clothes: colour(look.clothes),
+            hair: colour(look.hair),
+            skin: colour(look.skin),
+            carries: look.carries.and_then(CarryWire::carried),
+            bird: look.bird,
+        }
+    }
 }
 
 /// Something a World keeps score of. `value` runs from 0 to 1; anything
@@ -463,6 +576,13 @@ impl ProjectionSnapshotWire {
                 validate_selection_for_protocol(protocol_version, selection)?;
             }
         }
+        for voice in &self.voices {
+            validate_selection_for_protocol(protocol_version, voice.moment)?;
+            validate_selection_for_protocol(protocol_version, voice.speaker)?;
+        }
+        for talk in &self.talks {
+            validate_selection_for_protocol(protocol_version, talk.who)?;
+        }
         for inspector in &self.inspectors {
             validate_selection_for_protocol(protocol_version, inspector.selection)?;
         }
@@ -497,6 +617,25 @@ impl From<&ProjectionSnapshot> for ProjectionSnapshotWire {
                     value: gauge.value,
                     reading: gauge.reading.clone(),
                     tone: gauge.tone.into(),
+                })
+                .collect(),
+            voices: snapshot
+                .voices
+                .iter()
+                .map(|voice| VoiceWire {
+                    moment: voice.moment.into(),
+                    speaker: voice.speaker.into(),
+                    line: voice.line.clone(),
+                })
+                .collect(),
+            talks: snapshot
+                .talks
+                .iter()
+                .map(|talk| TalkWire {
+                    who: talk.who.into(),
+                    question: talk.question.clone(),
+                    answer: talk.answer.clone(),
+                    asks_for: talk.asks_for.clone(),
                 })
                 .collect(),
         }
@@ -565,6 +704,28 @@ impl TryFrom<ProjectionSnapshotWire> for ProjectionSnapshot {
                     },
                     reading: gauge.reading,
                     tone: gauge.tone.into(),
+                })
+                .collect(),
+            // A line nobody could read is no line.
+            voices: snapshot
+                .voices
+                .into_iter()
+                .filter(|voice| !voice.line.trim().is_empty())
+                .map(|voice| world_projection::Voice {
+                    moment: voice.moment.into(),
+                    speaker: voice.speaker.into(),
+                    line: voice.line,
+                })
+                .collect(),
+            talks: snapshot
+                .talks
+                .into_iter()
+                .filter(|talk| !talk.question.trim().is_empty() && !talk.answer.trim().is_empty())
+                .map(|talk| world_projection::Talk {
+                    who: talk.who.into(),
+                    question: talk.question,
+                    answer: talk.answer,
+                    asks_for: talk.asks_for.filter(|command| !command.trim().is_empty()),
                 })
                 .collect(),
         })
@@ -982,6 +1143,9 @@ pub enum MarkShapeWire {
     Lamp,
     Shop,
     Bridge,
+    Rover,
+    Boat,
+    Parcel,
     #[serde(other)]
     Unknown,
 }
@@ -996,6 +1160,9 @@ impl From<MarkShape> for MarkShapeWire {
             MarkShape::Lamp => Self::Lamp,
             MarkShape::Shop => Self::Shop,
             MarkShape::Bridge => Self::Bridge,
+            MarkShape::Rover => Self::Rover,
+            MarkShape::Boat => Self::Boat,
+            MarkShape::Parcel => Self::Parcel,
         }
     }
 }
@@ -1010,6 +1177,9 @@ impl From<MarkShapeWire> for MarkShape {
             MarkShapeWire::Lamp => Self::Lamp,
             MarkShapeWire::Shop => Self::Shop,
             MarkShapeWire::Bridge => Self::Bridge,
+            MarkShapeWire::Rover => Self::Rover,
+            MarkShapeWire::Boat => Self::Boat,
+            MarkShapeWire::Parcel => Self::Parcel,
         }
     }
 }
@@ -1161,6 +1331,8 @@ pub struct CanvasItemWire {
     pub shape: Option<MarkShapeWire>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub at: Option<SelectionIdWire>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub look: Option<LookWire>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -1193,6 +1365,7 @@ impl From<&CanvasItem> for CanvasItemWire {
                 .collect(),
             shape: item.shape.map(Into::into),
             at: item.at.map(Into::into),
+            look: item.look.map(Into::into),
         }
     }
 }
@@ -1218,6 +1391,7 @@ impl From<CanvasItemWire> for CanvasItem {
                 .collect(),
             shape: item.shape.map(Into::into),
             at: item.at.map(Into::into),
+            look: item.look.map(Into::into),
         }
     }
 }
@@ -1566,6 +1740,7 @@ mod tests {
                     changes: Vec::new(),
                     shape: None,
                     at: None,
+                    look: None,
                 }],
                 links: vec![CanvasLink {
                     from: entity,
@@ -1609,6 +1784,8 @@ mod tests {
             scenery: None,
             calendar: None,
             gauges: Vec::new(),
+            talks: Vec::new(),
+            voices: Vec::new(),
         }
     }
 

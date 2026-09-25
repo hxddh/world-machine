@@ -24,6 +24,14 @@ pub(crate) fn snapshot_since(
     world: &World,
     since_event_count: Option<usize>,
 ) -> ProjectionSnapshot {
+    let commands = available_commands(world)
+        .into_iter()
+        .map(|mut command| {
+            command.asker = asker(&command.id);
+            command
+        })
+        .collect::<Vec<_>>();
+    let talks = crate::talk::talks(world, &commands);
     let mut snapshot = ProjectionSnapshot {
         title: "Tiny Society".into(),
         world_time: world.world_time(),
@@ -32,13 +40,7 @@ pub(crate) fn snapshot_since(
             background: true,
         },
         briefing: Some(society_briefing(world, since_event_count)),
-        commands: available_commands(world)
-            .into_iter()
-            .map(|mut command| {
-                command.asker = asker(&command.id);
-                command
-            })
-            .collect(),
+        commands,
         collection: CollectionProjection {
             title: "Residents".into(),
             items: RESIDENTS
@@ -75,6 +77,8 @@ pub(crate) fn snapshot_since(
             length: crate::persistence::WORLD_DAY_TICKS,
         }),
         gauges: gauges(world),
+        voices: crate::talk::voices(world),
+        talks,
     };
     snapshot.tell_events_as_history_does();
     snapshot
@@ -459,7 +463,7 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
 /// sentence that leaves the person out reads as being about nobody while the
 /// Event beside it is filed under their name: "The bakery could not cover
 /// payroll" sat next to Jonas, because it was his wage, and never said so.
-fn narrated_title(world: &World, event: &Event) -> Option<String> {
+pub(crate) fn narrated_title(world: &World, event: &Event) -> Option<String> {
     if event.kind == "payroll_shortfall" {
         let worker = event
             .targets
@@ -748,6 +752,7 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                 changes: Vec::new(),
                 shape: Some(place_shape(id)),
                 at: None,
+                look: None,
             });
         }
     }
@@ -775,6 +780,7 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                 changes: Vec::new(),
                 shape: None,
                 at: workplace(world, id).map(SelectionId::Entity),
+                look: crate::talk::look(id),
             });
         }
     }
@@ -796,7 +802,11 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                 x,
                 y,
                 changes: Vec::new(),
-                shape: None,
+                shape: Some(if id == JONAS_BOAT {
+                    MarkShape::Boat
+                } else {
+                    MarkShape::Parcel
+                }),
                 // The boat is moored at the harbour; the order waits at
                 // the bakery that has to fill it.
                 at: Some(SelectionId::Entity(if id == JONAS_BOAT {
@@ -804,6 +814,7 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                 } else {
                     BAKERY
                 })),
+                look: None,
             });
         }
     }

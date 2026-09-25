@@ -28,6 +28,8 @@ pub(crate) fn snapshot(world: &World, since_event_count: Option<usize>) -> Proje
         scenery: None,
         calendar: None,
         gauges: Vec::new(),
+        talks: Vec::new(),
+        voices: Vec::new(),
     }
 }
 
@@ -163,6 +165,7 @@ fn canvas(world: &World) -> CanvasProjection {
                     changes: Vec::new(),
                     shape: None,
                     at: None,
+                    look: None,
                 })
             })
             .collect(),
