@@ -122,6 +122,31 @@ mod tests {
         );
     }
 
+    /// The harbour window is a place, not a page: at rest it shows at most
+    /// forty words, bar included, over days and a return.
+    #[test]
+    fn the_harbour_window_shows_a_place_not_a_page() {
+        let mut registry = world_host::WorldRegistry::new();
+        registry.register(tiny_society_registration()).unwrap();
+        let mut session = registry.create(crate::TINY_SOCIETY_PACK_ID).unwrap();
+        let mut snapshot = session.snapshot();
+        for turn in 0..16 {
+            let words = world_gpui::words_at_rest(&snapshot);
+            assert!(
+                words <= world_gpui::RESTING_WORD_LIMIT,
+                "turn {turn}: {words} words at rest"
+            );
+            snapshot = if turn % 4 == 3 || snapshot.commands.is_empty() {
+                session.advance_background(3).unwrap()
+            } else {
+                let command = snapshot.commands[turn % snapshot.commands.len()].id.clone();
+                session
+                    .handle(ProjectionIntent::InvokeCommand(command))
+                    .unwrap()
+            };
+        }
+    }
+
     /// Someone says something every day, over whoever it happened to;
     /// everyone can be asked three things, and an answer that asks for
     /// something names a choice that is really on offer.

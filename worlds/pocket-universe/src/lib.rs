@@ -2178,6 +2178,42 @@ mod tests {
         );
     }
 
+    /// A World window is a place, not a page: at rest it shows at most
+    /// forty words, bar included, and the scene takes most of it.
+    #[test]
+    fn a_world_window_shows_a_place_not_a_page() {
+        let registry = registry();
+        for seed in [
+            SEED_MARS_COLONY_COMMAND,
+            SEED_1980S_TOWN_COMMAND,
+            SEED_PENGUIN_CIVILIZATION_COMMAND,
+        ] {
+            let mut session = registry.create(POCKET_UNIVERSE_PACK_ID).unwrap();
+            let mut snapshot = session
+                .handle(ProjectionIntent::InvokeCommand(seed.into()))
+                .unwrap();
+            for turn in 0..10 {
+                let words = world_gpui::words_at_rest(&snapshot);
+                assert!(
+                    words <= world_gpui::RESTING_WORD_LIMIT,
+                    "{seed} turn {turn}: {words} words at rest"
+                );
+                let Some(command) = snapshot
+                    .commands
+                    .get(turn % snapshot.commands.len().max(1))
+                    .map(|command| command.id.clone())
+                else {
+                    break;
+                };
+                snapshot = session
+                    .handle(ProjectionIntent::InvokeCommand(command))
+                    .unwrap();
+            }
+        }
+        assert!(world_gpui::scene_share(900.0) >= 0.75);
+        assert!(world_gpui::scene_share(600.0) >= 0.75);
+    }
+
     /// People say something at every turn, over whoever it happened to, and
     /// every question a player can ask has an answer; one that asks for
     /// something names a choice that is really on offer.
