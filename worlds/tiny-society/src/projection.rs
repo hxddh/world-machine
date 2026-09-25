@@ -10,7 +10,7 @@ use world_core::{EntityId, Event, RelationId, Value, World};
 use world_projection::{
     entity_title, inspectors_from_world, timeline_from_world, why_map_from_world, BriefingItem,
     BriefingItemKind, BriefingProjection, CanvasChange, CanvasItem, CanvasItemKind,
-    CanvasProjection, CollectionItem, CollectionProjection, CommandEffect, EffectChange,
+    CanvasProjection, CollectionItem, CollectionProjection, CommandEffect, EffectChange, MarkShape,
     ProjectionCapabilities, ProjectionCommand, ProjectionSnapshot, SelectionId, Telling, Tone,
 };
 
@@ -670,6 +670,15 @@ fn resident_item(world: &World, id: EntityId) -> Option<CollectionItem> {
     })
 }
 
+/// What each of the harbour town's places looks like on its tile.
+fn place_shape(id: EntityId) -> MarkShape {
+    match id {
+        HARBOR => MarkShape::Tower,
+        BAKERY => MarkShape::Shop,
+        _ => MarkShape::House,
+    }
+}
+
 fn canvas_items(world: &World) -> Vec<CanvasItem> {
     let mut items = Vec::new();
 
@@ -699,6 +708,7 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                 x,
                 y,
                 changes: Vec::new(),
+                shape: Some(place_shape(id)),
             });
         }
     }
@@ -724,6 +734,7 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                 x,
                 y,
                 changes: Vec::new(),
+                shape: None,
             });
         }
     }
@@ -745,6 +756,7 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                 x,
                 y,
                 changes: Vec::new(),
+                shape: None,
             });
         }
     }

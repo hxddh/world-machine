@@ -1926,6 +1926,20 @@ fn growth_marks(world: &World) -> Vec<world_projection::CanvasMark> {
         .collect()
 }
 
+/// What a place looks like on its tile: the habitat a dome and its
+/// greenhouse a tree, the arcade a shopfront, the colony the bridge it is
+/// named for.
+fn place_shape(world: &World, id: EntityId) -> Option<world_projection::MarkShape> {
+    use world_projection::MarkShape::{Bridge, Dome, Shop, Tree};
+    match (seed_id(world), id) {
+        ("mars-colony", SLOT_A) => Some(Dome),
+        ("mars-colony", SLOT_C) => Some(Tree),
+        ("1980s-town", SLOT_A) => Some(Shop),
+        ("penguin-civilization", SLOT_A) => Some(Bridge),
+        _ => None,
+    }
+}
+
 fn canvas(world: &World) -> CanvasProjection {
     // Every seed casts the same five roles in the same slots: the anchor
     // everything depends on, a second place, the two people whose
@@ -1952,6 +1966,7 @@ fn canvas(world: &World) -> CanvasProjection {
                 x: *x,
                 y: *y,
                 changes: Vec::new(),
+                shape: place_shape(world, *id),
             })
         })
         .collect();

@@ -171,6 +171,7 @@ fn canvas(world: &World, artifacts: &[EntityId]) -> CanvasProjection {
                 x,
                 y,
                 changes: Vec::new(),
+                shape: None,
             });
         }
     }
@@ -198,6 +199,7 @@ fn canvas(world: &World, artifacts: &[EntityId]) -> CanvasProjection {
             x,
             y,
             changes: Vec::new(),
+            shape: None,
         });
     }
 

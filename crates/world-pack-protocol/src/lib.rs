@@ -890,6 +890,8 @@ pub enum MarkShapeWire {
     Tower,
     Tree,
     Lamp,
+    Shop,
+    Bridge,
     #[serde(other)]
     Unknown,
 }
@@ -902,6 +904,8 @@ impl From<MarkShape> for MarkShapeWire {
             MarkShape::Tower => Self::Tower,
             MarkShape::Tree => Self::Tree,
             MarkShape::Lamp => Self::Lamp,
+            MarkShape::Shop => Self::Shop,
+            MarkShape::Bridge => Self::Bridge,
         }
     }
 }
@@ -914,6 +918,8 @@ impl From<MarkShapeWire> for MarkShape {
             MarkShapeWire::Tower => Self::Tower,
             MarkShapeWire::Tree => Self::Tree,
             MarkShapeWire::Lamp => Self::Lamp,
+            MarkShapeWire::Shop => Self::Shop,
+            MarkShapeWire::Bridge => Self::Bridge,
         }
     }
 }
@@ -1061,6 +1067,8 @@ pub struct CanvasItemWire {
     pub y: f32,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub changes: Vec<CanvasChangeWire>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shape: Option<MarkShapeWire>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -1091,6 +1099,7 @@ impl From<&CanvasItem> for CanvasItemWire {
                     tone: change.tone.into(),
                 })
                 .collect(),
+            shape: item.shape.map(Into::into),
         }
     }
 }
@@ -1114,6 +1123,7 @@ impl From<CanvasItemWire> for CanvasItem {
                     tone: change.tone.into(),
                 })
                 .collect(),
+            shape: item.shape.map(Into::into),
         }
     }
 }
@@ -1454,6 +1464,7 @@ mod tests {
                     x: 0.25,
                     y: 0.75,
                     changes: Vec::new(),
+                    shape: None,
                 }],
                 links: vec![CanvasLink {
                     from: entity,
@@ -1622,5 +1633,18 @@ mod tests {
             encoded.get("effects").is_none(),
             "an old host never sees the new field when there is nothing to say"
         );
+    }
+
+    #[test]
+    fn a_place_keeps_its_shape_and_an_unknown_shape_reads_as_a_house() {
+        let item: CanvasItemWire = serde_json::from_str(
+            r#"{"id":{"type":"entity","id":1},"kind":"place","label":"Icebridge","detail":"","x":0.1,"y":0.2,"shape":"bridge"}"#,
+        )
+        .expect("a shaped place decodes");
+        assert_eq!(item.shape, Some(MarkShapeWire::Bridge));
+        assert_eq!(CanvasItem::from(item).shape, Some(MarkShape::Bridge));
+        let newer: MarkShapeWire =
+            serde_json::from_str(r#""lighthouse""#).expect("a newer shape still decodes");
+        assert_eq!(MarkShape::from(newer), MarkShape::House);
     }
 }

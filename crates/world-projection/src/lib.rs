@@ -818,7 +818,8 @@ pub struct CanvasMark {
     pub selection: Option<SelectionId>,
 }
 
-/// The silhouette a built thing is drawn as on the horizon.
+/// The silhouette a built thing is drawn as on the horizon, and a place as
+/// on its tile.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum MarkShape {
     #[default]
@@ -827,6 +828,10 @@ pub enum MarkShape {
     Tower,
     Tree,
     Lamp,
+    /// A shopfront under an awning.
+    Shop,
+    /// An arched span.
+    Bridge,
 }
 
 /// How a connection reads: warm, strained, or neither.
@@ -870,6 +875,9 @@ pub struct CanvasItem {
     /// can show "cash 85 → 37" on the person rather than in a paragraph.
     /// Empty on an ordinary snapshot.
     pub changes: Vec<CanvasChange>,
+    /// What a place looks like, so a dome reads as a dome and a bridge as a
+    /// bridge. `None` draws the plain house every place used to be.
+    pub shape: Option<MarkShape>,
 }
 
 /// One value that moved since the last visit.

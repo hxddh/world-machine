@@ -159,7 +159,8 @@ fn mark_positions(count: usize) -> Vec<f32> {
 }
 
 /// A built thing as a small silhouette standing on the ground line at the
-/// bottom of its box: a house, a dome, a mast, a tree or a lamp.
+/// bottom of its box: a house, a dome, a mast, a tree, a lamp, a shopfront
+/// or a bridge.
 fn mark_silhouette(shape: MarkShape, colour: Hsla, light: Hsla) -> gpui::Canvas<()> {
     canvas(
         |_, _, _| (),
@@ -202,6 +203,26 @@ fn mark_silhouette(shape: MarkShape, colour: Hsla, light: Hsla) -> gpui::Canvas<
                     body.line_to(at(0.46, 0.3));
                     body.line_to(at(0.54, 0.3));
                     body.line_to(at(0.54, 1.0));
+                }
+                MarkShape::Shop => {
+                    // A flat-roofed front with an awning that overhangs it.
+                    body.move_to(at(0.15, 1.0));
+                    body.line_to(at(0.15, 0.55));
+                    body.line_to(at(0.05, 0.55));
+                    body.line_to(at(0.15, 0.35));
+                    body.line_to(at(0.85, 0.35));
+                    body.line_to(at(0.95, 0.55));
+                    body.line_to(at(0.85, 0.55));
+                    body.line_to(at(0.85, 1.0));
+                }
+                MarkShape::Bridge => {
+                    // A deck on two piers with an arch between them.
+                    body.move_to(at(0.0, 1.0));
+                    body.line_to(at(0.0, 0.5));
+                    body.line_to(at(1.0, 0.5));
+                    body.line_to(at(1.0, 1.0));
+                    body.line_to(at(0.84, 1.0));
+                    body.curve_to(at(0.16, 1.0), at(0.5, 0.45));
                 }
             }
             body.close();
@@ -788,6 +809,7 @@ pub fn scene(
             ),
             CanvasItemKind::Place => place_node(
                 &item.label,
+                item.shape,
                 &item.detail,
                 &item.changes,
                 selected,
@@ -1046,6 +1068,7 @@ pub fn change_text(change: &CanvasChange) -> String {
 
 fn place_node(
     name: &str,
+    shape: Option<MarkShape>,
     detail: &str,
     changes: &[CanvasChange],
     selected: bool,
@@ -1079,7 +1102,7 @@ fn place_node(
         .flex()
         .items_center()
         .gap_2()
-        .child(place_icon())
+        .child(place_icon(shape))
         .child(
             div()
                 .min_w(px(0.0))
@@ -1144,32 +1167,20 @@ fn object_pill(name: &str, selected: bool) -> Div {
 }
 
 /// A small drawn house: a place, whatever the World calls it.
-fn place_icon() -> Div {
-    let roof = hsla(tokens::SUCCESS);
+/// A place's own silhouette on a small tile of ground: a dome for a
+/// habitat, a shopfront for an arcade, a span for a bridge.
+fn place_icon(shape: Option<MarkShape>) -> Div {
     div()
         .flex_shrink_0()
         .size(px(28.0))
+        .p(px(5.0))
         .rounded_md()
         .bg(ui::color(tokens::SCENE_BOTTOM))
         .child(
-            canvas(
-                |_, _, _| (),
-                move |bounds: Bounds<gpui::Pixels>, _, window, _| {
-                    let o = bounds.origin;
-                    let at = |x: f32, y: f32| point(o.x + px(x), o.y + px(y));
-                    let mut house = PathBuilder::fill();
-                    house.move_to(at(14.0, 6.0));
-                    house.line_to(at(23.0, 13.0));
-                    house.line_to(at(21.0, 13.0));
-                    house.line_to(at(21.0, 22.0));
-                    house.line_to(at(7.0, 22.0));
-                    house.line_to(at(7.0, 13.0));
-                    house.line_to(at(5.0, 13.0));
-                    house.close();
-                    if let Ok(path) = house.build() {
-                        window.paint_path(path, roof);
-                    }
-                },
+            mark_silhouette(
+                shape.unwrap_or_default(),
+                hsla(tokens::SUCCESS),
+                hsla(tokens::WARNING),
             )
             .size_full(),
         )
@@ -1224,6 +1235,7 @@ mod tests {
             x,
             y,
             changes: Vec::new(),
+            shape: None,
         }
     }
 

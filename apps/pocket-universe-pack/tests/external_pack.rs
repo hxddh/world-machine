@@ -121,6 +121,15 @@ fn pocket_universe_is_a_real_external_pack_with_durable_seed_and_growth() {
         .unwrap();
     assert_eq!(seeded.title, "Ares Pocket Colony");
     assert!(seeded.scenery.is_some(), "a started World keeps its look");
+    assert!(
+        seeded
+            .canvas
+            .items
+            .iter()
+            .any(|item| item.label == "Ares Habitat"
+                && item.shape == Some(world_projection::MarkShape::Dome)),
+        "the habitat crosses the process boundary as a dome, not a house"
+    );
     assert!(seeded
         .collection
         .items
