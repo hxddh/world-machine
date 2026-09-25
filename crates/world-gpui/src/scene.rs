@@ -220,6 +220,107 @@ fn horizon(scenery: world_projection::Scenery) -> impl IntoElement {
     .size_full()
 }
 
+/// The part of the day it is where the player is. A World's sky follows the
+/// player's own clock, the way Animal Crossing's does: presentation only,
+/// never anything the World records.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Daylight {
+    Dawn,
+    Day,
+    Dusk,
+    Night,
+}
+
+/// Which part of the day an hour on a 24-hour clock falls in.
+pub fn daylight_at(hour: u32) -> Daylight {
+    match hour {
+        5..=7 => Daylight::Dawn,
+        8..=17 => Daylight::Day,
+        18..=20 => Daylight::Dusk,
+        _ => Daylight::Night,
+    }
+}
+
+/// The part of the day it is now, on this computer's clock. The hour can be
+/// pinned with `WORLD_MACHINE_HOUR` to look at a World by night in daytime.
+pub fn daylight_now() -> Daylight {
+    use chrono::Timelike;
+    let hour = std::env::var("WORLD_MACHINE_HOUR")
+        .ok()
+        .and_then(|hour| hour.parse::<u32>().ok())
+        .filter(|hour| *hour < 24)
+        .unwrap_or_else(|| chrono::Local::now().hour());
+    daylight_at(hour)
+}
+
+/// The light over the stage at this part of the day: nothing by day, a
+/// warm wash at dawn and dusk, and at night a deep blue with stars.
+fn sky_light(daylight: Daylight) -> Option<impl IntoElement> {
+    let tint = |r: u8, g: u8, b: u8, a: f32| -> Hsla {
+        let rgba = gpui::Rgba {
+            r: r as f32 / 255.0,
+            g: g as f32 / 255.0,
+            b: b as f32 / 255.0,
+            a,
+        };
+        rgba.into()
+    };
+    let (top, bottom, stars) = match daylight {
+        Daylight::Day => return None,
+        Daylight::Dawn => (tint(255, 186, 160, 0.16), tint(255, 228, 200, 0.06), false),
+        Daylight::Dusk => (tint(255, 138, 92, 0.20), tint(122, 64, 128, 0.14), false),
+        Daylight::Night => (tint(14, 20, 54, 0.62), tint(14, 20, 54, 0.36), true),
+    };
+    Some(
+        canvas(
+            |_, _, _| (),
+            move |bounds: Bounds<gpui::Pixels>, _, window, _| {
+                window.paint_quad(gpui::fill(
+                    bounds,
+                    linear_gradient(
+                        180.0,
+                        linear_color_stop(top, 0.0),
+                        linear_color_stop(bottom, 1.0),
+                    ),
+                ));
+                if !stars {
+                    return;
+                }
+                // The same scattering every night, high in the sky.
+                let origin = bounds.origin;
+                let width = f32::from(bounds.size.width);
+                let height = f32::from(bounds.size.height);
+                let star: Hsla = gpui::white().opacity(0.8);
+                let mut seed: u32 = 0x9e37_79b9;
+                for _ in 0..28 {
+                    seed ^= seed << 13;
+                    seed ^= seed >> 17;
+                    seed ^= seed << 5;
+                    let x = (seed % 1000) as f32 / 1000.0;
+                    let y = ((seed / 1000) % 1000) as f32 / 1000.0 * 0.5;
+                    let radius = if seed.is_multiple_of(5) { 1.5 } else { 1.0 };
+                    let centre = point(origin.x + px(x * width), origin.y + px(y * height));
+                    window.paint_quad(quad(
+                        Bounds::new(
+                            point(centre.x - px(radius), centre.y - px(radius)),
+                            size(px(radius * 2.0), px(radius * 2.0)),
+                        ),
+                        px(radius),
+                        star,
+                        px(0.0),
+                        star,
+                        BorderStyle::default(),
+                    ));
+                }
+            },
+        )
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_full(),
+    )
+}
+
 /// What Packs built before the rows were named in plain words still send.
 const LEGACY_WHO_ROW: &str = "Actor";
 const LEGACY_WITH_ROW: &str = "Targets";
@@ -971,6 +1072,7 @@ pub fn scene_walking(
         .when_some(snapshot.scenery, |stage, scenery| {
             stage.child(horizon(scenery))
         })
+        .when_some(sky_light(daylight_now()), |stage, light| stage.child(light))
         .child(backdrop);
 
     // What the World has built stands on its horizon, oldest on the left,

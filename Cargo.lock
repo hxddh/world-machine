@@ -6699,6 +6699,7 @@ dependencies = [
 name = "world-gpui"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "gpui",
  "world-projection",
  "world-theme",

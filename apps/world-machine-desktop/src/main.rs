@@ -72,6 +72,8 @@ use world_library::{
 #[cfg(target_os = "macos")]
 use world_lineage::LineageIndex;
 #[cfg(target_os = "macos")]
+use world_machine_desktop::ambience;
+#[cfg(target_os = "macos")]
 use world_machine_desktop::window_state::{self, StoredWindowBounds};
 #[cfg(target_os = "macos")]
 use world_pack_bundle::PACK_BUNDLE_SUFFIX;
@@ -374,8 +376,10 @@ impl WorldDocumentView {
         let analyst_available = world_fork::analyst_available();
         let lineage_label = world_fork::lineage_label(&document);
         // Closing the last World brings Home back rather than leaving the
-        // app running with no window.
-        cx.on_release(|_, cx| {
+        // app running with no window, and silences its sound.
+        let sound_owner = cx.entity_id().as_u64();
+        cx.on_release(move |_, cx| {
+            ambience::player::release(sound_owner);
             cx.defer(|cx| {
                 if cx.windows().is_empty() {
                     if let Some(home) = cx.try_global::<HomeEntity>().map(|home| home.0.clone()) {
@@ -591,6 +595,22 @@ impl Render for WorldDocumentView {
         // "Ares Pocket Colony" when it is seeded), so read it every time.
         self.document_name = session_display_name(&self.document.borrow().session);
         window.set_window_title(&document_window_title(&self.document_name));
+        // The World in front plays its landscape's sound, if the player
+        // wants sound; one behind stops.
+        let sound_owner = cx.entity_id().as_u64();
+        let palette = self.projection.read(cx).snapshot().scenery.map(|scenery| {
+            [
+                scenery.sky_top,
+                scenery.sky_bottom,
+                scenery.far,
+                scenery.near,
+                scenery.sun,
+            ]
+        });
+        match (window.is_window_active(), palette) {
+            (true, Some(palette)) => ambience::player::claim(sound_owner, palette),
+            _ => ambience::player::release(sound_owner),
+        }
         // Branching and comparing mean something only once a World has a
         // history and a choice to make; before that they are noise.
         let (can_branch, can_compare) = {
@@ -4312,6 +4332,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     system_open::install(&application);
     diagnostics::init();
     load_window_geometry();
+    ambience::set_enabled(
+        world_machine_desktop::analyst_settings::application_support_root()
+            .ok()
+            .and_then(|root| world_machine_desktop::analyst_settings::load(&root).ok())
+            .is_some_and(|settings| settings.ambient_sound),
+    );
     let library = Arc::new(discover_library()?);
     let pack_catalog_path = discover_pack_catalog_path(library.as_ref());
     diagnostics::info(format!(

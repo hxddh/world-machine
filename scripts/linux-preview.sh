@@ -18,7 +18,7 @@
 # mesa-vulkan-drivers for a software renderer).
 #
 # Usage:
-#   [APPEARANCE=dark] [AWAY_HOURS=N] [FRESH=1] scripts/linux-preview.sh [output-dir] [click-x click-y]...
+#   [APPEARANCE=dark] [AWAY_HOURS=N] [FRESH=1] [HOUR=N] scripts/linux-preview.sh [output-dir] [click-x click-y]...
 #
 # Every window the app has open after start-up (and after each optional click,
 # given in pixels relative to Home's top-left corner, or to the newest window
@@ -179,4 +179,7 @@ export WORLD_MACHINE_INCLUDED_PACKS_DIR="$STATE/packs"
 export WORLD_MACHINE_NO_UPDATE_CHECK=1
 # APPEARANCE=dark checks the dark palette; Xvfb itself only ever reports light.
 export WORLD_MACHINE_APPEARANCE="${APPEARANCE:-light}"
+# A World's sky follows the local clock; screenshots are taken at noon
+# unless HOUR=N (0-23) asks for another time of day.
+export WORLD_MACHINE_HOUR="${HOUR:-12}"
 xvfb-run -a -s "-screen 0 1400x1000x24" bash "$WORK/session.sh"

@@ -13,6 +13,7 @@ use gpui::{
     SharedString, Styled, Window, WindowBounds, WindowOptions,
 };
 use world_gpui::ui;
+use world_machine_desktop::ambience;
 use world_machine_desktop::analyst_settings::{self, VoiceSource};
 use world_machine_desktop::key_store;
 use world_theme::tokens;
@@ -41,6 +42,7 @@ struct SettingsView {
     /// change. The key itself is never held here.
     key_stored: bool,
     voice_on: bool,
+    sound_on: bool,
     source: VoiceSource,
     program: Option<String>,
     status: Option<SharedString>,
@@ -54,6 +56,7 @@ impl SettingsView {
             key_input,
             key_stored: false,
             voice_on: false,
+            sound_on: false,
             source: VoiceSource::Program,
             program: None,
             status: None,
@@ -72,11 +75,13 @@ impl SettingsView {
         match settings {
             Some(settings) => {
                 self.voice_on = settings.world_voice;
+                self.sound_on = settings.ambient_sound;
                 self.source = settings.world_voice_source.unwrap_or_default();
                 self.program = settings.pi_program.map(|path| path.display().to_string());
             }
             None => {
                 self.voice_on = false;
+                self.sound_on = false;
                 self.source = VoiceSource::Program;
                 self.program = None;
             }
@@ -104,6 +109,18 @@ impl SettingsView {
             },
             cx,
         );
+    }
+
+    fn set_sound(&mut self, on: bool, cx: &mut Context<Self>) {
+        self.apply(
+            move || {
+                let root = analyst_settings::application_support_root()
+                    .map_err(|error| error.to_string())?;
+                analyst_settings::save_ambient_sound(&root, on).map_err(|error| error.to_string())
+            },
+            cx,
+        );
+        ambience::set_enabled(self.sound_on);
     }
 
     fn set_source(&mut self, source: VoiceSource, cx: &mut Context<Self>) {
@@ -395,8 +412,34 @@ impl Render for SettingsView {
                     .child(status),
             );
         }
+        let sound_on = self.sound_on;
         page.child(ui::caption(
             "Only an API key sends anything off this Mac: what a World has recorded, once per return. Worlds already open keep the voice they opened with.",
         ))
+        .child(div().pt_4().child(ui::page_title("Sound")))
+        .child(
+            group().child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w(px(0.0))
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .child(ui::row_title("Ambient sound"))
+                            .child(ui::caption(
+                                "The World in front plays its landscape's quiet sound: wind, and a low hum of its ground.",
+                            )),
+                    )
+                    .child(
+                        switch("ambient-sound-switch", sound_on)
+                            .on_click(cx.listener(move |this, _, _, cx| this.set_sound(!sound_on, cx))),
+                    ),
+            ),
+        )
     }
 }
