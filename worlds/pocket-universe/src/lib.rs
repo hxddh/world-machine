@@ -5,6 +5,7 @@ pub mod narrator;
 mod pressure;
 mod projection;
 mod succession;
+mod talk;
 
 use std::error::Error;
 use std::sync::Arc;
@@ -2175,6 +2176,106 @@ mod tests {
             "engine words:\n{}",
             found.into_iter().collect::<Vec<_>>().join("\n")
         );
+    }
+
+    /// A World window is a place, not a page: at rest it shows at most
+    /// forty words, bar included, and the scene takes most of it.
+    #[test]
+    fn a_world_window_shows_a_place_not_a_page() {
+        let registry = registry();
+        for seed in [
+            SEED_MARS_COLONY_COMMAND,
+            SEED_1980S_TOWN_COMMAND,
+            SEED_PENGUIN_CIVILIZATION_COMMAND,
+        ] {
+            let mut session = registry.create(POCKET_UNIVERSE_PACK_ID).unwrap();
+            let mut snapshot = session
+                .handle(ProjectionIntent::InvokeCommand(seed.into()))
+                .unwrap();
+            for turn in 0..10 {
+                let words = world_gpui::words_at_rest(&snapshot);
+                assert!(
+                    words <= world_gpui::RESTING_WORD_LIMIT,
+                    "{seed} turn {turn}: {words} words at rest"
+                );
+                let Some(command) = snapshot
+                    .commands
+                    .get(turn % snapshot.commands.len().max(1))
+                    .map(|command| command.id.clone())
+                else {
+                    break;
+                };
+                snapshot = session
+                    .handle(ProjectionIntent::InvokeCommand(command))
+                    .unwrap();
+            }
+        }
+        assert!(world_gpui::scene_share(900.0) >= 0.75);
+        assert!(world_gpui::scene_share(600.0) >= 0.75);
+    }
+
+    /// People say something at every turn, over whoever it happened to, and
+    /// every question a player can ask has an answer; one that asks for
+    /// something names a choice that is really on offer.
+    #[test]
+    fn the_pair_speak_and_answer_and_ask_only_for_what_is_on_offer() {
+        let registry = registry();
+        for seed in [
+            SEED_MARS_COLONY_COMMAND,
+            SEED_1980S_TOWN_COMMAND,
+            SEED_PENGUIN_CIVILIZATION_COMMAND,
+        ] {
+            let mut session = registry.create(POCKET_UNIVERSE_PACK_ID).unwrap();
+            let mut snapshot = session
+                .handle(ProjectionIntent::InvokeCommand(seed.into()))
+                .unwrap();
+            for turn in 0..8 {
+                let on_scene = |id: world_projection::SelectionId| {
+                    snapshot.canvas.items.iter().any(|item| item.id == id)
+                };
+                let on_timeline = |id: world_projection::SelectionId| {
+                    snapshot.timeline.items.iter().any(|item| item.id == id)
+                };
+                assert!(
+                    !snapshot.voices.is_empty(),
+                    "{seed} turn {turn}: nobody spoke"
+                );
+                for voice in &snapshot.voices {
+                    assert!(
+                        on_scene(voice.speaker),
+                        "{seed}: {voice:?} speaker is not on stage"
+                    );
+                    assert!(
+                        on_timeline(voice.moment),
+                        "{seed}: {voice:?} is not a moment"
+                    );
+                }
+                assert_eq!(snapshot.talks.len(), 6, "{seed}: three questions each");
+                for talk in &snapshot.talks {
+                    assert!(on_scene(talk.who));
+                    if let Some(command) = &talk.asks_for {
+                        assert!(snapshot.command(command).is_some(), "{seed}: {talk:?}");
+                    }
+                }
+                let people = snapshot
+                    .canvas
+                    .items
+                    .iter()
+                    .filter(|item| item.kind == world_projection::CanvasItemKind::Actor)
+                    .collect::<Vec<_>>();
+                assert!(people.iter().all(|person| person.look.is_some()));
+                let Some(command) = snapshot
+                    .commands
+                    .get(turn % snapshot.commands.len().max(1))
+                    .map(|command| command.id.clone())
+                else {
+                    break;
+                };
+                snapshot = session
+                    .handle(ProjectionIntent::InvokeCommand(command))
+                    .unwrap();
+            }
+        }
     }
 
     /// A choice's gauge marks are what making it actually does: play it for

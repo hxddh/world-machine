@@ -440,6 +440,34 @@ pub fn paint_mark(
             body.line_to(at(0.84, 1.0));
             body.curve_to(at(0.16, 1.0), at(0.5, 0.45));
         }
+        MarkShape::Rover => {
+            // A low body with a cab, standing on its wheels.
+            body.move_to(at(0.05, 0.88));
+            body.line_to(at(0.05, 0.62));
+            body.line_to(at(0.45, 0.62));
+            body.line_to(at(0.55, 0.45));
+            body.line_to(at(0.85, 0.45));
+            body.line_to(at(0.95, 0.62));
+            body.line_to(at(0.95, 0.88));
+        }
+        MarkShape::Boat => {
+            // A hull with a mast and a sail.
+            body.move_to(at(0.0, 0.72));
+            body.line_to(at(1.0, 0.72));
+            body.line_to(at(0.82, 1.0));
+            body.line_to(at(0.18, 1.0));
+            body.line_to(at(0.0, 0.72));
+            body.move_to(at(0.5, 0.7));
+            body.line_to(at(0.5, 0.1));
+            body.line_to(at(0.82, 0.62));
+            body.line_to(at(0.5, 0.7));
+        }
+        MarkShape::Parcel => {
+            body.move_to(at(0.2, 1.0));
+            body.line_to(at(0.2, 0.6));
+            body.line_to(at(0.8, 0.6));
+            body.line_to(at(0.8, 1.0));
+        }
     }
     body.close();
     if let Ok(path) = body.build() {

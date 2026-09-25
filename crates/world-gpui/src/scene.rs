@@ -1812,6 +1812,7 @@ mod tests {
             changes: Vec::new(),
             shape: None,
             at: None,
+            look: None,
         }
     }
 

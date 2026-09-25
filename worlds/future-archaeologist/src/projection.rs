@@ -38,6 +38,8 @@ pub(crate) fn snapshot(world: &World) -> ProjectionSnapshot {
         scenery: None,
         calendar: None,
         gauges: Vec::new(),
+        talks: Vec::new(),
+        voices: Vec::new(),
     }
 }
 
@@ -180,6 +182,7 @@ fn canvas(world: &World, artifacts: &[EntityId]) -> CanvasProjection {
                 changes: Vec::new(),
                 shape: None,
                 at: None,
+                look: None,
             });
         }
     }
@@ -209,6 +212,7 @@ fn canvas(world: &World, artifacts: &[EntityId]) -> CanvasProjection {
             changes: Vec::new(),
             shape: None,
             at: None,
+            look: None,
         });
     }
 

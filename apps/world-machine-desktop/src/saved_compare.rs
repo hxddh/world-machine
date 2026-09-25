@@ -446,6 +446,7 @@ mod tests {
             display_calendar: None,
             display_marks: Vec::new(),
             display_moves_alone: false,
+            display_cast: Vec::new(),
             world_time: 10,
             event_count: 2,
         }

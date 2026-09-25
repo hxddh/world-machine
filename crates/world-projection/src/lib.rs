@@ -286,6 +286,63 @@ pub struct ProjectionSnapshot {
     pub calendar: Option<Calendar>,
     /// What it keeps score of, in the order a screen should show them.
     pub gauges: Vec<Gauge>,
+    /// What people said aloud at moments in the World's history, drawn as
+    /// speech bubbles over them. Narration: never read back as World state.
+    pub voices: Vec<Voice>,
+    /// What a player can ask someone, and what they answer.
+    pub talks: Vec<Talk>,
+}
+
+/// Something someone said aloud when a moment happened: "Could you spare
+/// something till Friday?" over Jonas when he asked Leo for help. A Pack
+/// writes it from the recorded moment, so replaying the World never needs
+/// it; the app only ever shows it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Voice {
+    /// The moment it was said at: a timeline item.
+    pub moment: SelectionId,
+    /// Who said it: someone on the scene.
+    pub speaker: SelectionId,
+    pub line: String,
+}
+
+/// A question a player can put to someone, and their answer, both written
+/// by the Pack from what the World records. An answer never changes the
+/// World; when it ends in a request, `asks_for` names the choice (one of
+/// the snapshot's commands) that would grant it, so the player acts through
+/// the World's own rules.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Talk {
+    pub who: SelectionId,
+    pub question: String,
+    pub answer: String,
+    pub asks_for: Option<String>,
+}
+
+/// How someone looks, as hints: the colour of their clothes, hair and skin
+/// (as 0xRRGGBB) and what they carry for their work. Anything left out is
+/// drawn from who they are, so the same person always looks the same.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct Look {
+    pub clothes: Option<u32>,
+    pub hair: Option<u32>,
+    pub skin: Option<u32>,
+    pub carries: Option<Carry>,
+    /// Drawn as a bird (a penguin, say) rather than a person.
+    pub bird: bool,
+}
+
+/// What someone carries, which says what they do.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Carry {
+    Tool,
+    Book,
+    Bread,
+    Fish,
+    Basket,
+    Satchel,
+    Plant,
+    Mug,
 }
 
 /// A World's own unit of time: a Mars colony counts sols, a town counts
@@ -390,6 +447,16 @@ impl ProjectionSnapshot {
 
     /// Every piece of text this snapshot can put in front of a player, so a
     /// Pack can check that none of it speaks in engine words.
+    /// What was said at a moment, and by whom.
+    pub fn voice_at(&self, moment: SelectionId) -> Option<&Voice> {
+        self.voices.iter().find(|voice| voice.moment == moment)
+    }
+
+    /// What a player can ask someone.
+    pub fn talks_with(&self, who: SelectionId) -> impl Iterator<Item = &Talk> {
+        self.talks.iter().filter(move |talk| talk.who == who)
+    }
+
     pub fn visible_text(&self) -> Vec<&str> {
         let mut text = vec![self.title.as_str()];
         for gauge in &self.gauges {
@@ -428,6 +495,13 @@ impl ProjectionSnapshot {
         }
         for link in &self.canvas.links {
             text.push(&link.label);
+        }
+        for voice in &self.voices {
+            text.push(&voice.line);
+        }
+        for talk in &self.talks {
+            text.push(&talk.question);
+            text.push(&talk.answer);
         }
         for mark in &self.canvas.marks {
             text.push(&mark.label);
@@ -1057,6 +1131,12 @@ pub enum MarkShape {
     Shop,
     /// An arched span.
     Bridge,
+    /// A vehicle on wheels: a rover, a cart, a bus.
+    Rover,
+    /// A small boat.
+    Boat,
+    /// A parcel or crate: an order, a delivery, a thing to be made.
+    Parcel,
 }
 
 /// How a connection reads: warm, strained, or neither.
@@ -1107,6 +1187,8 @@ pub struct CanvasItem {
     /// are with, which they are drawn standing beside. `None` leaves them
     /// where the Pack put them.
     pub at: Option<SelectionId>,
+    /// How a person looks. `None` draws them from who they are.
+    pub look: Option<Look>,
 }
 
 /// One value that moved since the last visit.

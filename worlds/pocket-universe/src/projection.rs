@@ -33,6 +33,15 @@ pub(crate) fn snapshot_since(
 ) -> ProjectionSnapshot {
     let seed = seed_id(world);
     let seeded = seed != "unseeded";
+    let commands = commands(world, seeded)
+        .into_iter()
+        .map(|mut command| {
+            command.effects = command_effects(world, &command.id);
+            command.asker = asker(&command.id);
+            command
+        })
+        .collect::<Vec<_>>();
+    let talks = crate::talk::talks(world, &commands);
     let mut snapshot = ProjectionSnapshot {
         title: if seeded {
             universe_name(world)
@@ -45,14 +54,7 @@ pub(crate) fn snapshot_since(
             background: seeded,
         },
         briefing: Some(toned(world, briefing(world, seeded, since_event_count))),
-        commands: commands(world, seeded)
-            .into_iter()
-            .map(|mut command| {
-                command.effects = command_effects(world, &command.id);
-                command.asker = asker(&command.id);
-                command
-            })
-            .collect(),
+        commands,
         collection: collection(world),
         timeline: told_timeline(world),
         canvas: with_changes(world, canvas(world), since_event_count),
@@ -64,6 +66,8 @@ pub(crate) fn snapshot_since(
             length: crate::BACKGROUND_PERIOD,
         }),
         gauges: gauges(world),
+        voices: crate::talk::voices(world),
+        talks,
     };
     snapshot.tell_events_as_history_does();
     snapshot
@@ -2045,8 +2049,14 @@ fn canvas(world: &World) -> CanvasProjection {
                 x: *x,
                 y: *y,
                 changes: Vec::new(),
-                shape: place_shape(world, *id),
+                shape: place_shape(world, *id).or_else(|| {
+                    // The thing that lets them range out is drawn as a
+                    // vehicle: the rover, the night bus.
+                    (*id == SLOT_D && canvas_kind(entity) == CanvasItemKind::Object)
+                        .then_some(world_projection::MarkShape::Rover)
+                }),
                 at: whereabouts(world, entity),
+                look: crate::talk::look(world, *id),
             })
         })
         .collect();

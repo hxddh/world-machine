@@ -3872,6 +3872,7 @@ dependencies = [
  "world-compare",
  "world-core",
  "world-document",
+ "world-gpui",
  "world-host",
  "world-library",
  "world-persistence",
@@ -5382,6 +5383,7 @@ dependencies = [
  "society-basic",
  "world-agent",
  "world-core",
+ "world-gpui",
  "world-host",
  "world-library",
  "world-pack-protocol",
@@ -6787,7 +6789,7 @@ dependencies = [
 
 [[package]]
 name = "world-machine-desktop"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "gpui",
  "gpui_platform",

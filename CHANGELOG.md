@@ -2,6 +2,21 @@
 
 Releases live on the [Releases page](https://github.com/hxddh/world-machine/releases). `0.2.0` is the first release intended to be usable without reading the repository; the `v0.1.0-pre.N` tags below were its pre-releases.
 
+## v0.9.0 (2026-09-25)
+
+Every World from `v0.8.0` opens as it is: no Pack's rules moved. What people look like, what they say and what they answer is new, written by each Pack from what its World already records.
+
+- **The World fills the window.** The scene is the whole window, and what you act on floats over it. The gauges are a strip over the sky, the moment ("Sol 5") sits beside them, and your turn is a card at the bottom. At rest a World window shows at most 40 words; v0.8 showed about 170.
+- **People are drawn, and places are buildings.** Everyone is a small figure in the clothes of their work, carrying what they work with: Jonas in a yellow oilskin with a fish, Mara in her apron with a loaf. On Icebridge they are penguins in scarves. Places stand on the ground as what they are: a dome, a greenhouse, a lighthouse, a bakery with a striped awning. The rover and the boat are drawn as themselves. Names show when something is about someone, or when you point at them.
+- **People talk.** Whoever something happened to says it in a speech bubble ("Could you spare something till I'm back at sea?"), and at the end of a day each person says a word about their work.
+- **Life goes on between turns.** People walk over to another place and come home, the rover's lights and the windows glow after dusk, clouds drift and the harbour's water moves. Nobody wanders at night, or while they are speaking, asking or in the news. None of it is recorded.
+- **Ask anyone.** Click someone to ask how they are, what they think of the other person or how the harbour is, and what they need. They answer in a bubble. When they ask for something, *Do it* makes that choice through the World's own rules.
+- **A decision is a card.** One choice at a time, whoever asks it drawn large, and the gauges showing what it would move. ← and → leaf through the choices, ⏎ chooses, Space or *More* turns the card over for the whole account. Choices somebody asks come before letting time pass.
+- **Coming back is a short film.** Each beat of a return moves the camera to where it happened, the people in it say their line, and it goes on by itself; *Skip* and *Next* are there if you want them. It ends by pulling back to your turn.
+- **Home is covers.** Each World's cover is drawn from its own stage, people and buildings included, so branches no longer look alike. Rename, Export, Remove, What if… and the World a branch came from wait behind a ⋯ that appears when you point at a cover, and behind a right-click. Search and filters appear past nine Worlds.
+- **The rest is one ⌘I away.** A closer look at whoever you picked, what happened, how things stand, who lives there and the whole history are in a drawer over the scene.
+- **Motion and sound.** Gauges slide to where a turn leaves them, cards rise, people walk, and what gets built grows up out of the ground. With Sound on in Settings, turning a card ticks, a turn passing rings a soft bell, and something new being built plays two rising notes.
+
 ## v0.8.0 (2026-09-25)
 
 Every World from `v0.7.0` opens as it is: no Pack moved. The new scene, gauges and choices are drawn from what each World already records.

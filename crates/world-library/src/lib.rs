@@ -56,7 +56,7 @@ impl fmt::Display for WorldDocumentId {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct WorldDocumentSummary {
     pub id: WorldDocumentId,
     pub pack: WorldPackRef,
@@ -70,6 +70,8 @@ pub struct WorldDocumentSummary {
     pub display_marks: Vec<world_projection::MarkShape>,
     /// Whether it moves on by itself between visits.
     pub display_moves_alone: bool,
+    /// Its people, places and things as it last stood, for its cover.
+    pub display_cast: Vec<world_projection::CanvasItem>,
     pub world_time: u64,
     pub event_count: usize,
 }
@@ -85,7 +87,7 @@ pub struct UnreadableWorldFile {
 
 /// Everything the Worlds folder holds: the Worlds that can be opened, and the
 /// files that look like Worlds but cannot be read.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct WorldLibraryListing {
     pub documents: Vec<WorldDocumentSummary>,
     pub unreadable: Vec<UnreadableWorldFile>,
@@ -684,6 +686,102 @@ pub fn describe_from_snapshot(
         .map(|mark| mark_shape_name(mark.shape).to_owned())
         .collect();
     metadata.display_moves_alone = snapshot.capabilities.background;
+    metadata.display_cast = snapshot
+        .canvas
+        .items
+        .iter()
+        .map(|item| {
+            let look = item.look.unwrap_or_default();
+            world_document::DocumentFigure {
+                id: item.id.stable_key(),
+                kind: match item.kind {
+                    world_projection::CanvasItemKind::Place => "place",
+                    world_projection::CanvasItemKind::Actor => "person",
+                    world_projection::CanvasItemKind::Object => "thing",
+                }
+                .into(),
+                shape: item.shape.map(|shape| mark_shape_name(shape).to_owned()),
+                at: item.at.map(|at| at.stable_key()),
+                x: (item.x.clamp(0.0, 1.0) * 1000.0).round() as u16,
+                clothes: look.clothes,
+                hair: look.hair,
+                skin: look.skin,
+                bird: look.bird,
+                carries: look.carries.map(|carry| carry_name(carry).to_owned()),
+            }
+        })
+        .collect();
+}
+
+fn carry_name(carry: world_projection::Carry) -> &'static str {
+    use world_projection::Carry;
+    match carry {
+        Carry::Tool => "tool",
+        Carry::Book => "book",
+        Carry::Bread => "bread",
+        Carry::Fish => "fish",
+        Carry::Basket => "basket",
+        Carry::Satchel => "satchel",
+        Carry::Plant => "plant",
+        Carry::Mug => "mug",
+    }
+}
+
+fn carry_from_name(name: &str) -> Option<world_projection::Carry> {
+    use world_projection::Carry;
+    Some(match name {
+        "tool" => Carry::Tool,
+        "book" => Carry::Book,
+        "bread" => Carry::Bread,
+        "fish" => Carry::Fish,
+        "basket" => Carry::Basket,
+        "satchel" => Carry::Satchel,
+        "plant" => Carry::Plant,
+        "mug" => Carry::Mug,
+        _ => return None,
+    })
+}
+
+/// A World's stage as its file remembers it, ready to draw.
+fn cast_from_document(
+    cast: &[world_document::DocumentFigure],
+) -> Vec<world_projection::CanvasItem> {
+    use world_projection::{CanvasItem, CanvasItemKind, Look, SelectionId};
+    cast.iter()
+        .filter_map(|figure| {
+            let kind = match figure.kind.as_str() {
+                "place" => CanvasItemKind::Place,
+                "person" => CanvasItemKind::Actor,
+                "thing" => CanvasItemKind::Object,
+                _ => return None,
+            };
+            let carries = figure.carries.as_deref().and_then(carry_from_name);
+            let look = (figure.clothes.is_some()
+                || figure.hair.is_some()
+                || figure.skin.is_some()
+                || figure.bird
+                || carries.is_some())
+            .then_some(Look {
+                clothes: figure.clothes,
+                hair: figure.hair,
+                skin: figure.skin,
+                carries,
+                bird: figure.bird,
+            });
+            Some(CanvasItem {
+                id: SelectionId::from_stable_key(&figure.id)?,
+                kind,
+                label: String::new(),
+                detail: String::new(),
+                x: f32::from(figure.x.min(1000)) / 1000.0,
+                y: 0.5,
+                changes: Vec::new(),
+                shape: figure.shape.as_deref().map(mark_shape_from_name),
+                at: figure.at.as_deref().and_then(SelectionId::from_stable_key),
+                look,
+            })
+        })
+        .collect()
 }
 
 fn mark_shape_name(shape: world_projection::MarkShape) -> &'static str {
@@ -696,6 +794,9 @@ fn mark_shape_name(shape: world_projection::MarkShape) -> &'static str {
         MarkShape::Lamp => "lamp",
         MarkShape::Shop => "shop",
         MarkShape::Bridge => "bridge",
+        MarkShape::Rover => "rover",
+        MarkShape::Boat => "boat",
+        MarkShape::Parcel => "parcel",
     }
 }
 
@@ -708,6 +809,9 @@ fn mark_shape_from_name(name: &str) -> world_projection::MarkShape {
         "lamp" => MarkShape::Lamp,
         "shop" => MarkShape::Shop,
         "bridge" => MarkShape::Bridge,
+        "rover" => MarkShape::Rover,
+        "boat" => MarkShape::Boat,
+        "parcel" => MarkShape::Parcel,
         _ => MarkShape::House,
     }
 }
@@ -813,6 +917,7 @@ fn summary(id: WorldDocumentId, document: &WorldDocument) -> WorldDocumentSummar
             .map(|name| mark_shape_from_name(name))
             .collect(),
         display_moves_alone: document.metadata.display_moves_alone,
+        display_cast: cast_from_document(&document.metadata.display_cast),
         world_time: document.archive.world_time,
         event_count: document.archive.events.len(),
     }
@@ -1601,6 +1706,38 @@ mod tests {
                     shape: world_projection::MarkShape::Dome,
                     selection: None,
                 }],
+                items: vec![
+                    world_projection::CanvasItem {
+                        id: world_projection::SelectionId::from_stable_key("entity-10").unwrap(),
+                        kind: world_projection::CanvasItemKind::Place,
+                        label: "Ares Habitat".into(),
+                        detail: String::new(),
+                        x: 0.12,
+                        y: 0.2,
+                        changes: Vec::new(),
+                        shape: Some(world_projection::MarkShape::Dome),
+                        at: None,
+                        look: None,
+                    },
+                    world_projection::CanvasItem {
+                        id: world_projection::SelectionId::from_stable_key("entity-11").unwrap(),
+                        kind: world_projection::CanvasItemKind::Actor,
+                        label: "Nia Chen".into(),
+                        detail: String::new(),
+                        x: 0.4,
+                        y: 0.5,
+                        changes: Vec::new(),
+                        shape: None,
+                        at: world_projection::SelectionId::from_stable_key("entity-10"),
+                        look: Some(world_projection::Look {
+                            clothes: Some(0x2f7f86),
+                            hair: None,
+                            skin: Some(0xc68a5f),
+                            carries: Some(world_projection::Carry::Tool),
+                            bird: false,
+                        }),
+                    },
+                ],
                 ..Default::default()
             },
             ..ProjectionSnapshot::default()
@@ -1627,6 +1764,21 @@ mod tests {
         );
         assert_eq!(listed.display_calendar.unwrap().unit, "Sol");
         assert!(listed.display_moves_alone);
+        // Its cover remembers who stands where and how they look, down to
+        // what they carry; names stay in the World.
+        assert_eq!(listed.display_cast.len(), 2);
+        let place = &listed.display_cast[0];
+        assert_eq!(place.shape, Some(world_projection::MarkShape::Dome));
+        let nia = &listed.display_cast[1];
+        assert_eq!(
+            nia.at,
+            world_projection::SelectionId::from_stable_key("entity-10")
+        );
+        assert_eq!(nia.x, 0.4);
+        assert_eq!(
+            nia.look, snapshot.canvas.items[1].look,
+            "a look survives the file whole"
+        );
     }
 
     #[test]

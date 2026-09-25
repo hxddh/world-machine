@@ -4,7 +4,6 @@ use gpui::{
     div, prelude::*, px, relative, Context, Div, FontWeight, IntoElement, Render, SharedString,
     Styled, Window,
 };
-use std::rc::Rc;
 use world_projection::{
     BriefingItem, BriefingItemKind, CanvasItemKind, CollectionItem, CommandEffect, EffectChange,
     InspectorProjection, ProjectionCommand, ProjectionIntent, ProjectionSnapshot, SelectionId,
@@ -14,22 +13,18 @@ use world_theme::tokens;
 
 use crate::scene;
 
+mod world_window;
+pub use world_window::{scene_share, words_at_rest, RESTING_WORD_LIMIT};
+
 const ENTITY_HISTORY_LIMIT: usize = 6;
 const RELATION_HISTORY_LIMIT: usize = 6;
 const ENTITY_RELATION_LIMIT: usize = 6;
 const RELATION_ENDPOINT_LIMIT: usize = 6;
 const EVENT_ENTITY_EFFECT_LIMIT: usize = 6;
 const EVENT_RELATION_EFFECT_LIMIT: usize = 6;
-/// How much of the history the sidebar lists. Older moments stay reachable
+/// How much of the history the drawer lists. Older moments stay reachable
 /// through Why and each person's own history.
 const HISTORY_LIMIT: usize = 40;
-/// The page never grows past a comfortable width, however wide the window
-/// is: wide enough for the scene, narrow enough to read.
-const PAGE_WIDTH: f32 = 980.0;
-const SIDEBAR_WIDTH: f32 = 300.0;
-/// Below this width the sidebar folds under the reading column instead of
-/// squeezing it.
-const TWO_COLUMN_MIN_WIDTH: f32 = 920.0;
 
 /// How tall a place to begin is drawn side by side, and stacked.
 const BEGINNING_TALL: f32 = 360.0;
@@ -42,9 +37,6 @@ pub struct ProjectionView {
     status: Option<String>,
     status_is_error: bool,
     show_header: bool,
-    /// The choice under the pointer, whose consequences the scene shows
-    /// before it is made.
-    previewing: Option<String>,
     /// Moments whose everyday round the reader has unfolded in History.
     routine_open: std::collections::BTreeSet<u64>,
     /// How the World stood before the last turn, so whoever the turn moved
@@ -53,6 +45,8 @@ pub struct ProjectionView {
     /// On a return, which of the things that happened is being told, one at
     /// a time, before the page hands over to the player's turn.
     retelling: Option<usize>,
+    /// What the player is looking at: presentation only.
+    looking: world_window::Looking,
 }
 
 impl ProjectionView {
@@ -66,10 +60,10 @@ impl ProjectionView {
             status: None,
             status_is_error: false,
             show_header: true,
-            previewing: None,
             routine_open: Default::default(),
             before_turn: None,
             retelling,
+            looking: Default::default(),
         }
     }
 
@@ -146,6 +140,7 @@ impl ProjectionView {
                 let previous = self.selected;
                 self.before_turn = Some(std::mem::replace(&mut self.snapshot, snapshot));
                 self.retelling = None;
+                self.turn_landed();
                 self.selected = selection_for_snapshot(previous, &self.snapshot);
                 self.status = None;
                 self.status_is_error = false;
@@ -166,34 +161,6 @@ impl ProjectionView {
             self.snapshot.world_time,
             self.snapshot.timeline.items.len()
         )
-    }
-
-    /// What the scene lights up: the targets of the choice under the
-    /// pointer, or else whoever the news is about.
-    fn emphasis(&self) -> scene::Emphasis {
-        if let Some(beat) = self.current_beat() {
-            let targets = beat_targets(&self.snapshot, beat);
-            if !targets.is_empty() {
-                return scene::Emphasis::Only(targets);
-            }
-        }
-        let targets = self
-            .previewing
-            .as_deref()
-            .and_then(|id| self.snapshot.command(id))
-            .map(|command| {
-                command
-                    .effects
-                    .iter()
-                    .filter_map(|effect| effect.target)
-                    .collect::<std::collections::BTreeSet<_>>()
-            })
-            .unwrap_or_default();
-        if targets.is_empty() {
-            scene::Emphasis::News
-        } else {
-            scene::Emphasis::Only(targets)
-        }
     }
 
     // ---- Reading column -------------------------------------------------
@@ -288,8 +255,20 @@ impl ProjectionView {
             body = body.child(ui::body(beat.detail.clone()));
         }
         let mut telling = div().flex().items_start().gap_4();
-        if !faces.is_empty() {
-            let face = ui::avatar(&faces[0], 52.0);
+        if let Some(name) = faces.first() {
+            let face = match self
+                .snapshot
+                .canvas
+                .items
+                .iter()
+                .find(|item| &item.label == name)
+            {
+                Some(item) => world_window::portrait(
+                    crate::art::Figure::of(&item.id.stable_key(), item.look),
+                    52.0,
+                ),
+                None => ui::avatar(name, 52.0),
+            };
             telling = telling.child(if beat.tone == Tone::Neutral {
                 face
             } else {
@@ -357,35 +336,6 @@ impl ProjectionView {
                     ),
             );
         Some(card)
-    }
-
-    /// Where the page starts: which World, what moment, and the headline.
-    fn render_masthead(&self) -> Div {
-        let (eyebrow, title) = match &self.snapshot.briefing {
-            Some(briefing) => (briefing.eyebrow.clone(), briefing.title.clone()),
-            None => (String::new(), self.snapshot.title.clone()),
-        };
-        let mut meta = Vec::new();
-        if !eyebrow.is_empty() {
-            meta.push(eyebrow);
-        }
-        if self.snapshot.world_time > 0 {
-            meta.push(self.snapshot.moment_label(self.snapshot.world_time));
-        }
-        let mut heading = div().flex_1().min_w(px(0.0)).flex().flex_col().gap_1();
-        if !meta.is_empty() {
-            heading = heading.child(ui::section_label(meta.join(" · ")));
-        }
-        let mut masthead = div()
-            .flex()
-            .items_end()
-            .justify_between()
-            .gap_6()
-            .child(heading.child(ui::page_title(title)));
-        if let Some(activity) = scene::activity(&self.snapshot) {
-            masthead = masthead.child(activity);
-        }
-        masthead
     }
 
     /// What happened, told in order as a short story rather than a grid of
@@ -564,158 +514,6 @@ impl ProjectionView {
             cards = cards.child(ui::arrive(card, format!("begin-{index}"), index));
         }
         Some(cards)
-    }
-
-    /// The decision in front of you, drawn as the one thing on the page that
-    /// is plainly meant to be pressed.
-    fn render_decision(&self, cx: &mut Context<Self>) -> Option<Div> {
-        if self.controller.is_none()
-            || self.snapshot.commands.is_empty()
-            || is_beginning(&self.snapshot)
-        {
-            return None;
-        }
-
-        let mut choices = div().flex().flex_col().gap_2();
-        for command in &self.snapshot.commands {
-            choices = choices.child(self.choice(command, cx));
-        }
-
-        Some(
-            div()
-                .p_4()
-                .rounded_lg()
-                .border_1()
-                .border_color(color(tokens::ACCENT))
-                .bg(color(tokens::ACCENT_SOFT))
-                .flex()
-                .flex_col()
-                .gap_3()
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap_1()
-                        .child(
-                            div()
-                                .text_xs()
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .text_color(color(tokens::ACCENT_TEXT))
-                                .child("Your turn"),
-                        )
-                        .child(ui::heading(command_panel_title(
-                            self.snapshot.commands.len(),
-                        ))),
-                )
-                .child(choices),
-        )
-    }
-
-    fn choice(&self, command: &ProjectionCommand, cx: &mut Context<Self>) -> impl IntoElement {
-        let command_id = command.id.clone();
-        let considering = self.previewing.as_deref() == Some(command.id.as_str());
-        let faces = asker_faces(&self.snapshot, command.asker);
-        let mut text = div().flex_1().min_w(px(0.0)).flex().flex_col().gap_1();
-        // Who is asking, above what they ask.
-        if !faces.is_empty() {
-            text = text.child(ui::caption(faces.join(" & ")));
-        }
-        text = text.child(ui::row_title(command.title.clone()));
-        // One line until the choice is being considered; then all of it.
-        if !command.detail.is_empty() {
-            text = text.child(
-                ui::detail(command.detail.clone())
-                    .line_clamp(if considering { 4 } else { 1 })
-                    .text_ellipsis(),
-            );
-        }
-        // What it moves: the measured gauge marks first, then any other
-        // fact the Pack gives. An up or down the gauges already show is not
-        // said twice.
-        let mut chips = div().pt_1().flex().flex_wrap().gap_1();
-        let mut has_chips = false;
-        for step in &command.moves {
-            if let Some(gauge) = self
-                .snapshot
-                .gauges
-                .iter()
-                .find(|gauge| gauge.id == step.gauge)
-            {
-                chips = chips.child(move_chip(&gauge.label, step.by));
-                has_chips = true;
-            }
-        }
-        for effect in &command.effects {
-            let said_by_gauges = !command.moves.is_empty()
-                && matches!(effect.change, EffectChange::Up | EffectChange::Down);
-            if !said_by_gauges {
-                chips = chips.child(effect_chip(effect));
-                has_chips = true;
-            }
-        }
-        if has_chips {
-            text = text.child(chips);
-        }
-        // A choice nobody asks is time passing: a clock, not a number.
-        let marker = if faces.is_empty() {
-            div()
-                .flex_shrink_0()
-                .size(px(40.0))
-                .rounded_full()
-                .bg(color(tokens::ACCENT_SOFT))
-                .p(px(10.0))
-                .child(clock_glyph().size_full())
-        } else {
-            face_stack(&faces)
-        };
-        let hover_id = command.id.clone();
-        div()
-            .id(SharedString::from(format!("command-{}", command.id)))
-            .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
-                // Moving straight from one choice to the next can report
-                // leaving the first after entering the second; leaving only
-                // clears the preview if it is still this choice's.
-                let previewing = if *hovered {
-                    Some(hover_id.clone())
-                } else if this.previewing.as_deref() == Some(hover_id.as_str()) {
-                    None
-                } else {
-                    return;
-                };
-                if this.previewing != previewing {
-                    this.previewing = previewing;
-                    cx.notify();
-                }
-            }))
-            .w_full()
-            .px_4()
-            .py_3()
-            .rounded_md()
-            .border_1()
-            .border_color(color(tokens::BORDER))
-            .bg(color(tokens::SURFACE))
-            .cursor_pointer()
-            .hover(|style| {
-                style
-                    .border_color(color(tokens::ACCENT))
-                    .bg(color(tokens::SURFACE_HOVER))
-            })
-            .active(|style| style.bg(color(tokens::ROW_SELECTED)))
-            .flex()
-            .items_center()
-            .gap_3()
-            .child(marker)
-            .child(text)
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .text_base()
-                    .text_color(color(tokens::ACCENT_TEXT))
-                    .child("→"),
-            )
-            .on_click(
-                cx.listener(move |this, _, _, cx| this.invoke_command(command_id.clone(), cx)),
-            )
     }
 
     /// How things stand: the standing facts a return does not need to lead
@@ -1398,138 +1196,7 @@ impl Render for ProjectionView {
             window.appearance(),
             gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark
         ));
-        let two_columns = window.viewport_size().width >= px(TWO_COLUMN_MIN_WIDTH);
-
-        let mut column = div()
-            .w_full()
-            .max_w(px(PAGE_WIDTH))
-            .mx_auto()
-            .px_8()
-            .py_8()
-            .flex()
-            .flex_col()
-            .gap_6();
-        if let Some(status) = self.render_status() {
-            column = column.child(status);
-        }
-        column = column.child(self.render_masthead());
-        // The stage is laid out in pixels so nothing overlaps at the width
-        // it will actually be drawn at.
-        let main_width =
-            f32::from(window.viewport_size().width) - if two_columns { SIDEBAR_WIDTH } else { 0.0 };
-        let stage_width = main_width.min(PAGE_WIDTH) - 64.0 - 2.0;
-        let view = cx.entity().downgrade();
-        let on_select: scene::SelectHandler = Rc::new(move |selection, _, cx| {
-            view.update(cx, |this, cx| this.select(selection, cx)).ok();
-        });
-        // The stakes sit right above the place they are about.
-        let previewing = self
-            .previewing
-            .as_deref()
-            .and_then(|id| self.snapshot.command(id));
-        if let Some(gauges) = scene::gauges(&self.snapshot, previewing) {
-            column = column.child(gauges);
-        }
-        if let Some(scene) = scene::scene_walking(
-            &self.snapshot,
-            self.before_turn.as_ref(),
-            stage_width,
-            self.selected,
-            &self.emphasis(),
-            on_select,
-        ) {
-            column = column.child(scene);
-        }
-
-        if let Some(beginning) = self.render_beginning(two_columns, cx) {
-            column = column.child(beginning);
-        }
-        // Coming back, what happened is told first, one thing at a time,
-        // and only then does the page hand over to the player's turn.
-        if let Some(retelling) = self.render_retelling(cx) {
-            column = column.child(retelling);
-        }
-        let retelling = self.retelling.is_some();
-        // The decision and the news that led to it sit side by side under
-        // the scene when there is room, and stack when there is not.
-        let decision = self.render_decision(cx).filter(|_| !retelling);
-        let story = self.render_story(cx).filter(|_| !retelling);
-        let side_by_side = two_columns && decision.is_some() && story.is_some();
-        let mut pair = div().flex().gap_6();
-        pair = if side_by_side {
-            pair.items_start()
-        } else {
-            pair.flex_col()
-        };
-        if let Some(decision) = decision {
-            pair = pair.child(div().flex_1().min_w(px(0.0)).child(ui::arrive(
-                decision,
-                format!("decision-{}", self.revision()),
-                1,
-            )));
-        }
-        if let Some(story) = story {
-            pair = pair.child(div().flex_1().min_w(px(0.0)).child(story));
-        }
-        column = column.child(pair);
-        if let Some(standing) = self.render_standing(cx).filter(|_| !retelling) {
-            column = column.child(standing);
-        }
-
-        let cast = self.render_cast(cx);
-        let history = self.render_history(cx);
-        let has_sidebar = cast.is_some() || history.is_some();
-        let mut sidebar = div().flex().flex_col().gap_6();
-        if let Some(cast) = cast {
-            sidebar = sidebar.child(cast);
-        }
-        if let Some(history) = history {
-            sidebar = sidebar.child(history);
-        }
-
-        let mut sidebar = Some(sidebar);
-        if !two_columns && has_sidebar {
-            if let Some(sidebar) = sidebar.take() {
-                column = column.child(ui::divider()).child(sidebar.mx(px(-12.0)));
-            }
-        }
-        if let Some(closer) = self.render_closer_look(cx) {
-            column = column.child(closer);
-        }
-
-        let mut workspace = div()
-            .flex_1()
-            .min_h(px(0.0))
-            .w_full()
-            .min_w(px(0.0))
-            .overflow_hidden()
-            .flex()
-            .child(
-                div()
-                    .id("projection-center-scroll")
-                    .flex_1()
-                    .min_w(px(0.0))
-                    .h_full()
-                    .overflow_y_scroll()
-                    .child(column),
-            );
-        if let Some(sidebar) = sidebar.filter(|_| has_sidebar) {
-            workspace = workspace.child(
-                div()
-                    .id("projection-sidebar-scroll")
-                    .w(px(SIDEBAR_WIDTH))
-                    .flex_shrink_0()
-                    .h_full()
-                    .overflow_y_scroll()
-                    .border_l_1()
-                    .border_color(color(tokens::BORDER))
-                    .bg(color(tokens::SIDEBAR))
-                    .px_2()
-                    .py_6()
-                    .child(sidebar),
-            );
-        }
-
+        let world = self.render_world(window, cx);
         let mut root = div()
             .size_full()
             .bg(color(tokens::WINDOW))
@@ -1544,8 +1211,6 @@ impl Render for ProjectionView {
                     .flex_shrink_0()
                     .flex()
                     .items_center()
-                    .justify_between()
-                    .gap_3()
                     .px_5()
                     .border_b_1()
                     .border_color(color(tokens::BORDER))
@@ -1558,7 +1223,7 @@ impl Render for ProjectionView {
                     ),
             );
         }
-        root.child(workspace)
+        root.child(div().flex_1().min_h(px(0.0)).w_full().child(world))
     }
 }
 
@@ -1703,31 +1368,6 @@ fn clock_glyph() -> gpui::Canvas<()> {
             }
         },
     )
-}
-
-/// One or two faces, the second tucked behind the first.
-fn face_stack(names: &[String]) -> Div {
-    const FACE: f32 = 40.0;
-    const TUCK: f32 = 14.0;
-    let shown = names.len().clamp(1, 2);
-    let mut stack = div()
-        .relative()
-        .flex_shrink_0()
-        .w(px(FACE + (shown - 1) as f32 * (FACE - TUCK)))
-        .h(px(FACE));
-    for (index, name) in names.iter().take(2).enumerate().rev() {
-        stack = stack.child(
-            div()
-                .absolute()
-                .top_0()
-                .left(px(index as f32 * (FACE - TUCK)))
-                .rounded_full()
-                .border_2()
-                .border_color(color(tokens::SURFACE))
-                .child(ui::avatar(name, FACE - 4.0)),
-        );
-    }
-    stack
 }
 
 /// How a choice moves one gauge: "Trust ▲▲".
@@ -1912,14 +1552,6 @@ fn has_timeline_panel(snapshot: &ProjectionSnapshot) -> bool {
     !snapshot.timeline.items.is_empty()
 }
 
-fn command_panel_title(command_count: usize) -> &'static str {
-    if command_count == 1 {
-        "Continue"
-    } else {
-        "Choose what happens next"
-    }
-}
-
 fn default_selection(snapshot: &ProjectionSnapshot) -> Option<SelectionId> {
     snapshot
         .collection
@@ -1998,9 +1630,8 @@ fn inspector_panel(inspector: &InspectorProjection) -> Div {
 #[cfg(test)]
 mod focus_hierarchy_tests {
     use super::{
-        command_panel_title, default_selection, has_collection_panel, has_exploration,
-        has_timeline_panel, history_groups, history_sections, history_window,
-        selection_for_snapshot, starts_retelling,
+        default_selection, has_collection_panel, has_exploration, has_timeline_panel,
+        history_groups, history_sections, history_window, selection_for_snapshot, starts_retelling,
     };
     use world_projection::{
         CollectionItem, InspectorProjection, ProjectionSnapshot, SelectionId, TimelineItem,
@@ -2152,13 +1783,6 @@ mod focus_hierarchy_tests {
         assert!(has_collection_panel(&snapshot));
         assert!(has_timeline_panel(&snapshot));
         assert!(has_exploration(&snapshot, Some(entity_selection())));
-    }
-
-    #[test]
-    fn command_panel_distinguishes_continuation_from_choice() {
-        assert_eq!(command_panel_title(1), "Continue");
-        assert_eq!(command_panel_title(2), "Choose what happens next");
-        assert_eq!(command_panel_title(5), "Choose what happens next");
     }
 
     #[test]

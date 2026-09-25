@@ -16,6 +16,7 @@ mod recovery;
 mod seed;
 mod social;
 mod staffing;
+mod talk;
 
 use std::error::Error;
 use world_agent::{

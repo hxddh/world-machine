@@ -122,6 +122,76 @@ mod tests {
         );
     }
 
+    /// The harbour window is a place, not a page: at rest it shows at most
+    /// forty words, bar included, over days and a return.
+    #[test]
+    fn the_harbour_window_shows_a_place_not_a_page() {
+        let mut registry = world_host::WorldRegistry::new();
+        registry.register(tiny_society_registration()).unwrap();
+        let mut session = registry.create(crate::TINY_SOCIETY_PACK_ID).unwrap();
+        let mut snapshot = session.snapshot();
+        for turn in 0..16 {
+            let words = world_gpui::words_at_rest(&snapshot);
+            assert!(
+                words <= world_gpui::RESTING_WORD_LIMIT,
+                "turn {turn}: {words} words at rest"
+            );
+            snapshot = if turn % 4 == 3 || snapshot.commands.is_empty() {
+                session.advance_background(3).unwrap()
+            } else {
+                let command = snapshot.commands[turn % snapshot.commands.len()].id.clone();
+                session
+                    .handle(ProjectionIntent::InvokeCommand(command))
+                    .unwrap()
+            };
+        }
+    }
+
+    /// Someone says something every day, over whoever it happened to;
+    /// everyone can be asked three things, and an answer that asks for
+    /// something names a choice that is really on offer.
+    #[test]
+    fn the_harbour_speaks_and_answers_and_asks_only_for_what_is_on_offer() {
+        let mut registry = world_host::WorldRegistry::new();
+        registry.register(tiny_society_registration()).unwrap();
+        let mut session = registry.create(crate::TINY_SOCIETY_PACK_ID).unwrap();
+        let mut snapshot = session.advance_background(2).unwrap();
+        let mut asked_for = 0;
+        for turn in 0..12 {
+            let on_scene = |id: SelectionId| snapshot.canvas.items.iter().any(|item| item.id == id);
+            let on_timeline =
+                |id: SelectionId| snapshot.timeline.items.iter().any(|item| item.id == id);
+            assert!(!snapshot.voices.is_empty(), "turn {turn}: nobody spoke");
+            for voice in &snapshot.voices {
+                assert!(on_scene(voice.speaker), "{voice:?}");
+                assert!(on_timeline(voice.moment), "{voice:?}");
+            }
+            assert_eq!(snapshot.talks.len(), 24);
+            for talk in &snapshot.talks {
+                assert!(on_scene(talk.who));
+                if let Some(command) = &talk.asks_for {
+                    assert!(snapshot.command(command).is_some(), "{talk:?}");
+                    asked_for += 1;
+                }
+            }
+            assert!(snapshot
+                .canvas
+                .items
+                .iter()
+                .filter(|item| item.kind == world_projection::CanvasItemKind::Actor)
+                .all(|person| person.look.is_some()));
+            snapshot = if snapshot.commands.is_empty() {
+                session.advance_background(1).unwrap()
+            } else {
+                let command = snapshot.commands[turn % snapshot.commands.len()].id.clone();
+                session
+                    .handle(ProjectionIntent::InvokeCommand(command))
+                    .unwrap()
+            };
+        }
+        assert!(asked_for > 0, "somebody should ask for something");
+    }
+
     #[test]
     fn the_town_keeps_score_and_its_choices_say_whose_they_are() {
         let mut registry = world_host::WorldRegistry::new();
