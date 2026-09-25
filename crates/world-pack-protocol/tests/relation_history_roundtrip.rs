@@ -20,6 +20,7 @@ fn relation_evidence_snapshot() -> (ProjectionSnapshot, TimelineItem, RelationId
         title: "Relation changed".into(),
         subtitle: "External Pack relation event".into(),
         caused_by: vec![EventId::new(8)],
+        routine: false,
     };
     let snapshot = ProjectionSnapshot {
         title: "External Relation World".into(),

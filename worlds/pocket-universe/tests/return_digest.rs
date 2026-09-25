@@ -52,8 +52,8 @@ fn return_digest_groups_repeated_event_kinds() -> Result<(), Box<dyn Error>> {
     assert!(
         event_items
             .iter()
-            .any(|(item, _)| item.title.contains("· 3 times")),
-        "the digest should say how often a repeated change happened while away"
+            .all(|(item, _)| !item.title.contains(" times") && !item.title.contains(" updates")),
+        "a return says what happened, not how many times the routine ran"
     );
 
     Ok(())

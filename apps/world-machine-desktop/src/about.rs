@@ -11,6 +11,8 @@ use gpui::{
     IntoElement, KeyBinding, Menu, MenuItem, Render, Styled, SystemMenuType, Window, WindowBounds,
     WindowOptions,
 };
+use world_gpui::ui;
+use world_theme::tokens;
 
 use crate::{build_info, diagnostics, WorldMachineHome};
 
@@ -237,8 +239,8 @@ impl Render for AboutView {
 
         div()
             .size_full()
-            .bg(crate::theme_rgb(0xfcfcfa))
-            .text_color(crate::theme_rgb(0x202020))
+            .bg(ui::color(tokens::WARNING_SOFT))
+            .text_color(ui::color(tokens::TEXT))
             .flex()
             .flex_col()
             .gap_3()
@@ -247,20 +249,20 @@ impl Render for AboutView {
             .child(
                 div()
                     .text_sm()
-                    .text_color(crate::theme_rgb(0x666666))
+                    .text_color(ui::color(tokens::TEXT_SECONDARY))
                     .child("Persistent worlds that remember, evolve, and branch."),
             )
             .child(div().text_sm().child(build_info::display_label()))
             .child(
                 div()
                     .text_sm()
-                    .text_color(crate::theme_rgb(0x9b4a42))
+                    .text_color(ui::color(tokens::DANGER))
                     .child("Not yet notarized by Apple: the first launch asks once."),
             )
             .child(
                 div()
                     .text_xs()
-                    .text_color(crate::theme_rgb(0x666666))
+                    .text_color(ui::color(tokens::TEXT_SECONDARY))
                     .child(diagnostics::host_description()),
             )
             .child(
@@ -269,14 +271,14 @@ impl Render for AboutView {
                     .flex_col()
                     .gap_1()
                     .text_xs()
-                    .text_color(crate::theme_rgb(0x666666))
+                    .text_color(ui::color(tokens::TEXT_SECONDARY))
                     .child(format!("Worlds: {library}"))
                     .child(format!("Log: {log}")),
             )
             .child(
                 div()
                     .text_xs()
-                    .text_color(crate::theme_rgb(0x8a8a82))
+                    .text_color(ui::color(tokens::TEXT_TERTIARY))
                     .child(
                         "No account, no telemetry. Your Worlds are files on this Mac; \
                          only the optional World voice and Analyst send anything out, \
@@ -324,8 +326,8 @@ fn about_button(id: &'static str, label: &'static str) -> gpui::Stateful<gpui::D
         .p_2()
         .rounded_md()
         .border_1()
-        .border_color(crate::theme_rgb(0xd9d9d3))
-        .bg(crate::theme_rgb(0xffffff))
+        .border_color(ui::color(tokens::BORDER_STRONG))
+        .bg(ui::color(tokens::SURFACE))
         .text_sm()
         .child(label)
 }

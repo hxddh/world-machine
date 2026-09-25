@@ -14,6 +14,7 @@ fn record(value: &str) -> LineageRecord {
         world_time: 10,
         event_count: 3,
         lineage: None,
+        title: None,
     }
 }
 

@@ -99,8 +99,8 @@ fn legacy_briefing_selects_its_event_and_exposes_why() -> Result<(), Box<dyn Err
         "after reinforcement, the persistent legacy should open its latest living event"
     );
     assert!(
-        reinforced_legacy_item.detail.contains("Legacy cycle 1"),
-        "the persistent legacy should describe its latest durable feedback cycle"
+        reinforced_legacy_item.detail.contains("grew stronger"),
+        "the persistent legacy should describe how it last grew"
     );
 
     let reinforced_why = reinforced_snapshot

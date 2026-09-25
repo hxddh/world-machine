@@ -22,7 +22,7 @@ Persistent worlds that remember, evolve, and branch. A World keeps living while 
 ## Documentation
 
 - [Install guide](docs/INSTALL.md), [known issues](docs/KNOWN_ISSUES.md), [privacy](docs/PRIVACY.md), [changelog](CHANGELOG.md)
-- [Roadmap](docs/ROADMAP.md) and [pre-alpha release process](docs/PRE_ALPHA_RELEASES.md)
+- [Roadmap](docs/ROADMAP.md), [product review](docs/PRODUCT_REVIEW.md), and [pre-alpha release process](docs/PRE_ALPHA_RELEASES.md)
 - [Architecture](ARCHITECTURE.md), [runtime overview](docs/RUNTIME.md), [World IR](docs/WORLD_IR_v0.1.md), [checking an external Pack](docs/PACK_CHECK.md), [Pi analyst](docs/PI_ANALYST.md)
 
 ## Build from source

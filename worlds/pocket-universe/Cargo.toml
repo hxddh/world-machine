@@ -1,6 +1,6 @@
 [package]
 name = "pocket-universe"
-version = "0.18.0"
+version = "0.19.0"
 edition = "2021"
 license = "Apache-2.0"
 publish = false
@@ -16,3 +16,4 @@ world-projection = { path = "../../crates/world-projection" }
 [dev-dependencies]
 world-compare = { path = "../../crates/world-compare" }
 world-library = { path = "../../crates/world-library" }
+world-document = { path = "../../crates/world-document" }

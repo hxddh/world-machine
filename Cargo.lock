@@ -3866,11 +3866,12 @@ dependencies = [
 
 [[package]]
 name = "pocket-universe"
-version = "0.18.0"
+version = "0.19.0"
 dependencies = [
  "world-agent",
  "world-compare",
  "world-core",
+ "world-document",
  "world-host",
  "world-library",
  "world-persistence",
@@ -3879,7 +3880,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-universe-pack"
-version = "0.18.0"
+version = "0.19.0"
 dependencies = [
  "pocket-universe",
  "serde_json",
@@ -5382,6 +5383,7 @@ dependencies = [
  "world-agent",
  "world-core",
  "world-host",
+ "world-library",
  "world-pack-protocol",
  "world-persistence",
  "world-projection",
@@ -6775,6 +6777,7 @@ version = "0.1.0"
 dependencies = [
  "gpui",
  "world-document",
+ "world-gpui",
  "world-library",
  "world-lineage",
  "world-persistence",
@@ -6783,7 +6786,7 @@ dependencies = [
 
 [[package]]
 name = "world-machine-desktop"
-version = "0.5.2"
+version = "0.6.0"
 dependencies = [
  "gpui",
  "gpui_platform",
@@ -6938,6 +6941,7 @@ version = "0.1.0"
 dependencies = [
  "gpui",
  "world-compare",
+ "world-gpui",
  "world-projection",
  "world-strategy",
  "world-theme",

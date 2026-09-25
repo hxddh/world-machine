@@ -50,6 +50,7 @@ fn typed_evidence_is_visible_deduplicated_and_shared_by_navigation_queries() {
                     title: "Eight".into(),
                     subtitle: "Visible".into(),
                     caused_by: Vec::new(),
+                    routine: false,
                 },
                 TimelineItem {
                     id: event_7,
@@ -57,6 +58,7 @@ fn typed_evidence_is_visible_deduplicated_and_shared_by_navigation_queries() {
                     title: "Seven".into(),
                     subtitle: "Visible".into(),
                     caused_by: Vec::new(),
+                    routine: false,
                 },
             ],
         },

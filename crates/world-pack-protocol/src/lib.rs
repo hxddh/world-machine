@@ -5,10 +5,11 @@ use std::fmt;
 use world_core::{EntityId, EventId, RelationId};
 use world_persistence::{WorldArchive, WorldPackRef};
 use world_projection::{
-    BriefingItem, BriefingItemKind, BriefingProjection, CanvasItem, CanvasItemKind,
-    CanvasProjection, CollectionItem, CollectionProjection, InspectorProjection, InspectorRow,
-    InspectorSection, ProjectionCapabilities, ProjectionCommand, ProjectionIntent,
-    ProjectionSnapshot, SelectionId, TimelineItem, TimelineProjection, WhyNode, WhyProjection,
+    BriefingItem, BriefingItemKind, BriefingProjection, CanvasChange, CanvasItem, CanvasItemKind,
+    CanvasLink, CanvasLinkTone, CanvasProjection, CollectionItem, CollectionProjection,
+    CommandEffect, EffectChange, InspectorProjection, InspectorRow, InspectorSection,
+    ProjectionCapabilities, ProjectionCommand, ProjectionIntent, ProjectionSnapshot, SelectionId,
+    TimelineItem, TimelineProjection, Tone, WhyNode, WhyProjection,
 };
 
 pub const PACK_MANIFEST_FORMAT: &str = "world-machine-pack";
@@ -362,6 +363,20 @@ impl ProjectionSnapshotWire {
         for item in &self.canvas.items {
             validate_selection_for_protocol(protocol_version, item.id)?;
         }
+        for command in &self.commands {
+            for effect in &command.effects {
+                if let Some(target) = effect.target {
+                    validate_selection_for_protocol(protocol_version, target)?;
+                }
+            }
+        }
+        for link in &self.canvas.links {
+            validate_selection_for_protocol(protocol_version, link.from)?;
+            validate_selection_for_protocol(protocol_version, link.to)?;
+            if let Some(selection) = link.selection {
+                validate_selection_for_protocol(protocol_version, selection)?;
+            }
+        }
         for inspector in &self.inspectors {
             validate_selection_for_protocol(protocol_version, inspector.selection)?;
         }
@@ -454,6 +469,90 @@ pub struct ProjectionCommandWire {
     pub id: String,
     pub title: String,
     pub detail: String,
+    /// Optional both ways: a Pack that predates effects sends none, and a
+    /// host that predates them ignores the field.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub effects: Vec<CommandEffectWire>,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToneWire {
+    #[default]
+    Neutral,
+    Good,
+    Warning,
+    Bad,
+}
+
+impl From<Tone> for ToneWire {
+    fn from(tone: Tone) -> Self {
+        match tone {
+            Tone::Neutral => Self::Neutral,
+            Tone::Good => Self::Good,
+            Tone::Warning => Self::Warning,
+            Tone::Bad => Self::Bad,
+        }
+    }
+}
+
+impl From<ToneWire> for Tone {
+    fn from(tone: ToneWire) -> Self {
+        match tone {
+            ToneWire::Neutral => Self::Neutral,
+            ToneWire::Good => Self::Good,
+            ToneWire::Warning => Self::Warning,
+            ToneWire::Bad => Self::Bad,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", content = "value", rename_all = "snake_case")]
+pub enum EffectChangeWire {
+    Up,
+    Down,
+    To(String),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct CommandEffectWire {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<SelectionIdWire>,
+    pub label: String,
+    pub change: EffectChangeWire,
+    #[serde(default)]
+    pub tone: ToneWire,
+}
+
+impl From<&CommandEffect> for CommandEffectWire {
+    fn from(effect: &CommandEffect) -> Self {
+        Self {
+            target: effect.target.map(Into::into),
+            label: effect.label.clone(),
+            change: match &effect.change {
+                EffectChange::Up => EffectChangeWire::Up,
+                EffectChange::Down => EffectChangeWire::Down,
+                EffectChange::To(value) => EffectChangeWire::To(value.clone()),
+            },
+            tone: effect.tone.into(),
+        }
+    }
+}
+
+impl From<CommandEffectWire> for CommandEffect {
+    fn from(effect: CommandEffectWire) -> Self {
+        Self {
+            target: effect.target.map(Into::into),
+            label: effect.label,
+            change: match effect.change {
+                EffectChangeWire::Up => EffectChange::Up,
+                EffectChangeWire::Down => EffectChange::Down,
+                EffectChangeWire::To(value) => EffectChange::To(value),
+            },
+            tone: effect.tone.into(),
+        }
+    }
 }
 
 impl From<&ProjectionCommand> for ProjectionCommandWire {
@@ -462,6 +561,7 @@ impl From<&ProjectionCommand> for ProjectionCommandWire {
             id: command.id.clone(),
             title: command.title.clone(),
             detail: command.detail.clone(),
+            effects: command.effects.iter().map(Into::into).collect(),
         }
     }
 }
@@ -472,6 +572,7 @@ impl From<ProjectionCommandWire> for ProjectionCommand {
             id: command.id,
             title: command.title,
             detail: command.detail,
+            effects: command.effects.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -513,6 +614,13 @@ pub struct BriefingItemWire {
     /// decode back to.
     #[serde(default)]
     pub kind: BriefingItemKindWire,
+    /// Absent before briefings carried a tone; those lines read as neutral.
+    #[serde(default, skip_serializing_if = "is_neutral")]
+    pub tone: ToneWire,
+}
+
+fn is_neutral(tone: &ToneWire) -> bool {
+    *tone == ToneWire::Neutral
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -548,6 +656,7 @@ impl From<&BriefingItem> for BriefingItemWire {
             title: item.title.clone(),
             detail: item.detail.clone(),
             kind: item.kind.into(),
+            tone: item.tone.into(),
         }
     }
 }
@@ -559,6 +668,7 @@ impl From<BriefingItemWire> for BriefingItem {
             title: item.title,
             detail: item.detail,
             kind: item.kind.into(),
+            tone: item.tone.into(),
         }
     }
 }
@@ -642,6 +752,13 @@ pub struct TimelineItemWire {
     pub title: String,
     pub subtitle: String,
     pub caused_by: Vec<u64>,
+    /// Optional in both directions, like the other presentation hints.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub routine: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 impl From<&TimelineItem> for TimelineItemWire {
@@ -652,6 +769,7 @@ impl From<&TimelineItem> for TimelineItemWire {
             title: item.title.clone(),
             subtitle: item.subtitle.clone(),
             caused_by: item.caused_by.iter().map(|event| event.0).collect(),
+            routine: item.routine,
         }
     }
 }
@@ -664,6 +782,7 @@ impl From<TimelineItemWire> for TimelineItem {
             title: item.title,
             subtitle: item.subtitle,
             caused_by: item.caused_by.into_iter().map(EventId::new).collect(),
+            routine: item.routine,
         }
     }
 }
@@ -671,12 +790,17 @@ impl From<TimelineItemWire> for TimelineItem {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct CanvasProjectionWire {
     pub items: Vec<CanvasItemWire>,
+    /// Optional in both directions: a Pack that predates links sends none,
+    /// and a host that predates them ignores the field.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub links: Vec<CanvasLinkWire>,
 }
 
 impl From<&CanvasProjection> for CanvasProjectionWire {
     fn from(canvas: &CanvasProjection) -> Self {
         Self {
             items: canvas.items.iter().map(Into::into).collect(),
+            links: canvas.links.iter().map(Into::into).collect(),
         }
     }
 }
@@ -685,6 +809,76 @@ impl From<CanvasProjectionWire> for CanvasProjection {
     fn from(canvas: CanvasProjectionWire) -> Self {
         Self {
             items: canvas.items.into_iter().map(Into::into).collect(),
+            links: canvas.links.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CanvasLinkToneWire {
+    #[default]
+    Neutral,
+    Warm,
+    Strained,
+}
+
+impl From<CanvasLinkTone> for CanvasLinkToneWire {
+    fn from(tone: CanvasLinkTone) -> Self {
+        match tone {
+            CanvasLinkTone::Neutral => Self::Neutral,
+            CanvasLinkTone::Warm => Self::Warm,
+            CanvasLinkTone::Strained => Self::Strained,
+        }
+    }
+}
+
+impl From<CanvasLinkToneWire> for CanvasLinkTone {
+    fn from(tone: CanvasLinkToneWire) -> Self {
+        match tone {
+            CanvasLinkToneWire::Neutral => Self::Neutral,
+            CanvasLinkToneWire::Warm => Self::Warm,
+            CanvasLinkToneWire::Strained => Self::Strained,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CanvasLinkWire {
+    pub from: SelectionIdWire,
+    pub to: SelectionIdWire,
+    #[serde(default)]
+    pub label: String,
+    #[serde(default)]
+    pub tone: CanvasLinkToneWire,
+    #[serde(default)]
+    pub strength: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selection: Option<SelectionIdWire>,
+}
+
+impl From<&CanvasLink> for CanvasLinkWire {
+    fn from(link: &CanvasLink) -> Self {
+        Self {
+            from: link.from.into(),
+            to: link.to.into(),
+            label: link.label.clone(),
+            tone: link.tone.into(),
+            strength: link.strength,
+            selection: link.selection.map(Into::into),
+        }
+    }
+}
+
+impl From<CanvasLinkWire> for CanvasLink {
+    fn from(link: CanvasLinkWire) -> Self {
+        Self {
+            from: link.from.into(),
+            to: link.to.into(),
+            label: link.label,
+            tone: link.tone.into(),
+            strength: link.strength.clamp(0.0, 1.0),
+            selection: link.selection.map(Into::into),
         }
     }
 }
@@ -725,6 +919,17 @@ pub struct CanvasItemWire {
     pub detail: String,
     pub x: f32,
     pub y: f32,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub changes: Vec<CanvasChangeWire>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct CanvasChangeWire {
+    pub label: String,
+    pub before: String,
+    pub after: String,
+    #[serde(default)]
+    pub tone: ToneWire,
 }
 
 impl From<&CanvasItem> for CanvasItemWire {
@@ -736,6 +941,16 @@ impl From<&CanvasItem> for CanvasItemWire {
             detail: item.detail.clone(),
             x: item.x,
             y: item.y,
+            changes: item
+                .changes
+                .iter()
+                .map(|change| CanvasChangeWire {
+                    label: change.label.clone(),
+                    before: change.before.clone(),
+                    after: change.after.clone(),
+                    tone: change.tone.into(),
+                })
+                .collect(),
         }
     }
 }
@@ -749,6 +964,16 @@ impl From<CanvasItemWire> for CanvasItem {
             detail: item.detail,
             x: item.x,
             y: item.y,
+            changes: item
+                .changes
+                .into_iter()
+                .map(|change| CanvasChange {
+                    label: change.label,
+                    before: change.before,
+                    after: change.after,
+                    tone: change.tone.into(),
+                })
+                .collect(),
         }
     }
 }
@@ -1010,10 +1235,10 @@ impl Error for ProtocolDecodeError {
 mod tests {
     use super::*;
     use world_projection::{
-        BriefingItem, BriefingProjection, CanvasItem, CanvasItemKind, CanvasProjection,
-        CollectionItem, CollectionProjection, InspectorProjection, InspectorRow, InspectorSection,
-        ProjectionCapabilities, ProjectionCommand, TimelineItem, TimelineProjection, WhyNode,
-        WhyProjection,
+        BriefingItem, BriefingProjection, CanvasItem, CanvasItemKind, CanvasLink, CanvasLinkTone,
+        CanvasProjection, CollectionItem, CollectionProjection, CommandEffect, EffectChange,
+        InspectorProjection, InspectorRow, InspectorSection, ProjectionCapabilities,
+        ProjectionCommand, TimelineItem, TimelineProjection, Tone, WhyNode, WhyProjection,
     };
 
     fn descriptor() -> PackDescriptor {
@@ -1039,12 +1264,27 @@ mod tests {
                     selection: Some(entity),
                     title: "Entity seven".into(),
                     detail: "A selected entity".into(),
+                    tone: Tone::Warning,
                 }],
             }),
             commands: vec![ProjectionCommand {
                 id: "external.advance".into(),
                 title: "Advance".into(),
                 detail: "Advance the external world".into(),
+                effects: vec![
+                    CommandEffect {
+                        target: Some(entity),
+                        label: "Seven".into(),
+                        change: EffectChange::To("advanced".into()),
+                        tone: Tone::Good,
+                    },
+                    CommandEffect {
+                        target: None,
+                        label: "Time".into(),
+                        change: EffectChange::Up,
+                        tone: Tone::Neutral,
+                    },
+                ],
             }],
             collection: CollectionProjection {
                 title: "Entities".into(),
@@ -1061,6 +1301,7 @@ mod tests {
                     title: "Changed".into(),
                     subtitle: "Event nine".into(),
                     caused_by: vec![EventId::new(8)],
+                    routine: false,
                 }],
             },
             canvas: CanvasProjection {
@@ -1071,6 +1312,15 @@ mod tests {
                     detail: "On the canvas".into(),
                     x: 0.25,
                     y: 0.75,
+                    changes: Vec::new(),
+                }],
+                links: vec![CanvasLink {
+                    from: entity,
+                    to: entity,
+                    label: "Partnership".into(),
+                    tone: CanvasLinkTone::Warm,
+                    strength: 0.8,
+                    selection: Some(entity),
                 }],
             },
             inspectors: BTreeMap::from([(
@@ -1210,5 +1460,23 @@ mod tests {
             let wire = ProjectionIntentWire::from(intent.clone());
             assert_eq!(ProjectionIntent::from(wire), intent);
         }
+    }
+
+    #[test]
+    fn a_snapshot_from_before_tones_and_effects_still_decodes() {
+        let item: BriefingItemWire = serde_json::from_str(
+            r#"{"selection":null,"title":"Old news","detail":"","kind":"beat"}"#,
+        )
+        .expect("an item without a tone decodes");
+        assert_eq!(item.tone, ToneWire::Neutral);
+        let command: ProjectionCommandWire =
+            serde_json::from_str(r#"{"id":"old","title":"Old","detail":""}"#)
+                .expect("a command without effects decodes");
+        assert!(command.effects.is_empty());
+        let encoded = serde_json::to_value(&command).expect("encodes");
+        assert!(
+            encoded.get("effects").is_none(),
+            "an old host never sees the new field when there is nothing to say"
+        );
     }
 }

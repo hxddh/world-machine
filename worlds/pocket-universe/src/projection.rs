@@ -10,14 +10,16 @@ use crate::{
     RECOVER_ANCHOR_COMMAND, RELATIONSHIP, RELATIONSHIP_DIRECTION, RELATIONSHIP_LAST_DYNAMIC,
     RELATIONSHIP_SOCIAL_ARC, RELATIONSHIP_TENSION, RELATIONSHIP_TRUST, RELEASE_LEGACY_COMMAND,
     RIVALRY_COMMAND, ROOTED_POSTURE_COMMAND, SEED_1980S_TOWN_COMMAND, SEED_MARS_COLONY_COMMAND,
-    SEED_PENGUIN_CIVILIZATION_COMMAND, SHARED_PROJECT_COMMAND, SLOT_A, UNIVERSE,
+    SEED_PENGUIN_CIVILIZATION_COMMAND, SHARED_PROJECT_COMMAND, SLOT_A, SLOT_B, SLOT_C, SLOT_D,
+    SLOT_E, UNIVERSE,
 };
 use world_core::{Entity, EntityId, Event, StateChange, Value, World};
 use world_projection::{
     entity_title, inspectors_from_world, timeline_from_world, value_text, why_map_from_world,
-    BriefingItem, BriefingItemKind, BriefingProjection, CanvasItem, CanvasItemKind,
-    CanvasProjection, CollectionItem, CollectionProjection, ProjectionCapabilities,
-    ProjectionCommand, ProjectionSnapshot, SelectionId,
+    BriefingItem, BriefingItemKind, BriefingProjection, CanvasChange, CanvasItem, CanvasItemKind,
+    CanvasLink, CanvasLinkTone, CanvasProjection, CollectionItem, CollectionProjection,
+    CommandEffect, EffectChange, ProjectionCapabilities, ProjectionCommand, ProjectionSnapshot,
+    SelectionId, Tone,
 };
 
 pub(crate) fn snapshot(world: &World) -> ProjectionSnapshot {
@@ -40,13 +42,189 @@ pub(crate) fn snapshot_since(
         capabilities: ProjectionCapabilities {
             fork: !world.events().is_empty(),
         },
-        briefing: Some(briefing(world, seeded, since_event_count)),
-        commands: commands(world, seeded),
+        briefing: Some(toned(world, briefing(world, seeded, since_event_count))),
+        commands: commands(world, seeded)
+            .into_iter()
+            .map(|mut command| {
+                command.effects = command_effects(world, &command.id);
+                command
+            })
+            .collect(),
         collection: collection(world),
-        timeline: timeline_from_world(world),
-        canvas: canvas(world),
+        timeline: told_timeline(world),
+        canvas: with_changes(world, canvas(world), since_event_count),
         inspectors: inspectors_from_world(world),
         why: why_map_from_world(world),
+    }
+}
+
+/// Good news, bad news, or neither, for each briefing line, read from the
+/// kind of event the line reports.
+fn toned(world: &World, mut briefing: BriefingProjection) -> BriefingProjection {
+    for item in &mut briefing.items {
+        item.tone = match item.selection {
+            Some(SelectionId::Event(id)) => world
+                .events()
+                .iter()
+                .find(|event| event.id == id)
+                .map(|event| tone_for_event(&event.kind))
+                .unwrap_or_default(),
+            Some(SelectionId::Entity(RELATIONSHIP)) => {
+                let relationship = world.state().entity(RELATIONSHIP);
+                match text_component(relationship, RELATIONSHIP_SOCIAL_ARC, "forming").as_str() {
+                    "partnership" => Tone::Good,
+                    "fracture" => Tone::Bad,
+                    _ => Tone::Neutral,
+                }
+            }
+            _ => Tone::Neutral,
+        };
+    }
+    briefing
+}
+
+fn tone_for_event(kind: &str) -> Tone {
+    match kind {
+        "pressure_rising" => Tone::Warning,
+        "pressure_peaked" | "anchor_lost" | "relationship_fractured" => Tone::Bad,
+        "pressure_held"
+        | "pressure_reached"
+        | "anchor_recovered"
+        | "partnership_formed"
+        | "world_legacy_formed"
+        | "legacy_reinforced" => Tone::Good,
+        _ => Tone::Neutral,
+    }
+}
+
+/// What each choice would change, as facts a screen can show beside it and
+/// point at on the scene before the choice is made.
+fn command_effects(world: &World, command_id: &str) -> Vec<CommandEffect> {
+    let effect =
+        |target: Option<EntityId>, label: &str, change: EffectChange, tone: Tone| CommandEffect {
+            target: target.map(SelectionId::Entity),
+            label: label.into(),
+            change,
+            tone,
+        };
+    let anchor = world
+        .state()
+        .entity(SLOT_A)
+        .map(entity_title)
+        .unwrap_or_else(|| "The anchor".into());
+    let pressure = pressure::pressure_id_from_state(world.state());
+    match command_id {
+        NUDGE_COMMAND if pressure::window_open(&pressure) => vec![effect(
+            Some(SLOT_A),
+            &anchor,
+            EffectChange::To("trouble grows".into()),
+            Tone::Warning,
+        )],
+        SHARED_PROJECT_COMMAND => vec![
+            effect(Some(RELATIONSHIP), "Trust", EffectChange::Up, Tone::Good),
+            effect(
+                Some(RELATIONSHIP),
+                "Tension",
+                EffectChange::Down,
+                Tone::Good,
+            ),
+        ],
+        RIVALRY_COMMAND => vec![effect(
+            Some(RELATIONSHIP),
+            "Tension",
+            EffectChange::Up,
+            Tone::Warning,
+        )],
+        BOLD_PATH_COMMAND | CAREFUL_PATH_COMMAND => {
+            let bold = command_id == BOLD_PATH_COMMAND;
+            crate::intervention_plan(seed_id(world), bold)
+                .and_then(|(_, _, target, _, value)| {
+                    let name = world.state().entity(target).map(entity_title)?;
+                    Some(vec![effect(
+                        Some(target),
+                        &name,
+                        EffectChange::To(value.into()),
+                        Tone::Neutral,
+                    )])
+                })
+                .unwrap_or_default()
+        }
+        OUTWARD_POSTURE_COMMAND => vec![effect(
+            None,
+            "World direction",
+            EffectChange::To("outward".into()),
+            Tone::Neutral,
+        )],
+        ROOTED_POSTURE_COMMAND => vec![effect(
+            None,
+            "World direction",
+            EffectChange::To("rooted".into()),
+            Tone::Neutral,
+        )],
+        HOLD_PRESSURE_COMMAND | REACH_PRESSURE_COMMAND => {
+            let hold = command_id == HOLD_PRESSURE_COMMAND;
+            let copy = pressure::copy_for_state(world.state());
+            let posture = text_component(world.state().entity(UNIVERSE), POSTURE, "none");
+            let fits = matches!(
+                (hold, posture.as_str()),
+                (true, "rooted") | (false, "outward")
+            );
+            vec![
+                effect(
+                    Some(SLOT_A),
+                    &anchor,
+                    EffectChange::To(
+                        if hold {
+                            copy.hold_status
+                        } else {
+                            copy.reach_status
+                        }
+                        .into(),
+                    ),
+                    Tone::Good,
+                ),
+                effect(
+                    None,
+                    if fits {
+                        "Fits the World's direction"
+                    } else {
+                        "Against the World's direction"
+                    },
+                    EffectChange::To(if fits { "aligned" } else { "strained" }.into()),
+                    if fits { Tone::Good } else { Tone::Warning },
+                ),
+            ]
+        }
+        RECOVER_ANCHOR_COMMAND => {
+            let copy = pressure::copy_for_state(world.state());
+            vec![
+                effect(
+                    Some(SLOT_A),
+                    &anchor,
+                    EffectChange::To(copy.recover_status.into()),
+                    Tone::Good,
+                ),
+                effect(
+                    None,
+                    "Legacy",
+                    EffectChange::To("starts over".into()),
+                    Tone::Warning,
+                ),
+            ]
+        }
+        ENTRUST_LEGACY_COMMAND => vec![effect(
+            None,
+            "Legacy",
+            EffectChange::To("carries on".into()),
+            Tone::Good,
+        )],
+        RELEASE_LEGACY_COMMAND => vec![effect(
+            None,
+            "Legacy",
+            EffectChange::To("starts over".into()),
+            Tone::Warning,
+        )],
+        _ => Vec::new(),
     }
 }
 
@@ -58,18 +236,21 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
                 title: "Start a Mars colony".into(),
                 detail: "A tiny habitat, one keeper, hydroponics, and a rover on a red horizon."
                     .into(),
+                effects: Vec::new(),
             },
             ProjectionCommand {
                 id: SEED_1980S_TOWN_COMMAND.into(),
                 title: "Start a town in 1987".into(),
                 detail: "An arcade, local radio, a night bus, and a neighborhood that remembers."
                     .into(),
+                effects: Vec::new(),
             },
             ProjectionCommand {
                 id: SEED_PENGUIN_CIVILIZATION_COMMAND.into(),
                 title: "Start a penguin civilization".into(),
                 detail: "An ice bridge, a fish vault, a moonrise council, and one bridge keeper."
                     .into(),
+                effects: Vec::new(),
             },
         ];
     }
@@ -105,28 +286,21 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
     let mut commands = vec![ProjectionCommand {
         id: NUDGE_COMMAND.into(),
         title: nudge_title.into(),
-        detail: command_detail_with_signal(world, NUDGE_COMMAND, nudge_detail),
+        detail: String::from(nudge_detail),
+        effects: Vec::new(),
     }];
 
     if relationship_choice_available {
         commands.push(ProjectionCommand {
             id: SHARED_PROJECT_COMMAND.into(),
             title: "Give them a shared project".into(),
-            detail: command_detail_with_signal(
-                world,
-                SHARED_PROJECT_COMMAND,
-                "Create a goal that neither actor can complete alone; future interactions will lean toward trust.",
-            ),
-        });
+            detail: String::from("Create a goal that neither actor can complete alone; future interactions will lean toward trust."), effects: Vec::new(),
+});
         commands.push(ProjectionCommand {
             id: RIVALRY_COMMAND.into(),
             title: "Let rivalry sharpen them".into(),
-            detail: command_detail_with_signal(
-                world,
-                RIVALRY_COMMAND,
-                "Keep both actors independent and let competition add pressure to future interactions.",
-            ),
-        });
+            detail: String::from("Keep both actors independent and let competition add pressure to future interactions."), effects: Vec::new(),
+});
     }
     if intervention_choice_available {
         let (bold_title, bold_detail, careful_title, careful_detail) =
@@ -134,12 +308,14 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
         commands.push(ProjectionCommand {
             id: BOLD_PATH_COMMAND.into(),
             title: bold_title.into(),
-            detail: command_detail_with_signal(world, BOLD_PATH_COMMAND, bold_detail),
+            detail: String::from(bold_detail),
+            effects: Vec::new(),
         });
         commands.push(ProjectionCommand {
             id: CAREFUL_PATH_COMMAND.into(),
             title: careful_title.into(),
-            detail: command_detail_with_signal(world, CAREFUL_PATH_COMMAND, careful_detail),
+            detail: String::from(careful_detail),
+            effects: Vec::new(),
         });
     }
     if posture_choice_available {
@@ -148,12 +324,14 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
         commands.push(ProjectionCommand {
             id: OUTWARD_POSTURE_COMMAND.into(),
             title: outward_title.into(),
-            detail: command_detail_with_signal(world, OUTWARD_POSTURE_COMMAND, outward_detail),
+            detail: String::from(outward_detail),
+            effects: Vec::new(),
         });
         commands.push(ProjectionCommand {
             id: ROOTED_POSTURE_COMMAND.into(),
             title: rooted_title.into(),
-            detail: command_detail_with_signal(world, ROOTED_POSTURE_COMMAND, rooted_detail),
+            detail: String::from(rooted_detail),
+            effects: Vec::new(),
         });
     }
     let copy = pressure::copy_for_state(world.state());
@@ -161,18 +339,21 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
         commands.push(ProjectionCommand {
             id: HOLD_PRESSURE_COMMAND.into(),
             title: copy.hold_title.into(),
-            detail: command_detail_with_signal(world, HOLD_PRESSURE_COMMAND, copy.hold_detail),
+            detail: String::from(copy.hold_detail),
+            effects: Vec::new(),
         });
         commands.push(ProjectionCommand {
             id: REACH_PRESSURE_COMMAND.into(),
             title: copy.reach_title.into(),
-            detail: command_detail_with_signal(world, REACH_PRESSURE_COMMAND, copy.reach_detail),
+            detail: String::from(copy.reach_detail),
+            effects: Vec::new(),
         });
     } else if pressure_stage == "lost" {
         commands.push(ProjectionCommand {
             id: RECOVER_ANCHOR_COMMAND.into(),
             title: copy.recover_title.into(),
-            detail: command_detail_with_signal(world, RECOVER_ANCHOR_COMMAND, copy.recover_detail),
+            detail: String::from(copy.recover_detail),
+            effects: Vec::new(),
         });
     }
     let succession_stage = succession::succession_id_from_state(world.state());
@@ -181,20 +362,14 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
         commands.push(ProjectionCommand {
             id: ENTRUST_LEGACY_COMMAND.into(),
             title: succession_copy.entrust_title.into(),
-            detail: command_detail_with_signal(
-                world,
-                ENTRUST_LEGACY_COMMAND,
-                succession_copy.entrust_detail,
-            ),
+            detail: String::from(succession_copy.entrust_detail),
+            effects: Vec::new(),
         });
         commands.push(ProjectionCommand {
             id: RELEASE_LEGACY_COMMAND.into(),
             title: succession_copy.release_title.into(),
-            detail: command_detail_with_signal(
-                world,
-                RELEASE_LEGACY_COMMAND,
-                succession_copy.release_detail,
-            ),
+            detail: String::from(succession_copy.release_detail),
+            effects: Vec::new(),
         });
     }
     commands
@@ -227,7 +402,7 @@ fn succession_nudge_copy(world: &World) -> Option<(&'static str, &'static str)> 
     Some(match succession::standing_for_patience(patience) {
         SuccessorStanding::NewHands => (
             "Let the successor keep learning",
-            "Nothing is decided yet. Every cycle you wait, they do more of the work their own way.",
+            "Nothing is decided yet. The longer you wait, the more they do the work their own way.",
         ),
         SuccessorStanding::OwnHabits => (
             "Let their habits settle further",
@@ -264,6 +439,7 @@ fn eras_turned_item(world: &World, events: &[Event]) -> Option<BriefingItem> {
         detail: format!("You left during era {left_during}; this is era {era}. {summary}")
             .trim_end()
             .to_string(),
+        tone: world_projection::Tone::Neutral,
     })
 }
 
@@ -283,6 +459,7 @@ fn decided_without_you_item(events: &[Event]) -> Option<BriefingItem> {
         selection: Some(SelectionId::Event(last.id)),
         title: "Decided without you".into(),
         detail,
+        tone: world_projection::Tone::Neutral,
     })
 }
 
@@ -319,6 +496,7 @@ fn era_item(world: &World) -> Option<BriefingItem> {
         selection: Some(SelectionId::Event(event.id)),
         title: format!("Era {era} · {inherited}"),
         detail,
+        tone: world_projection::Tone::Neutral,
     })
 }
 
@@ -351,31 +529,31 @@ fn succession_consequence_item(world: &World) -> Option<BriefingItem> {
         selection: Some(SelectionId::Event(event.id)),
         title: format!("Succession · {label}"),
         detail: summary,
+        tone: world_projection::Tone::Neutral,
     })
 }
 
 fn succession_choice_evidence(event: &Event) -> Option<BriefingItem> {
-    let stage = event_text_component(event, UNIVERSE, SUCCESSION)?;
-    let outcome = event_text_component(event, UNIVERSE, SUCCESSION_OUTCOME)?;
+    event_text_component(event, UNIVERSE, SUCCESSION)?;
+    event_text_component(event, UNIVERSE, SUCCESSION_OUTCOME)?;
     let inheritance = payload_text(event, "inheritance").unwrap_or("");
     let (label, follow_on) = match event.kind.as_str() {
         "legacy_entrusted" => (
             "Handed on",
-            "The succession is settled. Later growth reads this durable answer.",
+            "The succession is settled, and what grows next builds on it.",
         ),
         "legacy_released" => (
             "Rewritten",
-            "Legacy cycles were reset to 0; the successor's version has to earn its own.",
+            "The old legacy was set aside; the successor's version has to earn its own.",
         ),
         _ => return None,
     };
     Some(BriefingItem {
         kind: BriefingItemKind::Status,
         selection: Some(SelectionId::Event(event.id)),
-        title: format!("Choice evidence · {label}"),
-        detail: format!(
-            "Verified by this Event: succession = {stage}; outcome = {outcome}. {inheritance} {follow_on}"
-        ),
+        title: format!("You chose · {label}"),
+        detail: format!("{inheritance} {follow_on}").trim().to_string(),
+        tone: world_projection::Tone::Neutral,
     })
 }
 
@@ -383,126 +561,17 @@ fn pressure_nudge_copy(pressure: &str) -> Option<(&'static str, &'static str)> {
     match pressure {
         "warning" => Some((
             "Watch the pressure build",
-            "Let one more cycle pass without answering. The World will not wait forever.",
+            "Wait without answering. The World will not wait forever.",
         )),
         "crisis" => Some((
-            "Risk one more cycle",
-            "Let one more cycle pass in crisis. If the window closes, what this World depends on is lost.",
+            "Risk waiting longer",
+            "Wait while the crisis runs. If the window closes, what this World depends on is lost.",
         )),
         "lost" => Some((
             "Let the loss settle",
             "Let the World live with what it lost before deciding whether to recover it.",
         )),
         _ => None,
-    }
-}
-
-fn command_detail_with_signal(world: &World, command_id: &str, detail: &str) -> String {
-    match command_choice_signal(world, command_id) {
-        Some(signal) => format!("{detail} Choice signal: {signal}."),
-        None => detail.into(),
-    }
-}
-
-fn command_choice_signal(world: &World, command_id: &str) -> Option<String> {
-    match command_id {
-        NUDGE_COMMAND => Some(
-            "one full cycle resolves under current rules: world growth, both actor turns, relationship update, then period consequences"
-                .into(),
-        ),
-        SHARED_PROJECT_COMMAND | RIVALRY_COMMAND => {
-            let relationship = world.state().entity(RELATIONSHIP);
-            let trust = integer_entity_component(relationship, RELATIONSHIP_TRUST).unwrap_or_default();
-            let tension = integer_entity_component(relationship, RELATIONSHIP_TENSION).unwrap_or_default();
-            if command_id == SHARED_PROJECT_COMMAND {
-                let next_trust = (trust + 2).clamp(0, 10);
-                let next_tension = (tension - 1).clamp(0, 10);
-                Some(format!(
-                    "trust {trust} → {next_trust} · tension {tension} → {next_tension}; each later relationship shift also gains +1 trust and -1 tension"
-                ))
-            } else {
-                let next_tension = (tension + 2).clamp(0, 10);
-                Some(format!(
-                    "trust {trust} → {trust} · tension {tension} → {next_tension}; each later relationship shift also gains +1 tension"
-                ))
-            }
-        }
-        BOLD_PATH_COMMAND => Some(intervention_choice_signal(seed_id(world), true).into()),
-        CAREFUL_PATH_COMMAND => Some(intervention_choice_signal(seed_id(world), false).into()),
-        OUTWARD_POSTURE_COMMAND => Some(
-            "sets durable World direction to Outward; later growth and legacy formation read the outward posture"
-                .into(),
-        ),
-        ROOTED_POSTURE_COMMAND => Some(
-            "sets durable World direction to Rooted; later growth and legacy formation read the rooted posture"
-                .into(),
-        ),
-        ENTRUST_LEGACY_COMMAND | RELEASE_LEGACY_COMMAND => {
-            let continued = command_id == ENTRUST_LEGACY_COMMAND;
-            let outcome = if continued { "continued" } else { "renewed" };
-            let cost = if continued {
-                "legacy cycles keep accumulating"
-            } else {
-                "legacy cycles reset to 0 and the successor's version starts earning its own"
-            };
-            Some(format!(
-                "settles the succession now; the durable outcome becomes {outcome}; {cost}"
-            ))
-        }
-        HOLD_PRESSURE_COMMAND | REACH_PRESSURE_COMMAND => {
-            let posture = text_component(world.state().entity(UNIVERSE), POSTURE, "none");
-            let aligned = matches!(
-                (command_id, posture.as_str()),
-                (HOLD_PRESSURE_COMMAND, "rooted") | (REACH_PRESSURE_COMMAND, "outward")
-            );
-            let copy = pressure::copy_for_state(world.state());
-            let status = if command_id == HOLD_PRESSURE_COMMAND {
-                copy.hold_status
-            } else {
-                copy.reach_status
-            };
-            let fit = if aligned {
-                "this answer fits the World's durable direction; the outcome is recorded as aligned"
-            } else {
-                "this answer runs against the World's durable direction; the outcome is recorded as strained"
-            };
-            Some(format!(
-                "closes the pressure window now; the anchor's durable status becomes {status}; {fit}"
-            ))
-        }
-        RECOVER_ANCHOR_COMMAND => {
-            let copy = pressure::copy_for_state(world.state());
-            Some(format!(
-                "the anchor's durable status becomes {}; legacy cycles reset to 0 and the legacy must reinforce itself again",
-                copy.recover_status
-            ))
-        }
-        _ => None,
-    }
-}
-
-fn intervention_choice_signal(seed: &str, bold: bool) -> &'static str {
-    match (seed, bold) {
-        ("mars-colony", true) => {
-            "locks the first intervention to Signal expedition; Kestrel's durable status becomes signal expedition"
-        }
-        ("mars-colony", false) => {
-            "locks the first intervention to Fortified habitat; Ares Habitat's durable status becomes storm sealed"
-        }
-        ("1980s-town", true) => {
-            "locks the first intervention to Community arcade; Maple Arcade's durable status becomes community nights"
-        }
-        ("1980s-town", false) => {
-            "locks the first intervention to Steady business; Maple Arcade's durable status becomes steady business"
-        }
-        ("penguin-civilization", true) => {
-            "locks the first intervention to Winter feast; Fish Vault's durable reserve becomes festival opened"
-        }
-        ("penguin-civilization", false) => {
-            "locks the first intervention to Conserved reserves; Fish Vault's durable reserve becomes winter conserved"
-        }
-        (_, true) => "locks a durable bold intervention that later growth can read",
-        (_, false) => "locks a durable careful intervention that later growth can read",
     }
 }
 
@@ -579,7 +648,7 @@ fn second_arc_stage_copy(seed: &str) -> (String, Option<(&'static str, &'static 
             "Icebridge now has history and a settled central relationship. Decide whether its next chapter widens the colony network or deepens winter life at home."
         }
         _ => {
-            "The first arc has settled. Decide whether the next chapter reaches outward or deepens the home this World already made."
+            "The first chapter has settled. Decide whether the next one reaches outward or deepens the home this World already made."
         }
     };
     (
@@ -615,7 +684,7 @@ fn pressure_stage_copy(
             format!("{anchor} is in crisis"),
             Some((
                 "Your turn · Decide before it is lost",
-                "The window is closing. Hold or reach now; a few more cycles of waiting and this loss becomes durable.",
+                "The window is closing. Hold or reach now; wait much longer and the loss will be permanent.",
             )),
         )),
         "lost" => Some((
@@ -660,7 +729,16 @@ fn pressure_consequence_item(world: &World) -> Option<BriefingItem> {
         selection: Some(SelectionId::Event(event.id)),
         title: format!("World pressure · {label}"),
         detail: summary,
+        tone: world_projection::Tone::Neutral,
     })
+}
+
+fn pressure_outcome_sentence(outcome: &str) -> &'static str {
+    match outcome {
+        "aligned" => "The answer fit the direction this World had chosen.",
+        "strained" => "The answer ran against the direction this World had chosen, and it shows.",
+        _ => "",
+    }
 }
 
 fn pressure_choice_evidence(world: &World, event: &Event) -> Option<BriefingItem> {
@@ -674,25 +752,28 @@ fn pressure_choice_evidence(world: &World, event: &Event) -> Option<BriefingItem
     let (label, follow_on) = match event.kind.as_str() {
         "pressure_held" => (
             "Held",
-            "The pressure window is closed. Later growth reads this durable answer.",
+            "The trouble is answered, and what grows next builds on it.",
         ),
         "pressure_reached" => (
             "Reached",
-            "The pressure window is closed. Later growth reads this durable answer.",
+            "The trouble is answered, and what grows next builds on it.",
         ),
         "anchor_recovered" => (
             "Recovered",
-            "Legacy cycles were reset to 0; the legacy must reinforce itself again.",
+            "The legacy has to prove itself all over again.",
         ),
         _ => return None,
     };
     Some(BriefingItem {
         kind: BriefingItemKind::Status,
         selection: Some(SelectionId::Event(event.id)),
-        title: format!("Choice evidence · {label}"),
+        title: format!("You chose · {label}"),
         detail: format!(
-            "Verified by this Event: {anchor} · status = {status}; outcome = {outcome}. {follow_on}"
-        ),
+            "{anchor} is now {status}. {} {follow_on}",
+            pressure_outcome_sentence(&outcome)
+        )
+        .replace("  ", " "),
+        tone: world_projection::Tone::Neutral,
     })
 }
 
@@ -700,7 +781,7 @@ fn legacy_nudge_copy(seed: &str, legacy: &str) -> (&'static str, &'static str) {
     match (seed, legacy) {
         ("mars-colony", "ridge-network") => (
             "Let the ridge network carry on",
-            "Let another sol move through the ridge routes and see what this durable expedition network changes next.",
+            "Let another sol move through the ridge routes and see what the expedition network changes next.",
         ),
         ("mars-colony", "competing-frontiers") => (
             "Let the competing frontiers advance",
@@ -708,7 +789,7 @@ fn legacy_nudge_copy(seed: &str, legacy: &str) -> (&'static str, &'static str) {
         ),
         ("mars-colony", "habitat-commons") => (
             "Let the habitat commons deepen",
-            "Let another sol move through the commons and see what shared life inside Ares makes durable next.",
+            "Let another sol move through the commons and see what shared life inside Ares builds next.",
         ),
         ("mars-colony", "sealed-districts") => (
             "Let the sealed districts settle",
@@ -804,12 +885,12 @@ fn nudge_copy(
             "Give Icebridge one more aurora; its central relationship is starting to take shape.",
         ),
         (_, 0) => (
-            "Let the first cycle unfold",
+            "Let time begin",
             "Watch the World move once before deciding how much to shape it.",
         ),
         (_, 1) => (
-            "See what the next cycle changes",
-            "Give the World one more cycle; its central relationship is starting to take shape.",
+            "See what comes next",
+            "Give the World a little more time; its central relationship is starting to take shape.",
         ),
         _ => (
             "Let the world move",
@@ -828,16 +909,16 @@ fn briefing(world: &World, seeded: bool, since_event_count: Option<usize>) -> Br
                     kind: BriefingItemKind::Status,
                     selection: Some(SelectionId::Entity(UNIVERSE)),
                     title: "Create".into(),
-                    detail: "Choose one seed. The choice becomes the first durable event in this World."
-                        .into(),
-                },
+                    detail: "Choose where this World begins. Whatever you pick is where its history starts."
+                        .into(), tone: world_projection::Tone::Neutral,
+},
                 BriefingItem {
                     kind: BriefingItemKind::Status,
                     selection: None,
                     title: "Keep · Grow · Return".into(),
                     detail: "Save it like a document, let time move, then come back to a world with history."
-                        .into(),
-                },
+                        .into(), tone: world_projection::Tone::Neutral,
+},
             ],
         };
     }
@@ -892,6 +973,7 @@ fn briefing(world: &World, seeded: bool, since_event_count: Option<usize>) -> Br
         selection: Some(SelectionId::Entity(UNIVERSE)),
         title: "Current thread".into(),
         detail: last_change,
+        tone: world_projection::Tone::Neutral,
     }];
     if let Some((guidance_title, guidance_detail)) = guidance {
         items.push(BriefingItem {
@@ -899,6 +981,7 @@ fn briefing(world: &World, seeded: bool, since_event_count: Option<usize>) -> Br
             selection: None,
             title: guidance_title.into(),
             detail: guidance_detail.into(),
+            tone: world_projection::Tone::Neutral,
         });
     }
     items.extend(persistent_consequence_items(world));
@@ -965,7 +1048,7 @@ fn live_stage_copy(
                 "penguin-civilization" => {
                     "Let the first aurora unfold and see how Piko and Miri settle into Icebridge."
                 }
-                _ => "Let the first cycle unfold before deciding how much to shape this World.",
+                _ => "Watch it move once before deciding how much to shape this World.",
             };
             ("The world is alive".into(), Some(("Next · Watch", detail)))
         }
@@ -973,10 +1056,12 @@ fn live_stage_copy(
             "Patterns are forming".into(),
             Some((
                 "Next · Notice",
-                "Let one more cycle pass. After that, you can steer the relationship at the center of this World.",
+                "Give it a little more time. After that, you can steer the relationship at the center of this World.",
             )),
         ),
-        _ => (format!("Generation {generation}"), None),
+        // Past the opening chapter with nothing open: the World simply goes
+        // on. The generation number is the engine's count, not a headline.
+        _ => ("Life goes on".into(), None),
     }
 }
 
@@ -992,6 +1077,7 @@ fn persistent_consequence_items(world: &World) -> Vec<BriefingItem> {
             selection: Some(SelectionId::Entity(UNIVERSE)),
             title: title.into(),
             detail: detail.into(),
+            tone: world_projection::Tone::Neutral,
         });
     }
     if let Some(item) = relationship_consequence_item(world) {
@@ -1042,6 +1128,26 @@ fn choice_evidence_item(world: &World) -> Option<BriefingItem> {
     }
 }
 
+fn relationship_change_sentence(
+    before_trust: i64,
+    after_trust: i64,
+    before_tension: i64,
+    after_tension: i64,
+) -> String {
+    let part = |name: &str, before: i64, after: i64| {
+        if before == after {
+            format!("{name} held at {after}")
+        } else {
+            format!("{name} went from {before} to {after}")
+        }
+    };
+    format!(
+        "{} and {}.",
+        part("Trust", before_trust, after_trust),
+        part("tension", before_tension, after_tension)
+    )
+}
+
 fn relationship_choice_evidence(
     world: &World,
     event: &Event,
@@ -1062,29 +1168,30 @@ fn relationship_choice_evidence(
     )?)?;
     let after_trust = event_integer_component(event, RELATIONSHIP, RELATIONSHIP_TRUST)?;
     let after_tension = event_integer_component(event, RELATIONSHIP, RELATIONSHIP_TENSION)?;
-    let durable_direction = event_text_component(event, RELATIONSHIP, RELATIONSHIP_DIRECTION)?;
+    event_text_component(event, RELATIONSHIP, RELATIONSHIP_DIRECTION)?;
     let (label, follow_on) = match direction {
         "shared-project" => (
             "Shared project",
-            "Later relationship shifts read this durable direction and add +1 trust and -1 tension.",
+            "From here on, each time they shift, it leans toward trust.",
         ),
         "rivalry" => (
             "Rivalry",
-            "Later relationship shifts read this durable direction and add +1 tension.",
+            "From here on, each time they shift, it leans toward tension.",
         ),
         _ => (
             "Relationship",
-            "Later relationship shifts continue reading this durable direction.",
+            "Later shifts between them keep following this direction.",
         ),
     };
     Some(BriefingItem {
         kind: BriefingItemKind::Status,
         selection: Some(SelectionId::Event(event.id)),
-        title: format!("Choice evidence · {label}"),
+        title: format!("You chose · {label}"),
         detail: format!(
-            "Verified by this Event: trust {before_trust} → {after_trust} · tension {before_tension} → {after_tension}. Durable direction = {}. {follow_on}",
-            durable_direction.replace('-', " ")
+            "{} {follow_on}",
+            relationship_change_sentence(before_trust, after_trust, before_tension, after_tension)
         ),
+        tone: world_projection::Tone::Neutral,
     })
 }
 
@@ -1099,33 +1206,28 @@ fn intervention_choice_evidence(world: &World, event: &Event) -> Option<Briefing
         })
         .unwrap_or_else(|| legacy_label(&decision));
     let effect = event.changes.iter().find_map(|change| match change {
-        StateChange::SetComponent { entity, key, value } if *entity != UNIVERSE => {
+        StateChange::SetComponent { entity, value, .. } if *entity != UNIVERSE => {
             let target = world
                 .state()
                 .entity(*entity)
                 .map(entity_title)
                 .unwrap_or_else(|| format!("Entity #{entity}"));
-            Some(format!(
-                "{target} · {} = {}",
-                key.replace('_', " "),
-                value_text(value, world)
-            ))
+            Some(format!("{target} is now {}.", value_text(value, world)))
         }
         _ => None,
     })?;
     Some(BriefingItem {
         kind: BriefingItemKind::Status,
         selection: Some(SelectionId::Event(event.id)),
-        title: format!("Choice evidence · {label}"),
-        detail: format!(
-            "Verified by this Event: first intervention = {label}; {effect}. Later growth reads this durable intervention."
-        ),
+        title: format!("You chose · {label}"),
+        detail: format!("{effect} What grows next builds on it."),
+        tone: world_projection::Tone::Neutral,
     })
 }
 
 fn posture_choice_evidence(event: &Event) -> Option<BriefingItem> {
     let posture = event_text_component(event, UNIVERSE, POSTURE)?;
-    let generation = event_integer_component(event, UNIVERSE, POSTURE_GENERATION)?;
+    event_integer_component(event, UNIVERSE, POSTURE_GENERATION)?;
     let label = match posture.as_str() {
         "outward" => "Outward",
         "rooted" => "Rooted",
@@ -1134,11 +1236,12 @@ fn posture_choice_evidence(event: &Event) -> Option<BriefingItem> {
     Some(BriefingItem {
         kind: BriefingItemKind::Status,
         selection: Some(SelectionId::Event(event.id)),
-        title: format!("Choice evidence · {label}"),
+        title: format!("You chose · {label}"),
         detail: format!(
-            "Verified by this Event: World direction = {label} at generation {generation}. Later growth and legacy formation read this durable posture."
-        ),
-    })
+            "This World now leans {}. What grows next, and what it leaves behind, follows that direction.",
+            label.to_lowercase()
+        ), tone: world_projection::Tone::Neutral,
+})
 }
 
 fn payload_text<'a>(event: &'a Event, key: &str) -> Option<&'a str> {
@@ -1294,6 +1397,7 @@ fn posture_consequence_item(world: &World) -> Option<BriefingItem> {
         selection: Some(SelectionId::Entity(UNIVERSE)),
         title: title.into(),
         detail: detail.into(),
+        tone: world_projection::Tone::Neutral,
     })
 }
 
@@ -1317,7 +1421,7 @@ fn legacy_consequence_item(world: &World) -> Option<BriefingItem> {
             text_component(
                 world.state().entity(UNIVERSE),
                 LEGACY_SUMMARY,
-                "This World now carries a durable legacy from its earlier choices.",
+                "This World now carries a legacy of its earlier choices.",
             )
         });
     let selection = latest_reinforcement
@@ -1336,6 +1440,7 @@ fn legacy_consequence_item(world: &World) -> Option<BriefingItem> {
         selection: Some(selection),
         title: format!("World legacy · {}", legacy_label(&legacy)),
         detail: summary,
+        tone: world_projection::Tone::Neutral,
     })
 }
 
@@ -1365,11 +1470,11 @@ fn relationship_consequence_item(world: &World) -> Option<BriefingItem> {
     let (title, meaning) = match social_arc.as_str() {
         "partnership" => (
             "Partnership formed",
-            "This relationship has resolved into a durable partnership.",
+            "They have settled into a lasting partnership.",
         ),
         "fracture" => (
             "Relationship fractured",
-            "This relationship has resolved into a durable fracture.",
+            "They have settled into a lasting rift.",
         ),
         "forming" if direction == "shared-project" => (
             "Relationship · Shared project",
@@ -1381,16 +1486,16 @@ fn relationship_consequence_item(world: &World) -> Option<BriefingItem> {
         ),
         _ => return None,
     };
-    let detail = if last_dynamic.trim().is_empty() {
-        format!("{meaning} Trust {trust} · tension {tension}.")
-    } else {
-        format!("{meaning} Trust {trust} · tension {tension}. {last_dynamic}")
-    };
+    // The latest shift already states trust and tension; saying them twice
+    // in one card is how it ended up reading like a readout.
+    let _ = last_dynamic;
+    let detail = format!("{meaning} {}", crate::bond_phrase(trust, tension));
     Some(BriefingItem {
         kind: BriefingItemKind::Status,
         selection: Some(SelectionId::Entity(RELATIONSHIP)),
         title: title.into(),
         detail,
+        tone: world_projection::Tone::Neutral,
     })
 }
 
@@ -1407,12 +1512,6 @@ fn return_compass_item(world: &World) -> BriefingItem {
         choice_state(world, generation);
     let posture_choice_available = posture_choice_state(world, generation);
     let legacy = text_component(world.state().entity(UNIVERSE), LEGACY, "forming");
-    let available = commands(world, true);
-    let nudge = available.iter().find(|command| command.id == NUDGE_COMMAND);
-    let shaping = available
-        .iter()
-        .filter(|command| command.id != NUDGE_COMMAND)
-        .collect::<Vec<_>>();
 
     let pressure_stage = pressure::pressure_id_from_state(world.state());
     let title = if pressure::window_open(&pressure_stage) {
@@ -1433,29 +1532,6 @@ fn return_compass_item(world: &World) -> BriefingItem {
         "Next · Continue"
     };
 
-    let action_detail = match (shaping.is_empty(), nudge) {
-        (true, Some(nudge)) => format!("Continue with ‘{}’. {}", nudge.title, nudge.detail),
-        (false, Some(nudge)) => {
-            let choices = shaping
-                .iter()
-                .map(|command| {
-                    let signal =
-                        command_choice_signal(world, command.id.as_str()).unwrap_or_else(|| {
-                            "changes durable World state through this action".into()
-                        });
-                    format!("‘{}’ — {signal}", command.title)
-                })
-                .collect::<Vec<_>>()
-                .join(" · ");
-            let nudge_signal = command_choice_signal(world, nudge.id.as_str())
-                .unwrap_or_else(|| "continues from the current durable state".into());
-            format!(
-                "Choice signals: {choices}. ‘{}’ — {nudge_signal}.",
-                nudge.title
-            )
-        }
-        (_, None) => "This World can continue from its current durable state.".into(),
-    };
     let why_now = return_compass_context(
         world,
         generation,
@@ -1464,13 +1540,16 @@ fn return_compass_item(world: &World) -> BriefingItem {
         posture_choice_available,
         &legacy,
     );
-    let detail = format!("Why now: {why_now} {action_detail}");
+    // Why this choice is open now, in the World's own terms. What each
+    // answer does is the choices' own business, one line below.
+    let detail = why_now;
 
     BriefingItem {
         kind: BriefingItemKind::Status,
         selection: None,
         title: title.into(),
         detail,
+        tone: world_projection::Tone::Neutral,
     }
 }
 
@@ -1511,7 +1590,8 @@ fn return_compass_context(
         LAST_CHANGE,
         "The world is quiet.",
     );
-    format!("Generation {generation} is still carrying its current thread: {last_change}")
+    let _ = generation;
+    last_change
 }
 
 fn pressure_return_context(world: &World, pressure: &str) -> String {
@@ -1539,9 +1619,12 @@ fn relationship_return_context(world: &World) -> String {
     } else {
         format!(" {last_dynamic}")
     };
-    format!(
-        "The central relationship is still forming at trust {trust} · tension {tension}.{dynamic} Its durable direction is still open."
-    )
+    let footing = match (trust, tension) {
+        (t, n) if n > t => "They are not easy with each other yet.",
+        (t, _) if t >= 4 => "They are starting to rely on each other.",
+        _ => "They are still finding their footing with each other.",
+    };
+    format!("{footing}{dynamic} Where it goes is still open.")
 }
 
 fn intervention_return_context(world: &World, generation: i64) -> String {
@@ -1550,9 +1633,8 @@ fn intervention_return_context(world: &World, generation: i64) -> String {
         LAST_CHANGE,
         "The world is quiet.",
     );
-    format!(
-        "Generation {generation} has reached a larger intervention point. Current thread: {last_change}"
-    )
+    let _ = generation;
+    format!("The World has grown enough for a bigger choice. {last_change}")
 }
 
 fn posture_return_context(world: &World) -> String {
@@ -1562,8 +1644,8 @@ fn posture_return_context(world: &World) -> String {
         "forming",
     );
     let social_arc = match social_arc.as_str() {
-        "partnership" => "partnership".into(),
-        "fracture" => "fracture".into(),
+        "partnership" => "a partnership".into(),
+        "fracture" => "a rift".into(),
         other => other.replace('-', " "),
     };
     let decision = text_component(world.state().entity(UNIVERSE), DECISION, "none");
@@ -1576,7 +1658,7 @@ fn posture_return_context(world: &World) -> String {
         })
         .unwrap_or_else(|| decision.replace('-', " "));
     format!(
-        "The first arc has settled as {social_arc}, and {influence} is already durable. The next choice now decides whether this World reaches outward or deepens home."
+        "The first chapter has settled into {social_arc}, and {influence} is here to stay. The next choice decides whether this World reaches outward or deepens home."
     )
 }
 
@@ -1587,11 +1669,9 @@ fn legacy_return_context(world: &World, legacy: &str) -> String {
         let summary = text_component(
             world.state().entity(UNIVERSE),
             LEGACY_SUMMARY,
-            "This World now carries a durable legacy from its earlier choices.",
+            "This World now carries a legacy of its earlier choices.",
         );
-        return format!(
-            "World legacy · {legacy} has formed but has not yet reinforced through a later cycle. {summary}"
-        );
+        return format!("{legacy} has formed. {summary}");
     }
 
     let pattern = world
@@ -1603,15 +1683,61 @@ fn legacy_return_context(world: &World, legacy: &str) -> String {
             Some(Value::Text(pattern)) => Some(pattern.as_str()),
             _ => None,
         });
-    let cycle_word = if cycles == 1 { "cycle" } else { "cycles" };
     match pattern {
         Some(pattern) => format!(
-            "World legacy · {legacy} has reinforced through {cycles} later {cycle_word}; its current pattern is {pattern}. Another continuation feeds that established pattern back into the World."
+            "{legacy} keeps growing stronger, carried by {pattern}. Letting time pass feeds it further."
         ),
-        None => format!(
-            "World legacy · {legacy} has reinforced through {cycles} later {cycle_word}. Another continuation feeds that established pattern back into the World."
-        ),
+        None => format!("{legacy} keeps growing stronger. Letting time pass feeds it further."),
     }
+}
+
+/// History in the World's own words. What happened to somebody is a story;
+/// the everyday round (each day's tending and exploring, a decision logged,
+/// the small shifts between two people, a legacy renewing itself) folds
+/// under the moment it happened in.
+fn told_timeline(world: &World) -> world_projection::TimelineProjection {
+    let mut timeline = timeline_from_world(world);
+    world_projection::retell_timeline(&mut timeline, world, |event| {
+        let summary =
+            ["summary", "change"]
+                .into_iter()
+                .find_map(|key| match event.payload.get(key) {
+                    Some(Value::Text(text)) if !text.trim().is_empty() => Some(text.clone()),
+                    _ => None,
+                });
+        let actor = event
+            .actor
+            .and_then(|id| world.state().entity(id))
+            .map(entity_title);
+        match event.kind.as_str() {
+            "agent_decision_recorded" => world_projection::Telling::Routine(
+                actor.map(|name| format!("{name} decided what to do next")),
+            ),
+            kind if is_routine(kind) => world_projection::Telling::Routine(None),
+            "universe_seeded" => {
+                world_projection::Telling::Story(format!("{} began", universe_name(world)))
+            }
+            _ => match summary {
+                Some(summary) => world_projection::Telling::Story(summary),
+                None => world_projection::Telling::Routine(None),
+            },
+        }
+    });
+    timeline
+}
+
+/// The everyday round: what happens every period whatever anyone chooses.
+/// History folds it and a return leads with anything else first.
+pub(crate) fn is_routine(kind: &str) -> bool {
+    matches!(
+        kind,
+        "agent_decision_recorded"
+            | "agent_cared_for_world"
+            | "agent_explored_world"
+            | "relationship_shifted"
+            | "legacy_reinforced"
+            | "successor_waited"
+    )
 }
 
 /// The Events a return digest will show, and how many of that kind it stands
@@ -1663,6 +1789,10 @@ fn return_digest_priority(kind: &str) -> u8 {
         | "pressure_held"
         | "pressure_reached"
         | "anchor_recovered" => 0,
+        // The everyday round fills whatever room the story leaves, people's
+        // own doings first.
+        "agent_cared_for_world" | "agent_explored_world" => 2,
+        kind if is_routine(kind) => 3,
         _ => 1,
     }
 }
@@ -1685,7 +1815,7 @@ fn extend_with_persistent_consequences(world: &World, items: &mut Vec<BriefingIt
     );
 }
 
-fn return_item(events: &[Event], event: &Event, occurrences: usize) -> BriefingItem {
+fn return_item(events: &[Event], event: &Event, _occurrences: usize) -> BriefingItem {
     // This World's own words if it has them for this Event, and the table line
     // otherwise. The table is the floor: a World with no narrator, or one whose
     // narrator said nothing usable, reads exactly as it always did.
@@ -1699,52 +1829,50 @@ fn return_item(events: &[Event], event: &Event, occurrences: usize) -> BriefingI
                     _ => None,
                 })
         })
-        .unwrap_or_else(|| event.kind.replace('_', " "));
-    let base_title: String = match event.kind.as_str() {
+        .unwrap_or_else(|| event_kind_words(&event.kind));
+    // How often something happened is not what happened; the title says what.
+    let title: String = match event.kind.as_str() {
         "universe_grew" => "The world moved".into(),
         "universe_intervened" => "Your choice took hold".into(),
         "universe_seeded" => "A world began".into(),
-        "agent_cared_for_world" => "Someone cared for the world".into(),
-        "agent_explored_world" => "Someone explored beyond routine".into(),
-        "relationship_shifted" => "Their relationship changed".into(),
+        "agent_cared_for_world" => "Looking after home".into(),
+        "agent_explored_world" => "Out exploring".into(),
+        "relationship_shifted" => "Between the two of them".into(),
         "relationship_steered" => "You steered their relationship".into(),
         "partnership_formed" => "A partnership formed".into(),
         "relationship_fractured" => "Their relationship fractured".into(),
         "world_legacy_formed" => "A world legacy formed".into(),
-        "legacy_reinforced" => "A legacy reinforced itself".into(),
+        "legacy_reinforced" => "The legacy grew stronger".into(),
         "pressure_rising" => "Pressure is rising".into(),
         "pressure_peaked" => "The pressure peaked".into(),
         "anchor_lost" => "Something was lost".into(),
         "pressure_held" => "You held through the pressure".into(),
         "pressure_reached" => "You reached beyond the pressure".into(),
         "anchor_recovered" => "You recovered what was lost".into(),
-        _ => event.kind.replace('_', " "),
-    };
-    let title = if occurrences <= 1 {
-        base_title
-    } else {
-        match event.kind.as_str() {
-            "universe_grew" => format!("The world moved · {occurrences} cycles"),
-            "legacy_reinforced" => {
-                format!("A legacy reinforced itself · {occurrences} cycles")
-            }
-            "relationship_shifted" => {
-                format!("Their relationship changed · {occurrences} times")
-            }
-            "agent_cared_for_world" => {
-                format!("Someone cared for the world · {occurrences} times")
-            }
-            "agent_explored_world" => {
-                format!("Someone explored beyond routine · {occurrences} times")
-            }
-            _ => format!("{base_title} · {occurrences} updates"),
-        }
+        "world_posture_chosen" => "A direction was chosen".into(),
+        "successor_emerged" => "A successor stepped in".into(),
+        "successor_waited" => "The successor carried on".into(),
+        "legacy_entrusted" => "The legacy was handed on".into(),
+        "legacy_released" => "The legacy was set aside".into(),
+        "era_began" => "A new era began".into(),
+        other => event_kind_words(other),
     };
     BriefingItem {
         kind: BriefingItemKind::Beat,
         selection: Some(SelectionId::Event(event.id)),
         title,
         detail,
+        tone: world_projection::Tone::Neutral,
+    }
+}
+
+/// Last resort for an Event nobody named: its kind, as a sentence.
+fn event_kind_words(kind: &str) -> String {
+    let words = kind.replace('_', " ");
+    let mut chars = words.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => words,
     }
 }
 
@@ -1765,32 +1893,122 @@ fn collection(world: &World) -> CollectionProjection {
 }
 
 fn canvas(world: &World) -> CanvasProjection {
-    const POSITIONS: [(f32, f32); 6] = [
-        (0.14, 0.24),
-        (0.72, 0.22),
-        (0.16, 0.78),
-        (0.78, 0.74),
-        (0.50, 0.48),
-        (0.50, 0.82),
+    // Every seed casts the same five roles in the same slots: the anchor
+    // everything depends on, a second place, the two people whose
+    // relationship is the story, and the thing that lets them range out.
+    // Placing by role rather than by list order lets the scene read the same
+    // way in every World: home on the left, the pair in the middle, the way
+    // out on the right.
+    const LAYOUT: [(EntityId, f32, f32); 5] = [
+        (SLOT_A, 0.12, 0.22),
+        (SLOT_C, 0.12, 0.86),
+        (SLOT_B, 0.42, 0.10),
+        (SLOT_E, 0.62, 0.84),
+        (SLOT_D, 0.90, 0.46),
     ];
-    let items = world
-        .state()
-        .entities()
-        .filter(|entity| entity.id != UNIVERSE)
-        .enumerate()
-        .map(|(index, entity)| {
-            let (x, y) = POSITIONS[index.min(POSITIONS.len() - 1)];
-            CanvasItem {
-                id: SelectionId::Entity(entity.id),
+    let items = LAYOUT
+        .iter()
+        .filter_map(|(id, x, y)| {
+            let entity = world.state().entity(*id)?;
+            Some(CanvasItem {
+                id: SelectionId::Entity(*id),
                 kind: canvas_kind(entity),
                 label: entity_title(entity),
-                detail: entity.kind.replace('_', " "),
-                x,
-                y,
-            }
+                detail: canvas_detail(world, entity),
+                x: *x,
+                y: *y,
+                changes: Vec::new(),
+            })
         })
         .collect();
-    CanvasProjection { items }
+    CanvasProjection {
+        items,
+        links: relationship_link(world).into_iter().collect(),
+    }
+}
+
+/// On a return, what moved on each thing on stage since the visit.
+fn with_changes(
+    world: &World,
+    mut canvas: CanvasProjection,
+    since_event_count: Option<usize>,
+) -> CanvasProjection {
+    let Some(since) = since_event_count else {
+        return canvas;
+    };
+    for item in &mut canvas.items {
+        let SelectionId::Entity(id) = item.id else {
+            continue;
+        };
+        if let Some((then, now)) =
+            world_projection::component_change_since(world, since, id, "status")
+        {
+            let text = |value: Option<Value>| match value {
+                Some(Value::Text(text)) => text,
+                Some(other) => value_text(&other, world),
+                None => "—".into(),
+            };
+            item.changes.push(CanvasChange {
+                label: String::new(),
+                before: text(then),
+                after: text(now),
+                tone: Tone::Neutral,
+            });
+        }
+    }
+    canvas
+}
+
+/// What a scene node says under its name: how it is, not what it is.
+fn canvas_detail(world: &World, entity: &Entity) -> String {
+    if entity.id == SLOT_A {
+        let stage = pressure::pressure_id_from_state(world.state());
+        let trouble = match stage.as_str() {
+            "warning" => Some("trouble rising"),
+            "crisis" => Some("in crisis"),
+            "lost" => Some("lost"),
+            _ => None,
+        };
+        if let Some(trouble) = trouble {
+            return trouble.into();
+        }
+    }
+    for key in ["status", "role"] {
+        if let Some(Value::Text(value)) = entity.component(key) {
+            if !value.trim().is_empty() {
+                return value.clone();
+            }
+        }
+    }
+    entity.kind.replace('_', " ")
+}
+
+/// The relationship at the centre of the World, drawn between the two
+/// people it belongs to rather than as a third thing beside them.
+fn relationship_link(world: &World) -> Option<CanvasLink> {
+    let relationship = world.state().entity(RELATIONSHIP)?;
+    world.state().entity(SLOT_B)?;
+    world.state().entity(SLOT_E)?;
+    let trust = integer_entity_component(Some(relationship), RELATIONSHIP_TRUST).unwrap_or(0);
+    let tension = integer_entity_component(Some(relationship), RELATIONSHIP_TENSION).unwrap_or(0);
+    let arc = text_component(Some(relationship), RELATIONSHIP_SOCIAL_ARC, "forming");
+    let direction = text_component(Some(relationship), RELATIONSHIP_DIRECTION, "none");
+    let (label, tone) = match (arc.as_str(), direction.as_str()) {
+        ("partnership", _) => ("Partners", CanvasLinkTone::Warm),
+        ("fracture", _) => ("Estranged", CanvasLinkTone::Strained),
+        (_, "shared-project") => ("Working together", CanvasLinkTone::Warm),
+        (_, "rivalry") => ("Rivals", CanvasLinkTone::Strained),
+        _ if tension > trust => ("Uneasy", CanvasLinkTone::Strained),
+        _ => ("Getting to know each other", CanvasLinkTone::Neutral),
+    };
+    Some(CanvasLink {
+        from: SelectionId::Entity(SLOT_B),
+        to: SelectionId::Entity(SLOT_E),
+        label: label.into(),
+        tone,
+        strength: (trust.max(tension) as f32 / 10.0).clamp(0.15, 1.0),
+        selection: Some(SelectionId::Entity(RELATIONSHIP)),
+    })
 }
 
 fn canvas_kind(entity: &Entity) -> CanvasItemKind {

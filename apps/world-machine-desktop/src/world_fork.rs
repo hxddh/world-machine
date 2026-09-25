@@ -66,10 +66,24 @@ pub(crate) fn compare_with_parent(
     lineage::compare_with_parent(document, cx)
 }
 
-/// The small "branched from …" badge shown in the document header, if any.
-pub(crate) fn lineage_badge(document: &SharedDocument) -> Option<impl IntoElement> {
-    let lineage = document.borrow().session.metadata().lineage.clone()?;
-    Some(lineage::lineage_badge(&lineage))
+/// "Branched from …" for the document header, if this World is a branch.
+/// Reads the parent's name from My Worlds, so call it once, not per frame.
+pub(crate) fn lineage_label(document: &SharedDocument) -> Option<String> {
+    let document = document.borrow();
+    let lineage = document.session.metadata().lineage.clone()?;
+    let parent_title = lineage
+        .parent
+        .document
+        .as_deref()
+        .and_then(|id| WorldDocumentId::new(id).ok())
+        .and_then(|id| document.library.load_document(&id).ok().flatten())
+        .and_then(|parent| parent.metadata.display_title);
+    Some(lineage::lineage_label(&lineage, parent_title.as_deref()))
+}
+
+/// The badge showing `label`, linking to Branches.
+pub(crate) fn lineage_badge(label: &str) -> impl IntoElement {
+    lineage::lineage_badge(label)
 }
 
 pub(crate) fn fork_world(

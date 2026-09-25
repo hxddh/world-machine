@@ -256,6 +256,7 @@ fn root_record(document: &str) -> LineageRecord {
         world_time: 0,
         event_count: 0,
         lineage: None,
+        title: None,
     }
 }
 
@@ -274,6 +275,7 @@ fn child_record(document: &str, parent: &str) -> LineageRecord {
             },
             branch: WorldBranchCause::Fork { label: None },
         }),
+        title: None,
     }
 }
 

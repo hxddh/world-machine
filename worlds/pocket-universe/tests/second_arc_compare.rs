@@ -5,6 +5,17 @@ use pocket_universe::{
 use std::error::Error;
 use world_compare::{compare_divergence, compare_snapshots, DifferenceKind, EntityDifference};
 
+/// What kind of Event an item is, independent of how the Pack words it.
+fn kind(
+    snapshot: &world_projection::ProjectionSnapshot,
+    id: world_projection::SelectionId,
+) -> String {
+    snapshot
+        .inspector(id)
+        .map(|inspector| inspector.title.clone())
+        .unwrap_or_default()
+}
+
 fn row<'a>(difference: &'a EntityDifference, label: &str) -> Option<(&'a str, &'a str)> {
     let row = difference
         .inspector_rows
@@ -86,9 +97,11 @@ fn second_arc_is_a_durable_generic_strategy_fork() -> Result<(), Box<dyn Error>>
     assert_ne!(explore_count.0, explore_count.1);
 
     assert!(comparison.timeline.changed.iter().any(|event| {
-        event.left.title == "World Posture Chosen"
-            && event.right.title == "World Posture Chosen"
-            && event.left.subtitle != event.right.subtitle
+        // Both futures chose a direction at the same moment: one outward, one home.
+        let outward = |title: &str| title.contains("wider exploration network");
+        let rooted = |title: &str| title.contains("deeper, safer");
+        (outward(&event.left.title) && rooted(&event.right.title))
+            || (rooted(&event.left.title) && outward(&event.right.title))
     }));
 
     let divergence =
@@ -97,7 +110,7 @@ fn second_arc_is_a_durable_generic_strategy_fork() -> Result<(), Box<dyn Error>>
         .shared_frontier
         .as_ref()
         .expect("both futures share the full history before the posture choice");
-    assert_ne!(shared_frontier.title, "World Posture Chosen");
+    assert_ne!(kind(&left, shared_frontier.id), "World Posture Chosen");
     let left_first = divergence
         .left
         .first_difference
@@ -108,21 +121,21 @@ fn second_arc_is_a_durable_generic_strategy_fork() -> Result<(), Box<dyn Error>>
         .first_difference
         .as_ref()
         .expect("rooted future has a first difference");
-    assert_eq!(left_first.title, "World Posture Chosen");
-    assert_eq!(right_first.title, "World Posture Chosen");
-    assert_ne!(left_first.subtitle, right_first.subtitle);
+    assert_eq!(kind(&left, left_first.id), "World Posture Chosen");
+    assert_eq!(kind(&right, right_first.id), "World Posture Chosen");
+    assert_ne!(left_first.title, right_first.title);
     assert!(!divergence.left.impact.is_empty());
     assert!(!divergence.right.impact.is_empty());
     assert!(divergence
         .left
         .impact
         .iter()
-        .all(|stage| stage.event.title != "Agent Decision Recorded"));
+        .all(|stage| kind(&left, stage.event.id) != "Agent Decision Recorded"));
     assert!(divergence
         .right
         .impact
         .iter()
-        .all(|stage| stage.event.title != "Agent Decision Recorded"));
+        .all(|stage| kind(&right, stage.event.id) != "Agent Decision Recorded"));
     assert_ne!(
         divergence
             .left

@@ -1,4 +1,6 @@
 use std::ops::Range;
+use world_gpui::ui;
+use world_theme::tokens;
 
 use gpui::{
     actions, div, fill, hsla, point, prelude::*, px, relative, rgba, Bounds, ClipboardItem,
@@ -635,8 +637,8 @@ impl Render for AnalystTextInput {
             .items_center()
             .rounded_md()
             .border_1()
-            .border_color(crate::theme_rgb(0xcacac4))
-            .bg(crate::theme_rgb(0xffffff))
+            .border_color(ui::color(tokens::BORDER_STRONG))
+            .bg(ui::color(tokens::SURFACE))
             .text_sm()
             .child(AnalystTextElement { input: cx.entity() })
     }

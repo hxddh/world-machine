@@ -12,15 +12,17 @@ use gpui::{
     div, prelude::*, px, size, App, AppContext, Bounds, Context, Entity, IntoElement, Render,
     SharedString, Styled, Window, WindowBounds, WindowOptions,
 };
+use world_gpui::ui;
 use world_machine_desktop::analyst_settings::{self, VoiceSource};
 use world_machine_desktop::key_store;
+use world_theme::tokens;
 
 use crate::diagnostics;
 use crate::world_fork::analyst_input::{self, AnalystTextInput};
 
 pub fn open(cx: &mut App) {
     analyst_input::bind_keys(cx);
-    let bounds = Bounds::centered(None, size(px(560.0), px(460.0)), cx);
+    let bounds = Bounds::centered(None, size(px(600.0), px(640.0)), cx);
     let opened = cx.open_window(
         WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
@@ -127,49 +129,138 @@ impl SettingsView {
         self.apply(key_store::clear, cx);
     }
 
-    /// What is true right now, in one sentence.
-    fn summary(&self) -> String {
+    /// What is true right now, as a few words and how settled it is.
+    fn state(&self) -> (&'static str, String) {
         if !self.voice_on {
-            return "Off. Your Worlds read from the copy written into the app, and nothing is sent anywhere.".into();
+            return (
+                "off",
+                "Off. Worlds read from the app's own copy, and nothing leaves this Mac.".into(),
+            );
         }
         match self.source {
             VoiceSource::Program => match self.program.as_deref() {
-                Some(program) => format!("On, using {program}."),
-                None => "On, but no program is chosen yet, so your Worlds still read from the app's own copy.".into(),
+                Some(program) => ("ready", format!("On, through {}.", program_name(program))),
+                None => (
+                    "incomplete",
+                    "On, but no program is chosen, so Worlds still read from the app's copy."
+                        .into(),
+                ),
             },
             VoiceSource::Key => {
                 if self.key_stored {
-                    "On, using your API key.".into()
+                    ("ready", "On, through your API key.".into())
                 } else {
-                    "On, but no key is stored yet, so your Worlds still read from the app's own copy.".into()
+                    (
+                        "incomplete",
+                        "On, but no key is stored, so Worlds still read from the app's copy."
+                            .into(),
+                    )
                 }
             }
         }
     }
 }
 
-fn button(
-    id: &'static str,
-    label: impl Into<SharedString>,
-    selected: bool,
-    enabled: bool,
-) -> gpui::Stateful<gpui::Div> {
-    let mut control = div()
+/// The file name of a program, which is what anyone recognises it by.
+fn program_name(path: &str) -> &str {
+    path.rsplit('/')
+        .next()
+        .filter(|name| !name.is_empty())
+        .unwrap_or(path)
+}
+
+/// A switch drawn the way the system draws one: a track and a knob.
+fn switch(id: &'static str, on: bool) -> gpui::Stateful<gpui::Div> {
+    div()
         .id(id)
-        .px_3()
-        .p_1()
-        .rounded_md()
+        .flex_shrink_0()
+        .w(px(38.0))
+        .h(px(22.0))
+        .p(px(2.0))
+        .rounded_full()
+        .cursor_pointer()
+        .bg(ui::color(if on {
+            tokens::ACCENT
+        } else {
+            tokens::BORDER_STRONG
+        }))
+        .flex()
+        .when(on, |track| track.justify_end())
+        .child(
+            div()
+                .size(px(18.0))
+                .rounded_full()
+                .bg(ui::color(tokens::SURFACE)),
+        )
+}
+
+/// One of two ways the voice can reach a model: a tile that says what it is
+/// and the one fact that matters about it, selected like a radio button.
+fn source_tile(
+    id: &'static str,
+    glyph: &'static str,
+    title: &'static str,
+    fact: String,
+    selected: bool,
+) -> gpui::Stateful<gpui::Div> {
+    div()
+        .id(id)
+        .flex_1()
+        .min_w(px(0.0))
+        .p_3()
+        .rounded_lg()
+        .cursor_pointer()
         .border_1()
-        .border_color(crate::theme_rgb(if selected { 0x5e6f91 } else { 0xb8b2a8 }))
-        .bg(crate::theme_rgb(if selected { 0xeef2f9 } else { 0xffffff }))
-        .text_xs()
-        .child(label.into());
-    if enabled {
-        control = control.cursor_pointer();
-    } else {
-        control = control.text_color(crate::theme_rgb(0x999990));
-    }
-    control
+        .border_color(ui::color(if selected {
+            tokens::ACCENT
+        } else {
+            tokens::BORDER
+        }))
+        .bg(ui::color(if selected {
+            tokens::ACCENT_SOFT
+        } else {
+            tokens::SURFACE
+        }))
+        .hover(|tile| tile.border_color(ui::color(tokens::ACCENT)))
+        .flex()
+        .flex_col()
+        .gap_2()
+        .child(
+            div()
+                .size(px(28.0))
+                .rounded_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .bg(ui::color(if selected {
+                    tokens::ACCENT
+                } else {
+                    tokens::ROW_HOVER
+                }))
+                .text_color(ui::color(if selected {
+                    tokens::ON_ACCENT
+                } else {
+                    tokens::TEXT_SECONDARY
+                }))
+                .text_sm()
+                .child(glyph),
+        )
+        .child(ui::row_title(title))
+        .child(ui::caption(fact))
+}
+
+/// A grouped block of settings, the way the system groups them.
+fn group() -> gpui::Div {
+    div()
+        .w_full()
+        .p_4()
+        .rounded_lg()
+        .border_1()
+        .border_color(ui::color(tokens::BORDER))
+        .bg(ui::color(tokens::SURFACE))
+        .flex()
+        .flex_col()
+        .gap_3()
 }
 
 impl Render for SettingsView {
@@ -182,107 +273,130 @@ impl Render for SettingsView {
 
         let on = self.voice_on;
         let source = self.source;
-        let mut switch = div().flex().gap_2().items_center();
-        switch = switch.child(
-            button("world-voice-off", "Off", !on, true)
-                .on_click(cx.listener(|this, _, _, cx| this.set_voice(false, cx))),
-        );
-        switch = switch.child(
-            button("world-voice-on", "On", on, true)
-                .on_click(cx.listener(|this, _, _, cx| this.set_voice(true, cx))),
-        );
 
-        let mut sources = div().flex().gap_2().items_center();
-        sources = sources.child(
-            button(
-                "world-voice-program",
-                "A program on this Mac",
-                matches!(source, VoiceSource::Program),
-                on,
-            )
-            .on_click(cx.listener(|this, _, _, cx| this.set_source(VoiceSource::Program, cx))),
+        let voice = group().child(
+            div()
+                .flex()
+                .items_center()
+                .gap_3()
+                .child(
+                    div()
+                        .flex_1()
+                        .flex()
+                        .flex_col()
+                        .gap_1()
+                        .child(ui::row_title("Let Worlds speak for themselves"))
+                        .child(ui::caption(
+                            "Coming back, a World tells you what happened in its own words.",
+                        )),
+                )
+                .child(
+                    switch("world-voice-switch", on)
+                        .on_click(cx.listener(move |this, _, _, cx| this.set_voice(!on, cx))),
+                ),
         );
-        sources = sources.child(
-            button(
-                "world-voice-key",
-                "An API key",
-                matches!(source, VoiceSource::Key),
-                on,
-            )
-            .on_click(cx.listener(|this, _, _, cx| this.set_source(VoiceSource::Key, cx))),
-        );
-
-        let detail = match source {
-            VoiceSource::Program => div().flex().flex_col().gap_1().child(
-                div()
-                    .text_xs()
-                    .text_color(crate::theme_rgb(0x777770))
-                    .child(match self.program.as_deref() {
-                        Some(program) => format!("Program: {program}"),
-                        None => "No program chosen. The Analyst settings are where you point the app at one.".to_string(),
-                    }),
-            ),
-            VoiceSource::Key => {
-                let mut key_actions = div().flex().gap_2().items_center();
-                key_actions = key_actions.child(
-                    button("world-voice-save-key", "Save key", false, on)
-                        .on_click(cx.listener(|this, _, _, cx| this.save_key(cx))),
-                );
-                if self.key_stored {
-                    key_actions = key_actions.child(
-                        button("world-voice-forget-key", "Forget key", false, true)
-                            .on_click(cx.listener(|this, _, _, cx| this.forget_key(cx))),
-                    );
-                }
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_2()
-                    .child(div().text_xs().text_color(crate::theme_rgb(0x777770)).child(
-                        if self.key_stored {
-                            "A key is stored in your login keychain. Entering another replaces it."
-                        } else {
-                            "No key stored. It goes into your login keychain, not into any file this app writes."
-                        },
-                    ))
-                    .child(div().w_full().child(self.key_input.clone()))
-                    .child(key_actions)
-            }
-        };
 
         let mut page = div()
             .size_full()
-            .p_5()
+            .p_6()
             .flex()
             .flex_col()
             .gap_4()
-            .bg(crate::theme_rgb(0xfbfbf9))
-            .text_color(crate::theme_rgb(0x1f2328))
-            .child(div().text_lg().child("World voice"))
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(crate::theme_rgb(0x4f5968))
-                    .child("When you come back to a World, it can tell you what happened in its own words instead of reading from the copy written into the app. Worlds already open keep the voice they were opened with."),
-            )
-            .child(div().text_sm().child(self.summary()))
-            .child(switch)
-            .child(sources)
-            .child(detail)
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(crate::theme_rgb(0x777770))
-                    .child("An API key is the only setting here that sends anything off this Mac: one request each time you return to a World, carrying what that World has already recorded and nothing else. A program you choose is between you and that program."),
-            );
+            .bg(ui::color(tokens::WINDOW))
+            .text_color(ui::color(tokens::TEXT))
+            .child(ui::page_title("World voice"))
+            .child(voice);
+
+        if on {
+            let program_fact = match self.program.as_deref() {
+                Some(program) => format!("Stays on this Mac · {}", program_name(program)),
+                None => "Stays on this Mac · choose one in Analyst settings".into(),
+            };
+            let key_fact = if self.key_stored {
+                "Each return is sent to your provider · key stored".to_string()
+            } else {
+                "Each return is sent to your provider".to_string()
+            };
+            let mut sources = group()
+                .child(ui::section_label("Where the voice comes from"))
+                .child(
+                    div()
+                        .flex()
+                        .gap_3()
+                        .child(
+                            source_tile(
+                                "world-voice-program",
+                                "⌂",
+                                "A program on this Mac",
+                                program_fact,
+                                matches!(source, VoiceSource::Program),
+                            )
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.set_source(VoiceSource::Program, cx)
+                            })),
+                        )
+                        .child(
+                            source_tile(
+                                "world-voice-key",
+                                "↗",
+                                "An API key",
+                                key_fact,
+                                matches!(source, VoiceSource::Key),
+                            )
+                            .on_click(
+                                cx.listener(|this, _, _, cx| this.set_source(VoiceSource::Key, cx)),
+                            ),
+                        ),
+                );
+            if matches!(source, VoiceSource::Key) {
+                let mut actions = div().flex().gap_2().items_center().child(
+                    ui::button("world-voice-save-key", "Save key", ui::ButtonKind::Primary)
+                        .on_click(cx.listener(|this, _, _, cx| this.save_key(cx))),
+                );
+                if self.key_stored {
+                    actions = actions.child(
+                        ui::button(
+                            "world-voice-forget-key",
+                            "Forget key",
+                            ui::ButtonKind::Secondary,
+                        )
+                        .on_click(cx.listener(|this, _, _, cx| this.forget_key(cx))),
+                    );
+                }
+                sources = sources
+                    .child(div().w_full().child(self.key_input.clone()))
+                    .child(actions)
+                    .child(ui::caption(
+                        "The key goes into your login keychain, never into a file.",
+                    ));
+            }
+            page = page.child(sources);
+        }
+
+        let (state, sentence) = self.state();
+        let dot = match state {
+            "ready" => tokens::SUCCESS,
+            "incomplete" => tokens::WARNING,
+            _ => tokens::TEXT_TERTIARY,
+        };
+        page = page.child(
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(div().size(px(8.0)).rounded_full().bg(ui::color(dot)))
+                .child(ui::body(sentence)),
+        );
         if let Some(status) = self.status.clone() {
             page = page.child(
                 div()
-                    .text_xs()
-                    .text_color(crate::theme_rgb(0x9a3412))
+                    .text_sm()
+                    .text_color(ui::color(tokens::DANGER))
                     .child(status),
             );
         }
-        page
+        page.child(ui::caption(
+            "Only an API key sends anything off this Mac: what a World has recorded, once per return. Worlds already open keep the voice they opened with.",
+        ))
     }
 }

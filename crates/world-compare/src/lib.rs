@@ -802,6 +802,7 @@ mod tests {
             title: title.into(),
             subtitle: format!("{title} summary"),
             caused_by: Vec::new(),
+            routine: false,
         }
     }
 
@@ -891,6 +892,7 @@ mod tests {
                 title: "Changed".into(),
                 subtitle: "Recorded change".into(),
                 caused_by: Vec::new(),
+                routine: false,
             }],
             Vec::new(),
         )
@@ -982,6 +984,7 @@ mod tests {
                 id: "world.act".into(),
                 title: "Act".into(),
                 detail: "Do something".into(),
+                effects: Vec::new(),
             }],
         );
 
@@ -1285,6 +1288,7 @@ mod tests {
                 id: "left.action".into(),
                 title: "Left".into(),
                 detail: "left".into(),
+                effects: Vec::new(),
             }],
         );
         let right = snapshot(
@@ -1295,6 +1299,7 @@ mod tests {
                 id: "right.action".into(),
                 title: "Right".into(),
                 detail: "right".into(),
+                effects: Vec::new(),
             }],
         );
 
@@ -1334,6 +1339,7 @@ mod tests {
             title: "Common".into(),
             subtitle: "Alice · Event #1".into(),
             caused_by: vec![],
+            routine: false,
         };
         let right_common = TimelineItem {
             subtitle: "Renamed Alice · Event #1".into(),
@@ -1358,6 +1364,7 @@ mod tests {
             title: "Choice Made".into(),
             subtitle: "Event #1".into(),
             caused_by: vec![],
+            routine: false,
         };
         let inspector = |summary: &str| {
             let selection = SelectionId::Event(EventId::new(1));
@@ -1394,6 +1401,7 @@ mod tests {
             title: "Choice Made".into(),
             subtitle: "Event #1".into(),
             caused_by: vec![],
+            routine: false,
         };
         let inspector = |mode: &str| {
             let selection = SelectionId::Event(EventId::new(1));
@@ -1430,6 +1438,7 @@ mod tests {
             title: "Common".into(),
             subtitle: "Event #1".into(),
             caused_by: vec![],
+            routine: false,
         };
         let left_first = event(2, "Left choice", 2);
         let right_first = event(2, "Right choice", 2);
@@ -1503,6 +1512,7 @@ mod tests {
             title: "Common".into(),
             subtitle: "Event #1".into(),
             caused_by: vec![],
+            routine: false,
         };
         let left_first = TimelineItem {
             id: SelectionId::Event(EventId::new(2)),
@@ -1510,6 +1520,7 @@ mod tests {
             title: "Left choice".into(),
             subtitle: "Left choice · Event #2".into(),
             caused_by: vec![EventId::new(1)],
+            routine: false,
         };
         let left_support = TimelineItem {
             id: SelectionId::Event(EventId::new(3)),
@@ -1517,6 +1528,7 @@ mod tests {
             title: "Supporting record".into(),
             subtitle: "Event #3".into(),
             caused_by: vec![EventId::new(2)],
+            routine: false,
         };
         let left_effect = TimelineItem {
             id: SelectionId::Event(EventId::new(4)),
@@ -1524,6 +1536,7 @@ mod tests {
             title: "Left effect".into(),
             subtitle: "Left effect · Event #4".into(),
             caused_by: vec![EventId::new(3)],
+            routine: false,
         };
         let right_first = TimelineItem {
             id: SelectionId::Event(EventId::new(2)),
@@ -1531,6 +1544,7 @@ mod tests {
             title: "Right choice".into(),
             subtitle: "Right choice · Event #2".into(),
             caused_by: vec![EventId::new(1)],
+            routine: false,
         };
         let right_effect = TimelineItem {
             id: SelectionId::Event(EventId::new(3)),
@@ -1538,6 +1552,7 @@ mod tests {
             title: "Right effect".into(),
             subtitle: "Right effect · Event #3".into(),
             caused_by: vec![EventId::new(2)],
+            routine: false,
         };
 
         let effect_inspector = |id: u64, value: &str| {

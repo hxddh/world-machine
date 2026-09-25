@@ -441,6 +441,7 @@ mod tests {
                     id: "mock.advance".into(),
                     title: "Advance".into(),
                     detail: "Advance the mock world".into(),
+                    effects: Vec::new(),
                 }],
                 ..ProjectionSnapshot::default()
             }

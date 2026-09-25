@@ -58,8 +58,11 @@ fn legacy_forms_after_lived_posture_and_survives_reopen() -> Result<(), Box<dyn 
         other => panic!("expected semantic legacy summary, got {other:?}"),
     };
     assert!(summary.contains("signal expedition"));
-    assert!(summary.contains("care /"));
-    assert!(summary.contains("explore"));
+    assert!(summary.contains("Care and exploring have carried it in equal measure."));
+    assert!(
+        !summary.contains(" / "),
+        "no scores in the World's own words"
+    );
     assert_eq!(
         legacy.payload.get("behavior"),
         Some(&ArchivedValue::Text("balanced".into()))
@@ -121,7 +124,7 @@ fn legacy_forms_after_lived_posture_and_survives_reopen() -> Result<(), Box<dyn 
     );
     assert_eq!(
         reinforced.payload.get("pattern"),
-        Some(&ArchivedValue::Text("adaptive cycle 1".into()))
+        Some(&ArchivedValue::Text("shared upkeep".into()))
     );
     let reinforcement_causes = reinforced
         .caused_by
@@ -147,7 +150,7 @@ fn legacy_forms_after_lived_posture_and_survives_reopen() -> Result<(), Box<dyn 
         .expect("ridge-network legacy target should exist");
     assert_eq!(
         ridge.component("legacy_pattern"),
-        Some(&Value::Text("adaptive cycle 1".into()))
+        Some(&Value::Text("shared upkeep".into()))
     );
 
     let growth = after
@@ -200,9 +203,7 @@ fn posture_forks_compound_into_different_emergent_legacies() -> Result<(), Box<d
     );
 
     assert!(comparison.timeline.changed.iter().any(|event| {
-        event.left.title == "World Legacy Formed"
-            && event.right.title == "World Legacy Formed"
-            && event.left.subtitle != event.right.subtitle
+        event.left.title.contains("ridge network") && event.right.title.contains("habitat commons")
     }));
 
     let outward_briefing = left.briefing.as_ref().expect("left briefing");

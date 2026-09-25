@@ -1,15 +1,18 @@
 use gpui::{div, prelude::*, px, Context, Div, Render, SharedString, Styled, Window};
+use std::rc::Rc;
 use world_compare::{
     compare_divergence, compare_evidence_neighborhoods, ChangedCommand, ChangedTimelineItem,
     DifferenceKind, DivergenceImpactStage, DivergenceSide, EntityDifference,
     EvidenceNeighborhoodComparison, EvidenceNeighborhoodNodeDifference, RelationDifference,
     SnapshotComparison, SnapshotDivergence,
 };
+use world_gpui::{scene, ui};
 use world_projection::{
     InspectorProjection, ProjectionCommand, ProjectionSnapshot, RelationEndpointRole, SelectionId,
     StateEvidenceEdge, TimelineItem, WhyNode,
 };
 use world_strategy::{StrategyEvaluation, StrategyRun};
+use world_theme::tokens;
 
 const ENTITY_DIFFERENCE_LIMIT: usize = 10;
 const RELATION_DIFFERENCE_LIMIT: usize = 10;
@@ -55,6 +58,9 @@ struct ComparisonSelection {
     selection: SelectionId,
 }
 
+// One per window, so the size of the larger variant costs nothing worth
+// an extra indirection on every access.
+#[allow(clippy::large_enum_variant)]
 enum ComparisonSource {
     Strategies(StrategyEvaluation),
     Saved {
@@ -159,115 +165,151 @@ impl StrategyComparisonView {
         self.selected == Some(ComparisonSelection { side, selection })
     }
 
-    fn render_strategy_run(&self, label: &str, run: &StrategyRun) -> Div {
-        match run {
-            StrategyRun::Success(outcome) => div()
-                .w(px(320.0))
-                .p_4()
-                .rounded_md()
-                .border_1()
-                .border_color(crate::theme_rgb(0xcfd8c8))
-                .bg(crate::theme_rgb(0xf7faf5))
-                .flex()
-                .flex_col()
-                .gap_2()
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(crate::theme_rgb(0x66705f))
-                        .child(label.to_string()),
-                )
-                .child(div().text_lg().child(outcome.snapshot.title.clone()))
-                .child(
-                    div()
-                        .text_sm()
-                        .text_color(crate::theme_rgb(0x555555))
-                        .child(format!("World time {}", outcome.snapshot.world_time)),
-                )
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(crate::theme_rgb(0x777777))
-                        .child(if outcome.archive.is_some() {
-                            "Durable result"
-                        } else {
-                            "Ephemeral result"
-                        }),
-                ),
-            StrategyRun::Failure(error) => div()
-                .w(px(320.0))
-                .p_4()
-                .rounded_md()
-                .border_1()
-                .border_color(crate::theme_rgb(0xe2bcbc))
-                .bg(crate::theme_rgb(0xfff6f6))
-                .flex()
-                .flex_col()
-                .gap_2()
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(crate::theme_rgb(0x8b5555))
-                        .child(label.to_string()),
-                )
-                .child(div().text_lg().child("Strategy failed"))
-                .child(
-                    div()
-                        .text_sm()
-                        .text_color(crate::theme_rgb(0x8b5555))
-                        .child(format!("{:?}", error.stage)),
-                )
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(crate::theme_rgb(0x777777))
-                        .child(error.source.to_string()),
-                ),
-        }
-    }
-
-    fn render_saved_side(
+    /// One future as a picture: the choice that led to it, how its World
+    /// sums itself up at the end, its scene, and the last things that
+    /// happened in it.
+    fn render_future(
         &self,
-        label: &str,
-        snapshot: &ProjectionSnapshot,
-        provenance: Option<&str>,
+        side: ComparisonSide,
+        eyebrow: &str,
+        width: f32,
+        cx: &mut Context<Self>,
     ) -> Div {
-        let mut card = div()
-            .w(px(320.0))
+        let label = self.side_label(side).to_string();
+        let card = div()
+            .flex_1()
+            .min_w(px(0.0))
             .p_4()
-            .rounded_md()
+            .rounded_xl()
             .border_1()
-            .border_color(crate::theme_rgb(0xcfd8c8))
-            .bg(crate::theme_rgb(0xf7faf5))
+            .border_color(ui::color(tokens::BORDER))
+            .bg(ui::color(tokens::SURFACE))
             .flex()
             .flex_col()
-            .gap_2()
+            .gap_3();
+        let Some(snapshot) = self.snapshot(side) else {
+            return card
+                .border_color(ui::color(tokens::DANGER))
+                .child(ui::section_label(eyebrow.to_string()))
+                .child(ui::heading(label))
+                .child(
+                    ui::body("This future could not be played out.")
+                        .text_color(ui::color(tokens::DANGER)),
+                );
+        };
+        let other_side = match side {
+            ComparisonSide::Left => ComparisonSide::Right,
+            ComparisonSide::Right => ComparisonSide::Left,
+        };
+        let beats = snapshot
+            .briefing
+            .as_ref()
+            .map(|briefing| briefing.beats())
+            .unwrap_or_default();
+        // The headline is the first thing that happened here and not in the
+        // other future; a briefing's own title ("While you were away") is
+        // the same on both sides and says nothing about the choice.
+        let also_there = self
+            .snapshot(other_side)
+            .and_then(|other| other.briefing.as_ref())
+            .map(|briefing| {
+                briefing
+                    .beats()
+                    .iter()
+                    .map(|beat| beat.title.clone())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let lead = beats
+            .iter()
+            .position(|beat| !also_there.contains(&beat.title))
+            .or(if beats.is_empty() { None } else { Some(0) });
+        let headline = lead
+            .map(|index| beats[index].title.clone())
+            .unwrap_or_else(|| snapshot.title.clone());
+        let mut card = card
             .child(
                 div()
-                    .text_xs()
-                    .text_color(crate::theme_rgb(0x66705f))
-                    .child(label.to_string()),
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(ui::section_label(eyebrow.to_string()))
+                    .child(ui::heading(label)),
             )
-            .child(div().text_lg().child(snapshot.title.clone()))
             .child(
                 div()
-                    .text_sm()
-                    .text_color(crate::theme_rgb(0x555555))
-                    .child(format!("World time {}", snapshot.world_time)),
-            )
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(crate::theme_rgb(0x777777))
-                    .child("Saved World"),
+                    .flex()
+                    .items_baseline()
+                    .justify_between()
+                    .gap_3()
+                    .child(ui::page_title(headline))
+                    .child(ui::caption(format!("Time {}", snapshot.world_time))),
             );
-        if let Some(provenance) = provenance {
-            card = card.child(
-                div()
-                    .text_xs()
-                    .text_color(crate::theme_rgb(0x4e6fb3))
-                    .child(provenance.to_string()),
-            );
+        let view = cx.entity().downgrade();
+        let on_select: scene::SelectHandler = Rc::new(move |selection, _, cx| {
+            view.update(cx, |this, cx| this.select(side, selection, cx))
+                .ok();
+        });
+        let selected = self
+            .selected
+            .filter(|selected| selected.side == side)
+            .map(|selected| selected.selection);
+        // Point at what is different from the other future, not at the news.
+        let emphasis = match self.snapshot(other_side) {
+            Some(other) => scene::Emphasis::Only(scene::differences(snapshot, other)),
+            None => scene::Emphasis::News,
+        };
+        if let Some(stage) = scene::scene(snapshot, width, selected, &emphasis, on_select) {
+            card = card.child(stage);
+        }
+        let rest = beats
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| Some(*index) != lead)
+            .map(|(_, beat)| *beat)
+            .take(3)
+            .collect::<Vec<_>>();
+        if !rest.is_empty() {
+            let mut ending = div()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(ui::section_label("How it ends"));
+            for beat in rest {
+                let face = match beat
+                    .selection
+                    .and_then(|selection| scene::event_actor(snapshot, selection))
+                {
+                    Some(name) => ui::avatar(&name, 22.0),
+                    None => div()
+                        .size(px(22.0))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .child(
+                            div()
+                                .size(px(6.0))
+                                .rounded_full()
+                                .bg(ui::color(tokens::ACCENT)),
+                        ),
+                };
+                ending = ending.child(
+                    div().flex().gap_2().items_start().child(face).child(
+                        div()
+                            .min_w(px(0.0))
+                            .flex_1()
+                            .flex()
+                            .flex_col()
+                            .child(ui::row_title(beat.title.clone()))
+                            .child(
+                                ui::detail(beat.detail.clone())
+                                    .line_clamp(2)
+                                    .text_ellipsis(),
+                            ),
+                    ),
+                );
+            }
+            card = card.child(ending);
         }
         card
     }
@@ -291,58 +333,55 @@ impl StrategyComparisonView {
             Some(frontier) => div()
                 .p_3()
                 .rounded_md()
-                .bg(crate::theme_rgb(0xffffff))
+                .bg(ui::color(tokens::SURFACE))
                 .border_1()
-                .border_color(crate::theme_rgb(0xd9dfd5))
+                .border_color(ui::color(tokens::BORDER))
                 .flex()
                 .flex_col()
                 .gap_1()
                 .child(
                     div()
                         .text_xs()
-                        .text_color(crate::theme_rgb(0x657565))
-                        .child("SHARED HISTORY ENDS HERE"),
+                        .text_color(ui::color(tokens::TEXT_SECONDARY))
+                        .child("Last moment they share"),
                 )
                 .child(div().text_sm().child(frontier.title.clone()))
                 .child(
                     div()
                         .text_xs()
-                        .text_color(crate::theme_rgb(0x666666))
+                        .text_color(ui::color(tokens::TEXT_SECONDARY))
                         .child(frontier.subtitle.clone()),
                 )
                 .child(
                     div()
                         .text_xs()
-                        .text_color(crate::theme_rgb(0x777777))
-                        .child(format!("World time {}", frontier.world_time)),
+                        .text_color(ui::color(tokens::TEXT_TERTIARY))
+                        .child(format!("Time {}", frontier.world_time)),
                 ),
             None => div()
                 .p_3()
                 .rounded_md()
-                .bg(crate::theme_rgb(0xffffff))
+                .bg(ui::color(tokens::SURFACE))
                 .border_1()
-                .border_color(crate::theme_rgb(0xd9dfd5))
+                .border_color(ui::color(tokens::BORDER))
                 .text_sm()
-                .child("No identical recorded Timeline prefix"),
+                .child("These two share no history."),
         };
 
         div()
-            .w(px(700.0))
+            .w_full()
             .p_4()
-            .rounded_md()
+            .rounded_xl()
             .border_1()
-            .border_color(crate::theme_rgb(0xcfd8c8))
-            .bg(crate::theme_rgb(0xf7faf5))
+            .border_color(ui::color(tokens::BORDER))
+            .bg(ui::color(tokens::SURFACE))
             .flex()
             .flex_col()
             .gap_3()
-            .child(div().text_lg().child("Where these futures split"))
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(crate::theme_rgb(0x66705f))
-                    .child("Longest identical Timeline prefix, followed by each side's first recorded difference and its representative world-visible causal impact. Select any side-specific event to inspect its recorded evidence."),
-            )
+            .child(ui::heading("Where they split"))
+            .child(ui::detail(
+                "Everything up to the last shared moment happened in both. Below it, the first thing that went differently in each, and what followed from it. Select a moment to see why.",
+            ))
             .child(shared)
             .child(
                 div()
@@ -371,19 +410,20 @@ impl StrategyComparisonView {
         cx: &mut Context<Self>,
     ) -> Div {
         let mut column = div()
-            .w(px(325.0))
+            .flex_1()
+            .min_w(px(0.0))
             .p_3()
             .rounded_md()
-            .bg(crate::theme_rgb(0xffffff))
+            .bg(ui::color(tokens::SURFACE))
             .border_1()
-            .border_color(crate::theme_rgb(0xe2e4e8))
+            .border_color(ui::color(tokens::BORDER))
             .flex()
             .flex_col()
             .gap_2()
             .child(
                 div()
                     .text_xs()
-                    .text_color(crate::theme_rgb(0x4e6fb3))
+                    .text_color(ui::color(tokens::ACCENT_TEXT))
                     .child(label.to_string()),
             );
 
@@ -401,14 +441,14 @@ impl StrategyComparisonView {
                     .rounded_md()
                     .border_1()
                     .border_color(if selected {
-                        crate::theme_rgb(0x4e6fb3)
+                        ui::color(tokens::ACCENT)
                     } else {
-                        crate::theme_rgb(0xe2e4e8)
+                        ui::color(tokens::BORDER)
                     })
                     .bg(if selected {
-                        crate::theme_rgb(0xeef3ff)
+                        ui::color(tokens::ROW_SELECTED)
                     } else {
-                        crate::theme_rgb(0xf8f9fc)
+                        ui::color(tokens::WINDOW)
                     })
                     .cursor_pointer()
                     .flex()
@@ -417,21 +457,21 @@ impl StrategyComparisonView {
                     .child(
                         div()
                             .text_xs()
-                            .text_color(crate::theme_rgb(0x777777))
-                            .child("FIRST RECORDED DIFFERENCE"),
+                            .text_color(ui::color(tokens::TEXT_TERTIARY))
+                            .child("First thing that went differently"),
                     )
                     .child(div().text_sm().child(first.title.clone()))
                     .child(
                         div()
                             .text_xs()
-                            .text_color(crate::theme_rgb(0x555555))
+                            .text_color(ui::color(tokens::TEXT_SECONDARY))
                             .child(first.subtitle.clone()),
                     )
                     .child(
                         div()
                             .text_xs()
-                            .text_color(crate::theme_rgb(0x777777))
-                            .child(format!("World time {}", first.world_time)),
+                            .text_color(ui::color(tokens::TEXT_TERTIARY))
+                            .child(format!("Time {}", first.world_time)),
                     )
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.select(comparison_side, selection, cx)
@@ -441,7 +481,7 @@ impl StrategyComparisonView {
             column = column.child(
                 div()
                     .text_sm()
-                    .text_color(crate::theme_rgb(0x777777))
+                    .text_color(ui::color(tokens::TEXT_TERTIARY))
                     .child("This side stops at the shared frontier."),
             );
             return column;
@@ -450,15 +490,15 @@ impl StrategyComparisonView {
         column = column.child(
             div()
                 .text_xs()
-                .text_color(crate::theme_rgb(0x657565))
-                .child("HOW THIS FUTURE UNFOLDED"),
+                .text_color(ui::color(tokens::TEXT_SECONDARY))
+                .child("What followed"),
         );
         if side.impact.is_empty() {
             return column.child(
                 div()
                     .text_xs()
-                    .text_color(crate::theme_rgb(0x777777))
-                    .child("No later world-visible effects recorded from this difference yet."),
+                    .text_color(ui::color(tokens::TEXT_TERTIARY))
+                    .child("Nothing else has come of it yet."),
             );
         }
 
@@ -483,30 +523,12 @@ impl StrategyComparisonView {
         first: bool,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let supporting = stage.causal_steps.saturating_sub(1);
-        let origin = if first {
-            "first recorded difference"
-        } else {
-            "previous visible stage"
-        };
-        let causal_context = if supporting == 0 {
-            format!(
-                "{} recorded causal {} from {origin}",
-                stage.causal_steps,
-                if stage.causal_steps == 1 {
-                    "step"
-                } else {
-                    "steps"
-                }
-            )
-        } else {
-            format!(
-                "{} recorded causal steps from {origin} · {} supporting {} folded",
-                stage.causal_steps,
-                supporting,
-                if supporting == 1 { "record" } else { "records" }
-            )
-        };
+        let causal_context = format!(
+            "{} · time {}",
+            if first { "Because of it" } else { "Then" },
+            stage.event.world_time
+        );
+        let effect = world_projection::effect_headline(&stage.effect).to_string();
         let selection = stage.event.id;
         let selected = self.is_selected(comparison_side, selection);
         div()
@@ -519,14 +541,14 @@ impl StrategyComparisonView {
             .rounded_md()
             .border_1()
             .border_color(if selected {
-                crate::theme_rgb(0x4e6fb3)
+                ui::color(tokens::ACCENT)
             } else {
-                crate::theme_rgb(0xe2e4e8)
+                ui::color(tokens::BORDER)
             })
             .bg(if selected {
-                crate::theme_rgb(0xeef3ff)
+                ui::color(tokens::ROW_SELECTED)
             } else {
-                crate::theme_rgb(0xf8f9fc)
+                ui::color(tokens::WINDOW)
             })
             .cursor_pointer()
             .flex()
@@ -535,21 +557,15 @@ impl StrategyComparisonView {
             .child(
                 div()
                     .text_xs()
-                    .text_color(crate::theme_rgb(0x657565))
+                    .text_color(ui::color(tokens::TEXT_SECONDARY))
                     .child(causal_context),
             )
             .child(div().text_sm().child(stage.event.title.clone()))
             .child(
                 div()
                     .text_xs()
-                    .text_color(crate::theme_rgb(0x555555))
-                    .child(stage.effect.clone()),
-            )
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(crate::theme_rgb(0x777777))
-                    .child(format!("World time {}", stage.event.world_time)),
+                    .text_color(ui::color(tokens::TEXT_SECONDARY))
+                    .child(effect),
             )
             .on_click(
                 cx.listener(move |this, _, _, cx| this.select(comparison_side, selection, cx)),
@@ -567,22 +583,22 @@ impl StrategyComparisonView {
             .p_4()
             .rounded_md()
             .border_1()
-            .border_color(crate::theme_rgb(0xb9c8e8))
-            .bg(crate::theme_rgb(0xf7f9ff))
+            .border_color(ui::color(tokens::BORDER_STRONG))
+            .bg(ui::color(tokens::ACCENT_SOFT))
             .flex()
             .flex_col()
             .gap_3()
             .child(
                 div()
                     .text_xs()
-                    .text_color(crate::theme_rgb(0x4e6fb3))
+                    .text_color(ui::color(tokens::ACCENT_TEXT))
                     .child(format!("RECORDED EVIDENCE · {label}")),
             )
             .child(div().text_lg().child(inspector.title.clone()))
             .child(
                 div()
                     .text_xs()
-                    .text_color(crate::theme_rgb(0x666666))
+                    .text_color(ui::color(tokens::TEXT_SECONDARY))
                     .child(inspector.subtitle.clone()),
             )
             .child(self.render_evidence_inspector(inspector));
@@ -615,8 +631,8 @@ impl StrategyComparisonView {
                     .child(
                         div()
                             .text_xs()
-                            .text_color(crate::theme_rgb(0x66705f))
-                            .child("Active relations connected to this visible entity on the selected future. Select one to inspect that relation on the same side."),
+                            .text_color(ui::color(tokens::TEXT_SECONDARY))
+                            .child("Who and what it is connected to in this future."),
                     )
                     .child(relation_list);
             }
@@ -631,20 +647,17 @@ impl StrategyComparisonView {
                         cx,
                     ));
                 }
-                if let Some(notice) = hidden_notice(
-                    history.len(),
-                    ENTITY_HISTORY_LIMIT,
-                    "recorded entity changes",
-                ) {
+                if let Some(notice) = hidden_notice(history.len(), ENTITY_HISTORY_LIMIT, "changes")
+                {
                     history_list = history_list.child(truncation_notice(notice));
                 }
                 panel = panel
-                    .child(div().text_sm().child("Recorded changes to this entity"))
+                    .child(div().text_sm().child("What changed it"))
                     .child(
                         div()
                             .text_xs()
-                            .text_color(crate::theme_rgb(0x66705f))
-                            .child("Recorded events whose StateChanges directly changed this entity. Select one to inspect the event and continue tracing its causes on the same future."),
+                            .text_color(ui::color(tokens::TEXT_SECONDARY))
+                            .child("The moments that changed it in this future. Select one to see why it happened."),
                     )
                     .child(history_list);
             }
@@ -673,8 +686,8 @@ impl StrategyComparisonView {
                     .child(
                         div()
                             .text_xs()
-                            .text_color(crate::theme_rgb(0x66705f))
-                            .child("Visible entities connected by this active relation on the selected future. Removed relation tombstones intentionally have no current endpoints."),
+                            .text_color(ui::color(tokens::TEXT_SECONDARY))
+                            .child("The two it connects in this future."),
                     )
                     .child(endpoint_list);
             }
@@ -689,20 +702,18 @@ impl StrategyComparisonView {
                         cx,
                     ));
                 }
-                if let Some(notice) = hidden_notice(
-                    history.len(),
-                    RELATION_HISTORY_LIMIT,
-                    "recorded relation changes",
-                ) {
+                if let Some(notice) =
+                    hidden_notice(history.len(), RELATION_HISTORY_LIMIT, "changes")
+                {
                     history_list = history_list.child(truncation_notice(notice));
                 }
                 panel = panel
-                    .child(div().text_sm().child("Recorded changes to this relation"))
+                    .child(div().text_sm().child("How it changed"))
                     .child(
                         div()
                             .text_xs()
-                            .text_color(crate::theme_rgb(0x66705f))
-                            .child("Recorded events that created, changed, or removed this relation incarnation. Select one to continue tracing on this same future."),
+                            .text_color(ui::color(tokens::TEXT_SECONDARY))
+                            .child("The moments that made, changed, or ended it in this future."),
                     )
                     .child(history_list);
             }
@@ -731,8 +742,8 @@ impl StrategyComparisonView {
                     .child(
                         div()
                             .text_xs()
-                            .text_color(crate::theme_rgb(0x66705f))
-                            .child("Entities with a direct recorded StateChange from this visible event. Select one to inspect its state and recorded history on this same future."),
+                            .text_color(ui::color(tokens::TEXT_SECONDARY))
+                            .child("What this moment changed in this future."),
                     )
                     .child(entities);
             }
@@ -759,8 +770,8 @@ impl StrategyComparisonView {
                     .child(
                         div()
                             .text_xs()
-                            .text_color(crate::theme_rgb(0x66705f))
-                            .child("Relation incarnations whose recorded lifetime or properties changed in this visible event. Removed relations remain inspectable as tombstones on this same future."),
+                            .text_color(ui::color(tokens::TEXT_SECONDARY))
+                            .child("The connections this moment made, changed, or ended."),
                     )
                     .child(relations);
             }
@@ -772,18 +783,16 @@ impl StrategyComparisonView {
                     causes = causes.child(
                         div()
                             .text_xs()
-                            .text_color(crate::theme_rgb(0x777777))
-                            .child("No earlier recorded causes."),
+                            .text_color(ui::color(tokens::TEXT_TERTIARY))
+                            .child("Nothing earlier led to it."),
                     );
                 } else {
                     for node in cause_nodes.iter().take(EVIDENCE_CAUSE_LIMIT) {
                         causes = causes.child(self.render_evidence_cause(selected.side, node, cx));
                     }
-                    if let Some(notice) = hidden_notice(
-                        cause_nodes.len(),
-                        EVIDENCE_CAUSE_LIMIT,
-                        "recorded cause events",
-                    ) {
+                    if let Some(notice) =
+                        hidden_notice(cause_nodes.len(), EVIDENCE_CAUSE_LIMIT, "earlier causes")
+                    {
                         causes = causes.child(truncation_notice(notice));
                     }
                 }
@@ -791,8 +800,8 @@ impl StrategyComparisonView {
                 causes = causes.child(
                     div()
                         .text_xs()
-                        .text_color(crate::theme_rgb(0x777777))
-                        .child("No causal projection recorded for this event."),
+                        .text_color(ui::color(tokens::TEXT_TERTIARY))
+                        .child("There is no recorded reason for this moment."),
                 );
             }
 
@@ -801,7 +810,7 @@ impl StrategyComparisonView {
                 .child(
                     div()
                         .text_xs()
-                        .text_color(crate::theme_rgb(0x66705f))
+                        .text_color(ui::color(tokens::TEXT_SECONDARY))
                         .child("Persisted caused_by history from the selected future. Select a cause to continue tracing on the same side."),
                 )
                 .child(causes);
@@ -820,7 +829,7 @@ impl StrategyComparisonView {
             .snapshot(side)
             .and_then(|snapshot| snapshot.inspector(selection))
             .map(|inspector| (inspector.title.clone(), inspector.subtitle.clone()))
-            .unwrap_or_else(|| ("Entity".into(), "Recorded entity".into()));
+            .unwrap_or_else(|| ("Something".into(), String::new()));
         let selected = self.is_selected(side, selection);
         div()
             .id(SharedString::from(format!(
@@ -832,11 +841,11 @@ impl StrategyComparisonView {
             .rounded_md()
             .border_1()
             .border_color(if selected {
-                crate::theme_rgb(0x4e6fb3)
+                ui::color(tokens::ACCENT)
             } else {
-                crate::theme_rgb(0xe2e4e8)
+                ui::color(tokens::BORDER)
             })
-            .bg(crate::theme_rgb(0xffffff))
+            .bg(ui::color(tokens::SURFACE))
             .cursor_pointer()
             .flex()
             .flex_col()
@@ -845,7 +854,7 @@ impl StrategyComparisonView {
             .child(
                 div()
                     .text_xs()
-                    .text_color(crate::theme_rgb(0x666666))
+                    .text_color(ui::color(tokens::TEXT_SECONDARY))
                     .child(subtitle),
             )
             .on_click(cx.listener(move |this, _, _, cx| this.select(side, selection, cx)))
@@ -872,11 +881,11 @@ impl StrategyComparisonView {
             .rounded_md()
             .border_1()
             .border_color(if selected {
-                crate::theme_rgb(0x4e6fb3)
+                ui::color(tokens::ACCENT)
             } else {
-                crate::theme_rgb(0xe2e4e8)
+                ui::color(tokens::BORDER)
             })
-            .bg(crate::theme_rgb(0xffffff))
+            .bg(ui::color(tokens::SURFACE))
             .cursor_pointer()
             .flex()
             .flex_col()
@@ -885,7 +894,7 @@ impl StrategyComparisonView {
             .child(
                 div()
                     .text_xs()
-                    .text_color(crate::theme_rgb(0x666666))
+                    .text_color(ui::color(tokens::TEXT_SECONDARY))
                     .child(subtitle),
             )
             .on_click(cx.listener(move |this, _, _, cx| this.select(side, selection, cx)))
@@ -913,11 +922,11 @@ impl StrategyComparisonView {
             .rounded_md()
             .border_1()
             .border_color(if selected {
-                crate::theme_rgb(0x4e6fb3)
+                ui::color(tokens::ACCENT)
             } else {
-                crate::theme_rgb(0xe2e4e8)
+                ui::color(tokens::BORDER)
             })
-            .bg(crate::theme_rgb(0xffffff))
+            .bg(ui::color(tokens::SURFACE))
             .cursor_pointer()
             .flex()
             .flex_col()
@@ -926,7 +935,7 @@ impl StrategyComparisonView {
             .child(
                 div()
                     .text_xs()
-                    .text_color(crate::theme_rgb(0x666666))
+                    .text_color(ui::color(tokens::TEXT_SECONDARY))
                     .child(subtitle),
             )
             .on_click(cx.listener(move |this, _, _, cx| this.select(side, selection, cx)))
@@ -954,11 +963,11 @@ impl StrategyComparisonView {
             .rounded_md()
             .border_1()
             .border_color(if selected {
-                crate::theme_rgb(0x4e6fb3)
+                ui::color(tokens::ACCENT)
             } else {
-                crate::theme_rgb(0xe2e4e8)
+                ui::color(tokens::BORDER)
             })
-            .bg(crate::theme_rgb(0xffffff))
+            .bg(ui::color(tokens::SURFACE))
             .cursor_pointer()
             .flex()
             .flex_col()
@@ -967,7 +976,7 @@ impl StrategyComparisonView {
             .child(
                 div()
                     .text_xs()
-                    .text_color(crate::theme_rgb(0x666666))
+                    .text_color(ui::color(tokens::TEXT_SECONDARY))
                     .child(subtitle),
             )
             .on_click(cx.listener(move |this, _, _, cx| this.select(side, selection, cx)))
@@ -991,11 +1000,11 @@ impl StrategyComparisonView {
             .rounded_md()
             .border_1()
             .border_color(if selected {
-                crate::theme_rgb(0x4e6fb3)
+                ui::color(tokens::ACCENT)
             } else {
-                crate::theme_rgb(0xe2e4e8)
+                ui::color(tokens::BORDER)
             })
-            .bg(crate::theme_rgb(0xffffff))
+            .bg(ui::color(tokens::SURFACE))
             .cursor_pointer()
             .flex()
             .flex_col()
@@ -1004,14 +1013,14 @@ impl StrategyComparisonView {
             .child(
                 div()
                     .text_xs()
-                    .text_color(crate::theme_rgb(0x555555))
+                    .text_color(ui::color(tokens::TEXT_SECONDARY))
                     .child(item.subtitle.clone()),
             )
             .child(
                 div()
                     .text_xs()
-                    .text_color(crate::theme_rgb(0x777777))
-                    .child(format!("World time {}", item.world_time)),
+                    .text_color(ui::color(tokens::TEXT_TERTIARY))
+                    .child(format!("Time {}", item.world_time)),
             )
             .on_click(cx.listener(move |this, _, _, cx| this.select(side, selection, cx)))
     }
@@ -1033,11 +1042,11 @@ impl StrategyComparisonView {
             .rounded_md()
             .border_1()
             .border_color(if selected {
-                crate::theme_rgb(0x4e6fb3)
+                ui::color(tokens::ACCENT)
             } else {
-                crate::theme_rgb(0xe2e4e8)
+                ui::color(tokens::BORDER)
             })
-            .bg(crate::theme_rgb(0xffffff))
+            .bg(ui::color(tokens::SURFACE))
             .cursor_pointer()
             .flex()
             .flex_col()
@@ -1046,14 +1055,14 @@ impl StrategyComparisonView {
             .child(
                 div()
                     .text_xs()
-                    .text_color(crate::theme_rgb(0x555555))
+                    .text_color(ui::color(tokens::TEXT_SECONDARY))
                     .child(item.subtitle.clone()),
             )
             .child(
                 div()
                     .text_xs()
-                    .text_color(crate::theme_rgb(0x777777))
-                    .child(format!("World time {}", item.world_time)),
+                    .text_color(ui::color(tokens::TEXT_TERTIARY))
+                    .child(format!("Time {}", item.world_time)),
             )
             .on_click(cx.listener(move |this, _, _, cx| this.select(side, selection, cx)))
     }
@@ -1079,16 +1088,16 @@ impl StrategyComparisonView {
             .p_3()
             .rounded_md()
             .border_1()
-            .border_color(crate::theme_rgb(0xd9dfd5))
-            .bg(crate::theme_rgb(0xffffff))
+            .border_color(ui::color(tokens::BORDER))
+            .bg(ui::color(tokens::SURFACE))
             .flex()
             .flex_col()
             .gap_2()
-            .child(div().text_sm().child("Local evidence divergence"))
+            .child(div().text_sm().child("Around it, how the futures differ"))
             .child(
                 div()
                     .text_xs()
-                    .text_color(crate::theme_rgb(0x66705f))
+                    .text_color(ui::color(tokens::TEXT_SECONDARY))
                     .child(format!(
                         "Within {} hops of this selection: {} node-distance changes and {} typed edge changes between futures.",
                         comparison.max_depth, node_count, edge_count
@@ -1099,8 +1108,8 @@ impl StrategyComparisonView {
             let mut nodes = div().flex().flex_col().gap_2().child(
                 div()
                     .text_xs()
-                    .text_color(crate::theme_rgb(0x657565))
-                    .child("NODE DISTANCE CHANGES"),
+                    .text_color(ui::color(tokens::TEXT_SECONDARY))
+                    .child("Closer or further apart"),
             );
             for node in comparison.nodes.iter().take(LOCAL_EVIDENCE_NODE_LIMIT) {
                 nodes = nodes.child(self.render_local_evidence_node(node, cx));
@@ -1108,7 +1117,7 @@ impl StrategyComparisonView {
             if let Some(notice) = hidden_notice(
                 comparison.nodes.len(),
                 LOCAL_EVIDENCE_NODE_LIMIT,
-                "local evidence nodes",
+                "nearby things",
             ) {
                 nodes = nodes.child(truncation_notice(notice));
             }
@@ -1119,8 +1128,8 @@ impl StrategyComparisonView {
             section = section.child(
                 div()
                     .text_xs()
-                    .text_color(crate::theme_rgb(0x657565))
-                    .child("TYPED EDGE CHANGES"),
+                    .text_color(ui::color(tokens::TEXT_SECONDARY))
+                    .child("Connections that differ"),
             );
             section = section.child(
                 div()
@@ -1189,14 +1198,14 @@ impl StrategyComparisonView {
             .rounded_md()
             .border_1()
             .border_color(if selected {
-                crate::theme_rgb(0x4e6fb3)
+                ui::color(tokens::ACCENT)
             } else {
-                crate::theme_rgb(0xe2e4e8)
+                ui::color(tokens::BORDER)
             })
             .bg(if selected {
-                crate::theme_rgb(0xeef3ff)
+                ui::color(tokens::ROW_SELECTED)
             } else {
-                crate::theme_rgb(0xf8f9fc)
+                ui::color(tokens::WINDOW)
             })
             .cursor_pointer()
             .flex()
@@ -1205,7 +1214,7 @@ impl StrategyComparisonView {
             .child(
                 div()
                     .text_xs()
-                    .text_color(crate::theme_rgb(0x4e6fb3))
+                    .text_color(ui::color(tokens::ACCENT_TEXT))
                     .child(format!(
                         "{} · {} hop{}",
                         self.side_label(side),
@@ -1223,10 +1232,10 @@ impl StrategyComparisonView {
             .p_2()
             .rounded_md()
             .border_1()
-            .border_color(crate::theme_rgb(0xe2e4e8))
-            .bg(crate::theme_rgb(0xf8f9fc))
+            .border_color(ui::color(tokens::BORDER))
+            .bg(ui::color(tokens::ACCENT_SOFT))
             .text_xs()
-            .text_color(crate::theme_rgb(0x888888))
+            .text_color(ui::color(tokens::TEXT_TERTIARY))
             .child(format!(
                 "{} · outside this neighborhood",
                 self.side_label(side)
@@ -1243,22 +1252,22 @@ impl StrategyComparisonView {
             .p_2()
             .rounded_md()
             .border_1()
-            .border_color(crate::theme_rgb(0xe2e4e8))
-            .bg(crate::theme_rgb(0xf8f9fc))
+            .border_color(ui::color(tokens::BORDER))
+            .bg(ui::color(tokens::ACCENT_SOFT))
             .flex()
             .flex_col()
             .gap_1()
             .child(
                 div()
                     .text_xs()
-                    .text_color(crate::theme_rgb(0x4e6fb3))
+                    .text_color(ui::color(tokens::ACCENT_TEXT))
                     .child(self.side_label(side).to_string()),
             );
         if edges.is_empty() {
             return column.child(
                 div()
                     .text_xs()
-                    .text_color(crate::theme_rgb(0x888888))
+                    .text_color(ui::color(tokens::TEXT_TERTIARY))
                     .child("No side-only typed edges"),
             );
         }
@@ -1266,7 +1275,7 @@ impl StrategyComparisonView {
             column = column.child(
                 div()
                     .text_xs()
-                    .text_color(crate::theme_rgb(0x555555))
+                    .text_color(ui::color(tokens::TEXT_SECONDARY))
                     .child(self.local_evidence_edge_label(side, *edge)),
             );
         }
@@ -1283,7 +1292,7 @@ impl StrategyComparisonView {
     fn local_evidence_edge_label(&self, side: ComparisonSide, edge: StateEvidenceEdge) -> String {
         match edge {
             StateEvidenceEdge::EntityEvent(evidence) => format!(
-                "Recorded entity change: {} ↔ {}",
+                "Changed: {} ↔ {}",
                 self.selection_title(side, SelectionId::Entity(evidence.entity)),
                 self.selection_title(side, SelectionId::Event(evidence.event)),
             ),
@@ -1326,7 +1335,7 @@ impl StrategyComparisonView {
                         .child(
                             div()
                                 .w(px(180.0))
-                                .text_color(crate::theme_rgb(0x666666))
+                                .text_color(ui::color(tokens::TEXT_SECONDARY))
                                 .child(row.label.clone()),
                         )
                         .child(div().flex_1().child(row.value.clone())),
@@ -1341,9 +1350,9 @@ impl StrategyComparisonView {
                 div()
                     .p_3()
                     .rounded_md()
-                    .bg(crate::theme_rgb(0xffffff))
+                    .bg(ui::color(tokens::SURFACE))
                     .border_1()
-                    .border_color(crate::theme_rgb(0xe2e4e8))
+                    .border_color(ui::color(tokens::BORDER))
                     .flex()
                     .flex_col()
                     .gap_2()
@@ -1372,11 +1381,11 @@ impl StrategyComparisonView {
             .rounded_md()
             .border_1()
             .border_color(if selected {
-                crate::theme_rgb(0x4e6fb3)
+                ui::color(tokens::ACCENT)
             } else {
-                crate::theme_rgb(0xe2e4e8)
+                ui::color(tokens::BORDER)
             })
-            .bg(crate::theme_rgb(0xffffff))
+            .bg(ui::color(tokens::SURFACE))
             .cursor_pointer()
             .flex()
             .flex_col()
@@ -1384,21 +1393,21 @@ impl StrategyComparisonView {
             .child(
                 div()
                     .text_xs()
-                    .text_color(crate::theme_rgb(0x657565))
-                    .child(format!("{} causal steps earlier", node.depth)),
+                    .text_color(ui::color(tokens::TEXT_SECONDARY))
+                    .child(format!("{} steps earlier", node.depth)),
             )
             .child(div().text_sm().child(node.title.clone()))
             .child(
                 div()
                     .text_xs()
-                    .text_color(crate::theme_rgb(0x555555))
+                    .text_color(ui::color(tokens::TEXT_SECONDARY))
                     .child(node.subtitle.clone()),
             )
             .child(
                 div()
                     .text_xs()
-                    .text_color(crate::theme_rgb(0x777777))
-                    .child(format!("World time {}", node.world_time)),
+                    .text_color(ui::color(tokens::TEXT_TERTIARY))
+                    .child(format!("Time {}", node.world_time)),
             )
             .on_click(cx.listener(move |this, _, _, cx| this.select(side, selection, cx)))
     }
@@ -1419,13 +1428,13 @@ impl StrategyComparisonView {
             entities = entities.child(
                 div()
                     .text_sm()
-                    .text_color(crate::theme_rgb(0x777777))
-                    .child("No entity state differences"),
+                    .text_color(ui::color(tokens::TEXT_TERTIARY))
+                    .child("Nothing about anyone differs."),
             );
         } else if let Some(notice) = hidden_notice(
             comparison.entities.len(),
             ENTITY_DIFFERENCE_LIMIT,
-            "entity differences",
+            "differences",
         ) {
             entities = entities.child(truncation_notice(notice));
         }
@@ -1438,7 +1447,7 @@ impl StrategyComparisonView {
             relations = relations.child(
                 div()
                     .text_sm()
-                    .text_color(crate::theme_rgb(0x777777))
+                    .text_color(ui::color(tokens::TEXT_TERTIARY))
                     .child("No relation state differences"),
             );
         } else if let Some(notice) = hidden_notice(
@@ -1488,7 +1497,7 @@ impl StrategyComparisonView {
             timeline = timeline.child(
                 div()
                     .text_xs()
-                    .text_color(crate::theme_rgb(0x777777))
+                    .text_color(ui::color(tokens::TEXT_TERTIARY))
                     .child("No timeline differences"),
             );
         } else {
@@ -1523,7 +1532,7 @@ impl StrategyComparisonView {
             commands = commands.child(
                 div()
                     .text_xs()
-                    .text_color(crate::theme_rgb(0x777777))
+                    .text_color(ui::color(tokens::TEXT_TERTIARY))
                     .child("No available-action differences"),
             );
         }
@@ -1533,22 +1542,25 @@ impl StrategyComparisonView {
             .p_4()
             .rounded_md()
             .border_1()
-            .border_color(crate::theme_rgb(0xd7dce8))
-            .bg(crate::theme_rgb(0xf8f9fc))
+            .border_color(ui::color(tokens::BORDER))
+            .bg(ui::color(tokens::ACCENT_SOFT))
             .flex()
             .flex_col()
             .gap_4()
             .child(div().text_lg().child("What changed"))
-            .child(div().text_xs().text_color(crate::theme_rgb(0x66705f)).child(
-                "Select an entity, relation, or timeline side to inspect evidence from that specific future.",
-            ))
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(ui::color(tokens::TEXT_SECONDARY))
+                    .child("Select anything below to see it as it stands in that future."),
+            )
             .child(
                 div()
                     .flex()
                     .gap_3()
                     .child(summary_chip("Entities", comparison.entities.len()))
                     .child(summary_chip("Relations", comparison.relations.len()))
-                    .child(summary_chip("Timeline", timeline_changes))
+                    .child(summary_chip("Moments", timeline_changes))
                     .child(summary_chip("Commands", command_changes)),
             )
             .child(
@@ -1558,19 +1570,19 @@ impl StrategyComparisonView {
                     .child(
                         div()
                             .text_sm()
-                            .child(format!("Left t={}", comparison.left.world_time)),
+                            .child(format!("Left · time {}", comparison.left.world_time)),
                     )
                     .child(
                         div()
                             .text_sm()
-                            .child(format!("Right t={}", comparison.right.world_time)),
+                            .child(format!("Right · time {}", comparison.right.world_time)),
                     ),
             )
-            .child(div().text_sm().child("Entity state"))
+            .child(div().text_sm().child("People, places and things"))
             .child(entities)
             .child(div().text_sm().child("Relation state"))
             .child(relations)
-            .child(div().text_sm().child("Timeline"))
+            .child(div().text_sm().child("Moments"))
             .child(timeline)
             .child(div().text_sm().child("Available actions"))
             .child(commands)
@@ -1594,15 +1606,15 @@ impl StrategyComparisonView {
             .p_3()
             .rounded_md()
             .bg(if selected {
-                crate::theme_rgb(0xeef3ff)
+                ui::color(tokens::ROW_SELECTED)
             } else {
-                crate::theme_rgb(0xffffff)
+                ui::color(tokens::SURFACE)
             })
             .border_1()
             .border_color(if selected {
-                crate::theme_rgb(0x4e6fb3)
+                ui::color(tokens::ACCENT)
             } else {
-                crate::theme_rgb(0xe2e4e8)
+                ui::color(tokens::BORDER)
             })
             .cursor_pointer()
             .flex()
@@ -1617,15 +1629,15 @@ impl StrategyComparisonView {
                     .child(
                         div()
                             .text_xs()
-                            .text_color(crate::theme_rgb(0x777777))
-                            .child(format!("{relation} · t={}", item.world_time)),
+                            .text_color(ui::color(tokens::TEXT_TERTIARY))
+                            .child(format!("{relation} · time {}", item.world_time)),
                     ),
             );
         if let Some(detail) = timeline_detail(&item.subtitle) {
             card = card.child(
                 div()
                     .text_xs()
-                    .text_color(crate::theme_rgb(0x555555))
+                    .text_color(ui::color(tokens::TEXT_SECONDARY))
                     .child(detail),
             );
         }
@@ -1650,9 +1662,9 @@ impl StrategyComparisonView {
         div()
             .p_3()
             .rounded_md()
-            .bg(crate::theme_rgb(0xffffff))
+            .bg(ui::color(tokens::SURFACE))
             .border_1()
-            .border_color(crate::theme_rgb(0xe2e4e8))
+            .border_color(ui::color(tokens::BORDER))
             .flex()
             .flex_col()
             .gap_2()
@@ -1665,7 +1677,7 @@ impl StrategyComparisonView {
                     .child(
                         div()
                             .text_xs()
-                            .text_color(crate::theme_rgb(0x777777))
+                            .text_color(ui::color(tokens::TEXT_TERTIARY))
                             .child("Changed"),
                     ),
             )
@@ -1702,14 +1714,14 @@ impl StrategyComparisonView {
             .rounded_md()
             .border_1()
             .border_color(if selected {
-                crate::theme_rgb(0x4e6fb3)
+                ui::color(tokens::ACCENT)
             } else {
-                crate::theme_rgb(0xe2e4e8)
+                ui::color(tokens::BORDER)
             })
             .bg(if selected {
-                crate::theme_rgb(0xeef3ff)
+                ui::color(tokens::ROW_SELECTED)
             } else {
-                crate::theme_rgb(0xf8f9fc)
+                ui::color(tokens::WINDOW)
             })
             .cursor_pointer()
             .flex()
@@ -1718,9 +1730,9 @@ impl StrategyComparisonView {
             .child(
                 div()
                     .text_xs()
-                    .text_color(crate::theme_rgb(0x4e6fb3))
+                    .text_color(ui::color(tokens::ACCENT_TEXT))
                     .child(format!(
-                        "{} · {} · t={}",
+                        "{} · {} · time {}",
                         match side {
                             ComparisonSide::Left => "Left",
                             ComparisonSide::Right => "Right",
@@ -1737,9 +1749,9 @@ impl StrategyComparisonView {
         div()
             .p_3()
             .rounded_md()
-            .bg(crate::theme_rgb(0xffffff))
+            .bg(ui::color(tokens::SURFACE))
             .border_1()
-            .border_color(crate::theme_rgb(0xe2e4e8))
+            .border_color(ui::color(tokens::BORDER))
             .flex()
             .flex_col()
             .gap_1()
@@ -1752,14 +1764,14 @@ impl StrategyComparisonView {
                     .child(
                         div()
                             .text_xs()
-                            .text_color(crate::theme_rgb(0x777777))
+                            .text_color(ui::color(tokens::TEXT_TERTIARY))
                             .child(relation.to_string()),
                     ),
             )
             .child(
                 div()
                     .text_xs()
-                    .text_color(crate::theme_rgb(0x555555))
+                    .text_color(ui::color(tokens::TEXT_SECONDARY))
                     .child(command.detail.clone()),
             )
     }
@@ -1774,9 +1786,9 @@ impl StrategyComparisonView {
         div()
             .p_3()
             .rounded_md()
-            .bg(crate::theme_rgb(0xffffff))
+            .bg(ui::color(tokens::SURFACE))
             .border_1()
-            .border_color(crate::theme_rgb(0xe2e4e8))
+            .border_color(ui::color(tokens::BORDER))
             .flex()
             .flex_col()
             .gap_2()
@@ -1789,7 +1801,7 @@ impl StrategyComparisonView {
                     .child(
                         div()
                             .text_xs()
-                            .text_color(crate::theme_rgb(0x777777))
+                            .text_color(ui::color(tokens::TEXT_TERTIARY))
                             .child("Changed"),
                     ),
             )
@@ -1801,7 +1813,7 @@ impl StrategyComparisonView {
                     .child(
                         div()
                             .text_xs()
-                            .text_color(crate::theme_rgb(0x4e6fb3))
+                            .text_color(ui::color(tokens::ACCENT_TEXT))
                             .child(format!("Left · {}", self.left_label)),
                     )
                     .child(div().text_xs().child(command.left.detail.clone())),
@@ -1814,7 +1826,7 @@ impl StrategyComparisonView {
                     .child(
                         div()
                             .text_xs()
-                            .text_color(crate::theme_rgb(0x4e6fb3))
+                            .text_color(ui::color(tokens::ACCENT_TEXT))
                             .child(format!("Right · {}", self.right_label)),
                     )
                     .child(div().text_xs().child(command.right.detail.clone())),
@@ -1862,7 +1874,7 @@ impl StrategyComparisonView {
                     .flex()
                     .gap_2()
                     .text_xs()
-                    .text_color(crate::theme_rgb(0x777777))
+                    .text_color(ui::color(tokens::TEXT_TERTIARY))
                     .child(div().w(px(150.0)).child("Field"))
                     .child(div().w(px(140.0)).child(self.left_label.clone()))
                     .child(div().w(px(140.0)).child(self.right_label.clone())),
@@ -1877,7 +1889,7 @@ impl StrategyComparisonView {
                     .child(
                         div()
                             .w(px(150.0))
-                            .text_color(crate::theme_rgb(0x666666))
+                            .text_color(ui::color(tokens::TEXT_SECONDARY))
                             .child(row.key.label.clone()),
                     )
                     .child(
@@ -1903,9 +1915,9 @@ impl StrategyComparisonView {
         div()
             .p_3()
             .rounded_md()
-            .bg(crate::theme_rgb(0xffffff))
+            .bg(ui::color(tokens::SURFACE))
             .border_1()
-            .border_color(crate::theme_rgb(0xe2e4e8))
+            .border_color(ui::color(tokens::BORDER))
             .flex()
             .flex_col()
             .gap_2()
@@ -1922,7 +1934,7 @@ impl StrategyComparisonView {
                             .child(
                                 div()
                                     .text_xs()
-                                    .text_color(crate::theme_rgb(0x777777))
+                                    .text_color(ui::color(tokens::TEXT_TERTIARY))
                                     .child(difference_kind_label(difference.kind)),
                             ),
                     )
@@ -1977,7 +1989,7 @@ impl StrategyComparisonView {
                     .flex()
                     .gap_2()
                     .text_xs()
-                    .text_color(crate::theme_rgb(0x777777))
+                    .text_color(ui::color(tokens::TEXT_TERTIARY))
                     .child(div().w(px(150.0)).child("Field"))
                     .child(div().w(px(140.0)).child(self.left_label.clone()))
                     .child(div().w(px(140.0)).child(self.right_label.clone())),
@@ -1992,7 +2004,7 @@ impl StrategyComparisonView {
                     .child(
                         div()
                             .w(px(150.0))
-                            .text_color(crate::theme_rgb(0x666666))
+                            .text_color(ui::color(tokens::TEXT_SECONDARY))
                             .child(row.key.label.clone()),
                     )
                     .child(
@@ -2018,9 +2030,9 @@ impl StrategyComparisonView {
         div()
             .p_3()
             .rounded_md()
-            .bg(crate::theme_rgb(0xffffff))
+            .bg(ui::color(tokens::SURFACE))
             .border_1()
-            .border_color(crate::theme_rgb(0xe2e4e8))
+            .border_color(ui::color(tokens::BORDER))
             .flex()
             .flex_col()
             .gap_2()
@@ -2037,7 +2049,7 @@ impl StrategyComparisonView {
                             .child(
                                 div()
                                     .text_xs()
-                                    .text_color(crate::theme_rgb(0x777777))
+                                    .text_color(ui::color(tokens::TEXT_TERTIARY))
                                     .child(difference_kind_label(difference.kind)),
                             ),
                     )
@@ -2064,18 +2076,18 @@ impl StrategyComparisonView {
             .rounded_md()
             .border_1()
             .border_color(if selected {
-                crate::theme_rgb(0x4e6fb3)
+                ui::color(tokens::ACCENT)
             } else {
-                crate::theme_rgb(0xcfd6e5)
+                ui::color(tokens::BORDER)
             })
             .bg(if selected {
-                crate::theme_rgb(0xeef3ff)
+                ui::color(tokens::ROW_SELECTED)
             } else {
-                crate::theme_rgb(0xf8f9fc)
+                ui::color(tokens::WINDOW)
             })
             .cursor_pointer()
             .text_xs()
-            .text_color(crate::theme_rgb(0x4e6fb3))
+            .text_color(ui::color(tokens::ACCENT_TEXT))
             .child(format!(
                 "Inspect {}",
                 match side {
@@ -2104,18 +2116,18 @@ impl StrategyComparisonView {
             .rounded_md()
             .border_1()
             .border_color(if selected {
-                crate::theme_rgb(0x4e6fb3)
+                ui::color(tokens::ACCENT)
             } else {
-                crate::theme_rgb(0xcfd6e5)
+                ui::color(tokens::BORDER)
             })
             .bg(if selected {
-                crate::theme_rgb(0xeef3ff)
+                ui::color(tokens::ROW_SELECTED)
             } else {
-                crate::theme_rgb(0xf8f9fc)
+                ui::color(tokens::WINDOW)
             })
             .cursor_pointer()
             .text_xs()
-            .text_color(crate::theme_rgb(0x4e6fb3))
+            .text_color(ui::color(tokens::ACCENT_TEXT))
             .child(format!(
                 "Inspect {}",
                 match side {
@@ -2129,13 +2141,12 @@ impl StrategyComparisonView {
     fn heading(&self) -> (&'static str, &'static str) {
         match &self.source {
             ComparisonSource::Strategies(_) => (
-                "Strategy Comparison",
-                "Two independent futures evaluated from the same durable World",
+                "Two futures",
+                "The same World from the same moment, one choice apart.",
             ),
-            ComparisonSource::Saved { .. } => (
-                "Saved World Comparison",
-                "Two saved Worlds compared at their current durable state",
-            ),
+            ComparisonSource::Saved { .. } => {
+                ("Two Worlds side by side", "As each of them stands now.")
+            }
         }
     }
 }
@@ -2155,14 +2166,16 @@ impl Render for StrategyComparisonView {
             .p_5()
             .flex()
             .flex_col()
-            .gap_4()
-            .bg(crate::theme_rgb(0xf3f4f2))
-            .child(div().text_xl().child(title))
+            .gap_5()
+            .bg(ui::color(tokens::WINDOW))
+            .text_color(ui::color(tokens::TEXT))
             .child(
                 div()
-                    .text_sm()
-                    .text_color(crate::theme_rgb(0x666666))
-                    .child(subtitle),
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(ui::page_title(title))
+                    .child(ui::body(subtitle)),
             );
 
         if let ComparisonSource::Saved { context, .. } = &self.source {
@@ -2171,42 +2184,38 @@ impl Render for StrategyComparisonView {
                     div()
                         .p_2()
                         .rounded_md()
-                        .bg(crate::theme_rgb(0xe9edf5))
+                        .bg(ui::color(tokens::ACCENT_SOFT))
                         .text_sm()
                         .child(format!("Lineage relation · {relation}")),
                 );
             }
         }
 
-        body = match &self.source {
-            ComparisonSource::Strategies(evaluation) => body.child(
-                div()
-                    .flex()
-                    .gap_4()
-                    .child(self.render_strategy_run(&self.left_label, &evaluation.left))
-                    .child(self.render_strategy_run(&self.right_label, &evaluation.right)),
-            ),
-            ComparisonSource::Saved {
-                left,
-                right,
-                context,
-                ..
-            } => body.child(
-                div()
-                    .flex()
-                    .gap_4()
-                    .child(self.render_saved_side(
-                        &self.left_label,
-                        left,
-                        context.left_provenance.as_deref(),
-                    ))
-                    .child(self.render_saved_side(
-                        &self.right_label,
-                        right,
-                        context.right_provenance.as_deref(),
-                    )),
-            ),
+        // Each future's scene gets half the window, less the page's and the
+        // card's padding.
+        let stage_width = (f32::from(_window.viewport_size().width) - 40.0 - 16.0) / 2.0 - 34.0;
+        let eyebrow = match &self.source {
+            ComparisonSource::Strategies(_) => "If you choose",
+            ComparisonSource::Saved { .. } => "Saved World",
         };
+        body = body.child(
+            div()
+                .flex()
+                .gap_4()
+                .items_start()
+                .child(self.render_future(ComparisonSide::Left, eyebrow, stage_width, cx))
+                .child(self.render_future(ComparisonSide::Right, eyebrow, stage_width, cx)),
+        );
+        if let ComparisonSource::Saved { context, .. } = &self.source {
+            let provenance = [&context.left_provenance, &context.right_provenance]
+                .into_iter()
+                .flatten()
+                .cloned()
+                .collect::<Vec<_>>();
+            if !provenance.is_empty() {
+                body = body.child(ui::caption(provenance.join(" · ")));
+            }
+        }
 
         if let Some(divergence) = self.divergence() {
             body = body.child(self.render_divergence(&divergence, cx));
@@ -2228,8 +2237,8 @@ impl Render for StrategyComparisonView {
                     .p_4()
                     .rounded_md()
                     .border_1()
-                    .border_color(crate::theme_rgb(0xe2bcbc))
-                    .bg(crate::theme_rgb(0xfff8f8))
+                    .border_color(ui::color(tokens::DANGER))
+                    .bg(ui::color(tokens::SURFACE))
                     .child("Comparison unavailable because one or both strategies failed."),
             )
         };
@@ -2255,7 +2264,7 @@ fn hidden_after_group_limits(counts: &[usize], limit: usize) -> usize {
 fn truncation_notice(message: String) -> Div {
     div()
         .text_xs()
-        .text_color(crate::theme_rgb(0x777777))
+        .text_color(ui::color(tokens::TEXT_TERTIARY))
         .child(message)
 }
 
@@ -2263,7 +2272,7 @@ fn summary_chip(label: &str, count: usize) -> Div {
     div()
         .p_2()
         .rounded_md()
-        .bg(crate::theme_rgb(0xe9edf5))
+        .bg(ui::color(tokens::ACCENT_SOFT))
         .text_sm()
         .child(format!("{label}: {count}"))
 }
@@ -2336,9 +2345,4 @@ mod tests {
         );
         assert_eq!(view.selected, None);
     }
-}
-
-/// A light-palette colour adapted to the current appearance.
-pub(crate) fn theme_rgb(hex: u32) -> gpui::Rgba {
-    gpui::rgb(world_theme::adapt(hex))
 }

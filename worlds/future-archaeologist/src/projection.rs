@@ -43,6 +43,7 @@ fn commands(world: &World) -> Vec<ProjectionCommand> {
             id: crate::RECOVER_MESSAGE_COMMAND.into(),
             title: "Recover deleted message".into(),
             detail: "Scan unallocated message storage for a recoverable fragment.".into(),
+            effects: Vec::new(),
         }]
     }
 }
@@ -117,6 +118,7 @@ fn timeline(
                     .copied()
                     .filter(|cause| visible_events.contains(cause))
                     .collect(),
+                routine: false,
             })
             .collect(),
     }
@@ -135,6 +137,7 @@ fn briefing(world: &World, artifacts: &[EntityId]) -> BriefingProjection {
                 detail: text_component(entity, SUMMARY)
                     .unwrap_or("Recovered artifact")
                     .into(),
+                tone: world_projection::Tone::Neutral,
             })
         })
         .take(3)
@@ -164,6 +167,7 @@ fn canvas(world: &World, artifacts: &[EntityId]) -> CanvasProjection {
                 detail: humanize(&entity.kind),
                 x,
                 y,
+                changes: Vec::new(),
             });
         }
     }
@@ -190,10 +194,14 @@ fn canvas(world: &World, artifacts: &[EntityId]) -> CanvasProjection {
                 .unwrap_or_else(|| "Artifact".into()),
             x,
             y,
+            changes: Vec::new(),
         });
     }
 
-    CanvasProjection { items }
+    CanvasProjection {
+        items,
+        links: Vec::new(),
+    }
 }
 
 fn inspectors(

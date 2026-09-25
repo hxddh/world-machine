@@ -73,10 +73,15 @@ fn save_resume_restores_pending_world_and_briefs_only_new_events() {
         .items
         .iter()
         .any(|item| item.title == "Jonas asked Leo for a loan"));
-    assert!(briefing
-        .items
-        .iter()
-        .all(|item| item.detail.contains("World time 10")));
+    assert!(briefing.items.iter().all(|item| match item.selection {
+        Some(SelectionId::Event(event)) => snapshot
+            .timeline
+            .items
+            .iter()
+            .find(|moment| moment.id == SelectionId::Event(event))
+            .is_some_and(|moment| moment.world_time == 10),
+        _ => true,
+    }));
 }
 
 #[test]
@@ -493,4 +498,35 @@ fn projection_snapshot_is_self_contained_selectable_and_causal() {
     assert_eq!(why.nodes.first().unwrap().event, dismissal.id);
     assert!(why.nodes.iter().any(|node| node.title == "Storm Started"));
     assert!(why.nodes.iter().any(|node| node.title == "Order Lost"));
+}
+
+#[test]
+fn a_return_shows_on_each_resident_what_moved_while_you_were_away() {
+    let mut simulation = TinySociety::new().unwrap();
+    let cursor = simulation.visit_cursor();
+    simulation.advance_checkpoint(20).unwrap();
+
+    let returned = simulation.projection_snapshot_since(cursor);
+    let jonas = returned
+        .canvas
+        .items
+        .iter()
+        .find(|item| item.id == SelectionId::Entity(JONAS))
+        .expect("Jonas is on the scene");
+    let cash = jonas
+        .changes
+        .iter()
+        .find(|change| change.label == "cash")
+        .expect("Jonas's cash moved over twenty periods");
+    assert_ne!(cash.before, cash.after);
+
+    let ordinary = simulation.projection_snapshot();
+    assert!(
+        ordinary
+            .canvas
+            .items
+            .iter()
+            .all(|item| item.changes.is_empty()),
+        "an ordinary snapshot reports no changes; only a return does"
+    );
 }

@@ -875,12 +875,14 @@ mod tests {
                         selection: None,
                         title: format!("Count {}", self.count),
                         detail: format!("Current durable count {}", self.count),
+                        tone: world_projection::Tone::Neutral,
                     }],
                 }),
                 commands: vec![ProjectionCommand {
                     id: "mock.advance".into(),
                     title: "Advance".into(),
                     detail: "Advance the mock World".into(),
+                    effects: Vec::new(),
                 }],
                 ..ProjectionSnapshot::default()
             }
@@ -1354,6 +1356,7 @@ mod tests {
                     selection: None,
                     title: "  Ridge   Network ".into(),
                     detail: "  Routes   now   persist.  ".into(),
+                    tone: world_projection::Tone::Neutral,
                 }],
             }),
             ..ProjectionSnapshot::default()
@@ -1376,6 +1379,7 @@ mod tests {
                     selection: None,
                     title: "State".into(),
                     detail: "x".repeat(400),
+                    tone: world_projection::Tone::Neutral,
                 }],
             }),
             ..ProjectionSnapshot::default()

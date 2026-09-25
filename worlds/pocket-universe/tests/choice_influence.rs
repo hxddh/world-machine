@@ -4,6 +4,17 @@ use pocket_universe::{
 };
 use std::error::Error;
 
+/// What kind of thing an item is, independent of how the Pack words it.
+fn kind(
+    snapshot: &world_projection::ProjectionSnapshot,
+    id: world_projection::SelectionId,
+) -> String {
+    snapshot
+        .inspector(id)
+        .map(|inspector| inspector.title.clone())
+        .unwrap_or_default()
+}
+
 fn influence_signature(
     snapshot: &world_projection::ProjectionSnapshot,
     event: world_core::EventId,
@@ -11,7 +22,7 @@ fn influence_signature(
     snapshot
         .influence(event)
         .into_iter()
-        .map(|(depth, item)| (depth, item.id, item.title.clone()))
+        .map(|(depth, item)| (depth, item.id, kind(snapshot, item.id)))
         .collect()
 }
 
@@ -22,7 +33,7 @@ fn semantic_influence_signature(
     snapshot
         .semantic_influence(event)
         .into_iter()
-        .map(|(depth, item)| (depth, item.id, item.title.clone()))
+        .map(|(depth, item)| (depth, item.id, kind(snapshot, item.id)))
         .collect()
 }
 
@@ -33,7 +44,7 @@ fn semantic_path_signature(
     snapshot
         .semantic_path(event)
         .into_iter()
-        .map(|item| (item.id, item.title.clone()))
+        .map(|item| (item.id, kind(snapshot, item.id)))
         .collect()
 }
 
@@ -44,7 +55,7 @@ fn semantic_path_detail_signature(
     snapshot
         .semantic_path_details(event)
         .into_iter()
-        .map(|(steps, item, effect)| (steps, item.id, item.title.clone(), effect))
+        .map(|(steps, item, effect)| (steps, item.id, kind(snapshot, item.id), effect))
         .collect()
 }
 
@@ -103,7 +114,7 @@ fn old_choices_expose_semantic_world_effects_without_erasing_supporting_history(
         .find(|(_, _, title, _)| title == "Relationship Shifted")
         .map(|(_, _, _, effect)| effect)
         .expect("relationship shift should carry recorded semantic evidence");
-    assert!(shifted_effect.contains("Trust is"));
+    assert!(shifted_effect.contains("Trust between them"));
     assert!(shifted_effect.contains("Recorded state"));
     assert!(shifted_effect.contains("Trust"));
     let partnership_effect = relationship_details

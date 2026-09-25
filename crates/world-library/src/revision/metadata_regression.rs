@@ -38,12 +38,14 @@ impl WorldSession for MockSession {
                     selection: None,
                     title: format!("State {}", self.count),
                     detail: format!("Durable summary {}", self.count),
+                    tone: world_projection::Tone::Neutral,
                 }],
             }),
             commands: vec![ProjectionCommand {
                 id: "mock.advance".into(),
                 title: "Advance".into(),
                 detail: "Advance the metadata regression World".into(),
+                effects: Vec::new(),
             }],
             ..ProjectionSnapshot::default()
         }

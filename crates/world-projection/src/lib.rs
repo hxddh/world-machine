@@ -7,6 +7,7 @@ use world_core::{
 };
 
 pub use causal::{why_from_world, why_map_from_world, WhyNode, WhyProjection};
+pub use influence::effect_headline;
 
 pub const ENTITY_HISTORY_SECTION: &str = "Recorded entity changes";
 pub const RELATION_HISTORY_SECTION: &str = "Recorded relation changes";
@@ -149,6 +150,43 @@ pub struct ProjectionCommand {
     pub id: String,
     pub title: String,
     pub detail: String,
+    /// What choosing this would change, as short facts a screen can show
+    /// beside the choice and point at before it is made. Empty when the
+    /// Pack says nothing beyond the detail.
+    pub effects: Vec<CommandEffect>,
+}
+
+/// Whether something is good news, bad news, or neither.
+///
+/// A briefing line and a choice's consequence both carry one, so a screen
+/// can colour the same way RimWorld colours its letters: calm things quiet,
+/// trouble loud.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum Tone {
+    #[default]
+    Neutral,
+    Good,
+    Warning,
+    Bad,
+}
+
+/// One consequence of a choice: "Trust ↑", "Ares Habitat · rebuilt".
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CommandEffect {
+    /// What it changes, when that is something on the scene.
+    pub target: Option<SelectionId>,
+    /// A word or two: "Trust", "World direction", "Ares Habitat".
+    pub label: String,
+    /// Where it goes: "up", "down", or a new value such as "rebuilt".
+    pub change: EffectChange,
+    pub tone: Tone,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum EffectChange {
+    Up,
+    Down,
+    To(String),
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -648,6 +686,8 @@ pub struct BriefingItem {
     pub title: String,
     pub detail: String,
     pub kind: BriefingItemKind,
+    /// Good news, bad news, or neither.
+    pub tone: Tone,
 }
 
 impl BriefingProjection {
@@ -687,11 +727,42 @@ pub struct TimelineItem {
     pub title: String,
     pub subtitle: String,
     pub caused_by: Vec<EventId>,
+    /// Part of the World's everyday round (a shift worked, a decision
+    /// logged) rather than something that happened to anyone. History
+    /// folds these so they never crowd out the story.
+    pub routine: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct CanvasProjection {
     pub items: Vec<CanvasItem>,
+    /// Connections a Pack wants drawn between two items, beyond the
+    /// relations the World records. A Pack that models a relationship as an
+    /// entity of its own uses this to draw it as a line between the two
+    /// people rather than as a third thing standing beside them.
+    pub links: Vec<CanvasLink>,
+}
+
+/// How a connection reads: warm, strained, or neither.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum CanvasLinkTone {
+    #[default]
+    Neutral,
+    Warm,
+    Strained,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct CanvasLink {
+    pub from: SelectionId,
+    pub to: SelectionId,
+    /// A word or two drawn on the line, such as "Partnership".
+    pub label: String,
+    pub tone: CanvasLinkTone,
+    /// How strong the connection is, 0 to 1; drawn as line weight.
+    pub strength: f32,
+    /// What selecting the line selects, if anything.
+    pub selection: Option<SelectionId>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -709,6 +780,74 @@ pub struct CanvasItem {
     pub detail: String,
     pub x: f32,
     pub y: f32,
+    /// What changed about it since the visit being reported, so a return
+    /// can show "cash 85 → 37" on the person rather than in a paragraph.
+    /// Empty on an ordinary snapshot.
+    pub changes: Vec<CanvasChange>,
+}
+
+/// One value that moved since the last visit.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CanvasChange {
+    pub label: String,
+    pub before: String,
+    pub after: String,
+    pub tone: Tone,
+}
+
+/// The value `key` had on `entity` once the first `event_count` events had
+/// happened, replayed from the log: what a returning player last saw.
+pub fn component_at(
+    world: &World,
+    event_count: usize,
+    entity: EntityId,
+    key: &str,
+) -> Option<Value> {
+    // Start from what the World began with, which a seeded World never
+    // recorded as an event.
+    let mut value = world
+        .baseline_state()
+        .entity(entity)
+        .and_then(|seeded| seeded.component(key))
+        .cloned();
+    for event in world.events().iter().take(event_count) {
+        for change in &event.changes {
+            match change {
+                StateChange::CreateEntity(created) if created.id == entity => {
+                    value = created.component(key).cloned();
+                }
+                StateChange::RemoveEntity(removed) if *removed == entity => value = None,
+                StateChange::SetComponent {
+                    entity: target,
+                    key: changed,
+                    value: new,
+                } if *target == entity && changed == key => value = Some(new.clone()),
+                StateChange::RemoveComponent {
+                    entity: target,
+                    key: removed,
+                } if *target == entity && removed == key => value = None,
+                _ => {}
+            }
+        }
+    }
+    value
+}
+
+/// How `key` on `entity` changed since the first `event_count` events, as
+/// (then, now), or nothing if it is the same.
+pub fn component_change_since(
+    world: &World,
+    event_count: usize,
+    entity: EntityId,
+    key: &str,
+) -> Option<(Option<Value>, Option<Value>)> {
+    let then = component_at(world, event_count, entity, key);
+    let now = world
+        .state()
+        .entity(entity)
+        .and_then(|current| current.component(key))
+        .cloned();
+    (then != now).then_some((then, now))
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -757,8 +896,52 @@ pub fn timeline_from_world(world: &World) -> TimelineProjection {
                 title: humanize(&event.kind),
                 subtitle: event_summary(event, world),
                 caused_by: event.caused_by.clone(),
+                routine: false,
             })
             .collect(),
+    }
+}
+
+/// How a Pack tells one Event in its history.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Telling {
+    /// Something that happened to someone, in the World's own words.
+    Story(String),
+    /// Part of the everyday round, folded in History; with the line to show
+    /// when it is unfolded, or `None` for the Event's own summary.
+    Routine(Option<String>),
+}
+
+/// Lets a Pack tell its own history: the line History shows for each
+/// Event, and which Events are the everyday round it folds away.
+pub fn retell_timeline(
+    timeline: &mut TimelineProjection,
+    world: &World,
+    tell: impl Fn(&Event) -> Telling,
+) {
+    let events = world
+        .events()
+        .iter()
+        .map(|event| (event.id, event))
+        .collect::<BTreeMap<_, _>>();
+    for item in &mut timeline.items {
+        let SelectionId::Event(id) = item.id else {
+            continue;
+        };
+        let Some(event) = events.get(&id) else {
+            continue;
+        };
+        match tell(event) {
+            Telling::Story(line) => item.title = line,
+            Telling::Routine(line) => {
+                item.routine = true;
+                if let Some(line) =
+                    line.or_else(|| semantic_event_summary(event).map(str::to_string))
+                {
+                    item.title = line;
+                }
+            }
+        }
     }
 }
 
@@ -1254,7 +1437,7 @@ fn inspector_for_event(event: &Event, world: &World) -> InspectorProjection {
     InspectorProjection {
         selection: SelectionId::Event(event.id),
         title: humanize(&event.kind),
-        subtitle: format!("World time {} · Event #{}", event.world_time, event.id),
+        subtitle: format!("Time {}", event.world_time),
         sections,
     }
 }
@@ -1346,7 +1529,6 @@ pub(crate) fn event_summary(event: &Event, world: &World) -> String {
     if let Some(summary) = semantic_event_summary(event) {
         parts.push(summary.to_string());
     }
-    parts.push(format!("Event #{}", event.id));
     parts.join(" · ")
 }
 
@@ -1403,7 +1585,7 @@ mod tests {
 
         assert_eq!(timeline.items.len(), 1);
         assert_eq!(timeline.items[0].title, "Work Started");
-        assert_eq!(timeline.items[0].subtitle, "Workspace · Event #1");
+        assert_eq!(timeline.items[0].subtitle, "Workspace");
         assert_eq!(
             inspectors
                 .get(&SelectionId::Entity(EntityId::new(1)))
@@ -1412,6 +1594,20 @@ mod tests {
             "Workspace"
         );
         assert!(inspectors.contains_key(&SelectionId::Event(EventId::new(1))));
+    }
+
+    #[test]
+    fn a_pack_tells_its_story_and_what_it_does_not_tell_is_routine() {
+        let world = sample_world();
+        let mut told = timeline_from_world(&world);
+        retell_timeline(&mut told, &world, |_| Telling::Story("Work began".into()));
+        assert_eq!(told.items[0].title, "Work began");
+        assert!(!told.items[0].routine);
+
+        let mut untold = timeline_from_world(&world);
+        retell_timeline(&mut untold, &world, |_| Telling::Routine(None));
+        assert!(untold.items[0].routine);
+        assert_eq!(untold.items[0].title, "Work Started");
     }
 
     #[test]
@@ -1446,7 +1642,7 @@ mod tests {
         let timeline = timeline_from_world(&world);
         assert_eq!(
             timeline.items[0].subtitle,
-            "A durable direction was chosen. · Event #1"
+            "A durable direction was chosen."
         );
     }
 
@@ -1636,6 +1832,7 @@ mod tests {
                 id: "world.continue".into(),
                 title: "Continue".into(),
                 detail: "Let the world keep running".into(),
+                effects: Vec::new(),
             }],
             ..ProjectionSnapshot::default()
         };
@@ -1648,5 +1845,44 @@ mod tests {
         );
         assert!(snapshot.command("missing").is_none());
         assert!(!snapshot.capabilities.fork);
+    }
+
+    #[test]
+    fn a_value_is_replayed_from_the_seed_and_the_log() {
+        let entity = EntityId::new(1);
+        let mut state = WorldState::default();
+        state
+            .seed_entity(Entity::new(entity, "person").with_component("cash", 85_i64))
+            .unwrap();
+        let spend = |id: u64, cash: i64| Event {
+            id: EventId::new(id),
+            kind: "spent".into(),
+            world_time: id,
+            actor: Some(entity),
+            targets: vec![],
+            caused_by: vec![],
+            payload: BTreeMap::new(),
+            changes: vec![StateChange::SetComponent {
+                entity,
+                key: "cash".into(),
+                value: cash.into(),
+            }],
+        };
+        let world = World::from_history(state, &[spend(1, 60), spend(2, 37)]).unwrap();
+
+        assert_eq!(
+            component_at(&world, 0, entity, "cash"),
+            Some(Value::Integer(85))
+        );
+        assert_eq!(
+            component_at(&world, 1, entity, "cash"),
+            Some(Value::Integer(60))
+        );
+        assert_eq!(
+            component_change_since(&world, 0, entity, "cash"),
+            Some((Some(Value::Integer(85)), Some(Value::Integer(37))))
+        );
+        assert_eq!(component_change_since(&world, 2, entity, "cash"), None);
+        assert_eq!(component_change_since(&world, 0, entity, "name"), None);
     }
 }
