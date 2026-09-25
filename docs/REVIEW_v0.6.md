@@ -44,7 +44,7 @@ In order. Each item is something a stranger would notice within one session.
 2. **Every seed looks like where it is.** *(palette and backdrop done; glyphs per kind of place still to come)* A Pack supplies a palette and a backdrop per World (red dust and a ridge for Ares, sodium-lit night for Maple Street, ice and aurora for Icebridge), and a glyph per kind of place (dome, arcade, bridge) instead of one house. This is the "Pack art" item from the last review, now justified by six real Worlds across two Packs.
 3. ~~**The World grows on screen.**~~ *(done)* What a turn builds (a water-recovery loop, a tournament bracket, a new span of the bridge) appears in the scene as a small new thing that stays, so after a week the colony looks lived in. *Townscaper*'s one lesson: every action visibly adds.
 4. ~~**Time the player can read.**~~ *(done)* History and the page say "Sol 3" / "Night 12" / "Aurora 4", the World's own unit, not "Time 70" or *The beginning*; a turn that moves time says so.
-5. **Ending a session, and being called back.** A clear "Leave them to it" moment that says when the World next moves ("Next sol in 5 h"), and a macOS notification when something that matters happened while the app was closed ("Nia and Tomas formed a partnership"). Off by default until asked, never more than one a day.
+5. **Ending a session, and being called back.** *(the window now says the World keeps going and when it next moves; the notification waits on notarization, below)* A clear "Leave them to it" moment that says when the World next moves ("Next sol in 5 h"), and a macOS notification when something that matters happened while the app was closed ("Nia and Tomas formed a partnership"). Off by default until asked, never more than one a day.
 6. ~~**Home shows only Worlds a person would play.**~~ *(done)* Engine fixtures (*Future Archaeologist*, *Micro Company*) move behind a developer setting; Home leads with the player's Worlds and one featured start.
 7. ~~**The last engine words in choices**~~ *(done)* ("actor", "persistent change", "interactions").
 8. **Notarization.** A product opens on double-click. The pipeline is ready; it needs the five secrets in `RELEASE_SIGNING.md`, which only the repository owner can add.
@@ -74,3 +74,9 @@ Still open from before: a check on a real Mac, the Analyst panel's layout, and f
 **Home** offers two Worlds to start, and the colony you began is drawn in its own colours:
 
 ![Home](review/v07-home.png)
+
+**The promise is on screen.** Every World window says, beside its name, that the World keeps going and when it next moves:
+
+![Keeps going](review/v07-keeps-going.png)
+
+The between-sessions notification is not built yet. macOS delivers notifications reliably only to a signed app, and whether one arrives cannot be checked from the Linux preview; it is the first thing to do once the signing secrets from item 8 exist.

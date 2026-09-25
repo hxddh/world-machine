@@ -340,6 +340,9 @@ struct WorldDocumentView {
     analyst_available: bool,
     /// "Branched from …", read once when the World opens.
     lineage_label: Option<String>,
+    /// When, in Unix seconds, this World next moves on its own; read once
+    /// when it opens, since it only moves between visits.
+    next_move_at: Option<u64>,
 }
 
 #[cfg(target_os = "macos")]
@@ -352,6 +355,9 @@ impl WorldDocumentView {
     ) -> Self {
         let document_label = session.display_name();
         let document_name = session_display_name(&session);
+        let next_move_at = observer::next_move_in(&session, &library)
+            .zip(unix_now())
+            .map(|(remaining, now)| now + remaining);
         let document = Rc::new(RefCell::new(SharedDocumentState {
             session,
             registry,
@@ -375,6 +381,7 @@ impl WorldDocumentView {
             status: None,
             analyst_available,
             lineage_label,
+            next_move_at,
         }
     }
 
@@ -609,6 +616,20 @@ impl Render for WorldDocumentView {
             );
         }
 
+        // Beside its name, the one thing the app is about: this World goes on
+        // without you, and when it next will.
+        let unit = self
+            .projection
+            .read(cx)
+            .snapshot()
+            .calendar
+            .as_ref()
+            .map(|calendar| calendar.unit.to_lowercase())
+            .unwrap_or_else(|| "day".into());
+        let keeps_going = self
+            .next_move_at
+            .zip(unix_now())
+            .map(|(at, now)| keeps_going_line(at.saturating_sub(now), &unit));
         // The World is called by its name, and only by its name; which file
         // it lives in is for Export and Show in Finder to say.
         let identity = div()
@@ -620,11 +641,29 @@ impl Render for WorldDocumentView {
             .overflow_hidden()
             .child(
                 div()
+                    .flex_shrink_0()
                     .text_base()
                     .font_weight(gpui::FontWeight::SEMIBOLD)
                     .truncate()
                     .child(self.document_name.clone()),
-            );
+            )
+            .when_some(keeps_going, |identity, line| {
+                identity.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_1()
+                        .min_w(px(0.0))
+                        .child(
+                            div()
+                                .flex_shrink_0()
+                                .size(px(6.0))
+                                .rounded_full()
+                                .bg(ui::color(tokens::SUCCESS)),
+                        )
+                        .child(ui::caption(line).truncate()),
+                )
+            });
 
         let mut chrome = div()
             .h(px(52.0))
@@ -3525,6 +3564,30 @@ fn build_registry(catalog: Option<&PackCatalog>) -> Result<world_host::WorldRegi
 /// Packs that exercise the engine rather than make a World a person would
 /// choose to play. Home does not offer them to start; Worlds already made
 /// with them still open, and `WORLD_MACHINE_DEVELOPER=1` offers them again.
+/// Now, in Unix seconds.
+#[cfg(target_os = "macos")]
+fn unix_now() -> Option<u64> {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .map(|elapsed| elapsed.as_secs())
+}
+
+/// "Keeps going without you · next sol in 5 h": what the app is about, in
+/// one line, with the one number that makes it true.
+#[cfg(target_os = "macos")]
+fn keeps_going_line(remaining_seconds: u64, unit: &str) -> String {
+    if remaining_seconds == 0 {
+        return format!("Keeps going without you · a new {unit} waits for your next visit");
+    }
+    let wait = if remaining_seconds >= 3600 {
+        format!("{} h", remaining_seconds.div_ceil(3600))
+    } else {
+        format!("{} min", remaining_seconds.div_ceil(60).max(1))
+    };
+    format!("Keeps going without you · next {unit} in {wait}")
+}
+
 #[cfg(target_os = "macos")]
 const DEVELOPER_PACKS: &[&str] = &[
     "world-machine.future-archaeologist",
@@ -3774,6 +3837,22 @@ mod file_type_tests {
         assert_eq!(visible[0].as_str(), "child-0");
         assert_eq!(visible[3].as_str(), "child-3");
         assert_eq!(hidden, 2);
+    }
+
+    #[test]
+    fn a_world_says_when_it_next_moves_on_its_own() {
+        assert_eq!(
+            keeps_going_line(5 * 3600 + 10, "sol"),
+            "Keeps going without you · next sol in 6 h"
+        );
+        assert_eq!(
+            keeps_going_line(20 * 60, "night"),
+            "Keeps going without you · next night in 20 min"
+        );
+        assert_eq!(
+            keeps_going_line(0, "day"),
+            "Keeps going without you · a new day waits for your next visit"
+        );
     }
 
     #[test]
