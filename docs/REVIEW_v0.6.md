@@ -42,7 +42,7 @@ In order. Each item is something a stranger would notice within one session.
 
 1. ~~**A World is named, and starts with a picture.**~~ *(done, below)* First launch opens on three illustrated start cards (Mars colony, 1987 town, penguin civilization), each with its own palette and landscape, not a text form. Picking one names the World after its place ("Ares", "Maple Street", "Icebridge") everywhere, and *Branch* and *What if…* appear only once a World has history worth branching.
 2. **Every seed looks like where it is.** *(palette and backdrop done; glyphs per kind of place still to come)* A Pack supplies a palette and a backdrop per World (red dust and a ridge for Ares, sodium-lit night for Maple Street, ice and aurora for Icebridge), and a glyph per kind of place (dome, arcade, bridge) instead of one house. This is the "Pack art" item from the last review, now justified by six real Worlds across two Packs.
-3. **The World grows on screen.** What a turn builds (a water-recovery loop, a tournament bracket, a new span of the bridge) appears in the scene as a small new thing that stays, so after a week the colony looks lived in. *Townscaper*'s one lesson: every action visibly adds.
+3. ~~**The World grows on screen.**~~ *(done)* What a turn builds (a water-recovery loop, a tournament bracket, a new span of the bridge) appears in the scene as a small new thing that stays, so after a week the colony looks lived in. *Townscaper*'s one lesson: every action visibly adds.
 4. ~~**Time the player can read.**~~ *(done)* History and the page say "Sol 3" / "Night 12" / "Aurora 4", the World's own unit, not "Time 70" or *The beginning*; a turn that moves time says so.
 5. **Ending a session, and being called back.** A clear "Leave them to it" moment that says when the World next moves ("Next sol in 5 h"), and a macOS notification when something that matters happened while the app was closed ("Nia and Tomas formed a partnership"). Off by default until asked, never more than one a day.
 6. **Home shows only Worlds a person would play.** Engine fixtures (*Future Archaeologist*, *Micro Company*) move behind a developer setting; Home leads with the player's Worlds and one featured start.
@@ -66,3 +66,7 @@ Still open from before: a check on a real Mac, the Analyst panel's layout, and f
 **Time reads in the World's own unit** ("Sol 2", "Sol 1–2"), and each turn is a sol of its own in History instead of everything sitting under *The beginning*:
 
 ![Sols](review/v07-sols.png)
+
+**The World grows on screen.** Five sols in, Ares has three domes and two masts on its ridge, one for each time it grew, and the next sol adds another:
+
+![Ares after five sols](review/v07-growth.png)

@@ -204,6 +204,7 @@ fn canvas(world: &World, artifacts: &[EntityId]) -> CanvasProjection {
     CanvasProjection {
         items,
         links: Vec::new(),
+        marks: Vec::new(),
     }
 }
 

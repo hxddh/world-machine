@@ -803,6 +803,30 @@ pub struct CanvasProjection {
     /// entity of its own uses this to draw it as a line between the two
     /// people rather than as a third thing standing beside them.
     pub links: Vec<CanvasLink>,
+    /// What the World has built so far, oldest first, drawn as small shapes
+    /// standing on its horizon so the place visibly fills up as time passes.
+    pub marks: Vec<CanvasMark>,
+}
+
+/// One thing a World built: a new water loop, a tournament bracket, a span
+/// of bridge. `label` says what it is; selecting it opens the moment it was
+/// made.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CanvasMark {
+    pub label: String,
+    pub shape: MarkShape,
+    pub selection: Option<SelectionId>,
+}
+
+/// The silhouette a built thing is drawn as on the horizon.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum MarkShape {
+    #[default]
+    House,
+    Dome,
+    Tower,
+    Tree,
+    Lamp,
 }
 
 /// How a connection reads: warm, strained, or neither.

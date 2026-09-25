@@ -162,6 +162,7 @@ fn canvas(world: &World) -> CanvasProjection {
             })
             .collect(),
         links: Vec::new(),
+        marks: Vec::new(),
     }
 }
 

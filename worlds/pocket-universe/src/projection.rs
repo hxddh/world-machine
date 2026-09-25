@@ -1899,6 +1899,33 @@ fn collection(world: &World) -> CollectionProjection {
     }
 }
 
+/// Everything the World has built, one mark per time it grew, in the shapes
+/// its place builds in: domes and masts on Mars, houses and street lamps on
+/// Maple Street, domes and trees of ice on Icebridge.
+fn growth_marks(world: &World) -> Vec<world_projection::CanvasMark> {
+    use world_projection::MarkShape::{Dome, House, Lamp, Tower, Tree};
+    let shapes: &[world_projection::MarkShape] = match seed_id(world) {
+        "mars-colony" => &[Dome, Tower, Dome, Dome, Tower],
+        "1980s-town" => &[House, Lamp, House, House, Lamp, Tree],
+        "penguin-civilization" => &[Dome, Tree, Dome, Tower],
+        _ => &[House],
+    };
+    world
+        .events()
+        .iter()
+        .filter(|event| event.kind == "universe_grew")
+        .enumerate()
+        .map(|(index, event)| world_projection::CanvasMark {
+            label: match event.payload.get("change") {
+                Some(Value::Text(change)) => change.clone(),
+                _ => "The World grew".into(),
+            },
+            shape: shapes[index % shapes.len()],
+            selection: Some(SelectionId::Event(event.id)),
+        })
+        .collect()
+}
+
 fn canvas(world: &World) -> CanvasProjection {
     // Every seed casts the same five roles in the same slots: the anchor
     // everything depends on, a second place, the two people whose
@@ -1931,6 +1958,7 @@ fn canvas(world: &World) -> CanvasProjection {
     CanvasProjection {
         items,
         links: relationship_link(world).into_iter().collect(),
+        marks: growth_marks(world),
     }
 }
 

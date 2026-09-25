@@ -49,6 +49,7 @@ pub(crate) fn snapshot_since(
                 })
                 .collect(),
             links: Vec::new(),
+            marks: Vec::new(),
         },
         inspectors: inspectors_from_world(world),
         why: why_map_from_world(world),

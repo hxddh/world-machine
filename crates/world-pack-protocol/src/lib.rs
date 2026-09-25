@@ -6,8 +6,8 @@ use world_core::{EntityId, EventId, RelationId};
 use world_persistence::{WorldArchive, WorldPackRef};
 use world_projection::{
     BriefingItem, BriefingItemKind, BriefingProjection, CanvasChange, CanvasItem, CanvasItemKind,
-    CanvasLink, CanvasLinkTone, CanvasProjection, CollectionItem, CollectionProjection,
-    CommandEffect, EffectChange, InspectorProjection, InspectorRow, InspectorSection,
+    CanvasLink, CanvasLinkTone, CanvasMark, CanvasProjection, CollectionItem, CollectionProjection,
+    CommandEffect, EffectChange, InspectorProjection, InspectorRow, InspectorSection, MarkShape,
     ProjectionCapabilities, ProjectionCommand, ProjectionIntent, ProjectionSnapshot, Scenery,
     SelectionId, TimelineItem, TimelineProjection, Tone, WhyNode, WhyProjection,
 };
@@ -866,6 +866,56 @@ pub struct CanvasProjectionWire {
     /// and a host that predates them ignores the field.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub links: Vec<CanvasLinkWire>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub marks: Vec<CanvasMarkWire>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CanvasMarkWire {
+    pub label: String,
+    #[serde(default)]
+    pub shape: MarkShapeWire,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selection: Option<SelectionIdWire>,
+}
+
+/// Unknown shapes from a newer Pack read as the default rather than
+/// failing the whole snapshot.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MarkShapeWire {
+    #[default]
+    House,
+    Dome,
+    Tower,
+    Tree,
+    Lamp,
+    #[serde(other)]
+    Unknown,
+}
+
+impl From<MarkShape> for MarkShapeWire {
+    fn from(shape: MarkShape) -> Self {
+        match shape {
+            MarkShape::House => Self::House,
+            MarkShape::Dome => Self::Dome,
+            MarkShape::Tower => Self::Tower,
+            MarkShape::Tree => Self::Tree,
+            MarkShape::Lamp => Self::Lamp,
+        }
+    }
+}
+
+impl From<MarkShapeWire> for MarkShape {
+    fn from(shape: MarkShapeWire) -> Self {
+        match shape {
+            MarkShapeWire::House | MarkShapeWire::Unknown => Self::House,
+            MarkShapeWire::Dome => Self::Dome,
+            MarkShapeWire::Tower => Self::Tower,
+            MarkShapeWire::Tree => Self::Tree,
+            MarkShapeWire::Lamp => Self::Lamp,
+        }
+    }
 }
 
 impl From<&CanvasProjection> for CanvasProjectionWire {
@@ -873,6 +923,15 @@ impl From<&CanvasProjection> for CanvasProjectionWire {
         Self {
             items: canvas.items.iter().map(Into::into).collect(),
             links: canvas.links.iter().map(Into::into).collect(),
+            marks: canvas
+                .marks
+                .iter()
+                .map(|mark| CanvasMarkWire {
+                    label: mark.label.clone(),
+                    shape: mark.shape.into(),
+                    selection: mark.selection.map(Into::into),
+                })
+                .collect(),
         }
     }
 }
@@ -882,6 +941,15 @@ impl From<CanvasProjectionWire> for CanvasProjection {
         Self {
             items: canvas.items.into_iter().map(Into::into).collect(),
             links: canvas.links.into_iter().map(Into::into).collect(),
+            marks: canvas
+                .marks
+                .into_iter()
+                .map(|mark| CanvasMark {
+                    label: mark.label,
+                    shape: mark.shape.into(),
+                    selection: mark.selection.map(Into::into),
+                })
+                .collect(),
         }
     }
 }
@@ -1395,6 +1463,7 @@ mod tests {
                     strength: 0.8,
                     selection: Some(entity),
                 }],
+                marks: Vec::new(),
             },
             inspectors: BTreeMap::from([(
                 entity,

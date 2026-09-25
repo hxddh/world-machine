@@ -362,6 +362,9 @@ impl WorldDocumentView {
         };
         let projection =
             cx.new(|_| world_gpui::ProjectionView::controlled(controller).without_header());
+        // The title bar reads the World's name and what it can do from the
+        // page, so it redraws whenever the page does.
+        cx.observe(&projection, |_, _, cx| cx.notify()).detach();
         let analyst_available = world_fork::analyst_available();
         let lineage_label = world_fork::lineage_label(&document);
         Self {
