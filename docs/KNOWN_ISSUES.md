@@ -1,6 +1,6 @@
 # Known issues
 
-Current as of `v0.5.2` in the [changelog](../CHANGELOG.md). Report anything else with **Help → Report a Problem…** in the app.
+Current as of `v0.6.0` in the [changelog](../CHANGELOG.md). Report anything else with **Help → Report a Problem…** in the app.
 
 ## Installation
 
@@ -10,7 +10,7 @@ Current as of `v0.5.2` in the [changelog](../CHANGELOG.md). Report anything else
 
 ## Using Worlds
 
-- **A Pack version change closes older Worlds.** A `.world` file records the exact World Pack version it was created with, and the app ships one version of each included Pack. When a Pack's rules change its version moves, and Worlds pinned to the older version report that they need a Pack this build does not have. The `Unreleased` section of the [changelog](../CHANGELOG.md) says which Packs moved in this release. Export a World you want to keep before updating; nothing is deleted, and the file still holds its whole history.
+- **A Pack version change closes older Worlds.** A `.world` file records the exact World Pack version it was created with, and the app ships one version of each included Pack. When a Pack's rules change its version moves, and Worlds pinned to the older version report that they need a Pack this build does not have. Each release's section of the [changelog](../CHANGELOG.md) says which Packs moved; in `v0.6.0` Tiny Society moved to `0.3.0` and Pocket Universe to `0.19.0`. Export a World you want to keep before updating; nothing is deleted, and the file still holds its whole history.
 
 - **Renaming or removing a World that is open in a window.** Both write the World's file, so the open window is a step behind: after a rename choose **World → Reload** in that window, and after a removal close the window rather than saving from it, or the save writes the World back into the Library.
 - **Removed Worlds are not deleted.** **Remove** moves the file into a `Removed` folder inside `~/Library/Application Support/World Machine/Worlds`. Emptying that folder is a Finder step; the app never deletes World files.
@@ -22,4 +22,5 @@ Current as of `v0.5.2` in the [changelog](../CHANGELOG.md). Report anything else
 
 - The pre-alpha has been exercised through automated tests and CI-built screenshots, not yet on a wide range of real Macs. Layout on small screens and with large accessibility text sizes is unverified.
 - **Nothing that needs a keypress or a click is verified anywhere.** The CI screenshot runner can launch the app and open a World, but GitHub's macOS runners grant no Accessibility permission, so no keystroke it sends ever arrives — proven by pressing ⌘M, which the app binds, and watching the window not minimize. Full screen, every keyboard shortcut, and every button click are therefore unchecked until somebody runs the app on a real Mac.
+- **Linux preview is not a Mac.** Since `v0.6.0`, `scripts/linux-preview.sh` runs the real app under Xvfb and every screenshot in [PRODUCT_REVIEW.md](PRODUCT_REVIEW.md) comes from it, clicks and keys included. Fonts, weights and window chrome differ from macOS, and the Pack install review has not been seen at all, because the preview cannot drive a file picker.
 - The CI screenshot runner produced images with layout but no text through `v0.5.0`. That was not a limitation of the runner: the app itself rendered no text anywhere, on CI and on real Macs alike, and `v0.5.1` fixes it. Screenshots in the repository are still taken by hand on a real Mac.
