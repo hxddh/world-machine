@@ -2376,16 +2376,32 @@ fn canvas_kind(entity: &Entity) -> CanvasItemKind {
 /// Where someone is, as they last left things: looking after the others
 /// keeps them at home; exploring takes them out with the thing that lets
 /// them range (the rover, the night bus, the council's ice runs). Before
-/// either has done anything they are both at home.
+/// either has done anything they are both at home. Partners go together,
+/// out if either of them is exploring; a pair who have fallen out keep
+/// apart, the explorer at the second place.
 fn whereabouts(world: &World, entity: &Entity) -> Option<SelectionId> {
     if canvas_kind(entity) != CanvasItemKind::Actor {
         return None;
     }
-    let out_exploring = matches!(
-        entity.component("last_intent"),
-        Some(Value::Text(intent)) if intent == "explore"
+    let explores = |id: EntityId| {
+        matches!(
+            world.state().entity(id).and_then(|person| person.component("last_intent")),
+            Some(Value::Text(intent)) if intent == "explore"
+        )
+    };
+    let arc = text_component(
+        world.state().entity(RELATIONSHIP),
+        RELATIONSHIP_SOCIAL_ARC,
+        "forming",
     );
-    let place = if out_exploring { SLOT_D } else { SLOT_A };
+    let place = match arc.as_str() {
+        "partnership" if explores(SLOT_B) || explores(SLOT_E) => SLOT_D,
+        "partnership" => SLOT_A,
+        "fracture" if entity.id == SLOT_B => SLOT_A,
+        "fracture" => SLOT_C,
+        _ if explores(entity.id) => SLOT_D,
+        _ => SLOT_A,
+    };
     world
         .state()
         .entity(place)
