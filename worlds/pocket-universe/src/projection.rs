@@ -49,6 +49,7 @@ pub(crate) fn snapshot_since(
             .into_iter()
             .map(|mut command| {
                 command.effects = command_effects(world, &command.id);
+                command.asker = asker(&command.id);
                 command
             })
             .collect(),
@@ -109,6 +110,24 @@ fn tone_for_event(kind: &str) -> Tone {
 
 /// What each choice would change, as facts a screen can show beside it and
 /// point at on the scene before the choice is made.
+/// Whose choice it is to put to the player. A choice about the pair is the
+/// pair's; a bold or outward one is the explorer's, who would go; a careful
+/// or rooted one the keeper's, who would stay. Letting time pass is nobody's.
+fn asker(command_id: &str) -> Option<SelectionId> {
+    let who = match command_id {
+        SHARED_PROJECT_COMMAND | RIVALRY_COMMAND => RELATIONSHIP,
+        BOLD_PATH_COMMAND | OUTWARD_POSTURE_COMMAND | REACH_PRESSURE_COMMAND => SLOT_E,
+        CAREFUL_PATH_COMMAND
+        | ROOTED_POSTURE_COMMAND
+        | HOLD_PRESSURE_COMMAND
+        | RECOVER_ANCHOR_COMMAND
+        | ENTRUST_LEGACY_COMMAND
+        | RELEASE_LEGACY_COMMAND => SLOT_B,
+        _ => return None,
+    };
+    Some(SelectionId::Entity(who))
+}
+
 fn command_effects(world: &World, command_id: &str) -> Vec<CommandEffect> {
     let effect =
         |target: Option<EntityId>, label: &str, change: EffectChange, tone: Tone| CommandEffect {

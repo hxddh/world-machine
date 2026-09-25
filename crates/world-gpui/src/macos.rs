@@ -420,8 +420,8 @@ impl ProjectionView {
         }
 
         let mut choices = div().flex().flex_col().gap_2();
-        for (index, command) in self.snapshot.commands.iter().enumerate() {
-            choices = choices.child(self.choice(index, command, cx));
+        for command in &self.snapshot.commands {
+            choices = choices.child(self.choice(command, cx));
         }
 
         Some(
@@ -454,34 +454,63 @@ impl ProjectionView {
         )
     }
 
-    fn choice(
-        &self,
-        index: usize,
-        command: &ProjectionCommand,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    fn choice(&self, command: &ProjectionCommand, cx: &mut Context<Self>) -> impl IntoElement {
         let command_id = command.id.clone();
-        let mut text = div()
-            .flex_1()
-            .min_w(px(0.0))
-            .flex()
-            .flex_col()
-            .gap_1()
-            .child(ui::row_title(command.title.clone()));
+        let considering = self.previewing.as_deref() == Some(command.id.as_str());
+        let faces = asker_faces(&self.snapshot, command.asker);
+        let mut text = div().flex_1().min_w(px(0.0)).flex().flex_col().gap_1();
+        // Who is asking, above what they ask.
+        if !faces.is_empty() {
+            text = text.child(ui::caption(faces.join(" & ")));
+        }
+        text = text.child(ui::row_title(command.title.clone()));
+        // One line until the choice is being considered; then all of it.
         if !command.detail.is_empty() {
             text = text.child(
                 ui::detail(command.detail.clone())
-                    .line_clamp(3)
+                    .line_clamp(if considering { 4 } else { 1 })
                     .text_ellipsis(),
             );
         }
-        if !command.effects.is_empty() {
-            let mut chips = div().pt_1().flex().flex_wrap().gap_1();
-            for effect in &command.effects {
-                chips = chips.child(effect_chip(effect));
+        // What it moves: the measured gauge marks first, then any other
+        // fact the Pack gives. An up or down the gauges already show is not
+        // said twice.
+        let mut chips = div().pt_1().flex().flex_wrap().gap_1();
+        let mut has_chips = false;
+        for step in &command.moves {
+            if let Some(gauge) = self
+                .snapshot
+                .gauges
+                .iter()
+                .find(|gauge| gauge.id == step.gauge)
+            {
+                chips = chips.child(move_chip(&gauge.label, step.by));
+                has_chips = true;
             }
+        }
+        for effect in &command.effects {
+            let said_by_gauges = !command.moves.is_empty()
+                && matches!(effect.change, EffectChange::Up | EffectChange::Down);
+            if !said_by_gauges {
+                chips = chips.child(effect_chip(effect));
+                has_chips = true;
+            }
+        }
+        if has_chips {
             text = text.child(chips);
         }
+        // A choice nobody asks is time passing: a clock, not a number.
+        let marker = if faces.is_empty() {
+            div()
+                .flex_shrink_0()
+                .size(px(40.0))
+                .rounded_full()
+                .bg(color(tokens::ACCENT_SOFT))
+                .p(px(10.0))
+                .child(clock_glyph().size_full())
+        } else {
+            face_stack(&faces)
+        };
         let hover_id = command.id.clone();
         div()
             .id(SharedString::from(format!("command-{}", command.id)))
@@ -518,20 +547,7 @@ impl ProjectionView {
             .flex()
             .items_center()
             .gap_3()
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .size(px(28.0))
-                    .rounded_full()
-                    .bg(color(tokens::ACCENT_SOFT))
-                    .text_color(color(tokens::ACCENT_TEXT))
-                    .text_sm()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .child(format!("{}", index + 1)),
-            )
+            .child(marker)
             .child(text)
             .child(
                 div()
@@ -1400,6 +1416,118 @@ fn history_summary(subtitle: &str, actor: Option<&str>) -> String {
 
 /// One consequence of a choice, as a small coloured chip: "↑ Trust",
 /// "Sea Finch → repaired".
+/// The people a choice concerns, by name: the asker, or both ends of the
+/// relationship it is about.
+fn asker_faces(snapshot: &ProjectionSnapshot, asker: Option<SelectionId>) -> Vec<String> {
+    let Some(asker) = asker else {
+        return Vec::new();
+    };
+    let name_of = |id: SelectionId| {
+        snapshot
+            .canvas
+            .items
+            .iter()
+            .find(|item| item.id == id)
+            .map(|item| item.label.clone())
+    };
+    if let Some(link) = snapshot
+        .canvas
+        .links
+        .iter()
+        .find(|link| link.selection == Some(asker))
+    {
+        return [link.from, link.to]
+            .into_iter()
+            .filter_map(name_of)
+            .collect();
+    }
+    name_of(asker)
+        .or_else(|| {
+            snapshot
+                .inspector(asker)
+                .map(|inspector| inspector.title.clone())
+        })
+        .into_iter()
+        .collect()
+}
+
+/// A small clock face, for letting time pass.
+fn clock_glyph() -> gpui::Canvas<()> {
+    gpui::canvas(
+        |_, _, _| (),
+        move |bounds: gpui::Bounds<gpui::Pixels>, _, window, _| {
+            use gpui::{point, px, PathBuilder};
+            let ink: gpui::Hsla = color(tokens::ACCENT_TEXT).into();
+            let o = bounds.origin;
+            let side = f32::from(bounds.size.width.min(bounds.size.height));
+            let centre = point(o.x + px(side / 2.0), o.y + px(side / 2.0));
+            let mut ring = PathBuilder::stroke(px(2.0));
+            let radius = side / 2.0 - 1.0;
+            let steps = 24;
+            for step in 0..=steps {
+                let angle = step as f32 / steps as f32 * std::f32::consts::TAU;
+                let at = point(
+                    centre.x + px(radius * angle.cos()),
+                    centre.y + px(radius * angle.sin()),
+                );
+                if step == 0 {
+                    ring.move_to(at);
+                } else {
+                    ring.line_to(at);
+                }
+            }
+            if let Ok(path) = ring.build() {
+                window.paint_path(path, ink);
+            }
+            let mut hands = PathBuilder::stroke(px(2.0));
+            hands.move_to(point(centre.x, centre.y - px(radius * 0.6)));
+            hands.line_to(centre);
+            hands.line_to(point(centre.x + px(radius * 0.45), centre.y));
+            if let Ok(path) = hands.build() {
+                window.paint_path(path, ink);
+            }
+        },
+    )
+}
+
+/// One or two faces, the second tucked behind the first.
+fn face_stack(names: &[String]) -> Div {
+    const FACE: f32 = 40.0;
+    const TUCK: f32 = 14.0;
+    let shown = names.len().clamp(1, 2);
+    let mut stack = div()
+        .relative()
+        .flex_shrink_0()
+        .w(px(FACE + (shown - 1) as f32 * (FACE - TUCK)))
+        .h(px(FACE));
+    for (index, name) in names.iter().take(2).enumerate().rev() {
+        stack = stack.child(
+            div()
+                .absolute()
+                .top_0()
+                .left(px(index as f32 * (FACE - TUCK)))
+                .rounded_full()
+                .border_2()
+                .border_color(color(tokens::SURFACE))
+                .child(ui::avatar(name, FACE - 4.0)),
+        );
+    }
+    stack
+}
+
+/// How a choice moves one gauge: "Trust ▲▲".
+fn move_chip(label: &str, by: i32) -> Div {
+    div()
+        .px_2()
+        .py(px(1.0))
+        .rounded_full()
+        .bg(color(tokens::ACCENT_SOFT))
+        .text_xs()
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(color(tokens::ACCENT_TEXT))
+        .child(format!("{label} {}", scene::movement_arrows(by)))
+}
+
 fn effect_chip(effect: &CommandEffect) -> Div {
     let (text, ground) = match effect.tone {
         Tone::Neutral => (tokens::TEXT_SECONDARY, tokens::ROW_HOVER),

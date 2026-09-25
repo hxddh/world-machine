@@ -123,6 +123,33 @@ mod tests {
     }
 
     #[test]
+    fn the_town_keeps_score_and_its_choices_say_whose_they_are() {
+        let mut registry = world_host::WorldRegistry::new();
+        registry.register(tiny_society_registration()).unwrap();
+        let session = registry.create(crate::TINY_SOCIETY_PACK_ID).unwrap();
+        let snapshot = session.snapshot();
+        let ids: Vec<&str> = snapshot
+            .gauges
+            .iter()
+            .map(|gauge| gauge.id.as_str())
+            .collect();
+        assert_eq!(ids, ["work", "money", "bakery"]);
+        assert!(snapshot
+            .gauges
+            .iter()
+            .all(|gauge| (0.0..=1.0).contains(&gauge.value)));
+        for command in &snapshot.commands {
+            assert!(
+                command.asker.is_some(),
+                "{} is somebody's choice",
+                command.id
+            );
+        }
+        assert_eq!(crate::projection::with_thousands_for_test(1372), "1,372");
+        assert_eq!(crate::projection::with_thousands_for_test(-5), "-5");
+    }
+
+    #[test]
     fn registration_creates_and_reopens_the_same_world_history() {
         let registration = tiny_society_registration();
         let mut registry = world_host::WorldRegistry::new();

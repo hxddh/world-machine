@@ -2206,6 +2206,11 @@ mod tests {
             .find(|command| command.id == SHARED_PROJECT_COMMAND)
             .expect("the pair can be given something to share");
         assert!(!shared.moves.is_empty(), "sharing a project moves trust");
+        assert_eq!(
+            shared.asker,
+            Some(world_projection::SelectionId::Entity(RELATIONSHIP)),
+            "a choice about the pair is theirs to ask"
+        );
         let after = session
             .handle(ProjectionIntent::InvokeCommand(
                 SHARED_PROJECT_COMMAND.into(),

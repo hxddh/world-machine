@@ -32,7 +32,13 @@ pub(crate) fn snapshot_since(
             background: true,
         },
         briefing: Some(society_briefing(world, since_event_count)),
-        commands: available_commands(world),
+        commands: available_commands(world)
+            .into_iter()
+            .map(|mut command| {
+                command.asker = asker(&command.id);
+                command
+            })
+            .collect(),
         collection: CollectionProjection {
             title: "Residents".into(),
             items: RESIDENTS
@@ -176,6 +182,20 @@ fn command_effects(command_id: &str) -> Vec<CommandEffect> {
         ],
         _ => Vec::new(),
     }
+}
+
+/// Whose choice it is: Jonas's for his job and his boat, Mara's for her
+/// bakery.
+fn asker(command_id: &str) -> Option<SelectionId> {
+    let who = match command_id {
+        crate::RETAIN_WORKER_COMMAND
+        | crate::REPAIR_BOAT_COMMAND
+        | crate::SELL_BOAT_COMMAND
+        | crate::TAKE_JONAS_ON_COMMAND => JONAS,
+        crate::REOPEN_BAKERY_COMMAND | crate::LEAN_REOPEN_BAKERY_COMMAND => MARA,
+        _ => return None,
+    };
+    Some(SelectionId::Entity(who))
 }
 
 fn available_commands(world: &World) -> Vec<ProjectionCommand> {
@@ -837,7 +857,7 @@ pub(crate) fn gauges(world: &World) -> Vec<world_projection::Gauge> {
             label: "Money in town".into(),
             // Half full is what the town started with.
             value: (money as f32 / (started_with * 2) as f32).clamp(0.0, 1.0),
-            reading: money.to_string(),
+            reading: with_thousands(money),
             tone: if money * 10 < started_with * 7 {
                 Tone::Bad
             } else if money < started_with {
@@ -858,6 +878,28 @@ pub(crate) fn gauges(world: &World) -> Vec<world_projection::Gauge> {
             },
         },
     ]
+}
+
+#[cfg(test)]
+pub(crate) fn with_thousands_for_test(amount: i64) -> String {
+    with_thousands(amount)
+}
+
+/// "1,372", the way money is written.
+fn with_thousands(amount: i64) -> String {
+    let digits = amount.unsigned_abs().to_string();
+    let mut grouped = String::new();
+    for (index, digit) in digits.chars().enumerate() {
+        if index > 0 && (digits.len() - index) % 3 == 0 {
+            grouped.push(',');
+        }
+        grouped.push(digit);
+    }
+    if amount < 0 {
+        format!("-{grouped}")
+    } else {
+        grouped
+    }
 }
 
 fn component_integer(world: &World, id: EntityId, key: &str) -> Option<i64> {
