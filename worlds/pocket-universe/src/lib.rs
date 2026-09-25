@@ -242,14 +242,47 @@ where
     }
 
     pub fn projection_snapshot(&self) -> ProjectionSnapshot {
-        projection::snapshot(&self.world)
+        self.with_previews(projection::snapshot(&self.world))
     }
 
     pub fn projection_snapshot_since(
         &self,
         since_event_count: Option<usize>,
     ) -> ProjectionSnapshot {
-        projection::snapshot_since(&self.world, since_event_count)
+        self.with_previews(projection::snapshot_since(&self.world, since_event_count))
+    }
+
+    /// Mark each choice with how it would move the gauges, by playing it on a
+    /// copy of this World and reading them again: the same rules, so the
+    /// same result. A choice that asks the people what they do is only
+    /// previewed while their minds are this Pack's own, which answer the same
+    /// way twice; an outside mind is never asked a question just to preview.
+    fn with_previews(&self, mut snapshot: ProjectionSnapshot) -> ProjectionSnapshot {
+        let before = snapshot.gauges.clone();
+        if before.is_empty() {
+            return snapshot;
+        }
+        for command in &mut snapshot.commands {
+            let asks_the_minds = command.id == NUDGE_COMMAND;
+            if asks_the_minds && self.mind_profile != DETERMINISTIC_MIND_PROFILE {
+                continue;
+            }
+            let Ok(actions) = build_action_registry() else {
+                continue;
+            };
+            let mut copy = PocketUniverse {
+                world: self.world.clone(),
+                actions,
+                mind: PocketMind,
+                mind_profile: DETERMINISTIC_MIND_PROFILE.into(),
+                narrator: Box::new(narrator::NoNarrator),
+            };
+            if copy.invoke_projection_command(&command.id).is_ok() {
+                command.moves =
+                    world_projection::gauge_moves(&before, &projection::gauges(&copy.world));
+            }
+        }
+        snapshot
     }
 
     pub fn invoke_projection_command(
@@ -2141,6 +2174,46 @@ mod tests {
             found.is_empty(),
             "engine words:\n{}",
             found.into_iter().collect::<Vec<_>>().join("\n")
+        );
+    }
+
+    /// A choice's gauge marks are what making it actually does: play it for
+    /// real and the gauges move exactly as marked.
+    #[test]
+    fn a_choice_marks_the_gauges_it_will_move_and_they_move_that_way() {
+        let registry = registry();
+        let mut session = registry.create(POCKET_UNIVERSE_PACK_ID).unwrap();
+        assert!(
+            session.snapshot().gauges.is_empty(),
+            "nothing to keep score of yet"
+        );
+        session
+            .handle(ProjectionIntent::InvokeCommand(
+                SEED_MARS_COLONY_COMMAND.into(),
+            ))
+            .unwrap();
+        session.advance_background(2).unwrap();
+        let before = session.snapshot();
+        let ids: Vec<&str> = before
+            .gauges
+            .iter()
+            .map(|gauge| gauge.id.as_str())
+            .collect();
+        assert_eq!(ids, ["trust", "tension", "anchor"]);
+        let shared = before
+            .commands
+            .iter()
+            .find(|command| command.id == SHARED_PROJECT_COMMAND)
+            .expect("the pair can be given something to share");
+        assert!(!shared.moves.is_empty(), "sharing a project moves trust");
+        let after = session
+            .handle(ProjectionIntent::InvokeCommand(
+                SHARED_PROJECT_COMMAND.into(),
+            ))
+            .unwrap();
+        assert_eq!(
+            world_projection::gauge_moves(&before.gauges, &after.gauges),
+            shared.moves
         );
     }
 

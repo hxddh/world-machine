@@ -486,7 +486,16 @@ impl ProjectionView {
         div()
             .id(SharedString::from(format!("command-{}", command.id)))
             .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
-                let previewing = hovered.then(|| hover_id.clone());
+                // Moving straight from one choice to the next can report
+                // leaving the first after entering the second; leaving only
+                // clears the preview if it is still this choice's.
+                let previewing = if *hovered {
+                    Some(hover_id.clone())
+                } else if this.previewing.as_deref() == Some(hover_id.as_str()) {
+                    None
+                } else {
+                    return;
+                };
                 if this.previewing != previewing {
                     this.previewing = previewing;
                     cx.notify();
@@ -1240,6 +1249,14 @@ impl Render for ProjectionView {
         let on_select: scene::SelectHandler = Rc::new(move |selection, _, cx| {
             view.update(cx, |this, cx| this.select(selection, cx)).ok();
         });
+        // The stakes sit right above the place they are about.
+        let previewing = self
+            .previewing
+            .as_deref()
+            .and_then(|id| self.snapshot.command(id));
+        if let Some(gauges) = scene::gauges(&self.snapshot, previewing) {
+            column = column.child(gauges);
+        }
         if let Some(scene) = scene::scene(
             &self.snapshot,
             stage_width,

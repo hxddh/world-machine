@@ -37,6 +37,7 @@ pub(crate) fn snapshot(world: &World) -> ProjectionSnapshot {
         why: why_map(world, &visible_events, &visible_artifacts),
         scenery: None,
         calendar: None,
+        gauges: Vec::new(),
     }
 }
 
@@ -50,6 +51,8 @@ fn commands(world: &World) -> Vec<ProjectionCommand> {
             detail: "Scan unallocated message storage for a recoverable fragment.".into(),
             effects: Vec::new(),
             scenery: None,
+            asker: None,
+            moves: Vec::new(),
         }]
     }
 }

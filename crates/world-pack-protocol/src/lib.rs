@@ -352,6 +352,28 @@ pub struct ProjectionSnapshotWire {
     pub scenery: Option<SceneryWire>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub calendar: Option<CalendarWire>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub gauges: Vec<GaugeWire>,
+}
+
+/// Something a World keeps score of. `value` runs from 0 to 1; anything
+/// else (or not a number) is clamped into that range on the way in.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct GaugeWire {
+    pub id: String,
+    pub label: String,
+    pub value: f32,
+    #[serde(default)]
+    pub reading: String,
+    #[serde(default)]
+    pub tone: ToneWire,
+}
+
+/// How far a choice moves one gauge, in thousandths of its range.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct GaugeMoveWire {
+    pub gauge: String,
+    pub by: i32,
 }
 
 /// What a World counts its time in: `unit` names one, `length` is how much
@@ -455,6 +477,17 @@ impl From<&ProjectionSnapshot> for ProjectionSnapshotWire {
                 unit: calendar.unit.clone(),
                 length: calendar.length,
             }),
+            gauges: snapshot
+                .gauges
+                .iter()
+                .map(|gauge| GaugeWire {
+                    id: gauge.id.clone(),
+                    label: gauge.label.clone(),
+                    value: gauge.value,
+                    reading: gauge.reading.clone(),
+                    tone: gauge.tone.into(),
+                })
+                .collect(),
         }
     }
 }
@@ -507,6 +540,22 @@ impl TryFrom<ProjectionSnapshotWire> for ProjectionSnapshot {
                     unit: calendar.unit,
                     length: calendar.length,
                 }),
+            gauges: snapshot
+                .gauges
+                .into_iter()
+                .filter(|gauge| !gauge.id.trim().is_empty())
+                .map(|gauge| world_projection::Gauge {
+                    id: gauge.id,
+                    label: gauge.label,
+                    value: if gauge.value.is_finite() {
+                        gauge.value.clamp(0.0, 1.0)
+                    } else {
+                        0.0
+                    },
+                    reading: gauge.reading,
+                    tone: gauge.tone.into(),
+                })
+                .collect(),
         })
     }
 }
@@ -547,6 +596,10 @@ pub struct ProjectionCommandWire {
     pub effects: Vec<CommandEffectWire>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scenery: Option<SceneryWire>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub moves: Vec<GaugeMoveWire>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asker: Option<SelectionIdWire>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -637,6 +690,15 @@ impl From<&ProjectionCommand> for ProjectionCommandWire {
             detail: command.detail.clone(),
             effects: command.effects.iter().map(Into::into).collect(),
             scenery: command.scenery.map(Into::into),
+            moves: command
+                .moves
+                .iter()
+                .map(|step| GaugeMoveWire {
+                    gauge: step.gauge.clone(),
+                    by: step.by,
+                })
+                .collect(),
+            asker: command.asker.map(Into::into),
         }
     }
 }
@@ -649,6 +711,15 @@ impl From<ProjectionCommandWire> for ProjectionCommand {
             detail: command.detail,
             effects: command.effects.into_iter().map(Into::into).collect(),
             scenery: command.scenery.map(Into::into),
+            asker: command.asker.map(Into::into),
+            moves: command
+                .moves
+                .into_iter()
+                .map(|step| world_projection::GaugeMove {
+                    gauge: step.gauge,
+                    by: step.by.clamp(-1000, 1000),
+                })
+                .collect(),
         }
     }
 }
@@ -1443,6 +1514,8 @@ mod tests {
                     },
                 ],
                 scenery: None,
+                asker: None,
+                moves: Vec::new(),
             }],
             collection: CollectionProjection {
                 title: "Entities".into(),
@@ -1514,6 +1587,7 @@ mod tests {
             )]),
             scenery: None,
             calendar: None,
+            gauges: Vec::new(),
         }
     }
 
@@ -1666,5 +1740,24 @@ mod tests {
         };
         let wire = ProjectionCapabilitiesWire::from(live);
         assert_eq!(ProjectionCapabilities::from(wire), live);
+    }
+
+    #[test]
+    fn gauges_and_their_moves_cross_the_boundary_and_bad_values_are_tamed() {
+        let snapshot: ProjectionSnapshotWire = serde_json::from_str(
+            r#"{"title":"T","world_time":0,"capabilities":{"fork":false},"briefing":null,
+                "commands":[{"id":"c","title":"C","detail":"","moves":[{"gauge":"trust","by":5000}]}],
+                "collection":{"title":"","items":[]},"timeline":{"items":[]},
+                "canvas":{"items":[]},"inspectors":[],"why":[],
+                "gauges":[{"id":"trust","label":"Trust","value":7.5,"reading":"high"},
+                          {"id":"","label":"Nameless","value":0.5}]}"#,
+        )
+        .expect("a snapshot with gauges decodes");
+        let snapshot = ProjectionSnapshot::try_from(snapshot).expect("valid");
+        assert_eq!(snapshot.gauges.len(), 1, "a gauge with no id is dropped");
+        assert_eq!(snapshot.gauges[0].value, 1.0);
+        assert_eq!(snapshot.commands[0].moves[0].by, 1000);
+        let again = ProjectionSnapshot::try_from(ProjectionSnapshotWire::from(&snapshot)).unwrap();
+        assert_eq!(again.gauges, snapshot.gauges);
     }
 }

@@ -120,6 +120,20 @@ fn pocket_universe_is_a_real_external_pack_with_durable_seed_and_growth() {
         ))
         .unwrap();
     assert_eq!(seeded.title, "Ares Pocket Colony");
+    // What it keeps score of, and how its choices move it, cross the
+    // process boundary too.
+    assert_eq!(
+        seeded
+            .gauges
+            .iter()
+            .map(|gauge| gauge.id.as_str())
+            .collect::<Vec<_>>(),
+        ["trust", "tension", "anchor"]
+    );
+    assert!(seeded
+        .commands
+        .iter()
+        .any(|command| !command.moves.is_empty()));
     assert!(seeded.scenery.is_some(), "a started World keeps its look");
     assert!(
         seeded

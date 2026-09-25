@@ -223,6 +223,8 @@ mod tests {
                         detail: "Advance mock state".into(),
                         effects: Vec::new(),
                         scenery: None,
+                        asker: None,
+                        moves: Vec::new(),
                     },
                     ProjectionCommand {
                         id: "mock.fail".into(),
@@ -230,6 +232,8 @@ mod tests {
                         detail: "Fail without mutation".into(),
                         effects: Vec::new(),
                         scenery: None,
+                        asker: None,
+                        moves: Vec::new(),
                     },
                 ],
                 ..ProjectionSnapshot::default()

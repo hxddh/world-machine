@@ -68,6 +68,7 @@ pub(crate) fn snapshot_since(
             unit: "Day".into(),
             length: crate::persistence::WORLD_DAY_TICKS,
         }),
+        gauges: gauges(world),
     };
     snapshot.tell_events_as_history_does();
     snapshot
@@ -202,6 +203,8 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                     .into(),
             effects: Vec::new(),
             scenery: None,
+            asker: None,
+            moves: Vec::new(),
         });
     }
 
@@ -217,7 +220,7 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 "Invest {} of Mara's cash to reopen Harbor Bakery. Mara returns to work; former workers are not automatically rehired.",
                 crate::BAKERY_REOPEN_INVESTMENT
             ), effects: Vec::new(),
-            scenery: None,
+            scenery: None, asker: None, moves: Vec::new(),
 });
     }
 
@@ -231,7 +234,7 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 "Invest {} of Mara's cash and reopen Harbor Bakery without a fixed daily Bakery wage. Lower overhead can survive weak demand, but Mara gives up predictable pay.",
                 crate::recovery::LEAN_REOPEN_INVESTMENT
             ), effects: Vec::new(),
-            scenery: None,
+            scenery: None, asker: None, moves: Vec::new(),
 });
     }
 
@@ -243,7 +246,7 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 "Leo pays Evan {} to repair Sea Finch. Jonas returns to Harbor fishing once the boat is sound. Leo's backing does not stand indefinitely.",
                 crate::social::SEA_FINCH_REPAIR_COST
             ), effects: Vec::new(),
-            scenery: None,
+            scenery: None, asker: None, moves: Vec::new(),
 });
     }
 
@@ -256,7 +259,7 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 crate::drift::SEA_FINCH_SCRAP_VALUE,
                 crate::social::SEA_FINCH_REPAIR_COST
             ), effects: Vec::new(),
-            scenery: None,
+            scenery: None, asker: None, moves: Vec::new(),
 });
     }
 
@@ -268,7 +271,7 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 "Jonas works the counter for {} a day. It is a second wage against the same island trade, and the bakery has to carry it.",
                 crate::livelihood::COUNTER_WAGE
             ), effects: Vec::new(),
-            scenery: None,
+            scenery: None, asker: None, moves: Vec::new(),
 });
     }
 
@@ -786,6 +789,75 @@ fn component_text(world: &World, id: EntityId, key: &str) -> Option<String> {
         Value::Entity(value) => world.state().entity(*value).map(entity_title),
         Value::Null | Value::List(_) | Value::Map(_) => None,
     }
+}
+
+/// What the harbour town keeps score of: how many of its working people
+/// have work, how much money its people hold against what they started
+/// with, and whether the bakery at its heart is open.
+pub(crate) fn gauges(world: &World) -> Vec<world_projection::Gauge> {
+    use world_projection::Gauge;
+    let workforce = RESIDENTS
+        .iter()
+        .filter(|id| component_text(world, **id, JOB).as_deref() != Some("student"))
+        .count();
+    let out_of_work = RESIDENTS
+        .iter()
+        .filter(|id| component_text(world, **id, JOB).as_deref() == Some("unemployed"))
+        .count();
+    let working = workforce - out_of_work;
+    let money: i64 = RESIDENTS
+        .iter()
+        .filter_map(|id| component_integer(world, *id, CASH))
+        .sum();
+    let started_with: i64 = RESIDENTS
+        .iter()
+        .filter_map(
+            |id| match world_projection::component_at(world, 0, *id, CASH) {
+                Some(Value::Integer(cash)) => Some(cash),
+                _ => None,
+            },
+        )
+        .sum();
+    let started_with = started_with.max(1);
+    let bakery = component_text(world, BAKERY, OPERATING_STATUS).unwrap_or_default();
+    vec![
+        Gauge {
+            id: "work".into(),
+            label: "In work".into(),
+            value: working as f32 / workforce.max(1) as f32,
+            reading: format!("{working} of {workforce}"),
+            tone: match out_of_work {
+                0 => Tone::Good,
+                1 => Tone::Warning,
+                _ => Tone::Bad,
+            },
+        },
+        Gauge {
+            id: "money".into(),
+            label: "Money in town".into(),
+            // Half full is what the town started with.
+            value: (money as f32 / (started_with * 2) as f32).clamp(0.0, 1.0),
+            reading: money.to_string(),
+            tone: if money * 10 < started_with * 7 {
+                Tone::Bad
+            } else if money < started_with {
+                Tone::Warning
+            } else {
+                Tone::Good
+            },
+        },
+        Gauge {
+            id: "bakery".into(),
+            label: "Harbor Bakery".into(),
+            value: if bakery == "open" { 1.0 } else { 0.0 },
+            reading: capitalized(&bakery.replace('_', " ")),
+            tone: if bakery == "open" {
+                Tone::Good
+            } else {
+                Tone::Bad
+            },
+        },
+    ]
 }
 
 fn component_integer(world: &World, id: EntityId, key: &str) -> Option<i64> {

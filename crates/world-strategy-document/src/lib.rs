@@ -165,6 +165,8 @@ mod tests {
                         detail: "Advance once".into(),
                         effects: Vec::new(),
                         scenery: None,
+                        asker: None,
+                        moves: Vec::new(),
                     },
                     ProjectionCommand {
                         id: "mock.right".into(),
@@ -172,6 +174,8 @@ mod tests {
                         detail: "Advance twice".into(),
                         effects: Vec::new(),
                         scenery: None,
+                        asker: None,
+                        moves: Vec::new(),
                     },
                 ],
                 ..ProjectionSnapshot::default()

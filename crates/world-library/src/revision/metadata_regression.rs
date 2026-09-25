@@ -50,6 +50,8 @@ impl WorldSession for MockSession {
                 detail: "Advance the metadata regression World".into(),
                 effects: Vec::new(),
                 scenery: None,
+                asker: None,
+                moves: Vec::new(),
             }],
             ..ProjectionSnapshot::default()
         }

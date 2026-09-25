@@ -62,6 +62,7 @@ pub(crate) fn snapshot_since(
             unit: seed_time_unit(seed_id(world)).into(),
             length: crate::BACKGROUND_PERIOD,
         }),
+        gauges: gauges(world),
     };
     snapshot.tell_events_as_history_does();
     snapshot
@@ -247,6 +248,8 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
                     .into(),
                 effects: Vec::new(),
                 scenery: seed_scenery("mars-colony"),
+                asker: None,
+                moves: Vec::new(),
             },
             ProjectionCommand {
                 id: SEED_1980S_TOWN_COMMAND.into(),
@@ -255,6 +258,8 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
                     .into(),
                 effects: Vec::new(),
                 scenery: seed_scenery("1980s-town"),
+                asker: None,
+                moves: Vec::new(),
             },
             ProjectionCommand {
                 id: SEED_PENGUIN_CIVILIZATION_COMMAND.into(),
@@ -263,6 +268,8 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
                     .into(),
                 effects: Vec::new(),
                 scenery: seed_scenery("penguin-civilization"),
+                asker: None,
+                moves: Vec::new(),
             },
         ];
     }
@@ -301,6 +308,8 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
         detail: String::from(nudge_detail),
         effects: Vec::new(),
         scenery: None,
+        asker: None,
+        moves: Vec::new(),
     }];
 
     if relationship_choice_available {
@@ -308,13 +317,13 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             id: SHARED_PROJECT_COMMAND.into(),
             title: "Give them a shared project".into(),
             detail: String::from("Give them something neither can finish alone. From here on they lean toward trusting each other."), effects: Vec::new(),
-            scenery: None,
+            scenery: None, asker: None, moves: Vec::new(),
 });
         commands.push(ProjectionCommand {
             id: RIVALRY_COMMAND.into(),
             title: "Let rivalry sharpen them".into(),
             detail: String::from("Keep them apart and let competition sharpen how they deal with each other from now on."), effects: Vec::new(),
-            scenery: None,
+            scenery: None, asker: None, moves: Vec::new(),
 });
     }
     if intervention_choice_available {
@@ -326,6 +335,8 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             detail: String::from(bold_detail),
             effects: Vec::new(),
             scenery: None,
+            asker: None,
+            moves: Vec::new(),
         });
         commands.push(ProjectionCommand {
             id: CAREFUL_PATH_COMMAND.into(),
@@ -333,6 +344,8 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             detail: String::from(careful_detail),
             effects: Vec::new(),
             scenery: None,
+            asker: None,
+            moves: Vec::new(),
         });
     }
     if posture_choice_available {
@@ -344,6 +357,8 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             detail: String::from(outward_detail),
             effects: Vec::new(),
             scenery: None,
+            asker: None,
+            moves: Vec::new(),
         });
         commands.push(ProjectionCommand {
             id: ROOTED_POSTURE_COMMAND.into(),
@@ -351,6 +366,8 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             detail: String::from(rooted_detail),
             effects: Vec::new(),
             scenery: None,
+            asker: None,
+            moves: Vec::new(),
         });
     }
     let copy = pressure::copy_for_state(world.state());
@@ -361,6 +378,8 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             detail: String::from(copy.hold_detail),
             effects: Vec::new(),
             scenery: None,
+            asker: None,
+            moves: Vec::new(),
         });
         commands.push(ProjectionCommand {
             id: REACH_PRESSURE_COMMAND.into(),
@@ -368,6 +387,8 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             detail: String::from(copy.reach_detail),
             effects: Vec::new(),
             scenery: None,
+            asker: None,
+            moves: Vec::new(),
         });
     } else if pressure_stage == "lost" {
         commands.push(ProjectionCommand {
@@ -376,6 +397,8 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             detail: String::from(copy.recover_detail),
             effects: Vec::new(),
             scenery: None,
+            asker: None,
+            moves: Vec::new(),
         });
     }
     let succession_stage = succession::succession_id_from_state(world.state());
@@ -387,6 +410,8 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             detail: String::from(succession_copy.entrust_detail),
             effects: Vec::new(),
             scenery: None,
+            asker: None,
+            moves: Vec::new(),
         });
         commands.push(ProjectionCommand {
             id: RELEASE_LEGACY_COMMAND.into(),
@@ -394,6 +419,8 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             detail: String::from(succession_copy.release_detail),
             effects: Vec::new(),
             scenery: None,
+            asker: None,
+            moves: Vec::new(),
         });
     }
     commands
@@ -2062,6 +2089,68 @@ fn canvas_detail(world: &World, entity: &Entity) -> String {
 
 /// The relationship at the centre of the World, drawn between the two
 /// people it belongs to rather than as a third thing beside them.
+/// What a Pocket Universe keeps score of: how much the two people trust
+/// each other, how strained they are, and how safe the place everyone
+/// depends on is. Nothing before the World begins.
+pub(crate) fn gauges(world: &World) -> Vec<world_projection::Gauge> {
+    use world_projection::Gauge;
+    if seed_id(world) == "unseeded" {
+        return Vec::new();
+    }
+    let relationship = world.state().entity(RELATIONSHIP);
+    let out_of_ten = |key: &str| {
+        integer_entity_component(relationship, key)
+            .unwrap_or(0)
+            .clamp(0, 10)
+    };
+    let trust = out_of_ten(RELATIONSHIP_TRUST);
+    let tension = out_of_ten(RELATIONSHIP_TENSION);
+    let anchor = world
+        .state()
+        .entity(SLOT_A)
+        .map(entity_title)
+        .unwrap_or_else(|| "Home".into());
+    let (safety, reading, tone) = match pressure::pressure_id_from_state(world.state()).as_str() {
+        "warning" => (0.6, "Trouble rising", Tone::Warning),
+        "crisis" => (0.3, "In crisis", Tone::Bad),
+        "lost" => (0.0, "Lost", Tone::Bad),
+        "held" | "reached" => (1.0, "Weathered it", Tone::Good),
+        "recovered" => (0.8, "Rebuilt", Tone::Good),
+        _ => (1.0, "Safe", Tone::Neutral),
+    };
+    vec![
+        Gauge {
+            id: "trust".into(),
+            label: "Trust".into(),
+            value: trust as f32 / 10.0,
+            reading: format!("{trust} of 10"),
+            tone: if trust >= 5 {
+                Tone::Good
+            } else {
+                Tone::Neutral
+            },
+        },
+        Gauge {
+            id: "tension".into(),
+            label: "Tension".into(),
+            value: tension as f32 / 10.0,
+            reading: format!("{tension} of 10"),
+            tone: match tension {
+                7.. => Tone::Bad,
+                4..=6 => Tone::Warning,
+                _ => Tone::Neutral,
+            },
+        },
+        Gauge {
+            id: "anchor".into(),
+            label: anchor,
+            value: safety,
+            reading: reading.into(),
+            tone,
+        },
+    ]
+}
+
 /// Each thing's detail panel in the World's words: what a person does and
 /// has been doing, where a relationship stands, how a place is. The
 /// counters, generations and bookkeeping the rules keep stay out of sight.

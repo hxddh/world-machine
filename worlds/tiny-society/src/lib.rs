@@ -57,13 +57,30 @@ pub struct TinySocietyBranch {
     world: World,
 }
 
+/// Mark each choice with how it would move the town's gauges, by making it
+/// on a copy of the town and reading them again. The town's rules answer the
+/// same way twice, so the mark is what will happen, not a guess.
+pub(crate) fn with_previews(world: &World, mut snapshot: ProjectionSnapshot) -> ProjectionSnapshot {
+    let before = snapshot.gauges.clone();
+    for command in &mut snapshot.commands {
+        let mut copy = TinySocietyBranch {
+            world: world.clone(),
+        };
+        if copy.invoke_projection_command(&command.id).is_ok() {
+            command.moves =
+                world_projection::gauge_moves(&before, &projection::gauges(&copy.world));
+        }
+    }
+    snapshot
+}
+
 impl TinySocietyBranch {
     pub fn world(&self) -> &World {
         &self.world
     }
 
     pub fn projection_snapshot(&self) -> ProjectionSnapshot {
-        projection::snapshot(&self.world)
+        with_previews(&self.world, projection::snapshot(&self.world))
     }
 
     pub fn fork_before_event(&mut self, event_id: EventId) -> Result<(), Box<dyn Error>> {
@@ -254,7 +271,7 @@ impl TinySociety {
     }
 
     pub fn projection_snapshot(&self) -> ProjectionSnapshot {
-        projection::snapshot(&self.world)
+        with_previews(&self.world, projection::snapshot(&self.world))
     }
 
     pub fn branch(&self) -> TinySocietyBranch {

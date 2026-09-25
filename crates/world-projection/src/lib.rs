@@ -165,6 +165,51 @@ pub struct ProjectionCommand {
     /// How the World this choice starts would look, for a choice that
     /// starts one; a screen can show it as a picture rather than a line.
     pub scenery: Option<Scenery>,
+    /// How this choice would move the World's gauges, measured by playing
+    /// it on a copy of the World: never guessed. Empty when it moves none,
+    /// or when the Pack cannot know without asking someone it cannot ask.
+    pub moves: Vec<GaugeMove>,
+    /// Whose choice this is to put to the player: the person it concerns,
+    /// whose face a screen can show asking it.
+    pub asker: Option<SelectionId>,
+}
+
+/// Something a World keeps score of, always on screen: trust between two
+/// people, how safe the colony is, how many people have work.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Gauge {
+    /// Stable within a World, so a choice can say which gauge it moves.
+    pub id: String,
+    pub label: String,
+    /// How full it is, from 0 to 1.
+    pub value: f32,
+    /// The value in the World's own words: "3 of 10", "Safe", "1,470".
+    pub reading: String,
+    pub tone: Tone,
+}
+
+/// How far a choice would move one gauge, in thousandths of its range:
+/// 100 is a tenth of the way up, -250 a quarter of the way down.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GaugeMove {
+    pub gauge: String,
+    pub by: i32,
+}
+
+/// What moved between two readings of the same gauges, ignoring moves too
+/// small to see.
+pub fn gauge_moves(before: &[Gauge], after: &[Gauge]) -> Vec<GaugeMove> {
+    before
+        .iter()
+        .filter_map(|old| {
+            let new = after.iter().find(|gauge| gauge.id == old.id)?;
+            let by = ((new.value - old.value) * 1000.0).round() as i32;
+            (by.abs() >= 10).then(|| GaugeMove {
+                gauge: old.id.clone(),
+                by,
+            })
+        })
+        .collect()
 }
 
 /// How a World looks from a distance: a sky, a far ridge, a near ridge and
@@ -239,6 +284,8 @@ pub struct ProjectionSnapshot {
     pub scenery: Option<Scenery>,
     /// What this World counts its time in, if its Pack says.
     pub calendar: Option<Calendar>,
+    /// What it keeps score of, in the order a screen should show them.
+    pub gauges: Vec<Gauge>,
 }
 
 /// A World's own unit of time: a Mars colony counts sols, a town counts
@@ -345,6 +392,10 @@ impl ProjectionSnapshot {
     /// Pack can check that none of it speaks in engine words.
     pub fn visible_text(&self) -> Vec<&str> {
         let mut text = vec![self.title.as_str()];
+        for gauge in &self.gauges {
+            text.push(&gauge.label);
+            text.push(&gauge.reading);
+        }
         if let Some(briefing) = &self.briefing {
             text.push(&briefing.eyebrow);
             text.push(&briefing.title);
@@ -2132,6 +2183,8 @@ mod tests {
                 detail: "Let the world keep running".into(),
                 effects: Vec::new(),
                 scenery: None,
+                asker: None,
+                moves: Vec::new(),
             }],
             ..ProjectionSnapshot::default()
         };

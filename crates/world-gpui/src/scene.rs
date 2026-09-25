@@ -821,6 +821,129 @@ pub fn scene(
     Some(scene)
 }
 
+/// What the World keeps score of, as a row of meters that is always on
+/// screen: the stakes, the way Frostpunk keeps Hope and Discontent in view.
+/// While a choice is under the pointer, each meter it would move shows
+/// where it would end up and which way, as Reigns does before a swipe.
+pub fn gauges(
+    snapshot: &ProjectionSnapshot,
+    previewing: Option<&world_projection::ProjectionCommand>,
+) -> Option<Div> {
+    if snapshot.gauges.is_empty() {
+        return None;
+    }
+    let mut row = div().w_full().flex().gap_3();
+    for gauge in &snapshot.gauges {
+        let movement = previewing.and_then(|command| {
+            command
+                .moves
+                .iter()
+                .find(|step| step.gauge == gauge.id)
+                .map(|step| step.by)
+        });
+        row = row.child(gauge_meter(gauge, movement));
+    }
+    Some(row)
+}
+
+/// How a move reads next to a meter: one arrow for a nudge, two for a
+/// shove.
+pub fn movement_arrows(by: i32) -> &'static str {
+    match by {
+        i32::MIN..=-200 => "▼▼",
+        -199..=-1 => "▼",
+        0 => "",
+        1..=199 => "▲",
+        _ => "▲▲",
+    }
+}
+
+fn gauge_meter(gauge: &world_projection::Gauge, movement: Option<i32>) -> Div {
+    let fill = tone_token(gauge.tone);
+    let value = gauge.value.clamp(0.0, 1.0);
+    let target = movement.map(|by| (value + by as f32 / 1000.0).clamp(0.0, 1.0));
+    let mut track = div()
+        .relative()
+        .w_full()
+        .h(px(6.0))
+        .rounded_full()
+        .overflow_hidden()
+        .bg(ui::color(tokens::BORDER))
+        .child(
+            div()
+                .absolute()
+                .top_0()
+                .left_0()
+                .h_full()
+                .w(relative(value))
+                .rounded_full()
+                .bg(ui::color(fill)),
+        );
+    // Where the choice would take it: the stretch it would gain drawn
+    // faintly past the fill, the stretch it would lose cut back out.
+    if let Some(target) = target {
+        let (from, to) = (value.min(target), value.max(target));
+        track = track.child(
+            div()
+                .absolute()
+                .top_0()
+                .h_full()
+                .left(relative(from))
+                .w(relative((to - from).max(0.02)))
+                .bg(ui::color(tokens::ACCENT).opacity(if target >= value { 0.45 } else { 0.8 })),
+        );
+    }
+    let arrows = movement.map(movement_arrows).unwrap_or("");
+    div()
+        .flex_1()
+        .min_w(px(0.0))
+        .px_3()
+        .py_2()
+        .rounded_lg()
+        .border_1()
+        .border_color(ui::color(if movement.is_some() {
+            tokens::ACCENT
+        } else {
+            tokens::BORDER
+        }))
+        .bg(ui::color(tokens::SURFACE))
+        .flex()
+        .flex_col()
+        .gap(px(6.0))
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap_2()
+                .child(ui::caption(gauge.label.clone()).truncate())
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .flex()
+                        .items_center()
+                        .gap_1()
+                        .when(!arrows.is_empty(), |line| {
+                            line.child(
+                                div()
+                                    .text_xs()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(ui::color(tokens::ACCENT_TEXT))
+                                    .child(arrows),
+                            )
+                        })
+                        .child(
+                            div()
+                                .text_xs()
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(ui::color(tokens::TEXT))
+                                .child(gauge.reading.clone()),
+                        ),
+                ),
+        )
+        .child(track)
+}
+
 /// When things happened across the World's whole life, as a strip of bars,
 /// with the stretch the current news covers picked out.
 pub fn activity(snapshot: &ProjectionSnapshot) -> Option<Div> {

@@ -27,6 +27,7 @@ pub(crate) fn snapshot(world: &World, since_event_count: Option<usize>) -> Proje
         why: why_map_from_world(world),
         scenery: None,
         calendar: None,
+        gauges: Vec::new(),
     }
 }
 
@@ -46,7 +47,7 @@ fn commands(world: &World) -> Vec<ProjectionCommand> {
         id: RUN_CYCLE_COMMAND.into(),
         title: "Run one company cycle".into(),
         detail: "Pay the burn, let Maya and Jon act, then see whether product, customers, runway, and working trust move together.".into(), effects: Vec::new(),
-        scenery: None,
+        scenery: None, asker: None, moves: Vec::new(),
 }]
 }
 

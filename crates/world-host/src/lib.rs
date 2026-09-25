@@ -446,6 +446,8 @@ mod tests {
                     detail: "Advance the mock world".into(),
                     effects: Vec::new(),
                     scenery: None,
+                    asker: None,
+                    moves: Vec::new(),
                 }],
                 ..ProjectionSnapshot::default()
             }

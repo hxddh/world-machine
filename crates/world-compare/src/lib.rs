@@ -986,6 +986,8 @@ mod tests {
                 detail: "Do something".into(),
                 effects: Vec::new(),
                 scenery: None,
+                asker: None,
+                moves: Vec::new(),
             }],
         );
 
@@ -1291,6 +1293,8 @@ mod tests {
                 detail: "left".into(),
                 effects: Vec::new(),
                 scenery: None,
+                asker: None,
+                moves: Vec::new(),
             }],
         );
         let right = snapshot(
@@ -1303,6 +1307,8 @@ mod tests {
                 detail: "right".into(),
                 effects: Vec::new(),
                 scenery: None,
+                asker: None,
+                moves: Vec::new(),
             }],
         );
 
