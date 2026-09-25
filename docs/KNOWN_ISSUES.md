@@ -1,6 +1,6 @@
 # Known issues
 
-Current as of `v0.7.0` in the [changelog](../CHANGELOG.md). Report anything else with **Help → Report a Problem…** in the app.
+Current as of `v0.8.0` in the [changelog](../CHANGELOG.md). Report anything else with **Help → Report a Problem…** in the app.
 
 ## Installation
 
@@ -10,7 +10,7 @@ Current as of `v0.7.0` in the [changelog](../CHANGELOG.md). Report anything else
 
 ## Using Worlds
 
-- **A Pack version change closes older Worlds.** A `.world` file records the exact World Pack version it was created with, and the app ships one version of each included Pack. When a Pack's rules change its version moves, and Worlds pinned to the older version report that they need a Pack this build does not have. Each release's section of the [changelog](../CHANGELOG.md) says which Packs moved; in `v0.7.0` Pocket Universe moved to `0.20.0`. Export a World you want to keep before updating; nothing is deleted, and the file still holds its whole history.
+- **A Pack version change closes older Worlds.** A `.world` file records the exact World Pack version it was created with, and the app ships one version of each included Pack. When a Pack's rules change its version moves, and Worlds pinned to the older version report that they need a Pack this build does not have. Each release's section of the [changelog](../CHANGELOG.md) says which Packs moved; `v0.8.0` moved none, and in `v0.7.0` Pocket Universe moved to `0.20.0`. Export a World you want to keep before updating; nothing is deleted, and the file still holds its whole history.
 
 - **Renaming or removing a World that is open in a window.** Both write the World's file, so the open window is a step behind: after a rename choose **World → Reload** in that window, and after a removal close the window rather than saving from it, or the save writes the World back into the Library.
 - **Removed Worlds are not deleted.** **Remove** moves the file into a `Removed` folder inside `~/Library/Application Support/World Machine/Worlds`. Emptying that folder is a Finder step; the app never deletes World files.

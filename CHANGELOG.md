@@ -2,7 +2,9 @@
 
 Releases live on the [Releases page](https://github.com/hxddh/world-machine/releases). `0.2.0` is the first release intended to be usable without reading the repository; the `v0.1.0-pre.N` tags below were its pre-releases.
 
-## Unreleased
+## v0.8.0 (2026-09-25)
+
+Every World from `v0.7.0` opens as it is: no Pack moved. The new scene, gauges and choices are drawn from what each World already records.
 
 - **The scene is a place, not a diagram.** People stand at the place they are at, a pair side by side, and walk over when a turn moves them. A relationship is a small bubble (a heart, a crack, three dots) between two faces, not a labelled line; a dotted line joins a pair only when they are apart. The rover, the night bus and the boat stand on the ground. Places never cover each other and no name is cut off. Partners go together; a pair who fell out keep apart.
 - **Coming back is a moment.** A return tells what happened one thing at a time, big, with the face of whoever it happened to and the people it is about lit up on the scene ("While you were away · 1 of 2"), then hands over to your turn. Every beat is a recorded event.
