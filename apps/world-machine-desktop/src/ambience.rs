@@ -121,6 +121,60 @@ pub fn synthesize(palette: Palette) -> Vec<i16> {
         .collect()
 }
 
+/// The small sounds a World window asks for: a soft tick as a card turns,
+/// a two-toned bell as a turn passes, and a rising pair of notes when
+/// something new is built. Short, quiet, and the same every time.
+pub fn cue_samples(cue: world_gpui::Cue) -> Vec<i16> {
+    let rate = SAMPLE_RATE as f32;
+    let tone = |notes: &[(f32, f32, f32)], length: f32, decay: f32, level: f32| {
+        let samples = (length * rate) as usize;
+        (0..samples)
+            .map(|index| {
+                let t = index as f32 / rate;
+                let mut sample = 0.0;
+                for (start, frequency, weight) in notes {
+                    if t >= *start {
+                        let local = t - start;
+                        let envelope = (-local / decay).exp() * (local / 0.004).min(1.0);
+                        sample += weight
+                            * envelope
+                            * ((std::f32::consts::TAU * frequency * local).sin()
+                                + 0.3 * (std::f32::consts::TAU * frequency * 2.0 * local).sin());
+                    }
+                }
+                ((sample * level).clamp(-1.0, 1.0) * i16::MAX as f32) as i16
+            })
+            .collect::<Vec<_>>()
+    };
+    match cue {
+        world_gpui::Cue::Flip => {
+            // A short, soft tick: a little filtered noise that dies at once.
+            let samples = (0.06 * rate) as usize;
+            let mut seed: u32 = 0x1234_5679;
+            let mut smooth = 0.0_f32;
+            (0..samples)
+                .map(|index| {
+                    seed ^= seed << 13;
+                    seed ^= seed >> 17;
+                    seed ^= seed << 5;
+                    let white = (seed as f32 / u32::MAX as f32) * 2.0 - 1.0;
+                    smooth += 0.35 * (white - smooth);
+                    let t = index as f32 / rate;
+                    let envelope = (-t / 0.012).exp();
+                    ((smooth * envelope * 0.35).clamp(-1.0, 1.0) * i16::MAX as f32) as i16
+                })
+                .collect()
+        }
+        world_gpui::Cue::Turn => tone(&[(0.0, 659.25, 0.6), (0.0, 987.77, 0.3)], 0.9, 0.28, 0.32),
+        world_gpui::Cue::Built => tone(
+            &[(0.0, 523.25, 0.55), (0.16, 783.99, 0.55)],
+            0.9,
+            0.24,
+            0.32,
+        ),
+    }
+}
+
 /// A mono 16-bit WAV file holding `samples`.
 pub fn wav(samples: &[i16]) -> Vec<u8> {
     let data_len = (samples.len() * 2) as u32;
@@ -279,6 +333,31 @@ pub mod player {
         }
     }
 
+    /// Play a small sound once, if the player wants sound.
+    pub fn cue(cue: world_gpui::Cue) {
+        if !super::enabled() {
+            return;
+        }
+        let Some(root) = crate::analyst_settings::application_support_root().ok() else {
+            return;
+        };
+        let directory = root.join("Ambience");
+        if std::fs::create_dir_all(&directory).is_err() {
+            return;
+        }
+        let path = directory.join(format!("cue-{cue:?}.wav").to_lowercase());
+        if !path.is_file() && std::fs::write(&path, wav(&super::cue_samples(cue))).is_err() {
+            return;
+        }
+        let _ = Command::new("/usr/bin/afplay")
+            .arg("-v")
+            .arg("0.5")
+            .arg(&path)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn();
+    }
+
     /// Silence, whatever plays.
     pub fn stop() {
         if let Ok(mut playing) = PLAYING.lock() {
@@ -328,6 +407,37 @@ mod tests {
         for target in [55.0, 61.3, 82.5, 109.9] {
             let cycles = loop_frequency(target) * LOOP_SECONDS as f32;
             assert!((cycles - cycles.round()).abs() < 1e-3);
+        }
+    }
+
+    #[test]
+    fn cues_are_short_quiet_and_fade_to_nothing() {
+        for cue in [
+            world_gpui::Cue::Flip,
+            world_gpui::Cue::Turn,
+            world_gpui::Cue::Built,
+        ] {
+            let samples = cue_samples(cue);
+            assert!(
+                !samples.is_empty() && samples.len() <= SAMPLE_RATE as usize,
+                "{cue:?}"
+            );
+            let peak = samples
+                .iter()
+                .map(|sample| sample.unsigned_abs())
+                .max()
+                .unwrap();
+            assert!(peak > 500 && peak < i16::MAX as u16 / 2, "{cue:?}: {peak}");
+            let tail = samples[samples.len() * 9 / 10..]
+                .iter()
+                .map(|sample| sample.unsigned_abs())
+                .max()
+                .unwrap();
+            assert!(
+                tail < peak / 8,
+                "{cue:?} should have died away: {tail} of {peak}"
+            );
+            assert_eq!(samples, cue_samples(cue));
         }
     }
 

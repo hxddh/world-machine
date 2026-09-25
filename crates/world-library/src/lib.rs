@@ -56,7 +56,7 @@ impl fmt::Display for WorldDocumentId {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct WorldDocumentSummary {
     pub id: WorldDocumentId,
     pub pack: WorldPackRef,
@@ -70,6 +70,8 @@ pub struct WorldDocumentSummary {
     pub display_marks: Vec<world_projection::MarkShape>,
     /// Whether it moves on by itself between visits.
     pub display_moves_alone: bool,
+    /// Its people, places and things as it last stood, for its cover.
+    pub display_cast: Vec<world_projection::CanvasItem>,
     pub world_time: u64,
     pub event_count: usize,
 }
@@ -85,7 +87,7 @@ pub struct UnreadableWorldFile {
 
 /// Everything the Worlds folder holds: the Worlds that can be opened, and the
 /// files that look like Worlds but cannot be read.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct WorldLibraryListing {
     pub documents: Vec<WorldDocumentSummary>,
     pub unreadable: Vec<UnreadableWorldFile>,
@@ -684,6 +686,70 @@ pub fn describe_from_snapshot(
         .map(|mark| mark_shape_name(mark.shape).to_owned())
         .collect();
     metadata.display_moves_alone = snapshot.capabilities.background;
+    metadata.display_cast = snapshot
+        .canvas
+        .items
+        .iter()
+        .map(|item| {
+            let look = item.look.unwrap_or_default();
+            world_document::DocumentFigure {
+                id: item.id.stable_key(),
+                kind: match item.kind {
+                    world_projection::CanvasItemKind::Place => "place",
+                    world_projection::CanvasItemKind::Actor => "person",
+                    world_projection::CanvasItemKind::Object => "thing",
+                }
+                .into(),
+                shape: item.shape.map(|shape| mark_shape_name(shape).to_owned()),
+                at: item.at.map(|at| at.stable_key()),
+                x: (item.x.clamp(0.0, 1.0) * 1000.0).round() as u16,
+                clothes: look.clothes,
+                hair: look.hair,
+                skin: look.skin,
+                bird: look.bird,
+            }
+        })
+        .collect();
+}
+
+/// A World's stage as its file remembers it, ready to draw.
+fn cast_from_document(
+    cast: &[world_document::DocumentFigure],
+) -> Vec<world_projection::CanvasItem> {
+    use world_projection::{CanvasItem, CanvasItemKind, Look, SelectionId};
+    cast.iter()
+        .filter_map(|figure| {
+            let kind = match figure.kind.as_str() {
+                "place" => CanvasItemKind::Place,
+                "person" => CanvasItemKind::Actor,
+                "thing" => CanvasItemKind::Object,
+                _ => return None,
+            };
+            let look = (figure.clothes.is_some()
+                || figure.hair.is_some()
+                || figure.skin.is_some()
+                || figure.bird)
+                .then_some(Look {
+                    clothes: figure.clothes,
+                    hair: figure.hair,
+                    skin: figure.skin,
+                    carries: None,
+                    bird: figure.bird,
+                });
+            Some(CanvasItem {
+                id: SelectionId::from_stable_key(&figure.id)?,
+                kind,
+                label: String::new(),
+                detail: String::new(),
+                x: f32::from(figure.x.min(1000)) / 1000.0,
+                y: 0.5,
+                changes: Vec::new(),
+                shape: figure.shape.as_deref().map(mark_shape_from_name),
+                at: figure.at.as_deref().and_then(SelectionId::from_stable_key),
+                look,
+            })
+        })
+        .collect()
 }
 
 fn mark_shape_name(shape: world_projection::MarkShape) -> &'static str {
@@ -819,6 +885,7 @@ fn summary(id: WorldDocumentId, document: &WorldDocument) -> WorldDocumentSummar
             .map(|name| mark_shape_from_name(name))
             .collect(),
         display_moves_alone: document.metadata.display_moves_alone,
+        display_cast: cast_from_document(&document.metadata.display_cast),
         world_time: document.archive.world_time,
         event_count: document.archive.events.len(),
     }

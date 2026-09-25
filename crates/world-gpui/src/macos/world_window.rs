@@ -27,6 +27,8 @@ const BEAT_SECONDS: f32 = 5.2;
 const ANSWER_SECONDS: f32 = 9.0;
 /// How long the camera takes to move.
 const CAMERA_SECONDS: f32 = 0.9;
+/// How long a gauge takes to slide to where a turn left it.
+const GAUGE_SECONDS: f32 = 0.9;
 /// How long something new takes to rise.
 const RISE_SECONDS: f32 = 1.1;
 
@@ -298,7 +300,22 @@ impl ProjectionView {
         .detach();
     }
 
+    fn cue(&mut self, cue: crate::Cue) {
+        if let Some(controller) = self.controller.as_mut() {
+            controller.cue(cue);
+        }
+    }
+
     pub(crate) fn turn_landed(&mut self) {
+        let built = self
+            .before_turn
+            .as_ref()
+            .is_some_and(|before| before.canvas.marks.len() < self.snapshot.canvas.marks.len());
+        self.cue(if built {
+            crate::Cue::Built
+        } else {
+            crate::Cue::Turn
+        });
         self.looking.turn_at = Some(Instant::now());
         self.looking.card = 0;
         self.looking.card_back = false;
@@ -313,6 +330,7 @@ impl ProjectionView {
         }
         self.looking.card = (self.looking.card as isize + by).rem_euclid(count as isize) as usize;
         self.looking.card_back = false;
+        self.cue(crate::Cue::Flip);
         cx.notify();
     }
 
@@ -767,7 +785,18 @@ impl ProjectionView {
                     .find(|step| step.gauge == gauge.id)
                     .map(|step| step.by)
             });
-            gauges = gauges.child(hud_gauge(gauge, by));
+            // A gauge a turn moved slides from where it stood.
+            let before = self
+                .before_turn
+                .as_ref()
+                .and_then(|before| before.gauges.iter().find(|old| old.id == gauge.id))
+                .map(|old| old.value);
+            let settle = (since(self.looking.turn_at) / GAUGE_SECONDS).clamp(0.0, 1.0);
+            let shown = match before {
+                Some(old) => old + (gauge.value - old) * (settle * settle * (3.0 - 2.0 * settle)),
+                None => gauge.value,
+            };
+            gauges = gauges.child(hud_gauge(gauge, shown, by));
         }
         let mut right = div().flex().items_center().gap_2();
         if self.snapshot.world_time > 0 {
@@ -1173,10 +1202,10 @@ fn pill() -> Div {
 
 /// A gauge as a pill: its name and a short bar, and while a choice is on
 /// the table which way the choice would move it and where it would end.
-fn hud_gauge(gauge: &world_projection::Gauge, by: Option<i32>) -> Div {
+fn hud_gauge(gauge: &world_projection::Gauge, shown: f32, by: Option<i32>) -> Div {
     const BAR: f32 = 64.0;
     let fill: Hsla = color(scene::tone_token(gauge.tone)).into();
-    let now = gauge.value.clamp(0.0, 1.0);
+    let now = shown.clamp(0.0, 1.0);
     let then = by.map(|by| (now + by as f32 / 1000.0).clamp(0.0, 1.0));
     let mut bar = div()
         .relative()

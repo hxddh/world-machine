@@ -128,10 +128,12 @@ fn pairs(snapshot: &ProjectionSnapshot) -> Vec<(SelectionId, SelectionId)> {
 /// else. The same World always lays out the same.
 pub fn stage(snapshot: &ProjectionSnapshot, width: f32, height: f32) -> Stage {
     let items = &snapshot.canvas.items;
-    let width = width.max(320.0);
-    let height = height.max(320.0);
-    let building_h = (height * 0.19).clamp(92.0, 176.0);
-    let figure_h = (height * 0.092).clamp(52.0, 84.0);
+    let width = width.max(120.0);
+    let height = height.max(90.0);
+    // A window's stage keeps its people big enough to see; a cover's
+    // shrinks everything with it.
+    let building_h = (height * 0.19).min(176.0).max((height * 0.3).min(92.0));
+    let figure_h = (height * 0.092).min(84.0).max((height * 0.14).min(52.0));
     let index_of = items
         .iter()
         .enumerate()
@@ -729,6 +731,9 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window) {
     let t = frame.seconds;
     let night = frame.daylight == Daylight::Night;
     let horizon = oy + frame.horizon;
+    // Sun, moon and clouds keep their size relative to the stage, so a
+    // cover is the same picture as a window, only smaller.
+    let k = (height / 848.0).clamp(0.3, 1.3);
 
     // Sky, over everything; the light of the hour laid on top of it.
     window.paint_quad(gpui::fill(
@@ -774,18 +779,18 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window) {
                 gpui::white().opacity(0.4 + 0.5 * twinkle),
             );
         }
-        art::circle(window, sun_x, sun_y, 22.0, art::hex(0xf4f1e6));
+        art::circle(window, sun_x, sun_y, 22.0 * k, art::hex(0xf4f1e6));
         art::circle(
             window,
-            sun_x + 8.0,
-            sun_y - 5.0,
-            20.0,
+            sun_x + 8.0 * k,
+            sun_y - 5.0 * k,
+            20.0 * k,
             art::hex(0x0e1436).opacity(0.9),
         );
     } else {
         let sun = art::hex(scenery.sun);
-        art::circle(window, sun_x, sun_y, 58.0, sun.opacity(0.18));
-        art::circle(window, sun_x, sun_y, 36.0, sun);
+        art::circle(window, sun_x, sun_y, 58.0 * k, sun.opacity(0.18));
+        art::circle(window, sun_x, sun_y, 36.0 * k, sun);
     }
     // Clouds drifting across, slowly, each at its own pace.
     let cloud = if night {
@@ -798,7 +803,7 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window) {
         let span = width + 320.0;
         let x = ox + ((index as f32 * 331.0 + t * speed) % span) - 160.0;
         let y = oy + frame.horizon * (0.16 + 0.14 * index as f32);
-        let s = 1.0 - index as f32 * 0.12;
+        let s = (1.0 - index as f32 * 0.12) * k;
         art::ellipse(window, x, y, 46.0 * s, 16.0 * s, cloud);
         art::ellipse(window, x + 30.0 * s, y - 8.0 * s, 32.0 * s, 16.0 * s, cloud);
         art::ellipse(window, x - 28.0 * s, y + 2.0 * s, 26.0 * s, 11.0 * s, cloud);
@@ -964,6 +969,54 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window) {
         art::paint_bond(window, ox + x, oy + y, *r, *tone);
     }
     let _ = frame.zoom;
+}
+
+/// A World's cover: its landscape, what it has built, and its people and
+/// buildings as it last stood, drawn the way its window draws them.
+pub fn cover(
+    scenery: Option<Scenery>,
+    marks: &[MarkShape],
+    cast: Vec<CanvasItem>,
+) -> gpui::Canvas<()> {
+    let snapshot = ProjectionSnapshot {
+        scenery,
+        canvas: world_projection::CanvasProjection {
+            items: cast,
+            links: Vec::new(),
+            marks: marks
+                .iter()
+                .map(|shape| world_projection::CanvasMark {
+                    label: String::new(),
+                    shape: *shape,
+                    selection: None,
+                })
+                .collect(),
+        },
+        ..ProjectionSnapshot::default()
+    };
+    let daylight = crate::scene::daylight_now();
+    gpui::canvas(
+        |_, _, _| (),
+        move |bounds, _, window, _| {
+            let stage = stage(
+                &snapshot,
+                f32::from(bounds.size.width),
+                f32::from(bounds.size.height),
+            );
+            let people = living(&stage, &snapshot, 0.0, daylight, &BTreeSet::new(), None);
+            let frame = frame(
+                &snapshot,
+                &stage,
+                &people,
+                Camera::whole(&stage),
+                0.0,
+                daylight,
+                &Glows::new(),
+                1.0,
+            );
+            paint(&frame, bounds, window);
+        },
+    )
 }
 
 #[cfg(test)]

@@ -27,6 +27,35 @@ pub struct WorldDocumentMetadata {
     /// Whether the World moves on by itself between visits.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub display_moves_alone: bool,
+    /// Who and what stands in the World, as its Pack last drew it, so its
+    /// cover can show its own people and buildings.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub display_cast: Vec<DocumentFigure>,
+}
+
+/// One person, place or thing on a World's stage, as its cover draws it.
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub struct DocumentFigure {
+    /// Stable within the World, such as `entity-11`.
+    pub id: String,
+    /// `place`, `person` or `thing`.
+    pub kind: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shape: Option<String>,
+    /// The id of wherever it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at: Option<String>,
+    /// Where the Pack put it left to right, in thousandths of the stage.
+    #[serde(default)]
+    pub x: u16,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clothes: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hair: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skin: Option<u32>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub bird: bool,
 }
 
 impl WorldDocumentMetadata {
@@ -38,6 +67,7 @@ impl WorldDocumentMetadata {
             && self.display_calendar.is_none()
             && self.display_marks.is_empty()
             && !self.display_moves_alone
+            && self.display_cast.is_empty()
     }
 }
 

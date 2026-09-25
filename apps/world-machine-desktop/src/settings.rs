@@ -430,9 +430,9 @@ impl Render for SettingsView {
                             .flex()
                             .flex_col()
                             .gap_1()
-                            .child(ui::row_title("Ambient sound"))
+                            .child(ui::row_title("Sound"))
                             .child(ui::caption(
-                                "The World in front plays its landscape's quiet sound: wind, and a low hum of its ground.",
+                                "The World in front plays its landscape's quiet sound, and a soft tick, bell or chime as cards turn, turns pass and things are built.",
                             )),
                     )
                     .child(

@@ -265,6 +265,10 @@ impl world_gpui::ProjectionController for HostProjectionController {
         self.document.borrow().session.snapshot()
     }
 
+    fn cue(&mut self, cue: world_gpui::Cue) {
+        ambience::player::cue(cue);
+    }
+
     fn handle(
         &mut self,
         intent: world_gpui::ProjectionIntent,
@@ -844,6 +848,8 @@ struct WorldMachineHome {
     renaming: Option<RenameDraft>,
     /// The World whose removal is waiting for a second click.
     pending_removal: Option<WorldDocumentId>,
+    /// The World whose ⋯ menu is open on Home.
+    card_menu: Option<WorldDocumentId>,
     /// How My Worlds is ordered, for this run of the app.
     world_sort: WorldSort,
     /// What was typed into Find a World.
@@ -2150,9 +2156,6 @@ impl WorldMachineHome {
             .flex_col()
             .gap_1()
             .child(ui::heading(title.clone()).truncate());
-        if let Some(summary) = world_summary_description(&document) {
-            details = details.child(ui::body(summary).line_clamp(2));
-        }
         // What a person needs to tell their Worlds apart: which kind of World
         // it is and how far it has lived. Event counts and file ids are the
         // archive's business; the World's own window still shows the file.
@@ -2262,78 +2265,83 @@ impl WorldMachineHome {
                     ),
             );
         }
-        let actions = (!renaming_this_world && !removing_this_world).then(|| {
-            div()
-                .flex()
-                .flex_wrap()
-                .items_center()
-                .gap_3()
-                .child(
-                    card_link(format!("compare-{compare_id}"), "What if…").on_click(cx.listener(
-                        move |this, _, _, cx| this.compare_document(compare_id.clone(), cx),
-                    )),
-                )
-                .child(
-                    card_link(format!("rename-{document_label}"), "Rename").on_click(
-                        cx.listener(move |this, _, _, cx| this.begin_rename(rename_id.clone(), cx)),
-                    ),
-                )
-                .child(
-                    card_link(format!("export-{export_id}"), "Export…").on_click(cx.listener(
-                        move |this, _, _, cx| this.export_document(export_id.clone(), cx),
-                    )),
-                )
-                .child(
-                    card_link(format!("remove-{document_label}"), "Remove").on_click(cx.listener(
-                        move |this, _, _, cx| this.request_removal(remove_id.clone(), cx),
-                    )),
-                )
-        });
-
-        // Where this World came from and what branched from it, as links
-        // in a sentence rather than file ids and "+10".
-        if let Some(node) = lineage_node {
-            if let Some(parent) = node.parent.as_ref() {
-                let choice = node.branch.as_ref().and_then(lineage_choice);
-                let mut origin = div()
-                    .flex()
-                    .flex_wrap()
-                    .items_center()
-                    .gap_1()
-                    .text_xs()
-                    .text_color(ui::color(tokens::TEXT_SECONDARY))
-                    .child("A branch of");
-                match parent.resolved.clone() {
-                    Some(parent_id) => {
-                        let parent_title = self
-                            .document_title_for_id(&parent_id)
-                            .unwrap_or_else(|| parent_id.to_string());
-                        let open_parent = parent_id.clone();
-                        origin = origin.child(
-                            card_link_text(
-                                format!("lineage-parent-{document_label}-{parent_id}"),
-                                parent_title,
-                            )
-                            .on_click(cx.listener(
-                                move |this, _, _, cx| this.open_document(open_parent.clone(), cx),
-                            )),
-                        );
-                    }
-                    None => {
-                        origin = origin.child("a World that is no longer here");
-                    }
+        // What else can be done with a World waits behind its ⋯ and a
+        // right-click, so the shelf is covers, not rows of links.
+        let menu_open = self.card_menu.as_ref() == Some(&document.id)
+            && !renaming_this_world
+            && !removing_this_world;
+        let parent = lineage_node
+            .as_ref()
+            .and_then(|node| node.parent.as_ref())
+            .and_then(|parent| parent.resolved.clone());
+        let menu =
+            menu_open.then(|| {
+                let item = |id: String, label: &'static str| {
+                    div()
+                        .id(SharedString::from(id))
+                        .px_3()
+                        .py_2()
+                        .rounded_md()
+                        .text_sm()
+                        .cursor_pointer()
+                        .hover(|style| style.bg(ui::color(tokens::ROW_HOVER)))
+                        .child(label)
+                };
+                let mut menu =
+                    div()
+                        .id(SharedString::from(format!("menu-{document_label}")))
+                        .absolute()
+                        .top(px(6.0))
+                        .right(px(44.0))
+                        .w(px(200.0))
+                        .p_1()
+                        .rounded_lg()
+                        .bg(ui::color(tokens::SURFACE))
+                        .border_1()
+                        .border_color(ui::color(tokens::BORDER))
+                        .shadow_lg()
+                        .flex()
+                        .flex_col()
+                        .on_click(|_, _, cx| cx.stop_propagation())
+                        .child(item(format!("compare-{compare_id}"), "What if…").on_click(
+                            cx.listener(move |this, _, _, cx| {
+                                this.card_menu = None;
+                                this.compare_document(compare_id.clone(), cx)
+                            }),
+                        ))
+                        .child(item(format!("rename-{document_label}"), "Rename").on_click(
+                            cx.listener(move |this, _, _, cx| {
+                                this.card_menu = None;
+                                this.begin_rename(rename_id.clone(), cx)
+                            }),
+                        ))
+                        .child(item(format!("export-{export_id}"), "Export…").on_click(
+                            cx.listener(move |this, _, _, cx| {
+                                this.card_menu = None;
+                                this.export_document(export_id.clone(), cx)
+                            }),
+                        ));
+                if let Some(parent_id) = parent.clone() {
+                    menu = menu.child(
+                        item(
+                            format!("lineage-parent-{document_label}"),
+                            "Where it branched from",
+                        )
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.card_menu = None;
+                            this.open_document(parent_id.clone(), cx)
+                        })),
+                    );
                 }
-                if let Some(choice) = choice {
-                    origin = origin.child(format!("by choosing “{choice}”"));
-                }
-                details = details.child(origin);
-            }
-        }
-
-        // What else can be done with it, along the card's foot.
-        if let Some(actions) = actions {
-            details = details.child(div().pt_2().child(actions));
-        }
+                menu.child(
+                    item(format!("remove-{document_label}"), "Remove")
+                        .text_color(ui::color(tokens::DANGER))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.card_menu = None;
+                            this.request_removal(remove_id.clone(), cx)
+                        })),
+                )
+            });
 
         // How long the World has been living without you, when it lives on
         // its own: what opening it will catch up on.
@@ -2353,15 +2361,25 @@ impl WorldMachineHome {
             .w_full()
             .h(px(WORLD_COVER_HEIGHT))
             .cursor_pointer()
-            .child(
+            .child(if document.display_cast.is_empty() {
                 ui::living_cover(
                     document.display_scenery.as_ref(),
                     &title,
                     document.id.as_str(),
                     &document.display_marks,
                 )
-                .size_full(),
-            )
+                .size_full()
+                .into_any_element()
+            } else {
+                // Its own people and buildings, as it last stood.
+                world_gpui::diorama::cover(
+                    document.display_scenery,
+                    &document.display_marks,
+                    document.display_cast.clone(),
+                )
+                .size_full()
+                .into_any_element()
+            })
             .on_click(cx.listener({
                 let open_id = open_id.clone();
                 move |this, _, _, cx| this.open_document(open_id.clone(), cx)
@@ -2414,8 +2432,53 @@ impl WorldMachineHome {
             );
         }
 
+        let menu_id = document.id.clone();
+        cover = cover.child(
+            div()
+                .id(SharedString::from(format!("more-{document_label}")))
+                .absolute()
+                .top_2()
+                .right_2()
+                .size(px(30.0))
+                .rounded_full()
+                .bg(ui::color(tokens::SURFACE))
+                .shadow_sm()
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_color(ui::color(tokens::TEXT_SECONDARY))
+                .cursor_pointer()
+                .when(!menu_open, |more| {
+                    more.opacity(0.0).group_hover(
+                        SharedString::from(format!("card-{document_label}")),
+                        |style| style.opacity(1.0),
+                    )
+                })
+                .child("⋯")
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    cx.stop_propagation();
+                    this.card_menu = if this.card_menu.as_ref() == Some(&menu_id) {
+                        None
+                    } else {
+                        Some(menu_id.clone())
+                    };
+                    cx.notify();
+                })),
+        );
+        if let Some(menu) = menu {
+            cover = cover.child(menu);
+        }
+        let right_click_id = document.id.clone();
         div()
             .id(SharedString::from(format!("document-{document_label}")))
+            .group(SharedString::from(format!("card-{document_label}")))
+            .on_mouse_down(
+                gpui::MouseButton::Right,
+                cx.listener(move |this, _, _, cx| {
+                    this.card_menu = Some(right_click_id.clone());
+                    cx.notify();
+                }),
+            )
             .w_full()
             .min_w(px(0.0))
             .rounded_xl()
@@ -3208,7 +3271,7 @@ impl Render for WorldMachineHome {
                         .child(note),
                 );
             }
-            if pack_filters.len() > 1 {
+            if show_world_controls && pack_filters.len() > 1 {
                 body = body.child(world_filters);
             }
             body = body.child(saved);
@@ -3354,7 +3417,7 @@ impl WorldSort {
 /// Beyond this many Worlds the list needs finding and ordering; below it the
 /// controls would be clutter on a screen that shows every World at once.
 #[cfg(target_os = "macos")]
-const WORLD_SEARCH_THRESHOLD: usize = 6;
+const WORLD_SEARCH_THRESHOLD: usize = 10;
 
 #[cfg(target_os = "macos")]
 fn normalize_world_search(query: &str) -> String {
@@ -3483,7 +3546,7 @@ fn has_begun(document: &WorldDocumentSummary) -> bool {
 
 /// How tall a World's cover stands on Home.
 #[cfg(target_os = "macos")]
-const WORLD_COVER_HEIGHT: f32 = 150.0;
+const WORLD_COVER_HEIGHT: f32 = 196.0;
 
 /// How long a World has been living without you, in its own unit:
 /// "1 sol has passed", "3 nights have passed".
@@ -3524,31 +3587,6 @@ fn world_card_meta(
     } else {
         format!("{pack_title} · {age}")
     }
-}
-
-/// A World's name as a link inside a sentence on a card.
-#[cfg(target_os = "macos")]
-fn card_link_text(id: String, text: String) -> gpui::Stateful<gpui::Div> {
-    div()
-        .id(SharedString::from(id))
-        .cursor_pointer()
-        .font_weight(gpui::FontWeight::MEDIUM)
-        .text_color(ui::color(tokens::ACCENT_TEXT))
-        .hover(|link| link.text_color(ui::color(tokens::ACCENT_HOVER)))
-        .child(text)
-}
-
-/// A quiet text action on a card: present, but never louder than the card.
-#[cfg(target_os = "macos")]
-fn card_link(id: String, label: &'static str) -> gpui::Stateful<gpui::Div> {
-    div()
-        .id(SharedString::from(id))
-        .cursor_pointer()
-        .text_xs()
-        .font_weight(gpui::FontWeight::MEDIUM)
-        .text_color(ui::color(tokens::TEXT_SECONDARY))
-        .hover(|style| style.text_color(ui::color(tokens::ACCENT_TEXT)))
-        .child(label)
 }
 
 #[cfg(target_os = "macos")]
@@ -3644,14 +3682,6 @@ fn format_program_size(bytes: u64) -> String {
         format!("{:.1} KiB · {bytes} bytes", bytes as f64 / KIB as f64)
     } else {
         format!("{bytes} bytes")
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn lineage_choice(branch: &WorldBranchCause) -> Option<String> {
-    match branch {
-        WorldBranchCause::Strategy { choice_title, .. } => Some(choice_title.clone()),
-        WorldBranchCause::Fork { label } => label.clone(),
     }
 }
 
@@ -3949,6 +3979,7 @@ mod file_type_tests {
             display_calendar: None,
             display_marks: Vec::new(),
             display_moves_alone: false,
+            display_cast: Vec::new(),
             world_time: 0,
             event_count: 0,
         };
@@ -4029,6 +4060,7 @@ mod file_type_tests {
             display_calendar: None,
             display_marks: Vec::new(),
             display_moves_alone: false,
+            display_cast: Vec::new(),
             world_time: 0,
             event_count: 0,
         };
@@ -4078,6 +4110,7 @@ mod file_type_tests {
             display_calendar: None,
             display_marks: Vec::new(),
             display_moves_alone: false,
+            display_cast: Vec::new(),
             world_time: 3,
             event_count: 7,
         };
@@ -4151,6 +4184,7 @@ mod file_type_tests {
                     display_calendar: None,
                     display_marks: Vec::new(),
                     display_moves_alone: false,
+                    display_cast: Vec::new(),
                     world_time: 0,
                     event_count: 0,
                 },
@@ -4449,6 +4483,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 unreadable_documents,
                 renaming: None,
                 pending_removal: None,
+                card_menu: None,
                 world_sort: WorldSort::Recent,
                 world_search,
                 step_aside_for_first_world: false,
