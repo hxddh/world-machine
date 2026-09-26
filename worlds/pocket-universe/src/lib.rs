@@ -43,6 +43,11 @@ pub const RECOVER_ANCHOR_COMMAND: &str = "pocket-universe.pressure-recover";
 pub const ENTRUST_LEGACY_COMMAND: &str = "pocket-universe.succession-entrust";
 pub const RELEASE_LEGACY_COMMAND: &str = "pocket-universe.succession-release";
 
+/// How many of the latest events each of the pair is shown when deciding
+/// what to do: enough for any mind to know what just happened, and the same
+/// however long the World has lived.
+const RECENTLY_SEEN: usize = 64;
+
 pub(crate) const UNIVERSE: EntityId = EntityId::new(1);
 pub(crate) const SLOT_A: EntityId = EntityId::new(10);
 pub(crate) const SLOT_B: EntityId = EntityId::new(11);
@@ -457,7 +462,8 @@ where
         ];
         let execution = AgentExecutor::decide_and_execute(
             mind,
-            &ScopedPerception::new([UNIVERSE, SLOT_A, SLOT_B, SLOT_E, RELATIONSHIP]),
+            &ScopedPerception::new([UNIVERSE, SLOT_A, SLOT_B, SLOT_E, RELATIONSHIP])
+                .with_recent_events(RECENTLY_SEEN),
             world,
             registry,
             actor,

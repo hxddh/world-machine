@@ -81,6 +81,30 @@ fn scoped_perception_only_exposes_selected_entities() {
 }
 
 #[test]
+fn recent_perception_sees_only_the_latest_events() {
+    let (mut world, registry) = fixture();
+    for _ in 0..5 {
+        world
+            .execute(
+                &registry,
+                &ActionRequest::new("set_flag").arg("target", VISIBLE),
+            )
+            .unwrap();
+    }
+    let all = ScopedPerception::new([VISIBLE])
+        .observe(&world, ACTOR)
+        .unwrap();
+    let recent = ScopedPerception::new([VISIBLE])
+        .with_recent_events(2)
+        .observe(&world, ACTOR)
+        .unwrap();
+
+    assert!(all.events.len() > 2);
+    assert_eq!(recent.events.len(), 2);
+    assert_eq!(recent.events, all.events[all.events.len() - 2..]);
+}
+
+#[test]
 fn agent_decision_is_recorded_and_replay_does_not_call_runtime() {
     let (mut world, registry) = fixture();
     let mut runtime = MockAgentRuntime::scripted(["set_flag"]);

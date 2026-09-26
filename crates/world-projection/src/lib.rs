@@ -1521,13 +1521,24 @@ pub fn inspectors_from_world(world: &World) -> BTreeMap<SelectionId, InspectorPr
             inspector_for_relation(recorded, world),
         );
     }
-    for event in world.events() {
+    for event in recent_events(world) {
         inspectors.insert(
             SelectionId::Event(event.id),
             inspector_for_event(event, world),
         );
     }
     inspectors
+}
+
+/// How many of a World's latest events a snapshot describes in full, with
+/// a detail panel and a chain of causes each. Older ones stay in its
+/// history; a long-lived World's snapshot costs no more than a young one's.
+pub const RECENT_EVENTS: usize = 400;
+
+/// A World's latest [`RECENT_EVENTS`] events.
+pub fn recent_events(world: &World) -> &[Event] {
+    let events = world.events();
+    &events[events.len().saturating_sub(RECENT_EVENTS)..]
 }
 
 pub fn entity_title(entity: &Entity) -> String {

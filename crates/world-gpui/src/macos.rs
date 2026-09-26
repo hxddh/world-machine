@@ -1042,10 +1042,22 @@ impl ProjectionView {
         let SelectionId::Event(event) = self.selected? else {
             return None;
         };
-        let why = self.snapshot.why(event)?;
+        // An older event carries no chain of causes in the snapshot, but
+        // can still be branched from.
+        let why = self.snapshot.why(event);
+        if why.is_none()
+            && !self
+                .snapshot
+                .timeline
+                .items
+                .iter()
+                .any(|item| item.id == SelectionId::Event(event))
+        {
+            return None;
+        }
 
         let mut nodes = div().flex().flex_col().gap(px(2.0));
-        for node in why.nodes.iter().take(10) {
+        for node in why.iter().flat_map(|why| why.nodes.iter().take(10)) {
             nodes = nodes.child(self.why_node(node, cx));
         }
 

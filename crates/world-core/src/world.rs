@@ -108,7 +108,13 @@ impl World {
     }
 
     pub fn event(&self, id: EventId) -> Option<&Event> {
-        self.events.iter().find(|event| event.id == id)
+        // Recorded events carry ascending ids, so a binary search finds one
+        // without reading the whole history; a history loaded in some other
+        // order still finds it by looking at every event.
+        match self.events.binary_search_by_key(&id, |event| event.id) {
+            Ok(index) => Some(&self.events[index]),
+            Err(_) => self.events.iter().find(|event| event.id == id),
+        }
     }
 
     pub fn scheduler(&self) -> &Scheduler {

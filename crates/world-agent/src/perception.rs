@@ -26,6 +26,7 @@ pub trait PerceptionPolicy {
 #[derive(Clone, Debug, Default)]
 pub struct ScopedPerception {
     visible_entities: BTreeSet<EntityId>,
+    recent_events: Option<usize>,
 }
 
 impl ScopedPerception {
@@ -39,7 +40,16 @@ impl ScopedPerception {
     {
         Self {
             visible_entities: visible_entities.into_iter().collect(),
+            recent_events: None,
         }
+    }
+
+    /// Sees only the latest `count` of the events it would otherwise see,
+    /// so what an actor is shown stays the same size however long the
+    /// World has lived.
+    pub fn with_recent_events(mut self, count: usize) -> Self {
+        self.recent_events = Some(count);
+        self
     }
 }
 
@@ -64,15 +74,30 @@ impl PerceptionPolicy for ScopedPerception {
             .filter(|relation| visible.contains(&relation.from) && visible.contains(&relation.to))
             .cloned()
             .collect();
-        let events = world
-            .events()
-            .iter()
-            .filter(|event| {
-                event.actor.is_some_and(|id| visible.contains(&id))
-                    || event.targets.iter().any(|id| visible.contains(id))
-            })
-            .map(ObservedEvent::from)
-            .collect();
+        let seen = |event: &&world_core::Event| {
+            event.actor.is_some_and(|id| visible.contains(&id))
+                || event.targets.iter().any(|id| visible.contains(id))
+        };
+        let events = match self.recent_events {
+            Some(count) => {
+                let mut latest = world
+                    .events()
+                    .iter()
+                    .rev()
+                    .filter(seen)
+                    .take(count)
+                    .map(ObservedEvent::from)
+                    .collect::<Vec<_>>();
+                latest.reverse();
+                latest
+            }
+            None => world
+                .events()
+                .iter()
+                .filter(seen)
+                .map(ObservedEvent::from)
+                .collect(),
+        };
 
         Ok(AgentObservation {
             actor,
