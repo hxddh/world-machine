@@ -3866,8 +3866,9 @@ dependencies = [
 
 [[package]]
 name = "pocket-universe"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
+ "storylets",
  "world-agent",
  "world-compare",
  "world-core",
@@ -3881,7 +3882,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-universe-pack"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "pocket-universe",
  "serde_json",
@@ -4989,6 +4990,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
+name = "storylets"
+version = "0.1.0"
+dependencies = [
+ "world-core",
+]
+
+[[package]]
 name = "strategy-comparison-desktop"
 version = "0.1.0"
 dependencies = [
@@ -5377,10 +5385,11 @@ dependencies = [
 
 [[package]]
 name = "tiny-society"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "serde_json",
  "society-basic",
+ "storylets",
  "world-agent",
  "world-core",
  "world-gpui",
@@ -5403,7 +5412,7 @@ dependencies = [
 
 [[package]]
 name = "tiny-society-pack"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "tiny-society",
  "world-host",
@@ -6789,7 +6798,7 @@ dependencies = [
 
 [[package]]
 name = "world-machine-desktop"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "gpui",
  "gpui_platform",

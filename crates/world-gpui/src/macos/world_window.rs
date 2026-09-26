@@ -49,6 +49,31 @@ pub(crate) struct Looking {
     pub(crate) camera_at: Option<Instant>,
     pub(crate) focus: Option<gpui::FocusHandle>,
     pub(crate) ticking: bool,
+    /// The last chapter whose ending card the player has turned past.
+    pub(crate) chapter_read: Option<u32>,
+}
+
+/// The chapter that has just ended, if the player has not turned past its
+/// card yet: one that closed within the last period.
+pub(crate) fn chapter_just_ended(
+    snapshot: &ProjectionSnapshot,
+    read: Option<u32>,
+) -> Option<&world_projection::Chapter> {
+    let chapter = snapshot.chapters.last()?;
+    if read.is_some_and(|read| read >= chapter.number) {
+        return None;
+    }
+    let length = snapshot
+        .calendar
+        .as_ref()
+        .map_or(1, |calendar| calendar.length);
+    let ended = snapshot
+        .timeline
+        .items
+        .iter()
+        .find(|item| Some(item.id) == chapter.moment)?
+        .world_time;
+    (ended + length >= snapshot.world_time).then_some(chapter)
 }
 
 fn since(at: Option<Instant>) -> f32 {
@@ -744,6 +769,8 @@ impl ProjectionView {
                 };
             let card = if self.retelling.is_some() {
                 self.render_retelling(cx)
+            } else if let Some(chapter) = self.render_chapter_end(cx) {
+                Some(chapter)
             } else {
                 self.render_card(cx)
             };
@@ -987,6 +1014,118 @@ impl ProjectionView {
         )))
     }
 
+    /// A chapter's ending, as a card of its own: its title, how it went,
+    /// and the way on into the next.
+    fn render_chapter_end(&self, cx: &mut Context<Self>) -> Option<Div> {
+        self.controller.as_ref()?;
+        let chapter = chapter_just_ended(&self.snapshot, self.looking.chapter_read)?;
+        let number = chapter.number;
+        let card = div()
+            .p_6()
+            .rounded_2xl()
+            .bg(color(tokens::SURFACE))
+            .shadow_lg()
+            .border_1()
+            .border_color(color(tokens::BORDER))
+            .flex()
+            .flex_col()
+            .items_center()
+            .gap_3()
+            .child(ui::caption(format!("Chapter {number} ends")))
+            .child(
+                div()
+                    .text_2xl()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(chapter.title.clone()),
+            )
+            .child(
+                div()
+                    .text_center()
+                    .text_color(color(tokens::TEXT_SECONDARY))
+                    .child(chapter.summary.clone()),
+            )
+            .child(
+                div().pt_2().child(
+                    ui::button(
+                        "chapter-next",
+                        format!("Begin chapter {}", number + 1),
+                        ButtonKind::Primary,
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.looking.chapter_read = Some(number);
+                        cx.notify();
+                    })),
+                ),
+            );
+        Some(div().child(ui::arrive(card, format!("chapter-{number}"), 0)))
+    }
+
+    /// The story so far, chapter by chapter, and what the World is building,
+    /// for the drawer.
+    pub(crate) fn render_chapters(&self) -> Option<Div> {
+        if self.snapshot.chapters.is_empty() && self.snapshot.goals.is_empty() {
+            return None;
+        }
+        let mut book = div().flex().flex_col().gap_4();
+        if !self.snapshot.goals.is_empty() {
+            let mut goals = div()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(ui::section_label("Building".to_string()));
+            for goal in &self.snapshot.goals {
+                let mut pips = div().flex().gap_1();
+                for part in 0..goal.parts {
+                    pips = pips.child(div().size(px(7.0)).rounded_full().bg(color(
+                        if part < goal.done {
+                            tokens::ACCENT
+                        } else {
+                            tokens::BORDER_STRONG
+                        },
+                    )));
+                }
+                goals = goals.child(
+                    div()
+                        .px_3()
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .child(div().text_sm().child(goal.label.clone()))
+                        .child(pips),
+                );
+            }
+            book = book.child(goals);
+        }
+        if !self.snapshot.chapters.is_empty() {
+            let mut chapters = div()
+                .flex()
+                .flex_col()
+                .gap_3()
+                .child(ui::section_label(format!(
+                    "Chapters · {}",
+                    self.snapshot.chapters.len()
+                )));
+            for chapter in self.snapshot.chapters.iter().rev() {
+                chapters = chapters.child(
+                    div()
+                        .px_3()
+                        .flex()
+                        .flex_col()
+                        .gap_1()
+                        .child(ui::caption(format!("Chapter {}", chapter.number)))
+                        .child(
+                            div()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child(chapter.title.clone()),
+                        )
+                        .child(ui::detail(chapter.summary.clone())),
+                );
+            }
+            book = book.child(chapters);
+        }
+        Some(book)
+    }
+
     /// What someone can be asked, beside them: their questions, and once
     /// one is asked, their answer, and what they ask for if they do.
     fn render_asking(
@@ -1141,7 +1280,10 @@ impl ProjectionView {
                     cx.listener(|this, _, _, cx| this.toggle_drawer(cx)),
                 )),
         );
+        // The story so far comes first: what the World is building and the
+        // chapters it has closed.
         for part in [
+            self.render_chapters(),
             self.render_closer_look(cx),
             self.render_story(cx),
             self.render_standing(cx),

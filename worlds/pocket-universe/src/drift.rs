@@ -103,6 +103,13 @@ fn overdue_choice(state: &WorldState) -> Result<Option<&'static str>, ActionErro
 
     let posture = text_component_from_state(state, UNIVERSE, POSTURE).unwrap_or_default();
     if posture.is_empty() || posture == "none" {
+        // The posture is only on offer once the pair's story has resolved,
+        // so it can only be left too long after that.
+        let arc = text_component_from_state(state, RELATIONSHIP, RELATIONSHIP_SOCIAL_ARC)
+            .unwrap_or_default();
+        if arc == "forming" || arc.is_empty() {
+            return Ok(None);
+        }
         if generation >= POSTURE_AVAILABLE_AT + DRIFT_AFTER_GENERATIONS {
             return Ok(Some("choose_rooted_posture"));
         }
@@ -143,12 +150,22 @@ mod tests {
     use super::*;
 
     fn universe_state(components: &[(&str, Value)]) -> WorldState {
+        universe_state_with_arc(components, "partnership")
+    }
+
+    fn universe_state_with_arc(components: &[(&str, Value)], arc: &str) -> WorldState {
         let mut state = WorldState::default();
         let mut universe = Entity::new(UNIVERSE, "universe").with_component(SEED, "mars-colony");
         for (key, value) in components {
             universe = universe.with_component(*key, value.clone());
         }
         state.seed_entity(universe).unwrap();
+        state
+            .seed_entity(
+                Entity::new(RELATIONSHIP, "relationship")
+                    .with_component(RELATIONSHIP_SOCIAL_ARC, arc),
+            )
+            .unwrap();
         state
     }
 
@@ -175,6 +192,21 @@ mod tests {
             overdue_choice(&overdue).unwrap(),
             Some("choose_careful_path")
         );
+    }
+
+    #[test]
+    fn a_posture_is_never_chosen_while_the_pair_is_still_forming() {
+        let forming = universe_state_with_arc(
+            &[
+                (
+                    GENERATION,
+                    (POSTURE_AVAILABLE_AT + DRIFT_AFTER_GENERATIONS + 3).into(),
+                ),
+                (DECISION, "careful".into()),
+            ],
+            "forming",
+        );
+        assert_eq!(overdue_choice(&forming).unwrap(), None);
     }
 
     #[test]

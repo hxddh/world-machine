@@ -30,6 +30,8 @@ pub(crate) fn snapshot(world: &World, since_event_count: Option<usize>) -> Proje
         gauges: Vec::new(),
         talks: Vec::new(),
         voices: Vec::new(),
+        chapters: Vec::new(),
+        goals: Vec::new(),
     }
 }
 

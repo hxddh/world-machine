@@ -203,12 +203,15 @@ mod tests {
             .iter()
             .map(|gauge| gauge.id.as_str())
             .collect();
-        assert_eq!(ids, ["work", "money", "bakery"]);
+        assert_eq!(ids, ["work", "money", "spirits"]);
         assert!(snapshot
             .gauges
             .iter()
             .all(|gauge| (0.0..=1.0).contains(&gauge.value)));
         for command in &snapshot.commands {
+            if command.id == crate::story::WAIT_COMMAND {
+                continue;
+            }
             assert!(
                 command.asker.is_some(),
                 "{} is somebody's choice",

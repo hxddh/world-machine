@@ -1,9 +1,12 @@
+#[cfg(test)]
+mod density;
 mod drift;
 mod era;
 mod legacy;
 pub mod narrator;
 mod pressure;
 mod projection;
+mod story;
 mod succession;
 mod talk;
 
@@ -22,7 +25,7 @@ use world_persistence::{PersistenceError, WorldArchive, WorldPackRef};
 use world_projection::{ProjectionIntent, ProjectionSnapshot};
 
 pub const POCKET_UNIVERSE_PACK_ID: &str = "world-machine.pocket-universe";
-pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.20.0";
+pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.21.0";
 
 pub const SEED_MARS_COLONY_COMMAND: &str = "pocket-universe.seed-mars-colony";
 pub const SEED_1980S_TOWN_COMMAND: &str = "pocket-universe.seed-1980s-town";
@@ -332,9 +335,17 @@ where
             );
             let relationship = candidate.execute(&self.actions, &relationship_request)?.id;
             let returned = era::resolve_period(&mut candidate, &self.actions, relationship)?;
+            story::tick(&mut candidate, &self.actions)?;
             self.world = candidate;
             self.narrate_return(since);
             return Ok(returned);
+        }
+
+        if let Some((storylet, choice)) = story::parse_command(command_id) {
+            return Ok(self
+                .world
+                .execute(&self.actions, &storylets::choose_request(storylet, choice))?
+                .id);
         }
 
         let action = match command_id {
@@ -412,6 +423,7 @@ where
             );
             let relationship = candidate.execute(&self.actions, &relationship_request)?.id;
             era::resolve_period(&mut candidate, &self.actions, relationship)?;
+            story::tick(&mut candidate, &self.actions)?;
         }
         self.world = candidate;
         // Once, for the lines an observer is about to read — not once per
@@ -718,6 +730,7 @@ fn build_action_registry() -> Result<ActionRegistry, ActionError> {
     succession::register_actions(&mut actions)?;
     actions.register(SteerSharedProject)?;
     actions.register(SteerRivalry)?;
+    story::register_actions(&mut actions)?;
     Ok(actions)
 }
 
@@ -1166,6 +1179,21 @@ impl Action for UpdateRelationship {
             }
         }
 
+        // Nothing between two people stays at its end: ease turns into
+        // small frictions, and a feud wears itself out.
+        let mut dynamic = dynamic;
+        let (next_trust, next_tension) = (trust + trust_delta, tension + tension_delta);
+        if (next_trust >= 10 && next_tension <= 1) || (next_tension <= 0 && next_trust >= 7) {
+            trust_delta = trust_delta.min(0);
+            tension_delta = 1;
+            dynamic =
+                "They are so at ease with each other that small things have started to grate.";
+        } else if (next_tension >= 10 && next_trust <= 1) || (next_trust <= 0 && next_tension >= 7)
+        {
+            trust_delta = 1;
+            tension_delta = tension_delta.min(0);
+            dynamic = "Too tired to keep fighting, they let a small kindness through.";
+        }
         let next_trust = (trust + trust_delta).clamp(0, 10);
         let next_tension = (tension + tension_delta).clamp(0, 10);
         let summary = format!(
@@ -3064,17 +3092,23 @@ mod tests {
         universe
             .invoke_projection_command(SEED_MARS_COLONY_COMMAND)
             .unwrap();
-        universe.advance_periods(5).unwrap();
-
-        assert_eq!(
+        let arc = |universe: &PocketUniverse<PocketMind>| {
             universe
                 .world()
                 .state()
                 .entity(RELATIONSHIP)
                 .unwrap()
-                .component(RELATIONSHIP_SOCIAL_ARC),
-            Some(&Value::Text("partnership".into()))
-        );
+                .component(RELATIONSHIP_SOCIAL_ARC)
+                .cloned()
+        };
+        for _ in 0..15 {
+            if arc(&universe) != Some(Value::Text("forming".into())) {
+                break;
+            }
+            universe.advance_periods(1).unwrap();
+        }
+
+        assert_ne!(arc(&universe), Some(Value::Text("forming".into())));
         assert_eq!(
             universe
                 .world()
@@ -3807,7 +3841,8 @@ mod tests {
             .iter()
             .find(|command| command.id == NUDGE_COMMAND)
             .unwrap();
-        assert_eq!(nudge.title, "Watch the pressure build");
+        assert_eq!(nudge.title, "Let the sol pass");
+        assert!(nudge.detail.contains("The World will not wait forever"));
     }
 
     #[test]
@@ -4020,7 +4055,8 @@ mod tests {
             .into_iter()
             .find(|command| command.id == NUDGE_COMMAND)
             .expect("every World can let a cycle pass");
-        assert_eq!(nudge.title, "Let the quiet stretch run");
+        assert_eq!(nudge.title, "Let the sol pass");
+        assert!(nudge.detail.contains("Nothing needs deciding"));
     }
 
     #[test]

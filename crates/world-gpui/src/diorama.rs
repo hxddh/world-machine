@@ -526,6 +526,9 @@ pub struct Frame {
     front: f32,
     water: bool,
     marks: Vec<(f32, f32, f32, f32, MarkShape, f32)>,
+    /// Standing goals on the ridge: where, how big, their shape, and how
+    /// many of their parts are built.
+    goals: Vec<(f32, f32, f32, f32, MarkShape, u32, u32)>,
     buildings: Vec<BuildingPaint>,
     things: Vec<ThingPaint>,
     pub people: Vec<PersonPaint>,
@@ -590,6 +593,29 @@ pub fn frame(
             let newest = first + position + 1 == snapshot.canvas.marks.len();
             let grow = if newest { rising } else { 1.0 };
             (x, y, mark_h * 0.7 * z, mark_h * z * grow, mark.shape, grow)
+        })
+        .collect();
+
+    // What the World is working toward stands among them, larger, as an
+    // outline that fills in part by part.
+    let goal_count = snapshot.goals.len();
+    let goals = snapshot
+        .goals
+        .iter()
+        .enumerate()
+        .map(|(position, goal)| {
+            let fx = 0.12 + 0.76 * (position as f32 + 0.5) / goal_count.max(1) as f32;
+            // Up on the ridge line, above the rooftops, so the buildings in
+            // front never hide what the World is working toward.
+            let (x, y) = at(stage.width * fx, stage.horizon - stage.building_h * 0.08);
+            let (w, h) = match goal.shape {
+                MarkShape::Bridge => (stage.building_w * 0.9, stage.building_h * 0.34),
+                MarkShape::Tower | MarkShape::Lamp => {
+                    (stage.building_w * 0.32, stage.building_h * 0.6)
+                }
+                _ => (stage.building_w * 0.5, stage.building_h * 0.42),
+            };
+            (x, y, w * z, h * z, goal.shape, goal.done, goal.parts)
         })
         .collect();
 
@@ -714,6 +740,7 @@ pub fn frame(
         front: at(0.0, stage.front).1,
         water,
         marks,
+        goals,
         buildings,
         things,
         people,
@@ -853,6 +880,41 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window) {
             silhouette.opacity(0.35 + 0.65 * grow),
             light,
         );
+    }
+    // A goal not yet finished is a pale outline, more solid with each part
+    // built, with a pip under it for every part; a finished one stands as
+    // solid as anything else the World has built.
+    for (x, y, w, h, shape, done, parts) in &frame.goals {
+        let bounds = Bounds::new(
+            point(px(ox + x - w / 2.0), px(oy + y - h)),
+            size(px(*w), px(*h)),
+        );
+        if done >= parts {
+            crate::ui::paint_mark(window, bounds, *shape, silhouette, light);
+            continue;
+        }
+        let share = *done as f32 / (*parts).max(1) as f32;
+        let ghost = gpui::white().opacity(0.28 + 0.4 * share);
+        crate::ui::paint_mark(window, bounds, *shape, ghost, light.opacity(0.4));
+        let pip = (w * 0.09).clamp(3.0, 6.0);
+        let gap = pip * 0.8;
+        let row = *parts as f32 * pip + (*parts as f32 - 1.0) * gap;
+        for part in 0..*parts {
+            let px0 = ox + x - row / 2.0 + part as f32 * (pip + gap);
+            let filled = part < *done;
+            window.paint_quad(gpui::quad(
+                Bounds::new(point(px(px0), px(oy + y + pip)), size(px(pip), px(pip))),
+                px(pip / 2.0),
+                if filled {
+                    gpui::white().opacity(0.9)
+                } else {
+                    gpui::white().opacity(0.25)
+                },
+                px(0.0),
+                gpui::transparent_black(),
+                gpui::BorderStyle::default(),
+            ));
+        }
     }
     let ground = art::shade(far, 0.16);
     let ground_top = horizon + (frame.base - frame.horizon) * 0.3;

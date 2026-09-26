@@ -37,7 +37,9 @@ pub(crate) fn snapshot_since(
         .into_iter()
         .map(|mut command| {
             command.effects = command_effects(world, &command.id);
-            command.asker = asker(&command.id);
+            if command.asker.is_none() {
+                command.asker = asker(&command.id);
+            }
             command
         })
         .collect::<Vec<_>>();
@@ -60,7 +62,10 @@ pub(crate) fn snapshot_since(
         canvas: with_changes(world, canvas(world), since_event_count),
         inspectors: told_inspectors(world),
         why: why_map_from_world(world),
-        scenery: seeded.then(|| seed_scenery(seed_id(world))).flatten(),
+        scenery: seeded
+            .then(|| seed_scenery(seed_id(world)))
+            .flatten()
+            .map(|scenery| scenery.in_season(crate::story::season(world) as u64)),
         calendar: seeded.then(|| world_projection::Calendar {
             unit: seed_time_unit(seed_id(world)).into(),
             length: crate::BACKGROUND_PERIOD,
@@ -68,6 +73,8 @@ pub(crate) fn snapshot_since(
         gauges: gauges(world),
         voices: crate::talk::voices(world),
         talks,
+        goals: crate::story::goals(world),
+        chapters: crate::story::chapters(world),
     };
     snapshot.tell_events_as_history_does();
     snapshot
@@ -82,7 +89,9 @@ fn toned(world: &World, mut briefing: BriefingProjection) -> BriefingProjection 
                 .events()
                 .iter()
                 .find(|event| event.id == id)
-                .map(|event| tone_for_event(&event.kind))
+                .map(|event| {
+                    crate::story::tone(event).unwrap_or_else(|| tone_for_event(&event.kind))
+                })
                 .unwrap_or_default(),
             Some(SelectionId::Entity(RELATIONSHIP)) => {
                 let relationship = world.state().entity(RELATIONSHIP);
@@ -325,9 +334,12 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             intervention_choice_available,
         )
     };
+    // Waiting is one choice, said one way; what waiting means right now is
+    // on the back of the card.
+    let _ = nudge_title;
     let mut commands = vec![ProjectionCommand {
         id: NUDGE_COMMAND.into(),
-        title: nudge_title.into(),
+        title: wait_title(seed_id(world)).into(),
         detail: String::from(nudge_detail),
         effects: Vec::new(),
         scenery: None,
@@ -446,7 +458,18 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             moves: Vec::new(),
         });
     }
+    commands.extend(crate::story::commands(world));
     commands
+}
+
+/// The one way to wait, in each place's own time.
+pub(crate) fn wait_title(seed: &str) -> &'static str {
+    match seed {
+        "mars-colony" => "Let the sol pass",
+        "1980s-town" => "Let the night pass",
+        "penguin-civilization" => "Let the aurora turn",
+        _ => "Let time pass",
+    }
 }
 
 /// While a successor is waiting, letting a cycle pass is itself a decision:
@@ -1001,7 +1024,7 @@ fn briefing(world: &World, seeded: bool, since_event_count: Option<usize>) -> Br
 
     if let Some(since) = since_event_count.filter(|since| *since < world.events().len()) {
         let events = &world.events()[since..];
-        let mut items = return_digest_items(events);
+        let mut items = return_digest_items(world, events);
         // What the World settled for itself comes before the routine churn: it
         // is the thing a returning observer least expects.
         if let Some(item) = decided_without_you_item(events) {
@@ -1032,19 +1055,26 @@ fn briefing(world: &World, seeded: bool, since_event_count: Option<usize>) -> Br
         choice_state(world, generation);
     let posture_choice_available = posture_choice_state(world, generation);
     let pressure_stage = pressure::pressure_id_from_state(world.state());
-    let (title, guidance) = if let Some(copy) = pressure_stage_copy(seed_id(world), &pressure_stage)
-    {
-        copy
-    } else if posture_choice_available {
-        second_arc_stage_copy(seed_id(world))
-    } else {
-        live_stage_copy(
-            seed_id(world),
-            generation,
-            relationship_choice_available,
-            intervention_choice_available,
-        )
-    };
+    let (mut title, guidance) =
+        if let Some(copy) = pressure_stage_copy(seed_id(world), &pressure_stage) {
+            copy
+        } else if posture_choice_available {
+            second_arc_stage_copy(seed_id(world))
+        } else {
+            live_stage_copy(
+                seed_id(world),
+                generation,
+                relationship_choice_available,
+                intervention_choice_available,
+            )
+        };
+    // A World past its opening with nothing larger going on is headed by
+    // whatever the storyteller has just set going, not by "Life goes on".
+    if title == QUIET_TITLE {
+        if let Some(headline) = crate::story::headline(world) {
+            title = headline;
+        }
+    }
     let mut items = vec![BriefingItem {
         kind: BriefingItemKind::Status,
         selection: Some(SelectionId::Entity(UNIVERSE)),
@@ -1148,9 +1178,11 @@ fn live_stage_copy(
         ),
         // Past the opening chapter with nothing open: the World simply goes
         // on. The generation number is the engine's count, not a headline.
-        _ => ("Life goes on".into(), None),
+        _ => (QUIET_TITLE.into(), None),
     }
 }
+
+const QUIET_TITLE: &str = "Life goes on";
 
 fn persistent_consequence_items(world: &World) -> Vec<BriefingItem> {
     let mut items = Vec::new();
@@ -1796,6 +1828,9 @@ fn told_timeline(world: &World) -> world_projection::TimelineProjection {
             .actor
             .and_then(|id| world.state().entity(id))
             .map(entity_title);
+        if let Some(told) = crate::story::told(world, event) {
+            return world_projection::Telling::Story(told);
+        }
         match event.kind.as_str() {
             "agent_decision_recorded" => world_projection::Telling::Routine(
                 actor.map(|name| format!("{name} decided what to do next")),
@@ -1824,6 +1859,7 @@ pub(crate) fn is_routine(kind: &str) -> bool {
             | "relationship_shifted"
             | "legacy_reinforced"
             | "successor_waited"
+            | "story_began"
     )
 }
 
@@ -1855,16 +1891,17 @@ pub(crate) fn digest_events(events: &[Event]) -> Vec<(&Event, usize)> {
 /// How many kinds of thing a return digest reports before it stops.
 pub(crate) const RETURN_DIGEST_ENTRIES: usize = 3;
 
-fn return_digest_items(events: &[Event]) -> Vec<BriefingItem> {
+fn return_digest_items(world: &World, events: &[Event]) -> Vec<BriefingItem> {
     digest_events(events)
         .into_iter()
-        .map(|(event, occurrences)| return_item(events, event, occurrences))
+        .map(|(event, occurrences)| return_item(world, events, event, occurrences))
         .collect()
 }
 
 fn return_digest_priority(kind: &str) -> u8 {
     match kind {
-        "universe_seeded"
+        "chapter_ended"
+        | "universe_seeded"
         | "universe_intervened"
         | "relationship_steered"
         | "partnership_formed"
@@ -1879,6 +1916,8 @@ fn return_digest_priority(kind: &str) -> u8 {
         // The everyday round fills whatever room the story leaves, people's
         // own doings first.
         "agent_cared_for_world" | "agent_explored_world" => 2,
+        // Something coming up is not yet news; how it ended is.
+        "situation_arose" => 3,
         kind if is_routine(kind) => 3,
         _ => 1,
     }
@@ -1902,7 +1941,12 @@ fn extend_with_persistent_consequences(world: &World, items: &mut Vec<BriefingIt
     );
 }
 
-fn return_item(events: &[Event], event: &Event, _occurrences: usize) -> BriefingItem {
+fn return_item(
+    world: &World,
+    events: &[Event],
+    event: &Event,
+    _occurrences: usize,
+) -> BriefingItem {
     // This World's own words if it has them for this Event, and the table line
     // otherwise. The table is the floor: a World with no narrator, or one whose
     // narrator said nothing usable, reads exactly as it always did.
@@ -1916,9 +1960,13 @@ fn return_item(events: &[Event], event: &Event, _occurrences: usize) -> Briefing
                     _ => None,
                 })
         })
+        .or_else(|| crate::story::line(world, event).map(|(_, line)| line))
         .unwrap_or_else(|| event_kind_words(&event.kind));
     // How often something happened is not what happened; the title says what.
     let title: String = match event.kind.as_str() {
+        _ if crate::story::told(world, event).is_some() => {
+            crate::story::told(world, event).unwrap_or_default()
+        }
         "universe_grew" => "The world moved".into(),
         "universe_intervened" => "Your choice took hold".into(),
         "universe_seeded" => "A world began".into(),
@@ -1994,6 +2042,11 @@ fn growth_marks(world: &World) -> Vec<world_projection::CanvasMark> {
         .events()
         .iter()
         .filter(|event| event.kind == "universe_grew")
+        // Every third period's growth is something that shows from afar;
+        // the rest is small work. What the pair set out to build stands
+        // as its own goal.
+        .skip(2)
+        .step_by(3)
         .enumerate()
         .map(|(index, event)| world_projection::CanvasMark {
             label: match event.payload.get("change") {

@@ -16,6 +16,7 @@ mod recovery;
 mod seed;
 mod social;
 mod staffing;
+mod story;
 mod talk;
 
 use std::error::Error;
@@ -106,10 +107,30 @@ impl TinySocietyBranch {
             REPAIR_BOAT_COMMAND => self.repair_boat_with_leo(),
             SELL_BOAT_COMMAND => self.sell_sea_finch(),
             TAKE_JONAS_ON_COMMAND => self.take_jonas_on(),
+            story::WAIT_COMMAND => self.advance_days(1),
+            _ if story::parse_command(command_id).is_some() => self.answer(command_id),
             _ => Err(
                 std::io::Error::other(format!("unknown projection command: {command_id}")).into(),
             ),
         }
+    }
+
+    /// Answers one of the storyteller's storylets, and lets the town react.
+    fn answer(&mut self, command_id: &str) -> Result<Vec<EventId>, Box<dyn Error>> {
+        let (storylet, choice) = story::parse_command(command_id)
+            .ok_or_else(|| std::io::Error::other(format!("not a storylet: {command_id}")))?;
+        let actions = build_action_registry()?;
+        let mut behaviors = BehaviorRegistry::new();
+        behaviors::register(&mut behaviors)?;
+        let event = self
+            .world
+            .execute(&actions, &storylets::choose_request(storylet, choice))?
+            .id;
+        let run =
+            BehaviorRuntime::run_from_event(&mut self.world, &actions, &behaviors, event, 32)?;
+        let mut events = vec![event];
+        events.extend(run.generated_events);
+        Ok(events)
     }
 
     pub fn continue_with_retention(&mut self) -> Result<Vec<EventId>, Box<dyn Error>> {
@@ -414,8 +435,11 @@ fn build_action_registry() -> Result<ActionRegistry, Box<dyn Error>> {
     recovery::register_actions(&mut actions)?;
     social::register_actions(&mut actions)?;
     staffing::register_actions(&mut actions)?;
+    story::register_actions(&mut actions)?;
     Ok(actions)
 }
 
+#[cfg(test)]
+mod density;
 #[cfg(test)]
 mod tests;

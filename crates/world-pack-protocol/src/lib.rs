@@ -358,6 +358,32 @@ pub struct ProjectionSnapshotWire {
     pub voices: Vec<VoiceWire>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub talks: Vec<TalkWire>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub goals: Vec<GoalWire>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub chapters: Vec<ChapterWire>,
+}
+
+/// A standing goal, drawn as an outline until its parts are built.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct GoalWire {
+    pub id: String,
+    pub label: String,
+    #[serde(default)]
+    pub shape: MarkShapeWire,
+    pub done: u32,
+    pub parts: u32,
+}
+
+/// A chapter of the story that has ended.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ChapterWire {
+    pub number: u32,
+    pub title: String,
+    #[serde(default)]
+    pub summary: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moment: Option<SelectionIdWire>,
 }
 
 /// Something someone said aloud at a moment. Narration only.
@@ -583,6 +609,11 @@ impl ProjectionSnapshotWire {
         for talk in &self.talks {
             validate_selection_for_protocol(protocol_version, talk.who)?;
         }
+        for chapter in &self.chapters {
+            if let Some(moment) = chapter.moment {
+                validate_selection_for_protocol(protocol_version, moment)?;
+            }
+        }
         for inspector in &self.inspectors {
             validate_selection_for_protocol(protocol_version, inspector.selection)?;
         }
@@ -636,6 +667,27 @@ impl From<&ProjectionSnapshot> for ProjectionSnapshotWire {
                     question: talk.question.clone(),
                     answer: talk.answer.clone(),
                     asks_for: talk.asks_for.clone(),
+                })
+                .collect(),
+            goals: snapshot
+                .goals
+                .iter()
+                .map(|goal| GoalWire {
+                    id: goal.id.clone(),
+                    label: goal.label.clone(),
+                    shape: goal.shape.into(),
+                    done: goal.done,
+                    parts: goal.parts,
+                })
+                .collect(),
+            chapters: snapshot
+                .chapters
+                .iter()
+                .map(|chapter| ChapterWire {
+                    number: chapter.number,
+                    title: chapter.title.clone(),
+                    summary: chapter.summary.clone(),
+                    moment: chapter.moment.map(Into::into),
                 })
                 .collect(),
         }
@@ -726,6 +778,31 @@ impl TryFrom<ProjectionSnapshotWire> for ProjectionSnapshot {
                     question: talk.question,
                     answer: talk.answer,
                     asks_for: talk.asks_for.filter(|command| !command.trim().is_empty()),
+                })
+                .collect(),
+            // A goal needs a name and at least one part; no more can be done
+            // than it takes.
+            goals: snapshot
+                .goals
+                .into_iter()
+                .filter(|goal| !goal.label.trim().is_empty() && goal.parts > 0)
+                .map(|goal| world_projection::Goal {
+                    id: goal.id,
+                    label: goal.label,
+                    shape: goal.shape.into(),
+                    done: goal.done.min(goal.parts),
+                    parts: goal.parts,
+                })
+                .collect(),
+            chapters: snapshot
+                .chapters
+                .into_iter()
+                .filter(|chapter| !chapter.title.trim().is_empty())
+                .map(|chapter| world_projection::Chapter {
+                    number: chapter.number,
+                    title: chapter.title,
+                    summary: chapter.summary,
+                    moment: chapter.moment.map(Into::into),
                 })
                 .collect(),
         })
@@ -1786,6 +1863,8 @@ mod tests {
             gauges: Vec::new(),
             talks: Vec::new(),
             voices: Vec::new(),
+            chapters: Vec::new(),
+            goals: Vec::new(),
         }
     }
 
