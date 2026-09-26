@@ -2,6 +2,24 @@
 
 Releases live on the [Releases page](https://github.com/hxddh/world-machine/releases). `0.2.0` is the first release intended to be usable without reading the repository; the `v0.1.0-pre.N` tags below were its pre-releases.
 
+## v0.10.0 (2026-09-26)
+
+**Worlds from `v0.9.0` need exporting first.** Tiny Society moves to `0.4.0` and Pocket Universe to `0.21.0`, because both now have a storyteller that changes what happens in them. A World made with the older Packs reports that it needs a Pack this build does not have; export it before updating to keep its history.
+
+In `v0.9.0`, a harbour played for 30 days asked the player something on one of them, and on Mars trust and tension sat pinned at the ends for the last 15 sols. This release is about having a story every day.
+
+- **A storyteller.** Each World has a director, in the style of RimWorld's. Every period it lets lapse what nobody answered, sees how the World stands, and sets up what comes next: a storm, a traveller wanting a room, a sick child, a hotel's bread order, or on Mars a dust front, a failing seal or a signal from the old lander. When a gauge sits at one end it reaches first for something that eases it. It runs as rules inside each Pack, is the same every time from the World's own state, and what it does is recorded, so a World replays without it. The pacing logic that belongs to no World (what is open, what has rested, chapters, goals) is a shared System, `systems/storylets`, outside `world-core`.
+- **Everyone wants something.** Emma wants the school roof mended, Leo a music night, Sofia a stall of her own, Nia a spare seal, Tomas one trip past the edge of the map. Asking *What do you need?* gives their want, and granting it is a choice with a cost. They remember: granted wants make them glad, and a want turned down or left to lapse becomes a grudge they mention when asked how they are.
+- **Every period brings a card.** Each day or sol offers something more than waiting, asked by someone and drawn with their face, and letting time pass is one card, said one way ("Let the day pass", "Let the sol pass"). Tiny Society can now be played turn by turn; it used to only move while you were away.
+- **People remember, and don't repeat themselves.** Everyday lines come in fives and take turns, so nobody says the same thing twice in a working week. The day after something goes their way, people say so ("Dry desks at last!", "Still thinking about that traveller's stories.").
+- **A calendar.** Four seasons of ten days each change the colours of the place: summer warmer, autumn's hills gold, winter pale and frosted. The harbour has market day every week, a regatta in summer, a harvest supper in autumn and coal for the school in winter; everyone has a birthday; Mars has its supply drop and launch window, Maple Street its county fair and Icebridge its great migration.
+- **Chapters that end.** A World's story comes in chapters. Each ends on a card of its own that says how it went ("A bitter winter. The harbour kept its bakery. Jonas found his feet ashore. Mara hasn't forgotten being let down."), and the next begins from where it left the World. A gauge that reaches its very end turns the chapter. Every chapter so far is in a chapter book at the top of the drawer.
+- **Goals you can see.** The new pier and a lamp on the point in the harbour; a second dome, a relay mast and the map past the edge on Mars. Each stands on the horizon as a pale outline with a pip for every part, filling in as parts are built, and in the drawer under *Building*. Pocket Universe's ridge no longer fills with an unnamed shape every sol: one period in three leaves a mark.
+- **The pair never sit at an end.** In Pocket Universe, two people who are as easy with each other as they can be start to grate on each other a little, and a feud wears itself out. A new chapter starts nearer the middle than the last one ended.
+- **Fixed:** a Pocket Universe World left alone long enough could fail to move on at all, when the World tried to choose its direction by itself before the pair's relationship had resolved.
+- **Measured:** each Pack now has story-density tests that play 60 periods three ways (always saying yes, always taking the last answer, never answering) and check the bar the v0.9 review set: something to decide every period, no line said more than three times in any ten periods, no gauge at an end for more than five periods in a row, the first chapter closed within 30 periods, and the World replaying to the same place without the storyteller.
+- **Pack protocol:** snapshots may carry `goals` and `chapters`. Both are optional on the wire, and a Pack that sends neither reads exactly as before.
+
 ## v0.9.0 (2026-09-25)
 
 Every World from `v0.8.0` opens as it is: no Pack's rules moved. What people look like, what they say and what they answer is new, written by each Pack from what its World already records.

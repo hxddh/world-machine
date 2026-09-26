@@ -68,3 +68,43 @@ As before, every concept is built in both Pocket Universe and Tiny Society befor
 - **Story-density tests** in each Pack: 60 periods under three different ways of choosing, checked against the four numbers in the bar above.
 - A replay test: a World played with the director replays to the same state without running the director again.
 - A two-week diary on a real Mac: open one World once a day and note whether that day brought something new. The target is "yes" on at least 12 of 14 days.
+
+## Progress
+
+Items 1 to 7 are built, in both Pocket Universe and Tiny Society, and released in `v0.10.0`. Item 8 still waits on the five secrets in `RELEASE_SIGNING.md`. Every screenshot below is the real app under `scripts/linux-preview.sh`.
+
+**Every period brings a card, and someone asking it.** A winter's day in the harbour: Mara's oven is failing and the card is hers, marked with what it would do to money and spirits. The new pier and the lamp on the point stand on the ridge as outlines, a pip for every part.
+
+![A card](review/v10-card.png)
+
+**On Mars too.** Nia needs a spare seal; the second dome, the relay mast and the map past the edge are the pair's goals.
+
+![Mars](review/v10-mars.png)
+
+**A chapter ends on a card of its own,** in the World's words, and the next begins where it left off.
+
+![Chapter end](review/v10-chapter-end.png)
+
+**The story so far is at the top of the drawer:** what is being built, and every chapter closed.
+
+![Chapter book](review/v10-chapters.png)
+
+### Against the bar
+
+The story-density tests in each Pack play 60 periods three ways, always answering yes, always taking the last answer, and never answering, and all four numbers hold in each:
+
+| | Tiny Society | Pocket Universe |
+| --- | --- | --- |
+| Periods with a real choice | 60 of 60, under all three | 60 of 60, under all three on Mars; Maple Street and Icebridge are played one way each |
+| Most any line is said in ten periods | 3 or fewer | 3 or fewer |
+| Longest run at a gauge's end | 5 or fewer (money, spirits) | 5 or fewer (trust, tension) |
+| First chapter closes | by period 30 | by period 30 |
+
+And a World played with the storyteller replays to the same state without it.
+
+What the numbers leave out: *In work* in the harbour and the anchor's safety on Mars are counts and states rather than pressures, so the pinned-gauge check covers money and spirits, and trust and tension. A harbour where everyone is in work is a good place, not a stuck one.
+
+### Not verifiable here
+
+- The two-week diary on a real Mac, one visit a day. The storyteller has only been played by tests and in the Linux preview.
+- How a long absence feels: the storyteller keeps going while you are away, so a week away can close a chapter or two, and wants left to lapse are held against you.
