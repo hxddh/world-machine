@@ -270,7 +270,7 @@ fn wants() -> Vec<Spec> {
             vec![
                 yes(
                     "mend",
-                    "Pay Evan to mend the school roof",
+                    "Pay Evan to mend it",
                     "Noah puts in 60: 25 to Evan for the work, the rest for mainland slate.",
                     vec![has(NOAH, 60)],
                     said(
@@ -286,7 +286,7 @@ fn wants() -> Vec<Spec> {
                 ),
                 no(
                     "bucket",
-                    "Tell Emma a bucket will do",
+                    "A bucket will do",
                     "Nothing spent. Emma won't forget it.",
                     said(
                         "school_roof_left",
@@ -313,7 +313,7 @@ fn wants() -> Vec<Spec> {
             vec![
                 yes(
                     "hold",
-                    "Put on Leo's music night",
+                    "Put it on",
                     "Leo spends 40 on a fiddler from the mainland. The whole harbour comes.",
                     vec![has(LEO, 40)],
                     said(
@@ -326,7 +326,7 @@ fn wants() -> Vec<Spec> {
                 ),
                 no(
                     "quiet",
-                    "Keep the pub quiet",
+                    "Keep it quiet",
                     "Nothing spent, and nothing to remember.",
                     said(
                         "music_night_called_off",
@@ -353,7 +353,7 @@ fn wants() -> Vec<Spec> {
             vec![
                 yes(
                     "buy",
-                    "Buy Mara a new oven",
+                    "Buy a new oven",
                     "80 of Mara's savings go to the mainland for a new oven.",
                     vec![has(MARA, 80)],
                     said(
@@ -366,7 +366,7 @@ fn wants() -> Vec<Spec> {
                 ),
                 no(
                     "patch",
-                    "Tell Mara to patch the old one",
+                    "Patch the old one",
                     "Evan patches it for 10. It won't last.",
                     said(
                         "oven_patched",
@@ -393,7 +393,7 @@ fn wants() -> Vec<Spec> {
             vec![
                 yes(
                     "buy",
-                    "Have Leo stand Jonas new nets",
+                    "Leo buys new nets",
                     "Leo spends 30 on mainland nets for Jonas.",
                     vec![has(LEO, 30)],
                     said(
@@ -406,7 +406,7 @@ fn wants() -> Vec<Spec> {
                 ),
                 no(
                     "mend",
-                    "Tell Jonas to mend his own nets",
+                    "Mend them yourself",
                     "Nothing spent. A long night for Jonas.",
                     said(
                         "nets_left_torn",
@@ -433,7 +433,7 @@ fn wants() -> Vec<Spec> {
             vec![
                 yes(
                     "buy",
-                    "Buy timber for the new pier",
+                    "Buy the timber",
                     "Noah pays 70 for mainland timber. The pier grows a section.",
                     vec![has(NOAH, 70)],
                     said(
@@ -448,7 +448,7 @@ fn wants() -> Vec<Spec> {
                 ),
                 no(
                     "wait",
-                    "Tell Evan the pier can wait",
+                    "The pier can wait",
                     "Nothing spent, and no pier.",
                     said(
                         "pier_put_off",
@@ -475,7 +475,7 @@ fn wants() -> Vec<Spec> {
             vec![
                 yes(
                     "build",
-                    "Set Sofia up with a stall",
+                    "Set her up",
                     "50 of Sofia's savings go on a stall and her first stock.",
                     vec![has(SOFIA, 50)],
                     said(
@@ -488,7 +488,7 @@ fn wants() -> Vec<Spec> {
                 ),
                 no(
                     "not_yet",
-                    "Keep Sofia behind the pub counter",
+                    "Not this year",
                     "Nothing spent. Sofia keeps her savings, and her grievance.",
                     said(
                         "stall_refused",
@@ -512,7 +512,7 @@ fn wants() -> Vec<Spec> {
             vec![
                 yes(
                     "buy",
-                    "Buy Mia new schoolbooks",
+                    "Buy new books",
                     "Emma spends 25 on books from the mainland.",
                     vec![has(EMMA, 25)],
                     said(
@@ -525,7 +525,7 @@ fn wants() -> Vec<Spec> {
                 ),
                 no(
                     "share",
-                    "Tell Mia to share a friend's",
+                    "Share a friend's",
                     "Nothing spent. Mia makes do.",
                     said(
                         "books_shared",
@@ -552,7 +552,7 @@ fn wants() -> Vec<Spec> {
             vec![
                 yes(
                     "fund",
-                    "Fund a lamp for the point",
+                    "Fund the lamp",
                     "Noah pays 90 for brass and oil. The lamp is a step nearer lit.",
                     vec![has(NOAH, 90)],
                     said(
@@ -567,7 +567,7 @@ fn wants() -> Vec<Spec> {
                 ),
                 no(
                     "later",
-                    "Tell Noah the lamp can wait",
+                    "The lamp can wait",
                     "Nothing spent. The point stays dark.",
                     said(
                         "lamp_put_off",
@@ -596,7 +596,7 @@ fn incidents() -> Vec<Spec> {
             vec![
                 yes(
                     "haul_up",
-                    "Haul the boats up the slip",
+                    "Haul the boats up",
                     "Everyone lends a hand. Noah pays 20 for rope.",
                     vec![has(NOAH, 20)],
                     said(
@@ -609,7 +609,7 @@ fn incidents() -> Vec<Spec> {
                 ),
                 other(
                     "ride_out",
-                    "Let the storm come",
+                    "Let it come",
                     "Nothing spent now. Evan will have work after.",
                     said(
                         "storm_ridden_out",
@@ -636,7 +636,7 @@ fn incidents() -> Vec<Spec> {
             vec![
                 other(
                     "room",
-                    "Give the traveller a room at the pub",
+                    "Give her a room",
                     "The traveller pays Leo 40 and tells stories all night.",
                     said(
                         "traveller_stayed",
@@ -648,7 +648,7 @@ fn incidents() -> Vec<Spec> {
                 ),
                 other(
                     "send_on",
-                    "Send the traveller on",
+                    "Send her on",
                     "The pub stays quiet.",
                     said(
                         "traveller_sent_on",
@@ -675,7 +675,7 @@ fn incidents() -> Vec<Spec> {
             vec![
                 yes(
                     "doctor",
-                    "Send for the mainland doctor",
+                    "Send for the doctor",
                     "Emma pays 35 for the doctor's crossing.",
                     vec![has(EMMA, 35)],
                     said(
@@ -688,7 +688,7 @@ fn incidents() -> Vec<Spec> {
                 ),
                 other(
                     "rest",
-                    "Let Mia sleep it off",
+                    "Let her sleep",
                     "Nothing spent. A worried few days.",
                     said(
                         "fever_slept_off",
@@ -719,7 +719,7 @@ fn incidents() -> Vec<Spec> {
             vec![
                 other(
                     "take",
-                    "Take the hotel's order",
+                    "Take the order",
                     "The hotel pays Mara 90. The ovens run all night.",
                     said(
                         "hotel_order_baked",
@@ -731,7 +731,7 @@ fn incidents() -> Vec<Spec> {
                 ),
                 other(
                     "decline",
-                    "Turn the hotel down",
+                    "Turn it down",
                     "The harbour's own bread comes first.",
                     said(
                         "hotel_order_declined",
@@ -758,7 +758,7 @@ fn incidents() -> Vec<Spec> {
             vec![
                 other(
                     "leo",
-                    "Side with Leo over the debt",
+                    "Side with Leo",
                     "Evan pays Leo the 20 he owes.",
                     said(
                         "quarrel_settled_for_leo",
@@ -769,7 +769,7 @@ fn incidents() -> Vec<Spec> {
                 ),
                 other(
                     "evan",
-                    "Side with Evan over the debt",
+                    "Side with Evan",
                     "Leo lets the debt go.",
                     said(
                         "quarrel_settled_for_evan",
@@ -796,7 +796,7 @@ fn incidents() -> Vec<Spec> {
             vec![
                 yes(
                     "hold",
-                    "Hold the harbour fête",
+                    "Hold the fête",
                     "Noah pays 60 for bunting and a band.",
                     vec![has(NOAH, 60)],
                     said(
@@ -809,7 +809,7 @@ fn incidents() -> Vec<Spec> {
                 ),
                 other(
                     "skip",
-                    "Skip the fête this year",
+                    "Skip it",
                     "Nothing spent. A dull week.",
                     said(
                         "fete_skipped",
@@ -836,7 +836,7 @@ fn incidents() -> Vec<Spec> {
             vec![
                 yes(
                     "drive",
-                    "Pay for the pile-driving",
+                    "Drive the piles",
                     "Noah pays 50, and 20 of it is Evan's wage.",
                     vec![has(NOAH, 50)],
                     said(
@@ -851,7 +851,7 @@ fn incidents() -> Vec<Spec> {
                 ),
                 other(
                     "leave",
-                    "Leave the pier piles for now",
+                    "Leave them",
                     "Nothing spent. The pier waits.",
                     said(
                         "pier_piles_left",
@@ -878,7 +878,7 @@ fn incidents() -> Vec<Spec> {
             vec![
                 yes(
                     "fetch",
-                    "Pay to ship the lamp glass over",
+                    "Ship it over",
                     "Noah pays 40 for the crossing.",
                     vec![has(NOAH, 40)],
                     said(
@@ -890,7 +890,7 @@ fn incidents() -> Vec<Spec> {
                 ),
                 other(
                     "leave",
-                    "Leave the lamp glass at the dock",
+                    "Leave it there",
                     "Nothing spent. It will keep, probably.",
                     said(
                         "lamp_glass_left",
@@ -918,7 +918,7 @@ fn incidents() -> Vec<Spec> {
             vec![
                 other(
                     "sell",
-                    "Sell the mackerel to the mainland",
+                    "Sell the lot",
                     "Jonas makes 50.",
                     said(
                         "mackerel_sold",
@@ -929,7 +929,7 @@ fn incidents() -> Vec<Spec> {
                 ),
                 other(
                     "share",
-                    "Share the catch round the harbour",
+                    "Share them round",
                     "Nothing earned. Everyone eats well.",
                     said(
                         "mackerel_shared",
@@ -954,7 +954,7 @@ fn incidents() -> Vec<Spec> {
             vec![
                 yes(
                     "rebuild",
-                    "Pay Evan to rebuild the chimney",
+                    "Pay Evan to rebuild",
                     "Leo pays Evan 30.",
                     vec![has(LEO, 30)],
                     said(
@@ -966,7 +966,7 @@ fn incidents() -> Vec<Spec> {
                 ),
                 other(
                     "patch",
-                    "Patch the chimney and hope",
+                    "Patch it and hope",
                     "Nothing spent. Smoky evenings.",
                     said(
                         "chimney_patched",
@@ -993,7 +993,7 @@ fn incidents() -> Vec<Spec> {
             vec![
                 other(
                     "go",
-                    "Send Evan to the mainland",
+                    "Go",
                     "Evan earns 60. The harbour misses its carpenter.",
                     said(
                         "evan_worked_away",
@@ -1004,7 +1004,7 @@ fn incidents() -> Vec<Spec> {
                 ),
                 other(
                     "stay",
-                    "Keep Evan at home",
+                    "Stay",
                     "Nothing earned. The harbour keeps its carpenter.",
                     said(
                         "evan_stayed_home",
@@ -1033,7 +1033,7 @@ fn calendar() -> Vec<Spec> {
             vec![
                 other(
                     "sell",
-                    "Sell jam to the mainland boats",
+                    "Sell jam",
                     "Sofia makes 25.",
                     said(
                         "market_jam_sold",
@@ -1044,7 +1044,7 @@ fn calendar() -> Vec<Spec> {
                 ),
                 yes(
                     "treat",
-                    "Treat the harbour to a market lunch",
+                    "Pies all round",
                     "Noah pays 20 for pies all round.",
                     vec![has(NOAH, 20)],
                     said(
@@ -1069,7 +1069,7 @@ fn calendar() -> Vec<Spec> {
             vec![
                 yes(
                     "race",
-                    "Race Sea Finch in the regatta",
+                    "Race Sea Finch",
                     "Jonas takes the harbour's 40 prize if he wins, and he usually does.",
                     vec![Condition::Is(JONAS_BOAT, CONDITION, "sound"), has(NOAH, 40)],
                     said(
@@ -1082,7 +1082,7 @@ fn calendar() -> Vec<Spec> {
                 ),
                 other(
                     "watch",
-                    "Watch from the harbour wall",
+                    "Just watch",
                     "Nothing ventured.",
                     said(
                         "regatta_watched",
@@ -1109,7 +1109,7 @@ fn calendar() -> Vec<Spec> {
             vec![
                 yes(
                     "feast",
-                    "Lay on a harvest feast",
+                    "A proper feast",
                     "Leo spends 45 on a proper spread.",
                     vec![has(LEO, 45)],
                     said(
@@ -1146,7 +1146,7 @@ fn calendar() -> Vec<Spec> {
             vec![
                 yes(
                     "buy",
-                    "Buy coal for the school stove",
+                    "Buy coal",
                     "Noah pays 50 for a winter's coal.",
                     vec![has(NOAH, 50)],
                     said(
@@ -1193,7 +1193,7 @@ fn calendar() -> Vec<Spec> {
             vec![
                 yes(
                     "party",
-                    "Throw {name} a party at the pub",
+                    "A party at the pub",
                     "Leo spends 20 on cake and a round.",
                     vec![has(LEO, 20)],
                     said(
@@ -1206,7 +1206,7 @@ fn calendar() -> Vec<Spec> {
                 ),
                 other(
                     "card",
-                    "Everyone signs {name} a card",
+                    "A card from everyone",
                     "Nothing spent. A kind thought.",
                     said(
                         "birthday_card",
@@ -1446,6 +1446,10 @@ pub(crate) fn commands(world: &World) -> Vec<world_projection::ProjectionCommand
                 scenery: None,
                 asker: Some(world_projection::SelectionId::Entity(storylet.asker)),
                 moves: Vec::new(),
+                question: Some(world_projection::Question {
+                    id: storylet.id.into(),
+                    prompt: named(world, spec.line, storylet.asker),
+                }),
             })
         })
         .collect()

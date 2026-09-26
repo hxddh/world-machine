@@ -225,6 +225,7 @@ mod tests {
                         scenery: None,
                         asker: None,
                         moves: Vec::new(),
+                        question: None,
                     },
                     ProjectionCommand {
                         id: "mock.fail".into(),
@@ -234,6 +235,7 @@ mod tests {
                         scenery: None,
                         asker: None,
                         moves: Vec::new(),
+                        question: None,
                     },
                 ],
                 ..ProjectionSnapshot::default()

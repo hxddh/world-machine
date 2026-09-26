@@ -849,6 +849,16 @@ pub struct ProjectionCommandWire {
     pub moves: Vec<GaugeMoveWire>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub asker: Option<SelectionIdWire>,
+    /// Optional both ways: the question this choice answers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub question: Option<QuestionWire>,
+}
+
+/// A question several choices answer.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct QuestionWire {
+    pub id: String,
+    pub prompt: String,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -948,6 +958,10 @@ impl From<&ProjectionCommand> for ProjectionCommandWire {
                 })
                 .collect(),
             asker: command.asker.map(Into::into),
+            question: command.question.as_ref().map(|question| QuestionWire {
+                id: question.id.clone(),
+                prompt: question.prompt.clone(),
+            }),
         }
     }
 }
@@ -961,6 +975,17 @@ impl From<ProjectionCommandWire> for ProjectionCommand {
             effects: command.effects.into_iter().map(Into::into).collect(),
             scenery: command.scenery.map(Into::into),
             asker: command.asker.map(Into::into),
+            // A question with no id or nothing asked is no question: the
+            // choice stands on its own.
+            question: command
+                .question
+                .filter(|question| {
+                    !question.id.trim().is_empty() && !question.prompt.trim().is_empty()
+                })
+                .map(|question| world_projection::Question {
+                    id: question.id,
+                    prompt: question.prompt,
+                }),
             moves: command
                 .moves
                 .into_iter()
@@ -1787,6 +1812,7 @@ mod tests {
                 scenery: None,
                 asker: None,
                 moves: Vec::new(),
+                question: None,
             }],
             collection: CollectionProjection {
                 title: "Entities".into(),

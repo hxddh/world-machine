@@ -229,7 +229,7 @@ fn wants() -> Vec<Spec> {
             vec![
                 yes(
                     "fetch",
-                    "Send {explorer} out for {spare}",
+                    "Send {explorer} for one",
                     "{explorer} makes the trip. {keeper} owes them one.",
                     said(
                         "spare_fetched",
@@ -241,7 +241,7 @@ fn wants() -> Vec<Spec> {
                 ),
                 no(
                     "make_do",
-                    "Tell {keeper} to make do",
+                    "Make do",
                     "Nobody goes anywhere. {keeper} lies awake.",
                     said(
                         "spare_refused",
@@ -268,7 +268,7 @@ fn wants() -> Vec<Spec> {
             vec![
                 yes(
                     "go",
-                    "Let {explorer} go past the edge",
+                    "Go",
                     "{explorer} is gone for days. {keeper} keeps watch alone.",
                     said(
                         "edge_explored",
@@ -281,7 +281,7 @@ fn wants() -> Vec<Spec> {
                 ),
                 no(
                     "stay",
-                    "Keep {explorer} close to home",
+                    "Stay close",
                     "{keeper} is glad. {explorer} isn't.",
                     said(
                         "edge_refused",
@@ -305,7 +305,7 @@ fn wants() -> Vec<Spec> {
             vec![
                 yes(
                     "rest",
-                    "Give {keeper} a day off",
+                    "Take the day",
                     "{explorer} covers {home} for a day.",
                     said(
                         "keeper_rested",
@@ -317,7 +317,7 @@ fn wants() -> Vec<Spec> {
                 ),
                 no(
                     "keep_going",
-                    "Ask {keeper} to keep going",
+                    "Keep going",
                     "{home} needs everyone.",
                     said(
                         "keeper_kept_going",
@@ -344,7 +344,7 @@ fn wants() -> Vec<Spec> {
             vec![
                 yes(
                     "learn",
-                    "Let {explorer} teach {keeper}",
+                    "Show me",
                     "A day lost to work, a day won between them.",
                     said(
                         "keeper_taught",
@@ -356,7 +356,7 @@ fn wants() -> Vec<Spec> {
                 ),
                 no(
                     "no_time",
-                    "There's no time for lessons",
+                    "No time",
                     "The work comes first.",
                     said(
                         "lesson_refused",
@@ -383,7 +383,7 @@ fn wants() -> Vec<Spec> {
             vec![
                 yes(
                     "start",
-                    "Start on {second}",
+                    "Start building",
                     "Hard work for both of them. It will show on the horizon.",
                     said(
                         "second_begun",
@@ -396,7 +396,7 @@ fn wants() -> Vec<Spec> {
                 ),
                 no(
                     "not_yet",
-                    "Put off {second}",
+                    "Not yet",
                     "What they have is enough for now.",
                     said(
                         "second_put_off",
@@ -425,7 +425,7 @@ fn incidents() -> Vec<Spec> {
             vec![
                 yes(
                     "batten",
-                    "Batten down {home} together",
+                    "Batten down together",
                     "Both of them, side by side, all night.",
                     said(
                         "weather_weathered",
@@ -437,7 +437,7 @@ fn incidents() -> Vec<Spec> {
                 ),
                 yes(
                     "push_on",
-                    "Let {explorer} push on through it",
+                    "Push on through",
                     "{explorer} won't wait. {keeper} worries.",
                     said(
                         "weather_braved",
@@ -465,7 +465,7 @@ fn incidents() -> Vec<Spec> {
             vec![
                 yes(
                     "together",
-                    "Mend {failing} together",
+                    "Mend it together",
                     "{explorer} drops everything.",
                     said(
                         "failing_fixed",
@@ -476,7 +476,7 @@ fn incidents() -> Vec<Spec> {
                 ),
                 yes(
                     "alone",
-                    "Let {keeper} mend {failing} alone",
+                    "Manage alone",
                     "{explorer} stays out. {keeper} copes.",
                     said(
                         "failing_patched",
@@ -500,7 +500,7 @@ fn incidents() -> Vec<Spec> {
             vec![
                 yes(
                     "follow",
-                    "Follow {signal}",
+                    "Follow it",
                     "{explorer} sets off. It may lead somewhere.",
                     said(
                         "signal_followed",
@@ -513,7 +513,7 @@ fn incidents() -> Vec<Spec> {
                 ),
                 yes(
                     "log",
-                    "Note down {signal} and stay",
+                    "Note it down",
                     "Nobody leaves. {keeper} writes it down.",
                     said(
                         "signal_logged",
@@ -541,7 +541,7 @@ fn incidents() -> Vec<Spec> {
             vec![
                 yes(
                     "keeper",
-                    "Take {keeper}'s side in the argument",
+                    "{keeper}'s right",
                     "{explorer} won't like it.",
                     said(
                         "quarrel_keeper_won",
@@ -552,7 +552,7 @@ fn incidents() -> Vec<Spec> {
                 ),
                 yes(
                     "explorer",
-                    "Take {explorer}'s side in the argument",
+                    "{explorer}'s right",
                     "{keeper} won't like it.",
                     said(
                         "quarrel_explorer_won",
@@ -582,7 +582,7 @@ fn incidents() -> Vec<Spec> {
             vec![
                 yes(
                     "amends",
-                    "Let {explorer} and {keeper} make up",
+                    "Make up",
                     "The rivalry is set down, for now.",
                     said(
                         "amends_made",
@@ -599,7 +599,7 @@ fn incidents() -> Vec<Spec> {
                 ),
                 no(
                     "not_yet",
-                    "Tell {explorer} it's too soon",
+                    "Too soon",
                     "The hurt stays where it is.",
                     said(
                         "amends_too_soon",
@@ -627,7 +627,7 @@ fn incidents() -> Vec<Spec> {
             vec![
                 yes(
                     "rescue",
-                    "Send {keeper} out after {explorer}",
+                    "Go out after them",
                     "{keeper} leaves {home} to find them.",
                     said(
                         "explorer_rescued",
@@ -639,7 +639,7 @@ fn incidents() -> Vec<Spec> {
                 ),
                 yes(
                     "guide",
-                    "Talk {explorer} home over the radio",
+                    "Talk them home",
                     "{keeper} stays, and talks all night.",
                     said(
                         "explorer_guided",
@@ -666,7 +666,7 @@ fn incidents() -> Vec<Spec> {
             vec![
                 yes(
                     "eat",
-                    "Sit down to supper together",
+                    "Supper together",
                     "An evening off, and a long talk.",
                     said(
                         "supper_shared",
@@ -678,7 +678,7 @@ fn incidents() -> Vec<Spec> {
                 ),
                 yes(
                     "work",
-                    "Work through supper",
+                    "Work through it",
                     "There's too much to do.",
                     said(
                         "supper_skipped",
@@ -705,7 +705,7 @@ fn incidents() -> Vec<Spec> {
             vec![
                 yes(
                     "build",
-                    "Put up {beacon}",
+                    "Put it up",
                     "Days of work, and it will stand on the horizon.",
                     said(
                         "beacon_raised",
@@ -717,7 +717,7 @@ fn incidents() -> Vec<Spec> {
                 ),
                 yes(
                     "later",
-                    "Leave building {beacon} for later",
+                    "Later",
                     "There's enough to do.",
                     said(
                         "beacon_left",
@@ -746,7 +746,7 @@ fn calendar() -> Vec<Spec> {
             vec![
                 yes(
                     "share",
-                    "Share out {supply}",
+                    "Share it out",
                     "Half each, no arguments.",
                     said(
                         "supply_shared",
@@ -757,7 +757,7 @@ fn calendar() -> Vec<Spec> {
                 ),
                 yes(
                     "build",
-                    "Put it into {second}",
+                    "Build with it",
                     "It all goes into building.",
                     said(
                         "supply_built",
@@ -782,7 +782,7 @@ fn calendar() -> Vec<Spec> {
             vec![
                 yes(
                     "go",
-                    "Go out for {window} together",
+                    "Go together",
                     "{home} can mind itself for a day.",
                     said(
                         "window_gone",
@@ -794,7 +794,7 @@ fn calendar() -> Vec<Spec> {
                 ),
                 yes(
                     "watch",
-                    "Watch from {home}",
+                    "Watch from home",
                     "Someone has to stay.",
                     said(
                         "window_watched",
@@ -818,7 +818,7 @@ fn calendar() -> Vec<Spec> {
             vec![
                 yes(
                     "party",
-                    "{explorer} throws {keeper} a surprise",
+                    "A surprise party",
                     "{explorer} has something planned.",
                     said(
                         "keeper_birthday_kept",
@@ -830,7 +830,7 @@ fn calendar() -> Vec<Spec> {
                 ),
                 yes(
                     "quiet",
-                    "A quiet birthday for {keeper}",
+                    "A quiet one",
                     "Nothing much. A card.",
                     said(
                         "keeper_birthday_quiet",
@@ -854,7 +854,7 @@ fn calendar() -> Vec<Spec> {
             vec![
                 yes(
                     "party",
-                    "{keeper} throws {explorer} a surprise",
+                    "A surprise party",
                     "{keeper} has something planned.",
                     said(
                         "explorer_birthday_kept",
@@ -866,7 +866,7 @@ fn calendar() -> Vec<Spec> {
                 ),
                 yes(
                     "quiet",
-                    "A quiet birthday for {explorer}",
+                    "A quiet one",
                     "Nothing much. A card.",
                     said(
                         "explorer_birthday_quiet",
@@ -1165,6 +1165,10 @@ pub(crate) fn commands(world: &World) -> Vec<world_projection::ProjectionCommand
                 scenery: None,
                 asker: Some(world_projection::SelectionId::Entity(storylet.asker)),
                 moves: Vec::new(),
+                question: Some(world_projection::Question {
+                    id: storylet.id.into(),
+                    prompt: fill(world, spec.line),
+                }),
             })
         })
         .collect()

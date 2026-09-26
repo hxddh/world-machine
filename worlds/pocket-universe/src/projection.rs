@@ -40,6 +40,9 @@ pub(crate) fn snapshot_since(
             if command.asker.is_none() {
                 command.asker = asker(&command.id);
             }
+            if command.question.is_none() {
+                command.question = question(world, &command.id);
+            }
             command
         })
         .collect::<Vec<_>>();
@@ -119,6 +122,35 @@ fn tone_for_event(kind: &str) -> Tone {
         | "legacy_reinforced" => Tone::Good,
         _ => Tone::Neutral,
     }
+}
+
+/// The question each pair of the World's own choices answer together.
+fn question(world: &World, command_id: &str) -> Option<world_projection::Question> {
+    let anchor = world
+        .state()
+        .entity(SLOT_A)
+        .map(entity_title)
+        .unwrap_or_else(|| "Home".into());
+    let (id, prompt) = match command_id {
+        SHARED_PROJECT_COMMAND | RIVALRY_COMMAND => {
+            ("pair", "What now, for the two of us?".to_string())
+        }
+        BOLD_PATH_COMMAND | CAREFUL_PATH_COMMAND => ("path", "Go out, or stay close?".to_string()),
+        OUTWARD_POSTURE_COMMAND | ROOTED_POSTURE_COMMAND => {
+            ("posture", "Outward, or put down roots?".to_string())
+        }
+        HOLD_PRESSURE_COMMAND | REACH_PRESSURE_COMMAND => {
+            ("pressure", format!("{anchor} can't take much more."))
+        }
+        ENTRUST_LEGACY_COMMAND | RELEASE_LEGACY_COMMAND => {
+            ("legacy", "Who carries this on after us?".to_string())
+        }
+        _ => return None,
+    };
+    Some(world_projection::Question {
+        id: id.into(),
+        prompt,
+    })
 }
 
 /// What each choice would change, as facts a screen can show beside it and
@@ -282,6 +314,7 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
                 scenery: seed_scenery("mars-colony"),
                 asker: None,
                 moves: Vec::new(),
+                question: None,
             },
             ProjectionCommand {
                 id: SEED_1980S_TOWN_COMMAND.into(),
@@ -292,6 +325,7 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
                 scenery: seed_scenery("1980s-town"),
                 asker: None,
                 moves: Vec::new(),
+                question: None,
             },
             ProjectionCommand {
                 id: SEED_PENGUIN_CIVILIZATION_COMMAND.into(),
@@ -302,6 +336,7 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
                 scenery: seed_scenery("penguin-civilization"),
                 asker: None,
                 moves: Vec::new(),
+                question: None,
             },
         ];
     }
@@ -345,6 +380,7 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
         scenery: None,
         asker: None,
         moves: Vec::new(),
+        question: None,
     }];
 
     if relationship_choice_available {
@@ -352,13 +388,13 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             id: SHARED_PROJECT_COMMAND.into(),
             title: "Give them a shared project".into(),
             detail: String::from("Give them something neither can finish alone. From here on they lean toward trusting each other."), effects: Vec::new(),
-            scenery: None, asker: None, moves: Vec::new(),
+            scenery: None, asker: None, moves: Vec::new(), question: None,
 });
         commands.push(ProjectionCommand {
             id: RIVALRY_COMMAND.into(),
             title: "Let rivalry sharpen them".into(),
             detail: String::from("Keep them apart and let competition sharpen how they deal with each other from now on."), effects: Vec::new(),
-            scenery: None, asker: None, moves: Vec::new(),
+            scenery: None, asker: None, moves: Vec::new(), question: None,
 });
     }
     if intervention_choice_available {
@@ -372,6 +408,7 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             scenery: None,
             asker: None,
             moves: Vec::new(),
+            question: None,
         });
         commands.push(ProjectionCommand {
             id: CAREFUL_PATH_COMMAND.into(),
@@ -381,6 +418,7 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             scenery: None,
             asker: None,
             moves: Vec::new(),
+            question: None,
         });
     }
     if posture_choice_available {
@@ -394,6 +432,7 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             scenery: None,
             asker: None,
             moves: Vec::new(),
+            question: None,
         });
         commands.push(ProjectionCommand {
             id: ROOTED_POSTURE_COMMAND.into(),
@@ -403,6 +442,7 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             scenery: None,
             asker: None,
             moves: Vec::new(),
+            question: None,
         });
     }
     let copy = pressure::copy_for_state(world.state());
@@ -415,6 +455,7 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             scenery: None,
             asker: None,
             moves: Vec::new(),
+            question: None,
         });
         commands.push(ProjectionCommand {
             id: REACH_PRESSURE_COMMAND.into(),
@@ -424,6 +465,7 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             scenery: None,
             asker: None,
             moves: Vec::new(),
+            question: None,
         });
     } else if pressure_stage == "lost" {
         commands.push(ProjectionCommand {
@@ -434,6 +476,7 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             scenery: None,
             asker: None,
             moves: Vec::new(),
+            question: None,
         });
     }
     let succession_stage = succession::succession_id_from_state(world.state());
@@ -447,6 +490,7 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             scenery: None,
             asker: None,
             moves: Vec::new(),
+            question: None,
         });
         commands.push(ProjectionCommand {
             id: RELEASE_LEGACY_COMMAND.into(),
@@ -456,6 +500,7 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             scenery: None,
             asker: None,
             moves: Vec::new(),
+            question: None,
         });
     }
     commands.extend(crate::story::commands(world));

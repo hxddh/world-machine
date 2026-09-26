@@ -30,6 +30,9 @@ pub(crate) fn snapshot_since(
             if command.asker.is_none() {
                 command.asker = asker(&command.id);
             }
+            if command.question.is_none() {
+                command.question = question(&command.id);
+            }
             command
         })
         .collect::<Vec<_>>();
@@ -198,6 +201,23 @@ fn command_effects(command_id: &str) -> Vec<CommandEffect> {
     }
 }
 
+/// The question a pair of the town's own choices answer together.
+fn question(command_id: &str) -> Option<world_projection::Question> {
+    let (id, prompt) = match command_id {
+        crate::REOPEN_BAKERY_COMMAND | crate::LEAN_REOPEN_BAKERY_COMMAND => {
+            ("reopen", "The bakery's shut. How do I open again?")
+        }
+        crate::REPAIR_BOAT_COMMAND | crate::SELL_BOAT_COMMAND => {
+            ("sea_finch", "What becomes of Sea Finch?")
+        }
+        _ => return None,
+    };
+    Some(world_projection::Question {
+        id: id.into(),
+        prompt: prompt.into(),
+    })
+}
+
 /// Whose choice it is: Jonas's for his job and his boat, Mara's for her
 /// bakery.
 fn asker(command_id: &str) -> Option<SelectionId> {
@@ -239,6 +259,7 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
             scenery: None,
             asker: None,
             moves: Vec::new(),
+            question: None,
         });
     }
 
@@ -254,7 +275,7 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 "Invest {} of Mara's cash to reopen Harbor Bakery. Mara returns to work; former workers are not automatically rehired.",
                 crate::BAKERY_REOPEN_INVESTMENT
             ), effects: Vec::new(),
-            scenery: None, asker: None, moves: Vec::new(),
+            scenery: None, asker: None, moves: Vec::new(), question: None,
 });
     }
 
@@ -268,7 +289,7 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 "Invest {} of Mara's cash and reopen Harbor Bakery without a fixed daily Bakery wage. Lower overhead can survive weak demand, but Mara gives up predictable pay.",
                 crate::recovery::LEAN_REOPEN_INVESTMENT
             ), effects: Vec::new(),
-            scenery: None, asker: None, moves: Vec::new(),
+            scenery: None, asker: None, moves: Vec::new(), question: None,
 });
     }
 
@@ -280,7 +301,7 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 "Leo pays Evan {} to repair Sea Finch. Jonas returns to Harbor fishing once the boat is sound. Leo's backing does not stand indefinitely.",
                 crate::social::SEA_FINCH_REPAIR_COST
             ), effects: Vec::new(),
-            scenery: None, asker: None, moves: Vec::new(),
+            scenery: None, asker: None, moves: Vec::new(), question: None,
 });
     }
 
@@ -293,7 +314,7 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 crate::drift::SEA_FINCH_SCRAP_VALUE,
                 crate::social::SEA_FINCH_REPAIR_COST
             ), effects: Vec::new(),
-            scenery: None, asker: None, moves: Vec::new(),
+            scenery: None, asker: None, moves: Vec::new(), question: None,
 });
     }
 
@@ -305,7 +326,7 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 "Jonas works the counter for {} a day. It is a second wage against the same island trade, and the bakery has to carry it.",
                 crate::livelihood::COUNTER_WAGE
             ), effects: Vec::new(),
-            scenery: None, asker: None, moves: Vec::new(),
+            scenery: None, asker: None, moves: Vec::new(), question: None,
 });
     }
 
@@ -321,6 +342,7 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
         scenery: None,
         asker: None,
         moves: Vec::new(),
+        question: None,
     });
     commands
 }

@@ -39,6 +39,8 @@ pub(crate) struct Looking {
     pub(crate) started: Option<Instant>,
     pub(crate) turn_at: Option<Instant>,
     pub(crate) card: usize,
+    /// Which answer on a question's card the player is leaning toward.
+    pub(crate) answer: usize,
     pub(crate) card_back: bool,
     pub(crate) drawer: bool,
     pub(crate) asking: Option<SelectionId>,
@@ -93,20 +95,38 @@ pub(crate) fn resting_text(snapshot: &ProjectionSnapshot) -> Vec<String> {
     if snapshot.world_time > 0 {
         text.push(snapshot.moment_label(snapshot.world_time));
     }
-    if let Some(command) = card_order(snapshot)
-        .first()
-        .and_then(|index| snapshot.commands.get(*index))
-    {
-        if !is_beginning(snapshot) {
-            let faces = asker_faces(snapshot, command.asker)
-                .iter()
-                .map(|name| first_name(name))
-                .collect::<Vec<_>>();
-            text.push(faces.join(" & "));
-            text.push(command.title.clone());
-            text.extend(["More".to_string(), "Choose".to_string()]);
-            text.extend(faces);
+    let first = card_order(snapshot).into_iter().next();
+    let asking_question = first
+        .as_ref()
+        .and_then(|card| snapshot.commands.get(card[0]))
+        .is_some_and(|command| command.question.is_some());
+    if let Some(card) = first.filter(|_| !is_beginning(snapshot)) {
+        let command = &snapshot.commands[card[0]];
+        let faces = asker_faces(snapshot, command.asker)
+            .iter()
+            .map(|name| first_name(name))
+            .collect::<Vec<_>>();
+        text.push(faces.join(" & "));
+        match &command.question {
+            // A question's card: who asks, what they ask, and every answer.
+            Some(question) => {
+                text.push(question.prompt.clone());
+                for index in &card {
+                    text.push(snapshot.commands[*index].title.clone());
+                }
+                text.push("More".to_string());
+            }
+            None => {
+                text.push(command.title.clone());
+                text.extend(["More".to_string(), "Choose".to_string()]);
+            }
         }
+        text.extend(faces);
+    }
+    // While someone is asking, the scene is quiet: the question is the one
+    // thing said.
+    if asking_question && !is_beginning(snapshot) {
+        return text;
     }
     if let Some(voice) = voices_now(snapshot).first() {
         text.push(voice.line.clone());
@@ -117,12 +137,14 @@ pub(crate) fn resting_text(snapshot: &ProjectionSnapshot) -> Vec<String> {
     text
 }
 
-/// The order choices come up in: whatever somebody asks first, letting
-/// time pass last, each group in the Pack's own order.
-pub(crate) fn card_order(snapshot: &ProjectionSnapshot) -> Vec<usize> {
-    let mut order = (0..snapshot.commands.len()).collect::<Vec<_>>();
-    order.sort_by_key(|index| snapshot.commands[*index].asker.is_none());
-    order
+/// The cards choices come up on, in order: each question with its
+/// answers, and each choice that answers no question on its own; whatever
+/// somebody asks first, letting time pass last, each group in the Pack's
+/// own order.
+pub(crate) fn card_order(snapshot: &ProjectionSnapshot) -> Vec<Vec<usize>> {
+    let mut cards = snapshot.cards();
+    cards.sort_by_key(|card| snapshot.commands[card[0]].asker.is_none());
+    cards
 }
 
 /// The most words a World window may show at rest.
@@ -350,20 +372,51 @@ impl ProjectionView {
         });
         self.looking.turn_at = Some(Instant::now());
         self.looking.card = 0;
+        self.looking.answer = 0;
         self.looking.card_back = false;
         self.looking.asking = None;
         self.looking.answered = None;
     }
 
     fn cycle_card(&mut self, by: isize, cx: &mut Context<Self>) {
-        let count = self.snapshot.commands.len();
+        let count = card_order(&self.snapshot).len();
         if count == 0 {
             return;
         }
         self.looking.card = (self.looking.card as isize + by).rem_euclid(count as isize) as usize;
+        self.looking.answer = 0;
         self.looking.card_back = false;
         self.cue(crate::Cue::Flip);
         cx.notify();
+    }
+
+    /// The answers on the card in front, if it is a question.
+    fn card_answers(&self) -> Vec<usize> {
+        let cards = card_order(&self.snapshot);
+        cards
+            .get(self.looking.card.min(cards.len().saturating_sub(1)))
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// Leans toward the next or previous answer on a question's card, or
+    /// turns to the next card when there is only one answer.
+    fn lean(&mut self, by: isize, cx: &mut Context<Self>) {
+        let answers = self.card_answers().len();
+        if answers < 2 {
+            self.cycle_card(by, cx);
+            return;
+        }
+        self.looking.answer =
+            (self.looking.answer as isize + by).rem_euclid(answers as isize) as usize;
+        cx.notify();
+    }
+
+    fn lean_to(&mut self, answer: usize, cx: &mut Context<Self>) {
+        if self.looking.answer != answer {
+            self.looking.answer = answer;
+            cx.notify();
+        }
     }
 
     fn choose_card(&mut self, cx: &mut Context<Self>) {
@@ -416,8 +469,10 @@ impl ProjectionView {
                     self.step_film(cx);
                 }
             }
-            "left" => self.cycle_card(-1, cx),
-            "right" => self.cycle_card(1, cx),
+            "left" => self.lean(-1, cx),
+            "right" => self.lean(1, cx),
+            "up" => self.cycle_card(-1, cx),
+            "down" => self.cycle_card(1, cx),
             "enter" => self.choose_card(cx),
             "space" => {
                 self.looking.card_back = !self.looking.card_back;
@@ -504,9 +559,9 @@ impl ProjectionView {
         if self.controller.is_none() || is_beginning(&self.snapshot) || self.retelling.is_some() {
             return None;
         }
-        let order = card_order(&self.snapshot);
-        let position = self.looking.card.min(order.len().saturating_sub(1));
-        self.snapshot.commands.get(*order.get(position)?)
+        let answers = self.card_answers();
+        let answer = answers.get(self.looking.answer.min(answers.len().saturating_sub(1)))?;
+        self.snapshot.commands.get(*answer)
     }
 
     /// The whole World window: the scene, and over it the gauges, the
@@ -566,7 +621,13 @@ impl ProjectionView {
                     true,
                 )
             })
-        } else if speaking.is_empty() {
+        } else if speaking.is_empty()
+            || self
+                .card_command()
+                .is_some_and(|command| command.question.is_some())
+        {
+            // While someone asks a question, the card says it and the scene
+            // keeps quiet.
             None
         } else {
             let voice = speaking[line_slot % speaking.len()];
@@ -866,8 +927,10 @@ impl ProjectionView {
     /// to leaf through the others and choose.
     fn render_card(&self, cx: &mut Context<Self>) -> Option<Div> {
         let command = self.card_command()?;
-        let count = self.snapshot.commands.len();
+        let count = card_order(&self.snapshot).len();
         let index = self.looking.card.min(count - 1);
+        let answers = self.card_answers();
+        let question = command.question.clone();
         let people = asker_ids(&self.snapshot, command.asker);
         let names = asker_faces(&self.snapshot, command.asker)
             .iter()
@@ -905,12 +968,13 @@ impl ProjectionView {
         if !names.is_empty() {
             text = text.child(ui::caption(names.join(" & ")));
         }
-        text = text.child(
-            div()
-                .text_lg()
-                .font_weight(FontWeight::SEMIBOLD)
-                .child(command.title.clone()),
-        );
+        // A question's card says what is asked; a lone choice says itself.
+        text = text.child(div().text_lg().font_weight(FontWeight::SEMIBOLD).child(
+            match &question {
+                Some(question) => question.prompt.clone(),
+                None => command.title.clone(),
+            },
+        ));
         if self.looking.card_back {
             if !command.detail.is_empty() {
                 text = text.child(ui::detail(command.detail.clone()));
@@ -982,11 +1046,64 @@ impl ProjectionView {
                         cx.notify();
                     })),
             )
-            .child(
-                ui::button("card-choose", "Choose", ButtonKind::Primary).on_click(
-                    cx.listener(move |this, _, _, cx| this.invoke_command(id.clone(), cx)),
-                ),
-            );
+            .when(question.is_none(), |actions| {
+                actions.child(
+                    ui::button("card-choose", "Choose", ButtonKind::Primary).on_click(
+                        cx.listener(move |this, _, _, cx| this.invoke_command(id.clone(), cx)),
+                    ),
+                )
+            });
+        // Every answer to the question, on the card itself: pointing at one
+        // leans toward it and the gauges show what it would move; clicking
+        // it answers.
+        let leaned = self.looking.answer.min(answers.len().saturating_sub(1));
+        let mut replies = div().flex().flex_col().gap_2();
+        if question.is_some() {
+            for (position, answer) in answers.iter().enumerate() {
+                let Some(reply) = self.snapshot.commands.get(*answer) else {
+                    continue;
+                };
+                let id = reply.id.clone();
+                let chosen = position == leaned;
+                replies = replies.child(
+                    div()
+                        .id(SharedString::from(format!("answer-{position}")))
+                        .px_4()
+                        .py_2()
+                        .rounded_xl()
+                        .border_1()
+                        .cursor_pointer()
+                        .text_sm()
+                        .font_weight(FontWeight::MEDIUM)
+                        .border_color(color(if chosen {
+                            tokens::ACCENT
+                        } else {
+                            tokens::BORDER
+                        }))
+                        .bg(color(if chosen {
+                            tokens::ACCENT_SOFT
+                        } else {
+                            tokens::SURFACE
+                        }))
+                        .text_color(color(if chosen {
+                            tokens::ACCENT_TEXT
+                        } else {
+                            tokens::TEXT
+                        }))
+                        .hover(|style| style.border_color(color(tokens::ACCENT)))
+                        .child(reply.title.clone())
+                        .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
+                            if *hovered {
+                                this.lean_to(position, cx);
+                            }
+                        }))
+                        .on_click(
+                            cx.listener(move |this, _, _, cx| this.invoke_command(id.clone(), cx)),
+                        ),
+                );
+            }
+        }
+
         let card = div()
             .p_5()
             .rounded_2xl()
@@ -998,6 +1115,7 @@ impl ProjectionView {
             .flex_col()
             .gap_4()
             .child(div().flex().items_center().gap_4().child(face).child(text))
+            .when(question.is_some(), |card| card.child(replies))
             .child(
                 div()
                     .flex()

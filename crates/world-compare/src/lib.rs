@@ -988,6 +988,7 @@ mod tests {
                 scenery: None,
                 asker: None,
                 moves: Vec::new(),
+                question: None,
             }],
         );
 
@@ -1295,6 +1296,7 @@ mod tests {
                 scenery: None,
                 asker: None,
                 moves: Vec::new(),
+                question: None,
             }],
         );
         let right = snapshot(
@@ -1309,6 +1311,7 @@ mod tests {
                 scenery: None,
                 asker: None,
                 moves: Vec::new(),
+                question: None,
             }],
         );
 

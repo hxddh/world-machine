@@ -1150,6 +1150,7 @@ mod tests {
                     scenery: None,
                     asker: None,
                     moves: Vec::new(),
+                    question: None,
                 }],
                 ..ProjectionSnapshot::default()
             }
