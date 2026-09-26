@@ -177,6 +177,10 @@ pub struct ProjectionCommand {
     /// net." answered by "Buy him nets" or "Tell him to mend them"). A
     /// screen shows a question and its answers together.
     pub question: Option<Question>,
+    /// Why this cannot be chosen now ("Noah hasn't 30 to spare"), when it
+    /// is shown only so the player can see what the choice would have
+    /// been. A screen shows it greyed and does not offer it.
+    pub unavailable: Option<String>,
 }
 
 /// A question someone puts to the player, which several choices answer.
@@ -2410,6 +2414,7 @@ mod tests {
                 asker: None,
                 moves: Vec::new(),
                 question: None,
+                unavailable: None,
             }],
             ..ProjectionSnapshot::default()
         };

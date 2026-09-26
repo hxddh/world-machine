@@ -82,7 +82,7 @@ fn play(policy: Policy, days: usize) -> Played {
         let choices = snapshot
             .commands
             .iter()
-            .filter(|command| command.id != story::WAIT_COMMAND)
+            .filter(|command| command.id != story::WAIT_COMMAND && command.unavailable.is_none())
             .map(|command| command.id.clone())
             .collect::<Vec<_>>();
         played.days_with_a_choice.push(!choices.is_empty());

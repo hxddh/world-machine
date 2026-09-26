@@ -53,7 +53,7 @@ impl ProjectionView {
     pub fn new(snapshot: ProjectionSnapshot) -> Self {
         let selected = default_selection(&snapshot);
         let retelling = starts_retelling(&snapshot);
-        Self {
+        let mut view = Self {
             snapshot,
             selected,
             controller: None,
@@ -64,7 +64,9 @@ impl ProjectionView {
             before_turn: None,
             retelling,
             looking: Default::default(),
-        }
+        };
+        view.looking.answer = view.first_available_answer();
+        view
     }
 
     pub fn controlled<C>(controller: C) -> Self

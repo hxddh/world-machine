@@ -54,6 +54,7 @@ impl WorldSession for MockSession {
                 asker: None,
                 moves: Vec::new(),
                 question: None,
+                unavailable: None,
             }],
             ..ProjectionSnapshot::default()
         }

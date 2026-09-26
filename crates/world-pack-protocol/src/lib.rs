@@ -852,6 +852,9 @@ pub struct ProjectionCommandWire {
     /// Optional both ways: the question this choice answers.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub question: Option<QuestionWire>,
+    /// Optional both ways: why this cannot be chosen now.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unavailable: Option<String>,
 }
 
 /// A question several choices answer.
@@ -962,6 +965,7 @@ impl From<&ProjectionCommand> for ProjectionCommandWire {
                 id: question.id.clone(),
                 prompt: question.prompt.clone(),
             }),
+            unavailable: command.unavailable.clone(),
         }
     }
 }
@@ -986,6 +990,8 @@ impl From<ProjectionCommandWire> for ProjectionCommand {
                     id: question.id,
                     prompt: question.prompt,
                 }),
+            // An empty reason still means it cannot be chosen.
+            unavailable: command.unavailable.map(|reason| reason.trim().to_string()),
             moves: command
                 .moves
                 .into_iter()
@@ -1834,6 +1840,7 @@ mod tests {
                 asker: None,
                 moves: Vec::new(),
                 question: None,
+                unavailable: None,
             }],
             collection: CollectionProjection {
                 title: "Entities".into(),

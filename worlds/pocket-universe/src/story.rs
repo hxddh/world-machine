@@ -1378,9 +1378,9 @@ fn find(storylet: &str) -> Option<&'static Spec> {
 /// A card for every answer that can be given now.
 pub(crate) fn commands(world: &World) -> Vec<world_projection::ProjectionCommand> {
     let deck = deck();
-    storylets::choices(world.state(), &deck)
+    storylets::answers(world.state(), &deck)
         .into_iter()
-        .filter_map(|(storylet, choice)| {
+        .filter_map(|(storylet, choice, unmet)| {
             let spec = find(storylet.id)?;
             let answer = spec.answers.iter().find(|answer| answer.id == choice.id)?;
             Some(world_projection::ProjectionCommand {
@@ -1395,6 +1395,7 @@ pub(crate) fn commands(world: &World) -> Vec<world_projection::ProjectionCommand
                     id: storylet.id.into(),
                     prompt: fill(world, spec.line),
                 }),
+                unavailable: (!unmet.is_empty()).then(|| "Not possible right now".to_string()),
             })
         })
         .collect()

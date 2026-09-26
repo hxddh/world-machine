@@ -372,7 +372,7 @@ impl ProjectionView {
         });
         self.looking.turn_at = Some(Instant::now());
         self.looking.card = 0;
-        self.looking.answer = 0;
+        self.looking.answer = self.first_available_answer();
         self.looking.card_back = false;
         self.looking.asking = None;
         self.looking.answered = None;
@@ -384,7 +384,7 @@ impl ProjectionView {
             return;
         }
         self.looking.card = (self.looking.card as isize + by).rem_euclid(count as isize) as usize;
-        self.looking.answer = 0;
+        self.looking.answer = self.first_available_answer();
         self.looking.card_back = false;
         self.cue(crate::Cue::Flip);
         cx.notify();
@@ -397,6 +397,20 @@ impl ProjectionView {
             .get(self.looking.card.min(cards.len().saturating_sub(1)))
             .cloned()
             .unwrap_or_default()
+    }
+
+    /// The first answer on the card in front that can be chosen, to lean
+    /// toward to begin with.
+    pub(crate) fn first_available_answer(&self) -> usize {
+        self.card_answers()
+            .iter()
+            .position(|index| {
+                self.snapshot
+                    .commands
+                    .get(*index)
+                    .is_some_and(|command| command.unavailable.is_none())
+            })
+            .unwrap_or(0)
     }
 
     /// Leans toward the next or previous answer on a question's card, or
@@ -423,7 +437,10 @@ impl ProjectionView {
         if self.retelling.is_some() || is_beginning(&self.snapshot) {
             return;
         }
-        if let Some(command) = self.card_command() {
+        if let Some(command) = self
+            .card_command()
+            .filter(|command| command.unavailable.is_none())
+        {
             let id = command.id.clone();
             self.invoke_command(id, cx);
         }
@@ -1065,6 +1082,33 @@ impl ProjectionView {
                 };
                 let id = reply.id.clone();
                 let chosen = position == leaned;
+                if let Some(reason) = &reply.unavailable {
+                    // Shown so the player sees what the choice would have
+                    // been; the reason only when they lean on it.
+                    let mut row = div()
+                        .id(SharedString::from(format!("answer-{position}")))
+                        .px_4()
+                        .py_2()
+                        .rounded_xl()
+                        .border_1()
+                        .border_color(color(tokens::BORDER))
+                        .text_sm()
+                        .text_color(color(tokens::TEXT_TERTIARY))
+                        .flex()
+                        .justify_between()
+                        .gap_3()
+                        .child(reply.title.clone())
+                        .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
+                            if *hovered {
+                                this.lean_to(position, cx);
+                            }
+                        }));
+                    if chosen && !reason.is_empty() {
+                        row = row.child(div().text_xs().child(reason.clone()));
+                    }
+                    replies = replies.child(row);
+                    continue;
+                }
                 replies = replies.child(
                     div()
                         .id(SharedString::from(format!("answer-{position}")))

@@ -13,6 +13,7 @@ use std::path::PathBuf;
 use tiny_society::{tiny_society_registration, TINY_SOCIETY_PACK_ID};
 use world_host::WorldRegistry;
 use world_library::{WorldDocumentId, WorldLibrary};
+use world_projection::ProjectionIntent;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let root = env::args_os()
@@ -24,7 +25,22 @@ fn main() -> Result<(), Box<dyn Error>> {
     registry.register(tiny_society_registration())?;
 
     let mut harbour = registry.create(TINY_SOCIETY_PACK_ID)?;
-    harbour.advance_background(6)?;
+    // Twenty days with somebody playing: each day the first answer to the
+    // first question, then the day passes, so the harbour on screen has
+    // been lived in and shows it.
+    for _ in 0..20 {
+        let snapshot = harbour.snapshot();
+        if let Some(answer) = snapshot
+            .commands
+            .iter()
+            .find(|command| command.question.is_some())
+        {
+            harbour.handle(ProjectionIntent::InvokeCommand(answer.id.clone()))?;
+        }
+        harbour.handle(ProjectionIntent::InvokeCommand(
+            "tiny-society.let-day-pass".into(),
+        ))?;
+    }
     let archive = harbour
         .archive()?
         .ok_or("Tiny Society sessions always have an archive")?;

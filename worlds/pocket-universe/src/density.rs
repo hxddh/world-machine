@@ -77,7 +77,7 @@ fn play(seed: &str, policy: Policy, days: usize) -> Played {
         let choices = snapshot
             .commands
             .iter()
-            .filter(|command| command.id != NUDGE_COMMAND)
+            .filter(|command| command.id != NUDGE_COMMAND && command.unavailable.is_none())
             .map(|command| command.id.clone())
             .collect::<Vec<_>>();
         played.days_with_a_choice.push(!choices.is_empty());

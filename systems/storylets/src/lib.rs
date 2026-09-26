@@ -316,6 +316,27 @@ pub fn choices<'a>(state: &WorldState, deck: &'a Deck) -> Vec<(&'a Storylet, &'a
         .collect()
 }
 
+/// Every answer to every open storylet, with the conditions it does not
+/// meet now: empty when it can be chosen.
+pub fn answers<'a>(
+    state: &WorldState,
+    deck: &'a Deck,
+) -> Vec<(&'a Storylet, &'a Choice, Vec<&'a Condition>)> {
+    open(state, deck)
+        .into_iter()
+        .flat_map(|storylet| {
+            storylet.choices.iter().map(move |choice| {
+                let unmet = choice
+                    .requires
+                    .iter()
+                    .filter(|condition| !holds(state, deck, condition))
+                    .collect();
+                (storylet, choice, unmet)
+            })
+        })
+        .collect()
+}
+
 /// Whether a storylet could come up now.
 pub fn can_arise(state: &WorldState, deck: &Deck, storylet: &Storylet) -> bool {
     if opened_at(state, deck, storylet.id).is_some() {

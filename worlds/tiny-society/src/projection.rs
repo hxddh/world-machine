@@ -260,6 +260,7 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
             asker: None,
             moves: Vec::new(),
             question: None,
+            unavailable: None,
         });
     }
 
@@ -275,7 +276,7 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 "Invest {} of Mara's cash to reopen Harbor Bakery. Mara returns to work; former workers are not automatically rehired.",
                 crate::BAKERY_REOPEN_INVESTMENT
             ), effects: Vec::new(),
-            scenery: None, asker: None, moves: Vec::new(), question: None,
+            scenery: None, asker: None, moves: Vec::new(), question: None, unavailable: None,
 });
     }
 
@@ -289,7 +290,7 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 "Invest {} of Mara's cash and reopen Harbor Bakery without a fixed daily Bakery wage. Lower overhead can survive weak demand, but Mara gives up predictable pay.",
                 crate::recovery::LEAN_REOPEN_INVESTMENT
             ), effects: Vec::new(),
-            scenery: None, asker: None, moves: Vec::new(), question: None,
+            scenery: None, asker: None, moves: Vec::new(), question: None, unavailable: None,
 });
     }
 
@@ -301,7 +302,7 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 "Leo pays Evan {} to repair Sea Finch. Jonas returns to Harbor fishing once the boat is sound. Leo's backing does not stand indefinitely.",
                 crate::social::SEA_FINCH_REPAIR_COST
             ), effects: Vec::new(),
-            scenery: None, asker: None, moves: Vec::new(), question: None,
+            scenery: None, asker: None, moves: Vec::new(), question: None, unavailable: None,
 });
     }
 
@@ -314,7 +315,7 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 crate::drift::SEA_FINCH_SCRAP_VALUE,
                 crate::social::SEA_FINCH_REPAIR_COST
             ), effects: Vec::new(),
-            scenery: None, asker: None, moves: Vec::new(), question: None,
+            scenery: None, asker: None, moves: Vec::new(), question: None, unavailable: None,
 });
     }
 
@@ -326,7 +327,7 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 "Jonas works the counter for {} a day. It is a second wage against the same island trade, and the bakery has to carry it.",
                 crate::livelihood::COUNTER_WAGE
             ), effects: Vec::new(),
-            scenery: None, asker: None, moves: Vec::new(), question: None,
+            scenery: None, asker: None, moves: Vec::new(), question: None, unavailable: None,
 });
     }
 
@@ -343,6 +344,7 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
         asker: None,
         moves: Vec::new(),
         question: None,
+        unavailable: None,
     });
     commands
 }

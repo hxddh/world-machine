@@ -1718,9 +1718,9 @@ fn find(storylet: &str) -> Option<&'static Spec> {
 /// the storylet belongs to.
 pub(crate) fn commands(world: &World) -> Vec<world_projection::ProjectionCommand> {
     let deck = deck();
-    storylets::choices(world.state(), &deck)
+    storylets::answers(world.state(), &deck)
         .into_iter()
-        .filter_map(|(storylet, choice)| {
+        .filter_map(|(storylet, choice, unmet)| {
             let spec = find(storylet.id)?;
             let answer = spec.answers.iter().find(|answer| answer.id == choice.id)?;
             Some(world_projection::ProjectionCommand {
@@ -1735,9 +1735,20 @@ pub(crate) fn commands(world: &World) -> Vec<world_projection::ProjectionCommand
                     id: storylet.id.into(),
                     prompt: named(world, spec.line, storylet.asker),
                 }),
+                unavailable: unmet.first().map(|condition| why_not(world, condition)),
             })
         })
         .collect()
+}
+
+/// Why an answer cannot be given now, in the harbour's words.
+fn why_not(world: &World, condition: &Condition) -> String {
+    match condition {
+        Condition::AtLeast(who, key, amount) if *key == CASH => {
+            format!("{} hasn't {amount} to spare", name_of(world, *who))
+        }
+        _ => "Not possible right now".into(),
+    }
 }
 
 /// What someone would ask for now, if they have a want open: what they

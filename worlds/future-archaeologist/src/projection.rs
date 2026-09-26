@@ -58,6 +58,7 @@ fn commands(world: &World) -> Vec<ProjectionCommand> {
             asker: None,
             moves: Vec::new(),
             question: None,
+            unavailable: None,
         }]
     }
 }
