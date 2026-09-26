@@ -273,11 +273,7 @@ fn holds(state: &WorldState, deck: &Deck, condition: &Condition) -> bool {
             .is_some_and(|at| period >= (at.max(0) as u64).saturating_add(*periods)),
         Condition::Unmarked(mark) => integer(state, deck.story, &key("mark", mark)).is_none(),
         Condition::Pressure(which) => pressure(state, deck).as_deref() == Some(*which),
-        Condition::ChapterEnding(left) => {
-            let (_, started) = chapter(state, deck);
-            let ends = started / deck.period.max(1) + deck.chapter_periods;
-            period + left >= ends
-        }
+        Condition::ChapterEnding(left) => period + left >= chapter_ends(state, deck),
         Condition::Present(entity) => state.entity(*entity).is_some(),
         Condition::Absent(entity) => state.entity(*entity).is_none(),
     }
@@ -401,6 +397,21 @@ pub fn pressure(state: &WorldState, deck: &Deck) -> Option<String> {
 fn pressure_for(deck: &Deck, chapter: i64) -> Option<&'static str> {
     (!deck.pressures.is_empty())
         .then(|| deck.pressures[((chapter - 1).max(0) as usize) % deck.pressures.len()])
+}
+
+/// How many periods a chapter runs on once a gauge at its end has brought
+/// its end forward.
+const HASTENED: u64 = 2;
+
+/// The period this chapter ends at: its full length after it began,
+/// unless a turning point brought that forward.
+pub fn chapter_ends(state: &WorldState, deck: &Deck) -> u64 {
+    integer(state, deck.story, "story.chapter_ends")
+        .map(|ends| ends.max(0) as u64)
+        .unwrap_or_else(|| {
+            let (_, started) = chapter(state, deck);
+            started / deck.period.max(1) + deck.chapter_periods.max(1)
+        })
 }
 
 /// Which chapter this is (from 1), and when it began.
@@ -850,6 +861,12 @@ impl Action for ChapterTurns {
                 value: (state.world_time() as i64).into(),
             },
         ];
+        if integer(state, deck.story, "story.chapter_ends").is_some() {
+            draft.changes.push(StateChange::RemoveComponent {
+                entity: deck.story,
+                key: "story.chapter_ends".into(),
+            });
+        }
         if let Some(pressure) = pressure_for(&deck, number + 1) {
             draft.changes.push(StateChange::SetComponent {
                 entity: deck.story,
@@ -860,6 +877,34 @@ impl Action for ChapterTurns {
         draft
             .changes
             .extend(applied(state, &deck, &deck.fresh_start));
+        Ok(draft)
+    }
+}
+
+/// A turning point brings the chapter's end forward.
+struct ChapterHastens(fn() -> Deck);
+
+impl Action for ChapterHastens {
+    fn name(&self) -> &'static str {
+        "chapter_hastens"
+    }
+
+    fn evaluate(
+        &self,
+        state: &WorldState,
+        _request: &ActionRequest,
+    ) -> Result<EventDraft, ActionError> {
+        let deck = (self.0)();
+        let ends = period_index(state, &deck) + HASTENED;
+        if chapter_ends(state, &deck) <= ends {
+            return Err(ActionError::Invalid("the chapter is already ending".into()));
+        }
+        let mut draft = EventDraft::new("chapter_turning");
+        draft.changes.push(StateChange::SetComponent {
+            entity: deck.story,
+            key: "story.chapter_ends".into(),
+            value: (ends as i64).into(),
+        });
         Ok(draft)
     }
 }
@@ -875,6 +920,7 @@ pub fn register_actions(
     registry.register(Chosen(deck))?;
     registry.register(Lapsed(deck))?;
     registry.register(ChapterTurns(deck))?;
+    registry.register(ChapterHastens(deck))?;
     Ok(())
 }
 
@@ -974,10 +1020,19 @@ pub fn tick(
         }
     }
     let (_, started) = chapter(world.state(), deck);
-    let due = now >= started.saturating_add(deck.chapter_periods.max(1) * deck.period);
-    let turned =
-        reading.at_end && now >= started.saturating_add(deck.shortest_chapter.max(1) * deck.period);
-    if due || turned {
+    let ends = chapter_ends(world.state(), deck);
+    let period_now = period_index(world.state(), deck);
+    let old_enough = now >= started.saturating_add(deck.shortest_chapter.max(1) * deck.period);
+    // A gauge at its end is a turning point: the chapter's end comes
+    // forward, near enough for its climax to come up first.
+    if reading.at_end && old_enough && ends > period_now + HASTENED {
+        events.push(
+            world
+                .execute(actions, &ActionRequest::new("chapter_hastens"))?
+                .id,
+        );
+    }
+    if period_now >= chapter_ends(world.state(), deck) {
         let (title, summary) = (reading.chapter_ending)(world);
         let request = ActionRequest::new("chapter_turns")
             .arg("title", title)
@@ -1295,8 +1350,23 @@ mod tests {
     }
 
     #[test]
-    fn a_gauge_at_its_end_turns_the_chapter_and_the_next_starts_fresh() {
-        let (mut world, actions) = world();
+    fn a_gauge_at_its_end_brings_the_chapter_to_a_close_and_the_next_starts_fresh() {
+        fn long() -> Deck {
+            Deck {
+                chapter_periods: 20,
+                ..deck()
+            }
+        }
+        let mut state = WorldState::default();
+        state
+            .seed_entity(Entity::new(ANN, "person").with_component("coins", 10_i64))
+            .unwrap();
+        let mut actions = ActionRegistry::new();
+        register_actions(&mut actions, long).unwrap();
+        let mut world = World::new(state);
+        world
+            .execute(&actions, &ActionRequest::new("story_begins"))
+            .unwrap();
         let at_end = Reading {
             pinned: Vec::new(),
             away: false,
@@ -1304,20 +1374,23 @@ mod tests {
             chapter_ending: Box::new(|_| ("Broke".into(), "Ann ran out.".into())),
         };
         world.advance_to(&actions, 10).unwrap();
-        tick(&mut world, &actions, &deck(), &at_end).unwrap();
-        assert_eq!(chapter(world.state(), &deck()).0, 1, "too soon to turn");
-        world
-            .execute(
-                &actions,
-                &ActionRequest::new("storylet_chosen")
-                    .arg("storylet", "roof")
-                    .arg("choice", "mend"),
-            )
-            .ok();
+        tick(&mut world, &actions, &long(), &at_end).unwrap();
+        assert_eq!(chapter_ends(world.state(), &long()), 20, "too soon to turn");
         world.advance_to(&actions, 20).unwrap();
-        tick(&mut world, &actions, &deck(), &at_end).unwrap();
-        assert_eq!(chapter(world.state(), &deck()).0, 2);
+        tick(&mut world, &actions, &long(), &at_end).unwrap();
+        assert_eq!(
+            chapter_ends(world.state(), &long()),
+            4,
+            "the end comes forward"
+        );
+        assert!(holds(world.state(), &long(), &Condition::ChapterEnding(2)));
+        for step in 3..=4 {
+            world.advance_to(&actions, step * 10).unwrap();
+            tick(&mut world, &actions, &long(), &at_end).unwrap();
+        }
+        assert_eq!(chapter(world.state(), &long()).0, 2);
         assert_eq!(integer(world.state(), ANN, "coins"), Some(10));
+        assert_eq!(chapter_ends(world.state(), &long()), 24);
     }
 
     #[test]

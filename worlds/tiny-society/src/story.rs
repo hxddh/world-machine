@@ -1293,7 +1293,41 @@ pub(crate) fn deck() -> Deck {
 pub(crate) fn register_actions(
     actions: &mut ActionRegistry,
 ) -> Result<(), world_core::ActionError> {
-    storylets::register_actions(actions, deck)
+    storylets::register_actions(actions, deck)?;
+    actions.register(SpiritsSettle)
+}
+
+/// Nobody stays at the very top or bottom for long: a day at either end of
+/// the harbour's spirits eases them one step back.
+struct SpiritsSettle;
+
+impl world_core::Action for SpiritsSettle {
+    fn name(&self) -> &'static str {
+        "spirits_settle"
+    }
+
+    fn evaluate(
+        &self,
+        state: &world_core::WorldState,
+        _request: &world_core::ActionRequest,
+    ) -> Result<world_core::EventDraft, world_core::ActionError> {
+        let mood = match state.entity(STORY).and_then(|story| story.component(MOOD)) {
+            Some(Value::Integer(mood)) => *mood,
+            _ => 0,
+        };
+        if mood.abs() < 5 {
+            return Err(world_core::ActionError::Invalid(
+                "the harbour's spirits are not at an end".into(),
+            ));
+        }
+        let mut draft = world_core::EventDraft::new("spirits_settled");
+        draft.changes.push(world_core::StateChange::SetComponent {
+            entity: STORY,
+            key: MOOD.into(),
+            value: (mood - mood.signum()).into(),
+        });
+        Ok(draft)
+    }
 }
 
 fn name_of(world: &World, id: EntityId) -> String {
@@ -1648,13 +1682,23 @@ pub(crate) fn tick(
         .into_iter()
         .find(|gauge| gauge.id == "money")
         .map_or(0.5, |gauge| gauge.value);
+    let mut settled = Vec::new();
+    if spirits(world).abs() >= 5 {
+        settled.push(
+            world
+                .execute(actions, &world_core::ActionRequest::new("spirits_settle"))?
+                .id,
+        );
+    }
     let reading = Reading {
         pinned: pinned(world),
         away,
         at_end: spirits(world).abs() >= 5 || !(0.02..=0.98).contains(&money),
         chapter_ending: Box::new(chapter_ending),
     };
-    storylets::tick(world, actions, &deck(), &reading)
+    let mut events = settled;
+    events.extend(storylets::tick(world, actions, &deck(), &reading)?);
+    Ok(events)
 }
 
 fn command_id(storylet: &str, choice: &str) -> String {
