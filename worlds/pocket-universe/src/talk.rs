@@ -80,31 +80,86 @@ pub(crate) fn look(world: &World, id: EntityId) -> Option<Look> {
 /// Who says the line for a moment, and what they say. The keeper speaks
 /// for home, the explorer for going out; what someone did, they say.
 fn said(world: &World, event: &Event) -> Option<(EntityId, String)> {
+    if let Some(said) = crate::story::line(world, event) {
+        world.state().entity(said.0)?;
+        return Some(said);
+    }
     let seed = seed_id(world);
     let anchor = title(world, SLOT_A);
     let vehicle = title(world, SLOT_D);
     let doer = event.actor.filter(|id| [SLOT_B, SLOT_E].contains(id));
     let (speaker, line) = match event.kind.as_str() {
         "universe_seeded" => (SLOT_B, "Right. Let's make this place a home.".to_string()),
-        "agent_cared_for_world" => (
-            doer?,
-            match seed {
-                "mars-colony" => "Seals checked. Air's steady.".to_string(),
-                "1980s-town" => format!("Lights are on at {anchor}."),
-                _ => "The ice is holding. The vault is full.".to_string(),
-            },
-        ),
-        "agent_explored_world" => (
-            doer?,
-            match seed {
-                "mars-colony" => format!("Taking {vehicle} past the ridge."),
-                "1980s-town" => format!("Catching {vehicle} across town."),
-                _ => "Going out over the ice.".to_string(),
-            },
-        ),
+        "agent_cared_for_world" | "agent_explored_world" => {
+            let doer = doer?;
+            if let Some(memory) = crate::story::remembered(world, doer) {
+                return Some((doer, memory));
+            }
+            let lines = if event.kind == "agent_cared_for_world" {
+                match seed {
+                    "mars-colony" => [
+                        "Seals checked. Air's steady.".to_string(),
+                        "The wheat's coming up green.".into(),
+                        format!("Scrubbed the filters at {anchor}."),
+                        "Water recycler's humming nicely.".into(),
+                        "Swept the dust out of the airlock.".into(),
+                    ],
+                    "1980s-town" => [
+                        format!("Lights are on at {anchor}."),
+                        "Fixed the jammed coin slot.".into(),
+                        "New high score on the board.".into(),
+                        "Mopped the floor, again.".into(),
+                        "The regulars are in tonight.".into(),
+                    ],
+                    _ => [
+                        "The ice is holding. The vault is full.".to_string(),
+                        "Lanterns trimmed and lit.".into(),
+                        "Patched a crack in the bridge.".into(),
+                        "Counted the fish twice.".into(),
+                        "The chicks are all asleep.".into(),
+                    ],
+                }
+            } else {
+                match seed {
+                    "mars-colony" => [
+                        format!("Taking {vehicle} past the ridge."),
+                        "Found a new way down the crater.".into(),
+                        "The dunes moved again overnight.".into(),
+                        "Picked up odd rocks by the ridge.".into(),
+                        format!("{vehicle}'s running well today."),
+                    ],
+                    "1980s-town" => [
+                        format!("Catching {vehicle} across town."),
+                        "Found a record shop I'd never seen.".into(),
+                        "Took the long way home.".into(),
+                        "Somebody called in a song request.".into(),
+                        "Walked the whole Maple Loop.".into(),
+                    ],
+                    _ => [
+                        "Going out over the ice.".to_string(),
+                        "Saw a whale past the floe.".into(),
+                        "Found a new fishing hole.".into(),
+                        "The wind's changed out there.".into(),
+                        "Slid all the way down the ridge!".into(),
+                    ],
+                }
+            };
+            let today = (event.world_time / crate::BACKGROUND_PERIOD % 5) as usize;
+            (doer, lines[today].clone())
+        }
         "partnership_formed" => (SLOT_E, "Let's do the next part together.".into()),
         "relationship_fractured" => (SLOT_B, "Fine. Go on without me.".into()),
-        "universe_grew" => (doer.unwrap_or(SLOT_B), "Look at that. We built it.".into()),
+        "universe_grew" => (
+            doer.unwrap_or(SLOT_B),
+            [
+                "Look at that. We built it.",
+                "A little bigger every day.",
+                "It's starting to feel like home.",
+                "Not bad for two of us.",
+                "Another piece in place.",
+            ][(event.world_time / crate::BACKGROUND_PERIOD % 5) as usize]
+                .into(),
+        ),
         "pressure_rising" => (SLOT_B, format!("Something's wrong with {anchor}.")),
         "pressure_peaked" => (SLOT_B, format!("{anchor} can't take much more!")),
         "pressure_held" => (SLOT_B, "We held it. We actually held it!".into()),
@@ -146,7 +201,11 @@ fn request(
     world: &World,
     who: EntityId,
     commands: &[ProjectionCommand],
-) -> Option<(String, String)> {
+) -> Option<(String, Option<String>)> {
+    if let Some((line, grant)) = crate::story::wanting(world, who) {
+        let grant = grant.filter(|id| commands.iter().any(|command| &command.id == id));
+        return Some((line, grant));
+    }
     let anchor = title(world, SLOT_A);
     let other = first_name(world, if who == SLOT_B { SLOT_E } else { SLOT_B });
     let theirs = |command: &&ProjectionCommand| {
@@ -169,7 +228,7 @@ fn request(
         ENTRUST_LEGACY_COMMAND => "Let someone carry this on after us.".into(),
         _ => return None,
     };
-    Some((line, command.id.clone()))
+    Some((line, Some(command.id.clone())))
 }
 
 /// What a player can ask each of the pair, and what they answer, from how
@@ -193,8 +252,13 @@ pub(crate) fn talks(world: &World, commands: &[ProjectionCommand]) -> Vec<Talk> 
         }
         let other_name = first_name(world, other);
         let person = SelectionId::Entity(who);
+        let (granted, grudges) = crate::story::kindness(world, who);
         let how = if troubled {
             format!("Worried. {anchor} needs us.")
+        } else if grudges > granted {
+            "Sore. Nobody listens when I ask for anything.".into()
+        } else if granted > grudges {
+            "Good. I feel looked after here.".into()
         } else {
             match text(world, who, "last_intent").as_deref() {
                 Some("explore") => "Restless. There's more out there than we've seen.".into(),
@@ -222,7 +286,7 @@ pub(crate) fn talks(world: &World, commands: &[ProjectionCommand]) -> Vec<Talk> 
             asks_for: None,
         });
         let (need, asks_for) = match request(world, who, commands) {
-            Some((line, command)) => (line, Some(command)),
+            Some((line, command)) => (line, command),
             None => ("Nothing right now. Just time.".to_string(), None),
         };
         talks.push(Talk {

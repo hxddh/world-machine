@@ -23,7 +23,11 @@ fn return_compass_names_every_current_relationship_action() -> Result<(), Box<dy
         .expect("the return digest should surface the currently open relationship choice");
 
     assert_eq!(
-        snapshot.commands.len(),
+        snapshot
+            .commands
+            .iter()
+            .filter(|command| !command.id.starts_with("pocket-universe.story."))
+            .count(),
         3,
         "nudge plus the two relationship choices"
     );
@@ -90,7 +94,11 @@ fn return_compass_surfaces_all_simultaneously_open_shaping_choices() -> Result<(
         .expect("relationship and intervention choices should be summarized together");
 
     assert_eq!(
-        snapshot.commands.len(),
+        snapshot
+            .commands
+            .iter()
+            .filter(|command| !command.id.starts_with("pocket-universe.story."))
+            .count(),
         5,
         "one nudge plus two relationship and two intervention choices should be open"
     );
@@ -234,7 +242,11 @@ fn return_compass_explains_how_to_continue_a_living_legacy() -> Result<(), Box<d
         .expect("a mature World should explain why another cycle is meaningful");
 
     assert_eq!(
-        snapshot.commands.len(),
+        snapshot
+            .commands
+            .iter()
+            .filter(|command| !command.id.starts_with("pocket-universe.story."))
+            .count(),
         1,
         "a mature legacy has one continuation command"
     );

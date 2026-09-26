@@ -1,11 +1,12 @@
 [package]
 name = "pocket-universe"
-version = "0.20.0"
+version = "0.21.0"
 edition = "2021"
 license = "Apache-2.0"
 publish = false
 
 [dependencies]
+storylets = { path = "../../systems/storylets" }
 world-agent = { path = "../../crates/world-agent" }
 world-core = { path = "../../crates/world-core" }
 world-host = { path = "../../crates/world-host" }

@@ -36,16 +36,14 @@ fn durable_legacy_changes_how_the_same_continuation_action_is_presented(
     let left = outward.projection_snapshot();
     let right = rooted.projection_snapshot();
 
-    assert_eq!(left.commands.len(), 1);
-    assert_eq!(right.commands.len(), 1);
     let outward_nudge = left.command(NUDGE_COMMAND).expect("outward continuation");
     let rooted_nudge = right.command(NUDGE_COMMAND).expect("rooted continuation");
     assert_eq!(outward_nudge.id, rooted_nudge.id);
-    assert!(outward_nudge.title.contains("ridge network"));
+    // Waiting is said one way everywhere; what it means for this World's
+    // legacy is on the back of the card.
+    assert_eq!(outward_nudge.title, rooted_nudge.title);
     assert!(outward_nudge.detail.contains("ridge"));
-    assert!(rooted_nudge.title.contains("habitat commons"));
     assert!(rooted_nudge.detail.contains("commons"));
-    assert_ne!(outward_nudge.title, rooted_nudge.title);
     assert_ne!(outward_nudge.detail, rooted_nudge.detail);
 
     let comparison = compare_snapshots(&left, &right);

@@ -3866,8 +3866,9 @@ dependencies = [
 
 [[package]]
 name = "pocket-universe"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
+ "storylets",
  "world-agent",
  "world-compare",
  "world-core",

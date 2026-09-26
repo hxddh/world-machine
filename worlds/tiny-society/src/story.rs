@@ -1356,7 +1356,10 @@ fn chapter_ending(world: &World) -> (String, String) {
         -3..=-2 => "A hard",
         _ => "A bitter",
     };
-    let title = format!("{feel} {}", SEASONS[season(world)]);
+    let mut title = format!("{feel} {}", SEASONS[season(world)]);
+    if storylets::last_chapter_title(world).is_some_and(|last| last.ends_with(&title[2..])) {
+        title = format!("Another {}", &title[2..]);
+    }
     let mut summary = Vec::new();
     summary.push(
         if text(world, BAKERY, OPERATING_STATUS).as_deref() == Some("closed") {
@@ -1557,11 +1560,11 @@ pub(crate) fn tone(event: &Event) -> Option<world_projection::Tone> {
     })
 }
 
-/// What someone still says, in the three days after something went their
+/// What someone still says, the day after something went their
 /// way: the newest such moment of theirs.
 pub(crate) fn remembered(world: &World, who: EntityId) -> Option<&'static str> {
     let now = world.world_time();
-    let since = now.saturating_sub(3 * crate::persistence::WORLD_DAY_TICKS);
+    let since = now.saturating_sub(crate::persistence::WORLD_DAY_TICKS);
     world
         .events()
         .iter()

@@ -115,6 +115,13 @@ pub enum Effect {
         key: &'static str,
         text: &'static str,
     },
+    /// Move an integer toward `target` by up to `by`.
+    Toward {
+        entity: EntityId,
+        key: &'static str,
+        target: i64,
+        by: i64,
+    },
     /// Set an integer outright.
     Put {
         entity: EntityId,
@@ -277,6 +284,19 @@ pub fn last_granted(state: &WorldState, deck: &Deck, person: EntityId) -> Option
     integer(state, deck.story, &key("thanked", &person.to_string())).map(|at| at.max(0) as u64)
 }
 
+/// The title the last chapter ended with, if one has.
+pub fn last_chapter_title(world: &World) -> Option<String> {
+    world
+        .events()
+        .iter()
+        .rev()
+        .find(|event| event.kind == "chapter_ended")
+        .and_then(|event| match event.payload.get("title") {
+            Some(Value::Text(title)) => Some(title.clone()),
+            _ => None,
+        })
+}
+
 /// Which chapter this is (from 1), and when it began.
 pub fn chapter(state: &WorldState, deck: &Deck) -> (i64, u64) {
     (
@@ -304,6 +324,27 @@ fn applied(state: &WorldState, deck: &Deck, effects: &[Effect]) -> Vec<StateChan
                     .entry((*entity, key.to_string()))
                     .or_insert_with(|| integer(state, *entity, key).unwrap_or(0));
                 let next = current.saturating_add(*by).clamp(*min, *max);
+                values.insert((*entity, key.to_string()), next);
+                changes.push(StateChange::SetComponent {
+                    entity: *entity,
+                    key: key.to_string(),
+                    value: next.into(),
+                });
+            }
+            Effect::Toward {
+                entity,
+                key,
+                target,
+                by,
+            } => {
+                let current = *values
+                    .entry((*entity, key.to_string()))
+                    .or_insert_with(|| integer(state, *entity, key).unwrap_or(0));
+                let next = if current < *target {
+                    (current + by).min(*target)
+                } else {
+                    (current - by).max(*target)
+                };
                 values.insert((*entity, key.to_string()), next);
                 changes.push(StateChange::SetComponent {
                     entity: *entity,
