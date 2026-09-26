@@ -1248,6 +1248,13 @@ pub enum MarkShapeWire {
     Rover,
     Boat,
     Parcel,
+    Stall,
+    Bunting,
+    Pier,
+    Garden,
+    Flag,
+    Lantern,
+    Tent,
     #[serde(other)]
     Unknown,
 }
@@ -1265,6 +1272,13 @@ impl From<MarkShape> for MarkShapeWire {
             MarkShape::Rover => Self::Rover,
             MarkShape::Boat => Self::Boat,
             MarkShape::Parcel => Self::Parcel,
+            MarkShape::Stall => Self::Stall,
+            MarkShape::Bunting => Self::Bunting,
+            MarkShape::Pier => Self::Pier,
+            MarkShape::Garden => Self::Garden,
+            MarkShape::Flag => Self::Flag,
+            MarkShape::Lantern => Self::Lantern,
+            MarkShape::Tent => Self::Tent,
         }
     }
 }
@@ -1282,6 +1296,13 @@ impl From<MarkShapeWire> for MarkShape {
             MarkShapeWire::Rover => Self::Rover,
             MarkShapeWire::Boat => Self::Boat,
             MarkShapeWire::Parcel => Self::Parcel,
+            MarkShapeWire::Stall => Self::Stall,
+            MarkShapeWire::Bunting => Self::Bunting,
+            MarkShapeWire::Pier => Self::Pier,
+            MarkShapeWire::Garden => Self::Garden,
+            MarkShapeWire::Flag => Self::Flag,
+            MarkShapeWire::Lantern => Self::Lantern,
+            MarkShapeWire::Tent => Self::Tent,
         }
     }
 }

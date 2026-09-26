@@ -797,6 +797,13 @@ fn mark_shape_name(shape: world_projection::MarkShape) -> &'static str {
         MarkShape::Rover => "rover",
         MarkShape::Boat => "boat",
         MarkShape::Parcel => "parcel",
+        MarkShape::Stall => "stall",
+        MarkShape::Bunting => "bunting",
+        MarkShape::Pier => "pier",
+        MarkShape::Garden => "garden",
+        MarkShape::Flag => "flag",
+        MarkShape::Lantern => "lantern",
+        MarkShape::Tent => "tent",
     }
 }
 
@@ -812,6 +819,13 @@ fn mark_shape_from_name(name: &str) -> world_projection::MarkShape {
         "rover" => MarkShape::Rover,
         "boat" => MarkShape::Boat,
         "parcel" => MarkShape::Parcel,
+        "stall" => MarkShape::Stall,
+        "bunting" => MarkShape::Bunting,
+        "pier" => MarkShape::Pier,
+        "garden" => MarkShape::Garden,
+        "flag" => MarkShape::Flag,
+        "lantern" => MarkShape::Lantern,
+        "tent" => MarkShape::Tent,
         _ => MarkShape::House,
     }
 }

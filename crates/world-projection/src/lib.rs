@@ -1258,6 +1258,20 @@ pub enum MarkShape {
     Boat,
     /// A parcel or crate: an order, a delivery, a thing to be made.
     Parcel,
+    /// A market stall under a striped awning.
+    Stall,
+    /// A string of little flags between two poles.
+    Bunting,
+    /// A wooden pier on its piles.
+    Pier,
+    /// A small garden bed in flower.
+    Garden,
+    /// A flag on a pole.
+    Flag,
+    /// A lamp on a post, lit after dusk.
+    Lantern,
+    /// A tent.
+    Tent,
 }
 
 /// How a connection reads: warm, strained, or neither.

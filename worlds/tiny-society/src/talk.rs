@@ -265,10 +265,7 @@ pub(crate) fn talks(world: &World, commands: &[ProjectionCommand]) -> Vec<Talk> 
     let bakery_open = text(world, BAKERY, OPERATING_STATUS).as_deref() != Some("closed");
     let boat_broken = text(world, JONAS_BOAT, CONDITION).as_deref() == Some("damaged");
     let mut talks = Vec::new();
-    for who in RESIDENTS {
-        if world.state().entity(who).is_none() {
-            continue;
-        }
+    for who in crate::story::people(world) {
         let person = SelectionId::Entity(who);
         let job = text(world, who, JOB).unwrap_or_default();
         let cash = integer(world, who, CASH).unwrap_or(0);

@@ -611,6 +611,10 @@ fn telling(world: &World, event: &Event) -> Telling {
     let actor = name(event.actor.as_ref());
     let place = name(event.targets.last());
     match event.kind.as_str() {
+        "fixture_passed" => Telling::Routine(match event.payload.get("name") {
+            Some(Value::Text(name)) => Some(format!("{name} came down")),
+            _ => None,
+        }),
         "boat_damaged" => Telling::Story("The storm damaged Sea Finch".into()),
         "income_lost" => Telling::Story(format!("{actor}'s income stopped")),
         "shift_missed" => Telling::Story(format!("{actor} missed a shift at {place}")),
@@ -827,6 +831,7 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
         }
     }
 
+    let living = crate::story::people(world);
     for (id, x, y) in [
         (JONAS, 0.12, 0.62),
         (MARA, 0.68, 0.32),
@@ -836,7 +841,12 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
         (NOAH, 0.20, 0.52),
         (EVAN, 0.04, 0.72),
         (SOFIA, 0.42, 0.12),
+        (crate::story::ADA, 0.36, 0.2),
+        (crate::story::IVO, 0.1, 0.6),
     ] {
+        if !living.contains(&id) {
+            continue;
+        }
         if let Some(entity) = world.state().entity(id) {
             items.push(CanvasItem {
                 id: SelectionId::Entity(id),
@@ -849,7 +859,12 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                 y,
                 changes: Vec::new(),
                 shape: None,
-                at: workplace(world, id).map(SelectionId::Entity),
+                at: workplace(world, id)
+                    .or_else(|| match entity.component("location") {
+                        Some(Value::Entity(place)) => Some(*place),
+                        _ => None,
+                    })
+                    .map(SelectionId::Entity),
                 look: crate::talk::look(id),
             });
         }
@@ -889,6 +904,7 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
         }
     }
 
+    items.extend(crate::story::fixtures(world));
     items
 }
 

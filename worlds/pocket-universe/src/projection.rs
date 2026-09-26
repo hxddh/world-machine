@@ -2128,14 +2128,15 @@ fn canvas(world: &World) -> CanvasProjection {
     // Placing by role rather than by list order lets the scene read the same
     // way in every World: home on the left, the pair in the middle, the way
     // out on the right.
-    const LAYOUT: [(EntityId, f32, f32); 5] = [
+    const LAYOUT: [(EntityId, f32, f32); 6] = [
         (SLOT_A, 0.12, 0.22),
         (SLOT_C, 0.12, 0.86),
         (SLOT_B, 0.42, 0.10),
         (SLOT_E, 0.62, 0.84),
         (SLOT_D, 0.90, 0.46),
+        (crate::story::NEWCOMER, 0.3, 0.5),
     ];
-    let items = LAYOUT
+    let mut items: Vec<CanvasItem> = LAYOUT
         .iter()
         .filter_map(|(id, x, y)| {
             let entity = world.state().entity(*id)?;
@@ -2158,6 +2159,7 @@ fn canvas(world: &World) -> CanvasProjection {
             })
         })
         .collect();
+    items.extend(crate::story::fixtures(world));
     CanvasProjection {
         items,
         links: relationship_link(world).into_iter().collect(),
@@ -2490,6 +2492,10 @@ fn canvas_kind(entity: &Entity) -> CanvasItemKind {
 fn whereabouts(world: &World, entity: &Entity) -> Option<SelectionId> {
     if canvas_kind(entity) != CanvasItemKind::Actor {
         return None;
+    }
+    // Someone who came to stay lives where they were taken in.
+    if let Some(Value::Entity(place)) = entity.component("location") {
+        return Some(SelectionId::Entity(*place));
     }
     let explores = |id: EntityId| {
         matches!(

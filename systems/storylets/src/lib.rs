@@ -130,6 +130,30 @@ pub enum Effect {
     },
     /// Build one more part of a goal.
     Advance(&'static str),
+    /// Remember that something happened, for later storylets to follow
+    /// from ([`Condition::Marked`]).
+    Mark(&'static str),
+    /// Forget a mark.
+    Unmark(&'static str),
+    /// Put something on the scene: a fixture entity, standing at a place,
+    /// for `lasts` periods or for good. Building it again renews it.
+    Build {
+        entity: EntityId,
+        name: &'static str,
+        /// How it is drawn, in the Pack's own words ("stall", "bunting").
+        shape: &'static str,
+        at: EntityId,
+        lasts: Option<u64>,
+    },
+    /// Take a fixture away.
+    Demolish(EntityId),
+    /// Someone or something new arrives: an entity of `kind`, with its
+    /// components. Nothing happens if it is already there.
+    Arrive {
+        entity: EntityId,
+        kind: &'static str,
+        components: Vec<(&'static str, Value)>,
+    },
 }
 
 /// Something that has to be true.
@@ -153,6 +177,14 @@ pub enum Condition {
     Unfinished(&'static str),
     /// A goal finished.
     Finished(&'static str),
+    /// Something marked ([`Effect::Mark`]) at least `periods` ago.
+    Marked(&'static str, u64),
+    /// Something never marked, or forgotten.
+    Unmarked(&'static str),
+    /// An entity is in the World.
+    Present(EntityId),
+    /// An entity is not in the World.
+    Absent(EntityId),
 }
 
 /// Something a World is building toward, part by part.
@@ -178,6 +210,17 @@ fn text<'a>(state: &'a WorldState, entity: EntityId, key: &str) -> Option<&'a st
         Value::Text(value) => Some(value.as_str()),
         _ => None,
     }
+}
+
+/// The kind of entity a storylet puts on the scene.
+pub const FIXTURE: &str = "fixture";
+
+/// The fixtures standing now: what storylets have put on the scene.
+pub fn fixtures(state: &WorldState) -> Vec<&Entity> {
+    state
+        .entities()
+        .filter(|entity| entity.kind == FIXTURE)
+        .collect()
 }
 
 /// Which period of the World it is.
@@ -216,6 +259,11 @@ fn holds(state: &WorldState, deck: &Deck, condition: &Condition) -> bool {
         } => season(period, *length) == *which,
         Condition::Unfinished(goal) => !finished(state, deck, goal),
         Condition::Finished(goal) => finished(state, deck, goal),
+        Condition::Marked(mark, periods) => integer(state, deck.story, &key("mark", mark))
+            .is_some_and(|at| period >= (at.max(0) as u64).saturating_add(*periods)),
+        Condition::Unmarked(mark) => integer(state, deck.story, &key("mark", mark)).is_none(),
+        Condition::Present(entity) => state.entity(*entity).is_some(),
+        Condition::Absent(entity) => state.entity(*entity).is_none(),
     }
 }
 
@@ -397,6 +445,83 @@ fn applied(state: &WorldState, deck: &Deck, effects: &[Effect]) -> Vec<StateChan
                 key: key.to_string(),
                 value: (*text).into(),
             }),
+            Effect::Mark(mark) => changes.push(StateChange::SetComponent {
+                entity: deck.story,
+                key: key("mark", mark),
+                value: (period_index(state, deck) as i64).into(),
+            }),
+            Effect::Unmark(mark) => {
+                if integer(state, deck.story, &key("mark", mark)).is_some() {
+                    changes.push(StateChange::RemoveComponent {
+                        entity: deck.story,
+                        key: key("mark", mark),
+                    });
+                }
+            }
+            Effect::Build {
+                entity,
+                name,
+                shape,
+                at,
+                lasts,
+            } => {
+                let until = lasts.map(|lasts| (period_index(state, deck) + lasts) as i64);
+                if state.entity(*entity).is_some() {
+                    for (key, value) in [
+                        ("name", Value::from(*name)),
+                        ("shape", Value::from(*shape)),
+                        ("at", Value::Entity(*at)),
+                    ] {
+                        changes.push(StateChange::SetComponent {
+                            entity: *entity,
+                            key: key.into(),
+                            value,
+                        });
+                    }
+                    match until {
+                        Some(until) => changes.push(StateChange::SetComponent {
+                            entity: *entity,
+                            key: "until".into(),
+                            value: until.into(),
+                        }),
+                        None => {
+                            if integer(state, *entity, "until").is_some() {
+                                changes.push(StateChange::RemoveComponent {
+                                    entity: *entity,
+                                    key: "until".into(),
+                                });
+                            }
+                        }
+                    }
+                } else {
+                    let mut fixture = Entity::new(*entity, FIXTURE)
+                        .with_component("name", *name)
+                        .with_component("shape", *shape)
+                        .with_component("at", Value::Entity(*at));
+                    if let Some(until) = until {
+                        fixture = fixture.with_component("until", until);
+                    }
+                    changes.push(StateChange::CreateEntity(fixture));
+                }
+            }
+            Effect::Demolish(entity) => {
+                if state.entity(*entity).is_some() {
+                    changes.push(StateChange::RemoveEntity(*entity));
+                }
+            }
+            Effect::Arrive {
+                entity,
+                kind,
+                components,
+            } => {
+                if state.entity(*entity).is_none() {
+                    let mut arrival = Entity::new(*entity, *kind);
+                    for (key, value) in components {
+                        arrival = arrival.with_component(*key, value.clone());
+                    }
+                    changes.push(StateChange::CreateEntity(arrival));
+                }
+            }
             Effect::Advance(goal) => {
                 let parts = deck
                     .goals
@@ -485,6 +610,44 @@ impl Action for Begins {
                 .with_component("story.chapter", 1_i64)
                 .with_component("story.chapter_started", state.world_time() as i64),
         ));
+        Ok(draft)
+    }
+}
+
+/// A fixture whose time is up is taken away.
+struct FixturePasses(fn() -> Deck);
+
+impl Action for FixturePasses {
+    fn name(&self) -> &'static str {
+        "fixture_passes"
+    }
+
+    fn evaluate(
+        &self,
+        state: &WorldState,
+        request: &ActionRequest,
+    ) -> Result<EventDraft, ActionError> {
+        let deck = (self.0)();
+        let entity = match request.args.get("fixture") {
+            Some(Value::Integer(id)) => EntityId::new(*id as u64),
+            _ => return Err(ActionError::Invalid("missing fixture".into())),
+        };
+        let fixture = state
+            .entity(entity)
+            .filter(|entity| entity.kind == FIXTURE)
+            .ok_or_else(|| ActionError::Invalid("no such fixture".into()))?;
+        let until = integer(state, entity, "until")
+            .ok_or_else(|| ActionError::Invalid("it stays for good".into()))?;
+        if (period_index(state, &deck) as i64) < until {
+            return Err(ActionError::Invalid("its time is not up".into()));
+        }
+        // Named in its payload, not targeted: once it is gone there is
+        // nothing left to point at.
+        let mut draft = EventDraft::new("fixture_passed");
+        if let Some(Value::Text(name)) = fixture.component("name") {
+            draft.payload.insert("name".into(), name.clone().into());
+        }
+        draft.changes.push(StateChange::RemoveEntity(entity));
         Ok(draft)
     }
 }
@@ -659,6 +822,7 @@ pub fn register_actions(
     deck: fn() -> Deck,
 ) -> Result<(), ActionError> {
     registry.register(Begins(deck))?;
+    registry.register(FixturePasses(deck))?;
     registry.register(Arises(deck))?;
     registry.register(Chosen(deck))?;
     registry.register(Lapsed(deck))?;
@@ -731,6 +895,18 @@ pub fn tick(
                 .execute(actions, &ActionRequest::new("story_begins"))?
                 .id,
         );
+    }
+    let period = period_index(world.state(), deck) as i64;
+    let passed = fixtures(world.state())
+        .into_iter()
+        .filter(|fixture| {
+            integer(world.state(), fixture.id, "until").is_some_and(|until| until <= period)
+        })
+        .map(|fixture| fixture.id)
+        .collect::<Vec<_>>();
+    for fixture in passed {
+        let request = ActionRequest::new("fixture_passes").arg("fixture", fixture.0 as i64);
+        events.push(world.execute(actions, &request)?.id);
     }
     let now = world.world_time();
     for storylet in open(world.state(), deck) {
@@ -1098,6 +1274,72 @@ mod tests {
         world.advance_to(&actions, 10).unwrap();
         tick(&mut world, &actions, &deck(), &reading).unwrap();
         assert!(opened_at(world.state(), &deck(), "roof").is_some());
+    }
+
+    #[test]
+    fn what_is_built_stands_on_the_scene_and_what_passes_goes() {
+        let (mut world, actions) = world();
+        let stall = EntityId::new(50);
+        let bunting = EntityId::new(51);
+        let deck = deck();
+        let changes = applied(
+            world.state(),
+            &deck,
+            &[
+                Effect::Build {
+                    entity: stall,
+                    name: "Ann's stall",
+                    shape: "stall",
+                    at: ANN,
+                    lasts: None,
+                },
+                Effect::Build {
+                    entity: bunting,
+                    name: "Bunting",
+                    shape: "bunting",
+                    at: ANN,
+                    lasts: Some(2),
+                },
+                Effect::Mark("stall"),
+            ],
+        );
+        assert_eq!(changes.len(), 3);
+        struct Apply(Vec<StateChange>);
+        impl Action for Apply {
+            fn name(&self) -> &'static str {
+                "apply_for_test"
+            }
+            fn evaluate(
+                &self,
+                _state: &WorldState,
+                _request: &ActionRequest,
+            ) -> Result<EventDraft, ActionError> {
+                let mut draft = EventDraft::new("built");
+                draft.changes = self.0.clone();
+                Ok(draft)
+            }
+        }
+        let mut actions = actions;
+        actions.register(Apply(changes)).unwrap();
+        world
+            .execute(&actions, &ActionRequest::new("apply_for_test"))
+            .unwrap();
+        assert_eq!(fixtures(world.state()).len(), 2);
+        assert!(!holds(world.state(), &deck, &Condition::Marked("stall", 1)));
+        assert!(holds(world.state(), &deck, &Condition::Marked("stall", 0)));
+        pass(&mut world, &actions);
+        assert!(holds(world.state(), &deck, &Condition::Marked("stall", 1)));
+        pass(&mut world, &actions);
+        let standing = fixtures(world.state())
+            .iter()
+            .map(|fixture| fixture.id)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            standing,
+            vec![stall],
+            "the bunting came down after two periods"
+        );
+        assert!(kinds(&world).contains(&"fixture_passed".to_string()));
     }
 
     #[test]

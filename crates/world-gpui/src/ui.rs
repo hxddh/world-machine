@@ -468,6 +468,23 @@ pub fn paint_mark(
             body.line_to(at(0.8, 0.6));
             body.line_to(at(0.8, 1.0));
         }
+        MarkShape::Stall | MarkShape::Tent => {
+            body.move_to(at(0.1, 1.0));
+            body.line_to(at(0.5, 0.45));
+            body.line_to(at(0.9, 1.0));
+        }
+        MarkShape::Bunting | MarkShape::Flag | MarkShape::Lantern => {
+            body.move_to(at(0.45, 1.0));
+            body.line_to(at(0.45, 0.2));
+            body.line_to(at(0.55, 0.2));
+            body.line_to(at(0.55, 1.0));
+        }
+        MarkShape::Pier | MarkShape::Garden => {
+            body.move_to(at(0.0, 1.0));
+            body.line_to(at(0.0, 0.8));
+            body.line_to(at(1.0, 0.8));
+            body.line_to(at(1.0, 1.0));
+        }
     }
     body.close();
     if let Ok(path) = body.build() {

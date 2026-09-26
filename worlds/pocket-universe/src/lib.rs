@@ -1183,15 +1183,16 @@ impl Action for UpdateRelationship {
         // small frictions, and a feud wears itself out.
         let mut dynamic = dynamic;
         let (next_trust, next_tension) = (trust + trust_delta, tension + tension_delta);
-        if (next_trust >= 10 && next_tension <= 1) || (next_tension <= 0 && next_trust >= 7) {
-            trust_delta = trust_delta.min(0);
-            tension_delta = 1;
+        if (next_trust >= 10 && trust_delta >= 0) || (next_tension <= 0 && next_trust >= 7) {
+            trust_delta = trust_delta.min(0).min(9 - trust);
+            tension_delta = tension_delta.max(1);
             dynamic =
                 "They are so at ease with each other that small things have started to grate.";
-        } else if (next_tension >= 10 && next_trust <= 1) || (next_trust <= 0 && next_tension >= 7)
+        } else if (next_tension >= 10 && tension_delta >= 0)
+            || (next_trust <= 0 && next_tension >= 7)
         {
-            trust_delta = 1;
-            tension_delta = tension_delta.min(0);
+            trust_delta = trust_delta.max(1);
+            tension_delta = tension_delta.min(0).min(9 - tension);
             dynamic = "Too tired to keep fighting, they let a small kindness through.";
         }
         let next_trust = (trust + trust_delta).clamp(0, 10);

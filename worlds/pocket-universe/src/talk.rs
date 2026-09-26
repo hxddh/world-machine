@@ -73,6 +73,9 @@ pub(crate) fn look(world: &World, id: EntityId) -> Option<Look> {
         ("1980s-town", SLOT_E) => look(0x2f6fb0, 0xc98f45, 0xf0c49c, Carry::Mug),
         ("penguin-civilization", SLOT_B) => bird(0xd64545, None),
         ("penguin-civilization", SLOT_E) => bird(0x3a8fd6, Some(Carry::Fish)),
+        ("mars-colony", crate::story::NEWCOMER) => look(0x6a7f3a, 0x1a1414, 0x8d5a3b, Carry::Tool),
+        ("1980s-town", crate::story::NEWCOMER) => look(0xc8553d, 0x3a2418, 0xe0b18a, Carry::Mug),
+        ("penguin-civilization", crate::story::NEWCOMER) => bird(0xe0a33a, None),
         _ => return None,
     })
 }
