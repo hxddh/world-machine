@@ -820,7 +820,16 @@ pub fn paint_building(
                 );
             }
         }
-        MarkShape::Rover | MarkShape::Boat | MarkShape::Parcel => {
+        MarkShape::Rover
+        | MarkShape::Boat
+        | MarkShape::Parcel
+        | MarkShape::Stall
+        | MarkShape::Bunting
+        | MarkShape::Pier
+        | MarkShape::Garden
+        | MarkShape::Flag
+        | MarkShape::Lantern
+        | MarkShape::Tent => {
             paint_thing(window, x, base, w, shape, palette, 0.0);
         }
     }
@@ -969,6 +978,263 @@ pub fn paint_thing(
                 h * 0.14,
                 0.0,
                 hex(0xd64545),
+            );
+        }
+        MarkShape::Stall => {
+            let h = w * 0.8;
+            ellipse(
+                window,
+                x,
+                base,
+                w * 0.55,
+                h * 0.06,
+                gpui::black().opacity(0.12),
+            );
+            // The counter, its goods, two posts and a striped awning.
+            rect(
+                window,
+                x - w * 0.45,
+                base - h * 0.42,
+                w * 0.9,
+                h * 0.42,
+                2.0,
+                palette.wall,
+            );
+            rect(
+                window,
+                x - w * 0.45,
+                base - h * 0.46,
+                w * 0.9,
+                h * 0.06,
+                1.0,
+                palette.trim,
+            );
+            for (dx, colour) in [
+                (-0.28, 0xe0a33a),
+                (-0.08, 0xd6553d),
+                (0.12, 0x7fae5a),
+                (0.3, 0xe0a33a),
+            ] {
+                circle(window, x + w * dx, base - h * 0.51, w * 0.06, hex(colour));
+            }
+            for dx in [-0.42_f32, 0.42] {
+                rect(
+                    window,
+                    x + w * dx - 1.5,
+                    base - h,
+                    3.0,
+                    h * 0.58,
+                    0.0,
+                    palette.trim,
+                );
+            }
+            for stripe in 0..6 {
+                let left = x - w * 0.5 + w * stripe as f32 / 6.0;
+                polygon(
+                    window,
+                    &[
+                        (left, base - h * 0.78),
+                        (left + w / 6.0, base - h * 0.78),
+                        (left + w / 6.0 + w * 0.02, base - h * 0.66),
+                        (left + w * 0.02, base - h * 0.66),
+                    ],
+                    if stripe % 2 == 0 {
+                        palette.roof
+                    } else {
+                        gpui::white()
+                    },
+                );
+            }
+            polygon(
+                window,
+                &[
+                    (x - w * 0.5, base - h * 0.78),
+                    (x, base - h),
+                    (x + w * 0.5, base - h * 0.78),
+                ],
+                palette.roof,
+            );
+        }
+        MarkShape::Bunting => {
+            let h = w * 0.75;
+            let (left, right) = (x - w * 0.5, x + w * 0.5);
+            for pole in [left, right] {
+                rect(window, pole - 1.5, base - h, 3.0, h, 0.0, hex(0x6b4a33));
+            }
+            let colours = [0xd64545, 0xe0a33a, 0x3f8fd6, 0x7fae5a, 0xe06f8b];
+            let flags = 7;
+            for flag in 0..flags {
+                let t = (flag as f32 + 0.5) / flags as f32;
+                let fx = left + (right - left) * t;
+                // The string sags in the middle, and sways a little.
+                let sag = (t * std::f32::consts::PI).sin() * h * 0.18 + sway * 1.5;
+                let top = base - h * 0.95 + sag;
+                polygon(
+                    window,
+                    &[
+                        (fx - w * 0.05, top),
+                        (fx + w * 0.05, top),
+                        (fx, top + w * 0.12),
+                    ],
+                    hex(colours[flag % colours.len()]),
+                );
+            }
+            line(
+                window,
+                (left, base - h * 0.95),
+                (right, base - h * 0.95),
+                1.0,
+                hex(0x6b4a33).opacity(0.5),
+            );
+        }
+        MarkShape::Pier => {
+            let h = w * 0.35;
+            let deck = base - h * 0.55;
+            for pile in 0..5 {
+                let px0 = x - w * 0.46 + w * 0.92 * pile as f32 / 4.0;
+                rect(window, px0 - 2.0, deck, 4.0, h * 0.9, 1.0, hex(0x5a4030));
+            }
+            rect(
+                window,
+                x - w * 0.5,
+                deck - h * 0.12,
+                w,
+                h * 0.16,
+                1.0,
+                hex(0xa8835a),
+            );
+            for plank in 0..10 {
+                let px0 = x - w * 0.5 + w * plank as f32 / 10.0;
+                line(
+                    window,
+                    (px0, deck - h * 0.12),
+                    (px0, deck + h * 0.04),
+                    1.0,
+                    hex(0x7a5a3a),
+                );
+            }
+            // A mooring post at its end.
+            rect(
+                window,
+                x + w * 0.44,
+                deck - h * 0.45,
+                4.0,
+                h * 0.35,
+                1.0,
+                hex(0x5a4030),
+            );
+        }
+        MarkShape::Garden => {
+            let h = w * 0.4;
+            ellipse(
+                window,
+                x,
+                base,
+                w * 0.52,
+                h * 0.1,
+                gpui::black().opacity(0.1),
+            );
+            rect(
+                window,
+                x - w * 0.48,
+                base - h * 0.35,
+                w * 0.96,
+                h * 0.35,
+                3.0,
+                hex(0x7a5a3a),
+            );
+            for (dx, dy) in [
+                (-0.35, 0.5),
+                (-0.15, 0.65),
+                (0.05, 0.55),
+                (0.25, 0.7),
+                (0.4, 0.5),
+            ] {
+                circle(window, x + w * dx, base - h * dy, w * 0.09, hex(0x5f9a4a));
+            }
+            for (dx, dy, colour) in [
+                (-0.3, 0.75, 0xe06f8b),
+                (0.0, 0.8, 0xffd05a),
+                (0.3, 0.9, 0xd64545),
+                (-0.05, 0.6, 0xffffff),
+            ] {
+                circle(window, x + w * dx, base - h * dy, w * 0.035, hex(colour));
+            }
+        }
+        MarkShape::Flag => {
+            let h = w * 0.9;
+            rect(window, x - 1.5, base - h, 3.0, h, 0.0, hex(0x6b6f78));
+            let wave = sway * w * 0.02;
+            polygon(
+                window,
+                &[
+                    (x + 1.5, base - h),
+                    (x + w * 0.42, base - h * 0.9 + wave),
+                    (x + 1.5, base - h * 0.78),
+                ],
+                palette.roof,
+            );
+        }
+        MarkShape::Lantern => {
+            let h = w * 0.95;
+            rect(
+                window,
+                x - 2.0,
+                base - h * 0.8,
+                4.0,
+                h * 0.8,
+                1.0,
+                hex(0x3c3f46),
+            );
+            circle(
+                window,
+                x,
+                base - h * 0.86,
+                w * 0.16,
+                palette.glass.opacity(0.35),
+            );
+            rect(
+                window,
+                x - w * 0.08,
+                base - h * 0.95,
+                w * 0.16,
+                h * 0.16,
+                2.0,
+                palette.glass,
+            );
+            rect(
+                window,
+                x - w * 0.1,
+                base - h,
+                w * 0.2,
+                h * 0.05,
+                1.0,
+                hex(0x3c3f46),
+            );
+        }
+        MarkShape::Tent => {
+            let h = w * 0.65;
+            ellipse(
+                window,
+                x,
+                base,
+                w * 0.55,
+                h * 0.08,
+                gpui::black().opacity(0.12),
+            );
+            polygon(
+                window,
+                &[(x - w * 0.5, base), (x, base - h), (x + w * 0.5, base)],
+                palette.roof,
+            );
+            polygon(
+                window,
+                &[
+                    (x - w * 0.12, base),
+                    (x, base - h * 0.55),
+                    (x + w * 0.12, base),
+                ],
+                shade(palette.roof, -0.25),
             );
         }
         other => paint_building(window, x, base, w, w, other, palette),

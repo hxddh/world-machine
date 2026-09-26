@@ -167,6 +167,8 @@ mod tests {
                         scenery: None,
                         asker: None,
                         moves: Vec::new(),
+                        question: None,
+                        unavailable: None,
                     },
                     ProjectionCommand {
                         id: "mock.right".into(),
@@ -176,6 +178,8 @@ mod tests {
                         scenery: None,
                         asker: None,
                         moves: Vec::new(),
+                        question: None,
+                        unavailable: None,
                     },
                 ],
                 ..ProjectionSnapshot::default()

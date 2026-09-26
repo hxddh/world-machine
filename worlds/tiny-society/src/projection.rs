@@ -14,8 +14,6 @@ use world_projection::{
     ProjectionCapabilities, ProjectionCommand, ProjectionSnapshot, SelectionId, Telling, Tone,
 };
 
-const RESIDENTS: [EntityId; 8] = [JONAS, MARA, LEO, EMMA, MIA, NOAH, EVAN, SOFIA];
-
 pub(crate) fn snapshot(world: &World) -> ProjectionSnapshot {
     snapshot_since(world, None)
 }
@@ -29,6 +27,9 @@ pub(crate) fn snapshot_since(
         .map(|mut command| {
             if command.asker.is_none() {
                 command.asker = asker(&command.id);
+            }
+            if command.question.is_none() {
+                command.question = question(&command.id);
             }
             command
         })
@@ -45,7 +46,7 @@ pub(crate) fn snapshot_since(
         commands,
         collection: CollectionProjection {
             title: "Residents".into(),
-            items: RESIDENTS
+            items: crate::story::people(world)
                 .iter()
                 .filter_map(|id| resident_item(world, *id))
                 .collect(),
@@ -198,6 +199,23 @@ fn command_effects(command_id: &str) -> Vec<CommandEffect> {
     }
 }
 
+/// The question a pair of the town's own choices answer together.
+fn question(command_id: &str) -> Option<world_projection::Question> {
+    let (id, prompt) = match command_id {
+        crate::REOPEN_BAKERY_COMMAND | crate::LEAN_REOPEN_BAKERY_COMMAND => {
+            ("reopen", "The bakery's shut. How do I open again?")
+        }
+        crate::REPAIR_BOAT_COMMAND | crate::SELL_BOAT_COMMAND => {
+            ("sea_finch", "What becomes of Sea Finch?")
+        }
+        _ => return None,
+    };
+    Some(world_projection::Question {
+        id: id.into(),
+        prompt: prompt.into(),
+    })
+}
+
 /// Whose choice it is: Jonas's for his job and his boat, Mara's for her
 /// bakery.
 fn asker(command_id: &str) -> Option<SelectionId> {
@@ -239,6 +257,8 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
             scenery: None,
             asker: None,
             moves: Vec::new(),
+            question: None,
+            unavailable: None,
         });
     }
 
@@ -254,7 +274,7 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 "Invest {} of Mara's cash to reopen Harbor Bakery. Mara returns to work; former workers are not automatically rehired.",
                 crate::BAKERY_REOPEN_INVESTMENT
             ), effects: Vec::new(),
-            scenery: None, asker: None, moves: Vec::new(),
+            scenery: None, asker: None, moves: Vec::new(), question: None, unavailable: None,
 });
     }
 
@@ -268,7 +288,7 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 "Invest {} of Mara's cash and reopen Harbor Bakery without a fixed daily Bakery wage. Lower overhead can survive weak demand, but Mara gives up predictable pay.",
                 crate::recovery::LEAN_REOPEN_INVESTMENT
             ), effects: Vec::new(),
-            scenery: None, asker: None, moves: Vec::new(),
+            scenery: None, asker: None, moves: Vec::new(), question: None, unavailable: None,
 });
     }
 
@@ -280,7 +300,7 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 "Leo pays Evan {} to repair Sea Finch. Jonas returns to Harbor fishing once the boat is sound. Leo's backing does not stand indefinitely.",
                 crate::social::SEA_FINCH_REPAIR_COST
             ), effects: Vec::new(),
-            scenery: None, asker: None, moves: Vec::new(),
+            scenery: None, asker: None, moves: Vec::new(), question: None, unavailable: None,
 });
     }
 
@@ -293,7 +313,7 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 crate::drift::SEA_FINCH_SCRAP_VALUE,
                 crate::social::SEA_FINCH_REPAIR_COST
             ), effects: Vec::new(),
-            scenery: None, asker: None, moves: Vec::new(),
+            scenery: None, asker: None, moves: Vec::new(), question: None, unavailable: None,
 });
     }
 
@@ -305,7 +325,7 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 "Jonas works the counter for {} a day. It is a second wage against the same island trade, and the bakery has to carry it.",
                 crate::livelihood::COUNTER_WAGE
             ), effects: Vec::new(),
-            scenery: None, asker: None, moves: Vec::new(),
+            scenery: None, asker: None, moves: Vec::new(), question: None, unavailable: None,
 });
     }
 
@@ -321,6 +341,8 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
         scenery: None,
         asker: None,
         moves: Vec::new(),
+        question: None,
+        unavailable: None,
     });
     commands
 }
@@ -589,6 +611,10 @@ fn telling(world: &World, event: &Event) -> Telling {
     let actor = name(event.actor.as_ref());
     let place = name(event.targets.last());
     match event.kind.as_str() {
+        "fixture_passed" => Telling::Routine(match event.payload.get("name") {
+            Some(Value::Text(name)) => Some(format!("{name} came down")),
+            _ => None,
+        }),
         "boat_damaged" => Telling::Story("The storm damaged Sea Finch".into()),
         "income_lost" => Telling::Story(format!("{actor}'s income stopped")),
         "shift_missed" => Telling::Story(format!("{actor} missed a shift at {place}")),
@@ -805,6 +831,7 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
         }
     }
 
+    let living = crate::story::people(world);
     for (id, x, y) in [
         (JONAS, 0.12, 0.62),
         (MARA, 0.68, 0.32),
@@ -814,7 +841,12 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
         (NOAH, 0.20, 0.52),
         (EVAN, 0.04, 0.72),
         (SOFIA, 0.42, 0.12),
+        (crate::story::ADA, 0.36, 0.2),
+        (crate::story::IVO, 0.1, 0.6),
     ] {
+        if !living.contains(&id) {
+            continue;
+        }
         if let Some(entity) = world.state().entity(id) {
             items.push(CanvasItem {
                 id: SelectionId::Entity(id),
@@ -827,7 +859,12 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                 y,
                 changes: Vec::new(),
                 shape: None,
-                at: workplace(world, id).map(SelectionId::Entity),
+                at: workplace(world, id)
+                    .or_else(|| match entity.component("location") {
+                        Some(Value::Entity(place)) => Some(*place),
+                        _ => None,
+                    })
+                    .map(SelectionId::Entity),
                 look: crate::talk::look(id),
             });
         }
@@ -867,6 +904,7 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
         }
     }
 
+    items.extend(crate::story::fixtures(world));
     items
 }
 
@@ -896,18 +934,19 @@ fn workplace(world: &World, person: EntityId) -> Option<EntityId> {
 /// with, and whether the bakery at its heart is open.
 pub(crate) fn gauges(world: &World) -> Vec<world_projection::Gauge> {
     use world_projection::Gauge;
-    let workforce = RESIDENTS
+    let people = crate::story::people(world);
+    let workforce = people
         .iter()
         .filter(|id| component_text(world, **id, JOB).as_deref() != Some("student"))
         .count();
-    let out_of_work = RESIDENTS
+    let out_of_work = people
         .iter()
         .filter(|id| component_text(world, **id, JOB).as_deref() == Some("unemployed"))
         .count();
     let working = workforce - out_of_work;
     // The whole town's money, its people's and its places': wages and bread
     // only move it about, and what comes and goes is the mainland trade.
-    let town = RESIDENTS.iter().chain(&[HARBOR, BAKERY, SCHOOL, PUB]);
+    let town = people.iter().chain(&[HARBOR, BAKERY, SCHOOL, PUB]);
     let money: i64 = town
         .clone()
         .filter_map(|id| component_integer(world, *id, CASH))

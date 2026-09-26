@@ -849,6 +849,19 @@ pub struct ProjectionCommandWire {
     pub moves: Vec<GaugeMoveWire>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub asker: Option<SelectionIdWire>,
+    /// Optional both ways: the question this choice answers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub question: Option<QuestionWire>,
+    /// Optional both ways: why this cannot be chosen now.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unavailable: Option<String>,
+}
+
+/// A question several choices answer.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct QuestionWire {
+    pub id: String,
+    pub prompt: String,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -948,6 +961,11 @@ impl From<&ProjectionCommand> for ProjectionCommandWire {
                 })
                 .collect(),
             asker: command.asker.map(Into::into),
+            question: command.question.as_ref().map(|question| QuestionWire {
+                id: question.id.clone(),
+                prompt: question.prompt.clone(),
+            }),
+            unavailable: command.unavailable.clone(),
         }
     }
 }
@@ -961,6 +979,19 @@ impl From<ProjectionCommandWire> for ProjectionCommand {
             effects: command.effects.into_iter().map(Into::into).collect(),
             scenery: command.scenery.map(Into::into),
             asker: command.asker.map(Into::into),
+            // A question with no id or nothing asked is no question: the
+            // choice stands on its own.
+            question: command
+                .question
+                .filter(|question| {
+                    !question.id.trim().is_empty() && !question.prompt.trim().is_empty()
+                })
+                .map(|question| world_projection::Question {
+                    id: question.id,
+                    prompt: question.prompt,
+                }),
+            // An empty reason still means it cannot be chosen.
+            unavailable: command.unavailable.map(|reason| reason.trim().to_string()),
             moves: command
                 .moves
                 .into_iter()
@@ -1223,6 +1254,13 @@ pub enum MarkShapeWire {
     Rover,
     Boat,
     Parcel,
+    Stall,
+    Bunting,
+    Pier,
+    Garden,
+    Flag,
+    Lantern,
+    Tent,
     #[serde(other)]
     Unknown,
 }
@@ -1240,6 +1278,13 @@ impl From<MarkShape> for MarkShapeWire {
             MarkShape::Rover => Self::Rover,
             MarkShape::Boat => Self::Boat,
             MarkShape::Parcel => Self::Parcel,
+            MarkShape::Stall => Self::Stall,
+            MarkShape::Bunting => Self::Bunting,
+            MarkShape::Pier => Self::Pier,
+            MarkShape::Garden => Self::Garden,
+            MarkShape::Flag => Self::Flag,
+            MarkShape::Lantern => Self::Lantern,
+            MarkShape::Tent => Self::Tent,
         }
     }
 }
@@ -1257,6 +1302,13 @@ impl From<MarkShapeWire> for MarkShape {
             MarkShapeWire::Rover => Self::Rover,
             MarkShapeWire::Boat => Self::Boat,
             MarkShapeWire::Parcel => Self::Parcel,
+            MarkShapeWire::Stall => Self::Stall,
+            MarkShapeWire::Bunting => Self::Bunting,
+            MarkShapeWire::Pier => Self::Pier,
+            MarkShapeWire::Garden => Self::Garden,
+            MarkShapeWire::Flag => Self::Flag,
+            MarkShapeWire::Lantern => Self::Lantern,
+            MarkShapeWire::Tent => Self::Tent,
         }
     }
 }
@@ -1787,6 +1839,8 @@ mod tests {
                 scenery: None,
                 asker: None,
                 moves: Vec::new(),
+                question: None,
+                unavailable: None,
             }],
             collection: CollectionProjection {
                 title: "Entities".into(),

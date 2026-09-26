@@ -23,7 +23,22 @@ struct Played {
     gauges: Vec<Vec<(String, f32)>>,
     /// The day the first chapter closed.
     first_chapter: Option<usize>,
+    /// Questions answered, and how many of those answers changed what is
+    /// on the scene.
+    answered: usize,
+    answers_seen: usize,
+
     branch: TinySocietyBranch,
+}
+
+/// What the scene shows: everything on it, by name and where it stands.
+fn scene(world: &world_core::World) -> std::collections::BTreeSet<String> {
+    projection::snapshot(world)
+        .canvas
+        .items
+        .iter()
+        .map(|item| format!("{} @ {:?}", item.label, item.at))
+        .collect()
 }
 
 fn said_today(branch: &TinySocietyBranch) -> Vec<String> {
@@ -57,14 +72,29 @@ fn play(policy: Policy, days: usize) -> Played {
         lines: Vec::new(),
         gauges: Vec::new(),
         first_chapter: None,
+        answered: 0,
+        answers_seen: 0,
+
         branch: branch.clone(),
     };
     for day in 0..days {
+        // Whoever asks an open question is in the harbour to ask it, even
+        // someone back from being away.
+        let here = story::people(branch.world());
+        for storylet in storylets::open(branch.world().state(), &story::deck()) {
+            if branch.world().state().entity(storylet.asker).is_some() {
+                assert!(
+                    here.contains(&storylet.asker),
+                    "{policy:?}: {} asked by someone not on the scene",
+                    storylet.id
+                );
+            }
+        }
         let snapshot = projection::snapshot(branch.world());
         let choices = snapshot
             .commands
             .iter()
-            .filter(|command| command.id != story::WAIT_COMMAND)
+            .filter(|command| command.id != story::WAIT_COMMAND && command.unavailable.is_none())
             .map(|command| command.id.clone())
             .collect::<Vec<_>>();
         played.days_with_a_choice.push(!choices.is_empty());
@@ -92,7 +122,17 @@ fn play(policy: Policy, days: usize) -> Played {
             Policy::Absent => None,
         };
         if let Some(command) = pick {
+            let before = scene(branch.world());
             branch.invoke_projection_command(command).unwrap();
+            if snapshot
+                .command(command)
+                .is_some_and(|command| command.question.is_some())
+            {
+                played.answered += 1;
+                if scene(branch.world()) != before {
+                    played.answers_seen += 1;
+                }
+            }
         }
         branch
             .invoke_projection_command(story::WAIT_COMMAND)
@@ -209,4 +249,134 @@ fn show_sixty_days() {
             }
         }
     }
+}
+
+/// The v0.11 bar: what you choose changes the place, and questions follow
+/// from earlier answers.
+#[test]
+fn what_you_choose_changes_the_place_and_comes_back() {
+    let generous = play(Policy::Generous, 30);
+    let contrary = play(Policy::Contrary, 30);
+    // Across both ways of playing, at least half of all answers change the
+    // scene and a third of all questions besides the calendar's follow from
+    // an earlier answer; neither way of playing falls far below that.
+    let mut followed = (0, 0);
+    for (policy, played) in [("yes", &generous), ("last answer", &contrary)] {
+        let world = played.branch.world();
+        eprintln!(
+            "{policy}: {} of {} answers changed the scene",
+            played.answers_seen, played.answered
+        );
+        assert!(
+            played.answers_seen * 3 >= played.answered,
+            "{policy}: only {} of {} answers changed the scene",
+            played.answers_seen,
+            played.answered
+        );
+        let mut asked = std::collections::BTreeMap::<String, usize>::new();
+        for event in world.events() {
+            if event.kind == "situation_arose" {
+                if let Some(world_core::Value::Text(id)) = event.payload.get("storylet") {
+                    *asked.entry(id.clone()).or_default() += 1;
+                }
+            }
+        }
+        // The calendar's days (market day, birthdays) come round by design,
+        // so they are left out of the count.
+        let all = asked
+            .iter()
+            .filter(|(id, _)| !story::from_the_calendar(id))
+            .map(|(_, count)| count)
+            .sum::<usize>();
+        let following = asked
+            .iter()
+            .filter(|(id, _)| story::follows_from_an_answer(id))
+            .map(|(_, count)| count)
+            .sum::<usize>();
+        eprintln!("{policy}: {following} of {all} questions followed from an answer; {asked:?}");
+        assert!(
+            following * 4 >= all,
+            "{policy}: {following} of {all} questions followed from an earlier answer"
+        );
+        followed.0 += following;
+        followed.1 += all;
+        for (id, count) in &asked {
+            if !story::from_the_calendar(id) {
+                assert!(
+                    *count <= 2,
+                    "{policy}: {id} asked {count} times in 30 periods"
+                );
+            }
+        }
+    }
+    assert!(
+        (generous.answers_seen + contrary.answers_seen) * 2
+            >= generous.answered + contrary.answered,
+        "fewer than half of all answers changed the scene"
+    );
+    assert!(
+        followed.0 * 3 >= followed.1,
+        "{} of {} questions followed from an earlier answer",
+        followed.0,
+        followed.1
+    );
+    let names = |played: &Played| {
+        let world = played.branch.world();
+        projection::snapshot(world)
+            .canvas
+            .items
+            .iter()
+            .map(|item| item.label.clone())
+            .collect::<std::collections::BTreeSet<_>>()
+    };
+    let (a, b) = (names(&generous), names(&contrary));
+    let differences = a.symmetric_difference(&b).collect::<Vec<_>>();
+    eprintln!("differences {differences:?}");
+    assert!(
+        differences.len() >= 3,
+        "yes and last answer end too alike: {differences:?}"
+    );
+}
+
+#[test]
+fn a_new_world_opens_on_a_question() {
+    let mut registry = world_host::WorldRegistry::new();
+    registry
+        .register(crate::tiny_society_registration())
+        .unwrap();
+    let session = registry.create(crate::TINY_SOCIETY_PACK_ID).unwrap();
+    let snapshot = session.snapshot();
+    assert!(
+        snapshot
+            .commands
+            .iter()
+            .any(|command| command.question.is_some()),
+        "{:?}",
+        snapshot
+            .commands
+            .iter()
+            .map(|command| &command.title)
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn a_week_away_lapses_at_most_three_questions() {
+    let mut society = TinySociety::new().unwrap();
+    society.run_story().unwrap();
+    let mut branch = society.branch();
+    branch.begin_story().unwrap();
+    for _ in 0..3 {
+        branch
+            .invoke_projection_command(story::WAIT_COMMAND)
+            .unwrap();
+    }
+    let before = branch.world().events().len();
+    branch.advance_days(7).unwrap();
+    let world = branch.world();
+    let lapsed = world.events()[before..]
+        .iter()
+        .filter(|event| event.payload.contains_key("lapsed"))
+        .count();
+    assert!(lapsed <= 3, "{lapsed} questions lapsed in a week away");
 }

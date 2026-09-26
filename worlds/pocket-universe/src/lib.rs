@@ -25,7 +25,7 @@ use world_persistence::{PersistenceError, WorldArchive, WorldPackRef};
 use world_projection::{ProjectionIntent, ProjectionSnapshot};
 
 pub const POCKET_UNIVERSE_PACK_ID: &str = "world-machine.pocket-universe";
-pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.21.0";
+pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.22.0";
 
 pub const SEED_MARS_COLONY_COMMAND: &str = "pocket-universe.seed-mars-colony";
 pub const SEED_1980S_TOWN_COMMAND: &str = "pocket-universe.seed-1980s-town";
@@ -335,7 +335,7 @@ where
             );
             let relationship = candidate.execute(&self.actions, &relationship_request)?.id;
             let returned = era::resolve_period(&mut candidate, &self.actions, relationship)?;
-            story::tick(&mut candidate, &self.actions)?;
+            story::tick(&mut candidate, &self.actions, false)?;
             self.world = candidate;
             self.narrate_return(since);
             return Ok(returned);
@@ -370,10 +370,15 @@ where
                 .into())
             }
         };
-        Ok(self
+        let event = self
             .world
             .execute(&self.actions, &ActionRequest::new(action).actor(UNIVERSE))?
-            .id)
+            .id;
+        // A World that has just begun opens on its first question.
+        if action.starts_with("seed_") {
+            story::tick(&mut self.world, &self.actions, false)?;
+        }
+        Ok(event)
     }
 
     pub fn advance_periods(&mut self, periods: u64) -> Result<(), Box<dyn Error>> {
@@ -423,7 +428,7 @@ where
             );
             let relationship = candidate.execute(&self.actions, &relationship_request)?.id;
             era::resolve_period(&mut candidate, &self.actions, relationship)?;
-            story::tick(&mut candidate, &self.actions)?;
+            story::tick(&mut candidate, &self.actions, true)?;
         }
         self.world = candidate;
         // Once, for the lines an observer is about to read — not once per
@@ -1183,15 +1188,16 @@ impl Action for UpdateRelationship {
         // small frictions, and a feud wears itself out.
         let mut dynamic = dynamic;
         let (next_trust, next_tension) = (trust + trust_delta, tension + tension_delta);
-        if (next_trust >= 10 && next_tension <= 1) || (next_tension <= 0 && next_trust >= 7) {
-            trust_delta = trust_delta.min(0);
-            tension_delta = 1;
+        if (next_trust >= 10 && trust_delta >= 0) || (next_tension <= 0 && next_trust >= 7) {
+            trust_delta = trust_delta.min(0).min(9 - trust);
+            tension_delta = tension_delta.max(1);
             dynamic =
                 "They are so at ease with each other that small things have started to grate.";
-        } else if (next_tension >= 10 && next_trust <= 1) || (next_trust <= 0 && next_tension >= 7)
+        } else if (next_tension >= 10 && tension_delta >= 0)
+            || (next_trust <= 0 && next_tension >= 7)
         {
-            trust_delta = 1;
-            tension_delta = tension_delta.min(0);
+            trust_delta = trust_delta.max(1);
+            tension_delta = tension_delta.min(0).min(9 - tension);
             dynamic = "Too tired to keep fighting, they let a small kindness through.";
         }
         let next_trust = (trust + trust_delta).clamp(0, 10);
@@ -3682,6 +3688,7 @@ mod tests {
             .timeline
             .items
             .iter()
+            .filter(|item| item.title.ends_with("began"))
             .find_map(|item| match item.id {
                 world_projection::SelectionId::Event(id) => Some(id),
                 _ => None,

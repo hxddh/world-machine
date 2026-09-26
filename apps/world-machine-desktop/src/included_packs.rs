@@ -30,7 +30,7 @@ struct IncludedPackSpec {
 const INCLUDED_PACKS: &[IncludedPackSpec] = &[
     IncludedPackSpec {
         id: "world-machine.pocket-universe",
-        version: "0.21.0",
+        version: "0.22.0",
         title: "Pocket Universe",
         description: "Begin a tiny world, let the people in it live, and watch their choices, friendships and habits become what that place is known for.",
         experience: "Pick a place · Answer what they ask · Branch what happens next",
@@ -48,7 +48,7 @@ const INCLUDED_PACKS: &[IncludedPackSpec] = &[
     },
     IncludedPackSpec {
         id: "world-machine.tiny-society",
-        version: "0.4.0",
+        version: "0.5.0",
         title: "Tiny Society",
         description: "A harbour town that keeps living while you are away. Its people want things of you, the sea and the calendar bring storms and feasts, and every season closes a chapter of the town's story.",
         experience: "Answer what people ask · Build the pier · See how the chapter ends",
@@ -143,7 +143,7 @@ mod tests {
         let packs = discover_in(&root);
         assert_eq!(packs.len(), 1);
         assert_eq!(packs[0].pack.id, "world-machine.pocket-universe");
-        assert_eq!(packs[0].pack.version, "0.21.0");
+        assert_eq!(packs[0].pack.version, "0.22.0");
         assert_eq!(packs[0].title, "Pocket Universe");
         assert!(packs[0].featured);
         assert_eq!(

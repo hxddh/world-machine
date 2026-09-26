@@ -12,8 +12,10 @@ impl TinySocietySession {
     fn fresh() -> Result<Box<dyn WorldSession>, HostError> {
         let mut society = TinySociety::new().map_err(HostError::session)?;
         society.run_story().map_err(HostError::session)?;
+        let mut branch = society.branch();
+        branch.begin_story().map_err(HostError::session)?;
         Ok(Box::new(Self {
-            branch: society.branch(),
+            branch,
             background_cursor: None,
         }))
     }
@@ -89,6 +91,16 @@ pub fn tiny_society_registration() -> WorldRegistration {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The choices that can be made now.
+    fn offered(snapshot: &world_projection::ProjectionSnapshot) -> Vec<String> {
+        snapshot
+            .commands
+            .iter()
+            .filter(|command| command.unavailable.is_none())
+            .map(|command| command.id.clone())
+            .collect()
+    }
     use world_projection::{ProjectionIntent, SelectionId};
 
     /// Everything a player reads in the harbour town, over a first session
@@ -109,7 +121,8 @@ mod tests {
             snapshot = if turn % 4 == 3 || snapshot.commands.is_empty() {
                 session.advance_background(3).unwrap()
             } else {
-                let command = snapshot.commands[turn % snapshot.commands.len()].id.clone();
+                let offered = offered(&snapshot);
+                let command = offered[turn % offered.len()].clone();
                 session
                     .handle(ProjectionIntent::InvokeCommand(command))
                     .unwrap()
@@ -139,7 +152,8 @@ mod tests {
             snapshot = if turn % 4 == 3 || snapshot.commands.is_empty() {
                 session.advance_background(3).unwrap()
             } else {
-                let command = snapshot.commands[turn % snapshot.commands.len()].id.clone();
+                let offered = offered(&snapshot);
+                let command = offered[turn % offered.len()].clone();
                 session
                     .handle(ProjectionIntent::InvokeCommand(command))
                     .unwrap()
@@ -183,7 +197,8 @@ mod tests {
             snapshot = if snapshot.commands.is_empty() {
                 session.advance_background(1).unwrap()
             } else {
-                let command = snapshot.commands[turn % snapshot.commands.len()].id.clone();
+                let offered = offered(&snapshot);
+                let command = offered[turn % offered.len()].clone();
                 session
                     .handle(ProjectionIntent::InvokeCommand(command))
                     .unwrap()

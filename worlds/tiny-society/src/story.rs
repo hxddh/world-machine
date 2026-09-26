@@ -35,6 +35,10 @@ struct Said {
     line: &'static str,
     effects: Vec<Effect>,
     remembered: Option<&'static str>,
+    /// What this adds to the chapter's ending, when it closes.
+    chapter: Option<&'static str>,
+    /// What the chapter is called, when this is how its climax went.
+    title: Option<&'static str>,
 }
 
 struct Answer {
@@ -108,12 +112,24 @@ fn said(
         line,
         effects: effects.into_iter().collect(),
         remembered: None,
+        chapter: None,
+        title: None,
     }
 }
 
 impl Said {
     fn remembered(mut self, line: &'static str) -> Self {
         self.remembered = Some(line);
+        self
+    }
+
+    fn chapter(mut self, line: &'static str) -> Self {
+        self.chapter = Some(line);
+        self
+    }
+
+    fn titled(mut self, title: &'static str) -> Self {
+        self.title = Some(title);
         self
     }
 }
@@ -170,7 +186,7 @@ fn want(asker: EntityId) -> Shape {
         want: true,
         requires: Vec::new(),
         lasts: 3,
-        rests: 10,
+        rests: 16,
         weight: 3,
         eases: vec![down("money"), up("spirits")],
         timely: false,
@@ -183,7 +199,7 @@ fn incident(asker: EntityId, eases: Vec<Ease>) -> Shape {
         want: false,
         requires: Vec::new(),
         lasts: 2,
-        rests: 8,
+        rests: 12,
         weight: 2,
         eases,
         timely: false,
@@ -227,14 +243,21 @@ fn spec(
 ) -> Spec {
     let outcome = |said: &Said| Outcome {
         event: said.event,
-        effects: said.effects.clone(),
+        effects: said
+            .effects
+            .iter()
+            .cloned()
+            .chain(leaves_behind(said.event))
+            .collect(),
     };
+    let mut requires = shape.requires;
+    requires.extend(settled_by(id));
     Spec {
         storylet: Storylet {
             id,
             asker: shape.asker,
             want: shape.want,
-            requires: shape.requires,
+            requires,
             choices: answers
                 .iter()
                 .map(|answer| Choice {
@@ -270,7 +293,7 @@ fn wants() -> Vec<Spec> {
             vec![
                 yes(
                     "mend",
-                    "Pay Evan to mend the school roof",
+                    "Pay Evan to mend it",
                     "Noah puts in 60: 25 to Evan for the work, the rest for mainland slate.",
                     vec![has(NOAH, 60)],
                     said(
@@ -286,7 +309,7 @@ fn wants() -> Vec<Spec> {
                 ),
                 no(
                     "bucket",
-                    "Tell Emma a bucket will do",
+                    "A bucket will do",
                     "Nothing spent. Emma won't forget it.",
                     said(
                         "school_roof_left",
@@ -313,7 +336,7 @@ fn wants() -> Vec<Spec> {
             vec![
                 yes(
                     "hold",
-                    "Put on Leo's music night",
+                    "Put it on",
                     "Leo spends 40 on a fiddler from the mainland. The whole harbour comes.",
                     vec![has(LEO, 40)],
                     said(
@@ -326,7 +349,7 @@ fn wants() -> Vec<Spec> {
                 ),
                 no(
                     "quiet",
-                    "Keep the pub quiet",
+                    "Keep it quiet",
                     "Nothing spent, and nothing to remember.",
                     said(
                         "music_night_called_off",
@@ -353,7 +376,7 @@ fn wants() -> Vec<Spec> {
             vec![
                 yes(
                     "buy",
-                    "Buy Mara a new oven",
+                    "Buy a new oven",
                     "80 of Mara's savings go to the mainland for a new oven.",
                     vec![has(MARA, 80)],
                     said(
@@ -366,7 +389,7 @@ fn wants() -> Vec<Spec> {
                 ),
                 no(
                     "patch",
-                    "Tell Mara to patch the old one",
+                    "Patch the old one",
                     "Evan patches it for 10. It won't last.",
                     said(
                         "oven_patched",
@@ -393,7 +416,7 @@ fn wants() -> Vec<Spec> {
             vec![
                 yes(
                     "buy",
-                    "Have Leo stand Jonas new nets",
+                    "Leo buys new nets",
                     "Leo spends 30 on mainland nets for Jonas.",
                     vec![has(LEO, 30)],
                     said(
@@ -406,7 +429,7 @@ fn wants() -> Vec<Spec> {
                 ),
                 no(
                     "mend",
-                    "Tell Jonas to mend his own nets",
+                    "Mend them yourself",
                     "Nothing spent. A long night for Jonas.",
                     said(
                         "nets_left_torn",
@@ -433,7 +456,7 @@ fn wants() -> Vec<Spec> {
             vec![
                 yes(
                     "buy",
-                    "Buy timber for the new pier",
+                    "Buy the timber",
                     "Noah pays 70 for mainland timber. The pier grows a section.",
                     vec![has(NOAH, 70)],
                     said(
@@ -448,7 +471,7 @@ fn wants() -> Vec<Spec> {
                 ),
                 no(
                     "wait",
-                    "Tell Evan the pier can wait",
+                    "The pier can wait",
                     "Nothing spent, and no pier.",
                     said(
                         "pier_put_off",
@@ -475,7 +498,7 @@ fn wants() -> Vec<Spec> {
             vec![
                 yes(
                     "build",
-                    "Set Sofia up with a stall",
+                    "Set her up",
                     "50 of Sofia's savings go on a stall and her first stock.",
                     vec![has(SOFIA, 50)],
                     said(
@@ -488,7 +511,7 @@ fn wants() -> Vec<Spec> {
                 ),
                 no(
                     "not_yet",
-                    "Keep Sofia behind the pub counter",
+                    "Not this year",
                     "Nothing spent. Sofia keeps her savings, and her grievance.",
                     said(
                         "stall_refused",
@@ -512,7 +535,7 @@ fn wants() -> Vec<Spec> {
             vec![
                 yes(
                     "buy",
-                    "Buy Mia new schoolbooks",
+                    "Buy new books",
                     "Emma spends 25 on books from the mainland.",
                     vec![has(EMMA, 25)],
                     said(
@@ -525,7 +548,7 @@ fn wants() -> Vec<Spec> {
                 ),
                 no(
                     "share",
-                    "Tell Mia to share a friend's",
+                    "Share a friend's",
                     "Nothing spent. Mia makes do.",
                     said(
                         "books_shared",
@@ -552,7 +575,7 @@ fn wants() -> Vec<Spec> {
             vec![
                 yes(
                     "fund",
-                    "Fund a lamp for the point",
+                    "Fund the lamp",
                     "Noah pays 90 for brass and oil. The lamp is a step nearer lit.",
                     vec![has(NOAH, 90)],
                     said(
@@ -567,7 +590,7 @@ fn wants() -> Vec<Spec> {
                 ),
                 no(
                     "later",
-                    "Tell Noah the lamp can wait",
+                    "The lamp can wait",
                     "Nothing spent. The point stays dark.",
                     said(
                         "lamp_put_off",
@@ -596,7 +619,7 @@ fn incidents() -> Vec<Spec> {
             vec![
                 yes(
                     "haul_up",
-                    "Haul the boats up the slip",
+                    "Haul the boats up",
                     "Everyone lends a hand. Noah pays 20 for rope.",
                     vec![has(NOAH, 20)],
                     said(
@@ -609,7 +632,7 @@ fn incidents() -> Vec<Spec> {
                 ),
                 other(
                     "ride_out",
-                    "Let the storm come",
+                    "Let it come",
                     "Nothing spent now. Evan will have work after.",
                     said(
                         "storm_ridden_out",
@@ -636,7 +659,7 @@ fn incidents() -> Vec<Spec> {
             vec![
                 other(
                     "room",
-                    "Give the traveller a room at the pub",
+                    "Give her a room",
                     "The traveller pays Leo 40 and tells stories all night.",
                     said(
                         "traveller_stayed",
@@ -648,7 +671,7 @@ fn incidents() -> Vec<Spec> {
                 ),
                 other(
                     "send_on",
-                    "Send the traveller on",
+                    "Send her on",
                     "The pub stays quiet.",
                     said(
                         "traveller_sent_on",
@@ -675,7 +698,7 @@ fn incidents() -> Vec<Spec> {
             vec![
                 yes(
                     "doctor",
-                    "Send for the mainland doctor",
+                    "Send for the doctor",
                     "Emma pays 35 for the doctor's crossing.",
                     vec![has(EMMA, 35)],
                     said(
@@ -688,7 +711,7 @@ fn incidents() -> Vec<Spec> {
                 ),
                 other(
                     "rest",
-                    "Let Mia sleep it off",
+                    "Let her sleep",
                     "Nothing spent. A worried few days.",
                     said(
                         "fever_slept_off",
@@ -719,7 +742,7 @@ fn incidents() -> Vec<Spec> {
             vec![
                 other(
                     "take",
-                    "Take the hotel's order",
+                    "Take the order",
                     "The hotel pays Mara 90. The ovens run all night.",
                     said(
                         "hotel_order_baked",
@@ -731,7 +754,7 @@ fn incidents() -> Vec<Spec> {
                 ),
                 other(
                     "decline",
-                    "Turn the hotel down",
+                    "Turn it down",
                     "The harbour's own bread comes first.",
                     said(
                         "hotel_order_declined",
@@ -758,7 +781,7 @@ fn incidents() -> Vec<Spec> {
             vec![
                 other(
                     "leo",
-                    "Side with Leo over the debt",
+                    "Side with Leo",
                     "Evan pays Leo the 20 he owes.",
                     said(
                         "quarrel_settled_for_leo",
@@ -769,7 +792,7 @@ fn incidents() -> Vec<Spec> {
                 ),
                 other(
                     "evan",
-                    "Side with Evan over the debt",
+                    "Side with Evan",
                     "Leo lets the debt go.",
                     said(
                         "quarrel_settled_for_evan",
@@ -796,7 +819,7 @@ fn incidents() -> Vec<Spec> {
             vec![
                 yes(
                     "hold",
-                    "Hold the harbour fête",
+                    "Hold the fête",
                     "Noah pays 60 for bunting and a band.",
                     vec![has(NOAH, 60)],
                     said(
@@ -809,7 +832,7 @@ fn incidents() -> Vec<Spec> {
                 ),
                 other(
                     "skip",
-                    "Skip the fête this year",
+                    "Skip it",
                     "Nothing spent. A dull week.",
                     said(
                         "fete_skipped",
@@ -836,7 +859,7 @@ fn incidents() -> Vec<Spec> {
             vec![
                 yes(
                     "drive",
-                    "Pay for the pile-driving",
+                    "Drive the piles",
                     "Noah pays 50, and 20 of it is Evan's wage.",
                     vec![has(NOAH, 50)],
                     said(
@@ -851,7 +874,7 @@ fn incidents() -> Vec<Spec> {
                 ),
                 other(
                     "leave",
-                    "Leave the pier piles for now",
+                    "Leave them",
                     "Nothing spent. The pier waits.",
                     said(
                         "pier_piles_left",
@@ -878,7 +901,7 @@ fn incidents() -> Vec<Spec> {
             vec![
                 yes(
                     "fetch",
-                    "Pay to ship the lamp glass over",
+                    "Ship it over",
                     "Noah pays 40 for the crossing.",
                     vec![has(NOAH, 40)],
                     said(
@@ -890,7 +913,7 @@ fn incidents() -> Vec<Spec> {
                 ),
                 other(
                     "leave",
-                    "Leave the lamp glass at the dock",
+                    "Leave it there",
                     "Nothing spent. It will keep, probably.",
                     said(
                         "lamp_glass_left",
@@ -918,7 +941,7 @@ fn incidents() -> Vec<Spec> {
             vec![
                 other(
                     "sell",
-                    "Sell the mackerel to the mainland",
+                    "Sell the lot",
                     "Jonas makes 50.",
                     said(
                         "mackerel_sold",
@@ -929,7 +952,7 @@ fn incidents() -> Vec<Spec> {
                 ),
                 other(
                     "share",
-                    "Share the catch round the harbour",
+                    "Share them round",
                     "Nothing earned. Everyone eats well.",
                     said(
                         "mackerel_shared",
@@ -954,7 +977,7 @@ fn incidents() -> Vec<Spec> {
             vec![
                 yes(
                     "rebuild",
-                    "Pay Evan to rebuild the chimney",
+                    "Pay Evan to rebuild",
                     "Leo pays Evan 30.",
                     vec![has(LEO, 30)],
                     said(
@@ -966,7 +989,7 @@ fn incidents() -> Vec<Spec> {
                 ),
                 other(
                     "patch",
-                    "Patch the chimney and hope",
+                    "Patch it and hope",
                     "Nothing spent. Smoky evenings.",
                     said(
                         "chimney_patched",
@@ -993,7 +1016,7 @@ fn incidents() -> Vec<Spec> {
             vec![
                 other(
                     "go",
-                    "Send Evan to the mainland",
+                    "Go",
                     "Evan earns 60. The harbour misses its carpenter.",
                     said(
                         "evan_worked_away",
@@ -1004,7 +1027,7 @@ fn incidents() -> Vec<Spec> {
                 ),
                 other(
                     "stay",
-                    "Keep Evan at home",
+                    "Stay",
                     "Nothing earned. The harbour keeps its carpenter.",
                     said(
                         "evan_stayed_home",
@@ -1028,12 +1051,12 @@ fn calendar() -> Vec<Spec> {
     let mut days = vec![
         spec(
             "market_day",
-            day(SOFIA, 7, 3),
+            day(SOFIA, 10, 3),
             ("It's market day", "Market day! What shall we do?"),
             vec![
                 other(
                     "sell",
-                    "Sell jam to the mainland boats",
+                    "Sell jam",
                     "Sofia makes 25.",
                     said(
                         "market_jam_sold",
@@ -1044,7 +1067,7 @@ fn calendar() -> Vec<Spec> {
                 ),
                 yes(
                     "treat",
-                    "Treat the harbour to a market lunch",
+                    "Pies all round",
                     "Noah pays 20 for pies all round.",
                     vec![has(NOAH, 20)],
                     said(
@@ -1069,7 +1092,7 @@ fn calendar() -> Vec<Spec> {
             vec![
                 yes(
                     "race",
-                    "Race Sea Finch in the regatta",
+                    "Race Sea Finch",
                     "Jonas takes the harbour's 40 prize if he wins, and he usually does.",
                     vec![Condition::Is(JONAS_BOAT, CONDITION, "sound"), has(NOAH, 40)],
                     said(
@@ -1082,7 +1105,7 @@ fn calendar() -> Vec<Spec> {
                 ),
                 other(
                     "watch",
-                    "Watch from the harbour wall",
+                    "Just watch",
                     "Nothing ventured.",
                     said(
                         "regatta_watched",
@@ -1109,7 +1132,7 @@ fn calendar() -> Vec<Spec> {
             vec![
                 yes(
                     "feast",
-                    "Lay on a harvest feast",
+                    "A proper feast",
                     "Leo spends 45 on a proper spread.",
                     vec![has(LEO, 45)],
                     said(
@@ -1146,7 +1169,7 @@ fn calendar() -> Vec<Spec> {
             vec![
                 yes(
                     "buy",
-                    "Buy coal for the school stove",
+                    "Buy coal",
                     "Noah pays 50 for a winter's coal.",
                     vec![has(NOAH, 50)],
                     said(
@@ -1193,7 +1216,7 @@ fn calendar() -> Vec<Spec> {
             vec![
                 yes(
                     "party",
-                    "Throw {name} a party at the pub",
+                    "A party at the pub",
                     "Leo spends 20 on cake and a round.",
                     vec![has(LEO, 20)],
                     said(
@@ -1206,7 +1229,7 @@ fn calendar() -> Vec<Spec> {
                 ),
                 other(
                     "card",
-                    "Everyone signs {name} a card",
+                    "A card from everyone",
                     "Nothing spent. A kind thought.",
                     said(
                         "birthday_card",
@@ -1233,6 +1256,8 @@ fn specs() -> &'static [Spec] {
         let mut specs = wants();
         specs.extend(incidents());
         specs.extend(calendar());
+        specs.extend(threads());
+        specs.extend(climaxes());
         specs
     })
 }
@@ -1255,6 +1280,7 @@ pub(crate) fn deck() -> Deck {
         ],
         chapter_periods: CHAPTER_DAYS,
         shortest_chapter: 8,
+        pressures: vec!["storm_season", "hard_times", "inspector"],
         fresh_start: vec![Effect::Put {
             entity: STORY,
             key: MOOD,
@@ -1267,7 +1293,41 @@ pub(crate) fn deck() -> Deck {
 pub(crate) fn register_actions(
     actions: &mut ActionRegistry,
 ) -> Result<(), world_core::ActionError> {
-    storylets::register_actions(actions, deck)
+    storylets::register_actions(actions, deck)?;
+    actions.register(SpiritsSettle)
+}
+
+/// Nobody stays at the very top or bottom for long: a day at either end of
+/// the harbour's spirits eases them one step back.
+struct SpiritsSettle;
+
+impl world_core::Action for SpiritsSettle {
+    fn name(&self) -> &'static str {
+        "spirits_settle"
+    }
+
+    fn evaluate(
+        &self,
+        state: &world_core::WorldState,
+        _request: &world_core::ActionRequest,
+    ) -> Result<world_core::EventDraft, world_core::ActionError> {
+        let mood = match state.entity(STORY).and_then(|story| story.component(MOOD)) {
+            Some(Value::Integer(mood)) => *mood,
+            _ => 0,
+        };
+        if mood.abs() < 5 {
+            return Err(world_core::ActionError::Invalid(
+                "the harbour's spirits are not at an end".into(),
+            ));
+        }
+        let mut draft = world_core::EventDraft::new("spirits_settled");
+        draft.changes.push(world_core::StateChange::SetComponent {
+            entity: STORY,
+            key: MOOD.into(),
+            value: (mood - mood.signum()).into(),
+        });
+        Ok(draft)
+    }
 }
 
 fn name_of(world: &World, id: EntityId) -> String {
@@ -1346,42 +1406,99 @@ pub(crate) fn season(world: &World) -> usize {
     storylets::season(storylets::period_index(world.state(), &deck()), SEASON_DAYS) as usize
 }
 
-/// How a chapter of the harbour's life ends, from how the town stands.
+/// What a moment adds to the chapter it happened in, when that chapter
+/// closes: the things a person would tell you about that stretch.
+fn chapter_line(event: &Event) -> Option<&'static str> {
+    Some(match event.kind.as_str() {
+        "stall_opened" => "Sofia opened a stall of her own.",
+        "sofia_stayed" => "Sofia stayed, and opened her stall after all.",
+        "sofia_left" | "sofia_went_anyway" => "Sofia left for a job on the mainland.",
+        "mia_at_the_stall" => "Mia started helping at Sofia's stall.",
+        "music_monthly_began" => "The Anchor made its music night a monthly thing.",
+        "ferry_run_began" => "Mara's bread went out on the morning ferry.",
+        "pier_opened" | "pier_in_use" | "pier_opened_quietly" => {
+            "The new pier was finished and opened."
+        }
+        "ivo_arrived" => "Ivo's fishing family came to live in the harbour.",
+        "ada_arrived" => "Ada the traveller made the harbour her home.",
+        "lamp_lit_together" | "lamp_lit_quietly" | "lamp_lit_anyway" => {
+            "A lamp was lit on the point."
+        }
+        "garden_planted" => "The school planted a garden.",
+        "school_roof_mended" | "school_roof_mended_at_last" => "The school roof was mended.",
+        "school_moved_to_pub" => "Lessons moved into the pub.",
+        "oven_bought" => "Mara got her new oven.",
+        "regatta_won" => "Sea Finch won the regatta.",
+        "fete_held" => "The harbour held a fête.",
+        "quiz_night" => "The pub started a quiz night.",
+        "bakery_closed" => "Harbor Bakery closed its doors.",
+        "bakery_reopened" | "bakery_reopened_lean" => "Mara reopened the bakery.",
+        "boat_sold" => "Jonas sold Sea Finch.",
+        "boat_repaired" => "Sea Finch went back to sea.",
+        _ => return None,
+    })
+}
+
+/// How a chapter of the harbour's life ends: how its climax went, and
+/// what happened in it that people will remember, in the order it
+/// happened. A chapter that ends before anything worth telling falls back
+/// on how the town stands.
 fn chapter_ending(world: &World) -> (String, String) {
     let deck = deck();
-    let feel = match spirits(world) {
-        3.. => "A bright",
-        1..=2 => "A good",
-        -1..=0 => "A quiet",
-        -3..=-2 => "A hard",
-        _ => "A bitter",
-    };
-    let mut title = format!("{feel} {}", SEASONS[season(world)]);
-    if storylets::last_chapter_title(world).is_some_and(|last| last.ends_with(&title[2..])) {
-        title = format!("Another {}", &title[2..]);
+    let (_, started) = storylets::chapter(world.state(), &deck);
+    let lived = world
+        .events()
+        .iter()
+        .filter(|event| event.world_time >= started)
+        .collect::<Vec<_>>();
+    let mut title = None;
+    let mut lines = Vec::<String>::new();
+    for event in &lived {
+        let said = outcome_of(event).map(|(_, said)| said);
+        if let Some(said) = said {
+            if let Some(named_title) = said.title {
+                title = Some(named_title.to_string());
+            }
+        }
+        let line = said
+            .and_then(|said| said.chapter)
+            .or_else(|| chapter_line(event));
+        if let Some(line) = line {
+            let line = line.to_string();
+            if !lines.contains(&line) {
+                lines.push(line);
+            }
+        }
     }
-    let mut summary = Vec::new();
-    summary.push(
-        if text(world, BAKERY, OPERATING_STATUS).as_deref() == Some("closed") {
-            "The bakery stayed shut."
+    let title = title.unwrap_or_else(|| {
+        let feel = match spirits(world) {
+            3.. => "A bright",
+            1..=2 => "A good",
+            -1..=0 => "A quiet",
+            -3..=-2 => "A hard",
+            _ => "A bitter",
+        };
+        let title = format!("{feel} {}", SEASONS[season(world)]);
+        if storylets::last_chapter_title(world).is_some_and(|last| last.ends_with(&title[2..])) {
+            format!("Another {}", &title[2..])
         } else {
-            "The harbour kept its bakery."
-        },
-    );
-    let boat = text(world, JONAS_BOAT, CONDITION);
-    summary.push(
-        match (text(world, JONAS, JOB).as_deref(), boat.as_deref()) {
-            (Some("fisher"), Some("sound")) => "Jonas fished every day he could.",
-            (_, None) => "Jonas never went back to sea.",
-            (_, Some("damaged")) => "Sea Finch waited on the slip.",
-            _ => "Jonas found his feet ashore.",
-        },
-    );
-    if storylets::progress(world.state(), &deck, "pier") >= 3 {
-        summary.push("The new pier stands.");
-    }
-    if storylets::progress(world.state(), &deck, "lamp") >= 2 {
-        summary.push("A lamp burns on the point.");
+            title
+        }
+    });
+    // The last three things worth telling, with the climax among them.
+    let mut summary = if lines.len() > 3 {
+        lines.split_off(lines.len() - 3)
+    } else {
+        lines
+    };
+    if summary.is_empty() {
+        summary.push(
+            if text(world, BAKERY, OPERATING_STATUS).as_deref() == Some("closed") {
+                "The bakery stayed shut.".to_string()
+            } else {
+                "The harbour kept its bakery.".to_string()
+            },
+        );
     }
     let sore = crate::talk::RESIDENTS
         .into_iter()
@@ -1399,21 +1516,189 @@ fn chapter_ending(world: &World) -> (String, String) {
     (title, summary)
 }
 
+/// The turning point of each chapter: one question near its end, on what
+/// the chapter has been about.
+fn climaxes() -> Vec<Spec> {
+    use Condition::{ChapterEnding, Pressure};
+    let climax = |asker: EntityId, pressure: &'static str| Shape {
+        asker,
+        want: false,
+        requires: vec![Pressure(pressure), ChapterEnding(5)],
+        lasts: 3,
+        rests: 30,
+        weight: 9,
+        eases: Vec::new(),
+        timely: true,
+    };
+    vec![
+        spec(
+            "great_storm",
+            climax(NOAH, "storm_season"),
+            (
+                "The great storm is coming",
+                "The biggest storm in years is coming. What do we save?",
+            ),
+            vec![
+                yes(
+                    "boats",
+                    "Haul every boat up",
+                    "Sea Finch and every boat come up the slip. Noah pays 30 for rope and rollers.",
+                    vec![has(NOAH, 30)],
+                    said(
+                        "great_storm_boats_saved",
+                        "The harbour hauled up every boat before the great storm",
+                        "Not one boat lost!",
+                        spend(NOAH, 30).into_iter().chain([mood(1)]),
+                    )
+                    .chapter("When the great storm came, the harbour saved its boats.")
+                    .titled("The year of the great storm"),
+                ),
+                other(
+                    "board_up",
+                    "Board up the town",
+                    "Evan boards every window; Noah pays him 30.",
+                    said(
+                        "great_storm_boarded_up",
+                        "The harbour boarded up against the great storm",
+                        "Hammers all night, and it held.",
+                        pay(NOAH, EVAN, 30).into_iter().chain([mood(1)]),
+                    )
+                    .chapter("When the great storm came, the harbour boarded up and held.")
+                    .titled("The storm we boarded up against"),
+                ),
+            ],
+            said(
+                "great_storm_caught_us",
+                "The great storm caught the harbour unready",
+                "Nobody was ready for that.",
+                spend(NOAH, 60).into_iter().chain([mood(-2)]),
+            )
+            .chapter("The great storm caught the harbour unready.")
+            .titled("The storm that caught us"),
+        ),
+        spec(
+            "town_meeting",
+            climax(NOAH, "hard_times"),
+            (
+                "Noah called a town meeting",
+                "Money's tight everywhere. How do we get through?",
+            ),
+            vec![
+                yes(
+                    "share",
+                    "Share what we have",
+                    "Leo and Noah put 20 each toward whoever is short.",
+                    vec![has(LEO, 20), has(NOAH, 20)],
+                    said(
+                        "hard_times_shared",
+                        "The harbour agreed to share what it had",
+                        "Nobody goes without. Agreed?",
+                        [pay(LEO, JONAS, 20), pay(NOAH, SOFIA, 20)]
+                            .into_iter()
+                            .flatten()
+                            .chain([mood(2)]),
+                    )
+                    .chapter("When times were hard, the harbour shared what it had.")
+                    .titled("The lean season we shared"),
+                ),
+                other(
+                    "own",
+                    "Everyone for themselves",
+                    "Every house looks after its own.",
+                    said(
+                        "hard_times_alone",
+                        "The harbour agreed every house would look after its own",
+                        "Fair enough. We all have our own to feed.",
+                        [mood(-2)],
+                    )
+                    .chapter("When times were hard, everyone looked after their own.")
+                    .titled("Every house for itself"),
+                ),
+            ],
+            said(
+                "meeting_empty",
+                "Nobody came to Noah's meeting",
+                "An empty hall. Well.",
+                [mood(-1)],
+            )
+            .chapter("When times were hard, nobody came to the meeting.")
+            .titled("The lean season"),
+        ),
+        spec(
+            "inspector",
+            climax(EMMA, "inspector"),
+            (
+                "The mainland inspector is coming",
+                "The inspector comes tomorrow. How do we show the school?",
+            ),
+            vec![
+                yes(
+                    "show",
+                    "Put on a show",
+                    "Noah pays 40 for paint and a new flag.",
+                    vec![has(NOAH, 40)],
+                    said(
+                        "inspector_impressed",
+                        "The inspector found the school at its best",
+                        "Top marks! Well, nearly.",
+                        spend(NOAH, 40).into_iter().chain([mood(1)]),
+                    )
+                    .chapter("The inspector found the school at its best.")
+                    .titled("The inspector's visit"),
+                ),
+                other(
+                    "as_is",
+                    "As we are",
+                    "No fuss, no paint.",
+                    said(
+                        "inspector_saw_it_as_is",
+                        "The inspector saw the school just as it is",
+                        "Honest, at least.",
+                        [],
+                    )
+                    .chapter("The inspector saw the school just as it is.")
+                    .titled("The school as it is"),
+                ),
+            ],
+            said(
+                "inspector_unannounced",
+                "The inspector came before anyone was ready",
+                "Today? I thought it was tomorrow!",
+                [mood(-1)],
+            )
+            .chapter("The inspector caught the school unawares.")
+            .titled("The unexpected inspector"),
+        ),
+    ]
+}
+
 /// One day of the storyteller, at the end of the harbour's day.
 pub(crate) fn tick(
     world: &mut World,
     actions: &ActionRegistry,
+    away: bool,
 ) -> Result<Vec<EventId>, WorldError> {
     let money = crate::projection::gauges(world)
         .into_iter()
         .find(|gauge| gauge.id == "money")
         .map_or(0.5, |gauge| gauge.value);
+    let mut settled = Vec::new();
+    if spirits(world).abs() >= 5 {
+        settled.push(
+            world
+                .execute(actions, &world_core::ActionRequest::new("spirits_settle"))?
+                .id,
+        );
+    }
     let reading = Reading {
         pinned: pinned(world),
+        away,
         at_end: spirits(world).abs() >= 5 || !(0.02..=0.98).contains(&money),
         chapter_ending: Box::new(chapter_ending),
     };
-    storylets::tick(world, actions, &deck(), &reading)
+    let mut events = settled;
+    events.extend(storylets::tick(world, actions, &deck(), &reading)?);
+    Ok(events)
 }
 
 fn command_id(storylet: &str, choice: &str) -> String {
@@ -1433,9 +1718,9 @@ fn find(storylet: &str) -> Option<&'static Spec> {
 /// the storylet belongs to.
 pub(crate) fn commands(world: &World) -> Vec<world_projection::ProjectionCommand> {
     let deck = deck();
-    storylets::choices(world.state(), &deck)
+    storylets::answers(world.state(), &deck)
         .into_iter()
-        .filter_map(|(storylet, choice)| {
+        .filter_map(|(storylet, choice, unmet)| {
             let spec = find(storylet.id)?;
             let answer = spec.answers.iter().find(|answer| answer.id == choice.id)?;
             Some(world_projection::ProjectionCommand {
@@ -1446,9 +1731,24 @@ pub(crate) fn commands(world: &World) -> Vec<world_projection::ProjectionCommand
                 scenery: None,
                 asker: Some(world_projection::SelectionId::Entity(storylet.asker)),
                 moves: Vec::new(),
+                question: Some(world_projection::Question {
+                    id: storylet.id.into(),
+                    prompt: named(world, spec.line, storylet.asker),
+                }),
+                unavailable: unmet.first().map(|condition| why_not(world, condition)),
             })
         })
         .collect()
+}
+
+/// Why an answer cannot be given now, in the harbour's words.
+fn why_not(world: &World, condition: &Condition) -> String {
+    match condition {
+        Condition::AtLeast(who, key, amount) if *key == CASH => {
+            format!("{} hasn't {amount} to spare", name_of(world, *who))
+        }
+        _ => "Not possible right now".into(),
+    }
 }
 
 /// What someone would ask for now, if they have a want open: what they
@@ -1611,4 +1911,1823 @@ pub(crate) fn chapters(world: &World) -> Vec<world_projection::Chapter> {
             moment: Some(world_projection::SelectionId::Event(ended.event)),
         })
         .collect()
+}
+
+// What answers leave behind.
+//
+// Things the harbour builds or puts up stand on the scene as fixtures,
+// people who arrive are residents like any other, and what happened is
+// marked so that later questions can follow from it.
+
+pub(crate) const STALL: EntityId = EntityId::new(410);
+pub(crate) const BUNTING: EntityId = EntityId::new(411);
+pub(crate) const PIER: EntityId = EntityId::new(412);
+pub(crate) const LAMP: EntityId = EntityId::new(413);
+pub(crate) const CRATES: EntityId = EntityId::new(414);
+pub(crate) const GARDEN: EntityId = EntityId::new(415);
+pub(crate) const LANTERNS: EntityId = EntityId::new(416);
+pub(crate) const PENNANT: EntityId = EntityId::new(417);
+pub(crate) const PARCELS: EntityId = EntityId::new(418);
+pub(crate) const NETS: EntityId = EntityId::new(419);
+pub(crate) const JAM: EntityId = EntityId::new(420);
+pub(crate) const SHELF: EntityId = EntityId::new(421);
+pub(crate) const BENCHES: EntityId = EntityId::new(422);
+pub(crate) const BUCKET: EntityId = EntityId::new(423);
+/// People who can come to live in the harbour.
+pub(crate) const ADA: EntityId = EntityId::new(9);
+pub(crate) const IVO: EntityId = EntityId::new(10);
+/// Where someone is when they have left the harbour.
+pub(crate) const AWAY: &str = "away";
+
+fn build(
+    entity: EntityId,
+    name: &'static str,
+    shape: &'static str,
+    at: EntityId,
+    lasts: Option<u64>,
+) -> Effect {
+    Effect::Build {
+        entity,
+        name,
+        shape,
+        at,
+        lasts,
+    }
+}
+
+fn mark(name: &'static str) -> Effect {
+    Effect::Mark(name)
+}
+
+fn newcomer(entity: EntityId, name: &'static str, job: &'static str, at: EntityId) -> Effect {
+    Effect::Arrive {
+        entity,
+        kind: "resident",
+        components: vec![
+            ("name", Value::from(name)),
+            (CASH, Value::from(30_i64)),
+            (JOB, Value::from(job)),
+            ("location", Value::Entity(at)),
+            (crate::model::MISSED_SHIFTS, Value::from(0_i64)),
+            ("newcomer", Value::from(true)),
+        ],
+    }
+}
+
+/// What each answer (or lapse), by the Event it is recorded as, leaves in
+/// the harbour besides what it costs.
+fn leaves_behind(event: &str) -> Vec<Effect> {
+    use crate::{HARBOR, PUB, SCHOOL};
+    match event {
+        "school_roof_mended" | "school_roof_mended_at_last" => vec![
+            mark("roof_done"),
+            Effect::Demolish(BUCKET),
+            build(
+                PARCELS,
+                "Slates for the school roof",
+                "parcel",
+                SCHOOL,
+                Some(2),
+            ),
+        ],
+        "school_roof_left" => vec![
+            mark("roof_refused"),
+            build(
+                BUCKET,
+                "A bucket under the school leak",
+                "parcel",
+                SCHOOL,
+                None,
+            ),
+        ],
+        "school_moved_to_pub" => vec![build(
+            BUCKET,
+            "School desks outside the pub",
+            "parcel",
+            PUB,
+            Some(4),
+        )],
+        "lamp_glass_left" => vec![build(
+            PARCELS,
+            "The lamp glass, waiting at the dock",
+            "parcel",
+            HARBOR,
+            Some(3),
+        )],
+        "pier_piles_left" | "pier_put_off" => vec![build(
+            PARCELS,
+            "Pier timber, waiting on the quay",
+            "parcel",
+            HARBOR,
+            Some(3),
+        )],
+        "sofia_letter_pinned" => vec![build(
+            PARCELS,
+            "Sofia's letter on the noticeboard",
+            "parcel",
+            HARBOR,
+            Some(4),
+        )],
+        "stall_kept_small" | "pub_stayed_quiet" => vec![build(
+            JAM,
+            "A quiet night at the pub",
+            "lantern",
+            PUB,
+            Some(1),
+        )],
+        "books_shared" => vec![mark("books_shared")],
+        "music_night_called_off" => vec![mark("music_refused")],
+        "fever_slept_off" => vec![mark("fever_rest")],
+        "fete_skipped" => vec![mark("fete_skipped")],
+        "music_night_held" => vec![
+            build(BUNTING, "Bunting over the pub", "bunting", PUB, Some(3)),
+            mark("music"),
+        ],
+        "oven_bought" => vec![
+            mark("oven"),
+            build(
+                PARCELS,
+                "The new oven, just delivered",
+                "parcel",
+                BAKERY,
+                Some(2),
+            ),
+        ],
+        "nets_bought" => vec![
+            mark("nets"),
+            build(
+                NETS,
+                "New nets drying on the quay",
+                "bunting",
+                HARBOR,
+                Some(3),
+            ),
+        ],
+        "pier_section_built" => vec![build(
+            PIER,
+            "The new pier, a new section on",
+            "pier",
+            HARBOR,
+            None,
+        )],
+        "pier_piles_driven" => vec![build(
+            PIER,
+            "The new pier, on its piles",
+            "pier",
+            HARBOR,
+            None,
+        )],
+        "stall_opened" => vec![
+            build(STALL, "Sofia's stall", "stall", PUB, None),
+            mark("stall"),
+        ],
+        "stall_refused" => vec![mark("stall_refused")],
+        "books_bought" => vec![
+            mark("books"),
+            build(PARCELS, "A box of new books", "parcel", SCHOOL, Some(2)),
+        ],
+        "lamp_work_done" | "lamp_glass_fetched" => vec![build(
+            LAMP,
+            "The lamp post on the point, unlit",
+            "lantern",
+            HARBOR,
+            None,
+        )],
+        "traveller_stayed" => vec![
+            mark("traveller"),
+            build(PARCELS, "The traveller's bags", "parcel", PUB, Some(2)),
+        ],
+        "fete_held" => vec![build(
+            BUNTING,
+            "Bunting for the fête",
+            "bunting",
+            HARBOR,
+            Some(4),
+        )],
+        "regatta_won" => vec![build(
+            PENNANT,
+            "The regatta pennant",
+            "flag",
+            HARBOR,
+            Some(8),
+        )],
+        "birthday_party" => vec![build(BUNTING, "Birthday bunting", "bunting", PUB, Some(2))],
+        "harvest_feast" => vec![build(
+            LANTERNS,
+            "Lanterns from the harvest supper",
+            "lantern",
+            PUB,
+            Some(5),
+        )],
+        "garden_planted" => vec![
+            build(GARDEN, "The school garden", "garden", SCHOOL, None),
+            mark("garden"),
+        ],
+        "oven_patched" => vec![
+            mark("oven_patched"),
+            build(
+                PARCELS,
+                "Wire and patches for the old oven",
+                "parcel",
+                BAKERY,
+                Some(2),
+            ),
+        ],
+        "nets_left_torn" => vec![
+            mark("nets_torn"),
+            build(NETS, "Torn nets on the quay", "bunting", HARBOR, Some(3)),
+        ],
+        "boats_hauled_up" => vec![
+            mark("boats_up"),
+            build(PARCELS, "Boats up on the slip", "parcel", HARBOR, Some(2)),
+        ],
+        "storm_ridden_out" | "storm_caught_the_harbour" => vec![
+            mark("storm_hit"),
+            build(
+                PARCELS,
+                "Storm wreckage on the quay",
+                "parcel",
+                HARBOR,
+                Some(3),
+            ),
+        ],
+        "doctor_came" => vec![
+            mark("doctor"),
+            build(PARCELS, "The doctor's trunk", "parcel", SCHOOL, Some(2)),
+        ],
+        "hotel_order_baked" => vec![
+            mark("hotel"),
+            build(PARCELS, "Bread for the hotel", "parcel", BAKERY, Some(2)),
+        ],
+        "quarrel_settled_for_leo" | "quarrel_settled_for_evan" => vec![mark("quarrel")],
+        "chimney_rebuilt" => vec![
+            mark("chimney"),
+            build(
+                PARCELS,
+                "Bricks for the pub chimney",
+                "parcel",
+                PUB,
+                Some(2),
+            ),
+        ],
+        "evan_stayed_home" => vec![mark("evan_stayed")],
+        "chimney_patched" => vec![
+            mark("chimney_patched"),
+            build(
+                PARCELS,
+                "Bricks for the pub chimney",
+                "parcel",
+                PUB,
+                Some(2),
+            ),
+        ],
+        "mackerel_sold" => vec![build(
+            PARCELS,
+            "Crates of mackerel",
+            "parcel",
+            HARBOR,
+            Some(2),
+        )],
+        "mackerel_shared" => vec![build(
+            NETS,
+            "Mackerel smoking on lines",
+            "bunting",
+            HARBOR,
+            Some(2),
+        )],
+        "evan_worked_away" => vec![
+            mark("evan_away"),
+            Effect::Set {
+                entity: EVAN,
+                key: AWAY,
+                text: "mainland",
+            },
+        ],
+        "market_jam_sold" => vec![build(
+            JAM,
+            "A jam table on market day",
+            "stall",
+            PUB,
+            Some(1),
+        )],
+        "market_lunch" | "harvest_potluck" => vec![build(
+            BUNTING,
+            "Bunting for the market",
+            "bunting",
+            HARBOR,
+            Some(1),
+        )],
+        "regatta_watched" => vec![build(PENNANT, "A regatta flag", "flag", HARBOR, Some(2))],
+        "school_stove_lit" => vec![build(
+            PARCELS,
+            "Coal for the school",
+            "parcel",
+            SCHOOL,
+            Some(3),
+        )],
+        "birthday_card" => vec![build(PARCELS, "A birthday present", "parcel", PUB, Some(1))],
+        "quiz_night" | "beans_shared" | "reading_aloud" => vec![build(
+            BUNTING,
+            "Bunting for the evening",
+            "bunting",
+            SCHOOL,
+            Some(1),
+        )],
+        "school_roof_fell_in" => vec![mark("roof_refused")],
+        "stall_dream_faded" => vec![mark("stall_refused")],
+        "nets_gave_way" => vec![mark("nets_torn")],
+        "music_night_forgotten" => vec![mark("music_refused")],
+        "oven_failed" => vec![mark("oven_patched")],
+        _ => Vec::new(),
+    }
+}
+
+/// What has to be still unsettled for a storylet to come up: a want once
+/// granted does not come back the same.
+fn settled_by(storylet: &str) -> Vec<Condition> {
+    use Condition::Unmarked;
+    match storylet {
+        "school_roof" => vec![Unmarked("roof_done"), Unmarked("roof_refused")],
+        "new_oven" => vec![Unmarked("oven")],
+        "new_nets" => vec![Unmarked("nets")],
+        "market_stall" => vec![Unmarked("stall"), Unmarked("stall_refused")],
+        "school_books" => vec![Unmarked("books")],
+        "music_night" => vec![Unmarked("music_monthly")],
+        _ => Vec::new(),
+    }
+}
+
+/// Questions that follow from earlier answers: second and third acts.
+fn threads() -> Vec<Spec> {
+    use crate::{HARBOR, PUB, SCHOOL};
+    use Condition::{Absent, Finished, Marked, Unmarked};
+    let follow = |asker: EntityId, requires: Vec<Condition>| Shape {
+        asker,
+        want: false,
+        requires,
+        lasts: 3,
+        rests: 30,
+        weight: 6,
+        eases: Vec::new(),
+        timely: true,
+    };
+    vec![
+        spec(
+            "stall_thriving",
+            follow(SOFIA, vec![Marked("stall", 2), Unmarked("stall_help")]),
+            (
+                "Sofia's stall is doing well",
+                "My stall's doing well! Could Mia help on Saturdays?",
+            ),
+            vec![
+                other(
+                    "take_mia",
+                    "Take Mia on",
+                    "Sofia pays Mia 15 a week from the stall.",
+                    said(
+                        "mia_at_the_stall",
+                        "Mia started helping at Sofia's stall",
+                        "Mia's a natural with customers!",
+                        pay(SOFIA, MIA, 15).into_iter().chain([
+                            mood(1),
+                            mark("stall_help"),
+                            mark("stall_grew"),
+                            build(STALL, "Sofia and Mia's stall", "stall", PUB, None),
+                        ]),
+                    )
+                    .remembered("Saturdays at the stall are the best."),
+                ),
+                other(
+                    "keep_small",
+                    "Keep it small",
+                    "Sofia runs it alone.",
+                    said(
+                        "stall_kept_small",
+                        "Sofia kept her stall small",
+                        "Small suits me fine.",
+                        [mark("stall_help")],
+                    ),
+                ),
+            ],
+            said(
+                "stall_help_forgotten",
+                "Sofia managed the stall alone",
+                "I'll manage.",
+                [mark("stall_help")],
+            ),
+        ),
+        spec(
+            "pub_quiet",
+            follow(
+                LEO,
+                vec![Marked("stall_grew", 2), Unmarked("pub_quiet_done")],
+            ),
+            (
+                "The pub has gone quiet",
+                "The pub's quiet since Sofia's stall took off.",
+            ),
+            vec![
+                yes(
+                    "quiz",
+                    "A quiz night",
+                    "Leo spends 20 on prizes and a board.",
+                    vec![has(LEO, 20)],
+                    said(
+                        "quiz_night",
+                        "The Anchor Pub started a quiz night",
+                        "Question one: how deep is the harbour?",
+                        spend(LEO, 20).into_iter().chain([
+                            mood(1),
+                            mark("pub_quiet_done"),
+                            build(BUNTING, "Bunting for quiz night", "bunting", PUB, Some(2)),
+                        ]),
+                    ),
+                ),
+                other(
+                    "wait_it_out",
+                    "It'll pick up",
+                    "Nothing spent.",
+                    said(
+                        "pub_stayed_quiet",
+                        "The pub stayed quiet",
+                        "It'll pick up. It always does.",
+                        [mood(-1), mark("pub_quiet_done")],
+                    ),
+                ),
+            ],
+            said(
+                "pub_quiet_passed",
+                "The pub found its feet again",
+                "Busy again, thank goodness.",
+                [mark("pub_quiet_done")],
+            ),
+        ),
+        spec(
+            "sofia_offer",
+            follow(
+                SOFIA,
+                vec![Marked("stall_refused", 2), Unmarked("sofia_decided")],
+            ),
+            (
+                "Sofia has an offer from the mainland",
+                "There's a job on the mainland. Should I take it?",
+            ),
+            vec![
+                yes(
+                    "stay",
+                    "Stay, and have your stall",
+                    "Sofia spends 40 of her savings on the stall after all.",
+                    vec![has(SOFIA, 40)],
+                    said(
+                        "sofia_stayed",
+                        "Sofia stayed, and opened her stall",
+                        "Then I'm staying. And I'm opening that stall!",
+                        spend(SOFIA, 40).into_iter().chain([
+                            mood(2),
+                            mark("sofia_decided"),
+                            mark("stall"),
+                            build(STALL, "Sofia's stall", "stall", PUB, None),
+                        ]),
+                    ),
+                ),
+                other(
+                    "go",
+                    "Go, with our blessing",
+                    "Sofia leaves for the mainland.",
+                    said(
+                        "sofia_left",
+                        "Sofia left for the mainland",
+                        "I'll write. I promise.",
+                        [
+                            mood(-1),
+                            mark("sofia_decided"),
+                            mark("sofia_left"),
+                            Effect::Set {
+                                entity: SOFIA,
+                                key: AWAY,
+                                text: "mainland",
+                            },
+                        ],
+                    ),
+                ),
+            ],
+            said(
+                "sofia_went_anyway",
+                "Sofia took the mainland job",
+                "Nobody asked me to stay.",
+                [
+                    mood(-2),
+                    mark("sofia_decided"),
+                    mark("sofia_left"),
+                    Effect::Set {
+                        entity: SOFIA,
+                        key: AWAY,
+                        text: "mainland",
+                    },
+                ],
+            ),
+        ),
+        spec(
+            "sofia_letter",
+            follow(NOAH, vec![Marked("sofia_left", 3), Unmarked("letter_read")]),
+            (
+                "A letter came from Sofia",
+                "A letter from Sofia, on the mainland!",
+            ),
+            vec![
+                other(
+                    "read_out",
+                    "Read it out at the pub",
+                    "Everyone gathers.",
+                    said(
+                        "sofia_letter_read",
+                        "Sofia's letter was read out at the pub",
+                        "She's doing well. She misses us.",
+                        [mood(2), mark("letter_read")],
+                    ),
+                ),
+                other(
+                    "pin_up",
+                    "Pin it up at the harbour",
+                    "Anyone can read it.",
+                    said(
+                        "sofia_letter_pinned",
+                        "Sofia's letter was pinned up at the harbour",
+                        "There, for everyone.",
+                        [mood(1), mark("letter_read")],
+                    ),
+                ),
+            ],
+            said(
+                "sofia_letter_kept",
+                "Noah kept Sofia's letter",
+                "I'll read it later.",
+                [mark("letter_read")],
+            ),
+        ),
+        spec(
+            "music_monthly",
+            follow(LEO, vec![Marked("music", 2), Unmarked("music_decided")]),
+            (
+                "The fiddler wants to come back",
+                "The fiddler wants to come back every month.",
+            ),
+            vec![
+                yes(
+                    "monthly",
+                    "Make it monthly",
+                    "Leo spends 30 on lanterns for the pub front.",
+                    vec![has(LEO, 30)],
+                    said(
+                        "music_monthly_began",
+                        "The Anchor Pub made music night monthly",
+                        "First Friday of every month. Tell everyone!",
+                        spend(LEO, 30).into_iter().chain([
+                            mood(1),
+                            mark("music_decided"),
+                            mark("music_monthly"),
+                            build(LANTERNS, "Lanterns over the pub", "lantern", PUB, None),
+                        ]),
+                    ),
+                ),
+                other(
+                    "once",
+                    "Once was enough",
+                    "Nothing spent.",
+                    said(
+                        "music_once",
+                        "The music night stayed a one-off",
+                        "Once was plenty.",
+                        [mark("music_decided")],
+                    ),
+                ),
+            ],
+            said(
+                "fiddler_moved_on",
+                "The fiddler moved on",
+                "He's playing the mainland now.",
+                [mark("music_decided")],
+            ),
+        ),
+        spec(
+            "ferry_run",
+            follow(
+                MARA,
+                vec![
+                    Marked("oven", 2),
+                    Unmarked("ferry_decided"),
+                    Condition::Is(BAKERY, OPERATING_STATUS, "open"),
+                ],
+            ),
+            (
+                "Mara could bake for the ferry",
+                "With the new oven I could bake for the ferry.",
+            ),
+            vec![
+                other(
+                    "start",
+                    "Start the ferry run",
+                    "Crates of bread go out on the morning ferry. Mara makes 40.",
+                    said(
+                        "ferry_run_began",
+                        "Mara's bread started going out on the ferry",
+                        "Crates on the quay by six!",
+                        earn(MARA, 40).into_iter().chain([
+                            mark("ferry_decided"),
+                            build(CRATES, "Bread crates for the ferry", "parcel", HARBOR, None),
+                        ]),
+                    ),
+                ),
+                other(
+                    "local",
+                    "Keep it local",
+                    "The harbour's bread comes first.",
+                    said(
+                        "bread_kept_local",
+                        "Mara kept her bread for the harbour",
+                        "Our own come first.",
+                        [mood(1), mark("ferry_decided")],
+                    ),
+                ),
+            ],
+            said(
+                "ferry_chance_passed",
+                "The ferry found another baker",
+                "Too slow, Mara.",
+                [mark("ferry_decided")],
+            ),
+        ),
+        spec(
+            "pier_opening",
+            follow(NOAH, vec![Finished("pier"), Unmarked("pier_opened")]),
+            (
+                "The new pier is finished",
+                "The pier's finished! Shall we open it properly?",
+            ),
+            vec![
+                other(
+                    "party",
+                    "Open it with a party",
+                    "Bunting, a ribbon and the whole harbour.",
+                    said(
+                        "pier_opened",
+                        "The harbour opened its new pier",
+                        "I declare this pier open!",
+                        [
+                            mood(2),
+                            mark("pier_opened"),
+                            build(PIER, "The new pier", "pier", HARBOR, None),
+                            build(
+                                BUNTING,
+                                "Bunting on the new pier",
+                                "bunting",
+                                HARBOR,
+                                Some(4),
+                            ),
+                        ],
+                    ),
+                ),
+                other(
+                    "use_it",
+                    "Just start using it",
+                    "No fuss.",
+                    said(
+                        "pier_in_use",
+                        "The new pier went into use",
+                        "Tie up wherever you like.",
+                        [
+                            mark("pier_opened"),
+                            build(PIER, "The new pier", "pier", HARBOR, None),
+                        ],
+                    ),
+                ),
+            ],
+            said(
+                "pier_opened_quietly",
+                "The new pier opened without a fuss",
+                "Well, it's open.",
+                [
+                    mark("pier_opened"),
+                    build(PIER, "The new pier", "pier", HARBOR, None),
+                ],
+            ),
+        ),
+        spec(
+            "fishing_family",
+            follow(
+                JONAS,
+                vec![
+                    Marked("pier_opened", 2),
+                    Absent(IVO),
+                    Unmarked("family_turned"),
+                ],
+            ),
+            (
+                "A fishing family wants to moor here",
+                "A family wants to moor at our new pier. Room for them?",
+            ),
+            vec![
+                other(
+                    "welcome",
+                    "Welcome them",
+                    "Ivo and his boat join the harbour.",
+                    said(
+                        "ivo_arrived",
+                        "Ivo's family came to live in the harbour",
+                        "Welcome to the harbour, Ivo!",
+                        [mood(2), newcomer(IVO, "Ivo", "fisher", HARBOR)],
+                    ),
+                ),
+                other(
+                    "no_room",
+                    "No room for more boats",
+                    "They sail on.",
+                    said(
+                        "family_turned_away",
+                        "The fishing family sailed on",
+                        "Sorry. Not this year.",
+                        [mood(-1), mark("family_turned")],
+                    ),
+                ),
+            ],
+            said(
+                "family_sailed_on",
+                "The fishing family didn't wait",
+                "They didn't wait for an answer.",
+                [mark("family_turned")],
+            ),
+        ),
+        spec(
+            "lamp_lit",
+            follow(NOAH, vec![Finished("lamp"), Unmarked("lamp_lit")]),
+            (
+                "The lamp on the point is ready",
+                "The lamp's ready. Shall we light it tonight?",
+            ),
+            vec![
+                other(
+                    "everyone",
+                    "Light it with everyone watching",
+                    "The whole harbour walks out to the point.",
+                    said(
+                        "lamp_lit_together",
+                        "The whole harbour watched the lamp lit",
+                        "There she shines!",
+                        [
+                            mood(2),
+                            mark("lamp_lit"),
+                            build(LAMP, "The lamp on the point", "lantern", HARBOR, None),
+                        ],
+                    ),
+                ),
+                other(
+                    "quietly",
+                    "Just light it",
+                    "Noah walks out alone.",
+                    said(
+                        "lamp_lit_quietly",
+                        "Noah lit the lamp on the point",
+                        "Boats will see that for miles.",
+                        [
+                            mood(1),
+                            mark("lamp_lit"),
+                            build(LAMP, "The lamp on the point", "lantern", HARBOR, None),
+                        ],
+                    ),
+                ),
+            ],
+            said(
+                "lamp_lit_anyway",
+                "Somebody lit the lamp on the point",
+                "Someone's lit it!",
+                [
+                    mark("lamp_lit"),
+                    build(LAMP, "The lamp on the point", "lantern", HARBOR, None),
+                ],
+            ),
+        ),
+        spec(
+            "traveller_stays",
+            follow(
+                LEO,
+                vec![Marked("traveller", 2), Absent(ADA), Unmarked("ada_decided")],
+            ),
+            (
+                "The traveller wants to stay",
+                "That traveller wants to stay on. She could help at the pub.",
+            ),
+            vec![
+                other(
+                    "welcome",
+                    "Welcome her",
+                    "Ada takes the room above the pub.",
+                    said(
+                        "ada_arrived",
+                        "Ada the traveller made the harbour her home",
+                        "Ada's staying! Pour her a pint.",
+                        [
+                            mood(2),
+                            mark("ada_decided"),
+                            newcomer(ADA, "Ada", "pub_help", PUB),
+                        ],
+                    ),
+                ),
+                other(
+                    "no_room",
+                    "There's no room",
+                    "She moves on.",
+                    said(
+                        "ada_moved_on",
+                        "The traveller moved on",
+                        "Maybe she'll come back.",
+                        [mark("ada_decided")],
+                    ),
+                ),
+            ],
+            said(
+                "ada_left",
+                "The traveller left without an answer",
+                "Gone before I could ask.",
+                [mark("ada_decided")],
+            ),
+        ),
+        spec(
+            "roof_worse",
+            follow(EMMA, vec![Marked("roof_refused", 2), Unmarked("roof_done")]),
+            (
+                "Parents are keeping children home",
+                "The leaks are keeping children home now.",
+            ),
+            vec![
+                yes(
+                    "mend",
+                    "Mend it now",
+                    "Noah finds 70: 25 to Evan, the rest for slate.",
+                    vec![has(NOAH, 70)],
+                    said(
+                        "school_roof_mended_at_last",
+                        "The school roof was mended at last",
+                        "Better late than never.",
+                        [pay(NOAH, EVAN, 25), spend(NOAH, 45)]
+                            .into_iter()
+                            .flatten()
+                            .chain([mood(1)]),
+                    ),
+                ),
+                other(
+                    "pub_classes",
+                    "Teach at the pub",
+                    "Lessons move to the Anchor's back room.",
+                    said(
+                        "school_moved_to_pub",
+                        "Lessons moved into the Anchor Pub",
+                        "Long division over the dartboard.",
+                        [mood(-1), mark("roof_done")],
+                    ),
+                ),
+            ],
+            said(
+                "roof_still_leaking",
+                "The school roof still leaks",
+                "Another bucket, then.",
+                [mood(-1), mark("roof_done")],
+            ),
+        ),
+        spec(
+            "school_garden",
+            want(MIA).requires(vec![Unmarked("garden")]),
+            (
+                "Mia wants a school garden",
+                "Could we plant a garden by the school?",
+            ),
+            vec![
+                yes(
+                    "plant",
+                    "Plant it",
+                    "Emma spends 20 on seeds and a spade.",
+                    vec![has(EMMA, 20)],
+                    said(
+                        "garden_planted",
+                        "The school planted a garden",
+                        "I planted the beans myself!",
+                        spend(EMMA, 20).into_iter().chain([mood(1)]),
+                    )
+                    .remembered("Our beans are coming up!"),
+                ),
+                no(
+                    "not_now",
+                    "Not this year",
+                    "Nothing spent.",
+                    said(
+                        "garden_put_off",
+                        "The school garden was put off",
+                        "Next year, then.",
+                        [],
+                    ),
+                ),
+            ],
+            said(
+                "garden_forgotten",
+                "Nobody planted the school garden",
+                "Never mind.",
+                [mood(-1)],
+            ),
+        ),
+        spec(
+            "garden_harvest",
+            follow(MIA, vec![Marked("garden", 3), Unmarked("garden_shared")]),
+            (
+                "The school garden has cropped",
+                "Our garden's full of beans!",
+            ),
+            vec![
+                other(
+                    "share",
+                    "Share them round",
+                    "Every house gets a bag.",
+                    said(
+                        "beans_shared",
+                        "The school's beans went round the harbour",
+                        "Beans for everyone!",
+                        [mood(2), mark("garden_shared")],
+                    ),
+                ),
+                other(
+                    "sell",
+                    "Sell them at market",
+                    "Mia makes 20.",
+                    said(
+                        "beans_sold",
+                        "Mia sold the school's beans at market",
+                        "Twenty for the class trip!",
+                        earn(MIA, 20).into_iter().chain([mark("garden_shared")]),
+                    ),
+                ),
+            ],
+            said(
+                "beans_went_over",
+                "The beans went over",
+                "Too late, they're tough now.",
+                [mark("garden_shared")],
+            ),
+        ),
+        spec(
+            "record_catch",
+            follow(JONAS, vec![Marked("nets", 2), Unmarked("record_catch")]),
+            (
+                "Jonas brought in a record catch",
+                "The new nets! Biggest catch I've ever had. Sell it or share it?",
+            ),
+            vec![
+                other(
+                    "sell",
+                    "Sell it",
+                    "Jonas makes 45 on the mainland.",
+                    said(
+                        "record_catch_sold",
+                        "Jonas sold a record catch",
+                        "Best week's money I've had.",
+                        earn(JONAS, 45).into_iter().chain([
+                            mark("record_catch"),
+                            build(
+                                PARCELS,
+                                "Crates of fish for the ferry",
+                                "parcel",
+                                HARBOR,
+                                Some(2),
+                            ),
+                        ]),
+                    ),
+                ),
+                other(
+                    "share",
+                    "Share it round",
+                    "Every door gets a fish.",
+                    said(
+                        "record_catch_shared",
+                        "Jonas shared a record catch round the harbour",
+                        "Fish for everyone!",
+                        [
+                            mood(2),
+                            mark("record_catch"),
+                            build(NETS, "Fish smoking on lines", "bunting", HARBOR, Some(2)),
+                        ],
+                    ),
+                ),
+            ],
+            said(
+                "record_catch_spoiled",
+                "Some of Jonas's catch spoiled",
+                "Should have decided quicker.",
+                [mark("record_catch")],
+            ),
+        ),
+        spec(
+            "nets_at_midnight",
+            follow(JONAS, vec![Marked("nets_torn", 1), Unmarked("nets_help")]),
+            (
+                "Jonas is mending nets at midnight",
+                "Still at these nets. Could anyone lend a hand?",
+            ),
+            vec![
+                other(
+                    "help",
+                    "Evan lends a hand",
+                    "An evening's work for two.",
+                    said(
+                        "nets_mended_together",
+                        "Evan helped Jonas mend his nets",
+                        "Done by midnight, with Evan's help.",
+                        [mood(1), mark("nets_help")],
+                    ),
+                ),
+                other(
+                    "alone",
+                    "He'll manage",
+                    "Jonas works till dawn.",
+                    said(
+                        "nets_mended_alone",
+                        "Jonas mended his nets alone, till dawn",
+                        "Nobody came. Fine.",
+                        [mood(-1), mark("nets_help")],
+                    ),
+                ),
+            ],
+            said(
+                "nets_still_torn",
+                "Jonas's nets stayed torn",
+                "I'll fish with what I've got.",
+                [mark("nets_help")],
+            ),
+        ),
+        spec(
+            "reading_aloud",
+            follow(MIA, vec![Marked("books", 2), Unmarked("read_aloud")]),
+            (
+                "Mia finished her new books",
+                "I read all my new books! Can I read one to the class?",
+            ),
+            vec![
+                other(
+                    "yes",
+                    "Read it to everyone",
+                    "An afternoon of stories.",
+                    said(
+                        "reading_aloud",
+                        "Mia read her new book to the whole class",
+                        "And then the whale said...",
+                        [mood(1), mark("read_aloud")],
+                    ),
+                ),
+                other(
+                    "later",
+                    "Maybe later",
+                    "Lessons first.",
+                    said(
+                        "reading_put_off",
+                        "Mia's reading was put off",
+                        "Maybe next week.",
+                        [mark("read_aloud")],
+                    ),
+                ),
+            ],
+            said(
+                "reading_forgotten",
+                "Nobody asked Mia to read",
+                "Never mind.",
+                [mark("read_aloud")],
+            ),
+        ),
+        spec(
+            "books_borrowed",
+            follow(EMMA, vec![Marked("books_shared", 2), Unmarked("library")]),
+            (
+                "Emma wants a lending shelf",
+                "Mia's sharing books. What if the school lent them to everyone?",
+            ),
+            vec![
+                yes(
+                    "shelf",
+                    "Put up a lending shelf",
+                    "Evan builds it; Emma pays him 15.",
+                    vec![has(EMMA, 15)],
+                    said(
+                        "lending_shelf",
+                        "The school opened a lending shelf",
+                        "Borrow one, bring one back!",
+                        pay(EMMA, EVAN, 15).into_iter().chain([
+                            mood(1),
+                            mark("library"),
+                            build(SHELF, "The lending shelf", "stall", SCHOOL, None),
+                        ]),
+                    ),
+                ),
+                other(
+                    "no",
+                    "Not worth it",
+                    "Nothing spent.",
+                    said(
+                        "no_lending_shelf",
+                        "The school kept its books to itself",
+                        "Fair enough.",
+                        [mark("library")],
+                    ),
+                ),
+            ],
+            said(
+                "lending_idea_forgotten",
+                "The lending shelf never happened",
+                "Oh well.",
+                [mark("library")],
+            ),
+        ),
+        spec(
+            "hotel_again",
+            follow(MARA, vec![Marked("hotel", 3), Unmarked("hotel_decided")]),
+            (
+                "The hotel wants a standing order",
+                "The hotel liked our bread. They want it every week.",
+            ),
+            vec![
+                other(
+                    "yes",
+                    "Every week, then",
+                    "Mara makes 50 and bakes through the night.",
+                    said(
+                        "hotel_standing_order",
+                        "Mara took a standing order from the mainland hotel",
+                        "Every Tuesday, forty loaves.",
+                        earn(MARA, 50).into_iter().chain([
+                            mark("hotel_decided"),
+                            build(CRATES, "Bread crates for the hotel", "parcel", HARBOR, None),
+                        ]),
+                    ),
+                ),
+                other(
+                    "no",
+                    "Once was enough",
+                    "The harbour's bread comes first.",
+                    said(
+                        "hotel_turned_down_again",
+                        "Mara said no to the hotel's standing order",
+                        "Our own first. Always.",
+                        [mood(1), mark("hotel_decided")],
+                    ),
+                ),
+            ],
+            said(
+                "hotel_went_quiet",
+                "The hotel stopped asking",
+                "They've found someone else.",
+                [mark("hotel_decided")],
+            ),
+        ),
+        spec(
+            "quarrel_after",
+            follow(EVAN, vec![Marked("quarrel", 2), Unmarked("quarrel_after")]),
+            (
+                "Evan wants to make peace with Leo",
+                "Leo and I are talking again. Drinks on me?",
+            ),
+            vec![
+                yes(
+                    "drinks",
+                    "A round on Evan",
+                    "Evan spends 15 at the Anchor.",
+                    vec![has(EVAN, 15)],
+                    said(
+                        "peace_drink",
+                        "Evan and Leo shared a drink",
+                        "To old friends!",
+                        pay(EVAN, LEO, 15)
+                            .into_iter()
+                            .chain([mood(2), mark("quarrel_after")]),
+                    ),
+                ),
+                other(
+                    "leave_it",
+                    "Leave it be",
+                    "Some things mend by themselves.",
+                    said(
+                        "peace_left",
+                        "Evan and Leo left it there",
+                        "We're fine. Mostly.",
+                        [mark("quarrel_after")],
+                    ),
+                ),
+            ],
+            said(
+                "peace_never_made",
+                "Evan and Leo never quite made up",
+                "We don't talk about it.",
+                [mark("quarrel_after")],
+            ),
+        ),
+        spec(
+            "storm_repairs",
+            follow(EVAN, vec![Marked("storm_hit", 1), Unmarked("storm_mended")]),
+            (
+                "The storm cracked the harbour wall",
+                "The storm cracked the harbour wall. Mend it now?",
+            ),
+            vec![
+                yes(
+                    "mend",
+                    "Mend it now",
+                    "Noah pays Evan 40.",
+                    vec![has(NOAH, 40)],
+                    said(
+                        "harbour_wall_mended",
+                        "Evan mended the harbour wall after the storm",
+                        "Good as new. Better.",
+                        pay(NOAH, EVAN, 40).into_iter().chain([
+                            mood(1),
+                            mark("storm_mended"),
+                            build(
+                                PARCELS,
+                                "Stones for the harbour wall",
+                                "parcel",
+                                HARBOR,
+                                Some(2),
+                            ),
+                        ]),
+                    ),
+                ),
+                other(
+                    "later",
+                    "It'll hold",
+                    "Nothing spent, for now.",
+                    said(
+                        "harbour_wall_left",
+                        "The harbour wall was left cracked",
+                        "It'll hold. Probably.",
+                        [mood(-1), mark("storm_mended")],
+                    ),
+                ),
+            ],
+            said(
+                "harbour_wall_crumbled",
+                "Part of the harbour wall fell in",
+                "Should have mended it.",
+                spend(NOAH, 30)
+                    .into_iter()
+                    .chain([mood(-1), mark("storm_mended")]),
+            ),
+        ),
+        spec(
+            "evan_back",
+            follow(EVAN, vec![Marked("evan_away", 3), Unmarked("evan_back")]),
+            (
+                "Evan is back from the mainland",
+                "I'm back! And they've a job for me there for good, if I want it.",
+            ),
+            vec![
+                other(
+                    "stay",
+                    "Stay here",
+                    "The harbour keeps its carpenter.",
+                    said(
+                        "evan_home",
+                        "Evan came home to stay",
+                        "Home's home.",
+                        [
+                            mood(2),
+                            mark("evan_back"),
+                            Effect::Unset {
+                                entity: EVAN,
+                                key: AWAY,
+                            },
+                        ],
+                    ),
+                ),
+                other(
+                    "go",
+                    "Take the job",
+                    "Evan leaves for good.",
+                    said(
+                        "evan_left",
+                        "Evan left for the mainland for good",
+                        "I'll visit. Often.",
+                        [mood(-2), mark("evan_back")],
+                    ),
+                ),
+            ],
+            said(
+                "evan_drifted_home",
+                "Evan drifted home again",
+                "Couldn't stay away.",
+                [
+                    mark("evan_back"),
+                    Effect::Unset {
+                        entity: EVAN,
+                        key: AWAY,
+                    },
+                ],
+            ),
+        ),
+        spec(
+            "boats_relaunch",
+            follow(
+                JONAS,
+                vec![Marked("boats_up", 1), Unmarked("boats_relaunched")],
+            ),
+            (
+                "The storm has passed",
+                "Storm's passed. Launch the boats together?",
+            ),
+            vec![
+                other(
+                    "together",
+                    "All together",
+                    "The whole harbour on the slip at dawn.",
+                    said(
+                        "boats_relaunched_together",
+                        "The harbour launched its boats together after the storm",
+                        "Heave! And away she goes!",
+                        [
+                            mood(2),
+                            mark("boats_relaunched"),
+                            build(
+                                BUNTING,
+                                "Bunting for the launch",
+                                "bunting",
+                                HARBOR,
+                                Some(1),
+                            ),
+                        ],
+                    ),
+                ),
+                other(
+                    "one_by_one",
+                    "One by one",
+                    "Each boat when its owner's ready.",
+                    said(
+                        "boats_relaunched_slowly",
+                        "The boats went back in one by one",
+                        "No rush.",
+                        [mark("boats_relaunched")],
+                    ),
+                ),
+            ],
+            said(
+                "boats_back_in",
+                "The boats drifted back into the water",
+                "Back in, somehow.",
+                [mark("boats_relaunched")],
+            ),
+        ),
+        spec(
+            "warm_snug",
+            follow(LEO, vec![Marked("chimney", 2), Unmarked("snug")]),
+            (
+                "The pub is warm as toast",
+                "The new chimney draws so well. Open up the old snug?",
+            ),
+            vec![
+                yes(
+                    "open",
+                    "Open the snug",
+                    "Leo spends 25 on a rug and two armchairs.",
+                    vec![has(LEO, 25)],
+                    said(
+                        "snug_opened",
+                        "Leo opened the old snug at the Anchor",
+                        "Best seat in the house, by the fire.",
+                        spend(LEO, 25).into_iter().chain([
+                            mood(1),
+                            mark("snug"),
+                            build(LANTERNS, "A lamp in the snug window", "lantern", PUB, None),
+                        ]),
+                    ),
+                ),
+                other(
+                    "no",
+                    "Keep it shut",
+                    "Nothing spent.",
+                    said(
+                        "snug_kept_shut",
+                        "The snug stayed shut",
+                        "Another winter, maybe.",
+                        [mark("snug")],
+                    ),
+                ),
+            ],
+            said(
+                "snug_forgotten",
+                "Leo never got round to the snug",
+                "One day.",
+                [mark("snug")],
+            ),
+        ),
+        spec(
+            "quay_benches",
+            follow(EVAN, vec![Marked("evan_stayed", 2), Unmarked("benches")]),
+            (
+                "Evan wants to build benches for the quay",
+                "Since I stayed, how about benches for the quay?",
+            ),
+            vec![
+                yes(
+                    "build",
+                    "Build them",
+                    "Noah pays 25 for timber.",
+                    vec![has(NOAH, 25)],
+                    said(
+                        "benches_built",
+                        "Evan built benches along the quay",
+                        "Sit down, everyone!",
+                        spend(NOAH, 25).into_iter().chain([
+                            mood(1),
+                            mark("benches"),
+                            build(BENCHES, "Benches on the quay", "stall", HARBOR, None),
+                        ]),
+                    ),
+                ),
+                other(
+                    "no",
+                    "Stand like everyone else",
+                    "Nothing spent.",
+                    said(
+                        "benches_refused",
+                        "The quay stayed bench-less",
+                        "Standing's good for you, apparently.",
+                        [mark("benches")],
+                    ),
+                ),
+            ],
+            said(
+                "benches_forgotten",
+                "Evan's benches never happened",
+                "Maybe next year.",
+                [mark("benches")],
+            ),
+        ),
+        spec(
+            "doctor_thanks",
+            follow(EMMA, vec![Marked("doctor", 2), Unmarked("thanked_doctor")]),
+            (
+                "Mia is better",
+                "Mia's better! Shall we send the doctor something?",
+            ),
+            vec![
+                other(
+                    "cake",
+                    "Send a cake",
+                    "Mara bakes one for the crossing.",
+                    said(
+                        "doctor_cake",
+                        "The harbour sent the doctor a cake",
+                        "With our thanks!",
+                        [mood(1), mark("thanked_doctor")],
+                    ),
+                ),
+                other(
+                    "letter",
+                    "A letter will do",
+                    "Mia writes it herself.",
+                    said(
+                        "doctor_letter",
+                        "Mia wrote the doctor a thank-you letter",
+                        "Dear Doctor...",
+                        [mark("thanked_doctor")],
+                    ),
+                ),
+            ],
+            said(
+                "doctor_unthanked",
+                "Nobody thanked the doctor",
+                "Oh, we forgot.",
+                [mark("thanked_doctor")],
+            ),
+        ),
+        spec(
+            "music_elsewhere",
+            follow(
+                LEO,
+                vec![Marked("music_refused", 2), Unmarked("music_elsewhere")],
+            ),
+            (
+                "The fiddler is playing the mainland pub",
+                "That fiddler's packing out the mainland pub now. Get him back?",
+            ),
+            vec![
+                yes(
+                    "invite",
+                    "Invite him back",
+                    "Leo spends 45 to win him over.",
+                    vec![has(LEO, 45)],
+                    said(
+                        "fiddler_won_back",
+                        "The fiddler came back to the Anchor",
+                        "He's back, and the place is full!",
+                        spend(LEO, 45).into_iter().chain([
+                            mood(2),
+                            mark("music_elsewhere"),
+                            build(BUNTING, "Bunting for the fiddler", "bunting", PUB, Some(3)),
+                        ]),
+                    ),
+                ),
+                other(
+                    "let_go",
+                    "Let him go",
+                    "The Anchor stays quiet.",
+                    said(
+                        "fiddler_let_go",
+                        "Leo let the fiddler go",
+                        "Their loss. Or ours.",
+                        [mood(-1), mark("music_elsewhere")],
+                    ),
+                ),
+            ],
+            said(
+                "fiddler_gone",
+                "The fiddler stayed on the mainland",
+                "He's not coming back.",
+                [mark("music_elsewhere")],
+            ),
+        ),
+        spec(
+            "oven_breaks",
+            follow(
+                MARA,
+                vec![Marked("oven_patched", 2), Unmarked("oven_broke")],
+            ),
+            (
+                "Mara's patched oven gave out",
+                "The patched oven's died mid-batch. Now what?",
+            ),
+            vec![
+                yes(
+                    "buy",
+                    "Buy a new one now",
+                    "80 of Mara's savings, at last.",
+                    vec![has(MARA, 80)],
+                    said(
+                        "oven_bought",
+                        "Mara's new oven arrived",
+                        "Should have done this weeks ago.",
+                        spend(MARA, 80)
+                            .into_iter()
+                            .chain([mood(1), mark("oven_broke")]),
+                    ),
+                ),
+                other(
+                    "pub_range",
+                    "Bake on the pub's range",
+                    "Leo lends his kitchen for a week.",
+                    said(
+                        "baking_at_the_pub",
+                        "Mara baked on the Anchor's range",
+                        "Bread and ale, same roof.",
+                        [
+                            mood(-1),
+                            mark("oven_broke"),
+                            build(
+                                PARCELS,
+                                "Bread trays at the pub door",
+                                "parcel",
+                                PUB,
+                                Some(3),
+                            ),
+                        ],
+                    ),
+                ),
+            ],
+            said(
+                "no_bread",
+                "The harbour went a day without bread",
+                "No bread today. Sorry.",
+                [mood(-2), mark("oven_broke")],
+            ),
+        ),
+        spec(
+            "fever_worse",
+            follow(
+                EMMA,
+                vec![Marked("fever_rest", 2), Unmarked("fever_decided")],
+            ),
+            (
+                "Mia is no better",
+                "Mia's no better. Send for the doctor now?",
+            ),
+            vec![
+                yes(
+                    "doctor",
+                    "Send for the doctor",
+                    "Emma pays 45 for the crossing.",
+                    vec![has(EMMA, 45)],
+                    said(
+                        "doctor_came_late",
+                        "The doctor came for Mia at last",
+                        "She'll be fine now.",
+                        spend(EMMA, 45).into_iter().chain([
+                            mood(1),
+                            mark("fever_decided"),
+                            build(PARCELS, "The doctor's trunk", "parcel", SCHOOL, Some(2)),
+                        ]),
+                    ),
+                ),
+                other(
+                    "wait",
+                    "Give it another day",
+                    "A long night for Emma.",
+                    said(
+                        "fever_waited",
+                        "Emma waited out Mia's fever",
+                        "Her fever's broken. Thank goodness.",
+                        [mood(-1), mark("fever_decided")],
+                    ),
+                ),
+            ],
+            said(
+                "fever_broke",
+                "Mia's fever broke on its own",
+                "Over the worst.",
+                [mark("fever_decided")],
+            ),
+        ),
+        spec(
+            "fete_grumbles",
+            follow(
+                NOAH,
+                vec![Marked("fete_skipped", 2), Unmarked("fete_grumbled")],
+            ),
+            (
+                "People miss the fête",
+                "People are grumbling about no fête. Something small?",
+            ),
+            vec![
+                yes(
+                    "picnic",
+                    "A picnic on the quay",
+                    "Noah pays 20 for lemonade.",
+                    vec![has(NOAH, 20)],
+                    said(
+                        "quay_picnic",
+                        "The harbour had a picnic on the quay",
+                        "Not a fête, but it'll do!",
+                        spend(NOAH, 20).into_iter().chain([
+                            mood(2),
+                            mark("fete_grumbled"),
+                            build(
+                                BUNTING,
+                                "Bunting for the picnic",
+                                "bunting",
+                                HARBOR,
+                                Some(2),
+                            ),
+                        ]),
+                    ),
+                ),
+                other(
+                    "nothing",
+                    "Let them grumble",
+                    "Nothing spent.",
+                    said(
+                        "grumbles_ignored",
+                        "Noah let the grumbling be",
+                        "They'll get over it.",
+                        [mood(-1), mark("fete_grumbled")],
+                    ),
+                ),
+            ],
+            said(
+                "grumbles_faded",
+                "The grumbling faded",
+                "Nobody mentions it now.",
+                [mark("fete_grumbled")],
+            ),
+        ),
+        spec(
+            "chimney_smokes",
+            follow(
+                LEO,
+                vec![Marked("chimney_patched", 2), Unmarked("chimney_fixed")],
+            ),
+            (
+                "The patched chimney smokes the pub out",
+                "The patched chimney's smoking us out. Rebuild it properly?",
+            ),
+            vec![
+                yes(
+                    "rebuild",
+                    "Rebuild it properly",
+                    "Leo pays Evan 40.",
+                    vec![has(LEO, 40)],
+                    said(
+                        "chimney_rebuilt_properly",
+                        "Evan rebuilt the pub chimney properly",
+                        "Draws like a dream now.",
+                        pay(LEO, EVAN, 40).into_iter().chain([
+                            mood(1),
+                            mark("chimney_fixed"),
+                            mark("chimney"),
+                        ]),
+                    ),
+                ),
+                other(
+                    "windows",
+                    "Open the windows",
+                    "Smoke and draughts.",
+                    said(
+                        "pub_windows_open",
+                        "The Anchor kept its windows open",
+                        "Bit breezy. Bit smoky.",
+                        [mood(-1), mark("chimney_fixed")],
+                    ),
+                ),
+            ],
+            said(
+                "chimney_smoked_on",
+                "The pub chimney smoked on",
+                "Cough cough.",
+                [mood(-1), mark("chimney_fixed")],
+            ),
+        ),
+    ]
+}
+
+/// Everyone living in the harbour now: its first eight, less anyone who
+/// has left, and anyone who has come to stay. Someone away who is back
+/// asking a question of their own (Evan home from the mainland) is here
+/// while it is open.
+pub(crate) fn people(world: &World) -> Vec<EntityId> {
+    let deck = deck();
+    let asking = storylets::open(world.state(), &deck)
+        .into_iter()
+        .map(|storylet| storylet.asker)
+        .collect::<Vec<_>>();
+    crate::talk::RESIDENTS
+        .into_iter()
+        .chain([ADA, IVO])
+        .filter(|id| {
+            world.state().entity(*id).is_some()
+                && (text(world, *id, AWAY).is_none() || asking.contains(id))
+        })
+        .collect()
+}
+
+/// How a fixture is drawn.
+pub(crate) fn fixture_shape(shape: &str) -> world_projection::MarkShape {
+    use world_projection::MarkShape;
+    match shape {
+        "stall" => MarkShape::Stall,
+        "bunting" => MarkShape::Bunting,
+        "pier" => MarkShape::Pier,
+        "garden" => MarkShape::Garden,
+        "flag" => MarkShape::Flag,
+        "lantern" => MarkShape::Lantern,
+        "tent" => MarkShape::Tent,
+        _ => MarkShape::Parcel,
+    }
+}
+
+/// What answers have put on the scene, standing beside the places they
+/// belong to.
+pub(crate) fn fixtures(world: &World) -> Vec<world_projection::CanvasItem> {
+    storylets::fixtures(world.state())
+        .into_iter()
+        .map(|fixture| {
+            let shape = match fixture.component("shape") {
+                Some(Value::Text(shape)) => fixture_shape(shape),
+                _ => world_projection::MarkShape::Parcel,
+            };
+            let at = match fixture.component("at") {
+                Some(Value::Entity(at)) => Some(world_projection::SelectionId::Entity(*at)),
+                _ => None,
+            };
+            world_projection::CanvasItem {
+                id: world_projection::SelectionId::Entity(fixture.id),
+                kind: world_projection::CanvasItemKind::Object,
+                label: world_projection::entity_title(fixture),
+                detail: String::new(),
+                x: 0.5,
+                y: 0.5,
+                changes: Vec::new(),
+                shape: Some(shape),
+                at,
+                look: None,
+            }
+        })
+        .collect()
+}
+
+/// Whether a storylet follows from an earlier answer: a second or third
+/// act, or what a finished goal opens.
+#[cfg(test)]
+pub(crate) fn follows_from_an_answer(id: &str) -> bool {
+    static IDS: OnceLock<Vec<&'static str>> = OnceLock::new();
+    IDS.get_or_init(|| threads().iter().map(|spec| spec.storylet.id).collect())
+        .contains(&id)
+}
+
+/// Whether a storylet is one the calendar brings round again by design.
+#[cfg(test)]
+pub(crate) fn from_the_calendar(id: &str) -> bool {
+    find(id).is_some_and(|spec| {
+        spec.storylet
+            .requires
+            .iter()
+            .any(|condition| matches!(condition, Condition::Every { .. }))
+    })
 }

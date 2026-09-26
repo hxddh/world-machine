@@ -172,6 +172,24 @@ pub struct ProjectionCommand {
     /// Whose choice this is to put to the player: the person it concerns,
     /// whose face a screen can show asking it.
     pub asker: Option<SelectionId>,
+    /// The question this is one answer to, when a Pack puts several
+    /// choices as answers to one question ("My nets are more hole than
+    /// net." answered by "Buy him nets" or "Tell him to mend them"). A
+    /// screen shows a question and its answers together.
+    pub question: Option<Question>,
+    /// Why this cannot be chosen now ("Noah hasn't 30 to spare"), when it
+    /// is shown only so the player can see what the choice would have
+    /// been. A screen shows it greyed and does not offer it.
+    pub unavailable: Option<String>,
+}
+
+/// A question someone puts to the player, which several choices answer.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Question {
+    /// Stable while the question is open; answers share it.
+    pub id: String,
+    /// What is asked, in the asker's words.
+    pub prompt: String,
 }
 
 /// Something a World keeps score of, always on screen: trust between two
@@ -533,6 +551,27 @@ impl ProjectionSnapshot {
         self.talks.iter().filter(move |talk| talk.who == who)
     }
 
+    /// The choices on offer as cards: each question with its answers, and
+    /// each choice that answers no question on its own, in the Pack's
+    /// order (a question stands where its first answer does).
+    pub fn cards(&self) -> Vec<Vec<usize>> {
+        let mut cards: Vec<Vec<usize>> = Vec::new();
+        let mut seen = BTreeMap::<&str, usize>::new();
+        for (index, command) in self.commands.iter().enumerate() {
+            match &command.question {
+                Some(question) => match seen.get(question.id.as_str()) {
+                    Some(card) => cards[*card].push(index),
+                    None => {
+                        seen.insert(&question.id, cards.len());
+                        cards.push(vec![index]);
+                    }
+                },
+                None => cards.push(vec![index]),
+            }
+        }
+        cards
+    }
+
     pub fn visible_text(&self) -> Vec<&str> {
         let mut text = vec![self.title.as_str()];
         for gauge in &self.gauges {
@@ -550,6 +589,9 @@ impl ProjectionSnapshot {
         for command in &self.commands {
             text.push(&command.title);
             text.push(&command.detail);
+            if let Some(question) = &command.question {
+                text.push(&question.prompt);
+            }
             for effect in &command.effects {
                 text.push(&effect.label);
                 if let EffectChange::To(value) = &effect.change {
@@ -1220,6 +1262,20 @@ pub enum MarkShape {
     Boat,
     /// A parcel or crate: an order, a delivery, a thing to be made.
     Parcel,
+    /// A market stall under a striped awning.
+    Stall,
+    /// A string of little flags between two poles.
+    Bunting,
+    /// A wooden pier on its piles.
+    Pier,
+    /// A small garden bed in flower.
+    Garden,
+    /// A flag on a pole.
+    Flag,
+    /// A lamp on a post, lit after dusk.
+    Lantern,
+    /// A tent.
+    Tent,
 }
 
 /// How a connection reads: warm, strained, or neither.
@@ -2357,6 +2413,8 @@ mod tests {
                 scenery: None,
                 asker: None,
                 moves: Vec::new(),
+                question: None,
+                unavailable: None,
             }],
             ..ProjectionSnapshot::default()
         };

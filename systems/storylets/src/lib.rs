@@ -41,6 +41,10 @@ pub struct Deck {
     pub shortest_chapter: u64,
     /// What a new chapter starts from: the Pack's gauges set back, say.
     pub fresh_start: Vec<Effect>,
+    /// The pressures chapters are about, taken in turn: each chapter opens
+    /// on one, and its climax can come only near the chapter's end
+    /// ([`Condition::Pressure`], [`Condition::ChapterEnding`]).
+    pub pressures: Vec<&'static str>,
     /// How many storylets may be open at once.
     pub most_open: usize,
 }
@@ -122,6 +126,8 @@ pub enum Effect {
         target: i64,
         by: i64,
     },
+    /// Remove a value, if it is there.
+    Unset { entity: EntityId, key: &'static str },
     /// Set an integer outright.
     Put {
         entity: EntityId,
@@ -130,6 +136,30 @@ pub enum Effect {
     },
     /// Build one more part of a goal.
     Advance(&'static str),
+    /// Remember that something happened, for later storylets to follow
+    /// from ([`Condition::Marked`]).
+    Mark(&'static str),
+    /// Forget a mark.
+    Unmark(&'static str),
+    /// Put something on the scene: a fixture entity, standing at a place,
+    /// for `lasts` periods or for good. Building it again renews it.
+    Build {
+        entity: EntityId,
+        name: &'static str,
+        /// How it is drawn, in the Pack's own words ("stall", "bunting").
+        shape: &'static str,
+        at: EntityId,
+        lasts: Option<u64>,
+    },
+    /// Take a fixture away.
+    Demolish(EntityId),
+    /// Someone or something new arrives: an entity of `kind`, with its
+    /// components. Nothing happens if it is already there.
+    Arrive {
+        entity: EntityId,
+        kind: &'static str,
+        components: Vec<(&'static str, Value)>,
+    },
 }
 
 /// Something that has to be true.
@@ -153,6 +183,18 @@ pub enum Condition {
     Unfinished(&'static str),
     /// A goal finished.
     Finished(&'static str),
+    /// Something marked ([`Effect::Mark`]) at least `periods` ago.
+    Marked(&'static str, u64),
+    /// Something never marked, or forgotten.
+    Unmarked(&'static str),
+    /// An entity is in the World.
+    Present(EntityId),
+    /// An entity is not in the World.
+    Absent(EntityId),
+    /// This chapter is about this pressure.
+    Pressure(&'static str),
+    /// This chapter has at most this many periods left to run.
+    ChapterEnding(u64),
 }
 
 /// Something a World is building toward, part by part.
@@ -178,6 +220,17 @@ fn text<'a>(state: &'a WorldState, entity: EntityId, key: &str) -> Option<&'a st
         Value::Text(value) => Some(value.as_str()),
         _ => None,
     }
+}
+
+/// The kind of entity a storylet puts on the scene.
+pub const FIXTURE: &str = "fixture";
+
+/// The fixtures standing now: what storylets have put on the scene.
+pub fn fixtures(state: &WorldState) -> Vec<&Entity> {
+    state
+        .entities()
+        .filter(|entity| entity.kind == FIXTURE)
+        .collect()
 }
 
 /// Which period of the World it is.
@@ -216,6 +269,13 @@ fn holds(state: &WorldState, deck: &Deck, condition: &Condition) -> bool {
         } => season(period, *length) == *which,
         Condition::Unfinished(goal) => !finished(state, deck, goal),
         Condition::Finished(goal) => finished(state, deck, goal),
+        Condition::Marked(mark, periods) => integer(state, deck.story, &key("mark", mark))
+            .is_some_and(|at| period >= (at.max(0) as u64).saturating_add(*periods)),
+        Condition::Unmarked(mark) => integer(state, deck.story, &key("mark", mark)).is_none(),
+        Condition::Pressure(which) => pressure(state, deck).as_deref() == Some(*which),
+        Condition::ChapterEnding(left) => period + left >= chapter_ends(state, deck),
+        Condition::Present(entity) => state.entity(*entity).is_some(),
+        Condition::Absent(entity) => state.entity(*entity).is_none(),
     }
 }
 
@@ -252,6 +312,27 @@ pub fn choices<'a>(state: &WorldState, deck: &'a Deck) -> Vec<(&'a Storylet, &'a
                 .iter()
                 .filter(|choice| all_hold(state, deck, &choice.requires))
                 .map(move |choice| (storylet, choice))
+        })
+        .collect()
+}
+
+/// Every answer to every open storylet, with the conditions it does not
+/// meet now: empty when it can be chosen.
+pub fn answers<'a>(
+    state: &WorldState,
+    deck: &'a Deck,
+) -> Vec<(&'a Storylet, &'a Choice, Vec<&'a Condition>)> {
+    open(state, deck)
+        .into_iter()
+        .flat_map(|storylet| {
+            storylet.choices.iter().map(move |choice| {
+                let unmet = choice
+                    .requires
+                    .iter()
+                    .filter(|condition| !holds(state, deck, condition))
+                    .collect();
+                (storylet, choice, unmet)
+            })
         })
         .collect()
 }
@@ -329,6 +410,31 @@ pub fn last_chapter_title(world: &World) -> Option<String> {
         })
 }
 
+/// What this chapter is about, if the Pack gave its chapters pressures.
+pub fn pressure(state: &WorldState, deck: &Deck) -> Option<String> {
+    text(state, deck.story, "story.pressure").map(str::to_string)
+}
+
+fn pressure_for(deck: &Deck, chapter: i64) -> Option<&'static str> {
+    (!deck.pressures.is_empty())
+        .then(|| deck.pressures[((chapter - 1).max(0) as usize) % deck.pressures.len()])
+}
+
+/// How many periods a chapter runs on once a gauge at its end has brought
+/// its end forward.
+const HASTENED: u64 = 2;
+
+/// The period this chapter ends at: its full length after it began,
+/// unless a turning point brought that forward.
+pub fn chapter_ends(state: &WorldState, deck: &Deck) -> u64 {
+    integer(state, deck.story, "story.chapter_ends")
+        .map(|ends| ends.max(0) as u64)
+        .unwrap_or_else(|| {
+            let (_, started) = chapter(state, deck);
+            started / deck.period.max(1) + deck.chapter_periods.max(1)
+        })
+}
+
 /// Which chapter this is (from 1), and when it began.
 pub fn chapter(state: &WorldState, deck: &Deck) -> (i64, u64) {
     (
@@ -343,6 +449,8 @@ fn applied(state: &WorldState, deck: &Deck, effects: &[Effect]) -> Vec<StateChan
     // Effects on the same value build on each other.
     let mut values = BTreeMap::<(EntityId, String), i64>::new();
     let mut changes = Vec::new();
+    // What these effects themselves put up, so building it again renews it.
+    let mut built = std::collections::BTreeSet::<EntityId>::new();
     for effect in effects {
         match effect {
             Effect::Add {
@@ -397,6 +505,94 @@ fn applied(state: &WorldState, deck: &Deck, effects: &[Effect]) -> Vec<StateChan
                 key: key.to_string(),
                 value: (*text).into(),
             }),
+            Effect::Unset { entity, key } => {
+                if state
+                    .entity(*entity)
+                    .is_some_and(|entity| entity.component(key).is_some())
+                {
+                    changes.push(StateChange::RemoveComponent {
+                        entity: *entity,
+                        key: key.to_string(),
+                    });
+                }
+            }
+            Effect::Mark(mark) => changes.push(StateChange::SetComponent {
+                entity: deck.story,
+                key: key("mark", mark),
+                value: (period_index(state, deck) as i64).into(),
+            }),
+            Effect::Unmark(mark) => {
+                if integer(state, deck.story, &key("mark", mark)).is_some() {
+                    changes.push(StateChange::RemoveComponent {
+                        entity: deck.story,
+                        key: key("mark", mark),
+                    });
+                }
+            }
+            Effect::Build {
+                entity,
+                name,
+                shape,
+                at,
+                lasts,
+            } => {
+                let until = lasts.map(|lasts| (period_index(state, deck) + lasts) as i64);
+                if state.entity(*entity).is_some() || !built.insert(*entity) {
+                    for (key, value) in [
+                        ("name", Value::from(*name)),
+                        ("shape", Value::from(*shape)),
+                        ("at", Value::Entity(*at)),
+                    ] {
+                        changes.push(StateChange::SetComponent {
+                            entity: *entity,
+                            key: key.into(),
+                            value,
+                        });
+                    }
+                    match until {
+                        Some(until) => changes.push(StateChange::SetComponent {
+                            entity: *entity,
+                            key: "until".into(),
+                            value: until.into(),
+                        }),
+                        None => {
+                            if integer(state, *entity, "until").is_some() {
+                                changes.push(StateChange::RemoveComponent {
+                                    entity: *entity,
+                                    key: "until".into(),
+                                });
+                            }
+                        }
+                    }
+                } else {
+                    let mut fixture = Entity::new(*entity, FIXTURE)
+                        .with_component("name", *name)
+                        .with_component("shape", *shape)
+                        .with_component("at", Value::Entity(*at));
+                    if let Some(until) = until {
+                        fixture = fixture.with_component("until", until);
+                    }
+                    changes.push(StateChange::CreateEntity(fixture));
+                }
+            }
+            Effect::Demolish(entity) => {
+                if state.entity(*entity).is_some() {
+                    changes.push(StateChange::RemoveEntity(*entity));
+                }
+            }
+            Effect::Arrive {
+                entity,
+                kind,
+                components,
+            } => {
+                if state.entity(*entity).is_none() {
+                    let mut arrival = Entity::new(*entity, *kind);
+                    for (key, value) in components {
+                        arrival = arrival.with_component(*key, value.clone());
+                    }
+                    changes.push(StateChange::CreateEntity(arrival));
+                }
+            }
             Effect::Advance(goal) => {
                 let parts = deck
                     .goals
@@ -479,12 +675,52 @@ impl Action for Begins {
             return Err(ActionError::Invalid("the story has begun".into()));
         }
         let mut draft = EventDraft::new("story_began");
-        draft.changes.push(StateChange::CreateEntity(
-            Entity::new(deck.story, "story")
-                .with_component("name", deck.story_name)
-                .with_component("story.chapter", 1_i64)
-                .with_component("story.chapter_started", state.world_time() as i64),
-        ));
+        let mut story = Entity::new(deck.story, "story")
+            .with_component("name", deck.story_name)
+            .with_component("story.chapter", 1_i64)
+            .with_component("story.chapter_started", state.world_time() as i64);
+        if let Some(pressure) = pressure_for(&deck, 1) {
+            story = story.with_component("story.pressure", pressure);
+        }
+        draft.changes.push(StateChange::CreateEntity(story));
+        Ok(draft)
+    }
+}
+
+/// A fixture whose time is up is taken away.
+struct FixturePasses(fn() -> Deck);
+
+impl Action for FixturePasses {
+    fn name(&self) -> &'static str {
+        "fixture_passes"
+    }
+
+    fn evaluate(
+        &self,
+        state: &WorldState,
+        request: &ActionRequest,
+    ) -> Result<EventDraft, ActionError> {
+        let deck = (self.0)();
+        let entity = match request.args.get("fixture") {
+            Some(Value::Integer(id)) => EntityId::new(*id as u64),
+            _ => return Err(ActionError::Invalid("missing fixture".into())),
+        };
+        let fixture = state
+            .entity(entity)
+            .filter(|entity| entity.kind == FIXTURE)
+            .ok_or_else(|| ActionError::Invalid("no such fixture".into()))?;
+        let until = integer(state, entity, "until")
+            .ok_or_else(|| ActionError::Invalid("it stays for good".into()))?;
+        if (period_index(state, &deck) as i64) < until {
+            return Err(ActionError::Invalid("its time is not up".into()));
+        }
+        // Named in its payload, not targeted: once it is gone there is
+        // nothing left to point at.
+        let mut draft = EventDraft::new("fixture_passed");
+        if let Some(Value::Text(name)) = fixture.component("name") {
+            draft.payload.insert("name".into(), name.clone().into());
+        }
+        draft.changes.push(StateChange::RemoveEntity(entity));
         Ok(draft)
     }
 }
@@ -646,9 +882,50 @@ impl Action for ChapterTurns {
                 value: (state.world_time() as i64).into(),
             },
         ];
+        if integer(state, deck.story, "story.chapter_ends").is_some() {
+            draft.changes.push(StateChange::RemoveComponent {
+                entity: deck.story,
+                key: "story.chapter_ends".into(),
+            });
+        }
+        if let Some(pressure) = pressure_for(&deck, number + 1) {
+            draft.changes.push(StateChange::SetComponent {
+                entity: deck.story,
+                key: "story.pressure".into(),
+                value: pressure.into(),
+            });
+        }
         draft
             .changes
             .extend(applied(state, &deck, &deck.fresh_start));
+        Ok(draft)
+    }
+}
+
+/// A turning point brings the chapter's end forward.
+struct ChapterHastens(fn() -> Deck);
+
+impl Action for ChapterHastens {
+    fn name(&self) -> &'static str {
+        "chapter_hastens"
+    }
+
+    fn evaluate(
+        &self,
+        state: &WorldState,
+        _request: &ActionRequest,
+    ) -> Result<EventDraft, ActionError> {
+        let deck = (self.0)();
+        let ends = period_index(state, &deck) + HASTENED;
+        if chapter_ends(state, &deck) <= ends {
+            return Err(ActionError::Invalid("the chapter is already ending".into()));
+        }
+        let mut draft = EventDraft::new("chapter_turning");
+        draft.changes.push(StateChange::SetComponent {
+            entity: deck.story,
+            key: "story.chapter_ends".into(),
+            value: (ends as i64).into(),
+        });
         Ok(draft)
     }
 }
@@ -659,10 +936,12 @@ pub fn register_actions(
     deck: fn() -> Deck,
 ) -> Result<(), ActionError> {
     registry.register(Begins(deck))?;
+    registry.register(FixturePasses(deck))?;
     registry.register(Arises(deck))?;
     registry.register(Chosen(deck))?;
     registry.register(Lapsed(deck))?;
     registry.register(ChapterTurns(deck))?;
+    registry.register(ChapterHastens(deck))?;
     Ok(())
 }
 
@@ -699,6 +978,10 @@ pub type ChapterEnding = dyn Fn(&World) -> (String, String);
 /// What the storyteller is told about how the World stands.
 pub struct Reading {
     pub pinned: Vec<Pinned>,
+    /// Whether the player is away. Then wants wait for them rather than
+    /// lapsing, and nothing new comes up but what the calendar brings and
+    /// what cannot wait.
+    pub away: bool,
     /// Whether a gauge has reached its very end. That is a turning point:
     /// once the chapter has run its shortest, it ends there.
     pub at_end: bool,
@@ -732,9 +1015,24 @@ pub fn tick(
                 .id,
         );
     }
+    let period = period_index(world.state(), deck) as i64;
+    let passed = fixtures(world.state())
+        .into_iter()
+        .filter(|fixture| {
+            integer(world.state(), fixture.id, "until").is_some_and(|until| until <= period)
+        })
+        .map(|fixture| fixture.id)
+        .collect::<Vec<_>>();
+    for fixture in passed {
+        let request = ActionRequest::new("fixture_passes").arg("fixture", fixture.0 as i64);
+        events.push(world.execute(actions, &request)?.id);
+    }
     let now = world.world_time();
     for storylet in open(world.state(), deck) {
         let at = opened_at(world.state(), deck, storylet.id).unwrap_or(now);
+        if reading.away && storylet.want && !storylet.timely {
+            continue;
+        }
         if now >= at.saturating_add(storylet.lasts.max(1) * deck.period) {
             let request = ActionRequest::new("storylet_lapsed")
                 .actor(storylet.asker)
@@ -743,10 +1041,19 @@ pub fn tick(
         }
     }
     let (_, started) = chapter(world.state(), deck);
-    let due = now >= started.saturating_add(deck.chapter_periods.max(1) * deck.period);
-    let turned =
-        reading.at_end && now >= started.saturating_add(deck.shortest_chapter.max(1) * deck.period);
-    if due || turned {
+    let ends = chapter_ends(world.state(), deck);
+    let period_now = period_index(world.state(), deck);
+    let old_enough = now >= started.saturating_add(deck.shortest_chapter.max(1) * deck.period);
+    // A gauge at its end is a turning point: the chapter's end comes
+    // forward, near enough for its climax to come up first.
+    if reading.at_end && old_enough && ends > period_now + HASTENED {
+        events.push(
+            world
+                .execute(actions, &ActionRequest::new("chapter_hastens"))?
+                .id,
+        );
+    }
+    if period_now >= chapter_ends(world.state(), deck) {
         let (title, summary) = (reading.chapter_ending)(world);
         let request = ActionRequest::new("chapter_turns")
             .arg("title", title)
@@ -780,6 +1087,9 @@ pub fn tick(
         // Past the first, only what cannot wait, what the World needs, or
         // someone's want when nobody has one open.
         let needed = |storylet: &Storylet| {
+            if reading.away && !open_now.is_empty() {
+                return storylet.timely;
+            }
             open_now.is_empty()
                 || storylet.timely
                 || (!easing && eases_pinned(storylet, &reading.pinned))
@@ -918,6 +1228,7 @@ mod tests {
             }],
             chapter_periods: 4,
             shortest_chapter: 2,
+            pressures: vec!["drought", "flood"],
             fresh_start: vec![Effect::Put {
                 entity: ANN,
                 key: "coins",
@@ -944,6 +1255,7 @@ mod tests {
     fn reading() -> Reading {
         Reading {
             pinned: Vec::new(),
+            away: false,
             at_end: false,
             chapter_ending: Box::new(|_| ("An end".into(), "It went well.".into())),
         }
@@ -1059,28 +1371,47 @@ mod tests {
     }
 
     #[test]
-    fn a_gauge_at_its_end_turns_the_chapter_and_the_next_starts_fresh() {
-        let (mut world, actions) = world();
+    fn a_gauge_at_its_end_brings_the_chapter_to_a_close_and_the_next_starts_fresh() {
+        fn long() -> Deck {
+            Deck {
+                chapter_periods: 20,
+                ..deck()
+            }
+        }
+        let mut state = WorldState::default();
+        state
+            .seed_entity(Entity::new(ANN, "person").with_component("coins", 10_i64))
+            .unwrap();
+        let mut actions = ActionRegistry::new();
+        register_actions(&mut actions, long).unwrap();
+        let mut world = World::new(state);
+        world
+            .execute(&actions, &ActionRequest::new("story_begins"))
+            .unwrap();
         let at_end = Reading {
             pinned: Vec::new(),
+            away: false,
             at_end: true,
             chapter_ending: Box::new(|_| ("Broke".into(), "Ann ran out.".into())),
         };
         world.advance_to(&actions, 10).unwrap();
-        tick(&mut world, &actions, &deck(), &at_end).unwrap();
-        assert_eq!(chapter(world.state(), &deck()).0, 1, "too soon to turn");
-        world
-            .execute(
-                &actions,
-                &ActionRequest::new("storylet_chosen")
-                    .arg("storylet", "roof")
-                    .arg("choice", "mend"),
-            )
-            .ok();
+        tick(&mut world, &actions, &long(), &at_end).unwrap();
+        assert_eq!(chapter_ends(world.state(), &long()), 20, "too soon to turn");
         world.advance_to(&actions, 20).unwrap();
-        tick(&mut world, &actions, &deck(), &at_end).unwrap();
-        assert_eq!(chapter(world.state(), &deck()).0, 2);
+        tick(&mut world, &actions, &long(), &at_end).unwrap();
+        assert_eq!(
+            chapter_ends(world.state(), &long()),
+            4,
+            "the end comes forward"
+        );
+        assert!(holds(world.state(), &long(), &Condition::ChapterEnding(2)));
+        for step in 3..=4 {
+            world.advance_to(&actions, step * 10).unwrap();
+            tick(&mut world, &actions, &long(), &at_end).unwrap();
+        }
+        assert_eq!(chapter(world.state(), &long()).0, 2);
         assert_eq!(integer(world.state(), ANN, "coins"), Some(10));
+        assert_eq!(chapter_ends(world.state(), &long()), 24);
     }
 
     #[test]
@@ -1091,6 +1422,7 @@ mod tests {
                 gauge: "coins",
                 high: true,
             }],
+            away: false,
             at_end: false,
             chapter_ending: Box::new(|_| (String::new(), String::new())),
         };
@@ -1098,6 +1430,118 @@ mod tests {
         world.advance_to(&actions, 10).unwrap();
         tick(&mut world, &actions, &deck(), &reading).unwrap();
         assert!(opened_at(world.state(), &deck(), "roof").is_some());
+    }
+
+    #[test]
+    fn what_is_built_stands_on_the_scene_and_what_passes_goes() {
+        let (mut world, actions) = world();
+        let stall = EntityId::new(50);
+        let bunting = EntityId::new(51);
+        let deck = deck();
+        let changes = applied(
+            world.state(),
+            &deck,
+            &[
+                Effect::Build {
+                    entity: stall,
+                    name: "Ann's stall",
+                    shape: "stall",
+                    at: ANN,
+                    lasts: None,
+                },
+                Effect::Build {
+                    entity: bunting,
+                    name: "Bunting",
+                    shape: "bunting",
+                    at: ANN,
+                    lasts: Some(2),
+                },
+                Effect::Mark("stall"),
+            ],
+        );
+        assert_eq!(changes.len(), 3);
+        struct Apply(Vec<StateChange>);
+        impl Action for Apply {
+            fn name(&self) -> &'static str {
+                "apply_for_test"
+            }
+            fn evaluate(
+                &self,
+                _state: &WorldState,
+                _request: &ActionRequest,
+            ) -> Result<EventDraft, ActionError> {
+                let mut draft = EventDraft::new("built");
+                draft.changes = self.0.clone();
+                Ok(draft)
+            }
+        }
+        let mut actions = actions;
+        actions.register(Apply(changes)).unwrap();
+        world
+            .execute(&actions, &ActionRequest::new("apply_for_test"))
+            .unwrap();
+        assert_eq!(fixtures(world.state()).len(), 2);
+        assert!(!holds(world.state(), &deck, &Condition::Marked("stall", 1)));
+        assert!(holds(world.state(), &deck, &Condition::Marked("stall", 0)));
+        pass(&mut world, &actions);
+        assert!(holds(world.state(), &deck, &Condition::Marked("stall", 1)));
+        pass(&mut world, &actions);
+        let standing = fixtures(world.state())
+            .iter()
+            .map(|fixture| fixture.id)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            standing,
+            vec![stall],
+            "the bunting came down after two periods"
+        );
+        assert!(kinds(&world).contains(&"fixture_passed".to_string()));
+    }
+
+    #[test]
+    fn each_chapter_has_its_pressure_and_its_end_in_sight() {
+        let (mut world, actions) = world();
+        assert_eq!(pressure(world.state(), &deck()).as_deref(), Some("drought"));
+        assert!(!holds(world.state(), &deck(), &Condition::ChapterEnding(1)));
+        for _ in 0..3 {
+            pass(&mut world, &actions);
+        }
+        assert!(holds(world.state(), &deck(), &Condition::ChapterEnding(1)));
+        assert!(holds(
+            world.state(),
+            &deck(),
+            &Condition::Pressure("drought")
+        ));
+        pass(&mut world, &actions);
+        pass(&mut world, &actions);
+        assert_eq!(chapter(world.state(), &deck()).0, 2);
+        assert_eq!(pressure(world.state(), &deck()).as_deref(), Some("flood"));
+    }
+
+    #[test]
+    fn while_the_player_is_away_wants_wait_for_them() {
+        let (mut world, actions) = world();
+        let away = Reading {
+            pinned: Vec::new(),
+            away: true,
+            at_end: false,
+            chapter_ending: Box::new(|_| (String::new(), String::new())),
+        };
+        world
+            .execute(
+                &actions,
+                &ActionRequest::new("storylet_arises").arg("storylet", "roof"),
+            )
+            .unwrap();
+        for step in 1..8 {
+            world.advance_to(&actions, step * 10).unwrap();
+            tick(&mut world, &actions, &deck(), &away).unwrap();
+        }
+        assert!(
+            opened_at(world.state(), &deck(), "roof").is_some(),
+            "Ann's want is still waiting"
+        );
+        assert!(!kinds(&world).contains(&"roof_leaked".to_string()));
     }
 
     #[test]

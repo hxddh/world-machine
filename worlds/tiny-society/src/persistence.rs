@@ -14,7 +14,7 @@ use world_persistence::{PersistenceError, WorldArchive, WorldPackRef};
 use world_projection::ProjectionSnapshot;
 
 pub const TINY_SOCIETY_PACK_ID: &str = "world-machine.tiny-society";
-pub const TINY_SOCIETY_PACK_VERSION: &str = "0.4.0";
+pub const TINY_SOCIETY_PACK_VERSION: &str = "0.5.0";
 
 pub(crate) const WORLD_DAY_TICKS: u64 = 10;
 const MORNING_OFFSET_TICKS: u64 = 5;
@@ -86,7 +86,17 @@ impl TinySocietyBranch {
         )
     }
 
+    /// Days passing while nobody is watching.
     pub fn advance_days(&mut self, days: u64) -> Result<Vec<EventId>, Box<dyn Error>> {
+        self.pass_days(days, true)
+    }
+
+    /// Days passing, with the player (`away` false) or without them.
+    pub(crate) fn pass_days(
+        &mut self,
+        days: u64,
+        away: bool,
+    ) -> Result<Vec<EventId>, Box<dyn Error>> {
         if days == 0 {
             return Ok(Vec::new());
         }
@@ -142,7 +152,7 @@ impl TinySocietyBranch {
             }
             // The storyteller has the last word of the day: what lapses,
             // whether the chapter turns, and what comes up next.
-            generated_events.extend(crate::story::tick(&mut self.world, &actions)?);
+            generated_events.extend(crate::story::tick(&mut self.world, &actions, away)?);
         }
 
         Ok(generated_events)
