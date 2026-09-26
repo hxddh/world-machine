@@ -758,7 +758,7 @@ fn incidents() -> Vec<Spec> {
             vec![
                 other(
                     "leo",
-                    "Side with Leo",
+                    "Side with Leo over the debt",
                     "Evan pays Leo the 20 he owes.",
                     said(
                         "quarrel_settled_for_leo",
@@ -769,7 +769,7 @@ fn incidents() -> Vec<Spec> {
                 ),
                 other(
                     "evan",
-                    "Side with Evan",
+                    "Side with Evan over the debt",
                     "Leo lets the debt go.",
                     said(
                         "quarrel_settled_for_evan",
@@ -851,7 +851,7 @@ fn incidents() -> Vec<Spec> {
                 ),
                 other(
                     "leave",
-                    "Leave the piles for now",
+                    "Leave the pier piles for now",
                     "Nothing spent. The pier waits.",
                     said(
                         "pier_piles_left",
@@ -890,7 +890,7 @@ fn incidents() -> Vec<Spec> {
                 ),
                 other(
                     "leave",
-                    "Leave it at the dock",
+                    "Leave the lamp glass at the dock",
                     "Nothing spent. It will keep, probably.",
                     said(
                         "lamp_glass_left",
@@ -966,7 +966,7 @@ fn incidents() -> Vec<Spec> {
                 ),
                 other(
                     "patch",
-                    "Patch it and hope",
+                    "Patch the chimney and hope",
                     "Nothing spent. Smoky evenings.",
                     said(
                         "chimney_patched",
@@ -1206,7 +1206,7 @@ fn calendar() -> Vec<Spec> {
                 ),
                 other(
                     "card",
-                    "Everyone signs a card",
+                    "Everyone signs {name} a card",
                     "Nothing spent. A kind thought.",
                     said(
                         "birthday_card",

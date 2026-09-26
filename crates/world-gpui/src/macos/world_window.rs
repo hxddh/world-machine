@@ -1280,10 +1280,12 @@ impl ProjectionView {
                     cx.listener(|this, _, _, cx| this.toggle_drawer(cx)),
                 )),
         );
+        // The story so far comes first: what the World is building and the
+        // chapters it has closed.
         for part in [
+            self.render_chapters(),
             self.render_closer_look(cx),
             self.render_story(cx),
-            self.render_chapters(),
             self.render_standing(cx),
             self.render_cast(cx),
             self.render_history(cx),

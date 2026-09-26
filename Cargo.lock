@@ -3882,7 +3882,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-universe-pack"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "pocket-universe",
  "serde_json",
@@ -5412,7 +5412,7 @@ dependencies = [
 
 [[package]]
 name = "tiny-society-pack"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "tiny-society",
  "world-host",

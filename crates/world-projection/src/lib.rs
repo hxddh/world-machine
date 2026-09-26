@@ -255,9 +255,9 @@ impl Scenery {
                 ..self
             },
             3 => Self {
-                sky_top: mix(self.sky_top, 0xc9d6e2, 0.5),
-                sky_bottom: mix(self.sky_bottom, 0xf2f4f7, 0.5),
-                far: mix(self.far, 0xe8eef2, 0.55),
+                sky_top: mix(self.sky_top, 0xc9d6e2, 0.6),
+                sky_bottom: mix(self.sky_bottom, 0xf2f4f7, 0.6),
+                far: mix(self.far, 0xeef3f6, 0.75),
                 sun: mix(self.sun, 0xfff4e0, 0.5),
                 ..self
             },

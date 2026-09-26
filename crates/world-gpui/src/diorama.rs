@@ -605,13 +605,15 @@ pub fn frame(
         .enumerate()
         .map(|(position, goal)| {
             let fx = 0.12 + 0.76 * (position as f32 + 0.5) / goal_count.max(1) as f32;
-            let (x, y) = at(stage.width * fx, stage.horizon + stage.building_h * 0.18);
+            // Up on the ridge line, above the rooftops, so the buildings in
+            // front never hide what the World is working toward.
+            let (x, y) = at(stage.width * fx, stage.horizon - stage.building_h * 0.08);
             let (w, h) = match goal.shape {
-                MarkShape::Bridge => (stage.building_w * 1.1, stage.building_h * 0.45),
+                MarkShape::Bridge => (stage.building_w * 0.9, stage.building_h * 0.34),
                 MarkShape::Tower | MarkShape::Lamp => {
-                    (stage.building_w * 0.45, stage.building_h * 0.8)
+                    (stage.building_w * 0.32, stage.building_h * 0.6)
                 }
-                _ => (stage.building_w * 0.7, stage.building_h * 0.55),
+                _ => (stage.building_w * 0.5, stage.building_h * 0.42),
             };
             (x, y, w * z, h * z, goal.shape, goal.done, goal.parts)
         })

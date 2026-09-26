@@ -396,7 +396,7 @@ fn wants() -> Vec<Spec> {
                 ),
                 no(
                     "not_yet",
-                    "Not yet",
+                    "Put off {second}",
                     "What they have is enough for now.",
                     said(
                         "second_put_off",
@@ -465,7 +465,7 @@ fn incidents() -> Vec<Spec> {
             vec![
                 yes(
                     "together",
-                    "Fix it together",
+                    "Mend {failing} together",
                     "{explorer} drops everything.",
                     said(
                         "failing_fixed",
@@ -476,7 +476,7 @@ fn incidents() -> Vec<Spec> {
                 ),
                 yes(
                     "alone",
-                    "Let {keeper} manage alone",
+                    "Let {keeper} mend {failing} alone",
                     "{explorer} stays out. {keeper} copes.",
                     said(
                         "failing_patched",
@@ -513,7 +513,7 @@ fn incidents() -> Vec<Spec> {
                 ),
                 yes(
                     "log",
-                    "Note it down and stay",
+                    "Note down {signal} and stay",
                     "Nobody leaves. {keeper} writes it down.",
                     said(
                         "signal_logged",
@@ -541,7 +541,7 @@ fn incidents() -> Vec<Spec> {
             vec![
                 yes(
                     "keeper",
-                    "Take {keeper}'s side",
+                    "Take {keeper}'s side in the argument",
                     "{explorer} won't like it.",
                     said(
                         "quarrel_keeper_won",
@@ -552,7 +552,7 @@ fn incidents() -> Vec<Spec> {
                 ),
                 yes(
                     "explorer",
-                    "Take {explorer}'s side",
+                    "Take {explorer}'s side in the argument",
                     "{keeper} won't like it.",
                     said(
                         "quarrel_explorer_won",
@@ -582,7 +582,7 @@ fn incidents() -> Vec<Spec> {
             vec![
                 yes(
                     "amends",
-                    "Let them make it up",
+                    "Let {explorer} and {keeper} make up",
                     "The rivalry is set down, for now.",
                     said(
                         "amends_made",
@@ -599,7 +599,7 @@ fn incidents() -> Vec<Spec> {
                 ),
                 no(
                     "not_yet",
-                    "It's too soon",
+                    "Tell {explorer} it's too soon",
                     "The hurt stays where it is.",
                     said(
                         "amends_too_soon",
@@ -717,7 +717,7 @@ fn incidents() -> Vec<Spec> {
                 ),
                 yes(
                     "later",
-                    "Leave it for later",
+                    "Leave building {beacon} for later",
                     "There's enough to do.",
                     said(
                         "beacon_left",
@@ -746,7 +746,7 @@ fn calendar() -> Vec<Spec> {
             vec![
                 yes(
                     "share",
-                    "Share it out",
+                    "Share out {supply}",
                     "Half each, no arguments.",
                     said(
                         "supply_shared",
@@ -782,7 +782,7 @@ fn calendar() -> Vec<Spec> {
             vec![
                 yes(
                     "go",
-                    "Go, both of them",
+                    "Go out for {window} together",
                     "{home} can mind itself for a day.",
                     said(
                         "window_gone",
@@ -818,7 +818,7 @@ fn calendar() -> Vec<Spec> {
             vec![
                 yes(
                     "party",
-                    "{explorer} throws a surprise",
+                    "{explorer} throws {keeper} a surprise",
                     "{explorer} has something planned.",
                     said(
                         "keeper_birthday_kept",
@@ -830,7 +830,7 @@ fn calendar() -> Vec<Spec> {
                 ),
                 yes(
                     "quiet",
-                    "A quiet one",
+                    "A quiet birthday for {keeper}",
                     "Nothing much. A card.",
                     said(
                         "keeper_birthday_quiet",
@@ -854,7 +854,7 @@ fn calendar() -> Vec<Spec> {
             vec![
                 yes(
                     "party",
-                    "{keeper} throws a surprise",
+                    "{keeper} throws {explorer} a surprise",
                     "{keeper} has something planned.",
                     said(
                         "explorer_birthday_kept",
@@ -866,7 +866,7 @@ fn calendar() -> Vec<Spec> {
                 ),
                 yes(
                     "quiet",
-                    "A quiet one",
+                    "A quiet birthday for {explorer}",
                     "Nothing much. A card.",
                     said(
                         "explorer_birthday_quiet",
