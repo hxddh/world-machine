@@ -364,7 +364,7 @@ fn a_week_away_lapses_at_most_three_questions() {
     let world = branch.world();
     let lapsed = world.events()[before..]
         .iter()
-        .filter(|event| event.payload.get("lapsed").is_some())
+        .filter(|event| event.payload.contains_key("lapsed"))
         .count();
     assert!(lapsed <= 3, "{lapsed} questions lapsed in a week away");
 }
