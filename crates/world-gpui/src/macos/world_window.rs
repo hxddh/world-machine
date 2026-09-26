@@ -1063,13 +1063,16 @@ impl ProjectionView {
                         cx.notify();
                     })),
             )
-            .when(question.is_none(), |actions| {
-                actions.child(
-                    ui::button("card-choose", "Choose", ButtonKind::Primary).on_click(
-                        cx.listener(move |this, _, _, cx| this.invoke_command(id.clone(), cx)),
-                    ),
-                )
-            });
+            .when(
+                question.is_none() && command.unavailable.is_none(),
+                |actions| {
+                    actions.child(
+                        ui::button("card-choose", "Choose", ButtonKind::Primary).on_click(
+                            cx.listener(move |this, _, _, cx| this.invoke_command(id.clone(), cx)),
+                        ),
+                    )
+                },
+            );
         // Every answer to the question, on the card itself: pointing at one
         // leans toward it and the gauges show what it would move; clicking
         // it answers.

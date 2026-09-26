@@ -3648,12 +3648,22 @@ fn threads() -> Vec<Spec> {
 }
 
 /// Everyone living in the harbour now: its first eight, less anyone who
-/// has left, and anyone who has come to stay.
+/// has left, and anyone who has come to stay. Someone away who is back
+/// asking a question of their own (Evan home from the mainland) is here
+/// while it is open.
 pub(crate) fn people(world: &World) -> Vec<EntityId> {
+    let deck = deck();
+    let asking = storylets::open(world.state(), &deck)
+        .into_iter()
+        .map(|storylet| storylet.asker)
+        .collect::<Vec<_>>();
     crate::talk::RESIDENTS
         .into_iter()
         .chain([ADA, IVO])
-        .filter(|id| world.state().entity(*id).is_some() && text(world, *id, AWAY).is_none())
+        .filter(|id| {
+            world.state().entity(*id).is_some()
+                && (text(world, *id, AWAY).is_none() || asking.contains(id))
+        })
         .collect()
 }
 

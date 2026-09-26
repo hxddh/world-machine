@@ -78,6 +78,18 @@ fn play(policy: Policy, days: usize) -> Played {
         branch: branch.clone(),
     };
     for day in 0..days {
+        // Whoever asks an open question is in the harbour to ask it, even
+        // someone back from being away.
+        let here = story::people(branch.world());
+        for storylet in storylets::open(branch.world().state(), &story::deck()) {
+            if branch.world().state().entity(storylet.asker).is_some() {
+                assert!(
+                    here.contains(&storylet.asker),
+                    "{policy:?}: {} asked by someone not on the scene",
+                    storylet.id
+                );
+            }
+        }
         let snapshot = projection::snapshot(branch.world());
         let choices = snapshot
             .commands

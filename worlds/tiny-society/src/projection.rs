@@ -14,8 +14,6 @@ use world_projection::{
     ProjectionCapabilities, ProjectionCommand, ProjectionSnapshot, SelectionId, Telling, Tone,
 };
 
-const RESIDENTS: [EntityId; 8] = [JONAS, MARA, LEO, EMMA, MIA, NOAH, EVAN, SOFIA];
-
 pub(crate) fn snapshot(world: &World) -> ProjectionSnapshot {
     snapshot_since(world, None)
 }
@@ -48,7 +46,7 @@ pub(crate) fn snapshot_since(
         commands,
         collection: CollectionProjection {
             title: "Residents".into(),
-            items: RESIDENTS
+            items: crate::story::people(world)
                 .iter()
                 .filter_map(|id| resident_item(world, *id))
                 .collect(),
@@ -936,18 +934,19 @@ fn workplace(world: &World, person: EntityId) -> Option<EntityId> {
 /// with, and whether the bakery at its heart is open.
 pub(crate) fn gauges(world: &World) -> Vec<world_projection::Gauge> {
     use world_projection::Gauge;
-    let workforce = RESIDENTS
+    let people = crate::story::people(world);
+    let workforce = people
         .iter()
         .filter(|id| component_text(world, **id, JOB).as_deref() != Some("student"))
         .count();
-    let out_of_work = RESIDENTS
+    let out_of_work = people
         .iter()
         .filter(|id| component_text(world, **id, JOB).as_deref() == Some("unemployed"))
         .count();
     let working = workforce - out_of_work;
     // The whole town's money, its people's and its places': wages and bread
     // only move it about, and what comes and goes is the mainland trade.
-    let town = RESIDENTS.iter().chain(&[HARBOR, BAKERY, SCHOOL, PUB]);
+    let town = people.iter().chain(&[HARBOR, BAKERY, SCHOOL, PUB]);
     let money: i64 = town
         .clone()
         .filter_map(|id| component_integer(world, *id, CASH))
