@@ -33,7 +33,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         if let Some(answer) = snapshot
             .commands
             .iter()
-            .find(|command| command.question.is_some())
+            .find(|command| command.question.is_some() && command.unavailable.is_none())
         {
             harbour.handle(ProjectionIntent::InvokeCommand(answer.id.clone()))?;
         }
