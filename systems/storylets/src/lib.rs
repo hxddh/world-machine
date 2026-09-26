@@ -18,8 +18,8 @@
 
 use std::collections::BTreeMap;
 use world_core::{
-    Action, ActionError, ActionRegistry, ActionRequest, EntityId, EventDraft, EventId, StateChange,
-    Value, World, WorldError, WorldState,
+    Action, ActionError, ActionRegistry, ActionRequest, Entity, EntityId, EventDraft, EventId,
+    StateChange, Value, World, WorldError, WorldState,
 };
 
 /// Everything a World's storyteller works from.
@@ -28,12 +28,19 @@ pub struct Deck {
     /// The entity the storyteller keeps its notes on (what is open, when it
     /// last came up, which chapter this is, how far each goal has got).
     pub story: EntityId,
+    /// What the story entity is called, when the storyteller first begins.
+    pub story_name: &'static str,
     /// How much world time one period is.
     pub period: u64,
     pub storylets: Vec<Storylet>,
     pub goals: Vec<Goal>,
     /// How many periods a chapter runs before it turns.
     pub chapter_periods: u64,
+    /// The fewest periods a chapter runs before a gauge at its end can turn
+    /// it early.
+    pub shortest_chapter: u64,
+    /// What a new chapter starts from: the Pack's gauges set back, say.
+    pub fresh_start: Vec<Effect>,
     /// How many storylets may be open at once.
     pub most_open: usize,
 }
@@ -79,6 +86,9 @@ pub struct Choice {
     /// What has to be true to be able to choose it (enough money, say).
     pub requires: Vec<Condition>,
     pub outcome: Outcome,
+    /// Whether this answer turns a want down. Turning someone down is held
+    /// against you the way letting it lapse is.
+    pub refuses: bool,
 }
 
 /// What a choice or a lapse does: the Event it is recorded as, and what it
@@ -104,6 +114,12 @@ pub enum Effect {
         entity: EntityId,
         key: &'static str,
         text: &'static str,
+    },
+    /// Set an integer outright.
+    Put {
+        entity: EntityId,
+        key: &'static str,
+        to: i64,
     },
     /// Build one more part of a goal.
     Advance(&'static str),
@@ -295,6 +311,14 @@ fn applied(state: &WorldState, deck: &Deck, effects: &[Effect]) -> Vec<StateChan
                     value: next.into(),
                 });
             }
+            Effect::Put { entity, key, to } => {
+                values.insert((*entity, key.to_string()), *to);
+                changes.push(StateChange::SetComponent {
+                    entity: *entity,
+                    key: key.to_string(),
+                    value: (*to).into(),
+                });
+            }
             Effect::Set { entity, key, text } => changes.push(StateChange::SetComponent {
                 entity: *entity,
                 key: key.to_string(),
@@ -351,6 +375,45 @@ fn closing(state: &WorldState, deck: &Deck, storylet: &Storylet) -> Vec<StateCha
             value: (state.world_time() as i64).into(),
         },
     ]
+}
+
+/// One more grudge held by someone whose want went unmet.
+fn grudge(state: &WorldState, deck: &Deck, person: EntityId) -> StateChange {
+    let who = person.to_string();
+    let grudges = integer(state, deck.story, &key("grudge", &who)).unwrap_or(0);
+    StateChange::SetComponent {
+        entity: deck.story,
+        key: key("grudge", &who),
+        value: (grudges + 1).into(),
+    }
+}
+
+/// The storyteller begins: the entity it keeps its notes on is made.
+struct Begins(fn() -> Deck);
+
+impl Action for Begins {
+    fn name(&self) -> &'static str {
+        "story_begins"
+    }
+
+    fn evaluate(
+        &self,
+        state: &WorldState,
+        _request: &ActionRequest,
+    ) -> Result<EventDraft, ActionError> {
+        let deck = (self.0)();
+        if state.entity(deck.story).is_some() {
+            return Err(ActionError::Invalid("the story has begun".into()));
+        }
+        let mut draft = EventDraft::new("story_began");
+        draft.changes.push(StateChange::CreateEntity(
+            Entity::new(deck.story, "story")
+                .with_component("name", deck.story_name)
+                .with_component("story.chapter", 1_i64)
+                .with_component("story.chapter_started", state.world_time() as i64),
+        ));
+        Ok(draft)
+    }
 }
 
 /// A storylet comes up.
@@ -424,7 +487,9 @@ impl Action for Chosen {
         draft.payload.insert("choice".into(), choice.id.into());
         draft.changes = applied(state, &deck, &choice.outcome.effects);
         draft.changes.extend(closing(state, &deck, storylet));
-        if storylet.want {
+        if storylet.want && choice.refuses {
+            draft.changes.push(grudge(state, &deck, storylet.asker));
+        } else if storylet.want {
             let who = storylet.asker.to_string();
             let granted = integer(state, deck.story, &key("granted", &who)).unwrap_or(0);
             draft.changes.push(StateChange::SetComponent {
@@ -468,13 +533,7 @@ impl Action for Lapsed {
         draft.changes = applied(state, &deck, &storylet.lapse.effects);
         draft.changes.extend(closing(state, &deck, storylet));
         if storylet.want {
-            let who = storylet.asker.to_string();
-            let grudges = integer(state, deck.story, &key("grudge", &who)).unwrap_or(0);
-            draft.changes.push(StateChange::SetComponent {
-                entity: deck.story,
-                key: key("grudge", &who),
-                value: (grudges + 1).into(),
-            });
+            draft.changes.push(grudge(state, &deck, storylet.asker));
         }
         Ok(draft)
     }
@@ -514,6 +573,9 @@ impl Action for ChapterTurns {
                 value: (state.world_time() as i64).into(),
             },
         ];
+        draft
+            .changes
+            .extend(applied(state, &deck, &deck.fresh_start));
         Ok(draft)
     }
 }
@@ -523,6 +585,7 @@ pub fn register_actions(
     registry: &mut ActionRegistry,
     deck: fn() -> Deck,
 ) -> Result<(), ActionError> {
+    registry.register(Begins(deck))?;
     registry.register(Arises(deck))?;
     registry.register(Chosen(deck))?;
     registry.register(Lapsed(deck))?;
@@ -563,6 +626,9 @@ pub type ChapterEnding = dyn Fn(&World) -> (String, String);
 /// What the storyteller is told about how the World stands.
 pub struct Reading {
     pub pinned: Vec<Pinned>,
+    /// Whether a gauge has reached its very end. That is a turning point:
+    /// once the chapter has run its shortest, it ends there.
+    pub at_end: bool,
     /// The chapter's ending, in the Pack's words: a title and a sentence.
     pub chapter_ending: Box<ChapterEnding>,
 }
@@ -586,6 +652,13 @@ pub fn tick(
     reading: &Reading,
 ) -> Result<Vec<EventId>, WorldError> {
     let mut events = Vec::new();
+    if world.state().entity(deck.story).is_none() {
+        events.push(
+            world
+                .execute(actions, &ActionRequest::new("story_begins"))?
+                .id,
+        );
+    }
     let now = world.world_time();
     for storylet in open(world.state(), deck) {
         let at = opened_at(world.state(), deck, storylet.id).unwrap_or(now);
@@ -597,7 +670,10 @@ pub fn tick(
         }
     }
     let (_, started) = chapter(world.state(), deck);
-    if now >= started.saturating_add(deck.chapter_periods.max(1) * deck.period) {
+    let due = now >= started.saturating_add(deck.chapter_periods.max(1) * deck.period);
+    let turned =
+        reading.at_end && now >= started.saturating_add(deck.shortest_chapter.max(1) * deck.period);
+    if due || turned {
         let (title, summary) = (reading.chapter_ending)(world);
         let request = ActionRequest::new("chapter_turns")
             .arg("title", title)
@@ -684,6 +760,7 @@ mod tests {
         };
         Deck {
             story: STORY,
+            story_name: "Ann's year",
             period: 10,
             storylets: vec![
                 Storylet {
@@ -694,6 +771,7 @@ mod tests {
                     choices: vec![Choice {
                         id: "mend",
                         requires: vec![Condition::AtLeast(ANN, "coins", 5)],
+                        refuses: false,
                         outcome: Outcome {
                             event: "roof_mended",
                             effects: vec![coins(-5), Effect::Advance("house")],
@@ -720,6 +798,7 @@ mod tests {
                     choices: vec![Choice {
                         id: "sell",
                         requires: Vec::new(),
+                        refuses: false,
                         outcome: Outcome {
                             event: "sold_at_market",
                             effects: vec![coins(4)],
@@ -743,6 +822,7 @@ mod tests {
                     choices: vec![Choice {
                         id: "listen",
                         requires: Vec::new(),
+                        refuses: false,
                         outcome: Outcome {
                             event: "listened",
                             effects: Vec::new(),
@@ -764,24 +844,34 @@ mod tests {
                 parts: 2,
             }],
             chapter_periods: 4,
+            shortest_chapter: 2,
+            fresh_start: vec![Effect::Put {
+                entity: ANN,
+                key: "coins",
+                to: 10,
+            }],
             most_open: 2,
         }
     }
 
     fn world() -> (World, ActionRegistry) {
         let mut state = WorldState::default();
-        state.seed_entity(Entity::new(STORY, "story")).unwrap();
         state
             .seed_entity(Entity::new(ANN, "person").with_component("coins", 10_i64))
             .unwrap();
         let mut actions = ActionRegistry::new();
         register_actions(&mut actions, deck).unwrap();
-        (World::new(state), actions)
+        let mut world = World::new(state);
+        world
+            .execute(&actions, &ActionRequest::new("story_begins"))
+            .unwrap();
+        (world, actions)
     }
 
     fn reading() -> Reading {
         Reading {
             pinned: Vec::new(),
+            at_end: false,
             chapter_ending: Box::new(|_| ("An end".into(), "It went well.".into())),
         }
     }
@@ -857,12 +947,14 @@ mod tests {
         assert_eq!(choices(world.state(), &deck()).len(), 1);
         let mut drained = World::new({
             let mut state = WorldState::default();
-            state.seed_entity(Entity::new(STORY, "story")).unwrap();
             state
                 .seed_entity(Entity::new(ANN, "person").with_component("coins", 2_i64))
                 .unwrap();
             state
         });
+        drained
+            .execute(&actions, &ActionRequest::new("story_begins"))
+            .unwrap();
         drained
             .execute(
                 &actions,
@@ -894,6 +986,31 @@ mod tests {
     }
 
     #[test]
+    fn a_gauge_at_its_end_turns_the_chapter_and_the_next_starts_fresh() {
+        let (mut world, actions) = world();
+        let at_end = Reading {
+            pinned: Vec::new(),
+            at_end: true,
+            chapter_ending: Box::new(|_| ("Broke".into(), "Ann ran out.".into())),
+        };
+        world.advance_to(&actions, 10).unwrap();
+        tick(&mut world, &actions, &deck(), &at_end).unwrap();
+        assert_eq!(chapter(world.state(), &deck()).0, 1, "too soon to turn");
+        world
+            .execute(
+                &actions,
+                &ActionRequest::new("storylet_chosen")
+                    .arg("storylet", "roof")
+                    .arg("choice", "mend"),
+            )
+            .ok();
+        world.advance_to(&actions, 20).unwrap();
+        tick(&mut world, &actions, &deck(), &at_end).unwrap();
+        assert_eq!(chapter(world.state(), &deck()).0, 2);
+        assert_eq!(integer(world.state(), ANN, "coins"), Some(10));
+    }
+
+    #[test]
     fn a_pinned_gauge_brings_what_eases_it() {
         let (mut world, actions) = world();
         let reading = Reading {
@@ -901,6 +1018,7 @@ mod tests {
                 gauge: "coins",
                 high: true,
             }],
+            at_end: false,
             chapter_ending: Box::new(|_| (String::new(), String::new())),
         };
         // Off market day, with nothing open: the want that spends comes up.

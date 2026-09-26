@@ -27,7 +27,9 @@ pub(crate) fn snapshot_since(
     let commands = available_commands(world)
         .into_iter()
         .map(|mut command| {
-            command.asker = asker(&command.id);
+            if command.asker.is_none() {
+                command.asker = asker(&command.id);
+            }
             command
         })
         .collect::<Vec<_>>();
@@ -123,8 +125,11 @@ fn changes_since(world: &World, since: usize, id: EntityId) -> Vec<CanvasChange>
 
 /// Good news, bad news, or neither, for each kind of thing the harbour
 /// reports.
-fn tone_for_event(kind: &str) -> Tone {
-    match kind {
+fn tone_for_event(event: &Event) -> Tone {
+    if let Some(tone) = crate::story::tone(event) {
+        return tone;
+    }
+    match event.kind.as_str() {
         "bakery_closed"
         | "payroll_shortfall"
         | "worker_dismissed"
@@ -302,6 +307,16 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
     for command in &mut commands {
         command.effects = command_effects(&command.id);
     }
+    commands.extend(crate::story::commands(world));
+    commands.push(ProjectionCommand {
+        id: crate::story::WAIT_COMMAND.into(),
+        title: "Let the day pass".into(),
+        detail: "Nothing is decided. The harbour lives its day.".into(),
+        effects: Vec::new(),
+        scenery: None,
+        asker: None,
+        moves: Vec::new(),
+    });
     commands
 }
 
@@ -356,7 +371,7 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
     // The most recent occurrence stands for the rest; how many there were is
     // what the Status counters are for.
     let mut told = std::collections::BTreeSet::<String>::new();
-    let mut items = relevant_events
+    let beats = relevant_events
         .iter()
         .rev()
         .filter_map(|event| {
@@ -364,17 +379,42 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
             if !told.insert(event.kind.clone()) {
                 return None;
             }
-            Some(BriefingItem {
-                selection: Some(SelectionId::Event(event.id)),
-                title,
-                // The headline is the news; when it happened is the
-                // history's to show, and an event number is nobody's.
-                detail: String::new(),
-                kind: BriefingItemKind::Beat,
-                tone: tone_for_event(&event.kind),
-            })
+            Some((
+                event,
+                BriefingItem {
+                    selection: Some(SelectionId::Event(event.id)),
+                    title,
+                    // The headline is the news; when it happened is the
+                    // history's to show, and an event number is nobody's.
+                    detail: String::new(),
+                    kind: BriefingItemKind::Beat,
+                    tone: tone_for_event(event),
+                },
+            ))
         })
+        .collect::<Vec<_>>();
+    // What the town's own life did comes first; the small asks and turns
+    // of the storyteller fill whatever room is left, so a fortnight of
+    // wants and birthdays never crowds out the bakery closing.
+    let everyday = |event: &Event| crate::story::is_storylet(event);
+    let mut kept = beats
+        .iter()
+        .filter(|(event, _)| !everyday(event))
         .take(BEATS_PER_BRIEFING)
+        .map(|(event, _)| event.id)
+        .collect::<Vec<_>>();
+    let room = BEATS_PER_BRIEFING - kept.len();
+    kept.extend(
+        beats
+            .iter()
+            .filter(|(event, _)| everyday(event))
+            .take(room)
+            .map(|(event, _)| event.id),
+    );
+    let mut items = beats
+        .into_iter()
+        .filter(|(event, _)| kept.contains(&event.id))
+        .map(|(_, item)| item)
         .collect::<Vec<_>>();
 
     // Newest first is how you pick which beats to keep; oldest first is how
@@ -464,6 +504,9 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
 /// Event beside it is filed under their name: "The bakery could not cover
 /// payroll" sat next to Jonas, because it was his wage, and never said so.
 pub(crate) fn narrated_title(world: &World, event: &Event) -> Option<String> {
+    if let Some(title) = crate::story::told(world, event) {
+        return Some(title);
+    }
     if event.kind == "payroll_shortfall" {
         let worker = event
             .targets
@@ -857,12 +900,14 @@ pub(crate) fn gauges(world: &World) -> Vec<world_projection::Gauge> {
         .filter(|id| component_text(world, **id, JOB).as_deref() == Some("unemployed"))
         .count();
     let working = workforce - out_of_work;
-    let money: i64 = RESIDENTS
-        .iter()
+    // The whole town's money, its people's and its places': wages and bread
+    // only move it about, and what comes and goes is the mainland trade.
+    let town = RESIDENTS.iter().chain(&[HARBOR, BAKERY, SCHOOL, PUB]);
+    let money: i64 = town
+        .clone()
         .filter_map(|id| component_integer(world, *id, CASH))
         .sum();
-    let started_with: i64 = RESIDENTS
-        .iter()
+    let started_with: i64 = town
         .filter_map(
             |id| match world_projection::component_at(world, 0, *id, CASH) {
                 Some(Value::Integer(cash)) => Some(cash),
@@ -871,7 +916,6 @@ pub(crate) fn gauges(world: &World) -> Vec<world_projection::Gauge> {
         )
         .sum();
     let started_with = started_with.max(1);
-    let bakery = component_text(world, BAKERY, OPERATING_STATUS).unwrap_or_default();
     vec![
         Gauge {
             id: "work".into(),
@@ -887,8 +931,9 @@ pub(crate) fn gauges(world: &World) -> Vec<world_projection::Gauge> {
         Gauge {
             id: "money".into(),
             label: "Money in town".into(),
-            // Half full is what the town started with.
-            value: (money as f32 / (started_with * 2) as f32).clamp(0.0, 1.0),
+            // Half full is what the town started with; empty is 40% less,
+            // and full 40% more.
+            value: ((money as f32 / started_with as f32 - 0.6) / 0.8).clamp(0.0, 1.0),
             reading: with_thousands(money),
             tone: if money * 10 < started_with * 7 {
                 Tone::Bad
@@ -899,14 +944,21 @@ pub(crate) fn gauges(world: &World) -> Vec<world_projection::Gauge> {
             },
         },
         Gauge {
-            id: "bakery".into(),
-            label: "Harbor Bakery".into(),
-            value: if bakery == "open" { 1.0 } else { 0.0 },
-            reading: capitalized(&bakery.replace('_', " ")),
-            tone: if bakery == "open" {
-                Tone::Good
-            } else {
-                Tone::Bad
+            id: "spirits".into(),
+            label: "Spirits".into(),
+            value: (crate::story::spirits(world) + 5) as f32 / 10.0,
+            reading: match crate::story::spirits(world) {
+                4.. => "High",
+                2..=3 => "Good",
+                0..=1 => "Steady",
+                -2..=-1 => "Uneasy",
+                _ => "Low",
+            }
+            .into(),
+            tone: match crate::story::spirits(world) {
+                1.. => Tone::Good,
+                -2..=0 => Tone::Warning,
+                _ => Tone::Bad,
             },
         },
     ]

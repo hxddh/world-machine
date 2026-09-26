@@ -14,7 +14,7 @@ use world_persistence::{PersistenceError, WorldArchive, WorldPackRef};
 use world_projection::ProjectionSnapshot;
 
 pub const TINY_SOCIETY_PACK_ID: &str = "world-machine.tiny-society";
-pub const TINY_SOCIETY_PACK_VERSION: &str = "0.3.0";
+pub const TINY_SOCIETY_PACK_VERSION: &str = "0.4.0";
 
 pub(crate) const WORLD_DAY_TICKS: u64 = 10;
 const MORNING_OFFSET_TICKS: u64 = 5;
@@ -140,6 +140,9 @@ impl TinySocietyBranch {
                 )?;
                 generated_events.extend(run.generated_events);
             }
+            // The storyteller has the last word of the day: what lapses,
+            // whether the chapter turns, and what comes up next.
+            generated_events.extend(crate::story::tick(&mut self.world, &actions)?);
         }
 
         Ok(generated_events)

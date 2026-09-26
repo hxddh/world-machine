@@ -53,23 +53,112 @@ pub(crate) fn look(id: EntityId) -> Option<Look> {
     })
 }
 
-/// What someone says at the end of a day's work, by what the work is.
-fn work_done(job: &str) -> &'static str {
+/// What someone says in passing on an ordinary day, by what their work
+/// is. Five apiece, taken in turn day by day, so nobody says the same
+/// thing twice in a working week.
+fn everyday(job: &str) -> [&'static str; 5] {
     match job {
-        "baker" => "Bread's out of the oven.",
-        "pub_owner" => "Pub's open!",
-        "teacher" => "Class dismissed.",
-        "student" => "Homework's done.",
-        "carpenter" => "Another plank down.",
-        "shop_assistant" => "Next customer, please!",
-        "mayor" => "Town business as usual.",
-        "fisher" => "Back from the sea.",
-        _ => "That's the day's work done.",
+        "baker" => [
+            "Bread's out of the oven.",
+            "Flour everywhere, as usual.",
+            "The rye's rising nicely.",
+            "Sold the last loaf at noon.",
+            "Up before the gulls again.",
+        ],
+        "pub_owner" => [
+            "Pub's open!",
+            "Barrels in the cellar, all full.",
+            "Who's for a pint?",
+            "Fire's lit in the snug.",
+            "Quiet in the bar tonight.",
+        ],
+        "teacher" => [
+            "Class dismissed.",
+            "Spelling test tomorrow!",
+            "They're learning the tides.",
+            "Chalk dust in my hair again.",
+            "Such good questions today.",
+        ],
+        "student" => [
+            "Homework's done.",
+            "Emma gave us sums again.",
+            "I came top in spelling!",
+            "Can we go to the beach?",
+            "I'm reading about whales.",
+        ],
+        "carpenter" => [
+            "Another plank down.",
+            "Measure twice, cut once.",
+            "Smell that fresh pine.",
+            "Hinges oiled, door's hung.",
+            "Sawdust in my boots.",
+        ],
+        "shop_assistant" => [
+            "Next customer, please!",
+            "Jam's flying off the shelf.",
+            "Counted the till twice.",
+            "New stock in off the ferry.",
+            "Busy day on the counter.",
+        ],
+        "mayor" => [
+            "Town business as usual.",
+            "Minutes to write, again.",
+            "The harbour wall needs looking at.",
+            "Letters from the mainland.",
+            "A fine day for the island.",
+        ],
+        "fisher" => [
+            "Back from the sea.",
+            "Wind's in the east today.",
+            "Gulls followed me all the way in.",
+            "Sea's like glass this morning.",
+            "Salt in everything, as usual.",
+        ],
+        "bakery_temp" | "bakery_counter" => [
+            "Swept the bakery floor.",
+            "Mara's teaching me the rolls.",
+            "Flour in my beard now.",
+            "Carried sacks all morning.",
+            "Counter's spotless.",
+        ],
+        "unemployed" => [
+            "Another day looking for work.",
+            "Asked round the quay again.",
+            "Nothing going, they say.",
+            "I'll find something.",
+            "Long day with nothing to do.",
+        ],
+        _ => [
+            "That's the day's work done.",
+            "Busy day.",
+            "Mustn't grumble.",
+            "Tired, but happy.",
+            "Same again tomorrow.",
+        ],
     }
+}
+
+/// Which of five it is today.
+fn today(event: &Event) -> usize {
+    (event.world_time / crate::persistence::WORLD_DAY_TICKS % 5) as usize
+}
+
+/// What someone says in passing today: what they still remember from the
+/// last few days, or else the day's line for their work.
+fn in_passing(world: &World, event: &Event, who: EntityId) -> String {
+    if let Some(memory) = crate::story::remembered(world, who) {
+        return memory.into();
+    }
+    let job = text(world, who, JOB).unwrap_or_default();
+    everyday(&job)[today(event)].into()
 }
 
 /// Who says the line for a moment, and what they say.
 fn said(world: &World, event: &Event) -> Option<(EntityId, String)> {
+    if let Some(said) = crate::story::line(event) {
+        world.state().entity(said.0)?;
+        return Some(said);
+    }
     let actor = event.actor;
     let (speaker, line): (EntityId, String) = match event.kind.as_str() {
         "support_requested" => (
@@ -78,7 +167,17 @@ fn said(world: &World, event: &Event) -> Option<(EntityId, String)> {
         ),
         "support_received" => (LEO, "Here. Pay me back when you can.".into()),
         "support_repaid" => (JONAS, "Every coin, like I said.".into()),
-        "fish_sold" => (JONAS, "Good catch. It's off to the mainland.".into()),
+        "fish_sold" => (
+            JONAS,
+            [
+                "Good catch. It's off to the mainland.",
+                "Mainland buyers took the lot.",
+                "Fair price for the catch today.",
+                "Fish on the ferry, coins in my pocket.",
+                "Another crate sold.",
+            ][today(event)]
+            .into(),
+        ),
         "boat_damaged" => (JONAS, "The storm's wrecked Sea Finch.".into()),
         "boat_repaired" => (EVAN, "She's sound again. Take her out.".into()),
         "boat_sold" => (JONAS, "That's it, then. No more fishing.".into()),
@@ -100,12 +199,9 @@ fn said(world: &World, event: &Event) -> Option<(EntityId, String)> {
         "backing_withdrawn" => (LEO, "I've put my money elsewhere.".into()),
         "bread_budget_cut" => (actor?, "Less bread for me for a while.".into()),
         "income_disrupted" => (actor?, "Money's tight this week.".into()),
-        "catch_landed" => (actor?, "Nets are full!".into()),
-        "bread_purchased" => (actor?, "A loaf, please.".into()),
-        "work_shift_completed" => {
+        "catch_landed" | "bread_purchased" | "work_shift_completed" => {
             let actor = actor?;
-            let job = text(world, actor, JOB).unwrap_or_default();
-            (actor, work_done(&job).into())
+            (actor, in_passing(world, event, actor))
         }
         _ => return None,
     };
@@ -141,7 +237,15 @@ pub(crate) fn voices(world: &World) -> Vec<Voice> {
 }
 
 /// What someone would ask for, among the choices on offer now.
-fn request(who: EntityId, commands: &[ProjectionCommand]) -> Option<(String, String)> {
+fn request(
+    world: &World,
+    who: EntityId,
+    commands: &[ProjectionCommand],
+) -> Option<(String, Option<String>)> {
+    if let Some((line, grant)) = crate::story::wanting(world, who) {
+        let grant = grant.filter(|id| commands.iter().any(|command| &command.id == id));
+        return Some((line, grant));
+    }
     let command = commands
         .iter()
         .find(|command| command.asker == Some(SelectionId::Entity(who)))?;
@@ -152,7 +256,7 @@ fn request(who: EntityId, commands: &[ProjectionCommand]) -> Option<(String, Str
         REOPEN_BAKERY_COMMAND | LEAN_REOPEN_BAKERY_COMMAND => "Help to open the doors again.",
         _ => return None,
     };
-    Some((line.into(), command.id.clone()))
+    Some((line.into(), Some(command.id.clone())))
 }
 
 /// What a player can ask each resident, and what they answer, from how
@@ -168,12 +272,17 @@ pub(crate) fn talks(world: &World, commands: &[ProjectionCommand]) -> Vec<Talk> 
         let person = SelectionId::Entity(who);
         let job = text(world, who, JOB).unwrap_or_default();
         let cash = integer(world, who, CASH).unwrap_or(0);
+        let kindness = crate::story::kindness(world, who);
         let how = if who == JONAS && boat_broken {
             "Sea Finch is broken, and so am I, nearly.".to_string()
         } else if job == "unemployed" {
             "Worried. I need work.".into()
         } else if cash < 50 {
             "Getting by. Just about.".into()
+        } else if kindness.1 > kindness.0 {
+            "Sore. Nobody listens when I ask for anything.".into()
+        } else if kindness.0 > 0 && kindness.0 > kindness.1 {
+            "Glad. People here look out for me.".into()
         } else {
             match job.as_str() {
                 "baker" => "Busy. The ovens don't wait.".into(),
@@ -191,15 +300,16 @@ pub(crate) fn talks(world: &World, commands: &[ProjectionCommand]) -> Vec<Talk> 
         talks.push(Talk {
             who: person,
             question: "How's the harbour?".into(),
-            answer: if bakery_open {
-                "Quiet, but we're managing.".into()
-            } else {
-                "The bakery's shut. Everyone feels it.".into()
+            answer: match (bakery_open, crate::story::spirits(world)) {
+                (false, _) => "The bakery's shut. Everyone feels it.".into(),
+                (true, 3..) => "In fine spirits, all of us.".into(),
+                (true, ..=-3) => "Glum. Everyone's short with each other.".into(),
+                _ => "Quiet, but we're managing.".into(),
             },
             asks_for: None,
         });
-        let (need, asks_for) = match request(who, commands) {
-            Some((line, command)) => (line, Some(command)),
+        let (need, asks_for) = match request(world, who, commands) {
+            Some((line, command)) => (line, command),
             None => ("Nothing much. A good day's trade.".to_string(), None),
         };
         talks.push(Talk {
