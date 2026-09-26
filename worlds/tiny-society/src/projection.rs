@@ -67,13 +67,16 @@ pub(crate) fn snapshot_since(
         inspectors: inspectors_from_world(world),
         why: why_map_from_world(world),
         // A small island harbour on a clear morning: sea, low hills, sun.
-        scenery: Some(world_projection::Scenery {
-            sky_top: 0xa9cfe6,
-            sky_bottom: 0xe9f1ef,
-            far: 0x7f9f8a,
-            near: 0x2f6a86,
-            sun: 0xffe2a0,
-        }),
+        scenery: Some(
+            world_projection::Scenery {
+                sky_top: 0xa9cfe6,
+                sky_bottom: 0xe9f1ef,
+                far: 0x7f9f8a,
+                near: 0x2f6a86,
+                sun: 0xffe2a0,
+            }
+            .in_season(crate::story::season(world) as u64),
+        ),
         calendar: Some(world_projection::Calendar {
             unit: "Day".into(),
             length: crate::persistence::WORLD_DAY_TICKS,
@@ -81,6 +84,8 @@ pub(crate) fn snapshot_since(
         gauges: gauges(world),
         voices: crate::talk::voices(world),
         talks,
+        goals: crate::story::goals(world),
+        chapters: crate::story::chapters(world),
     };
     snapshot.tell_events_as_history_does();
     snapshot

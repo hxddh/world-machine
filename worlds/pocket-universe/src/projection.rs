@@ -62,7 +62,10 @@ pub(crate) fn snapshot_since(
         canvas: with_changes(world, canvas(world), since_event_count),
         inspectors: told_inspectors(world),
         why: why_map_from_world(world),
-        scenery: seeded.then(|| seed_scenery(seed_id(world))).flatten(),
+        scenery: seeded
+            .then(|| seed_scenery(seed_id(world)))
+            .flatten()
+            .map(|scenery| scenery.in_season(crate::story::season(world) as u64)),
         calendar: seeded.then(|| world_projection::Calendar {
             unit: seed_time_unit(seed_id(world)).into(),
             length: crate::BACKGROUND_PERIOD,
@@ -70,6 +73,8 @@ pub(crate) fn snapshot_since(
         gauges: gauges(world),
         voices: crate::talk::voices(world),
         talks,
+        goals: crate::story::goals(world),
+        chapters: crate::story::chapters(world),
     };
     snapshot.tell_events_as_history_does();
     snapshot
@@ -2037,6 +2042,11 @@ fn growth_marks(world: &World) -> Vec<world_projection::CanvasMark> {
         .events()
         .iter()
         .filter(|event| event.kind == "universe_grew")
+        // Every third period's growth is something that shows from afar;
+        // the rest is small work. What the pair set out to build stands
+        // as its own goal.
+        .skip(2)
+        .step_by(3)
         .enumerate()
         .map(|(index, event)| world_projection::CanvasMark {
             label: match event.payload.get("change") {

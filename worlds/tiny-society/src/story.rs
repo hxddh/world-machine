@@ -1574,14 +1574,41 @@ pub(crate) fn remembered(world: &World, who: EntityId) -> Option<&'static str> {
         .find_map(|event| outcome_of(event).and_then(|(_, said)| said.remembered))
 }
 
-/// How far a goal has come, in parts, and how many it takes.
-pub(crate) fn goal_progress(world: &World, goal: &str) -> (i64, i64) {
+/// The harbour's standing goals, for the horizon: the new pier and the
+/// lamp on the point.
+pub(crate) fn goals(world: &World) -> Vec<world_projection::Goal> {
     let deck = deck();
-    let parts = deck
-        .goals
-        .iter()
-        .find(|spec| spec.id == goal)
-        .map(|spec| spec.parts)
-        .unwrap_or(1);
-    (storylets::progress(world.state(), &deck, goal), parts)
+    [
+        ("pier", "The new pier", world_projection::MarkShape::Bridge),
+        (
+            "lamp",
+            "A lamp on the point",
+            world_projection::MarkShape::Lamp,
+        ),
+    ]
+    .into_iter()
+    .filter_map(|(id, label, shape)| {
+        let parts = deck.goals.iter().find(|goal| goal.id == id)?.parts;
+        Some(world_projection::Goal {
+            id: id.into(),
+            label: label.into(),
+            shape,
+            done: storylets::progress(world.state(), &deck, id).clamp(0, parts) as u32,
+            parts: parts as u32,
+        })
+    })
+    .collect()
+}
+
+/// The chapters of the harbour's story that have ended.
+pub(crate) fn chapters(world: &World) -> Vec<world_projection::Chapter> {
+    storylets::chapters_ended(world)
+        .into_iter()
+        .map(|ended| world_projection::Chapter {
+            number: ended.number.max(0) as u32,
+            title: ended.title,
+            summary: ended.summary,
+            moment: Some(world_projection::SelectionId::Event(ended.event)),
+        })
+        .collect()
 }

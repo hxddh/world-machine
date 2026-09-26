@@ -1297,3 +1297,47 @@ pub(crate) fn headline(world: &World) -> Option<String> {
         .find(|event| event.kind == "situation_arose" || event.kind == "chapter_ended")
         .and_then(|event| told(world, event))
 }
+
+/// The pair's standing goals, for the horizon.
+pub(crate) fn goals(world: &World) -> Vec<world_projection::Goal> {
+    use world_projection::MarkShape;
+    if seed_id(world) == "unseeded" {
+        return Vec::new();
+    }
+    let deck = deck();
+    let (home, beacon) = match seed_id(world) {
+        "mars-colony" => (MarkShape::Dome, MarkShape::Tower),
+        "1980s-town" => (MarkShape::Shop, MarkShape::Tower),
+        _ => (MarkShape::Bridge, MarkShape::Lamp),
+    };
+    [
+        ("second_home", "{second}", home),
+        ("beacon", "{beacon}", beacon),
+        ("survey", "The map past the edge", MarkShape::Rover),
+    ]
+    .into_iter()
+    .filter_map(|(id, label, shape)| {
+        let parts = deck.goals.iter().find(|goal| goal.id == id)?.parts;
+        Some(world_projection::Goal {
+            id: id.into(),
+            label: fill(world, label),
+            shape,
+            done: storylets::progress(world.state(), &deck, id).clamp(0, parts) as u32,
+            parts: parts as u32,
+        })
+    })
+    .collect()
+}
+
+/// The chapters of the pair's story that have ended.
+pub(crate) fn chapters(world: &World) -> Vec<world_projection::Chapter> {
+    storylets::chapters_ended(world)
+        .into_iter()
+        .map(|ended| world_projection::Chapter {
+            number: ended.number.max(0) as u32,
+            title: ended.title,
+            summary: ended.summary,
+            moment: Some(world_projection::SelectionId::Event(ended.event)),
+        })
+        .collect()
+}

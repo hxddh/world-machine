@@ -40,6 +40,8 @@ pub(crate) fn snapshot(world: &World) -> ProjectionSnapshot {
         gauges: Vec::new(),
         talks: Vec::new(),
         voices: Vec::new(),
+        chapters: Vec::new(),
+        goals: Vec::new(),
     }
 }
 

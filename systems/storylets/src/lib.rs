@@ -284,6 +284,38 @@ pub fn last_granted(state: &WorldState, deck: &Deck, person: EntityId) -> Option
     integer(state, deck.story, &key("thanked", &person.to_string())).map(|at| at.max(0) as u64)
 }
 
+/// A chapter that has ended: its number, title and summary, and the Event
+/// it ended at.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Ended {
+    pub number: i64,
+    pub title: String,
+    pub summary: String,
+    pub event: EventId,
+}
+
+/// Every chapter that has ended, oldest first.
+pub fn chapters_ended(world: &World) -> Vec<Ended> {
+    let text = |event: &world_core::Event, key: &str| match event.payload.get(key) {
+        Some(Value::Text(text)) => text.clone(),
+        _ => String::new(),
+    };
+    world
+        .events()
+        .iter()
+        .filter(|event| event.kind == "chapter_ended")
+        .map(|event| Ended {
+            number: match event.payload.get("chapter") {
+                Some(Value::Integer(number)) => *number,
+                _ => 0,
+            },
+            title: text(event, "title"),
+            summary: text(event, "summary"),
+            event: event.id,
+        })
+        .collect()
+}
+
 /// The title the last chapter ended with, if one has.
 pub fn last_chapter_title(world: &World) -> Option<String> {
     world

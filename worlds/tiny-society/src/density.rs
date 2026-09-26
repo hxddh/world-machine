@@ -163,6 +163,16 @@ fn check(policy: Policy) {
     let world = played.branch.world();
     let replayed = world.replay().unwrap();
     assert_eq!(replayed.state(), world.state());
+
+    // The chapters that ended are in the book, each in the World's words,
+    // and the goals stand on the horizon.
+    let snapshot = projection::snapshot(world);
+    assert!(!snapshot.chapters.is_empty());
+    assert!(snapshot
+        .chapters
+        .iter()
+        .all(|chapter| !chapter.title.is_empty() && !chapter.summary.is_empty()));
+    assert!(!snapshot.goals.is_empty());
 }
 
 #[test]

@@ -226,6 +226,46 @@ pub struct Scenery {
     pub sun: u32,
 }
 
+impl Scenery {
+    /// The same place in one of four seasons (0 spring, 1 summer, 2 autumn,
+    /// 3 winter): summer a little warmer and brighter, autumn's hills
+    /// turning gold, winter's sky pale and its hills frosted. Spring is the
+    /// place as its Pack drew it.
+    pub fn in_season(self, season: u64) -> Self {
+        fn mix(from: u32, to: u32, amount: f32) -> u32 {
+            let channel = |shift: u32| {
+                let a = ((from >> shift) & 0xff) as f32;
+                let b = ((to >> shift) & 0xff) as f32;
+                ((a + (b - a) * amount).round() as u32).min(255) << shift
+            };
+            channel(16) | channel(8) | channel(0)
+        }
+        match season % 4 {
+            1 => Self {
+                sky_top: mix(self.sky_top, 0x7fc0ee, 0.35),
+                sky_bottom: mix(self.sky_bottom, 0xfff4d6, 0.3),
+                far: mix(self.far, 0x7fae5a, 0.25),
+                sun: mix(self.sun, 0xffd070, 0.4),
+                ..self
+            },
+            2 => Self {
+                sky_bottom: mix(self.sky_bottom, 0xf6d7b0, 0.35),
+                far: mix(self.far, 0xc8873a, 0.45),
+                sun: mix(self.sun, 0xffb070, 0.4),
+                ..self
+            },
+            3 => Self {
+                sky_top: mix(self.sky_top, 0xc9d6e2, 0.5),
+                sky_bottom: mix(self.sky_bottom, 0xf2f4f7, 0.5),
+                far: mix(self.far, 0xe8eef2, 0.55),
+                sun: mix(self.sun, 0xfff4e0, 0.5),
+                ..self
+            },
+            _ => self,
+        }
+    }
+}
+
 /// Whether something is good news, bad news, or neither.
 ///
 /// A briefing line and a choice's consequence both carry one, so a screen
@@ -291,6 +331,42 @@ pub struct ProjectionSnapshot {
     pub voices: Vec<Voice>,
     /// What a player can ask someone, and what they answer.
     pub talks: Vec<Talk>,
+    /// The standing goals the World is working toward, drawn as outlines
+    /// on the horizon that fill in part by part.
+    pub goals: Vec<Goal>,
+    /// The chapters of the World's story that have ended, oldest first.
+    pub chapters: Vec<Chapter>,
+}
+
+/// Something the World is working toward and can be seen to build: "Rebuild
+/// the pier", in three parts. Until it is finished it stands on the horizon
+/// as an outline.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Goal {
+    pub id: String,
+    pub label: String,
+    pub shape: MarkShape,
+    /// How many parts are built.
+    pub done: u32,
+    /// How many parts it takes.
+    pub parts: u32,
+}
+
+impl Goal {
+    pub fn finished(&self) -> bool {
+        self.done >= self.parts
+    }
+}
+
+/// A chapter of the World's story that has ended, in the Pack's words: a
+/// title ("A bright summer") and how it went.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Chapter {
+    pub number: u32,
+    pub title: String,
+    pub summary: String,
+    /// The moment it ended at: a timeline item.
+    pub moment: Option<SelectionId>,
 }
 
 /// Something someone said aloud when a moment happened: "Could you spare
@@ -505,6 +581,13 @@ impl ProjectionSnapshot {
         }
         for mark in &self.canvas.marks {
             text.push(&mark.label);
+        }
+        for goal in &self.goals {
+            text.push(&goal.label);
+        }
+        for chapter in &self.chapters {
+            text.push(&chapter.title);
+            text.push(&chapter.summary);
         }
         for inspector in self.inspectors.values() {
             text.push(&inspector.title);
