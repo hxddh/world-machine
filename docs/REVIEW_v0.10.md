@@ -86,3 +86,28 @@ As always, every concept is built in both Pocket Universe and Tiny Society befor
 - The consequence tests above, in each Pack, next to the story-density tests from `v0.10.0`, which keep holding.
 - A before-and-after screenshot pair, *yes* against *last answer* after 30 days, that a stranger can tell apart without reading anything.
 - The two-week diary on a real Mac: note each day whether something you did earlier came back. The target is at least 7 of 14 days.
+
+## Progress
+
+Items 1 to 7 shipped in `v0.11.0`; item 8 still waits on the five secrets.
+
+| The bar | Tiny Society | Pocket Universe (Mars) |
+| --- | --- | --- |
+| A new World's first screen | a question | a question |
+| Answers that changed the scene, *yes* · *last answer* | 26 of 30 · 12 of 30 | 19 of 30 · 12 of 30 |
+| Questions that followed from an earlier answer (calendar left out), *yes* · *last answer* | 13 of 27 · 12 of 30 | 11 of 27 · 11 of 30 |
+| Things on the scene that differ between *yes* and *last answer* after 30 periods | 9 | 5 |
+| Most any question besides the calendar's came up in 30 periods | twice | twice |
+| Questions lapsed in a week away | at most 3 | at most 3 |
+
+These are checked by `what_you_choose_changes_the_place_and_comes_back`, `a_new_world_opens_on_a_question` and `a_week_away_lapses_at_most_three_questions` in each Pack, next to the story-density tests, which still hold.
+
+- **One card per question.** Mara asks about her oven with both answers on the card; ← and → lean, ⏎ chooses.
+
+  ![A question card](review/v11-question.png)
+
+- **What you chose stands in the harbour.** Day 22 of the demo harbour: the pier's first section, bunting, a lamp post, Sofia's stall and parcels by the houses, all from recorded state. The storm season's climax asks what to save; hauling every boat up costs more than Noah has, so it is greyed.
+
+  ![The harbour on day 22](review/v11-harbour.png)
+
+Still to check by hand: the before-and-after pair a stranger can tell apart, and the two-week diary on a real Mac.

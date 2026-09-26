@@ -2,6 +2,22 @@
 
 Releases live on the [Releases page](https://github.com/hxddh/world-machine/releases). `0.2.0` is the first release intended to be usable without reading the repository; the `v0.1.0-pre.N` tags below were its pre-releases.
 
+## v0.11.0 (2026-09-26)
+
+**Worlds from `v0.10.0` need exporting first.** Tiny Society moves to `0.5.0` and Pocket Universe to `0.22.0`, because what you choose now builds, opens and brings people into them. A World made with the older Packs reports that it needs a Pack this build does not have; export it before updating to keep its history.
+
+In `v0.10.0`, whatever you chose, the harbour ended a month with the same fourteen things on its scene, and no question ever followed from an earlier answer. This release is about consequence.
+
+- **A question is one card.** Whoever asks, what they ask ("The biggest storm in years is coming. What do we save?") and its answers are on the same card, like *Reigns*. ← and → lean toward an answer, ↑ and ↓ turn to another question, ⏎ chooses; pointing at an answer leans to it and clicking chooses it. An answer you cannot afford is shown greyed with the reason ("Noah hasn't 60 to spare"). The Pack protocol gains an optional `question` on a command, and `unavailable` with its reason; a Pack that sends neither reads as before.
+- **What you choose appears.** Answers stand things up on the scene through each World's own state: Sofia's stall by the pub, bunting for the fête, the first sections of the pier, the lamp on the point, the school's garden, crates, nets, benches on the quay; on Mars the second dome, a beacon, a flag at the edge of the map, a keeper's garden, a tent. Some last, some come down after a while. The scene draws them because the recorded state says so.
+- **Questions follow from answers.** Wants have second and third acts: a stall granted leads to "Sofia's stall is thriving", then to Leo finding the pub quiet; a stall refused brings an offer from the mainland. On Mars a seal fitted, a solo trip allowed or a signal answered each come back later. Over 30 periods a third of the questions follow from something you answered.
+- **People arrive and leave.** A traveller can make the harbour her home, a fishing family can move in, and on Mars, Maple Street and Icebridge a newcomer arrives when invited. A thread can also send someone away: Sofia, refused her stall, can leave for the mainland.
+- **Chapters with a shape.** Each chapter opens on a named pressure (the storm season, hard times, the inspector; the long dark, a breaking point, the call) and builds to a decisive question, and its ending tells how that went and which threads it closed ("The storm we boarded up against. Hammers all night, and it held. Sofia opened a stall of her own.").
+- **A first minute and a fair return.** A new World opens on its first question instead of "Let the day pass". While you are away, wants wait for you instead of lapsing into grudges; only what cannot wait happens without you, at most three questions in a week.
+- **A deeper deck.** Pocket Universe's deck grows from 17 storylets to the harbour's size, with its own threads and three climaxes, and nothing but the calendar is asked more than twice in 30 periods.
+- **The pair and the harbour's spirits never pin.** Two people in Pocket Universe who are as easy with each other as they can be start to grate a little, and the harbour's spirits settle back from either end over a few days.
+- **Measured:** each Pack now has consequence tests that play 30 periods always saying yes and always taking the last answer: at least half of all answers change the scene (Tiny Society 38 of 60, Pocket Universe 31 of 60), a third of the questions follow from an earlier answer, no question besides the calendar's comes up more than twice, the two ways of playing end with at least three different things on the scene, a new World opens on a question and a week away lapses at most three questions.
+
 ## v0.10.0 (2026-09-26)
 
 **Worlds from `v0.9.0` need exporting first.** Tiny Society moves to `0.4.0` and Pocket Universe to `0.21.0`, because both now have a storyteller that changes what happens in them. A World made with the older Packs reports that it needs a Pack this build does not have; export it before updating to keep its history.
