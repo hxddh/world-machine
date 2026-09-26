@@ -31,6 +31,10 @@ struct Said {
     by_other: bool,
     effects: Vec<Effect>,
     remembered: Option<&'static str>,
+    /// What this adds to the chapter's ending.
+    chapter: Option<&'static str>,
+    /// What the chapter is called, when this is how its climax went.
+    title: Option<&'static str>,
 }
 
 struct Answer {
@@ -74,12 +78,24 @@ fn said(event: &'static str, told: &'static str, line: &'static str, effects: Ve
         by_other: false,
         effects,
         remembered: None,
+        chapter: None,
+        title: None,
     }
 }
 
 impl Said {
     fn remembered(mut self, line: &'static str) -> Self {
         self.remembered = Some(line);
+        self
+    }
+
+    fn chapter(mut self, line: &'static str) -> Self {
+        self.chapter = Some(line);
+        self
+    }
+
+    fn titled(mut self, title: &'static str) -> Self {
+        self.title = Some(title);
         self
     }
 
@@ -901,6 +917,7 @@ fn specs() -> &'static [Spec] {
         specs.extend(calendar());
         specs.extend(more());
         specs.extend(threads());
+        specs.extend(climaxes());
         specs
     })
 }
@@ -927,6 +944,7 @@ pub(crate) fn deck() -> Deck {
         ],
         chapter_periods: CHAPTER_PERIODS,
         shortest_chapter: 10,
+        pressures: vec!["the_long_dark", "breaking_point", "the_call"],
         // A new chapter starts nearer the middle than the last one ended:
         // whatever was at its end eases back.
         fresh_start: [RELATIONSHIP_TRUST, RELATIONSHIP_TENSION]
@@ -1081,43 +1099,89 @@ pub(crate) fn season(world: &World) -> usize {
     ) as usize
 }
 
+/// What a moment adds to the chapter it happened in.
+fn chapter_line(event: &Event) -> Option<&'static str> {
+    Some(match event.kind.as_str() {
+        "edge_claimed" => "{explorer} planted a flag past the edge of the map.",
+        "second_ours" => "{keeper} and {explorer} moved into {second}.",
+        "second_kept" => "{second} was finished and kept for whoever comes.",
+        "newcomer_arrived" => "Someone new came to live with them.",
+        "garden_planted" => "{keeper} planted a garden.",
+        "photo_taken" => "They had their picture taken together.",
+        "amends_made" => "{explorer} and {keeper} made up after a long quarrel.",
+        "explorer_rescued" => "{keeper} went out into the cold for {explorer}.",
+        "beacon_invited" => "Someone answered the beacon, and was invited.",
+        "partnership_formed" => "{keeper} and {explorer} became partners.",
+        "relationship_fractured" => "{keeper} and {explorer} fell out.",
+        "anchor_lost" => "They lost {home}.",
+        "anchor_recovered" => "They took {home} back.",
+        _ => return None,
+    })
+}
+
+/// How a chapter ends: how its climax went, and what happened in it that
+/// they will remember.
 fn chapter_ending(world: &World) -> (String, String) {
     let deck = deck();
+    let (_, started) = storylets::chapter(world.state(), &deck);
+    let mut title = None;
+    let mut lines = Vec::<String>::new();
+    for event in world
+        .events()
+        .iter()
+        .filter(|event| event.world_time >= started)
+    {
+        let said = outcome_of(event);
+        if let Some(named) = said.and_then(|said| said.title) {
+            title = Some(fill(world, named));
+        }
+        if let Some(line) = said
+            .and_then(|said| said.chapter)
+            .or_else(|| chapter_line(event))
+        {
+            let line = fill(world, line);
+            if !lines.contains(&line) {
+                lines.push(line);
+            }
+        }
+    }
     let trust = integer(world, RELATIONSHIP, RELATIONSHIP_TRUST);
     let tension = integer(world, RELATIONSHIP, RELATIONSHIP_TENSION);
-    let feel = if trust >= 7 && tension <= 3 {
-        "A close"
-    } else if tension >= 7 && trust <= 3 {
-        "A bitter"
-    } else if tension >= 6 {
-        "A stormy"
-    } else if trust >= 6 {
-        "A kind"
+    let title = title.unwrap_or_else(|| {
+        let feel = if trust >= 7 && tension <= 3 {
+            "A close"
+        } else if tension >= 7 && trust <= 3 {
+            "A bitter"
+        } else if tension >= 6 {
+            "A stormy"
+        } else if trust >= 6 {
+            "A kind"
+        } else {
+            "A quiet"
+        };
+        let title = format!("{feel} {}", SEASONS[season(world)]);
+        if storylets::last_chapter_title(world).is_some_and(|last| last.ends_with(&title[2..])) {
+            format!("Another {}", &title[2..])
+        } else {
+            title
+        }
+    });
+    let mut summary = if lines.len() > 3 {
+        lines.split_off(lines.len() - 3)
     } else {
-        "A quiet"
+        lines
     };
-    let mut title = format!("{feel} {}", SEASONS[season(world)]);
-    if storylets::last_chapter_title(world).is_some_and(|last| last.ends_with(&title[2..])) {
-        title = format!("Another {}", &title[2..]);
-    }
-    let mut summary = vec![if trust >= 7 {
-        fill(
-            world,
-            "{keeper} and {explorer} would trust each other with anything.",
-        )
-    } else if tension >= 7 {
-        fill(world, "{keeper} and {explorer} could barely share a room.")
-    } else {
-        fill(world, "{keeper} and {explorer} kept each other going.")
-    }];
-    if storylets::progress(world.state(), &deck, "second_home") >= 3 {
-        summary.push(fill(world, "{second} stands finished."));
-    }
-    if storylets::progress(world.state(), &deck, "beacon") >= 2 {
-        summary.push(fill(world, "{beacon} is up."));
-    }
-    if storylets::progress(world.state(), &deck, "survey") >= 3 {
-        summary.push(fill(world, "{explorer} mapped the land past the edge."));
+    if summary.is_empty() {
+        summary.push(if trust >= 7 {
+            fill(
+                world,
+                "{keeper} and {explorer} would trust each other with anything.",
+            )
+        } else if tension >= 7 {
+            fill(world, "{keeper} and {explorer} could barely share a room.")
+        } else {
+            fill(world, "{keeper} and {explorer} kept each other going.")
+        });
     }
     for who in [SLOT_B, SLOT_E] {
         let (granted, grudges) = storylets::kindness(world.state(), &deck, who);
@@ -1130,16 +1194,169 @@ fn chapter_ending(world: &World) -> (String, String) {
     (title, summary.join(" "))
 }
 
+/// The turning point of each chapter.
+fn climaxes() -> Vec<Spec> {
+    use Condition::{ChapterEnding, Pressure};
+    let climax = |asker: EntityId, pressure: &'static str| Shape {
+        asker,
+        want: false,
+        requires: vec![Pressure(pressure), ChapterEnding(5)],
+        lasts: 3,
+        rests: 30,
+        weight: 9,
+        eases: Vec::new(),
+        timely: true,
+    };
+    vec![
+        spec(
+            "long_dark",
+            climax(SLOT_B, "the_long_dark"),
+            (
+                "The long dark has set in",
+                "{Weather} for a week. Do we hole up together, or keep the work going?",
+            ),
+            vec![
+                yes(
+                    "together",
+                    "Hole up together",
+                    "A week of cards, soup and stories.",
+                    said(
+                        "long_dark_together",
+                        "{keeper} and {explorer} waited out the long dark together",
+                        "Best week I can remember.",
+                        bond(2, -2),
+                    )
+                    .chapter("Through the long dark, {keeper} and {explorer} held on together.")
+                    .titled("The long dark"),
+                ),
+                yes(
+                    "work",
+                    "Keep the work going",
+                    "{explorer} goes out in it every day.",
+                    said(
+                        "long_dark_worked",
+                        "{explorer} kept working through the long dark",
+                        "Somebody has to.",
+                        bond(-1, 2),
+                    )
+                    .and([Effect::Advance("survey")])
+                    .chapter("Through the long dark, {explorer} kept the work going alone.")
+                    .titled("The long dark, worked through"),
+                ),
+            ],
+            said(
+                "long_dark_passed",
+                "The long dark passed",
+                "Is it over? It's over.",
+                bond(0, 1),
+            )
+            .chapter("The long dark came and went.")
+            .titled("The long dark"),
+        ),
+        spec(
+            "breaking_point",
+            climax(SLOT_E, "breaking_point"),
+            (
+                "{explorer} has had enough",
+                "I can't go on like this. Something has to change.",
+            ),
+            vec![
+                yes(
+                    "talk",
+                    "Talk it all through",
+                    "A whole night, everything said.",
+                    said(
+                        "breaking_point_talked",
+                        "{keeper} and {explorer} talked it all through",
+                        "I didn't know you felt that way.",
+                        bond(2, -3),
+                    )
+                    .chapter("At the breaking point, they talked it all through.")
+                    .titled("The night we talked"),
+                ),
+                yes(
+                    "space",
+                    "Give each other space",
+                    "{explorer} sleeps at {place} for a while.",
+                    said(
+                        "breaking_point_apart",
+                        "{keeper} and {explorer} took some time apart",
+                        "Just for a while.",
+                        bond(-1, -1),
+                    )
+                    .chapter("At the breaking point, they took time apart.")
+                    .titled("Time apart"),
+                ),
+            ],
+            said(
+                "breaking_point_passed",
+                "Nobody said what needed saying",
+                "Forget I said anything.",
+                bond(-1, 2),
+            )
+            .chapter("At the breaking point, nothing was said.")
+            .titled("What went unsaid"),
+        ),
+        spec(
+            "the_call",
+            climax(SLOT_E, "the_call"),
+            (
+                "The signal is getting stronger",
+                "The signal's stronger every night. Go and find it?",
+            ),
+            vec![
+                yes(
+                    "go",
+                    "Go and find it",
+                    "{explorer} sets off; {keeper} keeps {home}.",
+                    said(
+                        "the_call_answered",
+                        "{explorer} went looking for the signal",
+                        "I'll be back. I promise.",
+                        bond(0, 1),
+                    )
+                    .and([Effect::Advance("survey"), Effect::Mark("invited")])
+                    .chapter("{explorer} followed the call, and found someone at the end of it.")
+                    .titled("The call"),
+                ),
+                yes(
+                    "stay",
+                    "Stay home",
+                    "Some calls go unanswered.",
+                    said(
+                        "the_call_ignored",
+                        "{explorer} stayed home and let the signal go",
+                        "Some things are best left.",
+                        bond(1, 0),
+                    )
+                    .chapter("{explorer} let the call go unanswered, and stayed.")
+                    .titled("The call we let go"),
+                ),
+            ],
+            said(
+                "the_call_faded",
+                "The signal faded",
+                "Gone. Whatever it was.",
+                bond(0, 0),
+            )
+            .chapter("The call faded before anyone answered it.")
+            .titled("The call that faded"),
+        ),
+    ]
+}
+
 /// One period of the storyteller, once a World has begun.
 pub(crate) fn tick(
     world: &mut World,
     actions: &ActionRegistry,
+    away: bool,
 ) -> Result<Vec<EventId>, WorldError> {
     if seed_id(world) == "unseeded" {
         return Ok(Vec::new());
     }
     let reading = Reading {
         pinned: pinned(world),
+        away,
         at_end: at_end(world),
         chapter_ending: Box::new(chapter_ending),
     };
@@ -1365,6 +1582,12 @@ pub(crate) const LANTERNS: EntityId = EntityId::new(25);
 pub(crate) const BUNTING: EntityId = EntityId::new(26);
 pub(crate) const TENT: EntityId = EntityId::new(27);
 pub(crate) const PENNANT: EntityId = EntityId::new(28);
+pub(crate) const FLOWERS: EntityId = EntityId::new(31);
+pub(crate) const PARCEL: EntityId = EntityId::new(32);
+pub(crate) const REST: EntityId = EntityId::new(33);
+pub(crate) const MARKERS: EntityId = EntityId::new(34);
+pub(crate) const LAMPS: EntityId = EntityId::new(35);
+pub(crate) const WASHING: EntityId = EntityId::new(36);
 /// Someone who comes to live here.
 pub(crate) const NEWCOMER: EntityId = EntityId::new(30);
 
@@ -1390,22 +1613,20 @@ fn mark(name: &'static str) -> Effect {
 
 fn leaves_behind(event: &str) -> Vec<Effect> {
     match event {
-        "spare_fetched" => vec![mark("spare")],
-        "edge_explored" => vec![mark("edge")],
-        "keeper_taught" => vec![mark("taught")],
         "second_begun" | "supply_built" => {
             vec![build(SECOND, "{second}, going up", "second", SLOT_A, None)]
         }
-        "beacon_raised" | "signal_followed" => {
+        "signal_followed" => vec![
+            mark("signal"),
+            build(BEACON, "{beacon}, going up", "beacon", SLOT_A, None),
+        ],
+        "beacon_raised" => {
             vec![build(BEACON, "{beacon}, going up", "beacon", SLOT_A, None)]
         }
-        "supper_shared" => vec![build(
-            LANTERNS,
-            "Lanterns from supper",
-            "lantern",
-            SLOT_A,
-            Some(3),
-        )],
+        "supper_shared" => vec![
+            mark("supper"),
+            build(LANTERNS, "Lanterns from supper", "lantern", SLOT_A, Some(3)),
+        ],
         "keeper_birthday_kept" | "explorer_birthday_kept" => vec![build(
             BUNTING,
             "Birthday bunting",
@@ -1420,7 +1641,201 @@ fn leaves_behind(event: &str) -> Vec<Effect> {
             SLOT_A,
             Some(5),
         )],
-        "amends_made" => vec![mark("made_up")],
+        "amends_made" => vec![
+            mark("made_up"),
+            build(
+                FLOWERS,
+                "Flowers, by way of sorry",
+                "garden",
+                SLOT_A,
+                Some(3),
+            ),
+        ],
+        "spare_fetched" => vec![
+            mark("spare"),
+            build(PARCEL, "{spare}, just arrived", "parcel", SLOT_A, Some(3)),
+        ],
+        "keeper_rested" => vec![
+            mark("rested"),
+            build(REST, "{keeper}'s day off", "tent", SLOT_C, Some(2)),
+        ],
+        "keeper_taught" => vec![
+            mark("taught"),
+            build(
+                MARKERS,
+                "{explorer}'s route markers",
+                "flag",
+                SLOT_D,
+                Some(4),
+            ),
+        ],
+        "edge_explored" => vec![
+            mark("edge"),
+            build(MARKERS, "A marker past the edge", "flag", SLOT_D, Some(3)),
+        ],
+        "weather_weathered" | "long_dark_together" => vec![
+            mark("weather_hit"),
+            build(
+                LAMPS,
+                "Storm lamps in every window",
+                "lantern",
+                SLOT_A,
+                Some(3),
+            ),
+        ],
+        "weather_braved" | "long_dark_worked" | "the_call_answered" => vec![
+            mark("weather_hit"),
+            build(
+                MARKERS,
+                "{explorer}'s markers out in the weather",
+                "flag",
+                SLOT_D,
+                Some(3),
+            ),
+        ],
+        "failing_patched" => vec![
+            mark("failing_alone"),
+            build(PARCEL, "Tools and spare parts", "parcel", SLOT_A, Some(2)),
+        ],
+        "failing_fixed" | "tool_found" | "tool_made" => vec![build(
+            PARCEL,
+            "Tools and spare parts",
+            "parcel",
+            SLOT_A,
+            Some(2),
+        )],
+        "signal_logged" | "stars_watched" => vec![
+            mark("signal"),
+            build(LAMPS, "A lamp burning late", "lantern", SLOT_A, Some(2)),
+        ],
+        "explorer_rescued" | "explorer_guided" => vec![
+            mark("rescued"),
+            build(
+                LAMPS,
+                "A light left on for {explorer}",
+                "lantern",
+                SLOT_A,
+                Some(3),
+            ),
+        ],
+        "supply_shared" => vec![build(
+            PARCEL,
+            "{supply}, shared out",
+            "parcel",
+            SLOT_A,
+            Some(2),
+        )],
+        "keeper_birthday_quiet" | "explorer_birthday_quiet" => vec![build(
+            PARCEL,
+            "A birthday present",
+            "parcel",
+            SLOT_A,
+            Some(2),
+        )],
+        "message_sent" => vec![
+            mark("message"),
+            build(
+                PARCEL,
+                "A letter home, waiting to go",
+                "parcel",
+                SLOT_D,
+                Some(2),
+            ),
+        ],
+        "cleaned_together" => vec![build(
+            WASHING,
+            "Washing on the line",
+            "bunting",
+            SLOT_A,
+            Some(2),
+        )],
+        "photo_taken" => vec![
+            mark("photo"),
+            build(
+                WASHING,
+                "Bunting for the photograph",
+                "bunting",
+                SLOT_A,
+                Some(2),
+            ),
+        ],
+        "breaking_point_talked" | "old_times_laughed" | "frost_walk" => vec![build(
+            LAMPS,
+            "A lamp left burning all night",
+            "lantern",
+            SLOT_A,
+            Some(2),
+        )],
+        "breaking_point_apart" => vec![build(
+            REST,
+            "{explorer}'s camp at {place}",
+            "tent",
+            SLOT_C,
+            Some(4),
+        )],
+        "garden_feast" | "garden_stored" => vec![build(
+            PARCEL,
+            "Baskets from the garden",
+            "parcel",
+            SLOT_C,
+            Some(2),
+        )],
+        "spare_refused" => vec![
+            mark("spare_refused"),
+            build(
+                PARCEL,
+                "The old seal, patched again",
+                "parcel",
+                SLOT_A,
+                Some(2),
+            ),
+        ],
+        "clean_up_skipped" => vec![build(
+            PARCEL,
+            "Dust piling up by the door",
+            "parcel",
+            SLOT_A,
+            Some(2),
+        )],
+        "frost_stayed_in" | "window_watched" => vec![build(
+            LAMPS,
+            "A lamp in the window",
+            "lantern",
+            SLOT_A,
+            Some(1),
+        )],
+        "supper_skipped" => vec![
+            mark("supper_missed"),
+            build(
+                LAMPS,
+                "Lamps burning late over the work",
+                "lantern",
+                SLOT_A,
+                Some(1),
+            ),
+        ],
+        "edge_refused" => vec![mark("edge_refused")],
+        "keeper_kept_going" => vec![mark("rest_refused")],
+        "weather_caught_them" => vec![mark("weather_hit")],
+        "failing_spread" => vec![mark("failing_alone")],
+        "quarrel_keeper_won" | "quarrel_explorer_won" | "quarrel_simmered" => {
+            vec![mark("quarrel")]
+        }
+        "message_put_off" => vec![
+            mark("message_waiting"),
+            build(PARCEL, "An unsent letter", "parcel", SLOT_A, Some(2)),
+        ],
+        "lesson_refused" => vec![mark("lesson_refused")],
+        "photo_put_off" => vec![mark("photo_later")],
+        "amends_too_soon" => vec![mark("amends_refused")],
+        "garden_refused" => vec![mark("garden_refused")],
+        "spare_went_without" => vec![mark("spare_refused")],
+        "edge_forgotten" => vec![mark("edge_refused")],
+        "lesson_forgotten" => vec![mark("lesson_refused")],
+        "keeper_worn_out" => vec![mark("rest_refused")],
+        "garden_forgotten" => vec![mark("garden_refused")],
+        "message_never_sent" => vec![mark("message_waiting")],
+        "photo_forgotten" => vec![mark("photo_later")],
         _ => Vec::new(),
     }
 }
@@ -1428,9 +1843,13 @@ fn leaves_behind(event: &str) -> Vec<Effect> {
 fn settled_by(storylet: &str) -> Vec<Condition> {
     use Condition::Unmarked;
     match storylet {
-        "keeper_spare" => vec![Unmarked("spare")],
-        "explorer_trip" => vec![Unmarked("edge")],
-        "explorer_teach" => vec![Unmarked("taught")],
+        "keeper_spare" => vec![Unmarked("spare"), Unmarked("spare_refused")],
+        "explorer_trip" => vec![Unmarked("edge"), Unmarked("edge_refused")],
+        "explorer_teach" => vec![Unmarked("taught"), Unmarked("lesson_refused")],
+        "keeper_garden" => vec![Unmarked("garden_refused")],
+        "keeper_rest" => vec![Unmarked("rested"), Unmarked("rest_refused")],
+        "letter_home" => vec![Unmarked("message"), Unmarked("message_waiting")],
+        "photograph" => vec![Unmarked("photo_later")],
         _ => Vec::new(),
     }
 }
@@ -1676,7 +2095,7 @@ fn more() -> Vec<Spec> {
         ),
         spec(
             "clean_up",
-            day(SLOT_B, 10, 5),
+            day(SLOT_B, 20, 5),
             ("It's clean-up day", "Clean-up day! Who's helping?"),
             vec![
                 yes(
@@ -1763,7 +2182,7 @@ fn threads() -> Vec<Spec> {
     let mut threads = vec![
         spec(
             "edge_find",
-            follow(SLOT_E, vec![Marked("edge", 3), Unmarked("edge_decided")]),
+            follow(SLOT_E, vec![Marked("edge", 2), Unmarked("edge_decided")]),
             (
                 "{explorer} found something past the edge",
                 "Out past the edge there's an old shelter. Make it ours?",
@@ -1903,7 +2322,7 @@ fn threads() -> Vec<Spec> {
         ),
         spec(
             "old_times",
-            follow(SLOT_B, vec![Marked("made_up", 4), Unmarked("old_times")]),
+            follow(SLOT_B, vec![Marked("made_up", 2), Unmarked("old_times")]),
             (
                 "{keeper} remembers the bad old days",
                 "Remember when we couldn't stand each other?",
@@ -1946,7 +2365,7 @@ fn threads() -> Vec<Spec> {
             "harvest_home",
             follow(
                 SLOT_B,
-                vec![Marked("garden", 6), Unmarked("garden_cropped")],
+                vec![Marked("garden", 3), Unmarked("garden_cropped")],
             ),
             (
                 "{keeper}'s garden has cropped",
@@ -1985,6 +2404,1006 @@ fn threads() -> Vec<Spec> {
                 bond(0, 0),
             )
             .and([mark("garden_cropped")]),
+        ),
+        spec(
+            "seal_fit",
+            follow(SLOT_B, vec![Marked("spare", 2), Unmarked("seal_fit")]),
+            (
+                "{keeper} is fitting the new seal",
+                "Help me fit the new {spare}?",
+            ),
+            vec![
+                yes(
+                    "together",
+                    "Fit it together",
+                    "An afternoon, side by side.",
+                    said(
+                        "seal_fitted_together",
+                        "{keeper} and {explorer} fitted the new seal together",
+                        "Snug as anything.",
+                        bond(1, -1),
+                    )
+                    .and([
+                        mark("seal_fit"),
+                        build(PARCEL, "The old seal, retired", "parcel", SLOT_A, Some(2)),
+                    ]),
+                ),
+                yes(
+                    "alone",
+                    "{keeper} can manage",
+                    "{explorer} has work of their own.",
+                    said(
+                        "seal_fitted_alone",
+                        "{keeper} fitted the new seal alone",
+                        "Done. On my own.",
+                        bond(0, 1),
+                    )
+                    .and([mark("seal_fit")]),
+                ),
+            ],
+            said(
+                "seal_fitted_eventually",
+                "The new seal went in eventually",
+                "Done, finally.",
+                bond(0, 0),
+            )
+            .and([mark("seal_fit")]),
+        ),
+        spec(
+            "seal_leaks",
+            follow(
+                SLOT_B,
+                vec![Marked("spare_refused", 1), Unmarked("seal_leak")],
+            ),
+            (
+                "The old seal is leaking",
+                "The old seal's leaking. I did say.",
+            ),
+            vec![
+                yes(
+                    "fetch",
+                    "Fetch a new one now",
+                    "{explorer} goes, grumbling.",
+                    said(
+                        "seal_fetched_late",
+                        "{explorer} fetched a new seal at last",
+                        "Here. Happy now?",
+                        bond(0, 1),
+                    )
+                    .and([
+                        mark("seal_leak"),
+                        mark("spare"),
+                        build(
+                            PARCEL,
+                            "{spare}, fetched at last",
+                            "parcel",
+                            SLOT_A,
+                            Some(2),
+                        ),
+                    ]),
+                ),
+                yes(
+                    "tape",
+                    "Tape it up",
+                    "It holds. For now.",
+                    said(
+                        "seal_taped",
+                        "{keeper} taped up the leaking seal",
+                        "Tape and hope.",
+                        bond(-1, 1),
+                    )
+                    .and([
+                        mark("seal_leak"),
+                        build(PARCEL, "Tape over the old seal", "parcel", SLOT_A, Some(3)),
+                    ]),
+                ),
+            ],
+            said(
+                "seal_held",
+                "The old seal held, somehow",
+                "Still holding.",
+                bond(0, 0),
+            )
+            .and([mark("seal_leak")]),
+        ),
+        spec(
+            "restless",
+            follow(
+                SLOT_E,
+                vec![Marked("edge_refused", 2), Unmarked("restless_done")],
+            ),
+            ("{explorer} is restless", "I keep looking at the horizon."),
+            vec![
+                yes(
+                    "day_trip",
+                    "Go, just for a day",
+                    "{explorer} is back by dark.",
+                    said(
+                        "day_trip_taken",
+                        "{explorer} took a day out past the familiar",
+                        "That's better. Much better.",
+                        bond(1, -1),
+                    )
+                    .and([
+                        mark("restless_done"),
+                        build(
+                            MARKERS,
+                            "{explorer}'s day-trip markers",
+                            "flag",
+                            SLOT_D,
+                            Some(2),
+                        ),
+                    ]),
+                ),
+                yes(
+                    "stay",
+                    "Stay a while longer",
+                    "Not yet.",
+                    said(
+                        "restless_kept",
+                        "{explorer} stayed put",
+                        "Fine. Fine.",
+                        bond(-1, 1),
+                    )
+                    .and([mark("restless_done")]),
+                ),
+            ],
+            said(
+                "restless_faded",
+                "{explorer} stopped looking at the horizon",
+                "Never mind.",
+                bond(0, 1),
+            )
+            .and([mark("restless_done")]),
+        ),
+        spec(
+            "rested_idea",
+            follow(SLOT_B, vec![Marked("rested", 2), Unmarked("rested_idea")]),
+            (
+                "{keeper} had an idea on their day off",
+                "I had an idea on my day off. Shelves, everywhere!",
+            ),
+            vec![
+                yes(
+                    "build",
+                    "Build the shelves",
+                    "{explorer} holds the other end.",
+                    said(
+                        "shelves_built",
+                        "{keeper} and {explorer} put up shelves",
+                        "A place for everything!",
+                        bond(1, 0),
+                    )
+                    .and([
+                        mark("rested_idea"),
+                        build(
+                            PARCEL,
+                            "New shelves, full already",
+                            "parcel",
+                            SLOT_A,
+                            Some(4),
+                        ),
+                    ]),
+                ),
+                yes(
+                    "later",
+                    "Maybe later",
+                    "There's other work.",
+                    said(
+                        "shelves_put_off",
+                        "The shelves were put off",
+                        "One day.",
+                        bond(0, 1),
+                    )
+                    .and([mark("rested_idea")]),
+                ),
+            ],
+            said(
+                "idea_forgotten",
+                "{keeper}'s idea was forgotten",
+                "What was it again?",
+                bond(0, 0),
+            )
+            .and([mark("rested_idea")]),
+        ),
+        spec(
+            "snapped",
+            follow(SLOT_B, vec![Marked("rest_refused", 1), Unmarked("snapped")]),
+            (
+                "{keeper} snapped at {explorer}",
+                "I'm exhausted. I snapped at you. Sorry.",
+            ),
+            vec![
+                yes(
+                    "forgive",
+                    "Forgive and rest",
+                    "{keeper} finally sleeps.",
+                    said(
+                        "snap_forgiven",
+                        "{explorer} forgave {keeper} and sent them to bed",
+                        "Go to sleep. That's an order.",
+                        bond(1, -2),
+                    )
+                    .and([
+                        mark("snapped"),
+                        build(REST, "{keeper} asleep at last", "tent", SLOT_C, Some(1)),
+                    ]),
+                ),
+                yes(
+                    "push_on",
+                    "Push on anyway",
+                    "The work won't wait.",
+                    said(
+                        "snap_pushed_on",
+                        "{keeper} pushed on, exhausted",
+                        "I'll sleep when it's done.",
+                        bond(-1, 1),
+                    )
+                    .and([mark("snapped")]),
+                ),
+            ],
+            said(
+                "snap_passed",
+                "The bad moment passed",
+                "Let's not talk about it.",
+                bond(0, 1),
+            )
+            .and([mark("snapped")]),
+        ),
+        spec(
+            "first_solo",
+            follow(SLOT_B, vec![Marked("taught", 2), Unmarked("first_solo")]),
+            (
+                "{keeper} found their own way",
+                "I found my way out and back, on my own!",
+            ),
+            vec![
+                yes(
+                    "celebrate",
+                    "Celebrate it",
+                    "Bunting for a navigator.",
+                    said(
+                        "solo_celebrated",
+                        "{explorer} celebrated {keeper}'s first trip alone",
+                        "A navigator at last!",
+                        bond(1, -1),
+                    )
+                    .and([
+                        mark("first_solo"),
+                        build(
+                            WASHING,
+                            "Bunting for a navigator",
+                            "bunting",
+                            SLOT_A,
+                            Some(2),
+                        ),
+                    ]),
+                ),
+                yes(
+                    "careful",
+                    "Be careful next time",
+                    "A worried hug.",
+                    said(
+                        "solo_worried",
+                        "{explorer} worried about {keeper} going out alone",
+                        "Next time, tell me first.",
+                        bond(0, 1),
+                    )
+                    .and([mark("first_solo")]),
+                ),
+            ],
+            said(
+                "solo_unremarked",
+                "Nobody mentioned the trip",
+                "Oh. Never mind.",
+                bond(0, 0),
+            )
+            .and([mark("first_solo")]),
+        ),
+        spec(
+            "after_weather",
+            follow(
+                SLOT_E,
+                vec![Marked("weather_hit", 1), Unmarked("weather_after")],
+            ),
+            (
+                "The weather left its mark",
+                "{Weather} left dust in everything.",
+            ),
+            vec![
+                yes(
+                    "clean",
+                    "Clean up together",
+                    "Every corner, both of them.",
+                    said(
+                        "weather_cleaned_together",
+                        "{keeper} and {explorer} cleaned up after the weather",
+                        "Good as new.",
+                        bond(1, 0),
+                    )
+                    .and([
+                        mark("weather_after"),
+                        build(
+                            WASHING,
+                            "Washing out after the weather",
+                            "bunting",
+                            SLOT_A,
+                            Some(2),
+                        ),
+                    ]),
+                ),
+                yes(
+                    "leave",
+                    "Leave it",
+                    "It'll settle.",
+                    said(
+                        "weather_mess_left",
+                        "The mess from the weather was left",
+                        "It'll keep.",
+                        bond(0, 1),
+                    )
+                    .and([
+                        mark("weather_after"),
+                        build(
+                            PARCEL,
+                            "Drifts of dust by the door",
+                            "parcel",
+                            SLOT_A,
+                            Some(3),
+                        ),
+                    ]),
+                ),
+            ],
+            said(
+                "weather_mess_settled",
+                "The mess settled by itself",
+                "Well, it's settled.",
+                bond(0, 0),
+            )
+            .and([mark("weather_after")]),
+        ),
+        spec(
+            "keeper_sore",
+            follow(
+                SLOT_B,
+                vec![Marked("failing_alone", 1), Unmarked("sore_done")],
+            ),
+            (
+                "{keeper} is sore about being left alone",
+                "You left me to fix that alone.",
+            ),
+            vec![
+                yes(
+                    "sorry",
+                    "Say sorry",
+                    "{explorer} makes supper by way of sorry.",
+                    said(
+                        "sorry_said",
+                        "{explorer} said sorry for leaving {keeper} alone",
+                        "Apology accepted. Mostly.",
+                        bond(1, -2),
+                    )
+                    .and([
+                        mark("sore_done"),
+                        build(
+                            LAMPS,
+                            "A sorry supper by lamplight",
+                            "lantern",
+                            SLOT_A,
+                            Some(1),
+                        ),
+                    ]),
+                ),
+                yes(
+                    "work",
+                    "Someone had to work",
+                    "{explorer} doesn't apologise.",
+                    said(
+                        "sorry_refused",
+                        "{explorer} wouldn't say sorry",
+                        "Someone had to.",
+                        bond(-1, 2),
+                    )
+                    .and([mark("sore_done")]),
+                ),
+            ],
+            said(
+                "sore_forgotten",
+                "{keeper} let it go",
+                "Forget it.",
+                bond(0, 1),
+            )
+            .and([mark("sore_done")]),
+        ),
+        spec(
+            "signal_source",
+            follow(SLOT_E, vec![Marked("signal", 2), Unmarked("signal_source")]),
+            (
+                "{explorer} found where the signal comes from",
+                "It's an old relay, out past the ridge. Fix it?",
+            ),
+            vec![
+                yes(
+                    "fix",
+                    "Fix the relay",
+                    "A week's tinkering.",
+                    said(
+                        "relay_fixed",
+                        "{explorer} fixed the old relay",
+                        "Listen! It's working!",
+                        bond(1, 0),
+                    )
+                    .and([
+                        mark("signal_source"),
+                        Effect::Advance("beacon"),
+                        build(BEACON, "{beacon}, going up", "beacon", SLOT_A, None),
+                    ]),
+                ),
+                yes(
+                    "leave",
+                    "Leave it",
+                    "Some things are best left.",
+                    said(
+                        "relay_left",
+                        "{explorer} left the old relay alone",
+                        "Let it sleep.",
+                        bond(0, 0),
+                    )
+                    .and([mark("signal_source")]),
+                ),
+            ],
+            said(
+                "relay_forgotten",
+                "The old relay was forgotten",
+                "It's quiet again.",
+                bond(0, 0),
+            )
+            .and([mark("signal_source")]),
+        ),
+        spec(
+            "after_quarrel",
+            follow(
+                SLOT_E,
+                vec![Marked("quarrel", 1), Unmarked("after_quarrel")],
+            ),
+            (
+                "The quarrel still hangs in the air",
+                "Still cross about yesterday?",
+            ),
+            vec![
+                yes(
+                    "make_up",
+                    "Make it up",
+                    "A hug, and it's done.",
+                    said(
+                        "quarrel_mended",
+                        "{keeper} and {explorer} made it up",
+                        "Friends?",
+                        bond(1, -2),
+                    )
+                    .and([
+                        mark("after_quarrel"),
+                        build(
+                            FLOWERS,
+                            "Flowers after the quarrel",
+                            "garden",
+                            SLOT_A,
+                            Some(2),
+                        ),
+                    ]),
+                ),
+                yes(
+                    "still_cross",
+                    "Still cross",
+                    "It'll take time.",
+                    said(
+                        "quarrel_lingered",
+                        "The quarrel lingered",
+                        "Give me a day.",
+                        bond(0, 1),
+                    )
+                    .and([mark("after_quarrel")]),
+                ),
+            ],
+            said(
+                "quarrel_faded",
+                "The quarrel faded",
+                "Water under the bridge.",
+                bond(0, -1),
+            )
+            .and([mark("after_quarrel")]),
+        ),
+        spec(
+            "close_call_after",
+            follow(
+                SLOT_E,
+                vec![Marked("rescued", 1), Unmarked("close_call_thanks")],
+            ),
+            (
+                "{explorer} wants to say thank you",
+                "Thank you for coming for me. Really.",
+            ),
+            vec![
+                yes(
+                    "gift",
+                    "Accept the thanks",
+                    "{explorer} brings back something from the edge.",
+                    said(
+                        "thanks_given",
+                        "{explorer} gave {keeper} a stone from the edge",
+                        "I carried it all the way back for you.",
+                        bond(1, -1),
+                    )
+                    .and([
+                        mark("close_call_thanks"),
+                        build(PARCEL, "A stone from the edge", "parcel", SLOT_A, Some(4)),
+                    ]),
+                ),
+                yes(
+                    "shrug",
+                    "It's what we do",
+                    "No thanks needed.",
+                    said(
+                        "thanks_shrugged",
+                        "{keeper} shrugged off the thanks",
+                        "It's what we do.",
+                        bond(0, 0),
+                    )
+                    .and([mark("close_call_thanks")]),
+                ),
+            ],
+            said(
+                "thanks_unsaid",
+                "The thanks went unsaid",
+                "Anyway.",
+                bond(0, 0),
+            )
+            .and([mark("close_call_thanks")]),
+        ),
+        spec(
+            "supper_again",
+            follow(SLOT_B, vec![Marked("supper", 2), Unmarked("supper_habit")]),
+            (
+                "{keeper} wants supper together again",
+                "Supper again? Make it a habit?",
+            ),
+            vec![
+                yes(
+                    "habit",
+                    "Every week",
+                    "Lanterns on the table every week.",
+                    said(
+                        "supper_habit",
+                        "{keeper} and {explorer} made supper a weekly thing",
+                        "Same time next week.",
+                        bond(1, -1),
+                    )
+                    .and([
+                        mark("supper_habit"),
+                        build(LAMPS, "Lanterns for weekly supper", "lantern", SLOT_A, None),
+                    ]),
+                ),
+                yes(
+                    "now_and_then",
+                    "Now and then",
+                    "When there's time.",
+                    said(
+                        "supper_now_and_then",
+                        "Supper stayed a now-and-then thing",
+                        "When we can.",
+                        bond(0, 0),
+                    )
+                    .and([mark("supper_habit")]),
+                ),
+            ],
+            said(
+                "supper_forgotten",
+                "Nobody mentioned supper again",
+                "Oh well.",
+                bond(0, 0),
+            )
+            .and([mark("supper_habit")]),
+        ),
+        spec(
+            "reply_came",
+            follow(SLOT_E, vec![Marked("message", 2), Unmarked("reply_came")]),
+            (
+                "A reply came from home",
+                "A reply from home! Read it with me?",
+            ),
+            vec![
+                yes(
+                    "together",
+                    "Read it together",
+                    "The whole letter, out loud.",
+                    said(
+                        "reply_read_together",
+                        "{keeper} and {explorer} read the reply from home together",
+                        "They say hello to you too!",
+                        bond(1, -1),
+                    )
+                    .and([
+                        mark("reply_came"),
+                        build(
+                            PARCEL,
+                            "The letter from home, pinned up",
+                            "parcel",
+                            SLOT_A,
+                            Some(4),
+                        ),
+                    ]),
+                ),
+                yes(
+                    "alone",
+                    "Read it alone",
+                    "Some things are private.",
+                    said(
+                        "reply_read_alone",
+                        "{explorer} read the reply from home alone",
+                        "Just news. Nothing much.",
+                        bond(0, 1),
+                    )
+                    .and([mark("reply_came")]),
+                ),
+            ],
+            said(
+                "reply_unread",
+                "The reply went unread for days",
+                "I'll read it later.",
+                bond(0, 0),
+            )
+            .and([mark("reply_came")]),
+        ),
+        spec(
+            "photo_frame",
+            follow(SLOT_B, vec![Marked("photo", 2), Unmarked("photo_hung")]),
+            (
+                "{keeper} wants to hang the picture",
+                "Where shall we hang the picture?",
+            ),
+            vec![
+                yes(
+                    "door",
+                    "By the door",
+                    "Everyone who comes in sees it.",
+                    said(
+                        "photo_by_door",
+                        "{keeper} hung the picture by the door",
+                        "There. Perfect.",
+                        bond(1, 0),
+                    )
+                    .and([
+                        mark("photo_hung"),
+                        build(
+                            PARCEL,
+                            "The picture, hung by the door",
+                            "parcel",
+                            SLOT_A,
+                            None,
+                        ),
+                    ]),
+                ),
+                yes(
+                    "drawer",
+                    "In a drawer",
+                    "Some things are just for us.",
+                    said(
+                        "photo_in_drawer",
+                        "{keeper} put the picture away safe",
+                        "Safe in the drawer.",
+                        bond(0, 0),
+                    )
+                    .and([mark("photo_hung")]),
+                ),
+            ],
+            said(
+                "photo_lost",
+                "The picture got lost somewhere",
+                "Where did it go?",
+                bond(0, 1),
+            )
+            .and([mark("photo_hung")]),
+        ),
+        spec(
+            "trader_returns",
+            follow(SLOT_E, vec![Marked("traded", 2), Unmarked("trader_back")]),
+            (
+                "The trader is back",
+                "The trader's back, and asking for you by name!",
+            ),
+            vec![
+                yes(
+                    "deal",
+                    "Do another deal",
+                    "Something useful, something silly.",
+                    said(
+                        "trader_deal",
+                        "{keeper} and {explorer} did another deal with the trader",
+                        "A bargain, I tell you!",
+                        bond(1, 0),
+                    )
+                    .and([
+                        mark("trader_back"),
+                        build(
+                            TENT,
+                            "The trader's tent, back again",
+                            "tent",
+                            SLOT_A,
+                            Some(2),
+                        ),
+                    ]),
+                ),
+                yes(
+                    "no",
+                    "Not this time",
+                    "Wave them on.",
+                    said(
+                        "trader_waved_on",
+                        "The trader was waved on",
+                        "Not today!",
+                        bond(0, 0),
+                    )
+                    .and([mark("trader_back")]),
+                ),
+            ],
+            said(
+                "trader_left_again",
+                "The trader left before anyone came out",
+                "Missed them.",
+                bond(0, 0),
+            )
+            .and([mark("trader_back")]),
+        ),
+        spec(
+            "keeper_lost",
+            follow(
+                SLOT_B,
+                vec![Marked("lesson_refused", 2), Unmarked("keeper_lost")],
+            ),
+            (
+                "{keeper} got lost out there",
+                "I got lost out there. Should have let you teach me.",
+            ),
+            vec![
+                yes(
+                    "teach_now",
+                    "Teach me now",
+                    "A long walk, and a lesson.",
+                    said(
+                        "lesson_after_all",
+                        "{explorer} taught {keeper} the way after all",
+                        "Left at the big rock. Always.",
+                        bond(2, -1),
+                    )
+                    .and([
+                        mark("keeper_lost"),
+                        mark("taught"),
+                        build(
+                            MARKERS,
+                            "Route markers, put up at last",
+                            "flag",
+                            SLOT_D,
+                            Some(3),
+                        ),
+                    ]),
+                ),
+                yes(
+                    "laugh",
+                    "Laugh it off",
+                    "It happens.",
+                    said(
+                        "lost_laughed_off",
+                        "{keeper} laughed off getting lost",
+                        "I found my way. Eventually.",
+                        bond(0, 1),
+                    )
+                    .and([mark("keeper_lost")]),
+                ),
+            ],
+            said(
+                "lost_unspoken",
+                "Nobody mentioned it again",
+                "Anyway.",
+                bond(0, 1),
+            )
+            .and([mark("keeper_lost")]),
+        ),
+        spec(
+            "letter_later",
+            follow(
+                SLOT_E,
+                vec![Marked("message_waiting", 2), Unmarked("letter_later")],
+            ),
+            (
+                "{explorer}'s letter is still unsent",
+                "Help me finish that letter home?",
+            ),
+            vec![
+                yes(
+                    "help",
+                    "Help finish it",
+                    "Two heads, one letter.",
+                    said(
+                        "letter_finished_together",
+                        "{keeper} helped {explorer} finish the letter home",
+                        "Signed by both of us!",
+                        bond(1, -1),
+                    )
+                    .and([
+                        mark("letter_later"),
+                        mark("message"),
+                        build(
+                            PARCEL,
+                            "A letter home, sealed at last",
+                            "parcel",
+                            SLOT_D,
+                            Some(2),
+                        ),
+                    ]),
+                ),
+                yes(
+                    "bin",
+                    "Bin it",
+                    "It was never going to go.",
+                    said(
+                        "letter_binned",
+                        "{explorer} threw the letter away",
+                        "Never mind.",
+                        bond(-1, 1),
+                    )
+                    .and([mark("letter_later")]),
+                ),
+            ],
+            said(
+                "letter_lost",
+                "The letter got lost under things",
+                "Where did I put it?",
+                bond(0, 0),
+            )
+            .and([mark("letter_later")]),
+        ),
+        spec(
+            "amends_again",
+            follow(
+                SLOT_E,
+                vec![Marked("amends_refused", 2), Unmarked("amends_again")],
+            ),
+            (
+                "{explorer} wants to try again",
+                "Can we try that again? Making up, I mean.",
+            ),
+            vec![
+                yes(
+                    "yes",
+                    "Yes, let's",
+                    "It's easier the second time.",
+                    said(
+                        "amends_second_try",
+                        "{explorer} and {keeper} made up at the second try",
+                        "Second time lucky.",
+                        bond(2, -2),
+                    )
+                    .and([
+                        mark("amends_again"),
+                        mark("made_up"),
+                        build(
+                            FLOWERS,
+                            "Flowers, second time round",
+                            "garden",
+                            SLOT_A,
+                            Some(2),
+                        ),
+                    ]),
+                ),
+                yes(
+                    "no",
+                    "Still too soon",
+                    "Not yet.",
+                    said(
+                        "amends_refused_again",
+                        "{keeper} still wasn't ready",
+                        "Still no.",
+                        bond(-1, 1),
+                    )
+                    .and([mark("amends_again")]),
+                ),
+            ],
+            said("amends_dropped", "Nobody tried again", "Fine.", bond(0, 1))
+                .and([mark("amends_again")]),
+        ),
+        spec(
+            "supper_later",
+            follow(
+                SLOT_B,
+                vec![Marked("supper_missed", 2), Unmarked("supper_later")],
+            ),
+            (
+                "{keeper} misses their suppers",
+                "We never have supper together any more.",
+            ),
+            vec![
+                yes(
+                    "tonight",
+                    "Tonight, then",
+                    "Work can wait.",
+                    said(
+                        "supper_tonight",
+                        "{keeper} and {explorer} made time for supper",
+                        "Just like old times.",
+                        bond(1, -1),
+                    )
+                    .and([
+                        mark("supper_later"),
+                        build(LAMPS, "Supper by lamplight", "lantern", SLOT_A, Some(1)),
+                    ]),
+                ),
+                yes(
+                    "busy",
+                    "Too busy",
+                    "Another time.",
+                    said(
+                        "supper_too_busy",
+                        "{explorer} was too busy for supper again",
+                        "Another time.",
+                        bond(-1, 1),
+                    )
+                    .and([mark("supper_later")]),
+                ),
+            ],
+            said(
+                "supper_drifted",
+                "Suppers drifted apart",
+                "Oh well.",
+                bond(0, 1),
+            )
+            .and([mark("supper_later")]),
+        ),
+        spec(
+            "window_box",
+            follow(
+                SLOT_B,
+                vec![Marked("garden_refused", 2), Unmarked("window_box")],
+            ),
+            (
+                "{keeper} wants a window box instead",
+                "No room for a garden. What about a window box?",
+            ),
+            vec![
+                yes(
+                    "yes",
+                    "A window box, then",
+                    "A small green corner.",
+                    said(
+                        "window_box_planted",
+                        "{keeper} planted a window box",
+                        "It's small. It's perfect.",
+                        bond(1, -1),
+                    )
+                    .and([
+                        mark("window_box"),
+                        build(GARDEN, "{keeper}'s window box", "garden", SLOT_A, None),
+                    ]),
+                ),
+                yes(
+                    "no",
+                    "Not even that",
+                    "Nothing green.",
+                    said(
+                        "window_box_refused",
+                        "{keeper} was refused even a window box",
+                        "Not even a window box.",
+                        bond(-1, 2),
+                    )
+                    .and([mark("window_box")]),
+                ),
+            ],
+            said(
+                "window_box_forgotten",
+                "The window box was forgotten",
+                "Never mind.",
+                bond(0, 1),
+            )
+            .and([mark("window_box")]),
         ),
     ];
     for (seed, id, name, kind, role) in [
@@ -2121,4 +3540,24 @@ pub(crate) fn fixtures(world: &World) -> Vec<world_projection::CanvasItem> {
             }
         })
         .collect()
+}
+
+/// Whether a storylet follows from an earlier answer: a second or third
+/// act, or what a finished goal opens.
+#[cfg(test)]
+pub(crate) fn follows_from_an_answer(id: &str) -> bool {
+    static IDS: OnceLock<Vec<&'static str>> = OnceLock::new();
+    IDS.get_or_init(|| threads().iter().map(|spec| spec.storylet.id).collect())
+        .contains(&id)
+}
+
+/// Whether a storylet is one the calendar brings round again by design.
+#[cfg(test)]
+pub(crate) fn from_the_calendar(id: &str) -> bool {
+    find(id).is_some_and(|spec| {
+        spec.storylet
+            .requires
+            .iter()
+            .any(|condition| matches!(condition, Condition::Every { .. }))
+    })
 }

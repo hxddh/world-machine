@@ -86,7 +86,17 @@ impl TinySocietyBranch {
         )
     }
 
+    /// Days passing while nobody is watching.
     pub fn advance_days(&mut self, days: u64) -> Result<Vec<EventId>, Box<dyn Error>> {
+        self.pass_days(days, true)
+    }
+
+    /// Days passing, with the player (`away` false) or without them.
+    pub(crate) fn pass_days(
+        &mut self,
+        days: u64,
+        away: bool,
+    ) -> Result<Vec<EventId>, Box<dyn Error>> {
         if days == 0 {
             return Ok(Vec::new());
         }
@@ -142,7 +152,7 @@ impl TinySocietyBranch {
             }
             // The storyteller has the last word of the day: what lapses,
             // whether the chapter turns, and what comes up next.
-            generated_events.extend(crate::story::tick(&mut self.world, &actions)?);
+            generated_events.extend(crate::story::tick(&mut self.world, &actions, away)?);
         }
 
         Ok(generated_events)

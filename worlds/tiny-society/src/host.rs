@@ -12,8 +12,10 @@ impl TinySocietySession {
     fn fresh() -> Result<Box<dyn WorldSession>, HostError> {
         let mut society = TinySociety::new().map_err(HostError::session)?;
         society.run_story().map_err(HostError::session)?;
+        let mut branch = society.branch();
+        branch.begin_story().map_err(HostError::session)?;
         Ok(Box::new(Self {
-            branch: society.branch(),
+            branch,
             background_cursor: None,
         }))
     }

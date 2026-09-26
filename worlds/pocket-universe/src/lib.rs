@@ -335,7 +335,7 @@ where
             );
             let relationship = candidate.execute(&self.actions, &relationship_request)?.id;
             let returned = era::resolve_period(&mut candidate, &self.actions, relationship)?;
-            story::tick(&mut candidate, &self.actions)?;
+            story::tick(&mut candidate, &self.actions, false)?;
             self.world = candidate;
             self.narrate_return(since);
             return Ok(returned);
@@ -370,10 +370,15 @@ where
                 .into())
             }
         };
-        Ok(self
+        let event = self
             .world
             .execute(&self.actions, &ActionRequest::new(action).actor(UNIVERSE))?
-            .id)
+            .id;
+        // A World that has just begun opens on its first question.
+        if action.starts_with("seed_") {
+            story::tick(&mut self.world, &self.actions, false)?;
+        }
+        Ok(event)
     }
 
     pub fn advance_periods(&mut self, periods: u64) -> Result<(), Box<dyn Error>> {
@@ -423,7 +428,7 @@ where
             );
             let relationship = candidate.execute(&self.actions, &relationship_request)?.id;
             era::resolve_period(&mut candidate, &self.actions, relationship)?;
-            story::tick(&mut candidate, &self.actions)?;
+            story::tick(&mut candidate, &self.actions, true)?;
         }
         self.world = candidate;
         // Once, for the lines an observer is about to read — not once per
@@ -3683,6 +3688,7 @@ mod tests {
             .timeline
             .items
             .iter()
+            .filter(|item| item.title.ends_with("began"))
             .find_map(|item| match item.id {
                 world_projection::SelectionId::Event(id) => Some(id),
                 _ => None,

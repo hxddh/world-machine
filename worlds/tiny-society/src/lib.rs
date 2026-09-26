@@ -85,6 +85,12 @@ impl TinySocietyBranch {
         with_previews(&self.world, projection::snapshot(&self.world))
     }
 
+    /// Starts the storyteller, so a new World opens on a question.
+    pub fn begin_story(&mut self) -> Result<Vec<EventId>, Box<dyn Error>> {
+        let actions = build_action_registry()?;
+        Ok(story::tick(&mut self.world, &actions, false)?)
+    }
+
     pub fn fork_before_event(&mut self, event_id: EventId) -> Result<(), Box<dyn Error>> {
         let position = self
             .world
@@ -107,7 +113,7 @@ impl TinySocietyBranch {
             REPAIR_BOAT_COMMAND => self.repair_boat_with_leo(),
             SELL_BOAT_COMMAND => self.sell_sea_finch(),
             TAKE_JONAS_ON_COMMAND => self.take_jonas_on(),
-            story::WAIT_COMMAND => self.advance_days(1),
+            story::WAIT_COMMAND => self.pass_days(1, false),
             _ if story::parse_command(command_id).is_some() => self.answer(command_id),
             _ => Err(
                 std::io::Error::other(format!("unknown projection command: {command_id}")).into(),
