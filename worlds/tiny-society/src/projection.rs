@@ -35,12 +35,18 @@ pub(crate) fn snapshot_since(
         })
         .collect::<Vec<_>>();
     let talks = crate::talk::talks(world, &commands);
+    let commands_on_offer = commands
+        .iter()
+        .filter(|command| command.unavailable.is_none())
+        .map(|command| command.id.clone())
+        .collect::<Vec<_>>();
     let mut snapshot = ProjectionSnapshot {
         title: "Tiny Society".into(),
         world_time: world.world_time(),
         capabilities: ProjectionCapabilities {
             fork: true,
             background: true,
+            talk: true,
         },
         briefing: Some(society_briefing(world, since_event_count)),
         commands,
@@ -84,6 +90,7 @@ pub(crate) fn snapshot_since(
         }),
         gauges: gauges(world),
         voices: crate::talk::voices(world),
+        exchanges: exchanges(world, &commands_on_offer),
         talks,
         goals: crate::story::goals(world),
         chapters: crate::story::chapters(world),
@@ -231,7 +238,7 @@ fn asker(command_id: &str) -> Option<SelectionId> {
     Some(SelectionId::Entity(who))
 }
 
-fn available_commands(world: &World) -> Vec<ProjectionCommand> {
+pub(crate) fn available_commands(world: &World) -> Vec<ProjectionCommand> {
     let mut commands = Vec::new();
     let has_order_loss = world
         .events()
@@ -621,7 +628,27 @@ fn told_timeline(world: &World) -> world_projection::TimelineProjection {
     timeline
 }
 
+/// What the player said to people today, and what they answered; a
+/// request is offered only while its choice still is.
+fn exchanges(world: &World, on_offer: &[String]) -> Vec<world_projection::Exchange> {
+    conversation::exchanges_today(world)
+        .into_iter()
+        .map(|exchange| world_projection::Exchange {
+            who: SelectionId::Entity(exchange.who),
+            words: exchange.words,
+            answer: exchange.reply,
+            moment: SelectionId::Event(exchange.event),
+            asks_for: exchange
+                .asks_for
+                .filter(|command| on_offer.contains(command)),
+        })
+        .collect()
+}
+
 fn telling(world: &World, event: &Event) -> Telling {
+    if let Some(told) = conversation::told(event) {
+        return Telling::Routine(Some(told));
+    }
     if let Some(title) = narrated_title(world, event) {
         return Telling::Story(title);
     }

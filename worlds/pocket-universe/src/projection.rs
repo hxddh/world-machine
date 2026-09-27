@@ -23,6 +23,30 @@ use world_projection::{
     ProjectionCommand, ProjectionSnapshot, SelectionId, Tone,
 };
 
+/// The choices a World offers now, before any is previewed.
+pub(crate) fn commands_on_offer(world: &World) -> Vec<ProjectionCommand> {
+    commands(world, seed_id(world) != "unseeded")
+}
+
+/// What the player said to people today, and what they answered; a
+/// request is offered only while its choice still is.
+fn exchanges(world: &World, commands: &[ProjectionCommand]) -> Vec<world_projection::Exchange> {
+    conversation::exchanges_today(world)
+        .into_iter()
+        .map(|exchange| world_projection::Exchange {
+            who: SelectionId::Entity(exchange.who),
+            words: exchange.words,
+            answer: exchange.reply,
+            moment: SelectionId::Event(exchange.event),
+            asks_for: exchange.asks_for.filter(|id| {
+                commands
+                    .iter()
+                    .any(|command| &command.id == id && command.unavailable.is_none())
+            }),
+        })
+        .collect()
+}
+
 pub(crate) fn snapshot(world: &World) -> ProjectionSnapshot {
     snapshot_since(world, None)
 }
@@ -47,6 +71,7 @@ pub(crate) fn snapshot_since(
         })
         .collect::<Vec<_>>();
     let talks = crate::talk::talks(world, &commands);
+    let exchanges = exchanges(world, &commands);
     let mut snapshot = ProjectionSnapshot {
         title: if seeded {
             universe_name(world)
@@ -57,6 +82,7 @@ pub(crate) fn snapshot_since(
         capabilities: ProjectionCapabilities {
             fork: !world.events().is_empty(),
             background: seeded,
+            talk: seeded,
         },
         briefing: Some(toned(world, briefing(world, seeded, since_event_count))),
         commands,
@@ -76,6 +102,7 @@ pub(crate) fn snapshot_since(
         gauges: gauges(world),
         voices: crate::talk::voices(world),
         talks,
+        exchanges,
         goals: crate::story::goals(world),
         chapters: crate::story::chapters(world),
         weather: crate::story::weather(world),
@@ -1912,6 +1939,9 @@ fn told_timeline(world: &World) -> world_projection::TimelineProjection {
             .actor
             .and_then(|id| world.state().entity(id))
             .map(entity_title);
+        if let Some(told) = conversation::told(event) {
+            return world_projection::Telling::Routine(Some(told));
+        }
         if let Some(told) = crate::story::told(world, event) {
             return world_projection::Telling::Story(told);
         }

@@ -42,6 +42,7 @@ fn snapshot(world_time: u64, title: &str) -> ProjectionSnapshotWire {
         capabilities: ProjectionCapabilitiesWire {
             fork: false,
             background: false,
+            talk: false,
         },
         ..ProjectionSnapshotWire::default()
     }

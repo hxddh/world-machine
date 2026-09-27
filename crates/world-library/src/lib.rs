@@ -1147,6 +1147,7 @@ mod tests {
                 capabilities: ProjectionCapabilities {
                     fork: false,
                     background: false,
+                    talk: false,
                 },
                 briefing: Some(BriefingProjection {
                     eyebrow: "Mock".into(),
@@ -1716,6 +1717,7 @@ mod tests {
             capabilities: world_projection::ProjectionCapabilities {
                 fork: true,
                 background: true,
+                talk: false,
             },
             calendar: Some(world_projection::Calendar {
                 unit: "Sol".into(),

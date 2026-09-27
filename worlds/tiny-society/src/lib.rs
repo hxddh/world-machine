@@ -17,6 +17,7 @@ mod reciprocity;
 mod recovery;
 mod seed;
 mod social;
+mod speech;
 mod staffing;
 mod story;
 mod talk;
@@ -155,6 +156,20 @@ impl TinySocietyBranch {
             .world
             .execute(&actions, &lives::answer_request(situation, answer))?
             .id;
+        Ok(vec![event])
+    }
+
+    /// Says something to someone in the player's own words, and records
+    /// what they were heard to mean and what was answered. The day does
+    /// not pass.
+    pub fn say(
+        &mut self,
+        who: world_core::EntityId,
+        words: &str,
+    ) -> Result<Vec<EventId>, Box<dyn Error>> {
+        let request = speech::say(&self.world, who, words).map_err(std::io::Error::other)?;
+        let actions = build_action_registry()?;
+        let event = self.world.execute(&actions, &request)?.id;
         Ok(vec![event])
     }
 

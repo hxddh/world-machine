@@ -8,6 +8,7 @@ mod life;
 pub mod narrator;
 mod pressure;
 mod projection;
+mod speech;
 mod story;
 mod succession;
 mod talk;
@@ -347,6 +348,13 @@ where
         Ok(returned)
     }
 
+    /// Says something to someone in the player's own words, and records
+    /// what they were heard to mean and what was answered. No time passes.
+    pub fn say(&mut self, who: EntityId, words: &str) -> Result<EventId, Box<dyn Error>> {
+        let request = speech::say(&self.world, who, words).map_err(std::io::Error::other)?;
+        Ok(self.world.execute(&self.actions, &request)?.id)
+    }
+
     pub fn invoke_projection_command(
         &mut self,
         command_id: &str,
@@ -624,6 +632,14 @@ where
                 self.world
                     .invoke_projection_command(&command)
                     .map_err(HostError::session)?;
+            }
+            ProjectionIntent::Say { to, words } => {
+                let world_projection::SelectionId::Entity(who) = to else {
+                    return Err(HostError::session(std::io::Error::other(
+                        "only someone can be spoken to",
+                    )));
+                };
+                self.world.say(who, &words).map_err(HostError::session)?;
             }
         }
         self.return_since_event_count = None;
@@ -2269,6 +2285,72 @@ mod tests {
             "engine words:\n{}",
             found.into_iter().collect::<Vec<_>>().join("\n")
         );
+    }
+
+    /// In every seed, the keeper, the explorer and anyone who came to stay
+    /// can be spoken to in the player's own words; each answers in their
+    /// own, and no time passes. An unseeded World has nobody to talk to.
+    #[test]
+    fn people_answer_what_you_say_in_every_seed() {
+        let registry = registry();
+        let empty = registry.create(POCKET_UNIVERSE_PACK_ID).unwrap();
+        assert!(!empty.snapshot().capabilities.talk);
+        for seed in [
+            SEED_MARS_COLONY_COMMAND,
+            SEED_1980S_TOWN_COMMAND,
+            SEED_PENGUIN_CIVILIZATION_COMMAND,
+        ] {
+            let mut session = registry.create(POCKET_UNIVERSE_PACK_ID).unwrap();
+            session
+                .handle(ProjectionIntent::InvokeCommand(seed.into()))
+                .unwrap();
+            let snapshot = session.advance_background(2).unwrap();
+            assert!(snapshot.capabilities.talk, "{seed}");
+            let other = crate::talk::first_name_for_test(&session_world(&*session), SLOT_E);
+            for who in [SLOT_B, SLOT_E] {
+                let mut answers = Vec::new();
+                for words in [
+                    "Hi!".to_string(),
+                    "How are you doing?".into(),
+                    format!("What do you think of {other}?"),
+                    "What's new?".into(),
+                    "What do you need?".into(),
+                ] {
+                    let snapshot = session
+                        .handle(ProjectionIntent::Say {
+                            to: world_projection::SelectionId::Entity(who),
+                            words: words.clone(),
+                        })
+                        .unwrap();
+                    let exchange = snapshot
+                        .exchanges_with(world_projection::SelectionId::Entity(who))
+                        .last()
+                        .unwrap()
+                        .clone();
+                    assert_eq!(exchange.words, words);
+                    let engine = world_projection::engine_words_in(&exchange.answer);
+                    assert!(
+                        engine.is_empty(),
+                        "{seed}: {engine:?} in {:?}",
+                        exchange.answer
+                    );
+                    answers.push(exchange.answer);
+                }
+                let unique = answers.iter().collect::<std::collections::BTreeSet<_>>();
+                assert!(unique.len() >= 4, "{seed}: {answers:#?}");
+            }
+            let after = session.snapshot();
+            assert_eq!(after.world_time, snapshot.world_time, "{seed}");
+            assert_eq!(after.exchanges.len(), 10, "{seed}");
+        }
+    }
+
+    fn session_world(session: &dyn world_host::WorldSession) -> World {
+        let archive = session.archive().unwrap().unwrap();
+        PocketUniverse::resume_archive(&archive)
+            .unwrap()
+            .world()
+            .clone()
     }
 
     /// A World window is a place, not a page: at rest it shows at most

@@ -1372,6 +1372,7 @@ pub(crate) fn register_actions(
     storylets::register_actions(actions, deck)?;
     lives::register_actions(actions, |_| crate::life::cast())?;
     hands::register_actions(actions, crate::handwork::kit)?;
+    conversation::register_actions(actions, crate::speech::kit)?;
     actions.register(SpiritsSettle)
 }
 

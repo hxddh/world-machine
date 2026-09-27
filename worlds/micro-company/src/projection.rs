@@ -17,6 +17,7 @@ pub(crate) fn snapshot(world: &World, since_event_count: Option<usize>) -> Proje
         capabilities: ProjectionCapabilities {
             fork: !world.events().is_empty(),
             background: true,
+            talk: false,
         },
         briefing: Some(briefing(world, since_event_count)),
         commands: commands(world),
@@ -33,6 +34,7 @@ pub(crate) fn snapshot(world: &World, since_event_count: Option<usize>) -> Proje
         chapters: Vec::new(),
         goals: Vec::new(),
         weather: Default::default(),
+        exchanges: Vec::new(),
     }
 }
 

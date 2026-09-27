@@ -258,7 +258,7 @@ pub(crate) fn voices(world: &World) -> Vec<Voice> {
 }
 
 /// What someone would ask for, among the choices on offer now.
-fn request(
+pub(crate) fn request(
     world: &World,
     who: EntityId,
     commands: &[ProjectionCommand],
@@ -280,10 +280,20 @@ fn request(
     Some((line.into(), Some(command.id.clone())))
 }
 
+/// How the harbour is doing, in anybody's words.
+pub(crate) fn harbour_mood(world: &World) -> String {
+    let bakery_open = text(world, BAKERY, OPERATING_STATUS).as_deref() != Some("closed");
+    match (bakery_open, crate::story::spirits(world)) {
+        (false, _) => "The bakery's shut. Everyone feels it.".into(),
+        (true, 3..) => "In fine spirits, all of us.".into(),
+        (true, ..=-3) => "Glum. Everyone's short with each other.".into(),
+        _ => "Quiet, but we're managing.".into(),
+    }
+}
+
 /// What a player can ask each resident, and what they answer, from how
 /// things stand: how they are, how the harbour is, what they need.
 pub(crate) fn talks(world: &World, commands: &[ProjectionCommand]) -> Vec<Talk> {
-    let bakery_open = text(world, BAKERY, OPERATING_STATUS).as_deref() != Some("closed");
     let boat_broken = text(world, JONAS_BOAT, CONDITION).as_deref() == Some("damaged");
     let mut talks = Vec::new();
     for who in crate::story::people(world) {
@@ -320,12 +330,7 @@ pub(crate) fn talks(world: &World, commands: &[ProjectionCommand]) -> Vec<Talk> 
         talks.push(Talk {
             who: person,
             question: "How's the harbour?".into(),
-            answer: match (bakery_open, crate::story::spirits(world)) {
-                (false, _) => "The bakery's shut. Everyone feels it.".into(),
-                (true, 3..) => "In fine spirits, all of us.".into(),
-                (true, ..=-3) => "Glum. Everyone's short with each other.".into(),
-                _ => "Quiet, but we're managing.".into(),
-            },
+            answer: harbour_mood(world),
             asks_for: None,
         });
         let (need, asks_for) = match request(world, who, commands) {

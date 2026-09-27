@@ -2446,6 +2446,52 @@ pub fn news_since(world: &World, since: u64) -> Vec<String> {
         .collect()
 }
 
+/// How someone feels about the place and the player's hand in it, from
+/// -100 to 100.
+pub fn regard(state: &WorldState, person: EntityId) -> i64 {
+    integer(state, person, REGARD).unwrap_or(0)
+}
+
+fn bounded(state: &WorldState, entity: EntityId, key: String, by: i64, min: i64) -> StateChange {
+    let next = integer(state, entity, &key)
+        .unwrap_or(0)
+        .saturating_add(by)
+        .clamp(min, 100);
+    StateChange::SetComponent {
+        entity,
+        key,
+        value: next.into(),
+    }
+}
+
+/// Moves how someone feels about the place, within its bounds.
+pub fn regard_by(state: &WorldState, person: EntityId, by: i64) -> StateChange {
+    bounded(state, person, REGARD.into(), by, -100)
+}
+
+/// Moves what `a` thinks of `b`, within its bounds; nobody has an opinion
+/// of themselves.
+pub fn opinion_by(state: &WorldState, a: EntityId, b: EntityId, by: i64) -> Option<StateChange> {
+    (a != b).then(|| bounded(state, a, opinion_key(b), by, -100))
+}
+
+/// Moves how short someone is of a need, within its bounds.
+pub fn lack_by(state: &WorldState, person: EntityId, need: Need, by: i64) -> StateChange {
+    bounded(state, person, need.key().into(), by, 0)
+}
+
+/// What someone said about their day today, if they have lived it yet.
+pub fn said_today(world: &World, person: EntityId) -> Option<String> {
+    let now = world.world_time();
+    world
+        .events()
+        .iter()
+        .rev()
+        .take_while(|event| event.world_time == now)
+        .filter(|event| event.kind == "lived" && event.actor == Some(person))
+        .find_map(|event| said(event).map(|(_, line)| line))
+}
+
 /// How someone is, in their own words, from how their life stands.
 pub fn how_are_you(world: &World, person: EntityId) -> Option<String> {
     let state = world.state();

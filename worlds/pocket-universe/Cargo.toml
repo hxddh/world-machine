@@ -9,6 +9,7 @@ publish = false
 storylets = { path = "../../systems/storylets" }
 lives = { path = "../../systems/lives" }
 hands = { path = "../../systems/hands" }
+conversation = { path = "../../systems/conversation" }
 world-agent = { path = "../../crates/world-agent" }
 world-core = { path = "../../crates/world-core" }
 world-host = { path = "../../crates/world-host" }

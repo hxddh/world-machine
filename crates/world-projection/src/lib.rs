@@ -152,6 +152,12 @@ pub struct StateEvidenceNeighborhood {
 pub enum ProjectionIntent {
     ForkBeforeEvent(EventId),
     InvokeCommand(String),
+    /// The player says something to someone, in their own words. Only a
+    /// World whose capabilities include `talk` hears it.
+    Say {
+        to: SelectionId,
+        words: String,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -357,6 +363,9 @@ pub struct ProjectionCapabilities {
     /// that it keeps going. A Pack whose World only moves when a player
     /// acts leaves this off.
     pub background: bool,
+    /// People can be spoken to in the player's own words, with
+    /// [`ProjectionIntent::Say`].
+    pub talk: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -382,6 +391,9 @@ pub struct ProjectionSnapshot {
     pub voices: Vec<Voice>,
     /// What a player can ask someone, and what they answer.
     pub talks: Vec<Talk>,
+    /// What the player has said to people today in their own words, and
+    /// what they answered, oldest first.
+    pub exchanges: Vec<Exchange>,
     /// The standing goals the World is working toward, drawn as outlines
     /// on the horizon that fill in part by part.
     pub goals: Vec<Goal>,
@@ -446,6 +458,20 @@ pub struct Talk {
     pub who: SelectionId,
     pub question: String,
     pub answer: String,
+    pub asks_for: Option<String>,
+}
+
+/// Something the player said to someone in their own words, and the
+/// answer, as the World recorded them. When the answer asks for
+/// something, `asks_for` names the choice that would grant it, if it is
+/// still on offer.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Exchange {
+    pub who: SelectionId,
+    pub words: String,
+    pub answer: String,
+    /// The recorded moment: a timeline item when History tells it.
+    pub moment: SelectionId,
     pub asks_for: Option<String>,
 }
 
@@ -583,6 +609,13 @@ impl ProjectionSnapshot {
     }
 
     /// What a player can ask someone.
+    /// What the player and someone said to each other today.
+    pub fn exchanges_with(&self, who: SelectionId) -> impl Iterator<Item = &Exchange> {
+        self.exchanges
+            .iter()
+            .filter(move |exchange| exchange.who == who)
+    }
+
     pub fn talks_with(&self, who: SelectionId) -> impl Iterator<Item = &Talk> {
         self.talks.iter().filter(move |talk| talk.who == who)
     }
@@ -676,6 +709,9 @@ impl ProjectionSnapshot {
         for talk in &self.talks {
             text.push(&talk.question);
             text.push(&talk.answer);
+        }
+        for exchange in &self.exchanges {
+            text.push(&exchange.answer);
         }
         for mark in &self.canvas.marks {
             text.push(&mark.label);

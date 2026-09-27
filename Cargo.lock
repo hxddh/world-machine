@@ -959,6 +959,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "conversation"
+version = "0.1.0"
+dependencies = [
+ "lives",
+ "world-core",
+]
+
+[[package]]
 name = "convert_case"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3882,6 +3890,7 @@ dependencies = [
 name = "pocket-universe"
 version = "0.23.0"
 dependencies = [
+ "conversation",
  "hands",
  "lives",
  "storylets",
@@ -5403,6 +5412,7 @@ dependencies = [
 name = "tiny-society"
 version = "0.6.0"
 dependencies = [
+ "conversation",
  "hands",
  "lives",
  "serde_json",

@@ -965,7 +965,8 @@ pub(crate) fn register_actions(
 ) -> Result<(), world_core::ActionError> {
     storylets::register_actions(actions, deck)?;
     lives::register_actions(actions, crate::life::cast)?;
-    hands::register_actions(actions, crate::handwork::kit)
+    hands::register_actions(actions, crate::handwork::kit)?;
+    conversation::register_actions(actions, crate::speech::kit)
 }
 
 /// The nouns each place fills into the storyteller's words.

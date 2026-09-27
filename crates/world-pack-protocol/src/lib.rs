@@ -275,6 +275,7 @@ fn validate_selection_for_protocol(
 pub enum ProjectionIntentWire {
     ForkBeforeEvent { event: u64 },
     InvokeCommand { command: String },
+    Say { to: SelectionIdWire, words: String },
 }
 
 impl From<ProjectionIntent> for ProjectionIntentWire {
@@ -282,6 +283,10 @@ impl From<ProjectionIntent> for ProjectionIntentWire {
         match intent {
             ProjectionIntent::ForkBeforeEvent(event) => Self::ForkBeforeEvent { event: event.0 },
             ProjectionIntent::InvokeCommand(command) => Self::InvokeCommand { command },
+            ProjectionIntent::Say { to, words } => Self::Say {
+                to: to.into(),
+                words,
+            },
         }
     }
 }
@@ -293,6 +298,10 @@ impl From<ProjectionIntentWire> for ProjectionIntent {
                 Self::ForkBeforeEvent(EventId::new(event))
             }
             ProjectionIntentWire::InvokeCommand { command } => Self::InvokeCommand(command),
+            ProjectionIntentWire::Say { to, words } => Self::Say {
+                to: to.into(),
+                words,
+            },
         }
     }
 }
@@ -358,6 +367,8 @@ pub struct ProjectionSnapshotWire {
     pub voices: Vec<VoiceWire>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub talks: Vec<TalkWire>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub exchanges: Vec<ExchangeWire>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub goals: Vec<GoalWire>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -454,6 +465,17 @@ pub struct TalkWire {
     pub who: SelectionIdWire,
     pub question: String,
     pub answer: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asks_for: Option<String>,
+}
+
+/// Something the player said to someone, and the answer.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ExchangeWire {
+    pub who: SelectionIdWire,
+    pub words: String,
+    pub answer: String,
+    pub moment: SelectionIdWire,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub asks_for: Option<String>,
 }
@@ -662,6 +684,10 @@ impl ProjectionSnapshotWire {
         for talk in &self.talks {
             validate_selection_for_protocol(protocol_version, talk.who)?;
         }
+        for exchange in &self.exchanges {
+            validate_selection_for_protocol(protocol_version, exchange.who)?;
+            validate_selection_for_protocol(protocol_version, exchange.moment)?;
+        }
         for chapter in &self.chapters {
             if let Some(moment) = chapter.moment {
                 validate_selection_for_protocol(protocol_version, moment)?;
@@ -720,6 +746,17 @@ impl From<&ProjectionSnapshot> for ProjectionSnapshotWire {
                     question: talk.question.clone(),
                     answer: talk.answer.clone(),
                     asks_for: talk.asks_for.clone(),
+                })
+                .collect(),
+            exchanges: snapshot
+                .exchanges
+                .iter()
+                .map(|exchange| ExchangeWire {
+                    who: exchange.who.into(),
+                    words: exchange.words.clone(),
+                    answer: exchange.answer.clone(),
+                    moment: exchange.moment.into(),
+                    asks_for: exchange.asks_for.clone(),
                 })
                 .collect(),
             goals: snapshot
@@ -834,6 +871,20 @@ impl TryFrom<ProjectionSnapshotWire> for ProjectionSnapshot {
                     asks_for: talk.asks_for.filter(|command| !command.trim().is_empty()),
                 })
                 .collect(),
+            exchanges: snapshot
+                .exchanges
+                .into_iter()
+                .filter(|exchange| !exchange.answer.trim().is_empty())
+                .map(|exchange| world_projection::Exchange {
+                    who: exchange.who.into(),
+                    words: exchange.words,
+                    answer: exchange.answer,
+                    moment: exchange.moment.into(),
+                    asks_for: exchange
+                        .asks_for
+                        .filter(|command| !command.trim().is_empty()),
+                })
+                .collect(),
             // A goal needs a name and at least one part; no more can be done
             // than it takes.
             goals: snapshot
@@ -869,6 +920,8 @@ pub struct ProjectionCapabilitiesWire {
     pub fork: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub background: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub talk: bool,
 }
 
 impl From<ProjectionCapabilities> for ProjectionCapabilitiesWire {
@@ -876,6 +929,7 @@ impl From<ProjectionCapabilities> for ProjectionCapabilitiesWire {
         Self {
             fork: capabilities.fork,
             background: capabilities.background,
+            talk: capabilities.talk,
         }
     }
 }
@@ -885,6 +939,7 @@ impl From<ProjectionCapabilitiesWire> for ProjectionCapabilities {
         Self {
             fork: capabilities.fork,
             background: capabilities.background,
+            talk: capabilities.talk,
         }
     }
 }
@@ -1896,6 +1951,7 @@ mod tests {
             capabilities: ProjectionCapabilities {
                 fork: true,
                 background: false,
+                talk: false,
             },
             briefing: Some(BriefingProjection {
                 eyebrow: "Status".into(),
@@ -2012,6 +2068,7 @@ mod tests {
             chapters: Vec::new(),
             goals: Vec::new(),
             weather: Default::default(),
+            exchanges: Vec::new(),
         }
     }
 
@@ -2161,6 +2218,7 @@ mod tests {
         let live = ProjectionCapabilities {
             fork: false,
             background: true,
+            talk: false,
         };
         let wire = ProjectionCapabilitiesWire::from(live);
         assert_eq!(ProjectionCapabilities::from(wire), live);

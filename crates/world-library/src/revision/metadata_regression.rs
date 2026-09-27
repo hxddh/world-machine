@@ -32,6 +32,7 @@ impl WorldSession for MockSession {
             capabilities: ProjectionCapabilities {
                 fork: false,
                 background: false,
+                talk: false,
             },
             briefing: Some(BriefingProjection {
                 eyebrow: "Metadata".into(),
