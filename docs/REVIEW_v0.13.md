@@ -1,0 +1,78 @@
+# v0.13.0 review: a world that forgets you on every update
+
+`v0.13.0` gave the World a voice, a year and a face. You can speak to anyone in your own words, the year has fifteen festivals, and the harbour and the settlements are drawn as themselves, with shadows from the sun. This review asks what now stands between it and the best products of its kind. The answer is not a missing feature but a broken promise: a World that "keeps living while you're away" does not survive the next update. After that, the people you talk to understand only half of what you say and remember none of it.
+
+**Verdict:** trust first, then depth. A place like this is worth opening every day only if it is still there tomorrow and its people know you. `v0.13.0` fails both. Every release since `v0.10` has changed a Pack's version, and a World saved under the old version will not open under the new one. Talking is real but shallow. Half of ordinary things a player types are not understood, a few are misheard, and nobody remembers a word of it the next day.
+
+## Where v0.13.0 stands
+
+Measured on the real Packs, deterministic hearing (no World voice):
+
+| | Tiny Society | Pocket Universe |
+| --- | --- | --- |
+| A World saved by the previous release | will not open: `HostError::VersionMismatch` in `world-host` `open_archive` | the same |
+| Releases that broke saved Worlds | every one since `v0.10` (Tiny Society 0.4 → 0.7, Pocket Universe 0.21 → 0.24) | |
+| Everyday phrases heard as some meaning, of a 60-phrase corpus | 32 of 60, 5 of them wrongly; 28 answered "I'm not sure what you mean" | the same System, the same result |
+| Phrases misheard as something else | 5 of 60, for example "why are you angry at Leo" heard as *what do you think of Leo*, "want to get a drink later" as *what do you need*, "你觉得诺亚怎么样" as *how are you* (Chinese names are not matched) | |
+| "How are you?" asked every day for 30 days | 30 different answers, but the same opening "Evan keeps me going" most days, once with "Evan is a gem." doubled | |
+| What someone says about a third person | one line from the opinion band ("Leo? We get on.") | the same |
+| What a person remembers of what the player said | whether they were hurt or warmed today, nothing else | the same |
+| The player's standing with someone | a hidden number; nothing on screen | the same |
+| A festival's words | three fixed lines by turnout, identical every year | the same |
+| Answers with World voice on | the window waits for the model, up to 20 s | the same |
+| Home covers and the things that go up for a festival | the app's generic shapes | the same |
+| A snapshot of a 365-period World, release build | 9.1 ms | 8.7 ms |
+
+Examples of the 28 not understood: "you look tired", "how was your day", "what have you been up to", "how's business", "who's your best friend", "love the bread", "I brought you flowers", any question about the weather or a festival, "tell me about yourself", family, "what worries you", "are you lonely", "you're annoying", "my bad".
+
+## Against the products that do it best
+
+| What makes a living world top-tier | Best in class | World Machine v0.13.0 |
+| --- | --- | --- |
+| Your world is always there | *Animal Crossing*, *Stardew Valley*: a save opens after every update, for years | A save breaks on every Pack release |
+| People who understand you | AI-native games (*Suck Up!*, Inworld demos) understand nearly anything; *Disco Elysium* never offers a line it cannot answer | Half of everyday phrases are not understood without World voice |
+| People who remember you | *Animal Crossing* villagers recall gifts, fights and moving day; *Stardew Valley* has visible hearts | Nobody recalls what you said yesterday; the bond is invisible |
+| A voice that never stalls | Every one of them answers within a frame; AI games stream | The window freezes while the model thinks |
+| A year that is new each year | *Stardew Valley* festivals change with who you know and what you did | The same three lines every year |
+
+## v0.14: a World that keeps you
+
+The bar, checked by tests on the real Packs:
+
+- **Worlds survive updates.** A World saved by `v0.10.0` or later opens in `v0.14.0` and keeps living. No release ever again ships a Pack version that cannot open the one before it; a test opens a saved World from every earlier supported version.
+- **People understand you.** Of a fixed corpus of at least 150 everyday phrases in English and Chinese, at most 10% are not understood and none is misheard, in both Packs and every seed, without World voice.
+- **People remember you.** Something said to a person can be recalled by them later, by what it was and when. The player's standing with each person is visible in their card and changes with what they are told and given.
+- **The window never waits.** With World voice on, the answer is heard off the UI thread; the window keeps drawing and the reply arrives when it is ready, or falls back to the System's own hearing after a deadline.
+- **A year that remembers itself.** A festival told in its second year is told differently from its first, from who came, what went up and what happened last time.
+
+1. **Carrying a World forward.**
+   - `world-host` gains a Pack upgrade path instead of `VersionMismatch`: when a saved World's Pack version is older than the installed one, the Pack is asked to carry it forward.
+   - Carrying forward is a new start from the World's current state, not a replay: the state is read with the old version's schema, adapted by the Pack, and a new World begins from it. The old history is archived as an earlier chapter that can still be opened, read and replayed with the version that wrote it.
+   - Replay never needs a decision maker or the new version's rules to explain the old chapter.
+   - A Pack declares the oldest version it can carry forward. CI keeps a saved World from each supported release as a fixture and opens every one.
+2. **Hearing far more.**
+   - The conversation System's hearing learns more meanings: what someone has been doing, their day, their family, what worries them, the weather, a coming festival, a gift, "tell me about yourself", questions about two people ("why are you angry at Leo", "you and Leo should talk").
+   - Names are matched in any language the Pack gives them, including Chinese names, and by first name and nickname.
+   - What a person says about a third person comes from what happened between them, not a band.
+   - The corpus test lives in `systems/conversation` and in each Pack, and reports every phrase it gets wrong.
+3. **Memory and standing.**
+   - Each exchange a person has with the player becomes something they know, with a meaning and a day, and they bring it up again ("You asked after Leo last week. We've made up since.").
+   - The player's standing with a person is shown in their card, in words and a small mark, and moves with what they are told, what they are given and what is built for them.
+   - Opening lines vary without repeating a clause within a day; a test asks every question for 30 days and fails on a repeated clause.
+4. **A voice off the UI thread.**
+   - The listener runs on a background task. The window shows the person thinking and stays responsive; the answer is proposed, checked and recorded when it arrives.
+   - A deadline falls back to the System's own hearing, and a slow or failed model never blocks the clock.
+5. **Festivals with memory, covers with faces.**
+   - Festival lines are chosen from what happened at that festival last year and who is new since.
+   - Home covers and the things that go up for a festival are drawn with each Pack's drawings.
+
+## How we'll know
+
+- `a_world_saved_by_every_supported_release_opens_and_keeps_living` in each Pack, from fixtures committed to the repository.
+- `people_understand_everyday_phrases` in `systems/conversation`, and the same corpus run against each Pack in every seed.
+- `people_remember_what_they_were_told` and `the_player_standing_is_shown_and_moves`.
+- `no_clause_repeats_within_a_day` over 30 days of every question.
+- A World-voice test with a listener that sleeps past the deadline: the window's frame is never held, and the System's own answer is recorded.
+- As before, a snapshot of a year-old World in 10 ms at most, and the year-long, consequence and story-density tests still hold.
+
+Still to do, and outside the code: the two-week diary on a real Mac (clicks, keys, sound), the five signing secrets that would allow notifications, and a commissioned artist's set to replace the first drawings.
