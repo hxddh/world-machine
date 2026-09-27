@@ -479,3 +479,17 @@ pub(crate) fn commands(world: &World) -> Vec<world_projection::ProjectionCommand
         })
         .collect()
 }
+
+/// What people have given the player to keep, oldest first, for the
+/// drawer.
+pub(crate) fn keepsakes(world: &World) -> Vec<world_projection::Keepsake> {
+    lives::keepsakes(world)
+        .into_iter()
+        .map(|kept| world_projection::Keepsake {
+            from: world_projection::SelectionId::Entity(kept.from),
+            what: kept.what,
+            note: kept.note,
+            moment: world_projection::SelectionId::Event(kept.event),
+        })
+        .collect()
+}

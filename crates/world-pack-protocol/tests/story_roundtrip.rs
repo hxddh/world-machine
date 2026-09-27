@@ -75,3 +75,28 @@ fn a_goal_without_parts_or_a_name_and_a_chapter_without_a_title_are_dropped() {
     assert_eq!(snapshot.goals[0].done, 2, "no more done than it takes");
     assert!(snapshot.chapters.is_empty());
 }
+
+#[test]
+fn keepsakes_cross_the_wire_and_an_older_pack_sends_none() {
+    use world_core::EntityId;
+    use world_projection::Keepsake;
+    let snapshot = ProjectionSnapshot {
+        keepsakes: vec![Keepsake {
+            from: SelectionId::Entity(EntityId::new(2)),
+            what: "a pressed flower from the Harbor".into(),
+            note: "I kept this for you while you were away.".into(),
+            moment: SelectionId::Event(EventId::new(9)),
+        }],
+        ..ProjectionSnapshot::default()
+    };
+    let wire = ProjectionSnapshotWire::from(&snapshot);
+    let json = serde_json::to_string(&wire).unwrap();
+    let back: ProjectionSnapshotWire = serde_json::from_str(&json).unwrap();
+    let back = ProjectionSnapshot::try_from(back).unwrap();
+    assert_eq!(back.keepsakes, snapshot.keepsakes);
+
+    let older = serde_json::to_string(&ProjectionSnapshotWire::default()).unwrap();
+    assert!(!older.contains("keepsakes"));
+    let back: ProjectionSnapshotWire = serde_json::from_str(&older).unwrap();
+    assert!(back.keepsakes.is_empty());
+}

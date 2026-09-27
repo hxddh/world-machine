@@ -426,6 +426,20 @@ pub struct ProjectionSnapshot {
     /// The weather the World's state says it has: rain in a storm, snow
     /// in winter, dust on Mars. Clear unless a Pack says otherwise.
     pub weather: Weather,
+    /// What people have given the player to keep, oldest first: the
+    /// drawer's keepsakes.
+    pub keepsakes: Vec<Keepsake>,
+}
+
+/// Something someone gave the player to keep, in the Pack's words: who
+/// from, what it is ("a pressed flower from the Harbor"), what they said
+/// with it, and the moment it was given.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Keepsake {
+    pub from: SelectionId,
+    pub what: String,
+    pub note: String,
+    pub moment: SelectionId,
 }
 
 /// Something the World is working toward and can be seen to build: "Rebuild
@@ -757,6 +771,10 @@ impl ProjectionSnapshot {
         for chapter in &self.chapters {
             text.push(&chapter.title);
             text.push(&chapter.summary);
+        }
+        for keepsake in &self.keepsakes {
+            text.push(&keepsake.what);
+            text.push(&keepsake.note);
         }
         for inspector in self.inspectors.values() {
             text.push(&inspector.title);

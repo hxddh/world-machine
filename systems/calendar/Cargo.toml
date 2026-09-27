@@ -8,3 +8,4 @@ publish = false
 [dependencies]
 world-core = { path = "../../crates/world-core" }
 lives = { path = "../lives" }
+hands = { path = "../hands" }

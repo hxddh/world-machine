@@ -333,30 +333,66 @@ fn what_you_choose_changes_the_place_and_comes_back() {
     );
 }
 
+/// The v0.15 bar: a new World opens on the place, not a card. The first
+/// deed can be done at once, someone nearby says what they make of it,
+/// and the first question comes straight after.
 #[test]
-fn a_new_world_opens_on_a_question() {
+fn a_new_world_opens_on_the_place() {
     let mut registry = world_host::WorldRegistry::new();
     registry
         .register(crate::pocket_universe_registration())
         .unwrap();
-    let mut session = registry.create(crate::POCKET_UNIVERSE_PACK_ID).unwrap();
-    let snapshot = session
-        .handle(world_projection::ProjectionIntent::InvokeCommand(
-            MARS.into(),
-        ))
-        .unwrap();
-    assert!(
+    let questions = |snapshot: &world_projection::ProjectionSnapshot| {
         snapshot
             .commands
             .iter()
-            .any(|command| command.question.is_some()),
-        "{:?}",
-        snapshot
-            .commands
-            .iter()
-            .map(|command| &command.title)
+            .filter(|command| command.question.is_some())
+            .map(|command| command.title.clone())
             .collect::<Vec<_>>()
-    );
+    };
+    for seed in [
+        MARS,
+        crate::SEED_1980S_TOWN_COMMAND,
+        crate::SEED_PENGUIN_CIVILIZATION_COMMAND,
+    ] {
+        let mut session = registry.create(crate::POCKET_UNIVERSE_PACK_ID).unwrap();
+        let opened = session
+            .handle(world_projection::ProjectionIntent::InvokeCommand(
+                seed.into(),
+            ))
+            .unwrap();
+        assert!(
+            questions(&opened).is_empty(),
+            "{seed}: {:?}",
+            questions(&opened)
+        );
+        let deed = opened
+            .commands
+            .iter()
+            .find(|command| {
+                command.unavailable.is_none()
+                    && command
+                        .hand
+                        .as_ref()
+                        .is_some_and(|hand| hand.verb == "Build")
+            })
+            .unwrap_or_else(|| panic!("{seed}: something to build at once"))
+            .id
+            .clone();
+        let after = session
+            .handle(world_projection::ProjectionIntent::InvokeCommand(deed))
+            .unwrap_or_else(|error| panic!("{seed}: the first deed failed: {error}"));
+        assert!(
+            !questions(&after).is_empty(),
+            "{seed}: no question after the first deed"
+        );
+        let heard = after
+            .voices
+            .iter()
+            .filter(|voice| !opened.voices.contains(voice))
+            .count();
+        assert!(heard >= 1, "{seed}: nobody said anything about it");
+    }
 }
 
 #[test]
@@ -488,6 +524,27 @@ fn a_year(seed: &str, policy: Policy) {
         "{seed} {policy:?}: {people:?} vs {lived_now:?}"
     );
     assert!(people.len() >= 3, "{seed} {policy:?}: nobody came to stay");
+
+    // The v0.15 bar: a question that comes round again never uses the
+    // words it was asked in last time.
+    let mut last_words = std::collections::BTreeMap::<String, String>::new();
+    for event in world
+        .events()
+        .iter()
+        .filter(|event| event.kind == "situation_arose")
+    {
+        let (Some(world_core::Value::Text(id)), Some((_, words))) =
+            (event.payload.get("storylet"), story::line(world, event))
+        else {
+            continue;
+        };
+        if let Some(before) = last_words.insert(id.clone(), words.clone()) {
+            assert_ne!(
+                before, words,
+                "{seed} {policy:?}: {id} asked in the same words again"
+            );
+        }
+    }
 
     let replayed = world.replay().unwrap();
     assert_eq!(replayed.state(), world.state());
@@ -640,6 +697,29 @@ fn time_a_year_old_world() {
     let started = std::time::Instant::now();
     played.universe.projection_snapshot();
     eprintln!("session snapshot {:?}", started.elapsed());
+    let time = |label: &str, f: &dyn Fn()| {
+        let started = std::time::Instant::now();
+        f();
+        eprintln!("  {label} {:?}", started.elapsed());
+    };
+    let kit = crate::speech::kit(world.state());
+    time("recollections", &|| {
+        for who in crate::life::people(world) {
+            conversation::recollection(world, &kit, who);
+        }
+    });
+    time("keepsakes", &|| {
+        lives::keepsakes(world);
+    });
+    time("commands", &|| {
+        story::commands(world);
+    });
+    time("talks", &|| {
+        crate::talk::talks(world, &story::commands(world));
+    });
+    time("voices", &|| {
+        talk::voices(world);
+    });
 }
 
 /// Plays `periods` periods of a seed, planting on the first if `plant`,
@@ -724,5 +804,153 @@ fn every_place_has_a_year_with_a_shape() {
         let planted = a_year_of(seed, 75, true);
         let unplanted = a_year_of(seed, 75, false);
         assert_ne!(harvest(&planted), harvest(&unplanted), "{seed}");
+    }
+}
+
+const SEEDS: [&str; 3] = [
+    MARS,
+    crate::SEED_1980S_TOWN_COMMAND,
+    crate::SEED_PENGUIN_CIVILIZATION_COMMAND,
+];
+
+fn begun(seed: &str) -> PocketUniverse<crate::PocketMind> {
+    let mut universe = PocketUniverse::new().unwrap();
+    universe.invoke_projection_command(seed).unwrap();
+    universe.invoke_projection_command(NUDGE_COMMAND).unwrap();
+    universe
+}
+
+/// The situations people put to the player, by kind and asker.
+fn came_up(events: &[world_core::Event]) -> Vec<(String, world_core::EntityId)> {
+    events
+        .iter()
+        .filter(|event| event.kind == "situation_came_up")
+        .filter_map(|event| match (event.payload.get("kind"), event.actor) {
+            (Some(world_core::Value::Text(kind)), Some(who)) => Some((kind.clone(), who)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The v0.15 bar: befriending someone opens their doors, each once, in
+/// every place.
+#[test]
+fn a_warm_friendship_opens_doors_in_every_place() {
+    for seed in SEEDS {
+        let mut universe = begun(seed);
+        let friend = crate::life::people(universe.world())[0];
+        for _ in 0..120 {
+            universe.say(friend, "you're wonderful").unwrap();
+            let commands = projection::snapshot(universe.world()).commands;
+            if let Some(gift) = commands.iter().find(|command| {
+                command.unavailable.is_none()
+                    && command.hand.as_ref().is_some_and(|hand| {
+                        hand.verb == "Give" && hand.at == Some(SelectionId::Entity(friend))
+                    })
+            }) {
+                universe.invoke_projection_command(&gift.id).unwrap();
+            }
+            let mut asked = std::collections::BTreeSet::new();
+            let answers = projection::snapshot(universe.world())
+                .commands
+                .into_iter()
+                .filter(|command| {
+                    command.asker == Some(SelectionId::Entity(friend))
+                        && command.unavailable.is_none()
+                })
+                .filter_map(|command| {
+                    asked
+                        .insert(command.question.as_ref()?.id.clone())
+                        .then_some(command.id)
+                })
+                .collect::<Vec<_>>();
+            for answer in answers {
+                universe.invoke_projection_command(&answer).unwrap();
+            }
+            universe.invoke_projection_command(NUDGE_COMMAND).unwrap();
+        }
+        let world = universe.world();
+        let doors = came_up(world.events())
+            .into_iter()
+            .filter(|(kind, who)| {
+                *who == friend && matches!(kind.as_str(), "confide" | "favour" | "keepsake")
+            })
+            .map(|(kind, _)| kind)
+            .collect::<Vec<_>>();
+        assert_eq!(doors, vec!["confide", "favour", "keepsake"], "{seed}");
+        assert!(
+            lives::keepsakes(world)
+                .iter()
+                .any(|kept| kept.from == friend),
+            "{seed}"
+        );
+    }
+}
+
+/// The v0.15 bar: every return, of one period to seven, ends on something
+/// someone left the player to keep.
+#[test]
+fn every_return_brings_a_keepsake_in_every_place() {
+    for seed in SEEDS {
+        let mut universe = begun(seed);
+        for periods in 1..=7 {
+            let since = universe.world().events().len();
+            universe.advance_periods(periods).unwrap();
+            let snapshot = universe.projection_snapshot_since(Some(since));
+            let last = snapshot
+                .briefing
+                .as_ref()
+                .and_then(|briefing| {
+                    briefing
+                        .items
+                        .iter()
+                        .rev()
+                        .find(|item| item.kind == world_projection::BriefingItemKind::Beat)
+                })
+                .map(|item| item.title.clone())
+                .unwrap_or_default();
+            assert!(
+                last.contains(" left you "),
+                "{seed}: a return of {periods} ended on {last:?}"
+            );
+        }
+    }
+}
+
+/// The v0.15 bar: someone sees what the player made, says so, and brings
+/// it up the next period.
+#[test]
+fn someone_sees_what_you_made_and_remembers_it_in_every_place() {
+    for seed in SEEDS {
+        let mut universe = begun(seed);
+        let build = projection::snapshot(universe.world())
+            .commands
+            .into_iter()
+            .find(|command| {
+                command.unavailable.is_none()
+                    && command
+                        .hand
+                        .as_ref()
+                        .is_some_and(|hand| hand.verb == "Build")
+            })
+            .unwrap_or_else(|| panic!("{seed}: something to build"));
+        let thing = build.hand.as_ref().unwrap().thing.to_lowercase();
+        universe.invoke_projection_command(&build.id).unwrap();
+        let who = universe
+            .world()
+            .events()
+            .iter()
+            .rev()
+            .find(|event| event.kind == "reacted")
+            .and_then(|event| event.actor)
+            .unwrap_or_else(|| panic!("{seed}: nobody said anything about it"));
+        universe.invoke_projection_command(NUDGE_COMMAND).unwrap();
+        let world = universe.world();
+        let recalled = conversation::recollection(world, &crate::speech::kit(world.state()), who)
+            .unwrap_or_default();
+        assert!(
+            recalled.contains(&format!("{thing} you built")),
+            "{seed}: {recalled:?}"
+        );
     }
 }

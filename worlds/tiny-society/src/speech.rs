@@ -43,6 +43,7 @@ pub(crate) fn kit(_: &WorldState) -> conversation::Kit {
                 .map(|festival| festival.name.to_string())
                 .collect()
         },
+        recalled: |_, event, who| crate::story::recalled(event, who),
     }
 }
 

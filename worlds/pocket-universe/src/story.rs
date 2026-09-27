@@ -1196,6 +1196,10 @@ fn chapter_ending(world: &World) -> (String, String) {
             fill(world, "{keeper} and {explorer} kept each other going.")
         });
     }
+    // What the player made this chapter is part of how it is told.
+    if let Some(made) = hands::latest_made_since(world, started) {
+        summary.push(format!("{made}."));
+    }
     for who in [SLOT_B, SLOT_E] {
         let (granted, grudges) = storylets::kindness(world.state(), &deck, who);
         if grudges > granted + 1 {
@@ -1383,15 +1387,127 @@ pub(crate) fn tick(
         away,
         at_end: at_end(world),
         chapter_ending: Box::new(chapter_ending),
+        hold: waiting_for_the_player(world),
     };
     let cast = crate::life::cast(world.state());
-    let mut events = lives::tick(world, actions, &cast, away)?;
+    let mut events = lives::tick_holding(world, actions, &cast, away, reading.hold)?;
     let kit = crate::handwork::kit(world.state());
     events.extend(hands::tick(world, actions, &kit)?);
     let almanac = crate::almanac::almanac(world.state());
     events.extend(calendar::tick(world, actions, &almanac)?);
     events.extend(storylets::tick(world, actions, &deck(), &reading)?);
     Ok(events)
+}
+
+/// Whether a new World is still waiting for the player's first deed
+/// before anyone asks them anything: nothing has come up yet, the player
+/// has neither made, given nor said anything, and its first period has not
+/// passed.
+fn waiting_for_the_player(world: &World) -> bool {
+    let deck = deck();
+    let state = world.state();
+    if storylets::anything_raised(state, &deck) {
+        return false;
+    }
+    let acted = state.entity(crate::handwork::kit(state).notes).is_some()
+        || world.events().iter().any(conversation::is_talk);
+    let (_, started) = storylets::chapter(state, &deck);
+    let first_period = state.entity(deck.story).is_none()
+        || storylets::period_index(state, &deck) <= started / deck.period.max(1);
+    !acted && first_period
+}
+
+/// Once the player has done something of their own in a new World, the
+/// first question comes straight after.
+pub(crate) fn after_first_deed(
+    world: &mut World,
+    actions: &ActionRegistry,
+) -> Result<Vec<EventId>, WorldError> {
+    if seed_id(world) == "unseeded"
+        || storylets::anything_raised(world.state(), &deck())
+        || waiting_for_the_player(world)
+    {
+        return Ok(Vec::new());
+    }
+    let reading = Reading {
+        pinned: pinned(world),
+        away: false,
+        at_end: at_end(world),
+        chapter_ending: Box::new(chapter_ending),
+        hold: false,
+    };
+    storylets::tick(world, actions, &deck(), &reading)
+}
+
+/// How a question is opened when it has come round before: never in last
+/// time's words, and with what happened then.
+const AGAIN: [&str; 6] = [
+    "Here we are again.",
+    "It's come round again.",
+    "You'll remember this one.",
+    "Same as before, I'm afraid.",
+    "This again.",
+    "Back to this, then.",
+];
+
+/// What the asker says as they ask, the `times`th time it has come up,
+/// having ended `last` the time before.
+fn asked(spec: &Spec, times: i64, last: Option<&str>) -> String {
+    if times <= 1 {
+        return spec.line.to_string();
+    }
+    let opener = AGAIN[((times - 2) as usize) % AGAIN.len()];
+    let then = last.and_then(|last| {
+        if last == "lapse" {
+            Some(&spec.lapse)
+        } else {
+            spec.answers
+                .iter()
+                .find(|answer| answer.id == last)
+                .map(|answer| &answer.said)
+        }
+    });
+    match then {
+        Some(said) => format!("{opener} Last time: {}. {}", said.told, spec.line),
+        None => format!("{opener} {}", spec.line),
+    }
+}
+
+/// What the asker of an open question says as they ask it now.
+fn asking(world: &World, spec: &Spec) -> String {
+    let deck = deck();
+    let id = spec.storylet.id;
+    fill(
+        world,
+        &asked(
+            spec,
+            storylets::times_raised(world.state(), &deck, id),
+            storylets::last_outcome(world.state(), &deck, id),
+        ),
+    )
+}
+
+/// What someone says about how the player answered them, with `{ago}`
+/// where when it was goes.
+pub(crate) fn recalled(world: &World, event: &Event, who: EntityId) -> Option<String> {
+    if event.actor != Some(who) || event.payload.contains_key("lapsed") {
+        return None;
+    }
+    let spec = storylet_of(event)?;
+    let choice = match event.payload.get("choice") {
+        Some(Value::Text(choice)) => choice.as_str(),
+        _ => return None,
+    };
+    let answer = spec.answers.iter().find(|answer| answer.id == choice)?;
+    let after = match (answer.refuses, answer.said.remembered) {
+        (true, _) => "I haven't forgotten.".to_string(),
+        (false, Some(remembered)) => fill(world, remembered),
+        (false, None) => "Thank you for that.".to_string(),
+    };
+    Some(format!(
+        "When I asked you {{ago}}, you said “{}”. {after}",
+        fill(world, answer.title).trim_end_matches('.')
+    ))
 }
 
 fn command_id(storylet: &str, choice: &str) -> String {
@@ -1431,7 +1547,7 @@ fn storylet_commands(world: &World) -> Vec<world_projection::ProjectionCommand> 
                 moves: Vec::new(),
                 question: Some(world_projection::Question {
                     id: storylet.id.into(),
-                    prompt: fill(world, spec.line),
+                    prompt: asking(world, spec),
                 }),
                 unavailable: (!unmet.is_empty()).then(|| "Not possible right now".to_string()),
                 hand: None,
@@ -1452,7 +1568,7 @@ pub(crate) fn wanting(world: &World, who: EntityId) -> Option<(String, Option<St
         .into_iter()
         .find(|(open, choice)| open.id == storylet.id && !choice.refuses)
         .map(|(open, choice)| command_id(open.id, choice.id));
-    Some((fill(world, spec.line), grant))
+    Some((asking(world, spec), grant))
 }
 
 pub(crate) fn kindness(world: &World, who: EntityId) -> (i64, i64) {
@@ -1519,7 +1635,15 @@ pub(crate) fn line(world: &World, event: &Event) -> Option<(EntityId, String)> {
     let asker = spec.storylet.asker;
     let other = if asker == SLOT_B { SLOT_E } else { SLOT_B };
     if event.kind == "situation_arose" {
-        return Some((asker, fill(world, spec.line)));
+        let times = match event.payload.get("times") {
+            Some(Value::Integer(times)) => *times,
+            _ => 1,
+        };
+        let last = match event.payload.get("last") {
+            Some(Value::Text(last)) => Some(last.as_str()),
+            _ => None,
+        };
+        return Some((asker, fill(world, &asked(spec, times, last))));
     }
     let said = outcome_of(event)?;
     Some((

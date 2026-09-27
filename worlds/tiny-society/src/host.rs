@@ -104,6 +104,9 @@ impl WorldSession for TinySocietySession {
         self.branch
             .advance_days(periods)
             .map_err(HostError::session)?;
+        self.branch
+            .leave_keepsake(cursor)
+            .map_err(HostError::session)?;
         self.background_cursor = Some(cursor);
         Ok(self.snapshot())
     }

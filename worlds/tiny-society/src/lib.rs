@@ -96,7 +96,30 @@ impl TinySocietyBranch {
         with_previews(&self.world, projection::snapshot(&self.world))
     }
 
-    /// Starts the storyteller, so a new World opens on a question.
+    /// On the player's return, someone who thinks well of them leaves them
+    /// something, with a line about the latest of what happened since
+    /// `since`.
+    pub fn leave_keepsake(&mut self, since: VisitCursor) -> Result<Vec<EventId>, Box<dyn Error>> {
+        let start = since.event_count.min(self.world.events().len());
+        let why = self.world.events()[start..]
+            .iter()
+            .rev()
+            .filter(|event| {
+                lives::is_news(event) || event.kind == "festival_held" || story::is_storylet(event)
+            })
+            .find_map(|event| story::told(&self.world, event))
+            .map(|told| format!("{told}."))
+            .unwrap_or_default();
+        let actions = build_action_registry()?;
+        Ok(
+            lives::leave_keepsake(&mut self.world, &actions, &life::cast(), &why)?
+                .into_iter()
+                .collect(),
+        )
+    }
+
+    /// Starts the storyteller. A new World opens on the place, and its
+    /// first question waits for the player's first deed.
     pub fn begin_story(&mut self) -> Result<Vec<EventId>, Box<dyn Error>> {
         let actions = build_action_registry()?;
         Ok(story::tick(&mut self.world, &actions, false)?)
@@ -187,7 +210,9 @@ impl TinySocietyBranch {
             speech::say(&self.world, who, words, listener).map_err(std::io::Error::other)?;
         let actions = build_action_registry()?;
         let event = self.world.execute(&actions, &request)?.id;
-        Ok(vec![event])
+        let mut events = vec![event];
+        events.extend(story::after_first_deed(&mut self.world, &actions)?);
+        Ok(events)
     }
 
     fn do_deed(&mut self, command_id: &str) -> Result<Vec<EventId>, Box<dyn Error>> {
@@ -195,7 +220,17 @@ impl TinySocietyBranch {
             .ok_or_else(|| std::io::Error::other(format!("not a deed: {command_id}")))?;
         let actions = build_action_registry()?;
         let event = self.world.execute(&actions, &hands::do_request(deed))?.id;
-        Ok(vec![event])
+        let mut events = vec![event];
+        // Someone nearby says what they make of it, and in a new harbour
+        // the first question follows.
+        events.extend(lives::react_to(
+            &mut self.world,
+            &actions,
+            &life::cast(),
+            event,
+        )?);
+        events.extend(story::after_first_deed(&mut self.world, &actions)?);
+        Ok(events)
     }
 
     pub fn continue_with_retention(&mut self) -> Result<Vec<EventId>, Box<dyn Error>> {
@@ -506,5 +541,7 @@ fn build_action_registry() -> Result<ActionRegistry, Box<dyn Error>> {
 
 #[cfg(test)]
 mod density;
+#[cfg(test)]
+mod friendship;
 #[cfg(test)]
 mod tests;

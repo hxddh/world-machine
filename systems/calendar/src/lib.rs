@@ -448,10 +448,14 @@ impl Action for Holds {
         draft.payload.insert("name".into(), festival.name.into());
         draft.payload.insert("turnout".into(), turnout.id().into());
         draft.payload.insert("grown".into(), grown.into());
+        // Whatever the player made there is part of the day.
+        let around = hands::made_at(state, festival.at)
+            .map(|made| format!(", around the {} you made", made.to_lowercase()))
+            .unwrap_or_default();
         draft.payload.insert(
             "told".into(),
             format!(
-                "{}{then_told}",
+                "{}{then_told}{around}",
                 fill(festival.told[turnout.index()], festival, 0)
             )
             .into(),

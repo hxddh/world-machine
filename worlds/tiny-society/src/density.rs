@@ -27,6 +27,8 @@ struct Played {
     /// on the scene.
     answered: usize,
     answers_seen: usize,
+    /// Each day, the storylets that could have come up.
+    could: Vec<Vec<&'static str>>,
 
     branch: TinySocietyBranch,
 }
@@ -63,7 +65,9 @@ fn play(policy: Policy, days: usize) -> Played {
     let mut society = TinySociety::new().unwrap();
     society.run_story().unwrap();
     let mut branch = society.branch();
-    // The first day passes before anything is counted.
+    // The World opens as the app opens it, and its first day passes before
+    // anything is counted.
+    branch.begin_story().unwrap();
     branch
         .invoke_projection_command(story::WAIT_COMMAND)
         .unwrap();
@@ -74,9 +78,11 @@ fn play(policy: Policy, days: usize) -> Played {
         first_chapter: None,
         answered: 0,
         answers_seen: 0,
+        could: Vec::new(),
 
         branch: branch.clone(),
     };
+    let deck = story::deck();
     for day in 0..days {
         // Whoever asks an open question is in the harbour to ask it, even
         // someone back from being away.
@@ -102,6 +108,13 @@ fn play(policy: Policy, days: usize) -> Played {
             .map(|command| command.id.clone())
             .collect::<Vec<_>>();
         played.days_with_a_choice.push(!choices.is_empty());
+        played.could.push(
+            deck.storylets
+                .iter()
+                .filter(|storylet| storylets::can_arise(branch.world().state(), &deck, storylet))
+                .map(|storylet| storylet.id)
+                .collect(),
+        );
         played.lines.push(said_today(&branch));
         played.gauges.push(
             snapshot
@@ -342,26 +355,57 @@ fn what_you_choose_changes_the_place_and_comes_back() {
     );
 }
 
+/// The v0.15 bar: a new World opens on the place, not a card. The first
+/// deed can be done at once, someone nearby says what they make of it,
+/// and the first question comes straight after.
 #[test]
-fn a_new_world_opens_on_a_question() {
+fn a_new_world_opens_on_the_place() {
     let mut registry = world_host::WorldRegistry::new();
     registry
         .register(crate::tiny_society_registration())
         .unwrap();
-    let session = registry.create(crate::TINY_SOCIETY_PACK_ID).unwrap();
+    let mut session = registry.create(crate::TINY_SOCIETY_PACK_ID).unwrap();
     let snapshot = session.snapshot();
-    assert!(
+    let questions = |snapshot: &world_projection::ProjectionSnapshot| {
         snapshot
             .commands
             .iter()
-            .any(|command| command.question.is_some()),
-        "{:?}",
-        snapshot
-            .commands
-            .iter()
-            .map(|command| &command.title)
+            .filter(|command| command.question.is_some())
+            .map(|command| command.title.clone())
             .collect::<Vec<_>>()
+    };
+    assert!(
+        questions(&snapshot).is_empty(),
+        "{:?}",
+        questions(&snapshot)
     );
+    let deed = snapshot
+        .commands
+        .iter()
+        .find(|command| {
+            command.unavailable.is_none()
+                && command
+                    .hand
+                    .as_ref()
+                    .is_some_and(|hand| hand.verb == "Build")
+        })
+        .expect("something to build at once")
+        .id
+        .clone();
+    let before = session.snapshot();
+    let after = session
+        .handle(world_projection::ProjectionIntent::InvokeCommand(deed))
+        .expect("the first deed cannot fail");
+    assert!(
+        !questions(&after).is_empty(),
+        "no question after the first deed"
+    );
+    let heard = after
+        .voices
+        .iter()
+        .filter(|voice| !before.voices.contains(voice))
+        .count();
+    assert!(heard >= 1, "nobody said anything about it");
 }
 
 #[test]
@@ -495,6 +539,59 @@ fn a_year(policy: Policy) {
         lived * 100 >= owed * 95,
         "{policy:?}: {lived} of {owed} days lived"
     );
+
+    // The v0.15 bar: a question that comes round again never uses the
+    // words it was asked in last time.
+    let mut last_words = std::collections::BTreeMap::<String, String>::new();
+    for event in world
+        .events()
+        .iter()
+        .filter(|event| event.kind == "situation_arose")
+    {
+        let (Some(world_core::Value::Text(id)), Some((_, words))) =
+            (event.payload.get("storylet"), story::line(event))
+        else {
+            continue;
+        };
+        if let Some(before) = last_words.insert(id.clone(), words.clone()) {
+            assert_ne!(
+                before, words,
+                "{policy:?}: {id} asked in the same words again"
+            );
+        }
+    }
+
+    // And for a player who answers, nothing that could come up is left
+    // waiting: every question comes up within 60 days of first being
+    // able to, the calendar's days aside.
+    if !matches!(policy, Policy::Absent) {
+        let deck = story::deck();
+        for storylet in deck.storylets.iter().filter(|storylet| !storylet.timely) {
+            let Some(could) = played
+                .could
+                .iter()
+                .position(|ids| ids.contains(&storylet.id))
+            else {
+                continue;
+            };
+            let waited = world
+                .events()
+                .iter()
+                .filter(|event| {
+                    event.kind == "situation_arose"
+                        && event.payload.get("storylet")
+                            == Some(&world_core::Value::Text(storylet.id.into()))
+                })
+                .map(|event| day(event) as i64 - first as i64 - 1 - could as i64)
+                .find(|waited| *waited >= 0)
+                .unwrap_or(365);
+            assert!(
+                waited <= 60,
+                "{policy:?}: {} waited {waited} days to come up",
+                storylet.id
+            );
+        }
+    }
 
     let replayed = world.replay().unwrap();
     assert_eq!(replayed.state(), world.state());
@@ -755,4 +852,105 @@ fn a_harbour_year_has_a_shape() {
         planted.world().replay().unwrap().state(),
         planted.world().state()
     );
+}
+
+/// Prints what a year holds, for the v0.14 review.
+#[test]
+#[ignore]
+fn measure_a_year() {
+    for policy in [Policy::Generous, Policy::Absent] {
+        let played = play(policy, 365);
+        let world = played.branch.world();
+        let deck = story::deck();
+        println!(
+            "== {policy:?}: deck {} storylets, {} goals",
+            deck.storylets.len(),
+            deck.goals.len()
+        );
+        let mut asked = std::collections::BTreeMap::<String, usize>::new();
+        let mut kinds = std::collections::BTreeMap::<String, usize>::new();
+        for event in world.events() {
+            *kinds.entry(event.kind.clone()).or_default() += 1;
+            if event.kind == "situation_arose" {
+                if let Some(world_core::Value::Text(id)) = event.payload.get("storylet") {
+                    *asked.entry(id.clone()).or_default() += 1;
+                }
+            }
+        }
+        let mut counts = asked.values().copied().collect::<Vec<_>>();
+        counts.sort();
+        let total: usize = counts.iter().sum();
+        println!(
+            "questions raised {total}, distinct {}, never raised {}, median {}, max {} ({:?})",
+            counts.len(),
+            deck.storylets.len() - counts.len(),
+            counts[counts.len() / 2],
+            counts.last().unwrap(),
+            asked.iter().max_by_key(|(_, c)| **c).unwrap().0
+        );
+        println!(
+            "raised >= 6 times: {}",
+            counts.iter().filter(|c| **c >= 6).count()
+        );
+        // How long each storylet waited, from the first day it could come
+        // up to the day it did.
+        let day_of =
+            |event: &world_core::Event| event.world_time / crate::persistence::WORLD_DAY_TICKS;
+        let first_day = world.events().first().map(day_of).unwrap_or(0) + 1;
+        let mut waits = Vec::new();
+        for storylet in &deck.storylets {
+            let Some(could) = played
+                .could
+                .iter()
+                .position(|ids| ids.contains(&storylet.id))
+            else {
+                continue;
+            };
+            let raised = world.events().iter().find(|event| {
+                event.kind == "situation_arose"
+                    && event.payload.get("storylet")
+                        == Some(&world_core::Value::Text(storylet.id.into()))
+                    && (day_of(event) as i64 - first_day as i64) >= could as i64
+            });
+            let waited = raised
+                .map(|event| day_of(event) as i64 - first_day as i64 - could as i64)
+                .unwrap_or(365);
+            waits.push((waited, storylet.id));
+        }
+        waits.sort();
+        println!(
+            "longest waits: {:?}",
+            &waits[waits.len().saturating_sub(8)..]
+        );
+        let unique = deck
+            .storylets
+            .iter()
+            .map(|storylet| storylet.id)
+            .collect::<std::collections::BTreeSet<_>>();
+        println!("unique storylet ids: {}", unique.len());
+        for storylet in &deck.storylets {
+            if !asked.contains_key(storylet.id) {
+                println!("  never: {} {:?}", storylet.id, storylet.requires);
+            }
+        }
+        let snapshot = projection::snapshot(world);
+        println!(
+            "people now {}, chapters {}, answered {}, answers that changed the scene {}",
+            story::people(world).len(),
+            snapshot.chapters.len(),
+            played.answered,
+            played.answers_seen
+        );
+        println!(
+            "deeds on offer: {:?}",
+            snapshot
+                .commands
+                .iter()
+                .filter_map(|c| c.hand.as_ref().map(|h| h.verb.clone()))
+                .collect::<std::collections::BTreeSet<_>>()
+        );
+        for (kind, count) in &kinds {
+            println!("  {kind}: {count}");
+        }
+    }
 }

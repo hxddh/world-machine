@@ -101,6 +101,7 @@ pub(crate) fn snapshot_since(
         goals: crate::story::goals(world),
         chapters: crate::story::chapters(world),
         weather: crate::story::weather(world),
+        keepsakes: crate::life::keepsakes(world),
     };
     snapshot.tell_events_as_history_does();
     snapshot
@@ -483,6 +484,23 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
     // collapse and the bakery's closure dropped the household budget cut that
     // caused them, because the cut was older. If beats are left out, the
     // briefing says how many rather than pretending there were none.
+    // What someone left the player while they were away closes the story
+    // of the return.
+    if let Some(left) = relevant_events
+        .iter()
+        .rev()
+        .find(|event| event.kind == "keepsake_left")
+    {
+        if let Some(title) = lives::told(left) {
+            items.push(BriefingItem {
+                selection: Some(SelectionId::Event(left.id)),
+                title,
+                detail: lives::said(left).map(|(_, note)| note).unwrap_or_default(),
+                kind: BriefingItemKind::Beat,
+                tone: world_projection::Tone::Good,
+            });
+        }
+    }
     let told = items.len();
     let happened = narratable_count(world, relevant_events);
     if happened > told {
