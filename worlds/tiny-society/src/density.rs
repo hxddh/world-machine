@@ -636,3 +636,99 @@ fn branches_become_different_towns() {
     );
     assert_ne!(scene(left.world()), scene(right.world()));
 }
+
+/// Plays `days` days, planting a garden on the first day if `plant`, and
+/// answering nothing; returns the branch.
+fn a_harbour_year(days: usize, plant: bool) -> TinySocietyBranch {
+    let mut society = TinySociety::new().unwrap();
+    society.run_story().unwrap();
+    let mut branch = society.branch();
+    branch.begin_story().unwrap();
+    if plant {
+        let gardens = branch
+            .projection_snapshot()
+            .deeds()
+            .filter(|(_, command, hand)| hand.verb == "Plant" && command.unavailable.is_none())
+            .map(|(_, command, _)| command.id.clone())
+            .take(2)
+            .collect::<Vec<_>>();
+        assert!(!gardens.is_empty());
+        for garden in gardens {
+            branch.invoke_projection_command(&garden).unwrap();
+        }
+    }
+    for _ in 0..days {
+        branch
+            .invoke_projection_command(story::WAIT_COMMAND)
+            .unwrap();
+    }
+    branch
+}
+
+/// The harbour's year has a shape: seasons a month long, something on the
+/// calendar in every fortnight, festivals in every season that people get
+/// ready for, and a harvest that is as good as what was planted.
+#[test]
+fn a_harbour_year_has_a_shape() {
+    let left_alone = a_harbour_year(130, false);
+    let world = left_alone.world();
+    let period = |event: &world_core::Event| event.world_time / crate::persistence::WORLD_DAY_TICKS;
+    let days = world
+        .events()
+        .iter()
+        .filter(|event| calendar::is_calendar(event))
+        .map(period)
+        .collect::<Vec<_>>();
+    for start in 0..116 {
+        assert!(
+            days.iter().any(|day| (start..start + 14).contains(day)),
+            "nothing on the calendar in days {start}-{}",
+            start + 14
+        );
+    }
+    let held = world
+        .events()
+        .iter()
+        .filter(|event| event.kind == "festival_held")
+        .collect::<Vec<_>>();
+    let almanac = crate::almanac::almanac(world.state());
+    for season in 0..4 {
+        let in_season = held
+            .iter()
+            .filter(|event| {
+                let day = period(event) % crate::almanac::YEAR_DAYS;
+                day / (crate::almanac::YEAR_DAYS / 4) == season
+            })
+            .count();
+        assert!(in_season >= 3, "season {season}: {in_season} festivals");
+    }
+    assert!(held.len() >= almanac.festivals.len());
+    assert!(world
+        .events()
+        .iter()
+        .any(|event| event.kind == "festival_nears"));
+    let snapshot = left_alone.projection_snapshot();
+    let calendar = snapshot.calendar.unwrap();
+    assert!(calendar.season.is_some());
+
+    let harvest = |branch: &TinySocietyBranch| {
+        branch
+            .world()
+            .events()
+            .iter()
+            .find(|event| {
+                event.kind == "festival_held"
+                    && event.payload.get("festival")
+                        == Some(&world_core::Value::Text("harvest_home".into()))
+            })
+            .and_then(calendar::told)
+            .unwrap()
+    };
+    let planted = a_harbour_year(75, true);
+    let unplanted = a_harbour_year(75, false);
+    assert_ne!(harvest(&planted), harvest(&unplanted));
+    assert_eq!(
+        planted.world().replay().unwrap().state(),
+        planted.world().state()
+    );
+}

@@ -11,6 +11,7 @@ use world_projection::{
     ProjectionCapabilities, ProjectionCommand, ProjectionIntent, ProjectionSnapshot, Scenery,
     SelectionId, TimelineItem, TimelineProjection, Tone, WhyNode, WhyProjection,
 };
+use world_projection::{DrawPart, DrawShape, Drawing, Ink, Stance};
 
 pub const PACK_MANIFEST_FORMAT: &str = "world-machine-pack";
 pub const PACK_MANIFEST_VERSION: u32 = 1;
@@ -275,6 +276,7 @@ fn validate_selection_for_protocol(
 pub enum ProjectionIntentWire {
     ForkBeforeEvent { event: u64 },
     InvokeCommand { command: String },
+    Say { to: SelectionIdWire, words: String },
 }
 
 impl From<ProjectionIntent> for ProjectionIntentWire {
@@ -282,6 +284,10 @@ impl From<ProjectionIntent> for ProjectionIntentWire {
         match intent {
             ProjectionIntent::ForkBeforeEvent(event) => Self::ForkBeforeEvent { event: event.0 },
             ProjectionIntent::InvokeCommand(command) => Self::InvokeCommand { command },
+            ProjectionIntent::Say { to, words } => Self::Say {
+                to: to.into(),
+                words,
+            },
         }
     }
 }
@@ -293,6 +299,10 @@ impl From<ProjectionIntentWire> for ProjectionIntent {
                 Self::ForkBeforeEvent(EventId::new(event))
             }
             ProjectionIntentWire::InvokeCommand { command } => Self::InvokeCommand(command),
+            ProjectionIntentWire::Say { to, words } => Self::Say {
+                to: to.into(),
+                words,
+            },
         }
     }
 }
@@ -359,12 +369,154 @@ pub struct ProjectionSnapshotWire {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub talks: Vec<TalkWire>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub exchanges: Vec<ExchangeWire>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub goals: Vec<GoalWire>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub chapters: Vec<ChapterWire>,
     /// Optional both ways: the weather over the scene; clear if absent.
     #[serde(default, skip_serializing_if = "is_clear")]
     pub weather: WeatherWire,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub drawings: Vec<DrawingWire>,
+}
+
+/// The most drawings one snapshot carries.
+pub const MOST_DRAWINGS: usize = 64;
+
+/// A drawing a Pack ships, as it crosses the boundary.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct DrawingWire {
+    pub id: String,
+    pub aspect: f32,
+    pub parts: Vec<DrawPartWire>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct DrawPartWire {
+    pub shape: DrawShapeWire,
+    /// A role (`wall`, `clothes`, …) or a colour (`#rrggbb`); anything else
+    /// is drawn in the walls' colour.
+    pub ink: String,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub tone: f32,
+    /// Stances this build does not know are left out of the list.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stances: Vec<String>,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub swing: f32,
+}
+
+fn is_zero(value: &f32) -> bool {
+    *value == 0.0
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum DrawShapeWire {
+    Rect {
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        #[serde(default, skip_serializing_if = "is_zero")]
+        round: f32,
+    },
+    Ellipse {
+        x: f32,
+        y: f32,
+        rx: f32,
+        ry: f32,
+    },
+    Polygon {
+        points: Vec<(f32, f32)>,
+    },
+    Line {
+        from: (f32, f32),
+        to: (f32, f32),
+        width: f32,
+    },
+}
+
+impl From<&Drawing> for DrawingWire {
+    fn from(drawing: &Drawing) -> Self {
+        Self {
+            id: drawing.id.clone(),
+            aspect: drawing.aspect,
+            parts: drawing
+                .parts
+                .iter()
+                .map(|part| DrawPartWire {
+                    shape: match &part.shape {
+                        DrawShape::Rect { x, y, w, h, round } => DrawShapeWire::Rect {
+                            x: *x,
+                            y: *y,
+                            w: *w,
+                            h: *h,
+                            round: *round,
+                        },
+                        DrawShape::Ellipse { x, y, rx, ry } => DrawShapeWire::Ellipse {
+                            x: *x,
+                            y: *y,
+                            rx: *rx,
+                            ry: *ry,
+                        },
+                        DrawShape::Polygon { points } => DrawShapeWire::Polygon {
+                            points: points.clone(),
+                        },
+                        DrawShape::Line { from, to, width } => DrawShapeWire::Line {
+                            from: *from,
+                            to: *to,
+                            width: *width,
+                        },
+                    },
+                    ink: part.ink.id(),
+                    tone: part.tone,
+                    stances: part
+                        .stances
+                        .iter()
+                        .map(|stance| stance.id().to_string())
+                        .collect(),
+                    swing: part.swing,
+                })
+                .collect(),
+        }
+    }
+}
+
+impl From<DrawingWire> for Drawing {
+    fn from(drawing: DrawingWire) -> Self {
+        Self {
+            id: drawing.id,
+            aspect: drawing.aspect,
+            parts: drawing
+                .parts
+                .into_iter()
+                .map(|part| DrawPart {
+                    shape: match part.shape {
+                        DrawShapeWire::Rect { x, y, w, h, round } => {
+                            DrawShape::Rect { x, y, w, h, round }
+                        }
+                        DrawShapeWire::Ellipse { x, y, rx, ry } => {
+                            DrawShape::Ellipse { x, y, rx, ry }
+                        }
+                        DrawShapeWire::Polygon { points } => DrawShape::Polygon { points },
+                        DrawShapeWire::Line { from, to, width } => {
+                            DrawShape::Line { from, to, width }
+                        }
+                    },
+                    ink: Ink::from_id(&part.ink).unwrap_or(Ink::Wall),
+                    tone: part.tone,
+                    stances: part
+                        .stances
+                        .iter()
+                        .filter_map(|stance| Stance::from_id(stance))
+                        .collect(),
+                    swing: part.swing,
+                })
+                .collect(),
+        }
+    }
 }
 
 /// The weather over a World's scene. A Pack's word this build does not
@@ -454,6 +606,17 @@ pub struct TalkWire {
     pub who: SelectionIdWire,
     pub question: String,
     pub answer: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asks_for: Option<String>,
+}
+
+/// Something the player said to someone, and the answer.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ExchangeWire {
+    pub who: SelectionIdWire,
+    pub words: String,
+    pub answer: String,
+    pub moment: SelectionIdWire,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub asks_for: Option<String>,
 }
@@ -574,6 +737,10 @@ pub struct GaugeMoveWire {
 pub struct CalendarWire {
     pub unit: String,
     pub length: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub season: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coming: Option<String>,
 }
 
 /// How a World looks from a distance, as `0xRRGGBB` colours.
@@ -662,6 +829,10 @@ impl ProjectionSnapshotWire {
         for talk in &self.talks {
             validate_selection_for_protocol(protocol_version, talk.who)?;
         }
+        for exchange in &self.exchanges {
+            validate_selection_for_protocol(protocol_version, exchange.who)?;
+            validate_selection_for_protocol(protocol_version, exchange.moment)?;
+        }
         for chapter in &self.chapters {
             if let Some(moment) = chapter.moment {
                 validate_selection_for_protocol(protocol_version, moment)?;
@@ -691,6 +862,8 @@ impl From<&ProjectionSnapshot> for ProjectionSnapshotWire {
             calendar: snapshot.calendar.as_ref().map(|calendar| CalendarWire {
                 unit: calendar.unit.clone(),
                 length: calendar.length,
+                season: calendar.season.clone(),
+                coming: calendar.coming.clone(),
             }),
             gauges: snapshot
                 .gauges
@@ -722,6 +895,17 @@ impl From<&ProjectionSnapshot> for ProjectionSnapshotWire {
                     asks_for: talk.asks_for.clone(),
                 })
                 .collect(),
+            exchanges: snapshot
+                .exchanges
+                .iter()
+                .map(|exchange| ExchangeWire {
+                    who: exchange.who.into(),
+                    words: exchange.words.clone(),
+                    answer: exchange.answer.clone(),
+                    moment: exchange.moment.into(),
+                    asks_for: exchange.asks_for.clone(),
+                })
+                .collect(),
             goals: snapshot
                 .goals
                 .iter()
@@ -744,6 +928,7 @@ impl From<&ProjectionSnapshot> for ProjectionSnapshotWire {
                 })
                 .collect(),
             weather: snapshot.weather.into(),
+            drawings: snapshot.drawings.iter().map(Into::into).collect(),
         }
     }
 }
@@ -795,6 +980,8 @@ impl TryFrom<ProjectionSnapshotWire> for ProjectionSnapshot {
                 .map(|calendar| world_projection::Calendar {
                     unit: calendar.unit,
                     length: calendar.length,
+                    season: calendar.season.filter(|season| !season.trim().is_empty()),
+                    coming: calendar.coming.filter(|coming| !coming.trim().is_empty()),
                 }),
             gauges: snapshot
                 .gauges
@@ -834,6 +1021,20 @@ impl TryFrom<ProjectionSnapshotWire> for ProjectionSnapshot {
                     asks_for: talk.asks_for.filter(|command| !command.trim().is_empty()),
                 })
                 .collect(),
+            exchanges: snapshot
+                .exchanges
+                .into_iter()
+                .filter(|exchange| !exchange.answer.trim().is_empty())
+                .map(|exchange| world_projection::Exchange {
+                    who: exchange.who.into(),
+                    words: exchange.words,
+                    answer: exchange.answer,
+                    moment: exchange.moment.into(),
+                    asks_for: exchange
+                        .asks_for
+                        .filter(|command| !command.trim().is_empty()),
+                })
+                .collect(),
             // A goal needs a name and at least one part; no more can be done
             // than it takes.
             goals: snapshot
@@ -860,6 +1061,15 @@ impl TryFrom<ProjectionSnapshotWire> for ProjectionSnapshot {
                 })
                 .collect(),
             weather: snapshot.weather.into(),
+            // A drawing the app could not draw is no drawing: its items
+            // are drawn with the app's own shapes.
+            drawings: snapshot
+                .drawings
+                .into_iter()
+                .map(Drawing::from)
+                .filter(Drawing::is_drawable)
+                .take(MOST_DRAWINGS)
+                .collect(),
         })
     }
 }
@@ -869,6 +1079,8 @@ pub struct ProjectionCapabilitiesWire {
     pub fork: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub background: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub talk: bool,
 }
 
 impl From<ProjectionCapabilities> for ProjectionCapabilitiesWire {
@@ -876,6 +1088,7 @@ impl From<ProjectionCapabilities> for ProjectionCapabilitiesWire {
         Self {
             fork: capabilities.fork,
             background: capabilities.background,
+            talk: capabilities.talk,
         }
     }
 }
@@ -885,6 +1098,7 @@ impl From<ProjectionCapabilitiesWire> for ProjectionCapabilities {
         Self {
             fork: capabilities.fork,
             background: capabilities.background,
+            talk: capabilities.talk,
         }
     }
 }
@@ -1553,6 +1767,11 @@ pub struct CanvasItemWire {
     pub at: Option<SelectionIdWire>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub look: Option<LookWire>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub drawing: Option<String>,
+    /// A stance this build does not know is drawn standing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stance: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -1586,6 +1805,8 @@ impl From<&CanvasItem> for CanvasItemWire {
             shape: item.shape.map(Into::into),
             at: item.at.map(Into::into),
             look: item.look.map(Into::into),
+            drawing: item.drawing.clone(),
+            stance: item.stance.map(|stance| stance.id().to_string()),
         }
     }
 }
@@ -1612,6 +1833,10 @@ impl From<CanvasItemWire> for CanvasItem {
             shape: item.shape.map(Into::into),
             at: item.at.map(Into::into),
             look: item.look.map(Into::into),
+            drawing: item.drawing.filter(|drawing| !drawing.trim().is_empty()),
+            stance: item
+                .stance
+                .map(|stance| Stance::from_id(&stance).unwrap_or_default()),
         }
     }
 }
@@ -1896,6 +2121,7 @@ mod tests {
             capabilities: ProjectionCapabilities {
                 fork: true,
                 background: false,
+                talk: false,
             },
             briefing: Some(BriefingProjection {
                 eyebrow: "Status".into(),
@@ -1964,6 +2190,8 @@ mod tests {
                     shape: None,
                     at: None,
                     look: None,
+                    drawing: None,
+                    stance: None,
                 }],
                 links: vec![CanvasLink {
                     from: entity,
@@ -2012,6 +2240,8 @@ mod tests {
             chapters: Vec::new(),
             goals: Vec::new(),
             weather: Default::default(),
+            exchanges: Vec::new(),
+            drawings: Vec::new(),
         }
     }
 
@@ -2154,6 +2384,50 @@ mod tests {
     }
 
     #[test]
+    fn what_the_player_says_crosses_the_boundary_as_said() {
+        let said = ProjectionIntent::Say {
+            to: SelectionId::Entity(EntityId::new(7)),
+            words: "How's the \"bakery\"? 你好".into(),
+        };
+        let json = serde_json::to_string(&ProjectionIntentWire::from(said.clone())).unwrap();
+        let back: ProjectionIntentWire = serde_json::from_str(&json).unwrap();
+        assert_eq!(ProjectionIntent::from(back), said);
+    }
+
+    #[test]
+    fn drawings_cross_the_boundary_and_one_the_app_cannot_draw_is_dropped() {
+        let person = world_projection::person_base("someone")
+            .with("someone", world_projection::short_hair());
+        let wire = DrawingWire::from(&person);
+        let json = serde_json::to_string(&wire).unwrap();
+        let back = Drawing::from(serde_json::from_str::<DrawingWire>(&json).unwrap());
+        assert_eq!(back, person);
+
+        let mut stray = wire.clone();
+        stray.id = "stray".into();
+        stray.parts[0].shape = DrawShapeWire::Rect {
+            x: 90.0,
+            y: 0.0,
+            w: 1.0,
+            h: 1.0,
+            round: 0.0,
+        };
+        let mut unknown = wire.clone();
+        unknown.parts[0].ink = "sparkle".into();
+        unknown.parts[0].stances = vec!["dancing".into(), "talking".into()];
+        let unknown = Drawing::from(unknown);
+        assert_eq!(unknown.parts[0].ink, Ink::Wall);
+        assert_eq!(unknown.parts[0].stances, vec![Stance::Talking]);
+        assert!(!Drawing::from(stray).is_drawable());
+
+        let old: CanvasItemWire = serde_json::from_str(
+            r#"{"id":{"type":"entity","id":1},"kind":"actor","label":"Ann","detail":"","x":0.1,"y":0.2,"stance":"juggling"}"#,
+        )
+        .unwrap();
+        assert_eq!(CanvasItem::from(old).stance, Some(Stance::Standing));
+    }
+
+    #[test]
     fn moving_on_its_own_is_declared_and_absent_means_it_does_not() {
         let old: ProjectionCapabilitiesWire =
             serde_json::from_str(r#"{"fork":true}"#).expect("an older Pack decodes");
@@ -2161,6 +2435,7 @@ mod tests {
         let live = ProjectionCapabilities {
             fork: false,
             background: true,
+            talk: false,
         };
         let wire = ProjectionCapabilitiesWire::from(live);
         assert_eq!(ProjectionCapabilities::from(wire), live);

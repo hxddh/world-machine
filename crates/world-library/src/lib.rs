@@ -779,6 +779,8 @@ fn cast_from_document(
                 shape: figure.shape.as_deref().map(mark_shape_from_name),
                 at: figure.at.as_deref().and_then(SelectionId::from_stable_key),
                 look,
+                drawing: None,
+                stance: None,
             })
         })
         .collect()
@@ -926,6 +928,8 @@ fn summary(id: WorldDocumentId, document: &WorldDocument) -> WorldDocumentSummar
             world_projection::Calendar {
                 unit: calendar.unit.clone(),
                 length: calendar.length,
+                coming: None,
+                season: None,
             }
         }),
         display_marks: document
@@ -1147,6 +1151,7 @@ mod tests {
                 capabilities: ProjectionCapabilities {
                     fork: false,
                     background: false,
+                    talk: false,
                 },
                 briefing: Some(BriefingProjection {
                     eyebrow: "Mock".into(),
@@ -1716,10 +1721,13 @@ mod tests {
             capabilities: world_projection::ProjectionCapabilities {
                 fork: true,
                 background: true,
+                talk: false,
             },
             calendar: Some(world_projection::Calendar {
                 unit: "Sol".into(),
                 length: 10,
+                coming: None,
+                season: None,
             }),
             canvas: world_projection::CanvasProjection {
                 marks: vec![world_projection::CanvasMark {
@@ -1739,6 +1747,8 @@ mod tests {
                         shape: Some(world_projection::MarkShape::Dome),
                         at: None,
                         look: None,
+                        drawing: None,
+                        stance: None,
                     },
                     world_projection::CanvasItem {
                         id: world_projection::SelectionId::from_stable_key("entity-11").unwrap(),
@@ -1757,6 +1767,8 @@ mod tests {
                             carries: Some(world_projection::Carry::Tool),
                             bird: false,
                         }),
+                        drawing: None,
+                        stance: None,
                     },
                 ],
                 ..Default::default()

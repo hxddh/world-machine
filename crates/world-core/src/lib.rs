@@ -2,6 +2,7 @@ mod action;
 mod behavior;
 mod entity;
 mod event;
+mod history;
 mod id;
 mod relation;
 mod schedule;
@@ -16,6 +17,7 @@ pub use behavior::{
 };
 pub use entity::Entity;
 pub use event::{Event, StateChange};
+pub use history::{HistoryIndex, RelationRecord};
 pub use id::{EntityId, EventId, RelationId, ScheduleId};
 pub use relation::Relation;
 pub use schedule::{ScheduledAction, Scheduler};

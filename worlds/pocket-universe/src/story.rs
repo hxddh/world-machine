@@ -18,7 +18,7 @@ use world_core::{ActionRegistry, EntityId, Event, EventId, Value, World, WorldEr
 /// The entity the storyteller keeps its notes on.
 pub(crate) const STORY: EntityId = EntityId::new(20);
 /// Periods in a season; four make a year.
-pub(crate) const SEASON_PERIODS: u64 = 10;
+pub(crate) const SEASON_PERIODS: u64 = 30;
 const YEAR: u64 = SEASON_PERIODS * 4;
 const CHAPTER_PERIODS: u64 = 24;
 const STORY_COMMAND: &str = "pocket-universe.story.";
@@ -800,7 +800,7 @@ fn calendar() -> Vec<Spec> {
         ),
         spec(
             "window",
-            day(SLOT_E, YEAR / 2, 12),
+            day(SLOT_E, YEAR / 2, 36),
             ("It's {window}", "It's {window}! Are we going?"),
             vec![
                 yes(
@@ -836,7 +836,7 @@ fn calendar() -> Vec<Spec> {
         ),
         spec(
             "birthday_keeper",
-            day(SLOT_B, YEAR, 7),
+            day(SLOT_B, YEAR, 21),
             ("It's {keeper}'s birthday", "It's my birthday today!"),
             vec![
                 yes(
@@ -872,7 +872,7 @@ fn calendar() -> Vec<Spec> {
         ),
         spec(
             "birthday_explorer",
-            day(SLOT_E, YEAR, 27),
+            day(SLOT_E, YEAR, 81),
             ("It's {explorer}'s birthday", "Guess what day it is?"),
             vec![
                 yes(
@@ -965,7 +965,9 @@ pub(crate) fn register_actions(
 ) -> Result<(), world_core::ActionError> {
     storylets::register_actions(actions, deck)?;
     lives::register_actions(actions, crate::life::cast)?;
-    hands::register_actions(actions, crate::handwork::kit)
+    hands::register_actions(actions, crate::handwork::kit)?;
+    conversation::register_actions(actions, crate::speech::kit)?;
+    calendar::register_actions(actions, crate::almanac::almanac)
 }
 
 /// The nouns each place fills into the storyteller's words.
@@ -1386,6 +1388,8 @@ pub(crate) fn tick(
     let mut events = lives::tick(world, actions, &cast, away)?;
     let kit = crate::handwork::kit(world.state());
     events.extend(hands::tick(world, actions, &kit)?);
+    let almanac = crate::almanac::almanac(world.state());
+    events.extend(calendar::tick(world, actions, &almanac)?);
     events.extend(storylets::tick(world, actions, &deck(), &reading)?);
     Ok(events)
 }
@@ -1490,6 +1494,12 @@ pub(crate) fn told(world: &World, event: &Event) -> Option<String> {
     if hands::is_hands(event) {
         return hands::told(event);
     }
+    // Getting ready is part of everyday life; the day itself is a story.
+    if calendar::is_calendar(event) {
+        return (event.kind == "festival_held")
+            .then(|| calendar::told(event))
+            .flatten();
+    }
     let spec = storylet_of(event)?;
     if event.kind == "situation_arose" {
         return Some(fill(world, spec.told));
@@ -1501,6 +1511,9 @@ pub(crate) fn told(world: &World, event: &Event) -> Option<String> {
 pub(crate) fn line(world: &World, event: &Event) -> Option<(EntityId, String)> {
     if lives::is_life(event) {
         return lives::said(event);
+    }
+    if calendar::is_calendar(event) {
+        return calendar::said(event);
     }
     let spec = storylet_of(event)?;
     let asker = spec.storylet.asker;
@@ -3585,6 +3598,8 @@ pub(crate) fn fixtures(world: &World) -> Vec<world_projection::CanvasItem> {
                 shape: Some(fixture_shape(world, &text("shape"))),
                 at,
                 look: None,
+                drawing: None,
+                stance: None,
             }
         })
         .collect()

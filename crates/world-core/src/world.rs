@@ -1,9 +1,11 @@
+use crate::history::HistoryIndex;
 use crate::{
     ActionError, ActionRegistry, ActionRequest, Event, EventId, ScheduleId, Scheduler, WorldState,
     WorldStateError,
 };
 use std::error::Error;
 use std::fmt;
+use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct World {
@@ -12,6 +14,44 @@ pub struct World {
     events: Vec<Event>,
     scheduler: Scheduler,
     next_event_id: u64,
+    index: IndexCache,
+}
+
+/// The World's [`HistoryIndex`], read up to date on demand. It is derived
+/// from the history alone, so it takes no part in comparing Worlds.
+#[derive(Default)]
+struct IndexCache(Mutex<Option<Arc<HistoryIndex>>>);
+
+impl IndexCache {
+    fn forget(&mut self) {
+        *self
+            .0
+            .get_mut()
+            .unwrap_or_else(|poison| poison.into_inner()) = None;
+    }
+}
+
+impl Clone for IndexCache {
+    fn clone(&self) -> Self {
+        let cached = self
+            .0
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .clone();
+        Self(Mutex::new(cached))
+    }
+}
+
+impl PartialEq for IndexCache {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl fmt::Debug for IndexCache {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("IndexCache")
+    }
 }
 
 /// Where a World stood, to go back to with [`World::rollback`].
@@ -97,6 +137,7 @@ impl World {
             events: Vec::new(),
             scheduler: Scheduler::new(),
             next_event_id: 1,
+            index: IndexCache::default(),
         }
     }
 
@@ -124,6 +165,27 @@ impl World {
             Ok(index) => Some(&self.events[index]),
             Err(_) => self.events.iter().find(|event| event.id == id),
         }
+    }
+
+    /// Which events touched each entity and relation, brought up to date
+    /// with the events recorded since it was last asked for.
+    pub fn history_index(&self) -> Arc<HistoryIndex> {
+        let mut cached = self
+            .index
+            .0
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let index = cached.get_or_insert_with(|| Arc::new(HistoryIndex::new(&self.baseline)));
+        if index.covered() > self.events.len() {
+            *index = Arc::new(HistoryIndex::new(&self.baseline));
+        }
+        if index.covered() < self.events.len() {
+            let index = Arc::make_mut(index);
+            for event in &self.events[index.covered()..] {
+                index.read(event);
+            }
+        }
+        Arc::clone(index)
     }
 
     pub fn scheduler(&self) -> &Scheduler {
@@ -227,6 +289,7 @@ impl World {
             events: self.events[start..].to_vec(),
             scheduler: self.scheduler.clone(),
             next_event_id: self.next_event_id,
+            index: IndexCache::default(),
         }
     }
 
@@ -247,6 +310,8 @@ impl World {
         self.scheduler = checkpoint.scheduler;
         self.events.truncate(checkpoint.events);
         self.next_event_id = checkpoint.next_event_id;
+        // Events recorded since may be recorded again differently.
+        self.index.forget();
     }
 
     pub fn replay(&self) -> Result<Self, WorldError> {
@@ -689,5 +754,30 @@ mod tests {
         assert!(sketch.events().is_empty());
         sketch.execute(&registry, &count).unwrap();
         assert_eq!(sketch.events()[0].id, EventId::new(2));
+    }
+
+    #[test]
+    fn the_history_index_keeps_up_and_forgets_what_a_rollback_undid() {
+        let mut world = World::new(baseline());
+        let registry = registry();
+        world.execute(&registry, &transfer(5)).unwrap();
+        assert_eq!(
+            world.history_index().changes_of(EntityId::new(1)),
+            [EventId::new(1)]
+        );
+        let checkpoint = world.checkpoint();
+        world.execute(&registry, &transfer(5)).unwrap();
+        assert_eq!(world.history_index().changes_of(EntityId::new(2)).len(), 2);
+        world.rollback(checkpoint);
+        assert_eq!(
+            world.history_index().changes_of(EntityId::new(2)),
+            [EventId::new(1)]
+        );
+        world.execute(&registry, &transfer(3)).unwrap();
+        let fresh = World::from_history(world.baseline_state().clone(), world.events()).unwrap();
+        assert_eq!(
+            world.history_index().changes_of(EntityId::new(1)),
+            fresh.history_index().changes_of(EntityId::new(1))
+        );
     }
 }

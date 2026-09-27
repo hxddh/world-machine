@@ -1,6 +1,6 @@
 [package]
 name = "tiny-society-pack"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2021"
 license = "Apache-2.0"
 publish = false
@@ -8,6 +8,7 @@ publish = false
 [dependencies]
 tiny-society = { path = "../../worlds/tiny-society" }
 world-pack-server = { path = "../../crates/world-pack-server" }
+world-voice = { path = "../../crates/world-voice" }
 
 [dev-dependencies]
 world-host = { path = "../../crates/world-host" }

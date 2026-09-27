@@ -1,5 +1,7 @@
 mod actions;
+mod almanac;
 mod behaviors;
+mod drawings;
 mod drift;
 mod fishing;
 mod handwork;
@@ -17,6 +19,7 @@ mod reciprocity;
 mod recovery;
 mod seed;
 mod social;
+mod speech;
 mod staffing;
 mod story;
 mod talk;
@@ -33,7 +36,9 @@ use world_projection::ProjectionSnapshot;
 #[cfg(test)]
 pub(crate) use world_core::Value;
 
-pub use host::tiny_society_registration;
+pub use host::{
+    tiny_society_registration, tiny_society_registration_with_listener, ListenerFactory,
+};
 pub use model::{
     BAKERY, EMMA, EVAN, HARBOR, JONAS, JONAS_BOAT, LEO, MARA, MIA, NOAH, PUB, SCHOOL, SOFIA,
     WEDDING_ORDER,
@@ -155,6 +160,33 @@ impl TinySocietyBranch {
             .world
             .execute(&actions, &lives::answer_request(situation, answer))?
             .id;
+        Ok(vec![event])
+    }
+
+    /// Says something to someone in the player's own words, and records
+    /// what they were heard to mean and what was answered. The day does
+    /// not pass.
+    pub fn say(
+        &mut self,
+        who: world_core::EntityId,
+        words: &str,
+    ) -> Result<Vec<EventId>, Box<dyn Error>> {
+        self.say_with(who, words, &mut conversation::OwnEars)
+    }
+
+    /// Says something to someone, heard by a listener of the player's
+    /// choosing, such as a language model; what it hears is only a
+    /// proposal the rules check.
+    pub fn say_with(
+        &mut self,
+        who: world_core::EntityId,
+        words: &str,
+        listener: &mut dyn conversation::Listener,
+    ) -> Result<Vec<EventId>, Box<dyn Error>> {
+        let request =
+            speech::say(&self.world, who, words, listener).map_err(std::io::Error::other)?;
+        let actions = build_action_registry()?;
+        let event = self.world.execute(&actions, &request)?.id;
         Ok(vec![event])
     }
 

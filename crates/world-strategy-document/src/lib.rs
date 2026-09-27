@@ -159,6 +159,7 @@ mod tests {
                 capabilities: ProjectionCapabilities {
                     fork: false,
                     background: false,
+                    talk: false,
                 },
                 commands: vec![
                     ProjectionCommand {

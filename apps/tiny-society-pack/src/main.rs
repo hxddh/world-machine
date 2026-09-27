@@ -21,6 +21,16 @@ fn main() -> Result<(), Box<dyn Error>> {
             .to_string()
             .into());
     }
+    // People speak in a language model's words only when the player switched
+    // the World voice on; otherwise they answer in the harbour's own.
+    let voice = world_voice::Voice::from_process()?;
+    let registration = if voice == world_voice::Voice::None {
+        registration
+    } else {
+        tiny_society::tiny_society_registration_with_listener(std::sync::Arc::new(move || {
+            voice.listener_or_own_ears()
+        }))
+    };
     serve_stdio(registration)?;
     Ok(())
 }

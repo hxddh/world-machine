@@ -717,6 +717,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "calendar"
+version = "0.1.0"
+dependencies = [
+ "lives",
+ "world-core",
+]
+
+[[package]]
 name = "calloop"
 version = "0.14.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -956,6 +964,14 @@ checksum = "a06aeb73f470f66dcdbf7223caeebb85984942f22f1adb2a088cf9668146bbbc"
 dependencies = [
  "cfg-if",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "conversation"
+version = "0.1.0"
+dependencies = [
+ "lives",
+ "world-core",
 ]
 
 [[package]]
@@ -3880,8 +3896,10 @@ dependencies = [
 
 [[package]]
 name = "pocket-universe"
-version = "0.23.0"
+version = "0.24.0"
 dependencies = [
+ "calendar",
+ "conversation",
  "hands",
  "lives",
  "storylets",
@@ -3898,7 +3916,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-universe-pack"
-version = "0.23.0"
+version = "0.24.0"
 dependencies = [
  "pocket-universe",
  "serde_json",
@@ -3908,6 +3926,7 @@ dependencies = [
  "world-persistence",
  "world-pi-rpc",
  "world-projection",
+ "world-voice",
 ]
 
 [[package]]
@@ -5401,8 +5420,10 @@ dependencies = [
 
 [[package]]
 name = "tiny-society"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
+ "calendar",
+ "conversation",
  "hands",
  "lives",
  "serde_json",
@@ -5430,7 +5451,7 @@ dependencies = [
 
 [[package]]
 name = "tiny-society-pack"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "tiny-society",
  "world-host",
@@ -5438,6 +5459,7 @@ dependencies = [
  "world-pack-protocol",
  "world-pack-server",
  "world-projection",
+ "world-voice",
 ]
 
 [[package]]
@@ -6816,7 +6838,7 @@ dependencies = [
 
 [[package]]
 name = "world-machine-desktop"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "gpui",
  "gpui_platform",
@@ -6980,6 +7002,15 @@ dependencies = [
 [[package]]
 name = "world-theme"
 version = "0.1.0"
+
+[[package]]
+name = "world-voice"
+version = "0.1.0"
+dependencies = [
+ "conversation",
+ "serde_json",
+ "world-pi-rpc",
+]
 
 [[package]]
 name = "writeable"

@@ -365,6 +365,11 @@ where
                 .company
                 .invoke_projection_command(&command)
                 .map_err(HostError::session)?,
+            ProjectionIntent::Say { .. } => {
+                return Err(HostError::Session(
+                    "nobody in this company can be spoken to".into(),
+                ))
+            }
         }
         self.return_since_event_count = None;
         Ok(self.snapshot())

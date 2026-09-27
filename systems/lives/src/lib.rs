@@ -227,6 +227,15 @@ pub fn name(state: &WorldState, entity: EntityId) -> String {
         .unwrap_or_else(|| "Someone".into())
 }
 
+/// What someone is called when people talk about them: their first name.
+pub fn first_name(state: &WorldState, entity: EntityId) -> String {
+    let name = name(state, entity);
+    name.split_whitespace()
+        .next()
+        .map(str::to_string)
+        .unwrap_or(name)
+}
+
 /// A small stable number: the same inputs always give the same answer, so
 /// people live the same days on every replay.
 pub fn mix(parts: &[u64]) -> u64 {
@@ -2446,6 +2455,52 @@ pub fn news_since(world: &World, since: u64) -> Vec<String> {
         .collect()
 }
 
+/// How someone feels about the place and the player's hand in it, from
+/// -100 to 100.
+pub fn regard(state: &WorldState, person: EntityId) -> i64 {
+    integer(state, person, REGARD).unwrap_or(0)
+}
+
+fn bounded(state: &WorldState, entity: EntityId, key: String, by: i64, min: i64) -> StateChange {
+    let next = integer(state, entity, &key)
+        .unwrap_or(0)
+        .saturating_add(by)
+        .clamp(min, 100);
+    StateChange::SetComponent {
+        entity,
+        key,
+        value: next.into(),
+    }
+}
+
+/// Moves how someone feels about the place, within its bounds.
+pub fn regard_by(state: &WorldState, person: EntityId, by: i64) -> StateChange {
+    bounded(state, person, REGARD.into(), by, -100)
+}
+
+/// Moves what `a` thinks of `b`, within its bounds; nobody has an opinion
+/// of themselves.
+pub fn opinion_by(state: &WorldState, a: EntityId, b: EntityId, by: i64) -> Option<StateChange> {
+    (a != b).then(|| bounded(state, a, opinion_key(b), by, -100))
+}
+
+/// Moves how short someone is of a need, within its bounds.
+pub fn lack_by(state: &WorldState, person: EntityId, need: Need, by: i64) -> StateChange {
+    bounded(state, person, need.key().into(), by, 0)
+}
+
+/// What someone said about their day today, if they have lived it yet.
+pub fn said_today(world: &World, person: EntityId) -> Option<String> {
+    let now = world.world_time();
+    world
+        .events()
+        .iter()
+        .rev()
+        .take_while(|event| event.world_time == now)
+        .filter(|event| event.kind == "lived" && event.actor == Some(person))
+        .find_map(|event| said(event).map(|(_, line)| line))
+}
+
 /// How someone is, in their own words, from how their life stands.
 pub fn how_are_you(world: &World, person: EntityId) -> Option<String> {
     let state = world.state();
@@ -2466,12 +2521,18 @@ pub fn how_are_you(world: &World, person: EntityId) -> Option<String> {
         .unwrap_or(Need::Company);
     let line = if let Some(p) = partner(state, person) {
         if opinion(state, person, p) <= 5 {
-            format!("Honestly? Things with {} aren't good.", name(state, p))
+            format!(
+                "Honestly? Things with {} aren't good.",
+                first_name(state, p)
+            )
         } else {
-            format!("Happy. {} and I are good.", name(state, p))
+            format!("Happy. {} and I are good.", first_name(state, p))
         }
     } else if let Some(foe) = foe {
-        format!("Fine, as long as {} keeps out of my way.", name(state, foe))
+        format!(
+            "Fine, as long as {} keeps out of my way.",
+            first_name(state, foe)
+        )
     } else if lack(state, person, worst) >= 70 {
         match worst {
             Need::Money => "Worried. Things are tight.".into(),
@@ -2480,7 +2541,7 @@ pub fn how_are_you(world: &World, person: EntityId) -> Option<String> {
             Need::Purpose => "Restless. I need something to get my teeth into.".into(),
         }
     } else if let Some(friend) = friend {
-        format!("Good. {} keeps me going.", name(state, friend))
+        format!("Good. {} keeps me going.", first_name(state, friend))
     } else {
         "Getting by.".into()
     };
@@ -2493,7 +2554,7 @@ pub fn thinks_of(world: &World, person: EntityId, other: EntityId) -> Option<Str
     if !enrolled(state, person) || !enrolled(state, other) {
         return None;
     }
-    let other_name = name(state, other);
+    let other_name = first_name(state, other);
     let view = opinion(state, person, other);
     Some(if partner(state, person) == Some(other) {
         format!("{other_name}? I'd be lost without them.")

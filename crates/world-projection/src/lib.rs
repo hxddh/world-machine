@@ -1,12 +1,18 @@
 mod causal;
+mod drawing;
 mod influence;
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use world_core::{
-    Entity, EntityId, Event, EventId, Relation, RelationId, StateChange, Value, World,
+    Entity, EntityId, Event, EventId, HistoryIndex, RelationId, RelationRecord, StateChange, Value,
+    World,
 };
 
 pub use causal::{why_from_world, why_map_from_world, WhyNode, WhyProjection};
+pub use drawing::{
+    contact_sheet, figure, figure_point, person_base, short_hair, toned, DrawPart, DrawShape,
+    Drawing, Ink, Stance,
+};
 pub use influence::effect_headline;
 
 pub const ENTITY_HISTORY_SECTION: &str = "Recorded entity changes";
@@ -151,6 +157,12 @@ pub struct StateEvidenceNeighborhood {
 pub enum ProjectionIntent {
     ForkBeforeEvent(EventId),
     InvokeCommand(String),
+    /// The player says something to someone, in their own words. Only a
+    /// World whose capabilities include `talk` hears it.
+    Say {
+        to: SelectionId,
+        words: String,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -356,6 +368,9 @@ pub struct ProjectionCapabilities {
     /// that it keeps going. A Pack whose World only moves when a player
     /// acts leaves this off.
     pub background: bool,
+    /// People can be spoken to in the player's own words, with
+    /// [`ProjectionIntent::Say`].
+    pub talk: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -381,6 +396,12 @@ pub struct ProjectionSnapshot {
     pub voices: Vec<Voice>,
     /// What a player can ask someone, and what they answer.
     pub talks: Vec<Talk>,
+    /// What the player has said to people today in their own words, and
+    /// what they answered, oldest first.
+    pub exchanges: Vec<Exchange>,
+    /// The drawings the scene's items are drawn with, when the Pack ships
+    /// its own.
+    pub drawings: Vec<Drawing>,
     /// The standing goals the World is working toward, drawn as outlines
     /// on the horizon that fill in part by part.
     pub goals: Vec<Goal>,
@@ -448,6 +469,20 @@ pub struct Talk {
     pub asks_for: Option<String>,
 }
 
+/// Something the player said to someone in their own words, and the
+/// answer, as the World recorded them. When the answer asks for
+/// something, `asks_for` names the choice that would grant it, if it is
+/// still on offer.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Exchange {
+    pub who: SelectionId,
+    pub words: String,
+    pub answer: String,
+    /// The recorded moment: a timeline item when History tells it.
+    pub moment: SelectionId,
+    pub asks_for: Option<String>,
+}
+
 /// How someone looks, as hints: the colour of their clothes, hair and skin
 /// (as 0xRRGGBB) and what they carry for their work. Anything left out is
 /// drawn from who they are, so the same person always looks the same.
@@ -480,6 +515,10 @@ pub enum Carry {
 pub struct Calendar {
     pub unit: String,
     pub length: u64,
+    /// What the season is called, if the World has seasons: "Summer".
+    pub season: Option<String>,
+    /// What is coming up soon, in a few words: "Lantern Night in 3 days".
+    pub coming: Option<String>,
 }
 
 /// Words that describe the machinery rather than the World. A player never
@@ -533,6 +572,13 @@ pub fn engine_words_in(text: &str) -> Vec<&'static str> {
 }
 
 impl ProjectionSnapshot {
+    /// The drawing an item on the scene is drawn with, if the Pack ships
+    /// one for it.
+    pub fn drawing_of(&self, item: &CanvasItem) -> Option<&Drawing> {
+        let id = item.drawing.as_deref()?;
+        self.drawings.iter().find(|drawing| drawing.id == id)
+    }
+
     /// Title every event the way History tells it, everywhere a player can
     /// meet it: its detail panel and the "why" chains that pass through it
     /// say "The colony opened a new water-recovery loop", not "Universe
@@ -582,6 +628,13 @@ impl ProjectionSnapshot {
     }
 
     /// What a player can ask someone.
+    /// What the player and someone said to each other today.
+    pub fn exchanges_with(&self, who: SelectionId) -> impl Iterator<Item = &Exchange> {
+        self.exchanges
+            .iter()
+            .filter(move |exchange| exchange.who == who)
+    }
+
     pub fn talks_with(&self, who: SelectionId) -> impl Iterator<Item = &Talk> {
         self.talks.iter().filter(move |talk| talk.who == who)
     }
@@ -675,6 +728,9 @@ impl ProjectionSnapshot {
         for talk in &self.talks {
             text.push(&talk.question);
             text.push(&talk.answer);
+        }
+        for exchange in &self.exchanges {
+            text.push(&exchange.answer);
         }
         for mark in &self.canvas.marks {
             text.push(&mark.label);
@@ -1387,6 +1443,12 @@ pub struct CanvasItem {
     pub at: Option<SelectionId>,
     /// How a person looks. `None` draws them from who they are.
     pub look: Option<Look>,
+    /// Which of the snapshot's drawings it is drawn with; `None` draws the
+    /// app's own shape for it.
+    pub drawing: Option<String>,
+    /// What a person is doing, as far as their drawing goes; the app draws
+    /// them walking while they walk and talking while they speak.
+    pub stance: Option<Stance>,
 }
 
 /// One value that moved since the last visit.
@@ -1507,12 +1569,18 @@ pub fn timeline_from_world(world: &World) -> TimelineProjection {
     timeline_of(world, |_| true)
 }
 
-/// A World's history, told only of the events `worth` keeps: a Pack can
-/// leave out everyday life it tells in other ways.
+/// How many of a World's latest events [`timeline_of`] tells: History
+/// shows the latest moments and counts a few more, and a chapter book tells
+/// the rest, so a year-old World's history costs no more than a month's.
+pub const TIMELINE_EVENTS: usize = 1200;
+
+/// A World's recent history, told only of the events `worth` keeps: a Pack
+/// can leave out everyday life it tells in other ways. It covers the latest
+/// [`TIMELINE_EVENTS`] events; older ones stay in the file.
 pub fn timeline_of(world: &World, worth: impl Fn(&Event) -> bool) -> TimelineProjection {
+    let events = world.events();
     TimelineProjection {
-        items: world
-            .events()
+        items: events[events.len().saturating_sub(TIMELINE_EVENTS)..]
             .iter()
             .rev()
             .filter(|event| worth(event))
@@ -1545,16 +1613,11 @@ pub fn retell_timeline(
     world: &World,
     tell: impl Fn(&Event) -> Telling,
 ) {
-    let events = world
-        .events()
-        .iter()
-        .map(|event| (event.id, event))
-        .collect::<BTreeMap<_, _>>();
     for item in &mut timeline.items {
         let SelectionId::Event(id) = item.id else {
             continue;
         };
-        let Some(event) = events.get(&id) else {
+        let Some(event) = world.event(id) else {
             continue;
         };
         match tell(event) {
@@ -1572,16 +1635,15 @@ pub fn retell_timeline(
 }
 
 pub fn inspectors_from_world(world: &World) -> BTreeMap<SelectionId, InspectorProjection> {
-    let recorded_change_events = recorded_entity_change_events(world);
-    let recorded_relations = recorded_relation_incarnations(world);
+    let index = world.history_index();
     let mut inspectors = BTreeMap::new();
     for entity in world.state().entities() {
         inspectors.insert(
             SelectionId::Entity(entity.id),
-            inspector_for_entity(entity, world, &recorded_change_events),
+            inspector_for_entity(entity, world, &index),
         );
     }
-    for recorded in recorded_relations.values() {
+    for recorded in index.relations() {
         inspectors.insert(
             SelectionId::Relation(recorded.relation.id),
             inspector_for_relation(recorded, world),
@@ -1641,7 +1703,7 @@ pub fn value_text(value: &Value, world: &World) -> String {
 fn inspector_for_entity(
     entity: &Entity,
     world: &World,
-    recorded_change_events: &BTreeMap<EntityId, Vec<EventId>>,
+    index: &HistoryIndex,
 ) -> InspectorProjection {
     let components = entity
         .components
@@ -1674,7 +1736,7 @@ fn inspector_for_entity(
             }
         })
         .collect::<Vec<_>>();
-    let recorded_changes = recorded_entity_change_rows(entity.id, world, recorded_change_events);
+    let recorded_changes = recorded_entity_change_rows(entity.id, world, index);
 
     let mut sections = vec![InspectorSection {
         title: "State".into(),
@@ -1707,11 +1769,9 @@ const RECENT_CHANGE_ROWS: usize = 12;
 fn recorded_entity_change_rows(
     entity: EntityId,
     world: &World,
-    recorded_change_events: &BTreeMap<EntityId, Vec<EventId>>,
+    index: &HistoryIndex,
 ) -> Vec<InspectorRow> {
-    let Some(event_ids) = recorded_change_events.get(&entity) else {
-        return Vec::new();
-    };
+    let event_ids = index.changes_of(entity);
 
     // The latest few: a detail panel is not the whole history.
     event_ids
@@ -1730,174 +1790,7 @@ fn recorded_entity_change_rows(
         .collect()
 }
 
-fn recorded_entity_change_events(world: &World) -> BTreeMap<EntityId, Vec<EventId>> {
-    let mut relation_endpoints = world
-        .baseline_state()
-        .relations()
-        .map(|relation| (relation.id, (relation.from, relation.to)))
-        .collect::<BTreeMap<RelationId, (EntityId, EntityId)>>();
-    let mut events_by_entity = BTreeMap::<EntityId, Vec<EventId>>::new();
-
-    for event in world.events() {
-        let mut affected = BTreeSet::new();
-        for change in &event.changes {
-            match change {
-                StateChange::CreateEntity(entity) => {
-                    events_by_entity.remove(&entity.id);
-                    affected.insert(entity.id);
-                }
-                StateChange::RemoveEntity(entity) => {
-                    affected.insert(*entity);
-                    for (from, to) in relation_endpoints.values().copied() {
-                        if from == *entity {
-                            affected.insert(to);
-                        }
-                        if to == *entity {
-                            affected.insert(from);
-                        }
-                    }
-                    relation_endpoints.retain(|_, (from, to)| *from != *entity && *to != *entity);
-                }
-                StateChange::SetComponent { entity, .. }
-                | StateChange::RemoveComponent { entity, .. } => {
-                    affected.insert(*entity);
-                }
-                StateChange::CreateRelation(relation) => {
-                    affected.insert(relation.from);
-                    affected.insert(relation.to);
-                    relation_endpoints.insert(relation.id, (relation.from, relation.to));
-                }
-                StateChange::RemoveRelation(relation) => {
-                    if let Some((from, to)) = relation_endpoints.remove(relation) {
-                        affected.insert(from);
-                        affected.insert(to);
-                    }
-                }
-                StateChange::SetRelationProperty { relation, .. }
-                | StateChange::RemoveRelationProperty { relation, .. } => {
-                    if let Some((from, to)) = relation_endpoints.get(relation).copied() {
-                        affected.insert(from);
-                        affected.insert(to);
-                    }
-                }
-            }
-        }
-
-        for entity in affected {
-            events_by_entity.entry(entity).or_default().push(event.id);
-        }
-    }
-
-    events_by_entity
-}
-#[derive(Clone, Debug)]
-struct RecordedRelationIncarnation {
-    relation: Relation,
-    active: bool,
-    event_ids: Vec<EventId>,
-}
-
-fn recorded_relation_incarnations(
-    world: &World,
-) -> BTreeMap<RelationId, RecordedRelationIncarnation> {
-    let mut relations = world
-        .baseline_state()
-        .relations()
-        .map(|relation| {
-            (
-                relation.id,
-                RecordedRelationIncarnation {
-                    relation: relation.clone(),
-                    active: true,
-                    event_ids: Vec::new(),
-                },
-            )
-        })
-        .collect::<BTreeMap<_, _>>();
-
-    for event in world.events() {
-        let mut affected = BTreeSet::new();
-        for change in &event.changes {
-            match change {
-                StateChange::CreateRelation(relation) => {
-                    relations.insert(
-                        relation.id,
-                        RecordedRelationIncarnation {
-                            relation: relation.clone(),
-                            active: true,
-                            event_ids: Vec::new(),
-                        },
-                    );
-                    affected.insert(relation.id);
-                }
-                StateChange::RemoveRelation(relation) => {
-                    if let Some(recorded) = relations.get_mut(relation) {
-                        if recorded.active {
-                            recorded.active = false;
-                            affected.insert(*relation);
-                        }
-                    }
-                }
-                StateChange::SetRelationProperty {
-                    relation,
-                    key,
-                    value,
-                } => {
-                    if let Some(recorded) = relations.get_mut(relation) {
-                        if recorded.active {
-                            recorded
-                                .relation
-                                .properties
-                                .insert(key.clone(), value.clone());
-                            affected.insert(*relation);
-                        }
-                    }
-                }
-                StateChange::RemoveRelationProperty { relation, key } => {
-                    if let Some(recorded) = relations.get_mut(relation) {
-                        if recorded.active {
-                            recorded.relation.properties.remove(key);
-                            affected.insert(*relation);
-                        }
-                    }
-                }
-                StateChange::RemoveEntity(entity) => {
-                    let removed = relations
-                        .iter()
-                        .filter_map(|(relation, recorded)| {
-                            (recorded.active
-                                && (recorded.relation.from == *entity
-                                    || recorded.relation.to == *entity))
-                                .then_some(*relation)
-                        })
-                        .collect::<Vec<_>>();
-                    for relation in removed {
-                        if let Some(recorded) = relations.get_mut(&relation) {
-                            recorded.active = false;
-                            affected.insert(relation);
-                        }
-                    }
-                }
-                StateChange::CreateEntity(_)
-                | StateChange::SetComponent { .. }
-                | StateChange::RemoveComponent { .. } => {}
-            }
-        }
-
-        for relation in affected {
-            if let Some(recorded) = relations.get_mut(&relation) {
-                recorded.event_ids.push(event.id);
-            }
-        }
-    }
-
-    relations
-}
-
-fn inspector_for_relation(
-    recorded: &RecordedRelationIncarnation,
-    world: &World,
-) -> InspectorProjection {
+fn inspector_for_relation(recorded: &RelationRecord, world: &World) -> InspectorProjection {
     let relation = &recorded.relation;
     let relation_rows = vec![
         InspectorRow {
@@ -1988,10 +1881,7 @@ fn relation_endpoint_text(entity: EntityId, world: &World) -> String {
         .unwrap_or_else(|| "Someone no longer here".into())
 }
 
-fn recorded_relation_change_rows(
-    recorded: &RecordedRelationIncarnation,
-    world: &World,
-) -> Vec<InspectorRow> {
+fn recorded_relation_change_rows(recorded: &RelationRecord, world: &World) -> Vec<InspectorRow> {
     recorded
         .event_ids
         .iter()
@@ -2247,6 +2137,8 @@ mod tests {
         snapshot.calendar = Some(Calendar {
             unit: "Sol".into(),
             length: 10,
+            coming: None,
+            season: None,
         });
         assert_eq!(snapshot.moment_label(0), "The beginning");
         assert_eq!(snapshot.moment_label(10), "Sol 1");

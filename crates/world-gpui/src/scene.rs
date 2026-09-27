@@ -1813,6 +1813,8 @@ mod tests {
             shape: None,
             at: None,
             look: None,
+            drawing: None,
+            stance: None,
         }
     }
 

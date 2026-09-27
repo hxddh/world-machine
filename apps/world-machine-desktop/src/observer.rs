@@ -190,6 +190,7 @@ mod tests {
                 capabilities: ProjectionCapabilities {
                     fork: false,
                     background: false,
+                    talk: false,
                 },
                 ..ProjectionSnapshot::default()
             }
@@ -228,6 +229,7 @@ mod tests {
                 capabilities: ProjectionCapabilities {
                     fork: false,
                     background: false,
+                    talk: false,
                 },
                 ..ProjectionSnapshot::default()
             }

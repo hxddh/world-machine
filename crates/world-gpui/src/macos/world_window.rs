@@ -9,7 +9,7 @@
 use super::*;
 use crate::art::{self, Figure};
 use crate::diorama::{self, Camera, Glows, Stage};
-use gpui::{canvas, Hsla, KeyDownEvent};
+use gpui::{canvas, Focusable, Hsla, KeyDownEvent};
 use std::collections::BTreeSet;
 use std::time::{Duration, Instant};
 
@@ -27,6 +27,8 @@ const BEAT_SECONDS: f32 = 5.2;
 const ANSWER_SECONDS: f32 = 9.0;
 /// How long the camera takes to move.
 const CAMERA_SECONDS: f32 = 0.9;
+/// How many of today's exchanges with someone their card shows.
+const CONVERSATION_SHOWN: usize = 3;
 /// How long a gauge takes to slide to where a turn left it.
 const GAUGE_SECONDS: f32 = 0.9;
 /// How long something new takes to rise.
@@ -55,6 +57,18 @@ pub(crate) struct Looking {
     pub(crate) chapter_read: Option<u32>,
     /// What the player is doing with their own hands, if anything.
     pub(crate) hands: Option<Hands>,
+    /// Where the player types what they say to someone.
+    pub(crate) say: Option<gpui::Entity<crate::text_input::TextInput>>,
+    /// When the player last said something, so the answer shows over the
+    /// person's head for a while.
+    pub(crate) said_at: Option<Instant>,
+    /// How close the player has zoomed in with the wheel, and on which
+    /// stage point; 1 is the whole place.
+    pub(crate) zoom: f32,
+    pub(crate) zoom_on: (f32, f32),
+    /// Where the camera looked last frame, to turn the pointer into a
+    /// stage point.
+    pub(crate) camera_now: Option<Camera>,
 }
 
 /// The player's hands: which verb they picked, and what they are about to
@@ -110,6 +124,17 @@ pub(crate) fn chapter_just_ended(
 
 fn since(at: Option<Instant>) -> f32 {
     at.map(|at| at.elapsed().as_secs_f32()).unwrap_or(f32::MAX)
+}
+
+/// The time of year, in the drawer: the season, and what is coming up in
+/// the next few days. At rest the scene's colours say the season.
+fn coming_label(snapshot: &ProjectionSnapshot) -> Option<String> {
+    let calendar = snapshot.calendar.as_ref()?;
+    match (&calendar.season, &calendar.coming) {
+        (Some(season), Some(coming)) => Some(format!("{season} · {coming}")),
+        (Some(season), None) => Some(season.clone()),
+        (None, coming) => coming.clone(),
+    }
 }
 
 /// The words a World window shows at rest, besides the bar above it: the
@@ -482,9 +507,59 @@ impl ProjectionView {
     }
 
     fn ask(&mut self, who: SelectionId, cx: &mut Context<Self>) {
+        if self.looking.asking != Some(who) {
+            if let Some(input) = &self.looking.say {
+                input.update(cx, |input, cx| input.clear(cx));
+            }
+            self.looking.said_at = None;
+        }
+        if self.looking.say.is_none() && self.snapshot.capabilities.talk {
+            self.looking.say =
+                Some(cx.new(|cx| crate::text_input::TextInput::new("Say something…", cx)));
+        }
         self.looking.asking = Some(who);
         self.looking.answered = None;
         self.selected = Some(who);
+        cx.notify();
+    }
+
+    /// Whether the player is typing what they say to someone.
+    fn typing(&self, window: &Window, cx: &Context<Self>) -> bool {
+        self.looking.asking.is_some()
+            && self
+                .looking
+                .say
+                .as_ref()
+                .is_some_and(|input| input.focus_handle(cx).is_focused(window))
+    }
+
+    /// Says what the player typed to whoever they are talking to. The World
+    /// hears it and records the answer; no time passes.
+    fn say(&mut self, cx: &mut Context<Self>) {
+        let (Some(who), Some(input)) = (self.looking.asking, self.looking.say.clone()) else {
+            return;
+        };
+        let words = input.read(cx).text().trim().to_string();
+        if words.is_empty() || self.retelling.is_some() {
+            return;
+        }
+        let Some(controller) = self.controller.as_mut() else {
+            return;
+        };
+        match controller.handle(ProjectionIntent::Say { to: who, words }) {
+            Ok(snapshot) => {
+                self.snapshot = snapshot;
+                self.looking.answered = None;
+                self.looking.said_at = Some(Instant::now());
+                self.status = None;
+                self.status_is_error = false;
+                input.update(cx, |input, cx| input.clear(cx));
+            }
+            Err(error) => {
+                self.status = Some(format!("Couldn't say that: {error}"));
+                self.status_is_error = true;
+            }
+        }
         cx.notify();
     }
 
@@ -499,9 +574,23 @@ impl ProjectionView {
         cx.notify();
     }
 
-    fn on_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
+    fn on_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let key = event.keystroke.key.as_str();
         let command = event.keystroke.modifiers.platform || event.keystroke.modifiers.control;
+        // While the player types, their keys are words, not moves.
+        if self.typing(window, cx) {
+            match key {
+                "enter" => self.say(cx),
+                "escape" => {
+                    if let Some(focus) = &self.looking.focus {
+                        window.focus(focus, cx);
+                    }
+                    self.look_away(cx);
+                }
+                _ => {}
+            }
+            return;
+        }
         match key {
             "i" if command => self.toggle_drawer(cx),
             "escape" => {
@@ -512,6 +601,9 @@ impl ProjectionView {
                     self.look_away(cx);
                 } else if self.looking.drawer {
                     self.toggle_drawer(cx);
+                } else if self.looking.zoom > 1.0 {
+                    self.looking.zoom = 1.0;
+                    cx.notify();
                 }
             }
             _ if self.retelling.is_some() => {
@@ -562,6 +654,35 @@ impl ProjectionView {
                 );
                 (!boxes.is_empty()).then(|| Camera::on(stage, (x0, y0, x1 - x0, y1 - y0)))
             })
+            // Talking to someone, the camera moves in on them.
+            .or_else(|| {
+                let who = self.looking.asking?;
+                let index = self
+                    .snapshot
+                    .canvas
+                    .items
+                    .iter()
+                    .position(|item| item.id == who)?;
+                let (x, y, w, h) = stage.frame_of(index)?;
+                let framed = Camera::on(stage, (x - w, y, w * 3.0, h));
+                Some(Camera::around(
+                    stage,
+                    framed.zoom.min(1.35),
+                    framed.x,
+                    framed.y,
+                ))
+            })
+            // Otherwise wherever the player has zoomed in with the wheel.
+            .or_else(|| {
+                (self.looking.zoom > 1.01).then(|| {
+                    Camera::around(
+                        stage,
+                        self.looking.zoom,
+                        self.looking.zoom_on.0,
+                        self.looking.zoom_on.1,
+                    )
+                })
+            })
             .unwrap_or(whole);
         let current = match (self.looking.camera_from, self.looking.camera_to) {
             (Some(from), Some(to)) => {
@@ -572,9 +693,46 @@ impl ProjectionView {
         if self.looking.camera_to != Some(target) {
             self.looking.camera_from = Some(current);
             self.looking.camera_to = Some(target);
-            self.looking.camera_at = Some(Instant::now());
+            // The wheel follows the hand at once; everything else glides.
+            let wheel = self.looking.asking.is_none() && self.current_beat().is_none();
+            self.looking.camera_at = Some(if wheel {
+                Instant::now() - Duration::from_secs_f32(CAMERA_SECONDS * 0.7)
+            } else {
+                Instant::now()
+            });
         }
+        self.looking.camera_now = Some(current);
         current
+    }
+
+    /// The wheel zooms in on the place around the pointer, and back out.
+    fn on_wheel(
+        &mut self,
+        event: &gpui::ScrollWheelEvent,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        let delta = f32::from(event.delta.pixel_delta(px(16.0)).y);
+        if delta == 0.0 {
+            return;
+        }
+        let (width, height) = self.stage_size(window);
+        let stage = diorama::stage(&self.snapshot, width, height);
+        let camera = self
+            .looking
+            .camera_now
+            .unwrap_or_else(|| Camera::whole(&stage));
+        let pointer = (
+            f32::from(event.position.x),
+            f32::from(event.position.y) - CHROME,
+        );
+        let (x, y) = camera.stage_point(&stage, pointer.0, pointer.1);
+        let zoom = (self.looking.zoom * (1.0 + delta * 0.004)).clamp(1.0, 2.2);
+        if (zoom - self.looking.zoom).abs() > f32::EPSILON {
+            self.looking.zoom = zoom;
+            self.looking.zoom_on = (x, y);
+            cx.notify();
+        }
     }
 
     /// What the scene lights up now, and in what colour.
@@ -733,7 +891,18 @@ impl ProjectionView {
             .and_then(|beat| beat.selection)
             .and_then(|moment| self.snapshot.voice_at(moment));
         let line_slot = (seconds / LINE_SECONDS) as usize;
-        let line = if let Some((talk, at)) = answered {
+        let said = self
+            .looking
+            .said_at
+            .filter(|at| at.elapsed().as_secs_f32() < ANSWER_SECONDS)
+            .and_then(|at| {
+                let who = self.looking.asking?;
+                let exchange = self.snapshot.exchanges_with(who).last()?;
+                Some((exchange, at))
+            });
+        let line = if let Some((exchange, at)) = said {
+            Some((exchange.who, exchange.answer.clone(), since(Some(at)), true))
+        } else if let Some((talk, at)) = answered {
             Some((talk.who, talk.answer.clone(), since(Some(at)), true))
         } else if self.retelling.is_some() {
             beat_voice.map(|voice| {
@@ -795,7 +964,7 @@ impl ProjectionView {
         } else {
             1.0
         };
-        let frame = diorama::frame(
+        let mut frame = diorama::frame(
             &self.snapshot,
             &stage,
             &living,
@@ -805,35 +974,59 @@ impl ProjectionView {
             &self.glows(),
             rising,
         );
+        // Whoever is speaking is drawn talking.
+        if let Some((speaker, ..)) = &line {
+            for person in &mut frame.people {
+                if self
+                    .snapshot
+                    .canvas
+                    .items
+                    .get(person.index)
+                    .map(|item| item.id)
+                    == Some(*speaker)
+                    && person.stance != world_projection::Stance::Walking
+                {
+                    person.stance = world_projection::Stance::Talking;
+                }
+            }
+        }
 
-        let mut root = div()
-            .id("world-stage")
-            .relative()
-            .size_full()
-            .overflow_hidden()
-            .track_focus(&focus)
-            .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| this.on_key(event, cx)))
-            .child({
-                let frame = frame.clone();
-                canvas(
-                    |_, _, _| (),
-                    move |bounds, _, window, _| diorama::paint(&frame, bounds, window),
-                )
-                .absolute()
-                .top_0()
-                .left_0()
+        let mut root =
+            div()
+                .id("world-stage")
+                .relative()
                 .size_full()
-            })
-            // Clicking the open ground puts away whatever is open.
-            .child(
-                div()
-                    .id("world-ground")
+                .overflow_hidden()
+                .track_focus(&focus)
+                .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                    this.on_key(event, window, cx)
+                }))
+                .on_scroll_wheel(
+                    cx.listener(|this, event: &gpui::ScrollWheelEvent, window, cx| {
+                        this.on_wheel(event, window, cx)
+                    }),
+                )
+                .child({
+                    let frame = frame.clone();
+                    canvas(
+                        |_, _, _| (),
+                        move |bounds, _, window, _| diorama::paint(&frame, bounds, window),
+                    )
                     .absolute()
                     .top_0()
                     .left_0()
                     .size_full()
-                    .on_click(cx.listener(|this, _, _, cx| this.look_away(cx))),
-            );
+                })
+                // Clicking the open ground puts away whatever is open.
+                .child(
+                    div()
+                        .id("world-ground")
+                        .absolute()
+                        .top_0()
+                        .left_0()
+                        .size_full()
+                        .on_click(cx.listener(|this, _, _, cx| this.look_away(cx))),
+                );
 
         // Buildings: named when pointed at, opening the drawer on a click.
         for spot in &stage.buildings {
@@ -1710,6 +1903,27 @@ impl ProjectionView {
                 }
             }
         }
+        if let Some(input) = self
+            .looking
+            .say
+            .clone()
+            .filter(|_| self.snapshot.capabilities.talk)
+            .filter(|_| self.controller.is_some() && self.retelling.is_none())
+        {
+            card = card.child(self.render_conversation(who, cx));
+            card = card.child(
+                div()
+                    .pt_1()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(div().flex_1().min_w(px(0.0)).child(input))
+                    .child(
+                        ui::button("say", "Say", ButtonKind::Secondary)
+                            .on_click(cx.listener(|this, _, _, cx| this.say(cx))),
+                    ),
+            );
+        }
         card = card.child(
             div()
                 .id("ask-more")
@@ -1731,12 +1945,70 @@ impl ProjectionView {
         } else {
             (x - 40.0 - WIDTH).max(12.0)
         };
-        let top = (head + 8.0).clamp(64.0, (stage.height - 360.0).max(64.0));
+        // A conversation makes the card taller; it rises to stay on screen.
+        let talked = self
+            .snapshot
+            .exchanges_with(who)
+            .count()
+            .min(CONVERSATION_SHOWN) as f32;
+        let tall = 360.0 + talked * 96.0;
+        let top = (head + 8.0).clamp(64.0, (stage.height - tall).max(64.0));
         div()
             .absolute()
             .left(px(left))
             .top(px(top))
             .child(ui::arrive(card, format!("asking-{}", who.stable_key()), 0))
+    }
+
+    /// What the player and someone said to each other today, latest last:
+    /// the player's words small and to the right, the answer in quotes.
+    fn render_conversation(&self, who: SelectionId, cx: &mut Context<Self>) -> Div {
+        const SHOWN: usize = CONVERSATION_SHOWN;
+        let exchanges = self.snapshot.exchanges_with(who).collect::<Vec<_>>();
+        let mut conversation = div().flex().flex_col().gap_1();
+        let latest = exchanges.len().saturating_sub(1);
+        for (index, exchange) in exchanges
+            .iter()
+            .enumerate()
+            .skip(exchanges.len().saturating_sub(SHOWN))
+        {
+            conversation = conversation
+                .child(
+                    div().flex().justify_end().child(
+                        div()
+                            .max_w(px(220.0))
+                            .px_2()
+                            .py_1()
+                            .rounded_lg()
+                            .bg(color(tokens::ACCENT_SOFT))
+                            .text_xs()
+                            .text_color(color(tokens::ACCENT_TEXT))
+                            .child(exchange.words.clone()),
+                    ),
+                )
+                .child(
+                    div()
+                        .px_1()
+                        .text_sm()
+                        .text_color(color(tokens::TEXT))
+                        .child(format!("“{}”", exchange.answer)),
+                );
+            if index == latest {
+                if let Some(command) = exchange
+                    .asks_for
+                    .as_deref()
+                    .and_then(|command| self.snapshot.command(command))
+                {
+                    let id = command.id.clone();
+                    conversation = conversation.child(div().flex().justify_end().child(
+                        ui::button("say-grant", "Do it", ButtonKind::Primary).on_click(
+                            cx.listener(move |this, _, _, cx| this.invoke_command(id.clone(), cx)),
+                        ),
+                    ));
+                }
+            }
+        }
+        conversation
     }
 
     /// Everything a page used to show, one ⌘I away: a closer look at what
@@ -1749,7 +2021,13 @@ impl ProjectionView {
                 .flex()
                 .items_center()
                 .justify_between()
-                .child(ui::heading(self.snapshot.title.clone()))
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .child(ui::heading(self.snapshot.title.clone()))
+                        .children(coming_label(&self.snapshot).map(ui::caption)),
+                )
                 .child(arrow_button(
                     "drawer-close",
                     "×",

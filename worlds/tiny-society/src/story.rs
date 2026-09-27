@@ -18,7 +18,7 @@ pub(crate) const STORY: EntityId = EntityId::new(401);
 /// How the harbour feels, from -5 to 5.
 pub(crate) const MOOD: &str = "story.mood";
 /// Days in a season; four make the harbour's year.
-pub(crate) const SEASON_DAYS: u64 = 10;
+pub(crate) const SEASON_DAYS: u64 = 30;
 /// Days in a chapter of the harbour's life.
 pub(crate) const CHAPTER_DAYS: u64 = 24;
 /// The one way to wait.
@@ -1292,7 +1292,7 @@ fn calendar() -> Vec<Spec> {
     ] {
         days.push(spec(
             id,
-            day(who, YEAR, at),
+            day(who, YEAR, at * 3),
             ("{name}'s birthday", asks),
             vec![
                 yes(
@@ -1372,6 +1372,8 @@ pub(crate) fn register_actions(
     storylets::register_actions(actions, deck)?;
     lives::register_actions(actions, |_| crate::life::cast())?;
     hands::register_actions(actions, crate::handwork::kit)?;
+    conversation::register_actions(actions, crate::speech::kit)?;
+    calendar::register_actions(actions, crate::almanac::almanac)?;
     actions.register(SpiritsSettle)
 }
 
@@ -1839,6 +1841,8 @@ pub(crate) fn tick(
     events.extend(lives::tick(world, actions, &crate::life::cast(), away)?);
     let kit = crate::handwork::kit(world.state());
     events.extend(hands::tick(world, actions, &kit)?);
+    let almanac = crate::almanac::almanac(world.state());
+    events.extend(calendar::tick(world, actions, &almanac)?);
     events.extend(storylets::tick(world, actions, &deck(), &reading)?);
     Ok(events)
 }
@@ -1964,6 +1968,12 @@ pub(crate) fn told(world: &World, event: &Event) -> Option<String> {
     if hands::is_hands(event) {
         return hands::told(event);
     }
+    // Getting ready is part of everyday life; the day itself is a story.
+    if calendar::is_calendar(event) {
+        return (event.kind == "festival_held")
+            .then(|| calendar::told(event))
+            .flatten();
+    }
     let spec = storylet_of(event)?;
     let who = spec.storylet.asker;
     if event.kind == "situation_arose" {
@@ -1977,6 +1987,9 @@ pub(crate) fn told(world: &World, event: &Event) -> Option<String> {
 pub(crate) fn line(event: &Event) -> Option<(EntityId, String)> {
     if lives::is_life(event) {
         return lives::said(event);
+    }
+    if calendar::is_calendar(event) {
+        return calendar::said(event);
     }
     let spec = storylet_of(event)?;
     let who = spec.storylet.asker;
@@ -3879,6 +3892,8 @@ pub(crate) fn fixtures(world: &World) -> Vec<world_projection::CanvasItem> {
                 shape: Some(shape),
                 at,
                 look: None,
+                drawing: None,
+                stance: None,
             }
         })
         .collect()

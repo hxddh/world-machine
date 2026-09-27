@@ -80,6 +80,7 @@ mod tests {
                 capabilities: ProjectionCapabilities {
                     fork: true,
                     background: false,
+                    talk: false,
                 },
                 ..ProjectionSnapshot::default()
             }

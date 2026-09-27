@@ -129,6 +129,14 @@ while [ "$#" -ge 2 ]; do
         shift 2
         continue
     fi
+    # "type WORDS" types into the newest window, underscores for spaces:
+    # "type How_are_you?".
+    if [ "$1" = type ]; then
+        xdotool type --delay 60 "${2//_/ }"
+        sleep 3
+        shift 2
+        continue
+    fi
     # "scroll N" turns the wheel N notches down over the newest window.
     if [ "$1" = scroll ]; then
         read -r X Y < <(origin "$(newest_window)")

@@ -10,10 +10,11 @@ use world_library::{
     DurableWorldSession, WorldDocumentId, LEGACY_WORLD_DOCUMENT_SUFFIX, WORLD_DOCUMENT_SUFFIX,
 };
 
-/// The app's single-line text field. It grew up inside the Analyst, and Home
-/// now uses the same field to name a World.
-#[path = "analyst_input.rs"]
-pub(crate) mod analyst_input;
+/// The app's single-line text field, shared with the World window, where a
+/// player speaks through it.
+pub(crate) mod analyst_input {
+    pub(crate) use world_gpui::text_input::{bind_keys, TextInput as AnalystTextInput};
+}
 #[path = "analyst_panel.rs"]
 mod analyst_panel;
 #[path = "analyst_runtime.rs"]

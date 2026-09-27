@@ -42,6 +42,11 @@ impl WorldSession for FutureArchaeologistSession {
                     "this fixed-truth world does not support timeline forks".into(),
                 ));
             }
+            ProjectionIntent::Say { .. } => {
+                return Err(HostError::Session(
+                    "nobody in this world can be spoken to".into(),
+                ));
+            }
         }
         Ok(self.snapshot())
     }

@@ -14,6 +14,11 @@ use world_core::{EntityId, Event, Value, World};
 use world_projection::{entity_title, Carry, Look, ProjectionCommand, SelectionId, Talk, Voice};
 
 /// The first word of someone's name, the way people address each other.
+#[cfg(test)]
+pub(crate) fn first_name_for_test(world: &World, id: EntityId) -> String {
+    first_name(world, id)
+}
+
 fn first_name(world: &World, id: EntityId) -> String {
     world
         .state()
@@ -243,7 +248,7 @@ pub(crate) fn voices(world: &World) -> Vec<Voice> {
 
 /// What someone would ask for, among the choices on offer now, and how
 /// they would put it.
-fn request(
+pub(crate) fn request(
     world: &World,
     who: EntityId,
     commands: &[ProjectionCommand],

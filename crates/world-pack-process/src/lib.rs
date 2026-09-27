@@ -1035,6 +1035,7 @@ mod tests {
             capabilities: ProjectionCapabilitiesWire {
                 fork: false,
                 background: false,
+                talk: false,
             },
             ..ProjectionSnapshotWire::default()
         }

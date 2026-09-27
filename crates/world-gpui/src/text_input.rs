@@ -1,5 +1,8 @@
+//! The app's single-line text field: a World's player speaks through it,
+//! and the app names Worlds and asks its Analyst with it.
+
+use crate::ui;
 use std::ops::Range;
-use world_gpui::ui;
 use world_theme::tokens;
 
 use gpui::{
@@ -30,7 +33,7 @@ actions!(
     ]
 );
 
-pub(crate) fn bind_keys(cx: &mut gpui::App) {
+pub fn bind_keys(cx: &mut gpui::App) {
     cx.bind_keys([
         KeyBinding::new("backspace", Backspace, Some(INPUT_CONTEXT)),
         KeyBinding::new("delete", Delete, Some(INPUT_CONTEXT)),
@@ -64,7 +67,7 @@ fn utf8_range_from_utf16(text: &str, range: &Range<usize>) -> Range<usize> {
     utf8_offset_from_utf16(text, range.start)..utf8_offset_from_utf16(text, range.end)
 }
 
-pub(crate) struct AnalystTextInput {
+pub struct TextInput {
     focus_handle: FocusHandle,
     content: SharedString,
     placeholder: SharedString,
@@ -76,8 +79,8 @@ pub(crate) struct AnalystTextInput {
     is_selecting: bool,
 }
 
-impl AnalystTextInput {
-    pub(crate) fn new(placeholder: impl Into<SharedString>, cx: &mut Context<Self>) -> Self {
+impl TextInput {
+    pub fn new(placeholder: impl Into<SharedString>, cx: &mut Context<Self>) -> Self {
         Self {
             focus_handle: cx.focus_handle(),
             content: "".into(),
@@ -94,18 +97,18 @@ impl AnalystTextInput {
     /// Start the field with text already in it, cursor at the end. Used when
     /// a field opens on something that already has a value, such as renaming
     /// a World that is already named.
-    pub(crate) fn with_text(mut self, text: impl Into<SharedString>) -> Self {
+    pub fn with_text(mut self, text: impl Into<SharedString>) -> Self {
         let content: SharedString = text.into();
         self.selected_range = content.len()..content.len();
         self.content = content;
         self
     }
 
-    pub(crate) fn text(&self) -> &str {
+    pub fn text(&self) -> &str {
         &self.content
     }
 
-    pub(crate) fn clear(&mut self, cx: &mut Context<Self>) {
+    pub fn clear(&mut self, cx: &mut Context<Self>) {
         self.content = "".into();
         self.selected_range = 0..0;
         self.selection_reversed = false;
@@ -292,10 +295,6 @@ impl AnalystTextInput {
         line.closest_index_for_x(position.x - bounds.left())
     }
 
-    fn offset_from_utf16(&self, offset: usize) -> usize {
-        utf8_offset_from_utf16(&self.content, offset)
-    }
-
     fn offset_to_utf16(&self, offset: usize) -> usize {
         let mut utf16_offset = 0;
         let mut utf8_count = 0;
@@ -318,7 +317,7 @@ impl AnalystTextInput {
     }
 }
 
-impl EntityInputHandler for AnalystTextInput {
+impl EntityInputHandler for TextInput {
     fn text_for_range(
         &mut self,
         range_utf16: Range<usize>,
@@ -430,8 +429,8 @@ impl EntityInputHandler for AnalystTextInput {
     }
 }
 
-struct AnalystTextElement {
-    input: Entity<AnalystTextInput>,
+struct TextElement {
+    input: Entity<TextInput>,
 }
 
 struct PrepaintState {
@@ -440,7 +439,7 @@ struct PrepaintState {
     selection: Option<PaintQuad>,
 }
 
-impl IntoElement for AnalystTextElement {
+impl IntoElement for TextElement {
     type Element = Self;
 
     fn into_element(self) -> Self::Element {
@@ -448,7 +447,7 @@ impl IntoElement for AnalystTextElement {
     }
 }
 
-impl Element for AnalystTextElement {
+impl Element for TextElement {
     type RequestLayoutState = ();
     type PrepaintState = PrepaintState;
 
@@ -608,7 +607,7 @@ impl Element for AnalystTextElement {
     }
 }
 
-impl Render for AnalystTextInput {
+impl Render for TextInput {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .key_context(INPUT_CONTEXT)
@@ -640,11 +639,11 @@ impl Render for AnalystTextInput {
             .border_color(ui::color(tokens::BORDER_STRONG))
             .bg(ui::color(tokens::SURFACE))
             .text_sm()
-            .child(AnalystTextElement { input: cx.entity() })
+            .child(TextElement { input: cx.entity() })
     }
 }
 
-impl Focusable for AnalystTextInput {
+impl Focusable for TextInput {
     fn focus_handle(&self, _: &gpui::App) -> FocusHandle {
         self.focus_handle.clone()
     }

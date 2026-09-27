@@ -27,6 +27,7 @@ pub(crate) fn snapshot(world: &World) -> ProjectionSnapshot {
         capabilities: ProjectionCapabilities {
             fork: false,
             background: false,
+            talk: false,
         },
         briefing: Some(briefing(world, &visible_artifacts)),
         commands: commands(world),
@@ -43,6 +44,8 @@ pub(crate) fn snapshot(world: &World) -> ProjectionSnapshot {
         chapters: Vec::new(),
         goals: Vec::new(),
         weather: Default::default(),
+        exchanges: Vec::new(),
+        drawings: Vec::new(),
     }
 }
 
@@ -189,6 +192,8 @@ fn canvas(world: &World, artifacts: &[EntityId]) -> CanvasProjection {
                 shape: None,
                 at: None,
                 look: None,
+                drawing: None,
+                stance: None,
             });
         }
     }
@@ -219,6 +224,8 @@ fn canvas(world: &World, artifacts: &[EntityId]) -> CanvasProjection {
             shape: None,
             at: None,
             look: None,
+            drawing: None,
+            stance: None,
         });
     }
 

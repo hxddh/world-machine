@@ -35,12 +35,18 @@ pub(crate) fn snapshot_since(
         })
         .collect::<Vec<_>>();
     let talks = crate::talk::talks(world, &commands);
+    let commands_on_offer = commands
+        .iter()
+        .filter(|command| command.unavailable.is_none())
+        .map(|command| command.id.clone())
+        .collect::<Vec<_>>();
     let mut snapshot = ProjectionSnapshot {
         title: "Tiny Society".into(),
         world_time: world.world_time(),
         capabilities: ProjectionCapabilities {
             fork: true,
             background: true,
+            talk: true,
         },
         briefing: Some(society_briefing(world, since_event_count)),
         commands,
@@ -78,12 +84,19 @@ pub(crate) fn snapshot_since(
             }
             .in_season(crate::story::season(world) as u64),
         ),
-        calendar: Some(world_projection::Calendar {
-            unit: "Day".into(),
-            length: crate::persistence::WORLD_DAY_TICKS,
+        calendar: Some({
+            let almanac = crate::almanac::almanac(world.state());
+            world_projection::Calendar {
+                unit: "Day".into(),
+                length: crate::persistence::WORLD_DAY_TICKS,
+                season: Some(calendar::season_name(world.state(), &almanac).into()),
+                coming: calendar::coming_up(world.state(), &almanac, 7),
+            }
         }),
         gauges: gauges(world),
         voices: crate::talk::voices(world),
+        exchanges: exchanges(world, &commands_on_offer),
+        drawings: crate::drawings::drawings().to_vec(),
         talks,
         goals: crate::story::goals(world),
         chapters: crate::story::chapters(world),
@@ -231,7 +244,7 @@ fn asker(command_id: &str) -> Option<SelectionId> {
     Some(SelectionId::Entity(who))
 }
 
-fn available_commands(world: &World) -> Vec<ProjectionCommand> {
+pub(crate) fn available_commands(world: &World) -> Vec<ProjectionCommand> {
     let mut commands = Vec::new();
     let has_order_loss = world
         .events()
@@ -621,7 +634,30 @@ fn told_timeline(world: &World) -> world_projection::TimelineProjection {
     timeline
 }
 
+/// What the player said to people today, and what they answered; a
+/// request is offered only while its choice still is.
+fn exchanges(world: &World, on_offer: &[String]) -> Vec<world_projection::Exchange> {
+    conversation::exchanges_today(world)
+        .into_iter()
+        .map(|exchange| world_projection::Exchange {
+            who: SelectionId::Entity(exchange.who),
+            words: exchange.words,
+            answer: exchange.reply,
+            moment: SelectionId::Event(exchange.event),
+            asks_for: exchange
+                .asks_for
+                .filter(|command| on_offer.contains(command)),
+        })
+        .collect()
+}
+
 fn telling(world: &World, event: &Event) -> Telling {
+    if let Some(told) = conversation::told(event) {
+        return Telling::Routine(Some(told));
+    }
+    if event.kind == "festival_nears" {
+        return Telling::Routine(calendar::told(event));
+    }
     if let Some(title) = narrated_title(world, event) {
         return Telling::Story(title);
     }
@@ -849,6 +885,8 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                 shape: Some(place_shape(id)),
                 at: None,
                 look: None,
+                drawing: crate::drawings::drawing_of(id, false),
+                stance: None,
             });
         }
     }
@@ -889,6 +927,8 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                     })
                     .map(SelectionId::Entity),
                 look: crate::talk::look(id),
+                drawing: crate::drawings::drawing_of(id, true),
+                stance: crate::drawings::stance_of(world, id, workplace(world, id)),
             });
         }
     }
@@ -917,6 +957,8 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                     .or_else(|| crate::life::work(world.state(), id))
                     .map(SelectionId::Entity),
                 look: crate::talk::look(id),
+                drawing: crate::drawings::drawing_of(id, true),
+                stance: crate::drawings::stance_of(world, id, crate::life::work(world.state(), id)),
             });
         }
     }
@@ -951,6 +993,8 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                     BAKERY
                 })),
                 look: None,
+                drawing: None,
+                stance: None,
             });
         }
     }
@@ -1427,10 +1471,12 @@ mod probe_parts {
                 r
             }};
         }
+        t!("index", world.history_index());
         let cmds = t!("commands", available_commands(world));
         t!("talks", crate::talk::talks(world, &cmds));
         t!("briefing", society_briefing(world, None));
         t!("timeline", told_timeline(world));
+
         t!("canvas", canvas_items(world));
         t!("inspectors", inspectors_from_world(world));
         t!("why", why_map_from_world(world));

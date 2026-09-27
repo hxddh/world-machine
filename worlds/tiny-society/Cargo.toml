@@ -1,6 +1,6 @@
 [package]
 name = "tiny-society"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2021"
 license = "Apache-2.0"
 publish = false
@@ -10,6 +10,8 @@ society-basic = { path = "../../systems/society-basic" }
 storylets = { path = "../../systems/storylets" }
 lives = { path = "../../systems/lives" }
 hands = { path = "../../systems/hands" }
+conversation = { path = "../../systems/conversation" }
+calendar = { path = "../../systems/calendar" }
 world-core = { path = "../../crates/world-core" }
 world-agent = { path = "../../crates/world-agent" }
 world-projection = { path = "../../crates/world-projection" }

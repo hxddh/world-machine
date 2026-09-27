@@ -22,6 +22,9 @@ impl world_gpui::ProjectionController for FutureArchaeologistController {
             world_gpui::ProjectionIntent::ForkBeforeEvent(_) => {
                 return Err("this fixed-truth world does not support timeline forks".into());
             }
+            world_gpui::ProjectionIntent::Say { .. } => {
+                return Err("nobody in this world can be spoken to".into());
+            }
         }
         Ok(self.world.projection_snapshot())
     }

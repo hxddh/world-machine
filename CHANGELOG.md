@@ -2,6 +2,33 @@
 
 Releases live on the [Releases page](https://github.com/hxddh/world-machine/releases). `0.2.0` is the first release intended to be usable without reading the repository; the `v0.1.0-pre.N` tags below were its pre-releases.
 
+## v0.13.0 (2026-09-27)
+
+**Worlds from `v0.12.0` need exporting first.** Tiny Society moves to `0.7.0` and Pocket Universe to `0.24.0`, because their people can now be spoken to, their year is longer and has festivals, and they draw with their own pictures. A World made with the older Packs reports that it needs a Pack this build does not have; export it before updating to keep its history.
+
+`v0.12.0` gave people lives and the player hands, but you could still only ask three fixed questions, a year was forty days of four ten-day seasons, and everyone was drawn from the same few shapes. This release lets you talk to the place and gives it a year and a look of its own.
+
+- **Talk to people in your own words.** Click someone and type whatever you like: "How's the bakery?", "What do you think of Leo?", "You should make up with Noah", "Your bread is wonderful", "对不起". They answer in their own voice from how their life stands: their day, their friends and grudges, their worries, the news, what they need. What you say can move people: a kindness warms them once a day, a sharp word is remembered until you apologise, company eases someone lonely, and advice to make up with someone is taken by someone who trusts you, or refused. The conversation shows in their card and over their head, a need can be granted with one click, and no time passes. Every exchange is recorded like any other change, so a World replays without hearing anything again.
+- **World voice speaks for people.** With the World voice switched on in Settings, people answer in a language model's words, through the local program or the API key already set up there. The model is told how the person's life stands and only proposes what they meant and what they say: a meaning outside the closed set, a name nobody has or anything that is not plain words is replaced by the World's own answer, and the rules still decide what the words do. Without the voice, people answer in the Pack's own words and nothing leaves the Mac.
+- **A year with a shape.** Seasons last a month, so a year is 120 days. Each place has about fifteen days on its calendar: festivals people get ready for days ahead, and days that simply arrive. The harbour has its Spring Clean, Blossom Walk, Boat Blessing, Midsummer Fair, Lantern Night, Harvest Home, Apple Pressing, Bonfire Night, school play, Midwinter Feast and Year's End Swim, and the swallows, mackerel, geese and first frost. Mars, Maple Street and Icebridge each have a year of their own, from Landing Day to Halloween to the Aurora Festival. How a festival goes depends on the place: its spirits and what you have put up. Something goes up for the day, people mix, and the harvest is as good as what was planted. The drawer shows the season and what is coming up, and people mention it when asked for news.
+- **Every place drawn as itself.** Packs now ship their own drawings. The harbour has a striped lighthouse, a bakery with an awning and loaves in the window, a timbered pub with a hanging sign, and a school with a bell and a clock. Jonas wears a sou'wester and a beard, Mara a baker's hat and apron, Noah a flat cap, Emma glasses and a bun. Mars has a dome habitat and a hydroponics greenhouse, Maple Street a neon arcade and a radio station with its mast, and Icebridge an arch of ice, a Fish Vault igloo, a council hall and penguins in scarves. People stand, walk, work with their hands, gesture while they talk and throw their arms up at a festival.
+- **Light and a camera.** Buildings and people cast shadows away from the sun, long at dawn and dusk and short at noon, and lit windows glow after dark. The camera moves in on whoever you talk to, the scroll wheel zooms in on the place around the pointer, and Escape pulls back out.
+- **Instant at any age, now for snapshots too.** A year-old World's snapshot takes about 9 ms in a release build, down from 20. Detail panels read an index kept as events are recorded, and History is told from the latest 1,200 events.
+- **Measured:** new tests check each Pack:
+  - People answer seven kinds of question differently in both Packs and every seed, and an exchange survives a reopen without passing time.
+  - In a year, something is on the calendar in every fortnight and every season has at least three festivals.
+  - Planting changes the harvest.
+  - Every shipped drawing is drawable.
+
+  The conversation System has its own tests for hearing, what words do, and what a model's proposal can and cannot change. The year-long, consequence and story-density tests from earlier releases still hold.
+- **Pack protocol:**
+  - A new intent, `say`, carries what the player says to someone.
+  - Snapshots may carry `exchanges`, `drawings` and a calendar `season` and `coming`.
+  - Canvas items may name a `drawing` and a `stance`.
+  - Capabilities gain `talk`.
+
+  Everything new is optional, and a Pack that sends none of it reads as before. Two new Systems sit outside `world-core`, `conversation` and `calendar`, and a new crate, `world-voice`, reaches a model for Packs that are given one.
+
 ## v0.12.0 (2026-09-27)
 
 **Worlds from `v0.11.0` need exporting first.** Tiny Society moves to `0.6.0` and Pocket Universe to `0.23.0`, because their people now live their own lives and the player can build in them. A World made with the older Packs reports that it needs a Pack this build does not have; export it before updating to keep its history.

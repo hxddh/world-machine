@@ -49,6 +49,14 @@ impl world_gpui::ProjectionController for TinySocietyController {
                     .invoke_projection_command(&command_id)
                     .map_err(|error| error.to_string())?;
             }
+            world_gpui::ProjectionIntent::Say { to, words } => {
+                let world_gpui::SelectionId::Entity(who) = to else {
+                    return Err("only someone can be spoken to".into());
+                };
+                candidate
+                    .say(who, &words)
+                    .map_err(|error| error.to_string())?;
+            }
         }
         self.persist_branch(&candidate)?;
         self.branch = candidate;
