@@ -96,4 +96,8 @@ These are checked by the tests below, next to the year-long, consequence, story-
 - `a_model_that_takes_too_long_is_not_waited_for`, `an_app_can_ask_the_model_itself_and_the_world_still_decides`
 - `a_festival_remembers_last_year`, and each Pack's year-long test checking festivals are told differently two years running
 
+- **Asking Max about his day.** He answers from what he did, and his card shows where the player stands with him.
+
+  ![Asking Max about his day](review/v14-talk.png)
+
 Still to do: a commissioned artist's set, drawings for what the player builds, trying World voice's deadline against a real model on a Mac, and, as before, the two-week diary on a real Mac and the five signing secrets.
