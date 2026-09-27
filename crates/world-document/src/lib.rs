@@ -31,6 +31,10 @@ pub struct WorldDocumentMetadata {
     /// cover can show its own people and buildings.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub display_cast: Vec<DocumentFigure>,
+    /// The Pack's own drawings its cast is drawn with, as the Pack protocol
+    /// writes them, so the cover draws each one as the World does.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub display_drawings: Vec<serde_json::Value>,
 }
 
 /// One person, place or thing on a World's stage, as its cover draws it.
@@ -59,6 +63,9 @@ pub struct DocumentFigure {
     /// What they carry, such as `fish` or `bread`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub carries: Option<String>,
+    /// Which of the World's drawings it is drawn with.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub drawing: Option<String>,
 }
 
 impl WorldDocumentMetadata {
@@ -71,6 +78,7 @@ impl WorldDocumentMetadata {
             && self.display_marks.is_empty()
             && !self.display_moves_alone
             && self.display_cast.is_empty()
+            && self.display_drawings.is_empty()
     }
 }
 

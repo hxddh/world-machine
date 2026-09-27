@@ -62,6 +62,9 @@ pub(crate) struct Looking {
     /// When the player last said something, so the answer shows over the
     /// person's head for a while.
     pub(crate) said_at: Option<Instant>,
+    /// Words the player said that a language model is still hearing: to
+    /// whom, and what. The window keeps drawing; the person is thinking.
+    pub(crate) listening: Option<(SelectionId, String)>,
     /// How close the player has zoomed in with the wheel, and on which
     /// stage point; 1 is the whole place.
     pub(crate) zoom: f32,
@@ -534,33 +537,89 @@ impl ProjectionView {
     }
 
     /// Says what the player typed to whoever they are talking to. The World
-    /// hears it and records the answer; no time passes.
+    /// hears it and records the answer; no time passes. With the World
+    /// voice on, a model hears it first, off the window's thread: the
+    /// window keeps drawing while the person thinks.
     fn say(&mut self, cx: &mut Context<Self>) {
         let (Some(who), Some(input)) = (self.looking.asking, self.looking.say.clone()) else {
             return;
         };
         let words = input.read(cx).text().trim().to_string();
-        if words.is_empty() || self.retelling.is_some() {
+        if words.is_empty() || self.retelling.is_some() || self.looking.listening.is_some() {
             return;
         }
         let Some(controller) = self.controller.as_mut() else {
             return;
         };
-        match controller.handle(ProjectionIntent::Say { to: who, words }) {
+        let Some(listening) = controller.listen(who, &words) else {
+            if self.finish_saying(who, words, Ears::World, cx) {
+                input.update(cx, |input, cx| input.clear(cx));
+            }
+            return;
+        };
+        self.looking.listening = Some((who, words.clone()));
+        input.update(cx, |input, cx| input.clear(cx));
+        let started = self.revision;
+        let heard = cx
+            .background_executor()
+            .spawn(async move { crate::listen_within(listening, crate::LISTEN_DEADLINE) });
+        cx.spawn(async move |this, cx| {
+            let response = heard.await;
+            let _ = this.update(cx, |this, cx| {
+                this.looking.listening = None;
+                // The model heard the World as it stood when the words were
+                // said. If a turn or a branch has changed it since, the
+                // answer belongs to a moment that is gone.
+                if this.revision != started {
+                    let name = label_of(&this.snapshot, who)
+                        .map(|name| first_name(&name).to_string())
+                        .unwrap_or_else(|| "They".into());
+                    this.status = Some(format!("The moment passed before {name} could answer."));
+                    this.status_is_error = false;
+                    cx.notify();
+                    return;
+                }
+                let ears = response.map_or(Ears::Own, Ears::Model);
+                this.finish_saying(who, words, ears, cx);
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
+    /// Records what the player said, heard by `ears`: whether it was.
+    fn finish_saying(
+        &mut self,
+        who: SelectionId,
+        words: String,
+        ears: Ears,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(controller) = self.controller.as_mut() else {
+            return false;
+        };
+        let said = match controller.handle(ProjectionIntent::Say {
+            to: who,
+            words,
+            ears,
+        }) {
             Ok(snapshot) => {
                 self.snapshot = snapshot;
+                self.revision += 1;
                 self.looking.answered = None;
                 self.looking.said_at = Some(Instant::now());
                 self.status = None;
                 self.status_is_error = false;
-                input.update(cx, |input, cx| input.clear(cx));
+                true
             }
             Err(error) => {
                 self.status = Some(format!("Couldn't say that: {error}"));
                 self.status_is_error = true;
+                false
             }
-        }
+        };
         cx.notify();
+        said
     }
 
     fn answer(&mut self, talk: usize, cx: &mut Context<Self>) {
@@ -1849,6 +1908,16 @@ impl ProjectionView {
                         cx.listener(|this, _, _, cx| this.look_away(cx)),
                     )),
             );
+        if let Some(standing) = self
+            .snapshot
+            .canvas
+            .items
+            .iter()
+            .find(|item| item.id == who)
+            .and_then(|item| item.standing.as_ref())
+        {
+            card = card.child(standing_row(standing));
+        }
         let answered = self.looking.answered.map(|(index, _)| index);
         for (index, talk) in self
             .snapshot
@@ -2007,6 +2076,34 @@ impl ProjectionView {
                     ));
                 }
             }
+        }
+        if let Some((_, words)) = self
+            .looking
+            .listening
+            .as_ref()
+            .filter(|(listening, _)| *listening == who)
+        {
+            conversation = conversation
+                .child(
+                    div().flex().justify_end().child(
+                        div()
+                            .max_w(px(220.0))
+                            .px_2()
+                            .py_1()
+                            .rounded_lg()
+                            .bg(color(tokens::ACCENT_SOFT))
+                            .text_xs()
+                            .text_color(color(tokens::ACCENT_TEXT))
+                            .child(words.clone()),
+                    ),
+                )
+                .child(
+                    div()
+                        .px_1()
+                        .text_sm()
+                        .text_color(color(tokens::TEXT_TERTIARY))
+                        .child(thinking_dots(self.looking.started)),
+                );
         }
         conversation
     }
@@ -2244,4 +2341,37 @@ fn bottom_card(card: impl IntoElement, width: f32) -> Div {
         .flex()
         .justify_center()
         .child(div().w(px(CARD_WIDTH.min(width - 32.0))).child(card))
+}
+
+/// How someone stands with the player: five small marks, as many filled as
+/// they are warm towards them, and the words for it.
+fn standing_row(standing: &world_projection::Standing) -> Div {
+    let filled = (standing.level.clamp(-2, 2) + 3) as usize;
+    let tone = match standing.level {
+        1.. => tokens::SUCCESS,
+        0 => tokens::ACCENT,
+        _ => tokens::DANGER,
+    };
+    let mut marks = div().flex().items_center().gap(px(3.0));
+    for index in 0..5 {
+        marks = marks.child(
+            div()
+                .w(px(6.0))
+                .h(px(6.0))
+                .rounded_full()
+                .bg(color(if index < filled { tone } else { tokens::BORDER })),
+        );
+    }
+    div().flex().items_center().gap_2().child(marks).child(
+        div()
+            .text_xs()
+            .text_color(color(tokens::TEXT_SECONDARY))
+            .child(standing.words.clone()),
+    )
+}
+
+/// A person thinking: one to three dots, turning over while they do.
+fn thinking_dots(since: Option<Instant>) -> String {
+    let beat = since.map_or(0, |since| since.elapsed().as_millis() / 400) % 3;
+    ".".repeat(beat as usize + 1)
 }

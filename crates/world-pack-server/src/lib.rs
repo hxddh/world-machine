@@ -119,6 +119,13 @@ impl PackServer {
                     false,
                 ))
             }
+            PackRequest::Hear { to, words } => {
+                let session = self.session("hear")?;
+                let prompt = session
+                    .hearing(to.into(), &words)
+                    .map_err(PackServerError::Host)?;
+                Ok((PackResponse::Hearing { prompt }, false))
+            }
             PackRequest::Advance { periods } => {
                 let session = self.session_mut("advance")?;
                 let snapshot = session

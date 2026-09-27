@@ -45,7 +45,13 @@ fn almanac(_: &WorldState) -> Almanac {
         year: 12,
         seasons: ["spring", "summer", "autumn", "winter"],
         festivals: FESTIVALS,
-        people: |_| vec![ANN],
+        people: |state| {
+            state
+                .entities()
+                .filter(|entity| entity.kind == "person")
+                .map(|entity| entity.id)
+                .collect()
+        },
         festive: |state| integer(state, SQUARE, MOOD).unwrap_or(0),
         grown: |state| integer(state, SQUARE, "grown").unwrap_or(0),
         held: |state, festival, turnout, grown| {
@@ -88,6 +94,7 @@ fn world(mood: i64, grown: i64) -> (World, ActionRegistry) {
         .unwrap();
     let mut actions = ActionRegistry::new();
     register_actions(&mut actions, almanac).unwrap();
+    actions.register(Arrives).unwrap();
     (World::new(state), actions)
 }
 
@@ -119,8 +126,8 @@ fn people_get_ready_and_each_day_comes_once_a_year() {
             "A grand Summer Fair",
             "A rich harvest",
             "Summer Fair is 3 days away.",
-            "A grand Summer Fair",
-            "A rich harvest",
+            "A grand Summer Fair, as good as last year",
+            "A rich harvest, as good as last year",
         ]
     );
     // It can't be held twice, or on another day.
@@ -175,4 +182,55 @@ fn a_festival_puts_something_up_for_the_day_and_brings_people_together() {
         season_name(world.state(), &almanac(world.state())),
         "autumn"
     );
+}
+
+/// The second time a festival is held it is told against the first: how
+/// it went then, and who has come since.
+#[test]
+fn a_festival_remembers_last_year() {
+    let (mut world, actions) = world(3, 0);
+    let first = live_days(&mut world, &actions, 12);
+    assert!(
+        first.contains(&"A fine Summer Fair".to_string()),
+        "{first:?}"
+    );
+    // By next year the square is in better spirits, and two more live there.
+    for id in [2_i64, 3] {
+        let arrive = ActionRequest::new("arrives").arg("id", id);
+        world.execute(&actions, &arrive).unwrap();
+    }
+    let second = live_days(&mut world, &actions, 12);
+    assert!(
+        second.contains(
+            &"A grand Summer Fair, bigger than last year, with 2 new faces among them".to_string()
+        ),
+        "{second:?}"
+    );
+}
+
+/// Someone comes to live by the square, and cheers it up.
+struct Arrives;
+
+impl Action for Arrives {
+    fn name(&self) -> &'static str {
+        "arrives"
+    }
+
+    fn evaluate(&self, _: &WorldState, request: &ActionRequest) -> Result<EventDraft, ActionError> {
+        let Some(Value::Integer(id)) = request.args.get("id") else {
+            return Err(ActionError::Invalid("who?".into()));
+        };
+        let mut draft = EventDraft::new("arrived");
+        draft.changes = vec![
+            StateChange::CreateEntity(
+                Entity::new(EntityId::new(*id as u64), "person").with_component("name", "Bo"),
+            ),
+            StateChange::SetComponent {
+                entity: SQUARE,
+                key: MOOD.into(),
+                value: 7.into(),
+            },
+        ];
+        Ok(draft)
+    }
 }

@@ -30,7 +30,7 @@ use world_persistence::{PersistenceError, WorldArchive, WorldPackRef};
 use world_projection::{ProjectionIntent, ProjectionSnapshot};
 
 pub const POCKET_UNIVERSE_PACK_ID: &str = "world-machine.pocket-universe";
-pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.24.0";
+pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.25.0";
 
 pub const SEED_MARS_COLONY_COMMAND: &str = "pocket-universe.seed-mars-colony";
 pub const SEED_1980S_TOWN_COMMAND: &str = "pocket-universe.seed-1980s-town";
@@ -654,19 +654,42 @@ where
                     .invoke_projection_command(&command)
                     .map_err(HostError::session)?;
             }
-            ProjectionIntent::Say { to, words } => {
+            ProjectionIntent::Say { to, words, ears } => {
                 let world_projection::SelectionId::Entity(who) = to else {
                     return Err(HostError::session(std::io::Error::other(
                         "only someone can be spoken to",
                     )));
                 };
+                let mut answered;
+                let mut own = conversation::OwnEars;
+                let listener: &mut dyn conversation::Listener = match ears {
+                    world_projection::Ears::World => self.listener.as_mut(),
+                    world_projection::Ears::Model(response) => {
+                        answered = conversation::Answered(response);
+                        &mut answered
+                    }
+                    world_projection::Ears::Own => &mut own,
+                };
                 self.world
-                    .say_with(who, &words, self.listener.as_mut())
+                    .say_with(who, &words, listener)
                     .map_err(HostError::session)?;
             }
         }
         self.return_since_event_count = None;
         Ok(self.snapshot())
+    }
+
+    fn hearing(
+        &self,
+        to: world_projection::SelectionId,
+        words: &str,
+    ) -> Result<Option<String>, HostError> {
+        Ok(match to {
+            world_projection::SelectionId::Entity(who) => {
+                speech::prompt(self.world.world(), who, words)
+            }
+            _ => None,
+        })
     }
 
     fn advance_background(&mut self, periods: u64) -> Result<ProjectionSnapshot, HostError> {
@@ -2394,6 +2417,7 @@ mod tests {
                         .handle(ProjectionIntent::Say {
                             to: world_projection::SelectionId::Entity(who),
                             words: words.clone(),
+                            ears: world_projection::Ears::World,
                         })
                         .unwrap();
                     let exchange = snapshot

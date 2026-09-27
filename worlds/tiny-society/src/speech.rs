@@ -34,7 +34,53 @@ pub(crate) fn kit(_: &WorldState) -> conversation::Kit {
             let almanac = crate::almanac::almanac(world.state());
             calendar::coming_up(world.state(), &almanac, 7)
         },
+        aliases,
+        weather,
+        occasions: |state| {
+            crate::almanac::almanac(state)
+                .festivals
+                .iter()
+                .map(|festival| festival.name.to_string())
+                .collect()
+        },
     }
+}
+
+/// The other names the harbour's people and places go by.
+fn aliases(name: &str) -> Vec<String> {
+    let names: &[&str] = match name {
+        "Jonas" => &["乔纳斯"],
+        "Mara" => &["玛拉"],
+        "Leo" => &["利奥", "里奥"],
+        "Emma" => &["艾玛"],
+        "Mia" => &["米娅", "米亚"],
+        "Noah" => &["诺亚"],
+        "Evan" => &["埃文"],
+        "Sofia" => &["索菲亚", "苏菲亚"],
+        "Ivo" => &["伊沃"],
+        "Ada" => &["艾达"],
+        "Harbor" => &["harbour", "quay", "港口", "码头"],
+        "Harbor Bakery" => &["bakery", "面包店"],
+        "Island School" => &["学校"],
+        "Anchor Pub" => &["酒馆", "酒吧"],
+        _ => &[],
+    };
+    names.iter().map(|name| name.to_string()).collect()
+}
+
+/// What the harbour's sky is doing, in anybody's words.
+fn weather(world: &World) -> String {
+    use world_projection::Weather;
+    match crate::story::weather(world) {
+        Weather::Clear => "Clear skies. Lovely out on the water.",
+        Weather::Cloudy => "Grey, but dry. It'll hold, I think.",
+        Weather::Rain => "Wet. It's been coming down all day.",
+        Weather::Storm => "A proper storm. The boats are staying in.",
+        Weather::Snow => "Snow on the quay! Everything's gone quiet.",
+        Weather::Fog => "Thick fog. You can't see the end of the quay.",
+        Weather::Dust => "Dusty and dry.",
+    }
+    .into()
 }
 
 /// Who is at a place now, by name.
@@ -90,6 +136,25 @@ fn work_line(world: &World, who: EntityId) -> Option<String> {
     )
 }
 
+/// What a language model should be asked to hear the player's words to
+/// someone with.
+pub(crate) fn prompt(world: &World, who: EntityId, words: &str) -> Option<String> {
+    conversation::prompt_for(world, &kit(world.state()), who, words)
+}
+
+/// How someone the player can talk to stands with them.
+pub(crate) fn standing_of(world: &World, who: EntityId) -> Option<world_projection::Standing> {
+    let state = world.state();
+    let kit = kit(state);
+    conversation::can_talk_to(state, &kit, who).then(|| {
+        let standing = conversation::standing(state, &kit, who);
+        world_projection::Standing {
+            level: standing.level,
+            words: standing.words,
+        }
+    })
+}
+
 /// Hears what the player says to someone and answers, ready to record: with
 /// the listener's ears if it has something usable to say, the System's own
 /// otherwise.
@@ -100,4 +165,42 @@ pub(crate) fn say(
     listener: &mut dyn conversation::Listener,
 ) -> Result<ActionRequest, String> {
     conversation::say_with(world, &kit(world.state()), who, words, listener)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use conversation::corpus;
+
+    /// Everyday things a player types are heard as what they mean, spoken
+    /// to anyone in the harbour about anyone else, in English and Chinese.
+    #[test]
+    fn people_understand_everyday_phrases() {
+        let society = crate::TinySociety::new().unwrap();
+        let world = society.world();
+        let kit = kit(world.state());
+        for (who, other, other_zh) in [
+            (crate::MARA, "Leo", "利奥"),
+            (crate::LEO, "Noah", "诺亚"),
+            (crate::EMMA, "Sofia", "索菲亚"),
+        ] {
+            let phrases = corpus::filled(&corpus::Blanks {
+                person: other.into(),
+                person_zh: Some(other_zh.into()),
+                place: "bakery".into(),
+                place_zh: Some("面包店".into()),
+                occasion: Some("Lantern Night".into()),
+            });
+            let score = corpus::score(&phrases, |words| {
+                conversation::hear(world.state(), &kit, who, words).intent
+            });
+            assert!(score.misheard.is_empty(), "{:#?}", score.misheard);
+            assert!(
+                score.unclear_percent() <= 10.0,
+                "{:.1}%: {:#?}",
+                score.unclear_percent(),
+                score.unclear
+            );
+        }
+    }
 }

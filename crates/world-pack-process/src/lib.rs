@@ -15,11 +15,12 @@ use world_host::{
     HostError, WorldDescriptor, WorldPackSource, WorldRegistration, WorldRegistry, WorldSession,
 };
 use world_pack_protocol::{
-    decode_response, encode_request, PackDescriptor, PackManifest, PackRequest,
+    decode_response, encode_request, EarsWire, PackDescriptor, PackManifest, PackRequest,
     PackRequestEnvelope, PackResponse, PackRuntimeManifest, ProjectionIntentWire,
+    PACK_PROTOCOL_VERSION_V3,
 };
 use world_persistence::{WorldArchive, WorldPackRef};
-use world_projection::{ProjectionIntent, ProjectionSnapshot};
+use world_projection::{ProjectionIntent, ProjectionSnapshot, SelectionId};
 
 pub const PACK_MANIFEST_SUFFIX: &str = ".world-pack.json";
 pub const DEFAULT_MAX_REQUEST_BYTES: usize = 16 * 1024 * 1024;
@@ -541,6 +542,11 @@ impl ProcessWorldSession {
         })
     }
 
+    /// Whether the Pack speaks a protocol with `hear` and `ears`.
+    fn speaks_v3(&self) -> bool {
+        self.client.borrow().protocol_version >= PACK_PROTOCOL_VERSION_V3
+    }
+
     fn request_snapshot(
         &self,
         request: PackRequest,
@@ -561,14 +567,31 @@ impl WorldSession for ProcessWorldSession {
     }
 
     fn handle(&mut self, intent: ProjectionIntent) -> Result<ProjectionSnapshot, HostError> {
-        let snapshot = self.request_snapshot(
-            PackRequest::Handle {
-                intent: ProjectionIntentWire::from(intent),
-            },
-            "handle",
-        )?;
+        let mut intent = ProjectionIntentWire::from(intent);
+        // A Pack on an older protocol hears everything in its own way.
+        if let ProjectionIntentWire::Say { ears, .. } = &mut intent {
+            if !self.speaks_v3() {
+                *ears = EarsWire::World;
+            }
+        }
+        let snapshot = self.request_snapshot(PackRequest::Handle { intent }, "handle")?;
         self.snapshot = snapshot.clone();
         Ok(snapshot)
+    }
+
+    fn hearing(&self, to: SelectionId, words: &str) -> Result<Option<String>, HostError> {
+        // Asking a Pack that never said it could answer would end it.
+        if !self.speaks_v3() {
+            return Ok(None);
+        }
+        let response = self.client.borrow_mut().request(PackRequest::Hear {
+            to: to.into(),
+            words: words.to_string(),
+        })?;
+        match response {
+            PackResponse::Hearing { prompt } => Ok(prompt),
+            response => Err(unexpected_response("hear", &response)),
+        }
     }
 
     fn advance_background(&mut self, periods: u64) -> Result<ProjectionSnapshot, HostError> {
@@ -623,6 +646,7 @@ fn response_kind(response: &PackResponse) -> &'static str {
         PackResponse::Descriptor { .. } => "descriptor",
         PackResponse::Snapshot { .. } => "snapshot",
         PackResponse::Archive { .. } => "archive",
+        PackResponse::Hearing { .. } => "hearing",
         PackResponse::Ok => "ok",
         PackResponse::Error { .. } => "error",
     }

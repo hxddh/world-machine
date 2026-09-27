@@ -23,6 +23,13 @@ fn kit(_: &WorldState) -> Kit {
         work_line: |_, _| Some("Up at four for the bread.".into()),
         place_mood: |_| "The harbour's quiet.".into(),
         coming_up: |_| Some("the fair in 3 days".into()),
+        aliases: |name| match name {
+            "Leo" => vec!["利奥".into()],
+            "Harbor Bakery" => vec!["面包店".into()],
+            _ => Vec::new(),
+        },
+        weather: |_| "Grey and wet.".into(),
+        occasions: |_| vec!["the Harbour Fair".into()],
     }
 }
 
@@ -329,4 +336,193 @@ fn an_unusable_proposal_changes_nothing_and_long_words_never_reach_a_listener() 
     }
     let long = "a".repeat(MOST_WORDS + 1);
     assert!(say_with(&world, &kit, MARA, &long, &mut NeverAsked).is_err());
+}
+
+#[test]
+fn everyday_words_are_understood() {
+    let (world, _) = world();
+    let kit = kit(world.state());
+    let phrases = corpus::filled(&corpus::Blanks {
+        person: "Leo".into(),
+        person_zh: Some("利奥".into()),
+        place: "bakery".into(),
+        place_zh: Some("面包店".into()),
+        occasion: Some("the Harbour Fair".into()),
+    });
+    assert!(phrases.len() >= 150, "{} phrases", phrases.len());
+    let score = corpus::score(&phrases, |words| {
+        hear(world.state(), &kit, MARA, words).intent
+    });
+    assert!(score.misheard.is_empty(), "misheard: {:#?}", score.misheard);
+    assert!(
+        score.unclear_percent() <= 10.0,
+        "{:.1}% not understood: {:#?}",
+        score.unclear_percent(),
+        score.unclear
+    );
+}
+
+#[test]
+fn every_meaning_has_an_answer_of_its_own() {
+    let (world, _) = world();
+    let kit = kit(world.state());
+    for intent in Intent::ALL {
+        let about = if intent.about_someone() {
+            Some(LEO)
+        } else if intent == Intent::Place {
+            Some(BAKERY)
+        } else {
+            None
+        };
+        let answer = reply(&world, &kit, MARA, Heard { intent, about });
+        assert!(
+            !answer.line.is_empty() && answer.line.chars().count() <= MOST_REPLY,
+            "{intent:?}: {answer:?}"
+        );
+    }
+}
+
+fn next_day(world: &mut World, actions: &ActionRegistry) {
+    let next = world.world_time() + 10;
+    world.advance_to(actions, next).unwrap();
+}
+
+#[test]
+fn people_remember_what_they_were_told() {
+    let (mut world, actions) = world();
+    let kit = kit(world.state());
+    let request = say(&world, &kit, MARA, "I brought you flowers").unwrap();
+    world.execute(&actions, &request).unwrap();
+    let request = say(&world, &kit, LEO, "How is Mara doing?").unwrap();
+    world.execute(&actions, &request).unwrap();
+    next_day(&mut world, &actions);
+
+    let hello = reply(
+        &world,
+        &kit,
+        MARA,
+        Heard {
+            intent: Intent::Greet,
+            about: None,
+        },
+    );
+    assert!(
+        hello
+            .line
+            .contains("Thank you again for the flowers yesterday."),
+        "{hello:?}"
+    );
+    let how = reply(
+        &world,
+        &kit,
+        LEO,
+        Heard {
+            intent: Intent::HowAreYou,
+            about: None,
+        },
+    );
+    assert!(
+        how.line.contains("You asked after Mara yesterday."),
+        "{how:?}"
+    );
+    // Brought up once, when they first see the player that day.
+    let request = say(&world, &kit, MARA, "hello").unwrap();
+    world.execute(&actions, &request).unwrap();
+    let again = reply(
+        &world,
+        &kit,
+        MARA,
+        Heard {
+            intent: Intent::Greet,
+            about: None,
+        },
+    );
+    assert!(!again.line.contains("flowers"), "{again:?}");
+    // Rudeness is remembered until it is forgiven.
+    let request = say(&world, &kit, LEO, "You're an idiot").unwrap();
+    world.execute(&actions, &request).unwrap();
+    next_day(&mut world, &actions);
+    let request = say(&world, &kit, LEO, "Morning!").unwrap();
+    world.execute(&actions, &request).unwrap();
+    let remembered = exchanges_today(&world).last().unwrap().reply.clone();
+    assert!(
+        remembered.contains("I haven't forgotten what you said yesterday."),
+        "{remembered}"
+    );
+    assert_eq!(world.replay().unwrap().state(), world.state());
+}
+
+#[test]
+fn the_player_standing_is_shown_and_moves() {
+    let (mut world, actions) = world();
+    let kit = kit(world.state());
+    assert_eq!(standing(world.state(), &kit, MARA).level, 0);
+    for day in 0..6 {
+        let words = if day % 2 == 0 {
+            "I brought you a present"
+        } else {
+            "You're wonderful"
+        };
+        let request = say(&world, &kit, MARA, words).unwrap();
+        world.execute(&actions, &request).unwrap();
+        next_day(&mut world, &actions);
+    }
+    let warmer = standing(world.state(), &kit, MARA);
+    assert_eq!(warmer.level, 1, "{warmer:?}");
+    assert_eq!(warmer.words, "Likes you");
+    let request = say(&world, &kit, MARA, "Shut up").unwrap();
+    world.execute(&actions, &request).unwrap();
+    let hurt = standing(world.state(), &kit, MARA);
+    assert_eq!(hurt.level, -1, "{hurt:?}");
+    assert_eq!(hurt.words, "Hurt by what you said");
+    let request = say(&world, &kit, MARA, "What do you think of me?").unwrap();
+    world.execute(&actions, &request).unwrap();
+    assert_eq!(
+        exchanges_today(&world).last().unwrap().reply,
+        "Not after what you said."
+    );
+}
+
+/// Asked everything there is to ask, day after day, nobody says the same
+/// thing twice in one answer, and asked how they are they do not open the
+/// same way every day.
+#[test]
+fn no_clause_repeats_within_an_answer_or_every_day() {
+    let (mut world, actions) = world();
+    let kit = kit(world.state());
+    let mut openings = std::collections::BTreeMap::<String, usize>::new();
+    for _ in 0..30 {
+        for intent in Intent::ALL {
+            let about = if intent.about_someone() {
+                Some(LEO)
+            } else if intent == Intent::Place {
+                Some(BAKERY)
+            } else {
+                None
+            };
+            let answer = reply(&world, &kit, MARA, Heard { intent, about });
+            let clauses = answer
+                .line
+                .split(['.', '!', '?'])
+                .map(str::trim)
+                .filter(|clause| clause.split_whitespace().count() >= 3)
+                .collect::<Vec<_>>();
+            let unique = clauses.iter().collect::<std::collections::BTreeSet<_>>();
+            assert_eq!(unique.len(), clauses.len(), "{intent:?}: {:?}", answer.line);
+            if intent == Intent::HowAreYou {
+                let opening = answer
+                    .line
+                    .split('.')
+                    .next()
+                    .unwrap_or_default()
+                    .to_string();
+                *openings.entry(opening).or_default() += 1;
+            }
+        }
+        let request = say(&world, &kit, MARA, "how are you?").unwrap();
+        world.execute(&actions, &request).unwrap();
+        next_day(&mut world, &actions);
+    }
+    let most = openings.values().max().copied().unwrap_or_default();
+    assert!(most <= 15, "{openings:#?}");
 }

@@ -5,9 +5,9 @@ use gpui::{
     Styled, Window,
 };
 use world_projection::{
-    BriefingItem, BriefingItemKind, CanvasItemKind, CollectionItem, CommandEffect, EffectChange,
-    InspectorProjection, ProjectionCommand, ProjectionIntent, ProjectionSnapshot, SelectionId,
-    TimelineItem, Tone, WhyNode,
+    BriefingItem, BriefingItemKind, CanvasItemKind, CollectionItem, CommandEffect, Ears,
+    EffectChange, InspectorProjection, ProjectionCommand, ProjectionIntent, ProjectionSnapshot,
+    SelectionId, TimelineItem, Tone, WhyNode,
 };
 use world_theme::tokens;
 
@@ -47,6 +47,10 @@ pub struct ProjectionView {
     retelling: Option<usize>,
     /// What the player is looking at: presentation only.
     looking: world_window::Looking,
+    /// Counts every time the World changed under this view (a turn, a
+    /// branch, something said), so work that finishes later can tell
+    /// whether the World it started in is still the one on screen.
+    revision: u64,
 }
 
 impl ProjectionView {
@@ -64,6 +68,7 @@ impl ProjectionView {
             before_turn: None,
             retelling,
             looking: Default::default(),
+            revision: 0,
         };
         view.looking.answer = view.first_available_answer();
         view
@@ -118,6 +123,7 @@ impl ProjectionView {
             Ok(snapshot) => {
                 let previous = self.selected;
                 self.snapshot = snapshot;
+                self.revision += 1;
                 self.before_turn = None;
                 self.retelling = None;
                 self.selected = selection_for_snapshot(previous, &self.snapshot);
@@ -141,6 +147,7 @@ impl ProjectionView {
             Ok(snapshot) => {
                 let previous = self.selected;
                 self.before_turn = Some(std::mem::replace(&mut self.snapshot, snapshot));
+                self.revision += 1;
                 self.retelling = None;
                 self.turn_landed();
                 self.selected = selection_for_snapshot(previous, &self.snapshot);

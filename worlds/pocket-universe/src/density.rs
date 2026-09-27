@@ -383,6 +383,30 @@ fn a_week_away_lapses_at_most_three_questions() {
 fn a_year(seed: &str, policy: Policy) {
     let played = play(seed, policy, 365);
     let world = played.universe.world();
+
+    // A festival told in its second year is told against its first.
+    let mut told = std::collections::BTreeMap::<String, Vec<String>>::new();
+    for event in world
+        .events()
+        .iter()
+        .filter(|event| event.kind == "festival_held")
+    {
+        if let (Some(world_core::Value::Text(id)), Some(world_core::Value::Text(line))) =
+            (event.payload.get("festival"), event.payload.get("told"))
+        {
+            told.entry(id.clone()).or_default().push(line.clone());
+        }
+    }
+    let twice = told.values().filter(|lines| lines.len() >= 2).count();
+    assert!(twice >= 10, "only {twice} festivals came round twice");
+    for (id, lines) in &told {
+        if lines.len() >= 2 {
+            assert_ne!(
+                lines[0], lines[1],
+                "{id} told the same way two years running"
+            );
+        }
+    }
     let period = |event: &world_core::Event| event.world_time / crate::BACKGROUND_PERIOD;
     let first = world.events().first().map(period).unwrap_or(0);
 

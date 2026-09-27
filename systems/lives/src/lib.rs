@@ -2503,6 +2503,12 @@ pub fn said_today(world: &World, person: EntityId) -> Option<String> {
 
 /// How someone is, in their own words, from how their life stands.
 pub fn how_are_you(world: &World, person: EntityId) -> Option<String> {
+    how_are_you_on(world, person, 0)
+}
+
+/// How someone is, in one of several ways of putting it: the same state
+/// of things said differently for a different `seed`.
+pub fn how_are_you_on(world: &World, person: EntityId, seed: u64) -> Option<String> {
     let state = world.state();
     if !enrolled(state, person) {
         return None;
@@ -2519,31 +2525,66 @@ pub fn how_are_you(world: &World, person: EntityId) -> Option<String> {
         .copied()
         .max_by_key(|need| lack(state, person, *need))
         .unwrap_or(Need::Company);
-    let line = if let Some(p) = partner(state, person) {
-        if opinion(state, person, p) <= 5 {
-            format!(
-                "Honestly? Things with {} aren't good.",
-                first_name(state, p)
-            )
+    let one = |lines: &[String]| lines[(seed % lines.len() as u64) as usize].clone();
+    let line = if let Some(loved) = partner(state, person) {
+        let p = first_name(state, loved);
+        if opinion(state, person, loved) <= 5 {
+            one(&[
+                format!("Honestly? Things with {p} aren't good."),
+                format!("Not great. {p} and I keep getting it wrong."),
+                format!("Could be better. It's {p}, mostly."),
+            ])
         } else {
-            format!("Happy. {} and I are good.", first_name(state, p))
+            one(&[
+                format!("Happy. {p} and I are good."),
+                format!("Really well. {p} makes it easy."),
+                format!("Good, thanks. Home with {p} is a nice thing."),
+            ])
         }
     } else if let Some(foe) = foe {
-        format!(
-            "Fine, as long as {} keeps out of my way.",
-            first_name(state, foe)
-        )
+        let f = first_name(state, foe);
+        one(&[
+            format!("Fine, as long as {f} keeps out of my way."),
+            format!("Alright. I'd be better if {f} left me be."),
+            format!("I'm managing. Avoiding {f}, mostly."),
+        ])
     } else if lack(state, person, worst) >= 70 {
-        match worst {
-            Need::Money => "Worried. Things are tight.".into(),
-            Need::Rest => "Exhausted.".into(),
-            Need::Company => "A bit lonely, if I'm honest.".into(),
-            Need::Purpose => "Restless. I need something to get my teeth into.".into(),
-        }
+        let lines: [&str; 3] = match worst {
+            Need::Money => [
+                "Worried. Things are tight.",
+                "Counting every coin, if I'm honest.",
+                "Money's tight. It keeps me up.",
+            ],
+            Need::Rest => [
+                "Exhausted.",
+                "Worn out. I could sleep a week.",
+                "Tired to the bone.",
+            ],
+            Need::Company => [
+                "A bit lonely, if I'm honest.",
+                "Quiet. Too quiet, some days.",
+                "I could do with some company.",
+            ],
+            Need::Purpose => [
+                "Restless. I need something to get my teeth into.",
+                "Bored stiff. I need something to do.",
+                "Restless. The days are long.",
+            ],
+        };
+        one(&lines.map(String::from))
     } else if let Some(friend) = friend {
-        format!("Good. {} keeps me going.", first_name(state, friend))
+        let f = first_name(state, friend);
+        one(&[
+            format!("Good. {f} keeps me going."),
+            format!("Not bad at all. {f}'s been good company."),
+            format!("Well, thanks. Can't complain with {f} around."),
+        ])
     } else {
-        "Getting by.".into()
+        one(&[
+            "Getting by.".into(),
+            "Oh, you know. Getting on with things.".into(),
+            "Fine. Same as ever.".into(),
+        ])
     };
     Some(line)
 }

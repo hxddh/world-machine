@@ -3,12 +3,21 @@ use std::error::Error;
 use std::fmt;
 use world_integrity::{check_archive, ArchiveIntegrityError};
 use world_persistence::{WorldArchive, WorldPackRef};
-use world_projection::{ProjectionIntent, ProjectionSnapshot};
+use world_projection::{ProjectionIntent, ProjectionSnapshot, SelectionId};
 
 pub trait WorldSession {
     fn pack(&self) -> WorldPackRef;
     fn snapshot(&self) -> ProjectionSnapshot;
     fn handle(&mut self, intent: ProjectionIntent) -> Result<ProjectionSnapshot, HostError>;
+
+    /// What a language model should be asked to hear the player's words to
+    /// someone with, for an app that asks the model itself and then says
+    /// the words with its response. Changes nothing; `None` for a World
+    /// nobody can talk to.
+    fn hearing(&self, to: SelectionId, words: &str) -> Result<Option<String>, HostError> {
+        let _ = (to, words);
+        Ok(None)
+    }
 
     fn advance_background(&mut self, periods: u64) -> Result<ProjectionSnapshot, HostError> {
         let _ = periods;
@@ -41,6 +50,10 @@ impl WorldSession for IntegrityCheckedSession {
 
     fn handle(&mut self, intent: ProjectionIntent) -> Result<ProjectionSnapshot, HostError> {
         self.inner.handle(intent)
+    }
+
+    fn hearing(&self, to: SelectionId, words: &str) -> Result<Option<String>, HostError> {
+        self.inner.hearing(to, words)
     }
 
     fn advance_background(&mut self, periods: u64) -> Result<ProjectionSnapshot, HostError> {

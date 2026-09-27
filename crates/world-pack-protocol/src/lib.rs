@@ -11,13 +11,15 @@ use world_projection::{
     ProjectionCapabilities, ProjectionCommand, ProjectionIntent, ProjectionSnapshot, Scenery,
     SelectionId, TimelineItem, TimelineProjection, Tone, WhyNode, WhyProjection,
 };
-use world_projection::{DrawPart, DrawShape, Drawing, Ink, Stance};
+use world_projection::{DrawPart, DrawShape, Drawing, Ears, Ink, Stance};
 
 pub const PACK_MANIFEST_FORMAT: &str = "world-machine-pack";
 pub const PACK_MANIFEST_VERSION: u32 = 1;
 pub const PACK_PROTOCOL_VERSION_V1: u32 = 1;
 pub const PACK_PROTOCOL_VERSION_V2: u32 = 2;
-pub const PACK_PROTOCOL_VERSION: u32 = PACK_PROTOCOL_VERSION_V2;
+/// Adds `hear`, and `ears` on `say`: an app that asks a model itself.
+pub const PACK_PROTOCOL_VERSION_V3: u32 = 3;
+pub const PACK_PROTOCOL_VERSION: u32 = PACK_PROTOCOL_VERSION_V3;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PackManifest {
@@ -140,16 +142,18 @@ impl PackRequestEnvelope {
         request_id: u64,
         request: PackRequest,
     ) -> Result<Self, ProtocolError> {
-        validate_protocol_version(protocol_version)?;
-        Ok(Self {
+        let envelope = Self {
             protocol_version,
             request_id,
             request,
-        })
+        };
+        envelope.validate()?;
+        Ok(envelope)
     }
 
     pub fn validate(&self) -> Result<(), ProtocolError> {
-        validate_protocol_version(self.protocol_version)
+        validate_protocol_version(self.protocol_version)?;
+        validate_request_for_protocol(self.protocol_version, &self.request)
     }
 }
 
@@ -194,10 +198,22 @@ impl PackResponseEnvelope {
 pub enum PackRequest {
     Describe,
     Create,
-    Open { archive: WorldArchive },
+    Open {
+        archive: WorldArchive,
+    },
     Snapshot,
-    Handle { intent: ProjectionIntentWire },
-    Advance { periods: u64 },
+    Handle {
+        intent: ProjectionIntentWire,
+    },
+    /// What a language model should be asked, to hear the player's words to
+    /// someone: nothing changes, and a World without talk has no prompt.
+    Hear {
+        to: SelectionIdWire,
+        words: String,
+    },
+    Advance {
+        periods: u64,
+    },
     Archive,
     Shutdown,
 }
@@ -212,6 +228,7 @@ pub enum PackResponse {
     Descriptor { descriptor: PackDescriptor },
     Snapshot { snapshot: ProjectionSnapshotWire },
     Archive { archive: Option<WorldArchive> },
+    Hearing { prompt: Option<String> },
     Ok,
     Error { message: String },
 }
@@ -239,11 +256,36 @@ pub fn decode_response(json: &str) -> Result<PackResponseEnvelope, ProtocolDecod
 }
 
 fn validate_protocol_version(version: u32) -> Result<(), ProtocolError> {
-    if matches!(version, PACK_PROTOCOL_VERSION_V1 | PACK_PROTOCOL_VERSION_V2) {
+    if matches!(
+        version,
+        PACK_PROTOCOL_VERSION_V1 | PACK_PROTOCOL_VERSION_V2 | PACK_PROTOCOL_VERSION_V3
+    ) {
         Ok(())
     } else {
         Err(ProtocolError::UnsupportedProtocolVersion(version))
     }
+}
+
+/// What a Pack speaking an older protocol cannot read: asking it what to
+/// ask a model, or handing it a model's response.
+fn validate_request_for_protocol(
+    protocol_version: u32,
+    request: &PackRequest,
+) -> Result<(), ProtocolError> {
+    let needs_v3 = match request {
+        PackRequest::Hear { .. } => true,
+        PackRequest::Handle {
+            intent: ProjectionIntentWire::Say { ears, .. },
+        } => *ears != EarsWire::World,
+        _ => false,
+    };
+    if needs_v3 && protocol_version < PACK_PROTOCOL_VERSION_V3 {
+        return Err(ProtocolError::RequestNotSupportedInProtocol {
+            protocol_version,
+            request: "hear",
+        });
+    }
+    Ok(())
 }
 
 fn validate_response_for_protocol(
@@ -274,9 +316,60 @@ fn validate_selection_for_protocol(
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ProjectionIntentWire {
-    ForkBeforeEvent { event: u64 },
-    InvokeCommand { command: String },
-    Say { to: SelectionIdWire, words: String },
+    ForkBeforeEvent {
+        event: u64,
+    },
+    InvokeCommand {
+        command: String,
+    },
+    Say {
+        to: SelectionIdWire,
+        words: String,
+        #[serde(default, skip_serializing_if = "EarsWire::is_world")]
+        ears: EarsWire,
+    },
+}
+
+/// The longest model response a Pack is sent to read.
+pub const MOST_MODEL_RESPONSE: usize = 8 * 1024;
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum EarsWire {
+    #[default]
+    World,
+    Model {
+        response: String,
+    },
+    Own,
+}
+
+impl EarsWire {
+    fn is_world(&self) -> bool {
+        *self == EarsWire::World
+    }
+}
+
+impl From<Ears> for EarsWire {
+    fn from(ears: Ears) -> Self {
+        match ears {
+            Ears::World => Self::World,
+            Ears::Model(response) => Self::Model { response },
+            Ears::Own => Self::Own,
+        }
+    }
+}
+
+impl From<EarsWire> for Ears {
+    fn from(ears: EarsWire) -> Self {
+        match ears {
+            EarsWire::World => Self::World,
+            // A response too long to be an answer is not read at all.
+            EarsWire::Model { response } if response.len() > MOST_MODEL_RESPONSE => Self::Own,
+            EarsWire::Model { response } => Self::Model(response),
+            EarsWire::Own => Self::Own,
+        }
+    }
 }
 
 impl From<ProjectionIntent> for ProjectionIntentWire {
@@ -284,9 +377,10 @@ impl From<ProjectionIntent> for ProjectionIntentWire {
         match intent {
             ProjectionIntent::ForkBeforeEvent(event) => Self::ForkBeforeEvent { event: event.0 },
             ProjectionIntent::InvokeCommand(command) => Self::InvokeCommand { command },
-            ProjectionIntent::Say { to, words } => Self::Say {
+            ProjectionIntent::Say { to, words, ears } => Self::Say {
                 to: to.into(),
                 words,
+                ears: ears.into(),
             },
         }
     }
@@ -299,9 +393,10 @@ impl From<ProjectionIntentWire> for ProjectionIntent {
                 Self::ForkBeforeEvent(EventId::new(event))
             }
             ProjectionIntentWire::InvokeCommand { command } => Self::InvokeCommand(command),
-            ProjectionIntentWire::Say { to, words } => Self::Say {
+            ProjectionIntentWire::Say { to, words, ears } => Self::Say {
                 to: to.into(),
                 words,
+                ears: ears.into(),
             },
         }
     }
@@ -1772,6 +1867,17 @@ pub struct CanvasItemWire {
     /// A stance this build does not know is drawn standing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stance: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub standing: Option<StandingWire>,
+}
+
+/// The longest few words a standing is told in.
+pub const MOST_STANDING_WORDS: usize = 60;
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct StandingWire {
+    pub level: i8,
+    pub words: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -1807,6 +1913,10 @@ impl From<&CanvasItem> for CanvasItemWire {
             look: item.look.map(Into::into),
             drawing: item.drawing.clone(),
             stance: item.stance.map(|stance| stance.id().to_string()),
+            standing: item.standing.as_ref().map(|standing| StandingWire {
+                level: standing.level,
+                words: standing.words.clone(),
+            }),
         }
     }
 }
@@ -1837,6 +1947,19 @@ impl From<CanvasItemWire> for CanvasItem {
             stance: item
                 .stance
                 .map(|stance| Stance::from_id(&stance).unwrap_or_default()),
+            // A standing is only ever a mark and a few plain words.
+            standing: item
+                .standing
+                .filter(|standing| {
+                    let words = standing.words.trim();
+                    !words.is_empty()
+                        && words.chars().count() <= MOST_STANDING_WORDS
+                        && !words.chars().any(char::is_control)
+                })
+                .map(|standing| world_projection::Standing {
+                    level: standing.level.clamp(-2, 2),
+                    words: standing.words.trim().to_string(),
+                }),
         }
     }
 }
@@ -2003,6 +2126,10 @@ pub enum ProtocolError {
         protocol_version: u32,
         selection: String,
     },
+    RequestNotSupportedInProtocol {
+        protocol_version: u32,
+        request: &'static str,
+    },
     DepthOverflow(u64),
 }
 
@@ -2036,6 +2163,13 @@ impl fmt::Display for ProtocolError {
             } => write!(
                 f,
                 "selection {selection} is not supported by Pack protocol v{protocol_version}"
+            ),
+            Self::RequestNotSupportedInProtocol {
+                protocol_version,
+                request,
+            } => write!(
+                f,
+                "request {request} is not supported by Pack protocol v{protocol_version}"
             ),
             Self::DepthOverflow(depth) => {
                 write!(f, "Pack why-node depth does not fit this platform: {depth}")
@@ -2192,6 +2326,7 @@ mod tests {
                     look: None,
                     drawing: None,
                     stance: None,
+                    standing: None,
                 }],
                 links: vec![CanvasLink {
                     from: entity,
@@ -2385,13 +2520,46 @@ mod tests {
 
     #[test]
     fn what_the_player_says_crosses_the_boundary_as_said() {
-        let said = ProjectionIntent::Say {
-            to: SelectionId::Entity(EntityId::new(7)),
-            words: "How's the \"bakery\"? 你好".into(),
+        for ears in [
+            Ears::World,
+            Ears::Model("MEANING: greet\nABOUT: none\nREPLY: Hello!".into()),
+            Ears::Own,
+        ] {
+            let said = ProjectionIntent::Say {
+                to: SelectionId::Entity(EntityId::new(7)),
+                words: "How's the \"bakery\"? 你好".into(),
+                ears,
+            };
+            let json = serde_json::to_string(&ProjectionIntentWire::from(said.clone())).unwrap();
+            let back: ProjectionIntentWire = serde_json::from_str(&json).unwrap();
+            assert_eq!(ProjectionIntent::from(back), said);
+        }
+        // Said by an app that never heard of ears, the World hears it.
+        let older: ProjectionIntentWire =
+            serde_json::from_str(r#"{"type":"say","to":{"type":"entity","id":7},"words":"hi"}"#)
+                .unwrap();
+        assert!(matches!(
+            ProjectionIntent::from(older),
+            ProjectionIntent::Say {
+                ears: Ears::World,
+                ..
+            }
+        ));
+        // A response too long to be an answer is never read.
+        let long = ProjectionIntentWire::Say {
+            to: SelectionIdWire::Entity { id: 7 },
+            words: "hi".into(),
+            ears: EarsWire::Model {
+                response: "x".repeat(MOST_MODEL_RESPONSE + 1),
+            },
         };
-        let json = serde_json::to_string(&ProjectionIntentWire::from(said.clone())).unwrap();
-        let back: ProjectionIntentWire = serde_json::from_str(&json).unwrap();
-        assert_eq!(ProjectionIntent::from(back), said);
+        assert!(matches!(
+            ProjectionIntent::from(long),
+            ProjectionIntent::Say {
+                ears: Ears::Own,
+                ..
+            }
+        ));
     }
 
     #[test]
