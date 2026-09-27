@@ -1,0 +1,2286 @@
+//! Lives: the people of a World get on with their days whether or not
+//! anyone is watching, the way people do in The Sims and RimWorld.
+//!
+//! Everyone has four needs (money, rest, company and purpose), two traits,
+//! and an opinion of everyone else. Each period each person does something
+//! about whichever need presses hardest: works, rests, spends the evening
+//! with someone, helps someone out. Doing things together moves how two
+//! people feel about each other, and that is where friendships, quarrels
+//! and couples come from.
+//!
+//! From how people stand, this System also composes situations to put to
+//! the player: two people who have fallen out, someone sweet on someone,
+//! someone who wants to learn a trade, someone short of money or thinking
+//! of leaving, a stranger asking for a room. Each is made of who, what and
+//! over what, so a World does not run out of them.
+//!
+//! Everything goes through ordinary Actions and is recorded as Events with
+//! the words it was told in, so replaying a World never needs this System
+//! to decide anything again. It knows nothing about harbours or colonies:
+//! a World Pack gives it a [`Cast`], with its people, places and words.
+
+use std::collections::{BTreeMap, BTreeSet};
+use world_core::{
+    Action, ActionError, ActionRegistry, ActionRequest, Entity, EntityId, Event, EventDraft,
+    EventId, StateChange, Value, World, WorldError, WorldState,
+};
+
+/// What someone can be short of.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Need {
+    Money,
+    Rest,
+    Company,
+    Purpose,
+}
+
+impl Need {
+    pub const ALL: [Need; 4] = [Need::Money, Need::Rest, Need::Company, Need::Purpose];
+
+    /// Where how short someone is of it is kept: 0 wants for nothing, 100
+    /// can think of nothing else.
+    pub fn key(self) -> &'static str {
+        match self {
+            Need::Money => "lives.lack.money",
+            Need::Rest => "lives.lack.rest",
+            Need::Company => "lives.lack.company",
+            Need::Purpose => "lives.lack.purpose",
+        }
+    }
+}
+
+/// Who someone does a thing with.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum With {
+    Alone,
+    /// Whoever they like best.
+    Friend,
+    /// Anyone at all, the way people run into each other.
+    Anyone,
+    /// Someone they work alongside, or anyone if nobody does.
+    Workmate,
+}
+
+/// Where someone does a thing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum At {
+    Work,
+    Home,
+    /// Where people meet: the pub, the common room.
+    Gathering,
+    /// Where people go to be quiet.
+    Quiet,
+}
+
+/// Something someone can do with a day.
+#[derive(Clone, Copy, Debug)]
+pub struct Activity {
+    pub id: &'static str,
+    /// The need it answers.
+    pub need: Need,
+    pub with: With,
+    pub at: At,
+    /// How it is told: "{name} had a drink with {other} at {place}".
+    pub told: &'static str,
+    /// What the person says about it, one taken in turn.
+    pub said: &'static [&'static str],
+    /// Integers it moves on the person, in the Pack's own keys (a day's
+    /// pay, say).
+    pub gives: &'static [(&'static str, i64)],
+}
+
+/// Somewhere the Pack keeps money the town can spend on its people.
+#[derive(Clone, Copy, Debug)]
+pub struct Fund {
+    pub entity: EntityId,
+    pub key: &'static str,
+    /// What it is called: "the harbour fund".
+    pub name: &'static str,
+    pub amount: i64,
+}
+
+/// Strangers who might come by and stay.
+#[derive(Clone, Copy, Debug)]
+pub struct Visitors {
+    /// The first entity id a newcomer can take; the next ones follow.
+    pub first: u64,
+    /// How many can ever arrive.
+    pub room: u64,
+    pub names: &'static [&'static str],
+    /// What they do, as told and in the Pack's own job word.
+    pub trades: &'static [(&'static str, &'static str)],
+    pub origins: &'static [&'static str],
+    /// How someone leaves: "the ferry", "the supply shuttle".
+    pub way_out: &'static str,
+    /// The components a newcomer starts with, from their name and job.
+    pub components: fn(&str, &str) -> Vec<(String, Value)>,
+    /// The kind of entity a newcomer is.
+    pub kind: &'static str,
+}
+
+/// Everything the System needs to know about a World's people.
+#[derive(Clone, Debug)]
+pub struct Cast {
+    /// The entity the System keeps its notes on.
+    pub notes: EntityId,
+    /// How much world time one period is.
+    pub period: u64,
+    /// A period, in the World's own word: "day", "sol".
+    pub unit: &'static str,
+    /// The place as a whole: "harbour", "colony".
+    pub settlement: &'static str,
+    /// Everyone living there now, in a fixed order.
+    pub people: fn(&World) -> Vec<EntityId>,
+    /// Whether someone is part of the place for good and never leaves.
+    pub stays: fn(EntityId) -> bool,
+    /// Two traits for each of the people the World starts with.
+    pub traits: fn(EntityId) -> Option<[&'static str; 2]>,
+    /// Where someone works and where they live, if anywhere.
+    pub work: fn(&WorldState, EntityId) -> Option<EntityId>,
+    pub home: fn(&WorldState, EntityId) -> Option<EntityId>,
+    /// Where people meet, and where they go to be quiet.
+    pub gathering: EntityId,
+    pub quiet: EntityId,
+    /// Who welcomes strangers.
+    pub host: EntityId,
+    pub activities: &'static [Activity],
+    /// What people fall out over: "the mooring fees".
+    pub topics: &'static [&'static str],
+    /// What someone sweet on someone might ask them to: "walk out to the
+    /// point".
+    pub outings: &'static [&'static str],
+    pub fund: Option<Fund>,
+    pub visitors: Option<Visitors>,
+    /// The most people the place holds.
+    pub most_people: usize,
+    /// How many situations may be open at once.
+    pub most_open: usize,
+}
+
+/// Traits someone can have, and the ones that grate on each other.
+pub const TRAITS: [&str; 10] = [
+    "warm", "prickly", "proud", "shy", "sociable", "restless", "steady", "generous", "thrifty",
+    "dreamy",
+];
+
+const CLASHES: [(&str, &str); 7] = [
+    ("proud", "proud"),
+    ("prickly", "proud"),
+    ("prickly", "prickly"),
+    ("thrifty", "generous"),
+    ("restless", "steady"),
+    ("sociable", "shy"),
+    ("prickly", "sociable"),
+];
+
+/// How two people's opinion of each other is kept.
+fn opinion_key(of: EntityId) -> String {
+    format!("lives.opinion.{of}")
+}
+
+const TRAITS_KEY: &str = "lives.traits";
+const PARTNER: &str = "lives.partner";
+/// How someone feels about the place and the player's hand in it.
+pub const REGARD: &str = "lives.regard";
+/// Someone who has left.
+pub const GONE: &str = "lives.gone";
+const BOND: &str = "lives.bond";
+const CELEBRATED: &str = "lives.celebrated";
+/// Where someone is now: where their day took them, or where an answer
+/// sent them.
+pub const AT: &str = "lives.at";
+
+fn integer(state: &WorldState, entity: EntityId, key: &str) -> Option<i64> {
+    match state.entity(entity)?.component(key)? {
+        Value::Integer(value) => Some(*value),
+        _ => None,
+    }
+}
+
+fn text<'a>(state: &'a WorldState, entity: EntityId, key: &str) -> Option<&'a str> {
+    match state.entity(entity)?.component(key)? {
+        Value::Text(value) => Some(value.as_str()),
+        _ => None,
+    }
+}
+
+fn entity_of(state: &WorldState, entity: EntityId, key: &str) -> Option<EntityId> {
+    match state.entity(entity)?.component(key)? {
+        Value::Entity(id) => Some(*id),
+        _ => None,
+    }
+}
+
+/// What someone or somewhere is called.
+pub fn name(state: &WorldState, entity: EntityId) -> String {
+    text(state, entity, "name")
+        .map(str::to_string)
+        .unwrap_or_else(|| "Someone".into())
+}
+
+/// A small stable number: the same inputs always give the same answer, so
+/// people live the same days on every replay.
+pub fn mix(parts: &[u64]) -> u64 {
+    parts.iter().fold(0x9e37_79b9_7f4a_7c15_u64, |hash, part| {
+        (hash ^ part.wrapping_mul(0xff51_afd7_ed55_8ccd))
+            .wrapping_mul(0xc4ce_b9fe_1a85_ec53)
+            .rotate_left(23)
+    })
+}
+
+fn pick<T>(items: &[T], seed: u64) -> Option<&T> {
+    (!items.is_empty()).then(|| &items[(seed % items.len() as u64) as usize])
+}
+
+fn fill(template: &str, words: &[(&str, &str)]) -> String {
+    let mut out = template.to_string();
+    for (slot, word) in words {
+        out = out.replace(&format!("{{{slot}}}"), word);
+    }
+    out
+}
+
+/// Which period this is.
+pub fn period(state: &WorldState, cast: &Cast) -> u64 {
+    state.world_time() / cast.period.max(1)
+}
+
+/// Someone's two traits.
+pub fn traits(state: &WorldState, person: EntityId) -> Vec<String> {
+    text(state, person, TRAITS_KEY)
+        .map(|traits| traits.split(' ').map(str::to_string).collect())
+        .unwrap_or_default()
+}
+
+/// How well two people's natures sit together, from -3 to 3.
+fn compatibility(state: &WorldState, a: EntityId, b: EntityId) -> i64 {
+    let (a, b) = (traits(state, a), traits(state, b));
+    let mut score = 0;
+    for x in &a {
+        for y in &b {
+            if x == y && x != "proud" && x != "prickly" {
+                score += 1;
+            }
+            if CLASHES
+                .iter()
+                .any(|(p, q)| (p == x && q == y) || (p == y && q == x))
+            {
+                score -= 2;
+            }
+        }
+        if x == "warm" || x == "generous" {
+            score += 1;
+        }
+    }
+    for y in &b {
+        if y == "warm" {
+            score += 1;
+        }
+    }
+    score.clamp(-3, 3)
+}
+
+/// What `a` thinks of `b`, from -100 to 100.
+pub fn opinion(state: &WorldState, a: EntityId, b: EntityId) -> i64 {
+    integer(state, a, &opinion_key(b)).unwrap_or(0)
+}
+
+/// How short someone is of a need.
+pub fn lack(state: &WorldState, person: EntityId, need: Need) -> i64 {
+    integer(state, person, need.key()).unwrap_or(0)
+}
+
+/// Whoever someone is with, if anyone.
+pub fn partner(state: &WorldState, person: EntityId) -> Option<EntityId> {
+    entity_of(state, person, PARTNER).filter(|other| state.entity(*other).is_some())
+}
+
+/// Whether someone has taken part in the System's life yet.
+pub fn enrolled(state: &WorldState, person: EntityId) -> bool {
+    text(state, person, TRAITS_KEY).is_some()
+}
+
+/// Where someone is now, if the System has put them anywhere.
+pub fn at(state: &WorldState, person: EntityId) -> Option<EntityId> {
+    entity_of(state, person, AT)
+}
+
+/// Whether someone has left.
+pub fn gone(state: &WorldState, person: EntityId) -> bool {
+    matches!(
+        state
+            .entity(person)
+            .and_then(|entity| entity.component(GONE)),
+        Some(Value::Bool(true))
+    )
+}
+
+/// The newcomers who have arrived and not left.
+pub fn arrivals(state: &WorldState, cast: &Cast) -> Vec<EntityId> {
+    let Some(visitors) = cast.visitors else {
+        return Vec::new();
+    };
+    (visitors.first..visitors.first + visitors.room)
+        .map(EntityId::new)
+        .filter(|id| state.entity(*id).is_some() && !gone(state, *id))
+        .collect()
+}
+
+/// The people the System looks after: the Pack's, less anyone gone.
+fn living(world: &World, cast: &Cast) -> Vec<EntityId> {
+    (cast.people)(world)
+        .into_iter()
+        .filter(|id| world.state().entity(*id).is_some() && !gone(world.state(), *id))
+        .collect()
+}
+
+fn arg_entity(request: &ActionRequest, name: &str) -> Result<EntityId, ActionError> {
+    match request.args.get(name) {
+        Some(Value::Entity(id)) => Ok(*id),
+        Some(Value::Integer(id)) => Ok(EntityId::new(*id as u64)),
+        _ => Err(ActionError::Invalid(format!("missing {name}"))),
+    }
+}
+
+fn arg_text<'a>(request: &'a ActionRequest, name: &str) -> Result<&'a str, ActionError> {
+    match request.args.get(name) {
+        Some(Value::Text(value)) => Ok(value),
+        _ => Err(ActionError::Invalid(format!("missing {name}"))),
+    }
+}
+
+/// Changes that move integers, keeping track of what the same event has
+/// already moved them to.
+#[derive(Default)]
+struct Moves {
+    values: BTreeMap<(EntityId, String), i64>,
+    changes: Vec<StateChange>,
+}
+
+impl Moves {
+    fn add(
+        &mut self,
+        state: &WorldState,
+        entity: EntityId,
+        key: &str,
+        by: i64,
+        min: i64,
+        max: i64,
+    ) {
+        if state.entity(entity).is_none() {
+            return;
+        }
+        let current = *self
+            .values
+            .entry((entity, key.to_string()))
+            .or_insert_with(|| integer(state, entity, key).unwrap_or(0));
+        let next = current.saturating_add(by).clamp(min, max);
+        self.values.insert((entity, key.to_string()), next);
+        self.changes.push(StateChange::SetComponent {
+            entity,
+            key: key.to_string(),
+            value: next.into(),
+        });
+    }
+
+    fn lack(&mut self, state: &WorldState, person: EntityId, need: Need, by: i64) {
+        self.add(state, person, need.key(), by, 0, 100);
+    }
+
+    fn opinion(&mut self, state: &WorldState, a: EntityId, b: EntityId, by: i64) {
+        if a != b {
+            self.add(state, a, &opinion_key(b), by, -100, 100);
+        }
+    }
+
+    fn regard(&mut self, state: &WorldState, person: EntityId, by: i64) {
+        self.add(state, person, REGARD, by, -100, 100);
+    }
+
+    fn set(&mut self, entity: EntityId, key: &str, value: impl Into<Value>) {
+        self.changes.push(StateChange::SetComponent {
+            entity,
+            key: key.to_string(),
+            value: value.into(),
+        });
+    }
+
+    fn unset(&mut self, state: &WorldState, entity: EntityId, key: &str) {
+        if state
+            .entity(entity)
+            .is_some_and(|entity| entity.component(key).is_some())
+        {
+            self.changes.push(StateChange::RemoveComponent {
+                entity,
+                key: key.to_string(),
+            });
+        }
+    }
+}
+
+/// A fresh start for someone joining the System's life: how short they
+/// are of each need, their traits, what they think of everyone.
+fn enrolment(state: &WorldState, cast: &Cast, person: EntityId, others: &[EntityId]) -> Moves {
+    let mut moves = Moves::default();
+    let seed = mix(&[person.0, 7]);
+    let traits = (cast.traits)(person)
+        .map(|[a, b]| format!("{a} {b}"))
+        .unwrap_or_else(|| {
+            let a = TRAITS[(seed % TRAITS.len() as u64) as usize];
+            let b = TRAITS[((seed / 11 + 3) % TRAITS.len() as u64) as usize];
+            if a == b {
+                a.to_string()
+            } else {
+                format!("{a} {b}")
+            }
+        });
+    moves.set(person, TRAITS_KEY, traits);
+    for (index, need) in Need::ALL.iter().enumerate() {
+        let start = 10 + (mix(&[person.0, index as u64]) % 40) as i64;
+        moves.set(person, need.key(), start);
+    }
+    moves.set(person, REGARD, 10_i64);
+    for other in others {
+        if *other == person {
+            continue;
+        }
+        for (a, b) in [(person, *other), (*other, person)] {
+            if integer(state, a, &opinion_key(b)).is_none() {
+                let start = (mix(&[a.0, b.0]) % 36) as i64 - 10;
+                moves.set(a, &opinion_key(b), start);
+            }
+        }
+    }
+    moves
+}
+
+/// The System begins, or someone new joins in.
+struct Enrols(fn() -> Cast);
+
+impl Action for Enrols {
+    fn name(&self) -> &'static str {
+        "lives_enrol"
+    }
+
+    fn evaluate(
+        &self,
+        state: &WorldState,
+        request: &ActionRequest,
+    ) -> Result<EventDraft, ActionError> {
+        let cast = (self.0)();
+        let person = arg_entity(request, "person")?;
+        if state.entity(person).is_none() {
+            return Err(ActionError::Invalid("nobody by that id".into()));
+        }
+        if enrolled(state, person) {
+            return Err(ActionError::Invalid("already living here".into()));
+        }
+        let others = match request.args.get("others") {
+            Some(Value::List(others)) => others
+                .iter()
+                .filter_map(|value| match value {
+                    Value::Entity(id) => Some(*id),
+                    _ => None,
+                })
+                .collect::<Vec<_>>(),
+            _ => Vec::new(),
+        };
+        let mut draft = EventDraft::new("life_began");
+        draft.targets = vec![person];
+        if state.entity(cast.notes).is_none() {
+            draft.changes.push(StateChange::CreateEntity(
+                Entity::new(cast.notes, "lives").with_component("name", "Lives"),
+            ));
+        }
+        draft
+            .changes
+            .extend(enrolment(state, &cast, person, &others).changes);
+        Ok(draft)
+    }
+}
+
+/// Where someone does an activity.
+fn place_for(state: &WorldState, cast: &Cast, person: EntityId, at: At) -> EntityId {
+    match at {
+        At::Work => (cast.work)(state, person).unwrap_or(cast.gathering),
+        At::Home => (cast.home)(state, person).unwrap_or(cast.quiet),
+        At::Gathering => cast.gathering,
+        At::Quiet => cast.quiet,
+    }
+}
+
+/// Who someone does an activity with, if anyone.
+fn company_for(
+    state: &WorldState,
+    cast: &Cast,
+    person: EntityId,
+    with: With,
+    others: &[EntityId],
+    seed: u64,
+) -> Option<EntityId> {
+    let others = others
+        .iter()
+        .copied()
+        .filter(|other| *other != person)
+        .collect::<Vec<_>>();
+    if others.is_empty() {
+        return None;
+    }
+    match with {
+        With::Alone => None,
+        With::Friend => {
+            // Mostly whoever they like best, sometimes their partner, now
+            // and then someone else entirely.
+            if seed.is_multiple_of(5) {
+                return pick(&others, seed / 5).copied();
+            }
+            if let Some(partner) = partner(state, person).filter(|p| others.contains(p)) {
+                if seed.is_multiple_of(3) {
+                    return Some(partner);
+                }
+            }
+            others
+                .iter()
+                .copied()
+                .max_by_key(|other| (opinion(state, person, *other), mix(&[seed, other.0])))
+        }
+        With::Anyone => pick(&others, seed).copied(),
+        With::Workmate => {
+            let work = (cast.work)(state, person);
+            let mates = others
+                .iter()
+                .copied()
+                .filter(|other| work.is_some() && (cast.work)(state, *other) == work)
+                .collect::<Vec<_>>();
+            pick(if mates.is_empty() { &others } else { &mates }, seed).copied()
+        }
+    }
+}
+
+/// The need pressing hardest on someone, with a little chance in it.
+fn pressing(state: &WorldState, person: EntityId, seed: u64) -> Need {
+    Need::ALL
+        .iter()
+        .copied()
+        .max_by_key(|need| {
+            lack(state, person, *need) * 4 + (mix(&[seed, *need as u64]) % 60) as i64
+        })
+        .unwrap_or(Need::Company)
+}
+
+/// How much each need grows in a period, by someone's nature.
+fn drift(traits: &[String], need: Need) -> i64 {
+    let mut by = 9;
+    for t in traits {
+        by += match (t.as_str(), need) {
+            ("sociable", Need::Company) | ("restless", Need::Purpose) => 4,
+            ("shy", Need::Company) | ("steady", Need::Purpose) => -3,
+            ("thrifty", Need::Money) | ("dreamy", Need::Purpose) => 3,
+            ("generous", Need::Money) => 2,
+            ("proud", Need::Purpose) => 2,
+            ("steady", Need::Rest) => -2,
+            ("restless", Need::Rest) => 3,
+            _ => 0,
+        };
+    }
+    by
+}
+
+/// Things someone might add about how their life stands: their partner,
+/// someone they are not speaking to, a friend, what they are short of.
+fn tails(state: &WorldState, person: EntityId, seed: u64) -> Vec<String> {
+    let others = cast_ids(state);
+    let mut tails = Vec::new();
+    if let Some(p) = partner(state, person) {
+        tails.push(format!(" {} sends their love.", name(state, p)));
+        tails.push(format!(" Home to {} now.", name(state, p)));
+    }
+    if let Some(foe) = others
+        .iter()
+        .copied()
+        .filter(|o| *o != person && opinion(state, person, *o) <= -30)
+        .min_by_key(|o| opinion(state, person, *o))
+    {
+        tails.push(format!(" Still not speaking to {}.", name(state, foe)));
+        tails.push(format!(" Kept well clear of {}.", name(state, foe)));
+    }
+    if let Some(friend) = others
+        .iter()
+        .copied()
+        .filter(|o| *o != person && opinion(state, person, *o) >= 40)
+        .max_by_key(|o| mix(&[seed, o.0]))
+    {
+        tails.push(format!(" {} is a gem.", name(state, friend)));
+        tails.push(format!(" Seeing {} later.", name(state, friend)));
+    }
+    if lack(state, person, Need::Rest) >= 70 {
+        tails.push(" I could sleep for a week.".into());
+    }
+    if lack(state, person, Need::Money) >= 70 {
+        tails.push(" Money's tight, mind.".into());
+    }
+    if lack(state, person, Need::Company) >= 70 {
+        tails.push(" Quiet without anyone to talk to.".into());
+    }
+    tails
+}
+
+/// A line as someone says it: as it is if nobody has said it lately,
+/// otherwise with something of their own added, so the same words do not
+/// come round from everyone.
+fn personal(
+    state: &WorldState,
+    person: EntityId,
+    base: &str,
+    heard: &[String],
+    seed: u64,
+) -> String {
+    let said_lately = |line: &str| heard.iter().any(|said| said == line);
+    if !said_lately(base) {
+        return base.to_string();
+    }
+    let options = tails(state, person, seed)
+        .into_iter()
+        .map(|tail| format!("{base}{tail}"))
+        .collect::<Vec<_>>();
+    options
+        .iter()
+        .find(|line| !said_lately(line))
+        .cloned()
+        .unwrap_or_else(|| base.to_string())
+}
+
+/// What someone says about what they did, with a word about how things
+/// stand with the people they care about.
+fn saying(
+    state: &WorldState,
+    person: EntityId,
+    activity: &Activity,
+    words: &[(&str, &str)],
+    seed: u64,
+    heard: &[String],
+) -> String {
+    // Something not said lately, if there is anything; otherwise whatever
+    // was said longest ago. A line about a friend needs a friend.
+    let friend = best_friend(state, person).map(|friend| name(state, friend));
+    let mut all_words = words.to_vec();
+    if let Some(friend) = &friend {
+        all_words.push(("friend", friend.as_str()));
+    }
+    let lines = activity
+        .said
+        .iter()
+        .filter(|line| friend.is_some() || !line.contains("{friend}"))
+        .map(|line| fill(line, &all_words))
+        .collect::<Vec<_>>();
+    let last_heard = |line: &str| heard.iter().rposition(|said| said.starts_with(line));
+    let fresh = lines
+        .iter()
+        .filter(|line| last_heard(line).is_none())
+        .cloned()
+        .collect::<Vec<_>>();
+    let base = if fresh.is_empty() {
+        lines
+            .iter()
+            .min_by_key(|line| last_heard(line))
+            .cloned()
+            .unwrap_or_default()
+    } else {
+        pick(&fresh, seed).cloned().unwrap_or_default()
+    };
+    let tails = tails(state, person, seed);
+    let tail = (seed / 7).is_multiple_of(2)
+        .then(|| pick(&tails, seed / 17).cloned())
+        .flatten();
+    let line = format!("{base}{}", tail.unwrap_or_default());
+    if heard.contains(&line) {
+        personal(state, person, &base, heard, seed)
+    } else {
+        line
+    }
+}
+
+/// Everyone the System has taken in and who has not left, for words about
+/// them; who is living here now is the Pack's to say.
+fn cast_ids(state: &WorldState) -> Vec<EntityId> {
+    state
+        .entities()
+        .filter(|entity| entity.component(TRAITS_KEY).is_some())
+        .filter(|entity| !gone(state, entity.id))
+        .map(|entity| entity.id)
+        .collect()
+}
+
+/// Someone gets on with their day.
+struct Lives(fn() -> Cast);
+
+impl Action for Lives {
+    fn name(&self) -> &'static str {
+        "lives_day"
+    }
+
+    fn evaluate(
+        &self,
+        state: &WorldState,
+        request: &ActionRequest,
+    ) -> Result<EventDraft, ActionError> {
+        let cast = (self.0)();
+        let person = arg_entity(request, "person")?;
+        if !enrolled(state, person) || gone(state, person) {
+            return Err(ActionError::Invalid("not living here".into()));
+        }
+        let others = match request.args.get("others") {
+            Some(Value::List(others)) => others
+                .iter()
+                .filter_map(|value| match value {
+                    Value::Entity(id) if enrolled(state, *id) => Some(*id),
+                    _ => None,
+                })
+                .collect::<Vec<_>>(),
+            _ => Vec::new(),
+        };
+        let now = period(state, &cast);
+        let seed = mix(&[now, person.0, 11]);
+        // Three days in five, whoever has work goes to it, unless they are
+        // dead on their feet; the rest are theirs.
+        let working = (cast.work)(state, person).is_some()
+            && (now + person.0) % 5 < 3
+            && lack(state, person, Need::Rest) < 85;
+        let need = if working {
+            Need::Money
+        } else {
+            pressing(state, person, seed)
+        };
+        let last = text(state, person, "lives.did").unwrap_or("");
+        let choices = cast
+            .activities
+            .iter()
+            .filter(|activity| activity.need == need && activity.id != last)
+            .collect::<Vec<_>>();
+        let Some(activity) = pick(&choices, seed / 3).copied() else {
+            return Err(ActionError::Invalid("nothing to do".into()));
+        };
+        let with = company_for(state, &cast, person, activity.with, &others, seed / 13);
+        if activity.with != With::Alone && with.is_none() {
+            // Nobody to do it with: a quiet day instead.
+            return Err(ActionError::Invalid("nobody about".into()));
+        }
+        let place = place_for(state, &cast, person, activity.at);
+        let (me, place_name) = (name(state, person), name(state, place));
+        let other_name = with.map(|w| name(state, w)).unwrap_or_default();
+        let words = [
+            ("name", me.as_str()),
+            ("other", other_name.as_str()),
+            ("place", place_name.as_str()),
+        ];
+
+        let mut moves = Moves::default();
+        let traits = traits(state, person);
+        for n in Need::ALL {
+            let by = if n == need {
+                -(30 + (seed % 20) as i64)
+            } else {
+                drift(&traits, n)
+            };
+            moves.lack(state, person, n, by);
+        }
+        let mut quarrel = false;
+        if let Some(other) = with {
+            let fit = compatibility(state, person, other);
+            let chance = mix(&[seed, other.0, 3]) % 100;
+            // People who grate on each other sometimes have words, and
+            // anyone at the end of their tether snaps more easily.
+            let frayed = Need::ALL
+                .iter()
+                .any(|need| lack(state, person, *need) >= 70 || lack(state, other, *need) >= 80);
+            quarrel = chance < ((12 - fit * 4).max(2) + if frayed { 14 } else { 0 }) as u64;
+            let by = if quarrel {
+                -(10 + (chance % 12) as i64)
+            } else {
+                3 + fit * 2 + (chance % 6) as i64
+            };
+            moves.opinion(state, person, other, by);
+            moves.opinion(state, other, person, by - if quarrel { 2 } else { 1 });
+            if need == Need::Company {
+                moves.lack(state, other, Need::Company, -15);
+            }
+        }
+        // Every so often, what someone feels about the people they have not
+        // spent time with fades a little toward nothing.
+        if now % 5 == person.0 % 5 {
+            for other in &others {
+                if Some(*other) == with || *other == person {
+                    continue;
+                }
+                let view = opinion(state, person, *other);
+                if view.abs() >= 3 {
+                    moves.opinion(state, person, *other, -3 * view.signum());
+                }
+            }
+        }
+        for (key, by) in activity.gives {
+            moves.add(state, person, key, *by, i64::MIN / 4, i64::MAX / 4);
+        }
+        moves.set(person, "lives.did", activity.id);
+        moves.set(person, AT, Value::Entity(place));
+
+        let mut told = fill(activity.told, &words);
+        let heard = heard(state, &cast);
+        let mut said = saying(state, person, activity, &words, seed, &heard);
+        if quarrel {
+            told.push_str(", and they had words");
+            let topic = pick(cast.topics, seed / 19).copied().unwrap_or("nothing");
+            said = match seed / 23 % 4 {
+                0 => format!("{other_name} and I had words over {topic}."),
+                1 => format!("Don't mention {topic} to {other_name}. Just don't."),
+                2 => format!("{other_name} and I fell out over {topic}. It'll blow over."),
+                _ => format!("Me and {other_name}, shouting about {topic}. Silly."),
+            };
+        }
+        remember_saying(&mut moves, &cast, &heard, &said);
+        let mut draft = EventDraft::new("lived");
+        draft.actor = Some(person);
+        draft.targets = with.into_iter().collect();
+        draft.payload.insert("activity".into(), activity.id.into());
+        draft.payload.insert("place".into(), Value::Entity(place));
+        draft.payload.insert("told".into(), told.into());
+        draft.payload.insert("said".into(), said.into());
+        draft.changes = moves.changes;
+        Ok(draft)
+    }
+}
+
+const HEARD: &str = "lives.heard";
+/// How many of the latest things people said are remembered, so nobody's
+/// words come round again too soon.
+const HEARD_LENGTH: usize = 400;
+
+fn heard(state: &WorldState, cast: &Cast) -> Vec<String> {
+    match state
+        .entity(cast.notes)
+        .and_then(|notes| notes.component(HEARD))
+    {
+        Some(Value::List(lines)) => lines
+            .iter()
+            .filter_map(|line| match line {
+                Value::Text(line) => Some(line.clone()),
+                _ => None,
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn remember_saying(moves: &mut Moves, cast: &Cast, heard: &[String], said: &str) {
+    let mut lines = heard
+        .iter()
+        .skip(heard.len().saturating_sub(HEARD_LENGTH - 1))
+        .map(|line| Value::from(line.as_str()))
+        .collect::<Vec<_>>();
+    lines.push(Value::from(said));
+    moves.set(cast.notes, HEARD, Value::List(lines));
+}
+
+/// How two people stand, from what each thinks of the other.
+fn standing(state: &WorldState, a: EntityId, b: EntityId) -> &'static str {
+    let (ab, ba) = (opinion(state, a, b), opinion(state, b, a));
+    if partner(state, a) == Some(b) {
+        "partners"
+    } else if ab <= -25 || ba <= -25 {
+        "foes"
+    } else if ab >= 35 && ba >= 35 {
+        "friends"
+    } else {
+        ""
+    }
+}
+
+fn bond_key(other: EntityId) -> String {
+    format!("{BOND}.{other}")
+}
+
+/// Two people's standing changes: they become friends, fall out, make up.
+struct Bonds(fn() -> Cast);
+
+impl Action for Bonds {
+    fn name(&self) -> &'static str {
+        "lives_bond"
+    }
+
+    fn evaluate(
+        &self,
+        state: &WorldState,
+        request: &ActionRequest,
+    ) -> Result<EventDraft, ActionError> {
+        let a = arg_entity(request, "a")?;
+        let b = arg_entity(request, "b")?;
+        let was = text(state, a, &bond_key(b)).unwrap_or("");
+        let now = standing(state, a, b);
+        if was == now {
+            return Err(ActionError::Invalid("nothing has changed".into()));
+        }
+        let (an, bn) = (name(state, a), name(state, b));
+        let (kind, told, said) = match (was, now) {
+            (_, "friends") if was == "foes" => (
+                "made_up",
+                format!("{an} and {bn} made it up, and more"),
+                format!("{bn} and I are thick as thieves now. Who'd have thought?"),
+            ),
+            (_, "friends") => (
+                "became_friends",
+                format!("{an} and {bn} became firm friends"),
+                format!("{bn}'s a proper friend."),
+            ),
+            (_, "foes") => (
+                "fell_out",
+                format!("{an} and {bn} fell out"),
+                format!("I'm done with {bn}."),
+            ),
+            ("foes", "") => (
+                "made_up",
+                format!("{an} and {bn} made it up"),
+                format!("{bn} and I are all right again."),
+            ),
+            ("friends", "") => (
+                "drifted",
+                format!("{an} and {bn} drifted apart"),
+                format!("I hardly see {bn} these days."),
+            ),
+            _ => return Err(ActionError::Invalid("nothing worth telling".into())),
+        };
+        let cast = (self.0)();
+        let heard = heard(state, &cast);
+        let said = personal(
+            state,
+            a,
+            &said,
+            &heard,
+            mix(&[a.0, b.0, period(state, &cast)]),
+        );
+        let mut moves = Moves::default();
+        remember_saying(&mut moves, &cast, &heard, &said);
+        let mut draft = EventDraft::new("bond_changed");
+        draft.actor = Some(a);
+        draft.targets = vec![b];
+        draft.payload.insert("bond".into(), kind.into());
+        draft.payload.insert("told".into(), told.into());
+        draft.payload.insert("said".into(), said.into());
+        draft.changes.extend(moves.changes);
+        for (x, y) in [(a, b), (b, a)] {
+            draft.changes.push(StateChange::SetComponent {
+                entity: x,
+                key: bond_key(y),
+                value: now.into(),
+            });
+        }
+        Ok(draft)
+    }
+}
+
+/// The kinds of situation this System composes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Kind {
+    Feud,
+    Sweet,
+    Learn,
+    Short,
+    Lonely,
+    Worn,
+    Party,
+    Visitor,
+    Leaving,
+    RoughPatch,
+}
+
+impl Kind {
+    const ALL: [Kind; 10] = [
+        Kind::Feud,
+        Kind::Sweet,
+        Kind::Learn,
+        Kind::Short,
+        Kind::Lonely,
+        Kind::Worn,
+        Kind::Party,
+        Kind::Visitor,
+        Kind::Leaving,
+        Kind::RoughPatch,
+    ];
+
+    fn id(self) -> &'static str {
+        match self {
+            Kind::Feud => "feud",
+            Kind::Sweet => "sweet",
+            Kind::Learn => "learn",
+            Kind::Short => "short",
+            Kind::Lonely => "lonely",
+            Kind::Worn => "worn",
+            Kind::Party => "party",
+            Kind::Visitor => "visitor",
+            Kind::Leaving => "leaving",
+            Kind::RoughPatch => "rough",
+        }
+    }
+
+    fn from_id(id: &str) -> Option<Kind> {
+        Kind::ALL.into_iter().find(|kind| kind.id() == id)
+    }
+
+    /// How many periods the same people's same trouble rests before it can
+    /// come up again.
+    fn rests(self) -> u64 {
+        match self {
+            Kind::Visitor => 0,
+            Kind::Party => 60,
+            _ => 24,
+        }
+    }
+}
+
+/// A situation that could be put to the player now.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Candidate {
+    pub kind: Kind,
+    /// Whose it is: they ask it.
+    pub a: EntityId,
+    /// Who else it is about, if anyone.
+    pub b: Option<EntityId>,
+    /// What it is over, as an index into the Pack's words.
+    pub topic: u64,
+}
+
+impl Candidate {
+    /// What the situation is known by: the same people's same trouble over
+    /// the same thing is the same situation.
+    pub fn key(&self) -> String {
+        match self.b {
+            Some(b) => format!("{}.{}.{}.{}", self.kind.id(), self.a, b, self.topic),
+            None => format!("{}.{}.{}", self.kind.id(), self.a, self.topic),
+        }
+    }
+
+    /// The same people's same kind of trouble, over whatever it is.
+    fn family(&self) -> String {
+        match self.b {
+            Some(b) => format!(
+                "{}.{}.{}",
+                self.kind.id(),
+                self.a.0.min(b.0),
+                self.a.0.max(b.0)
+            ),
+            None => format!("{}.{}", self.kind.id(), self.a),
+        }
+    }
+
+    fn parse(key: &str) -> Option<Candidate> {
+        let parts = key.split('.').collect::<Vec<_>>();
+        let kind = Kind::from_id(parts.first()?)?;
+        let a = EntityId::new(parts.get(1)?.parse().ok()?);
+        let (b, topic) = match parts.len() {
+            4 => (
+                Some(EntityId::new(parts[2].parse().ok()?)),
+                parts[3].parse().ok()?,
+            ),
+            3 => (None, parts[2].parse().ok()?),
+            _ => return None,
+        };
+        Some(Candidate { kind, a, b, topic })
+    }
+}
+
+fn open_key(key: &str) -> String {
+    format!("lives.open.{key}")
+}
+
+fn rest_key(family: &str) -> String {
+    format!("lives.rest.{family}")
+}
+
+/// The situations open now: each one's key and the period it opened.
+pub fn open(state: &WorldState, cast: &Cast) -> Vec<(String, i64)> {
+    let Some(notes) = state.entity(cast.notes) else {
+        return Vec::new();
+    };
+    notes
+        .components
+        .iter()
+        .filter_map(|(key, value)| {
+            let key = key.strip_prefix("lives.open.")?;
+            match value {
+                Value::Map(map) => match map.get("opened") {
+                    Some(Value::Integer(at)) => Some((key.to_string(), *at)),
+                    _ => None,
+                },
+                _ => None,
+            }
+        })
+        .collect()
+}
+
+fn open_map<'a>(
+    state: &'a WorldState,
+    cast: &Cast,
+    key: &str,
+) -> Option<&'a BTreeMap<String, Value>> {
+    match state.entity(cast.notes)?.component(&open_key(key))? {
+        Value::Map(map) => Some(map),
+        _ => None,
+    }
+}
+
+fn next_visitor(state: &WorldState, cast: &Cast) -> Option<EntityId> {
+    let visitors = cast.visitors?;
+    (visitors.first..visitors.first + visitors.room)
+        .map(EntityId::new)
+        .find(|id| state.entity(*id).is_none())
+}
+
+/// The situations the World could put to the player now, most pressing
+/// first.
+pub fn candidates(world: &World, cast: &Cast) -> Vec<Candidate> {
+    let state = world.state();
+    let people = living(world, cast)
+        .into_iter()
+        .filter(|id| enrolled(state, *id))
+        .collect::<Vec<_>>();
+    let now = period(state, cast);
+    let mut found = Vec::new();
+    let topic = |a: EntityId, b: u64, salt: u64| mix(&[a.0, b, salt, now / 30]) % 1000;
+    for &a in &people {
+        for &b in &people {
+            if a == b {
+                continue;
+            }
+            let (ab, ba) = (opinion(state, a, b), opinion(state, b, a));
+            if ab <= -30 && ab <= ba && partner(state, a) != Some(b) {
+                found.push((
+                    ab.abs() + 20,
+                    Candidate {
+                        kind: Kind::Feud,
+                        a,
+                        b: Some(b),
+                        topic: topic(a, b.0, 1),
+                    },
+                ));
+            }
+            if ab >= 45 && partner(state, a).is_none() && partner(state, b).is_none() {
+                found.push((
+                    ab,
+                    Candidate {
+                        kind: Kind::Sweet,
+                        a,
+                        b: Some(b),
+                        topic: topic(a, b.0, 2),
+                    },
+                ));
+            }
+            if partner(state, a) == Some(b) && a.0 < b.0 && (ab <= 5 || ba <= 5) {
+                found.push((
+                    70,
+                    Candidate {
+                        kind: Kind::RoughPatch,
+                        a,
+                        b: Some(b),
+                        topic: topic(a, b.0, 3),
+                    },
+                ));
+            }
+            if partner(state, a) == Some(b) && a.0 < b.0 && integer(state, a, CELEBRATED).is_none()
+            {
+                found.push((
+                    60,
+                    Candidate {
+                        kind: Kind::Party,
+                        a,
+                        b: Some(b),
+                        topic: topic(a, b.0, 4),
+                    },
+                ));
+            }
+            if lack(state, a, Need::Purpose) >= 55
+                && ab >= 0
+                && (cast.work)(state, a) != (cast.work)(state, b)
+                && (cast.work)(state, b).is_some()
+            {
+                found.push((
+                    lack(state, a, Need::Purpose) - 10,
+                    Candidate {
+                        kind: Kind::Learn,
+                        a,
+                        b: Some(b),
+                        topic: topic(a, b.0, 5),
+                    },
+                ));
+            }
+        }
+        let lacks = |need| lack(state, a, need);
+        if lacks(Need::Money) >= 70 {
+            found.push((
+                lacks(Need::Money),
+                Candidate {
+                    kind: Kind::Short,
+                    a,
+                    b: None,
+                    topic: topic(a, 0, 6),
+                },
+            ));
+        }
+        if lacks(Need::Company) >= 70 {
+            found.push((
+                lacks(Need::Company),
+                Candidate {
+                    kind: Kind::Lonely,
+                    a,
+                    b: None,
+                    topic: topic(a, 0, 7),
+                },
+            ));
+        }
+        if lacks(Need::Rest) >= 80 {
+            found.push((
+                lacks(Need::Rest),
+                Candidate {
+                    kind: Kind::Worn,
+                    a,
+                    b: None,
+                    topic: topic(a, 0, 8),
+                },
+            ));
+        }
+        let worst = Need::ALL.iter().map(|n| lacks(*n)).max().unwrap_or(0);
+        if !(cast.stays)(a) && integer(state, a, REGARD).unwrap_or(0) <= -20 && worst >= 70 {
+            found.push((
+                90,
+                Candidate {
+                    kind: Kind::Leaving,
+                    a,
+                    b: None,
+                    topic: topic(a, 0, 9),
+                },
+            ));
+        }
+    }
+    if people.len() < cast.most_people && now % 9 == 4 {
+        if let Some(visitor) = next_visitor(state, cast) {
+            found.push((
+                75,
+                Candidate {
+                    kind: Kind::Visitor,
+                    a: cast.host,
+                    b: Some(visitor),
+                    topic: mix(&[visitor.0, 5]) % 1000,
+                },
+            ));
+        }
+    }
+    // Most pressing first, though a kind of trouble heard lately waits its
+    // turn; among equals, whichever the day's chance favours.
+    for (score, candidate) in &mut found {
+        let last = integer(
+            state,
+            cast.notes,
+            &format!("lives.kind.{}", candidate.kind.id()),
+        );
+        if last.is_some_and(|last| now as i64 - last < 6) {
+            *score -= 45;
+        }
+    }
+    found.sort_by_key(|(score, candidate)| {
+        (-score, mix(&[now, candidate.a.0, candidate.kind as u64]))
+    });
+    found
+        .into_iter()
+        .map(|(_, candidate)| candidate)
+        .filter(|candidate| {
+            let rested = integer(state, cast.notes, &rest_key(&candidate.family()))
+                .is_none_or(|last| now as i64 - last >= candidate.kind.rests() as i64);
+            rested && open_map(state, cast, &candidate.key()).is_none()
+        })
+        .collect()
+}
+
+/// One way to answer a situation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Answer {
+    pub id: &'static str,
+    pub title: String,
+    /// Why it cannot be given now, if it cannot.
+    pub unavailable: Option<String>,
+}
+
+/// A situation as it is put to the player.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Situation {
+    pub key: String,
+    pub kind: Kind,
+    pub asker: EntityId,
+    pub about: Option<EntityId>,
+    pub prompt: String,
+    /// How it is told when it comes up.
+    pub told: String,
+    pub answers: Vec<Answer>,
+}
+
+fn words_for(
+    state: &WorldState,
+    cast: &Cast,
+    candidate: &Candidate,
+) -> Vec<(&'static str, String)> {
+    let mut words = vec![
+        ("a", name(state, candidate.a)),
+        ("unit", cast.unit.to_string()),
+        ("settlement", cast.settlement.to_string()),
+        ("gathering", name(state, cast.gathering)),
+        (
+            "topic",
+            pick(cast.topics, candidate.topic)
+                .copied()
+                .unwrap_or("nothing much")
+                .into(),
+        ),
+        (
+            "outing",
+            pick(cast.outings, candidate.topic)
+                .copied()
+                .unwrap_or("take a walk")
+                .into(),
+        ),
+    ];
+    if let Some(b) = candidate.b {
+        if candidate.kind == Kind::Visitor {
+            if let Some(visitors) = cast.visitors {
+                let seed = mix(&[b.0, 17]);
+                words.push((
+                    "b",
+                    pick(visitors.names, seed)
+                        .copied()
+                        .unwrap_or("A stranger")
+                        .into(),
+                ));
+                let (trade, _) = pick(visitors.trades, seed / 7)
+                    .copied()
+                    .unwrap_or(("traveller", "traveller"));
+                words.push(("trade", trade.into()));
+                words.push((
+                    "origin",
+                    pick(visitors.origins, seed / 13)
+                        .copied()
+                        .unwrap_or("far away")
+                        .into(),
+                ));
+                words.push(("way_out", visitors.way_out.into()));
+            }
+        } else {
+            words.push(("b", name(state, b)));
+            if let Some(work) = (cast.work)(state, b) {
+                words.push(("work", name(state, work)));
+            }
+        }
+    }
+    if let Some(friend) = best_friend(state, candidate.a) {
+        words.push(("friend", name(state, friend)));
+    }
+    words
+}
+
+fn best_friend(state: &WorldState, person: EntityId) -> Option<EntityId> {
+    cast_ids(state)
+        .into_iter()
+        .filter(|o| {
+            *o != person && opinion(state, person, *o) >= 20 && opinion(state, *o, person) >= 0
+        })
+        .max_by_key(|o| opinion(state, person, *o))
+}
+
+struct Script {
+    prompts: &'static [&'static str],
+    told: &'static str,
+    answers: &'static [(&'static str, &'static str)],
+}
+
+fn script(kind: Kind) -> Script {
+    match kind {
+        Kind::Feud => Script {
+            prompts: &[
+                "{b} and I aren't speaking. It started over {topic}.",
+                "I can't be in a room with {b}. Not after {topic}.",
+                "About {topic}: {b} has it all wrong.",
+            ],
+            told: "{a} and {b} fell out over {topic}",
+            answers: &[
+                ("mend", "Make peace"),
+                ("side", "Back {a}"),
+                ("leave", "Stay out"),
+            ],
+        },
+        Kind::Sweet => Script {
+            prompts: &[
+                "Don't laugh. I think I'm sweet on {b}.",
+                "Would it be mad to ask {b} to {outing}?",
+                "I keep finding reasons to be wherever {b} is.",
+            ],
+            told: "{a} confided they were sweet on {b}",
+            answers: &[("ask", "Go for it"), ("wait", "Wait a bit")],
+        },
+        Kind::Learn => Script {
+            prompts: &[
+                "I'd love to learn what {b} does. Would you ask them?",
+                "{b} makes it look easy. Could I learn from them?",
+                "I feel stuck. {b} could teach me a thing or two.",
+            ],
+            told: "{a} wanted to learn from {b}",
+            answers: &[("teach", "Arrange lessons"), ("not_now", "Not now")],
+        },
+        Kind::Short => Script {
+            prompts: &[
+                "I'm short this {unit}. I hate asking.",
+                "Could I be tided over? Just this once.",
+                "The money's run out before the {unit} has.",
+            ],
+            told: "{a} was short of money",
+            answers: &[
+                ("fund", "Use the fund"),
+                ("friend", "Ask {friend}"),
+                ("manage", "They'll manage"),
+            ],
+        },
+        Kind::Lonely => Script {
+            prompts: &[
+                "Haven't really talked to anyone in days.",
+                "Evenings are long on my own.",
+                "Would anyone notice if I wasn't here?",
+            ],
+            told: "{a} was lonely",
+            answers: &[("invite", "Take them out"), ("space", "Give them space")],
+        },
+        Kind::Worn => Script {
+            prompts: &[
+                "I'm running on nothing.",
+                "I can't remember my last day off.",
+                "If I sit down I'll fall asleep.",
+            ],
+            told: "{a} was worn out",
+            answers: &[("rest", "A day off"), ("push", "Push on")],
+        },
+        Kind::Party => Script {
+            prompts: &[
+                "{b} and I want to celebrate. Everyone's invited?",
+                "We'd like a do. {b} insists on dancing.",
+            ],
+            told: "{a} and {b} wanted to celebrate",
+            answers: &[("party", "Throw a party"), ("quiet", "Keep it small")],
+        },
+        Kind::Visitor => Script {
+            prompts: &[
+                "{b}, a {trade} from {origin}, wants a room.",
+                "A {trade} called {b} came in on {way_out}.",
+            ],
+            told: "{b}, a {trade} from {origin}, asked to stay",
+            answers: &[("welcome", "Offer a room"), ("decline", "Not this time")],
+        },
+        Kind::Leaving => Script {
+            prompts: &[
+                "I've been thinking of leaving.",
+                "There's nothing keeping me here, is there?",
+                "I've been looking at the timetable for {way_out}.",
+            ],
+            told: "{a} was thinking of leaving",
+            answers: &[("stay", "Please stay"), ("go", "Wish them well")],
+        },
+        Kind::RoughPatch => Script {
+            prompts: &[
+                "{b} and I keep quarrelling.",
+                "Things aren't right with {b}.",
+            ],
+            told: "{a} and {b} hit a rough patch",
+            answers: &[("talk", "Help them talk"), ("apart", "Time apart")],
+        },
+    }
+}
+
+fn fill_owned(template: &str, words: &[(&'static str, String)]) -> String {
+    let borrowed = words
+        .iter()
+        .map(|(slot, word)| (*slot, word.as_str()))
+        .collect::<Vec<_>>();
+    fill(template, &borrowed)
+}
+
+/// A situation as it would be put, from its candidate.
+fn compose(state: &WorldState, cast: &Cast, candidate: &Candidate) -> Situation {
+    let words = words_for(state, cast, candidate);
+    let script = script(candidate.kind);
+    let prompt = pick(script.prompts, candidate.topic / 3)
+        .map(|prompt| fill_owned(prompt, &words))
+        .unwrap_or_default();
+    let answers = script
+        .answers
+        .iter()
+        .filter(|(id, _)| match (candidate.kind, *id) {
+            (Kind::Short, "fund") => cast.fund.is_some(),
+            (Kind::Short, "friend") => best_friend(state, candidate.a).is_some(),
+            _ => true,
+        })
+        .map(|(id, title)| Answer {
+            id,
+            title: fill_owned(title, &words),
+            unavailable: match (candidate.kind, *id) {
+                (Kind::Short, "fund") | (Kind::Party, "party") => cast.fund.and_then(|fund| {
+                    (integer(state, fund.entity, fund.key).unwrap_or(0) < fund.amount)
+                        .then(|| format!("There isn't {} in {}", fund.amount, fund.name))
+                }),
+                _ => None,
+            },
+        })
+        .collect();
+    Situation {
+        key: candidate.key(),
+        kind: candidate.kind,
+        asker: candidate.a,
+        about: candidate.b,
+        prompt,
+        told: fill_owned(script.told, &words),
+        answers,
+    }
+}
+
+/// The situations open now, as they are put to the player.
+pub fn situations(world: &World, cast: &Cast) -> Vec<Situation> {
+    let state = world.state();
+    let mut open = open(state, cast);
+    open.sort_by_key(|(key, at)| (*at, key.clone()));
+    open.into_iter()
+        .filter_map(|(key, _)| {
+            let candidate = Candidate::parse(&key)?;
+            let mut situation = compose(state, cast, &candidate);
+            // Told as it was first put, whatever has changed since.
+            if let Some(Value::Text(prompt)) = open_map(state, cast, &key)?.get("prompt") {
+                situation.prompt = prompt.clone();
+            }
+            Some(situation)
+        })
+        .collect()
+}
+
+/// A situation comes up.
+struct Opens(fn() -> Cast);
+
+impl Action for Opens {
+    fn name(&self) -> &'static str {
+        "lives_situation_opens"
+    }
+
+    fn evaluate(
+        &self,
+        state: &WorldState,
+        request: &ActionRequest,
+    ) -> Result<EventDraft, ActionError> {
+        let cast = (self.0)();
+        let key = arg_text(request, "situation")?;
+        let candidate = Candidate::parse(key)
+            .ok_or_else(|| ActionError::Invalid("no such situation".into()))?;
+        if open_map(state, &cast, key).is_some() {
+            return Err(ActionError::Invalid("already open".into()));
+        }
+        let mut situation = compose(state, &cast, &candidate);
+        // Put in words nobody has used lately.
+        let heard = heard(state, &cast);
+        let words = words_for(state, &cast, &candidate);
+        let prompts = script(candidate.kind)
+            .prompts
+            .iter()
+            .map(|prompt| fill_owned(prompt, &words))
+            .collect::<Vec<_>>();
+        situation.prompt = match prompts
+            .iter()
+            .find(|prompt| !heard.iter().any(|said| said == *prompt))
+        {
+            Some(prompt) => prompt.clone(),
+            None => personal(
+                state,
+                candidate.a,
+                &situation.prompt,
+                &heard,
+                mix(&[candidate.a.0, 9]),
+            ),
+        };
+        let mut moves = Moves::default();
+        remember_saying(&mut moves, &cast, &heard, &situation.prompt);
+        let mut draft = EventDraft::new("situation_came_up");
+        draft.actor = Some(candidate.a);
+        draft.targets = candidate
+            .b
+            .filter(|b| state.entity(*b).is_some())
+            .into_iter()
+            .collect();
+        draft.payload.insert("situation".into(), key.into());
+        draft
+            .payload
+            .insert("kind".into(), candidate.kind.id().into());
+        draft
+            .payload
+            .insert("told".into(), situation.told.clone().into());
+        draft
+            .payload
+            .insert("said".into(), situation.prompt.clone().into());
+        let mut map = BTreeMap::new();
+        map.insert(
+            "opened".to_string(),
+            Value::from(period(state, &cast) as i64),
+        );
+        map.insert("prompt".to_string(), Value::from(situation.prompt));
+        draft.changes.push(StateChange::SetComponent {
+            entity: cast.notes,
+            key: open_key(key),
+            value: Value::Map(map),
+        });
+        draft.changes.push(StateChange::SetComponent {
+            entity: cast.notes,
+            key: format!("lives.kind.{}", candidate.kind.id()),
+            value: (period(state, &cast) as i64).into(),
+        });
+        draft.changes.extend(moves.changes);
+        Ok(draft)
+    }
+}
+
+/// What an answer does, how it is told, and what the asker says.
+fn outcome(
+    state: &WorldState,
+    cast: &Cast,
+    candidate: &Candidate,
+    answer: &str,
+) -> Result<(Moves, String, String), ActionError> {
+    let words = words_for(state, cast, candidate);
+    let w = |template: &str| fill_owned(template, &words);
+    let a = candidate.a;
+    let b = candidate.b;
+    let mut moves = Moves::default();
+    let spend = |moves: &mut Moves| -> Result<(), ActionError> {
+        let fund = cast
+            .fund
+            .ok_or_else(|| ActionError::Invalid("no fund".into()))?;
+        if integer(state, fund.entity, fund.key).unwrap_or(0) < fund.amount {
+            return Err(ActionError::Invalid("not enough in the fund".into()));
+        }
+        moves.add(
+            state,
+            fund.entity,
+            fund.key,
+            -fund.amount,
+            i64::MIN / 4,
+            i64::MAX / 4,
+        );
+        Ok(())
+    };
+    let people = cast_ids(state);
+    // Where an answer sends people shows on the scene.
+    let go = |moves: &mut Moves, who: EntityId, place: EntityId| {
+        if state.entity(who).is_some() {
+            moves.set(who, AT, Value::Entity(place));
+        }
+    };
+    let (gathering, quiet) = (cast.gathering, cast.quiet);
+    let work_of = |who: EntityId| (cast.work)(state, who).unwrap_or(gathering);
+    let (told, said) = match (candidate.kind, answer) {
+        (Kind::Feud, "mend") => {
+            let b = b.unwrap_or(a);
+            moves.opinion(state, a, b, 35);
+            moves.opinion(state, b, a, 35);
+            moves.regard(state, a, 5);
+            moves.regard(state, b, 5);
+            go(&mut moves, a, gathering);
+            go(&mut moves, b, gathering);
+            (
+                w("{a} and {b} talked it through"),
+                w("We talked, {b} and me. It's better."),
+            )
+        }
+        (Kind::Feud, "side") => {
+            let b = b.unwrap_or(a);
+            moves.regard(state, a, 12);
+            moves.regard(state, b, -15);
+            moves.opinion(state, b, a, -10);
+            go(&mut moves, a, gathering);
+            go(&mut moves, b, quiet);
+            (
+                w("You took {a}'s side against {b}"),
+                w("Thank you. Someone sees it."),
+            )
+        }
+        (Kind::Feud, "leave") => {
+            go(&mut moves, a, quiet);
+            (
+                w("{a} and {b} were left to sort it out"),
+                w("Fine. I'll manage {b} myself."),
+            )
+        }
+        (Kind::Feud, "lapse") => {
+            let b = b.unwrap_or(a);
+            moves.opinion(state, a, b, -10);
+            moves.opinion(state, b, a, -10);
+            go(&mut moves, a, quiet);
+            (
+                w("{a} and {b} stopped speaking"),
+                w("Not a word from {b} since."),
+            )
+        }
+        (Kind::Sweet, "ask") => {
+            let b = b.unwrap_or(a);
+            let yes = opinion(state, b, a) >= 25 || mix(&[a.0, b.0, 99]).is_multiple_of(3);
+            if yes {
+                moves.set(a, PARTNER, Value::Entity(b));
+                moves.set(b, PARTNER, Value::Entity(a));
+                moves.opinion(state, a, b, 15);
+                moves.opinion(state, b, a, 20);
+                moves.lack(state, a, Need::Company, -40);
+                moves.lack(state, b, Need::Company, -40);
+                moves.regard(state, a, 8);
+                go(&mut moves, a, quiet);
+                go(&mut moves, b, quiet);
+                (
+                    w("{a} and {b} started walking out together"),
+                    w("{b} said yes!"),
+                )
+            } else {
+                moves.opinion(state, a, b, -15);
+                moves.lack(state, a, Need::Company, 20);
+                go(&mut moves, a, quiet);
+                (
+                    w("{b} turned {a} down, kindly"),
+                    w("{b} said no. Kindly, but no."),
+                )
+            }
+        }
+        (Kind::Sweet, "wait") | (Kind::Sweet, "lapse") => {
+            go(&mut moves, a, gathering);
+            (
+                w("{a} kept it to themselves"),
+                w("Maybe you're right. Maybe."),
+            )
+        }
+        (Kind::Learn, "teach") => {
+            let b = b.unwrap_or(a);
+            moves.lack(state, a, Need::Purpose, -50);
+            moves.opinion(state, a, b, 18);
+            moves.opinion(state, b, a, 10);
+            moves.lack(state, b, Need::Rest, 15);
+            moves.lack(state, b, Need::Purpose, -20);
+            moves.regard(state, a, 8);
+            go(&mut moves, a, work_of(b));
+            (w("{b} began teaching {a}"), w("{b}'s a patient teacher."))
+        }
+        (Kind::Learn, "not_now") | (Kind::Learn, "lapse") => {
+            moves.lack(state, a, Need::Purpose, 10);
+            moves.regard(state, a, -5);
+            go(&mut moves, a, quiet);
+            (w("{a} was told not now"), w("Another time, then."))
+        }
+        (Kind::Short, "fund") => {
+            spend(&mut moves)?;
+            moves.lack(state, a, Need::Money, -55);
+            moves.regard(state, a, 15);
+            go(&mut moves, a, quiet);
+            (
+                w("The {settlement} tided {a} over"),
+                w("I'll pay it back. Every penny."),
+            )
+        }
+        (Kind::Short, "friend") => {
+            let friend = best_friend(state, a)
+                .ok_or_else(|| ActionError::Invalid("no friend to ask".into()))?;
+            moves.lack(state, a, Need::Money, -45);
+            moves.lack(state, friend, Need::Money, 15);
+            moves.opinion(state, a, friend, 15);
+            moves.opinion(state, friend, a, -3);
+            go(&mut moves, a, work_of(friend));
+            (
+                w("{friend} helped {a} out"),
+                w("{friend} came through for me."),
+            )
+        }
+        (Kind::Short, "manage") | (Kind::Short, "lapse") => {
+            moves.regard(state, a, -8);
+            moves.lack(state, a, Need::Money, 5);
+            go(&mut moves, a, work_of(a));
+            (w("{a} scraped by"), w("Right. I'll manage."))
+        }
+        (Kind::Lonely, "invite") => {
+            moves.lack(state, a, Need::Company, -55);
+            let met = people
+                .iter()
+                .copied()
+                .filter(|o| *o != a)
+                .max_by_key(|o| (lack(state, *o, Need::Company), mix(&[a.0, o.0])));
+            moves.regard(state, a, 6);
+            go(&mut moves, a, gathering);
+            if let Some(met) = met {
+                go(&mut moves, met, gathering);
+            }
+            match met {
+                Some(met) => {
+                    moves.opinion(state, a, met, 15);
+                    moves.opinion(state, met, a, 12);
+                    moves.lack(state, met, Need::Company, -25);
+                    let met_name = name(state, met);
+                    (
+                        format!(
+                            "{} spent an evening at {} with {met_name}",
+                            name(state, a),
+                            name(state, cast.gathering)
+                        ),
+                        format!("{met_name} and I got talking. Lovely evening."),
+                    )
+                }
+                None => (
+                    w("{a} spent an evening at {gathering}"),
+                    w("That did me good."),
+                ),
+            }
+        }
+        (Kind::Lonely, "space") | (Kind::Lonely, "lapse") => {
+            moves.lack(state, a, Need::Company, 8);
+            moves.regard(state, a, -3);
+            go(&mut moves, a, quiet);
+            (w("{a} kept to themselves"), w("Maybe tomorrow."))
+        }
+        (Kind::Worn, "rest") => {
+            moves.lack(state, a, Need::Rest, -65);
+            moves.lack(state, a, Need::Money, 10);
+            moves.regard(state, a, 8);
+            go(&mut moves, a, quiet);
+            (w("{a} took a day off"), w("Slept till noon. Bliss."))
+        }
+        (Kind::Worn, "push") => {
+            moves.lack(state, a, Need::Rest, 10);
+            moves.lack(state, a, Need::Money, -20);
+            moves.regard(state, a, -6);
+            go(&mut moves, a, work_of(a));
+            (w("{a} pushed on"), w("One more push, then."))
+        }
+        (Kind::Worn, "lapse") => {
+            moves.lack(state, a, Need::Rest, -35);
+            moves.regard(state, a, -4);
+            go(&mut moves, a, quiet);
+            (w("{a} took the day anyway"), w("I needed that. Sorry."))
+        }
+        (Kind::Party, "party") => {
+            spend(&mut moves)?;
+            let b = b.unwrap_or(a);
+            for p in &people {
+                moves.lack(state, *p, Need::Company, -30);
+                moves.opinion(state, *p, a, 5);
+                moves.opinion(state, *p, b, 5);
+                moves.regard(state, *p, 3);
+                go(&mut moves, *p, gathering);
+            }
+            moves.set(a, CELEBRATED, period(state, cast) as i64);
+            (
+                w("The whole {settlement} came to {a} and {b}'s party at {gathering}"),
+                w("Best night in years!"),
+            )
+        }
+        (Kind::Party, "quiet") | (Kind::Party, "lapse") => {
+            moves.set(a, CELEBRATED, period(state, cast) as i64);
+            go(&mut moves, a, quiet);
+            if let Some(b) = b {
+                go(&mut moves, b, quiet);
+            }
+            (w("{a} and {b} kept it small"), w("Just us two. Perfect."))
+        }
+        (Kind::Visitor, "welcome") => {
+            let visitors = cast
+                .visitors
+                .ok_or_else(|| ActionError::Invalid("nobody comes here".into()))?;
+            let visitor = b.ok_or_else(|| ActionError::Invalid("nobody at the door".into()))?;
+            if state.entity(visitor).is_some() {
+                return Err(ActionError::Invalid("already here".into()));
+            }
+            let seed = mix(&[visitor.0, 17]);
+            let visitor_name = pick(visitors.names, seed).copied().unwrap_or("A stranger");
+            let (_, job) = pick(visitors.trades, seed / 7)
+                .copied()
+                .unwrap_or(("traveller", "traveller"));
+            let mut newcomer =
+                Entity::new(visitor, visitors.kind).with_component("name", visitor_name);
+            for (key, value) in (visitors.components)(visitor_name, job) {
+                newcomer = newcomer.with_component(key, value);
+            }
+            newcomer = newcomer
+                .with_component("lives.newcomer", true)
+                .with_component(AT, Value::Entity(gathering));
+            moves.changes.push(StateChange::CreateEntity(newcomer));
+            moves.regard(state, a, 5);
+            (
+                w("{b}, a {trade} from {origin}, came to stay"),
+                w("Plenty of room here. Welcome, {b}."),
+            )
+        }
+        (Kind::Visitor, "decline") | (Kind::Visitor, "lapse") => {
+            (w("{b} moved on with {way_out}"), w("Maybe another time."))
+        }
+        (Kind::Leaving, "stay") => {
+            moves.regard(state, a, 30);
+            for need in Need::ALL {
+                moves.lack(state, a, need, -20);
+            }
+            go(&mut moves, a, gathering);
+            (
+                w("{a} was asked to stay, and did"),
+                w("All right. I'll stay. For now."),
+            )
+        }
+        (Kind::Leaving, "go") | (Kind::Leaving, "lapse") => {
+            moves.set(a, GONE, true);
+            if let Some(p) = partner(state, a) {
+                moves.unset(state, p, PARTNER);
+                moves.lack(state, p, Need::Company, 40);
+            }
+            moves.unset(state, a, PARTNER);
+            (w("{a} left the {settlement}"), w("I'll write. I promise."))
+        }
+        (Kind::RoughPatch, "talk") => {
+            let b = b.unwrap_or(a);
+            moves.opinion(state, a, b, 25);
+            moves.opinion(state, b, a, 25);
+            go(&mut moves, a, gathering);
+            go(&mut moves, b, gathering);
+            (
+                w("{a} and {b} talked it out"),
+                w("We're all right, {b} and me."),
+            )
+        }
+        (Kind::RoughPatch, "apart") | (Kind::RoughPatch, "lapse") => {
+            let b = b.unwrap_or(a);
+            moves.unset(state, a, PARTNER);
+            moves.unset(state, b, PARTNER);
+            moves.opinion(state, a, b, -10);
+            moves.opinion(state, b, a, -10);
+            moves.lack(state, a, Need::Company, 30);
+            moves.lack(state, b, Need::Company, 30);
+            go(&mut moves, a, quiet);
+            go(&mut moves, b, work_of(b));
+            (
+                w("{a} and {b} went their separate ways"),
+                w("It's for the best. I think."),
+            )
+        }
+        _ => return Err(ActionError::Invalid(format!("no answer {answer}"))),
+    };
+    Ok((moves, told, said))
+}
+
+fn closing(state: &WorldState, cast: &Cast, candidate: &Candidate, moves: &mut Moves) {
+    moves.unset(state, cast.notes, &open_key(&candidate.key()));
+    moves.set(
+        cast.notes,
+        &rest_key(&candidate.family()),
+        period(state, cast) as i64,
+    );
+}
+
+/// Someone answers a situation, or it runs out.
+struct Answers(fn() -> Cast);
+
+impl Action for Answers {
+    fn name(&self) -> &'static str {
+        "lives_situation_answered"
+    }
+
+    fn evaluate(
+        &self,
+        state: &WorldState,
+        request: &ActionRequest,
+    ) -> Result<EventDraft, ActionError> {
+        let cast = (self.0)();
+        let key = arg_text(request, "situation")?;
+        let answer = arg_text(request, "answer")?;
+        let candidate = Candidate::parse(key)
+            .ok_or_else(|| ActionError::Invalid("no such situation".into()))?;
+        if open_map(state, &cast, key).is_none() {
+            return Err(ActionError::Invalid("not open".into()));
+        }
+        let lapsed = answer == "lapse";
+        if !lapsed {
+            let offered = compose(state, &cast, &candidate);
+            let given = offered
+                .answers
+                .iter()
+                .find(|offered| offered.id == answer)
+                .ok_or_else(|| ActionError::Invalid(format!("{answer} is not an answer")))?;
+            if let Some(why) = &given.unavailable {
+                return Err(ActionError::Invalid(why.clone()));
+            }
+        }
+        let (mut moves, told, said) = outcome(state, &cast, &candidate, answer)?;
+        let heard = heard(state, &cast);
+        let said = personal(
+            state,
+            candidate.a,
+            &said,
+            &heard,
+            mix(&[candidate.a.0, period(state, &cast), 5]),
+        );
+        remember_saying(&mut moves, &cast, &heard, &said);
+        closing(state, &cast, &candidate, &mut moves);
+        let mut draft = EventDraft::new(if lapsed {
+            "situation_lapsed"
+        } else {
+            "situation_answered"
+        });
+        draft.actor = Some(candidate.a);
+        draft.targets = candidate
+            .b
+            .filter(|b| state.entity(*b).is_some())
+            .into_iter()
+            .collect();
+        draft.payload.insert("situation".into(), key.into());
+        draft
+            .payload
+            .insert("kind".into(), candidate.kind.id().into());
+        draft.payload.insert("answer".into(), answer.into());
+        draft.payload.insert("told".into(), told.into());
+        draft.payload.insert("said".into(), said.into());
+        if lapsed {
+            draft.payload.insert("lapsed".into(), true.into());
+        }
+        draft.changes = moves.changes;
+        Ok(draft)
+    }
+}
+
+/// Registers the System's Actions for a Pack's cast.
+pub fn register_actions(
+    registry: &mut ActionRegistry,
+    cast: fn() -> Cast,
+) -> Result<(), ActionError> {
+    registry.register(Enrols(cast))?;
+    registry.register(Lives(cast))?;
+    registry.register(Bonds(cast))?;
+    registry.register(Opens(cast))?;
+    registry.register(Answers(cast))?;
+    Ok(())
+}
+
+/// How long a situation stays open before it runs out.
+const LASTS: i64 = 3;
+
+/// The request that answers a situation.
+pub fn answer_request(situation: &str, answer: &str) -> ActionRequest {
+    ActionRequest::new("lives_situation_answered")
+        .arg("situation", situation)
+        .arg("answer", answer)
+}
+
+fn others_arg(people: &[EntityId]) -> Value {
+    Value::List(people.iter().map(|id| Value::Entity(*id)).collect())
+}
+
+/// One period of everyone's lives. New people join in, everyone does
+/// something with their day, standings that changed are told, situations
+/// that ran out end, and something new may come up to put to the player.
+/// While the player is away, people live on, but nothing is put to them
+/// and nothing they were asked runs out.
+pub fn tick(
+    world: &mut World,
+    actions: &ActionRegistry,
+    cast: &Cast,
+    away: bool,
+) -> Result<Vec<EventId>, WorldError> {
+    let mut events = Vec::new();
+    let people = living(world, cast);
+    for person in &people {
+        if !enrolled(world.state(), *person) {
+            let request = ActionRequest::new("lives_enrol")
+                .arg("person", Value::Entity(*person))
+                .arg("others", others_arg(&people));
+            events.push(world.execute(actions, &request)?.id);
+        }
+    }
+    let before = pairs(world.state(), &people);
+    for person in &people {
+        let request = ActionRequest::new("lives_day")
+            .arg("person", Value::Entity(*person))
+            .arg("others", others_arg(&people));
+        if let Ok(event) = world.execute(actions, &request) {
+            events.push(event.id);
+        }
+    }
+    for (a, b) in before {
+        let request = ActionRequest::new("lives_bond")
+            .arg("a", Value::Entity(a))
+            .arg("b", Value::Entity(b));
+        if let Ok(event) = world.execute(actions, &request) {
+            events.push(event.id);
+        }
+    }
+    if away {
+        return Ok(events);
+    }
+    let now = period(world.state(), cast) as i64;
+    for (key, opened) in open(world.state(), cast) {
+        if now - opened >= LASTS {
+            events.push(world.execute(actions, &answer_request(&key, "lapse"))?.id);
+        }
+    }
+    if open(world.state(), cast).len() < cast.most_open {
+        if let Some(candidate) = candidates(world, cast).into_iter().next() {
+            let request =
+                ActionRequest::new("lives_situation_opens").arg("situation", candidate.key());
+            events.push(world.execute(actions, &request)?.id);
+        }
+    }
+    Ok(events)
+}
+
+fn pairs(state: &WorldState, people: &[EntityId]) -> Vec<(EntityId, EntityId)> {
+    let mut pairs = Vec::new();
+    for (index, a) in people.iter().enumerate() {
+        for b in &people[index + 1..] {
+            if enrolled(state, *a) && enrolled(state, *b) {
+                pairs.push((*a, *b));
+            }
+        }
+    }
+    pairs
+}
+
+/// Whether an event is one of this System's.
+pub fn is_life(event: &Event) -> bool {
+    matches!(
+        event.kind.as_str(),
+        "lived" | "bond_changed" | "situation_came_up" | "situation_answered" | "situation_lapsed"
+    )
+}
+
+/// How one of this System's moments is told, in the words it was recorded
+/// with.
+pub fn told(event: &Event) -> Option<String> {
+    if !is_life(event) {
+        return None;
+    }
+    match event.payload.get("told") {
+        Some(Value::Text(told)) => Some(told.clone()),
+        _ => None,
+    }
+}
+
+/// Who speaks at one of this System's moments, and what they say.
+pub fn said(event: &Event) -> Option<(EntityId, String)> {
+    if !is_life(event) {
+        return None;
+    }
+    match event.payload.get("said") {
+        Some(Value::Text(said)) if !said.is_empty() => Some((event.actor?, said.clone())),
+        _ => None,
+    }
+}
+
+/// Whether a moment is worth a line in the World's history: not everyday
+/// life, which is told as it happens, but changes between people and the
+/// situations put to the player.
+pub fn is_news(event: &Event) -> bool {
+    matches!(
+        event.kind.as_str(),
+        "bond_changed" | "situation_came_up" | "situation_answered" | "situation_lapsed"
+    )
+}
+
+/// What changed between people since a moment: who became friends, who
+/// fell out, who got together or parted, who came and who left. Newest
+/// last, one line each.
+pub fn news_since(world: &World, since: u64) -> Vec<String> {
+    let mut seen = BTreeSet::new();
+    world
+        .events()
+        .iter()
+        .rev()
+        .take_while(|event| event.world_time >= since)
+        .filter(|event| match event.kind.as_str() {
+            "bond_changed" => true,
+            "situation_answered" | "situation_lapsed" => matches!(
+                (event.payload.get("kind"), event.payload.get("answer")),
+                (Some(Value::Text(kind)), Some(Value::Text(answer)))
+                    if (kind == "sweet" && answer == "ask")
+                        || (kind == "visitor" && answer == "welcome")
+                        || (kind == "leaving" && answer != "stay")
+                        || (kind == "rough" && answer != "talk")
+                        || (kind == "party" && answer == "party")
+            ),
+            _ => false,
+        })
+        .filter_map(|event| {
+            let told = told(event)?;
+            seen.insert(told.clone()).then_some(told)
+        })
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect()
+}
+
+/// How someone is, in their own words, from how their life stands.
+pub fn how_are_you(world: &World, person: EntityId) -> Option<String> {
+    let state = world.state();
+    if !enrolled(state, person) {
+        return None;
+    }
+    let others = cast_ids(state);
+    let foe = others
+        .iter()
+        .copied()
+        .filter(|o| *o != person && opinion(state, person, *o) <= -30)
+        .min_by_key(|o| opinion(state, person, *o));
+    let friend = best_friend(state, person);
+    let worst = Need::ALL
+        .iter()
+        .copied()
+        .max_by_key(|need| lack(state, person, *need))
+        .unwrap_or(Need::Company);
+    let line = if let Some(p) = partner(state, person) {
+        if opinion(state, person, p) <= 5 {
+            format!("Honestly? Things with {} aren't good.", name(state, p))
+        } else {
+            format!("Happy. {} and I are good.", name(state, p))
+        }
+    } else if let Some(foe) = foe {
+        format!("Fine, as long as {} keeps out of my way.", name(state, foe))
+    } else if lack(state, person, worst) >= 70 {
+        match worst {
+            Need::Money => "Worried about money.".into(),
+            Need::Rest => "Exhausted.".into(),
+            Need::Company => "A bit lonely, if I'm honest.".into(),
+            Need::Purpose => "Restless. I need something to get my teeth into.".into(),
+        }
+    } else if let Some(friend) = friend {
+        format!("Good. {} keeps me going.", name(state, friend))
+    } else {
+        "Getting by.".into()
+    };
+    Some(line)
+}
+
+/// What someone thinks of someone else, in their own words.
+pub fn thinks_of(world: &World, person: EntityId, other: EntityId) -> Option<String> {
+    let state = world.state();
+    if !enrolled(state, person) || !enrolled(state, other) {
+        return None;
+    }
+    let other_name = name(state, other);
+    let view = opinion(state, person, other);
+    Some(if partner(state, person) == Some(other) {
+        format!("{other_name}? I'd be lost without them.")
+    } else if view >= 50 {
+        format!("{other_name}'s one of the best.")
+    } else if view >= 20 {
+        format!("I like {other_name}.")
+    } else if view > -20 {
+        format!("{other_name}? We get on.")
+    } else if view > -50 {
+        format!("{other_name} and I don't see eye to eye.")
+    } else {
+        format!("Don't talk to me about {other_name}.")
+    })
+}
+
+#[cfg(test)]
+mod tests;

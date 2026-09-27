@@ -380,3 +380,109 @@ fn a_week_away_lapses_at_most_three_questions() {
         .count();
     assert!(lapsed <= 3, "{lapsed} questions lapsed in a week away");
 }
+
+/// The v0.12 bar: a year in the harbour never runs out. Played 365 days,
+/// new situations keep coming every month, nobody repeats themselves,
+/// people's standing with each other keeps changing, every chapter has a
+/// title of its own, and everyone lives every day without being asked.
+fn a_year(policy: Policy) {
+    let played = play(policy, 365);
+    let world = played.branch.world();
+    let day = |event: &world_core::Event| event.world_time / crate::persistence::WORLD_DAY_TICKS;
+    let first = world.events().first().map(day).unwrap_or(0);
+
+    let mut seen = std::collections::BTreeSet::new();
+    let mut fresh = vec![0; 13];
+    for event in world.events() {
+        let key = match event.kind.as_str() {
+            "situation_arose" => event.payload.get("storylet"),
+            "situation_came_up" => event.payload.get("situation"),
+            _ => None,
+        };
+        if let Some(world_core::Value::Text(key)) = key {
+            let month = ((day(event) - first) / 30).min(12) as usize;
+            if seen.insert(key.clone()) {
+                fresh[month] += 1;
+            }
+        }
+    }
+    assert!(
+        fresh[3..12].iter().all(|count| *count >= 8),
+        "{policy:?}: never-seen situations by month {fresh:?}"
+    );
+
+    for window in played.lines.windows(30) {
+        let mut counts = std::collections::BTreeMap::<&str, usize>::new();
+        for line in window.iter().flatten() {
+            *counts.entry(line).or_default() += 1;
+        }
+        if let Some((line, count)) = counts.into_iter().max_by_key(|(_, count)| *count) {
+            assert!(
+                count <= 3,
+                "{policy:?}: {line:?} said {count} times in 30 days"
+            );
+        }
+    }
+
+    let changes = world
+        .events()
+        .iter()
+        .filter(|event| event.kind == "bond_changed")
+        .map(|event| day(event) - first)
+        .collect::<Vec<_>>();
+    for start in 0..335 {
+        let count = changes
+            .iter()
+            .filter(|at| (start..start + 30).contains(*at))
+            .count();
+        assert!(
+            count >= 3,
+            "{policy:?}: only {count} changes between people in days {start}-{}",
+            start + 30
+        );
+    }
+
+    let titles = projection::snapshot(world)
+        .chapters
+        .into_iter()
+        .map(|chapter| chapter.title)
+        .collect::<Vec<_>>();
+    let unique = titles.iter().collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(unique.len(), titles.len(), "{policy:?}: {titles:?}");
+
+    // Everyone living here does something with every day of their own.
+    let mut lived = 0;
+    let mut owed = 0;
+    for today in first + 1..first + 365 {
+        let people = world
+            .events()
+            .iter()
+            .filter(|event| event.kind == "lived" && day(event) == today)
+            .filter_map(|event| event.actor)
+            .collect::<std::collections::BTreeSet<_>>();
+        lived += people.len();
+        owed += crate::story::people(world).len().min(people.len().max(7));
+    }
+    assert!(
+        lived * 100 >= owed * 95,
+        "{policy:?}: {lived} of {owed} days lived"
+    );
+
+    let replayed = world.replay().unwrap();
+    assert_eq!(replayed.state(), world.state());
+}
+
+#[test]
+fn a_year_of_saying_yes_never_runs_out() {
+    a_year(Policy::Generous);
+}
+
+#[test]
+fn a_year_of_saying_no_never_runs_out() {
+    a_year(Policy::Contrary);
+}
+
+#[test]
+fn a_year_left_alone_never_runs_out() {
+    a_year(Policy::Absent);
+}

@@ -410,6 +410,27 @@ pub fn last_chapter_title(world: &World) -> Option<String> {
         })
 }
 
+/// The first of `candidates` that no chapter so far has been called, so no
+/// two chapters of a World share a title. If every one has been used, the
+/// first with a number that makes it new.
+pub fn unused_title(world: &World, candidates: &[String]) -> String {
+    let used = chapters_ended(world)
+        .into_iter()
+        .map(|ended| ended.title)
+        .collect::<std::collections::BTreeSet<_>>();
+    if let Some(title) = candidates.iter().find(|title| !used.contains(*title)) {
+        return title.clone();
+    }
+    let first = candidates
+        .first()
+        .cloned()
+        .unwrap_or_else(|| "A chapter".into());
+    (2..)
+        .map(|n| format!("{first} ({n})"))
+        .find(|title| !used.contains(title))
+        .unwrap_or(first)
+}
+
 /// What this chapter is about, if the Pack gave its chapters pressures.
 pub fn pressure(state: &WorldState, deck: &Deck) -> Option<String> {
     text(state, deck.story, "story.pressure").map(str::to_string)

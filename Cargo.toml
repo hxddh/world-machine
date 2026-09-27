@@ -35,6 +35,7 @@ members = [
   "crates/world-observer",
   "systems/society-basic",
   "systems/storylets",
+  "systems/lives",
   "worlds/tiny-society",
   "worlds/future-archaeologist",
   "worlds/pocket-universe",

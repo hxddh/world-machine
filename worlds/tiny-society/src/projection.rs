@@ -403,7 +403,14 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
         .rev()
         .filter_map(|event| {
             let title = narrated_title(world, event)?;
-            if !told.insert(event.kind.clone()) {
+            // People's lives are told one line each; the town's machinery
+            // one line a kind.
+            let told_as = if lives::is_news(event) {
+                title.clone()
+            } else {
+                event.kind.clone()
+            };
+            if !told.insert(told_as) {
                 return None;
             }
             Some((
@@ -859,11 +866,40 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                 y,
                 changes: Vec::new(),
                 shape: None,
-                at: workplace(world, id)
+                at: lives::at(world.state(), id)
+                    .or_else(|| workplace(world, id))
                     .or_else(|| match entity.component("location") {
                         Some(Value::Entity(place)) => Some(*place),
                         _ => None,
                     })
+                    .map(SelectionId::Entity),
+                look: crate::talk::look(id),
+            });
+        }
+    }
+
+    // Strangers who came to stay, where they spend their days.
+    for (index, id) in lives::arrivals(world.state(), &crate::life::cast())
+        .into_iter()
+        .enumerate()
+    {
+        if !living.contains(&id) {
+            continue;
+        }
+        if let Some(entity) = world.state().entity(id) {
+            items.push(CanvasItem {
+                id: SelectionId::Entity(id),
+                kind: CanvasItemKind::Actor,
+                label: entity_title(entity),
+                detail: component_text(world, id, JOB)
+                    .map(|job| job.replace('_', " "))
+                    .unwrap_or_else(|| "Resident".into()),
+                x: 0.15 + 0.07 * (index % 10) as f32,
+                y: 0.4 + 0.05 * (index % 3) as f32,
+                changes: Vec::new(),
+                shape: None,
+                at: lives::at(world.state(), id)
+                    .or_else(|| crate::life::work(world.state(), id))
                     .map(SelectionId::Entity),
                 look: crate::talk::look(id),
             });

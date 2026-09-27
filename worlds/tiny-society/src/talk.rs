@@ -42,7 +42,19 @@ pub(crate) fn look(id: EntityId) -> Option<Look> {
         NOAH => (0x2e4a7a, 0x9a9a9a, 0xe3b590, None),
         EVAN => (0x8a5a33, 0xb0763e, 0xd8a27c, Some(Carry::Tool)),
         SOFIA => (0x3c9a8f, 0x1a1414, 0xc0875c, Some(Carry::Basket)),
-        _ => return None,
+        _ => {
+            // Anyone else in clothes of their own, the same every time.
+            const CLOTHES: [u32; 6] = [0x5b7fa6, 0xb5654a, 0x6a8f4e, 0x9c6fb0, 0xd49a3a, 0x4a8f8f];
+            const HAIR: [u32; 4] = [0x2a1d14, 0x7a4a26, 0xc9a45a, 0x5a5a5a];
+            const SKIN: [u32; 4] = [0xf0c7a2, 0xd9a27a, 0xa86b45, 0x7a4a2e];
+            let seed = id.0 as usize;
+            (
+                CLOTHES[seed % CLOTHES.len()],
+                HAIR[seed / 3 % HAIR.len()],
+                SKIN[seed / 5 % SKIN.len()],
+                None,
+            )
+        }
     };
     Some(Look {
         clothes: Some(clothes),
@@ -160,6 +172,15 @@ fn said(world: &World, event: &Event) -> Option<(EntityId, String)> {
         return Some(said);
     }
     let actor = event.actor;
+    // Once people live their own lives, what they did with their day is
+    // what they talk about, not the shift or the catch behind it.
+    let everyday_work = matches!(
+        event.kind.as_str(),
+        "catch_landed" | "bread_purchased" | "work_shift_completed" | "fish_sold"
+    );
+    if everyday_work && lives::enrolled(world.state(), actor.unwrap_or(JONAS)) {
+        return None;
+    }
     let (speaker, line): (EntityId, String) = match event.kind.as_str() {
         "support_requested" => (
             JONAS,
@@ -274,6 +295,8 @@ pub(crate) fn talks(world: &World, commands: &[ProjectionCommand]) -> Vec<Talk> 
             "Sea Finch is broken, and so am I, nearly.".to_string()
         } else if job == "unemployed" {
             "Worried. I need work.".into()
+        } else if let Some(how) = lives::how_are_you(world, who) {
+            how
         } else if cash < 50 {
             "Getting by. Just about.".into()
         } else if kindness.1 > kindness.0 {

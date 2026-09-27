@@ -561,7 +561,7 @@ fn wants() -> Vec<Spec> {
             said(
                 "books_went_without",
                 "Mia went without new books",
-                "Never mind.",
+                "Never mind. Another time.",
                 [mood(-1)],
             ),
         ),
@@ -1199,20 +1199,101 @@ fn calendar() -> Vec<Spec> {
             ),
         ),
     ];
-    for (id, who, at) in [
-        ("birthday_jonas", JONAS, 6),
-        ("birthday_mara", MARA, 11),
-        ("birthday_leo", LEO, 16),
-        ("birthday_emma", EMMA, 20),
-        ("birthday_mia", MIA, 24),
-        ("birthday_noah", NOAH, 29),
-        ("birthday_evan", EVAN, 34),
-        ("birthday_sofia", SOFIA, 38),
+    // Everyone's birthday is their own, in their own words.
+    for (id, who, at, [asks, party, card, forgotten]) in [
+        (
+            "birthday_jonas",
+            JONAS,
+            6,
+            [
+                "Birthday today. Don't make a fuss.",
+                "Cake and a pint. Can't argue with that.",
+                "A card! Even Noah signed.",
+                "Birthday. Nobody noticed.",
+            ],
+        ),
+        (
+            "birthday_mara",
+            MARA,
+            11,
+            [
+                "Baked my own birthday cake. Again.",
+                "A party, and I didn't have to bake!",
+                "Everyone signed. There's flour on it already.",
+                "Nobody remembered. Typical.",
+            ],
+        ),
+        (
+            "birthday_leo",
+            LEO,
+            16,
+            [
+                "It's my birthday. Drinks are on me. Just the one.",
+                "Best birthday the Anchor's seen!",
+                "I'll pin your card over the bar.",
+                "Birthday, and I served the drinks myself.",
+            ],
+        ),
+        (
+            "birthday_emma",
+            EMMA,
+            20,
+            [
+                "Birthday today. The children made me a crown.",
+                "Such a lovely party!",
+                "The children drew on the card too.",
+                "Not even the children remembered.",
+            ],
+        ),
+        (
+            "birthday_mia",
+            MIA,
+            24,
+            [
+                "It's my birthday! Guess how old!",
+                "Best birthday ever!",
+                "A card from everyone! Even Emma!",
+                "Nobody remembered. Nobody.",
+            ],
+        ),
+        (
+            "birthday_noah",
+            NOAH,
+            29,
+            [
+                "My birthday, if anyone's counting.",
+                "A splendid do. Thank you all.",
+                "A card. Very kind. Very kind.",
+                "My birthday came and went.",
+            ],
+        ),
+        (
+            "birthday_evan",
+            EVAN,
+            34,
+            [
+                "Another year older. Still got all my fingers.",
+                "Now that was a party.",
+                "A card! I'll make a frame for it.",
+                "Forgot my own birthday, and so did everyone.",
+            ],
+        ),
+        (
+            "birthday_sofia",
+            SOFIA,
+            38,
+            [
+                "It's my birthday. I want nothing. Well, maybe cake.",
+                "A party! I didn't expect that.",
+                "You all signed it. Thank you.",
+                "Nobody remembered. I'm fine. Really.",
+            ],
+        ),
     ] {
         days.push(spec(
             id,
             day(who, YEAR, at),
-            ("{name}'s birthday", "It's my birthday today!"),
+            ("{name}'s birthday", asks),
             vec![
                 yes(
                     "party",
@@ -1222,7 +1303,7 @@ fn calendar() -> Vec<Spec> {
                     said(
                         "birthday_party",
                         "{name} had a birthday party",
-                        "Best birthday ever!",
+                        party,
                         spend(LEO, 20).into_iter().chain([mood(1)]),
                     )
                     .remembered("Thanks again for the party."),
@@ -1231,18 +1312,13 @@ fn calendar() -> Vec<Spec> {
                     "card",
                     "A card from everyone",
                     "Nothing spent. A kind thought.",
-                    said(
-                        "birthday_card",
-                        "{name} got a card from everyone",
-                        "You all signed it!",
-                        [],
-                    ),
+                    said("birthday_card", "{name} got a card from everyone", card, []),
                 ),
             ],
             said(
                 "birthday_forgotten",
                 "{name}'s birthday was forgotten",
-                "Nobody remembered.",
+                forgotten,
                 [mood(-1)],
             ),
         ));
@@ -1294,6 +1370,7 @@ pub(crate) fn register_actions(
     actions: &mut ActionRegistry,
 ) -> Result<(), world_core::ActionError> {
     storylets::register_actions(actions, deck)?;
+    lives::register_actions(actions, crate::life::cast)?;
     actions.register(SpiritsSettle)
 }
 
@@ -1470,6 +1547,8 @@ fn chapter_ending(world: &World) -> (String, String) {
             }
         }
     }
+    let season_name = SEASONS[season(world)];
+    let year = period_of(world) / YEAR + 1;
     let title = title.unwrap_or_else(|| {
         let feel = match spirits(world) {
             3.. => "A bright",
@@ -1478,19 +1557,30 @@ fn chapter_ending(world: &World) -> (String, String) {
             -3..=-2 => "A hard",
             _ => "A bitter",
         };
-        let title = format!("{feel} {}", SEASONS[season(world)]);
-        if storylets::last_chapter_title(world).is_some_and(|last| last.ends_with(&title[2..])) {
-            format!("Another {}", &title[2..])
-        } else {
-            title
-        }
+        format!("{feel} {season_name}")
     });
-    // The last three things worth telling, with the climax among them.
+    // What changed between people this chapter: who became friends or
+    // fell out, who got together, who came and who went.
+    let news = lives::news_since(world, started);
+    let mut candidates = vec![title.clone()];
+    if let Some(first) = news.first() {
+        candidates.push(format!("The {season_name} {}", lowered_start(first)));
+    }
+    candidates.push(format!(
+        "{title}, {season_name} of year {}",
+        number_word(year)
+    ));
+    let title = storylets::unused_title(world, &candidates);
+    // The last three things worth telling, with the climax among them, and
+    // two of what changed between people.
     let mut summary = if lines.len() > 3 {
         lines.split_off(lines.len() - 3)
     } else {
         lines
     };
+    for line in news.iter().rev().take(2).rev() {
+        summary.push(format!("{line}."));
+    }
     if summary.is_empty() {
         summary.push(
             if text(world, BAKERY, OPERATING_STATUS).as_deref() == Some("closed") {
@@ -1500,12 +1590,25 @@ fn chapter_ending(world: &World) -> (String, String) {
             },
         );
     }
-    let sore = crate::talk::RESIDENTS
+    // Whoever was let down this chapter, and has not forgotten.
+    let mut let_down = std::collections::BTreeMap::<EntityId, usize>::new();
+    for event in &lived {
+        let Some((spec, said)) = outcome_of(event) else {
+            continue;
+        };
+        let refused = spec
+            .answers
+            .iter()
+            .any(|answer| std::ptr::eq(&answer.said, said) && answer.refuses);
+        let lapsed = std::ptr::eq(&spec.lapse, said);
+        if spec.storylet.want && (refused || lapsed) {
+            *let_down.entry(spec.storylet.asker).or_default() += 1;
+        }
+    }
+    let sore = let_down
         .into_iter()
-        .map(|who| (storylets::kindness(world.state(), &deck, who), who))
-        .filter(|((granted, grudges), _)| grudges > granted)
-        .max_by_key(|((granted, grudges), who)| (grudges - granted, std::cmp::Reverse(*who)))
-        .map(|(_, who)| who);
+        .max_by_key(|(who, count)| (*count, std::cmp::Reverse(*who)))
+        .map(|(who, _)| who);
     let mut summary = summary.join(" ");
     if let Some(who) = sore {
         summary.push_str(&format!(
@@ -1514,6 +1617,33 @@ fn chapter_ending(world: &World) -> (String, String) {
         ));
     }
     (title, summary)
+}
+
+fn period_of(world: &World) -> u64 {
+    world.world_time() / crate::persistence::WORLD_DAY_TICKS
+}
+
+/// A sentence as it reads after "The autumn": "Mara and Leo became
+/// friends" stays as it is, "The whole harbour came" turns to "the whole
+/// harbour came".
+fn lowered_start(sentence: &str) -> String {
+    match sentence.split_once(' ') {
+        Some((first, rest)) if matches!(first, "The" | "A" | "An") => {
+            format!("{} {rest}", first.to_lowercase())
+        }
+        _ => sentence.to_string(),
+    }
+}
+
+fn number_word(n: u64) -> String {
+    match n {
+        1 => "one".into(),
+        2 => "two".into(),
+        3 => "three".into(),
+        4 => "four".into(),
+        5 => "five".into(),
+        _ => n.to_string(),
+    }
 }
 
 /// The turning point of each chapter: one question near its end, on what
@@ -1697,6 +1827,7 @@ pub(crate) fn tick(
         chapter_ending: Box::new(chapter_ending),
     };
     let mut events = settled;
+    events.extend(lives::tick(world, actions, &crate::life::cast(), away)?);
     events.extend(storylets::tick(world, actions, &deck(), &reading)?);
     Ok(events)
 }
@@ -1717,6 +1848,12 @@ fn find(storylet: &str) -> Option<&'static Spec> {
 /// A card for every answer that can be given now, each asked by whoever
 /// the storylet belongs to.
 pub(crate) fn commands(world: &World) -> Vec<world_projection::ProjectionCommand> {
+    let mut commands = storylet_commands(world);
+    commands.extend(crate::life::commands(world));
+    commands
+}
+
+fn storylet_commands(world: &World) -> Vec<world_projection::ProjectionCommand> {
     let deck = deck();
     storylets::answers(world.state(), &deck)
         .into_iter()
@@ -1797,7 +1934,7 @@ fn outcome_of(event: &Event) -> Option<(&'static Spec, &'static Said)> {
 /// Whether an Event is one of the storyteller's small moments: something
 /// coming up, answered or let go. A chapter closing is not small.
 pub(crate) fn is_storylet(event: &Event) -> bool {
-    storylet_of(event).is_some()
+    storylet_of(event).is_some() || lives::is_news(event)
 }
 
 /// How the harbour tells one of the storyteller's moments.
@@ -1808,6 +1945,9 @@ pub(crate) fn told(world: &World, event: &Event) -> Option<String> {
             _ => return None,
         };
         return Some(format!("The chapter closed: {title}"));
+    }
+    if lives::is_news(event) {
+        return lives::told(event);
     }
     let spec = storylet_of(event)?;
     let who = spec.storylet.asker;
@@ -1820,6 +1960,9 @@ pub(crate) fn told(world: &World, event: &Event) -> Option<String> {
 
 /// What the asker says at one of the storyteller's moments.
 pub(crate) fn line(event: &Event) -> Option<(EntityId, String)> {
+    if lives::is_life(event) {
+        return lives::said(event);
+    }
     let spec = storylet_of(event)?;
     let who = spec.storylet.asker;
     if event.kind == "situation_arose" {
@@ -2829,7 +2972,7 @@ fn threads() -> Vec<Spec> {
             said(
                 "garden_forgotten",
                 "Nobody planted the school garden",
-                "Never mind.",
+                "Oh well. Never mind.",
                 [mood(-1)],
             ),
         ),
@@ -2994,7 +3137,7 @@ fn threads() -> Vec<Spec> {
             said(
                 "reading_forgotten",
                 "Nobody asked Mia to read",
-                "Never mind.",
+                "Never mind. It was only an idea.",
                 [mark("read_aloud")],
             ),
         ),
@@ -3657,11 +3800,14 @@ pub(crate) fn people(world: &World) -> Vec<EntityId> {
         .into_iter()
         .map(|storylet| storylet.asker)
         .collect::<Vec<_>>();
+    let arrivals = lives::arrivals(world.state(), &crate::life::cast());
     crate::talk::RESIDENTS
         .into_iter()
         .chain([ADA, IVO])
+        .chain(arrivals)
         .filter(|id| {
             world.state().entity(*id).is_some()
+                && !lives::gone(world.state(), *id)
                 && (text(world, *id, AWAY).is_none() || asking.contains(id))
         })
         .collect()
