@@ -1568,4 +1568,20 @@ mod tests {
         assert!(left <= 0.01 && top <= 0.01);
         assert!(right >= stage.width - 0.01 && bottom >= stage.height - 0.01);
     }
+
+    /// The wheel zooms around the point under the pointer: it stays under
+    /// the pointer, and the view never runs past the stage.
+    #[test]
+    fn zooming_keeps_the_point_under_the_pointer_and_stays_on_stage() {
+        let snapshot = harbour();
+        let stage = stage(&snapshot, 1100.0, 848.0);
+        let camera = Camera::around(&stage, 1.6, 500.0, 420.0);
+        let (x, y) = camera.at(&stage, 500.0, 420.0);
+        let back = camera.stage_point(&stage, x, y);
+        assert!((back.0 - 500.0).abs() < 0.01 && (back.1 - 420.0).abs() < 0.01);
+        let corner = Camera::around(&stage, 9.0, 0.0, 0.0);
+        assert!(corner.zoom <= 2.2);
+        let (left, top) = corner.at(&stage, 0.0, 0.0);
+        assert!(left.abs() < 0.01 && top.abs() < 0.01);
+    }
 }
