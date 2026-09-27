@@ -11,7 +11,7 @@ Each row is a dimension, the bar the best products set (sources in the research 
 | Dimension | What top products do | World Machine v0.15.0 | Gap |
 | --- | --- | --- | --- |
 | **Simulation and memory** | Stardew: schedules and heart events. Smallville: memory streams. RimWorld: a storyteller that paces events | People live every period, remember words and deeds, open doors at thresholds, a paced storyteller, deterministic replay | close; ahead in replay and cause |
-| **Visual art** | A Short Hike, Dorfromantik, Spiritfarer: locked palette, diorama lighting, 3+ depth layers, characters readable by silhouette, expressions | A Pack palette, sky and weather from state, flat shapes, people about 40 pt with no expressions, one depth layer, no artist | far; needs an illustrator |
+| **Visual art** | A Short Hike, Dorfromantik, Spiritfarer: locked palette, diorama lighting, 3+ depth layers, characters readable by silhouette, expressions | A Pack palette, sky and weather from state, flat shapes, people about 9% of the scene's height (70 to 80 pt in a default window) with no expressions, one depth layer, no artist | far; needs an illustrator |
 | **Animation and feel** | 60 fps (120 on ProMotion), eased motion, squash and stretch, 4+ idle behaviours per character, a reaction to every click within a frame | 25 fps (a 40 ms frame), an eased walk, a few poses, no idle behaviours, no click reaction | far |
 | **Audio** | Animal Crossing: 24 hourly themes per weather, per-character babble. Unpacking: 14,000 foley files. Separate volume sliders | One ambient loop per landscape, a few ticks and bells, never heard on a Mac, no music, no voices | missing; needs a composer |
 | **Characters and writing** | 150+ lines per core resident, a voice style sheet each, 5+ friendship scenes each. LLM voices bounded by what the character knows | About 1,800 authored sentences across both Packs and the Systems, mostly shared. Doors are the same four secrets and six keepsakes for everyone | far; needs a writer |
@@ -85,3 +85,27 @@ Two releases, each with tested bars. v0.16 makes the World feel alive to the eye
 - Every earlier bar still holds, and replay stays deterministic.
 
 Out of scope by decision: Worlds saved by earlier releases are not carried forward.
+
+## Progress in v0.16.0
+
+Both plans shipped together as `v0.16.0`, and the people this review said code could not replace were replaced by the program itself: drawings are generated from code, music is synthesised from each World's palette, and the lines, scenes, red-team prompts and Chinese catalogs were generated and are held by tests. Measured against the bars:
+
+| Bar | Result |
+| --- | --- |
+| Frame at display rate, drawing work under 4 ms | Drawn at the display's rate in front, not at all when hidden; the frame benchmark passes under 4 ms. The actual rate on a ProMotion Mac is unmeasured. |
+| No linear motion | A lint over the scene code; every move eases. |
+| Four idle behaviours, a reaction on click | Look around, stretch, sit, a task at their work; wave and hop for people, a bounce for things. |
+| Readable people, a face per state | 48 generated silhouettes, none shared, tested; five faces (content, happy, sad, cross, thinking) from state. Residents stay at about 9% of the scene's height, not the 64 pt the plan asked for at small windows. |
+| Three depth layers and a grade | Hills and cloud at three parallax speeds; warm day, cool night. |
+| Music by hour and weather | Three layers mixed from the hour, thinned by four kinds of sky; tested that every hour and sky gives a different mix. |
+| Babble, three variations, separate volumes | A voice per resident, rising at a question; three variations of every cue, played in turn; music, landscape, voice and interface levels. |
+| First session in 20 s, 60 s, 5 min | A scripted first session in both Packs: greeting, first choice and first keepsake within all three. No card or speech page longer than two lines. |
+| 150 lines per core resident | 165 to 236 per resident, each from their own style sheet. |
+| Five scenes each | Warmth, secret, invitation, favour, keepsake; tested to fire once each. Pocket Universe draws them from traits. |
+| 200-prompt World voice set | 200 of 200 out-of-world answers declined; in-world answers taken; the decline is recorded, never regenerated on replay. |
+| 20 things per Pack with undo and effects | 20 in Tiny Society and in each Pocket Universe place; place anywhere, move, take back the same day; rest, gather and harvest change lives. Photo saves the scene. |
+| Book of 60 entries, goals finishable | At least 60 per Pack and place; Tiny Society's and every Pocket Universe place's goals finished within a year by a careful player, tested. |
+| Text 100–200%, contrast, keyboard, VoiceOver | A pseudo-locale 30% longer at 200% renders without clipping in a test; contrast and text size in Settings; keys for every main action; labels on controls, people and places. Checking with VoiceOver on a Mac is still to do. |
+| Chinese | 97.3% of what a year of Tiny Society shows is fully in Chinese (a test holds 95%); the rest is mostly English left inside generated lines. Pocket Universe's own words are not translated yet. |
+
+Cost: a snapshot a year in takes about 33 ms against 25 ms before, from the book and faces. Still outside the code: signing and notarization, playtests on real Macs, and a human pass over the generated art, music, lines and Chinese.

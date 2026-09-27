@@ -3897,7 +3897,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-universe"
-version = "0.26.0"
+version = "0.27.0"
 dependencies = [
  "calendar",
  "conversation",
@@ -3917,7 +3917,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-universe-pack"
-version = "0.26.0"
+version = "0.27.0"
 dependencies = [
  "pocket-universe",
  "serde_json",
@@ -5421,7 +5421,7 @@ dependencies = [
 
 [[package]]
 name = "tiny-society"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "calendar",
  "conversation",
@@ -5452,7 +5452,7 @@ dependencies = [
 
 [[package]]
 name = "tiny-society-pack"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "tiny-society",
  "world-host",
@@ -6848,7 +6848,7 @@ dependencies = [
 
 [[package]]
 name = "world-machine-desktop"
-version = "0.15.0"
+version = "0.16.0"
 dependencies = [
  "gpui",
  "gpui_platform",
