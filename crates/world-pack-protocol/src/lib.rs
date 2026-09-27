@@ -17,7 +17,9 @@ pub const PACK_MANIFEST_FORMAT: &str = "world-machine-pack";
 pub const PACK_MANIFEST_VERSION: u32 = 1;
 pub const PACK_PROTOCOL_VERSION_V1: u32 = 1;
 pub const PACK_PROTOCOL_VERSION_V2: u32 = 2;
-pub const PACK_PROTOCOL_VERSION: u32 = PACK_PROTOCOL_VERSION_V2;
+/// Adds `hear`, and `ears` on `say`: an app that asks a model itself.
+pub const PACK_PROTOCOL_VERSION_V3: u32 = 3;
+pub const PACK_PROTOCOL_VERSION: u32 = PACK_PROTOCOL_VERSION_V3;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PackManifest {
@@ -140,16 +142,18 @@ impl PackRequestEnvelope {
         request_id: u64,
         request: PackRequest,
     ) -> Result<Self, ProtocolError> {
-        validate_protocol_version(protocol_version)?;
-        Ok(Self {
+        let envelope = Self {
             protocol_version,
             request_id,
             request,
-        })
+        };
+        envelope.validate()?;
+        Ok(envelope)
     }
 
     pub fn validate(&self) -> Result<(), ProtocolError> {
-        validate_protocol_version(self.protocol_version)
+        validate_protocol_version(self.protocol_version)?;
+        validate_request_for_protocol(self.protocol_version, &self.request)
     }
 }
 
@@ -252,11 +256,36 @@ pub fn decode_response(json: &str) -> Result<PackResponseEnvelope, ProtocolDecod
 }
 
 fn validate_protocol_version(version: u32) -> Result<(), ProtocolError> {
-    if matches!(version, PACK_PROTOCOL_VERSION_V1 | PACK_PROTOCOL_VERSION_V2) {
+    if matches!(
+        version,
+        PACK_PROTOCOL_VERSION_V1 | PACK_PROTOCOL_VERSION_V2 | PACK_PROTOCOL_VERSION_V3
+    ) {
         Ok(())
     } else {
         Err(ProtocolError::UnsupportedProtocolVersion(version))
     }
+}
+
+/// What a Pack speaking an older protocol cannot read: asking it what to
+/// ask a model, or handing it a model's response.
+fn validate_request_for_protocol(
+    protocol_version: u32,
+    request: &PackRequest,
+) -> Result<(), ProtocolError> {
+    let needs_v3 = match request {
+        PackRequest::Hear { .. } => true,
+        PackRequest::Handle {
+            intent: ProjectionIntentWire::Say { ears, .. },
+        } => *ears != EarsWire::World,
+        _ => false,
+    };
+    if needs_v3 && protocol_version < PACK_PROTOCOL_VERSION_V3 {
+        return Err(ProtocolError::RequestNotSupportedInProtocol {
+            protocol_version,
+            request: "hear",
+        });
+    }
+    Ok(())
 }
 
 fn validate_response_for_protocol(
@@ -2097,6 +2126,10 @@ pub enum ProtocolError {
         protocol_version: u32,
         selection: String,
     },
+    RequestNotSupportedInProtocol {
+        protocol_version: u32,
+        request: &'static str,
+    },
     DepthOverflow(u64),
 }
 
@@ -2130,6 +2163,13 @@ impl fmt::Display for ProtocolError {
             } => write!(
                 f,
                 "selection {selection} is not supported by Pack protocol v{protocol_version}"
+            ),
+            Self::RequestNotSupportedInProtocol {
+                protocol_version,
+                request,
+            } => write!(
+                f,
+                "request {request} is not supported by Pack protocol v{protocol_version}"
             ),
             Self::DepthOverflow(depth) => {
                 write!(f, "Pack why-node depth does not fit this platform: {depth}")

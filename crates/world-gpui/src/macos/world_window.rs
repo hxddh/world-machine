@@ -559,6 +559,7 @@ impl ProjectionView {
         };
         self.looking.listening = Some((who, words.clone()));
         input.update(cx, |input, cx| input.clear(cx));
+        let started = self.revision;
         let heard = cx
             .background_executor()
             .spawn(async move { crate::listen_within(listening, crate::LISTEN_DEADLINE) });
@@ -566,6 +567,18 @@ impl ProjectionView {
             let response = heard.await;
             let _ = this.update(cx, |this, cx| {
                 this.looking.listening = None;
+                // The model heard the World as it stood when the words were
+                // said. If a turn or a branch has changed it since, the
+                // answer belongs to a moment that is gone.
+                if this.revision != started {
+                    let name = label_of(&this.snapshot, who)
+                        .map(|name| first_name(&name).to_string())
+                        .unwrap_or_else(|| "They".into());
+                    this.status = Some(format!("The moment passed before {name} could answer."));
+                    this.status_is_error = false;
+                    cx.notify();
+                    return;
+                }
                 let ears = response.map_or(Ears::Own, Ears::Model);
                 this.finish_saying(who, words, ears, cx);
             });
@@ -592,6 +605,7 @@ impl ProjectionView {
         }) {
             Ok(snapshot) => {
                 self.snapshot = snapshot;
+                self.revision += 1;
                 self.looking.answered = None;
                 self.looking.said_at = Some(Instant::now());
                 self.status = None;

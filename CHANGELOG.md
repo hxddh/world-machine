@@ -26,7 +26,7 @@ In `v0.13.0` you could talk to anyone, but they understood only about half of wh
   A present warms someone, and an invitation eases loneliness if they accept it.
 - **See where you stand with someone.** Their card shows five marks and a few words: "Getting to know you", "Likes you", "Thinks the world of you", "Hurt by what you said". Ask "What do you think of me?" and they tell you.
 - **"How are you?" is said differently from day to day.** The same state of things is put several ways, and an answer no longer repeats the same person twice.
-- **World voice never freezes the window.** With the voice on, the app asks the model itself, off the window's thread: the person's card shows your words and a thinking "…" while the scene keeps moving. After 12 seconds, or if the model has nothing usable, the World answers in its own words. The model's answer is still only a proposal that the World's rules check.
+- **World voice never freezes the window.** With the voice on, the app asks the model itself, off the window's thread: the person's card shows your words and a thinking "…" while the scene keeps moving. After 12 seconds, or if the model has nothing usable, the World answers in its own words. If you take a turn or branch while they think, the answer is dropped rather than recorded in a World that has moved on. The model's answer is still only a proposal that the World's rules check.
 - **Festivals remember last year.** The second time a festival comes round, it is told against the first: "The whole harbour turned out for Spring Clean, bigger than last year, with 2 new faces among them."
 - **Drawn with each place's own pictures.** Flags, bunting, lanterns, stalls and tents put up for a festival are drawn by each Pack in its own colours: harbour red and navy, Mars orange, Maple Street neon, Icebridge ice blue. Home's covers draw a World's people and buildings with its own drawings.
 - **Measured.** A corpus of 428 everyday phrases in English and Chinese is heard without a miss by the System and by both Packs, in every seed. On three sets of new phrases written before any tuning for them, 27%, 25% and 45% were not understood and up to 13% misheard, before they were added to the corpus. Other tests check:
@@ -36,9 +36,10 @@ In `v0.13.0` you could talk to anyone, but they understood only about half of wh
   - a model that takes too long not being waited for;
   - an app asking the model itself while the World still decides;
   - festivals told differently in their second year.
-- **Pack protocol:**
+- **Pack protocol v3:**
   - `say` may carry `ears`: the World's own hearing, a model's response the app already has, or the World's own rules only.
   - A new request, `hear`, returns the prompt a model should be asked, and changes nothing.
+  - The app sends `hear` and `ears` only to a Pack whose manifest says v3; a v1 or v2 Pack hears as before.
   - Canvas items may carry a `standing`.
 
   Everything new is optional. A World file keeps its cast's drawings for its cover.
