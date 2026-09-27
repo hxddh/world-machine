@@ -120,10 +120,18 @@ pub(crate) fn drawings_for(world: &World) -> Vec<Drawing> {
         };
         let generated = if name.starts_with("colonist-") {
             let base = person_base("person").with("colonist-base", jumpsuit());
-            world_projection::person(name, variant_of(world, id, world_projection::SILHOUETTES), &base)
+            world_projection::person(
+                name,
+                variant_of(world, id, world_projection::SILHOUETTES),
+                &base,
+            )
         } else if name.starts_with("townie-") {
             let base = person_base("person").with("townie-base", jacket());
-            world_projection::person(name, variant_of(world, id, world_projection::SILHOUETTES), &base)
+            world_projection::person(
+                name,
+                variant_of(world, id, world_projection::SILHOUETTES),
+                &base,
+            )
         } else if name.starts_with("penguin-") {
             penguin_of(name, variant_of(world, id, PENGUIN_LOOKS))
         } else {
@@ -149,7 +157,11 @@ fn penguin_of(id: String, variant: u32) -> Drawing {
         }
         2 => {
             parts.push(ellipse(0.0, 9.35, 1.45, 0.95, hat_colour));
-            parts.push(rect(-1.55, 8.7, 3.1, 0.5, hat_colour).round(0.12).tone(-0.2));
+            parts.push(
+                rect(-1.55, 8.7, 3.1, 0.5, hat_colour)
+                    .round(0.12)
+                    .tone(-0.2),
+            );
         }
         3 => {
             parts.push(ellipse(0.0, 9.1, 2.5, 0.32, hat_colour));
@@ -170,7 +182,10 @@ fn penguin_of(id: String, variant: u32) -> Drawing {
         1 => parts.push(polygon(&[(-0.3, 9.2), (0.1, 10.3), (0.4, 9.2)], black)),
         2 => {
             for x in [-0.5_f32, 0.0, 0.5] {
-                parts.push(polygon(&[(x - 0.2, 9.2), (x + 0.1, 10.1), (x + 0.25, 9.2)], black));
+                parts.push(polygon(
+                    &[(x - 0.2, 9.2), (x + 0.1, 10.1), (x + 0.25, 9.2)],
+                    black,
+                ));
             }
         }
         _ => {}

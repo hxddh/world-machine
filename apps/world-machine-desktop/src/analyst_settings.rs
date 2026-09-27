@@ -36,6 +36,11 @@ pub struct DesktopAnalystSettings {
     /// unless somebody turns it on, and omitted from the file while off.
     #[serde(default, skip_serializing_if = "is_off")]
     pub ambient_sound: bool,
+    /// The player's level for each sound (music, ambience, voices,
+    /// interface), as a percentage. A sound not listed plays at its
+    /// default level, and the field is omitted while all are.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub sound_levels: std::collections::BTreeMap<String, u8>,
 }
 
 fn is_off(value: &bool) -> bool {
@@ -63,6 +68,15 @@ pub enum VoiceSource {
 }
 
 impl DesktopAnalystSettings {
+    /// The player's level for a sound, or its default if never set.
+    pub fn sound_level(&self, channel: crate::ambience::Channel) -> u8 {
+        self.sound_levels
+            .get(sound_key(channel))
+            .copied()
+            .unwrap_or_else(|| channel.default_level())
+            .min(100)
+    }
+
     pub fn empty() -> Self {
         Self {
             version: SETTINGS_VERSION,
@@ -71,6 +85,7 @@ impl DesktopAnalystSettings {
             world_voice: false,
             world_voice_source: None,
             ambient_sound: false,
+            sound_levels: Default::default(),
         }
     }
 
@@ -264,6 +279,28 @@ pub fn save_world_voice(root: &Path, on: bool) -> Result<(), DesktopAnalystSetti
     update_settings(root, move |settings| settings.world_voice = on)
 }
 
+/// The player's level for one sound, from 0 to 100.
+pub fn save_sound_level(
+    root: &Path,
+    channel: crate::ambience::Channel,
+    percent: u8,
+) -> Result<(), DesktopAnalystSettingsError> {
+    update_settings(root, move |settings| {
+        settings
+            .sound_levels
+            .insert(sound_key(channel).to_owned(), percent.min(100));
+    })
+}
+
+fn sound_key(channel: crate::ambience::Channel) -> &'static str {
+    match channel {
+        crate::ambience::Channel::Music => "music",
+        crate::ambience::Channel::Ambience => "ambience",
+        crate::ambience::Channel::Voices => "voices",
+        crate::ambience::Channel::Interface => "interface",
+    }
+}
+
 /// Whether World windows play their landscape's sound.
 pub fn save_ambient_sound(root: &Path, on: bool) -> Result<(), DesktopAnalystSettingsError> {
     update_settings(root, move |settings| settings.ambient_sound = on)
@@ -437,6 +474,7 @@ mod tests {
             world_voice: false,
             world_voice_source: None,
             ambient_sound: false,
+            sound_levels: Default::default(),
         };
         save(&fixture.root, &settings).unwrap();
         assert_eq!(load(&fixture.root).unwrap(), settings);
@@ -503,6 +541,7 @@ mod tests {
             world_voice: false,
             world_voice_source: None,
             ambient_sound: false,
+            sound_levels: Default::default(),
         };
         let selected = selections(&settings, Some(PathBuf::from("/env/node")), None);
         assert_eq!(selected.node.program, PathBuf::from("/env/node"));
@@ -650,6 +689,7 @@ mod tests {
                 world_voice: false,
                 world_voice_source: None,
                 ambient_sound: false,
+                sound_levels: Default::default(),
             }
         );
 

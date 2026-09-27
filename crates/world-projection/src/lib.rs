@@ -10,8 +10,8 @@ use world_core::{
 
 pub use causal::{why_from_world, why_map_from_world, WhyNode, WhyProjection};
 pub use drawing::{
-    contact_sheet, drop_of, figure, figure_point, person, person_base, short_hair, toned,
-    DrawPart, DrawShape, Drawing, Ink, Mood, Stance, SILHOUETTES,
+    contact_sheet, drop_of, figure, figure_point, person, person_base, short_hair, toned, DrawPart,
+    DrawShape, Drawing, Ink, Mood, Stance, SILHOUETTES,
 };
 pub use influence::effect_headline;
 

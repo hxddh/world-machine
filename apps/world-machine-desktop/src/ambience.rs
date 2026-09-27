@@ -7,7 +7,7 @@
 //! adding a file. It is off unless the player turns it on in Settings, and
 //! plays only while its World's window is in front.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
 /// Samples per second of the made sound.
 pub const SAMPLE_RATE: u32 = 22_050;
@@ -121,11 +121,22 @@ pub fn synthesize(palette: Palette) -> Vec<i16> {
         .collect()
 }
 
+/// How many ways each small sound can be played. The player takes them in
+/// turn, so the same one is never heard twice running.
+pub const VARIATIONS: u8 = 3;
+
+/// The variation to play after `last`: the next in turn.
+pub fn next_variation(last: Option<u8>) -> u8 {
+    last.map_or(0, |last| (last + 1) % VARIATIONS)
+}
+
 /// The small sounds a World window asks for: a soft tick as a card turns,
-/// a two-toned bell as a turn passes, and a rising pair of notes when
-/// something new is built. Short, quiet, and the same every time.
-pub fn cue_samples(cue: world_gpui::Cue) -> Vec<i16> {
+/// a two-toned bell as a turn passes, a rising pair of notes when something
+/// new is built, each in `VARIATIONS` versions, and a babble under what
+/// someone says. Short, quiet, and the same for the same variation.
+pub fn cue_samples(cue: world_gpui::Cue, variation: u8) -> Vec<i16> {
     let rate = SAMPLE_RATE as f32;
+    let variation = variation % VARIATIONS;
     let tone = |notes: &[(f32, f32, f32)], length: f32, decay: f32, level: f32| {
         let samples = (length * rate) as usize;
         (0..samples)
@@ -148,9 +159,11 @@ pub fn cue_samples(cue: world_gpui::Cue) -> Vec<i16> {
     };
     match cue {
         world_gpui::Cue::Flip => {
-            // A short, soft tick: a little filtered noise that dies at once.
+            // A short, soft tick: a little filtered noise that dies at once,
+            // a shade brighter or duller each time.
             let samples = (0.06 * rate) as usize;
-            let mut seed: u32 = 0x1234_5679;
+            let mut seed: u32 = 0x1234_5679 + u32::from(variation) * 0x0101_0101;
+            let smoothing = [0.35, 0.28, 0.44][usize::from(variation)];
             let mut smooth = 0.0_f32;
             (0..samples)
                 .map(|index| {
@@ -158,21 +171,197 @@ pub fn cue_samples(cue: world_gpui::Cue) -> Vec<i16> {
                     seed ^= seed >> 17;
                     seed ^= seed << 5;
                     let white = (seed as f32 / u32::MAX as f32) * 2.0 - 1.0;
-                    smooth += 0.35 * (white - smooth);
+                    smooth += smoothing * (white - smooth);
                     let t = index as f32 / rate;
                     let envelope = (-t / 0.012).exp();
                     ((smooth * envelope * 0.35).clamp(-1.0, 1.0) * i16::MAX as f32) as i16
                 })
                 .collect()
         }
-        world_gpui::Cue::Turn => tone(&[(0.0, 659.25, 0.6), (0.0, 987.77, 0.3)], 0.9, 0.28, 0.32),
-        world_gpui::Cue::Built => tone(
-            &[(0.0, 523.25, 0.55), (0.16, 783.99, 0.55)],
-            0.9,
-            0.24,
-            0.32,
-        ),
+        world_gpui::Cue::Turn => {
+            let [low, high] =
+                [[659.25, 987.77], [587.33, 880.0], [783.99, 1174.66]][usize::from(variation)];
+            tone(&[(0.0, low, 0.6), (0.0, high, 0.3)], 0.9, 0.28, 0.32)
+        }
+        world_gpui::Cue::Built => {
+            let [first, second] =
+                [[523.25, 783.99], [587.33, 880.0], [659.25, 1046.5]][usize::from(variation)];
+            tone(&[(0.0, first, 0.55), (0.16, second, 0.55)], 0.9, 0.24, 0.32)
+        }
+        world_gpui::Cue::Babble {
+            voice,
+            syllables,
+            question,
+        } => babble(voice, syllables, question, variation),
     }
+}
+
+/// A voice of someone's own: how high they speak, how quickly, and how
+/// bright or round their vowels are, all from their stable number.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Voice {
+    pub pitch: f32,
+    pub syllable_seconds: f32,
+    pub brightness: f32,
+}
+
+pub fn voice(seed: u32) -> Voice {
+    let unit = |shift: u32| ((seed >> shift) & 0xff) as f32 / 255.0;
+    Voice {
+        // From a low murmur to a bright chirp.
+        pitch: 150.0 * 2.0_f32.powf(unit(0) * 1.3),
+        syllable_seconds: 0.065 + 0.035 * unit(8),
+        brightness: 0.4 + 0.6 * unit(16),
+    }
+}
+
+/// Where the two lowest resonances of each vowel sit (a, e, i, o, u).
+const VOWELS: [(f32, f32); 5] = [
+    (800.0, 1200.0),
+    (500.0, 1900.0),
+    (320.0, 2300.0),
+    (500.0, 900.0),
+    (350.0, 750.0),
+];
+
+/// A babble like Animal Crossing's: `syllables` short vowel sounds in the
+/// voice numbered `seed`, a touch of breath before some, falling a little
+/// over the line, or rising at the end of a question.
+pub fn babble(seed: u32, syllables: u8, question: bool, variation: u8) -> Vec<i16> {
+    let rate = SAMPLE_RATE as f32;
+    let voice = voice(seed);
+    let syllables = syllables.clamp(1, 12) as usize;
+    let length = voice.syllable_seconds;
+    let gap = length * 0.25;
+    let total = ((length + gap) * syllables as f32 * rate) as usize + (0.05 * rate) as usize;
+    let mut samples = vec![0.0_f32; total];
+    let mut dice = seed ^ (u32::from(variation) << 24) ^ 0x9e37_79b9 | 1;
+    let mut roll = move || {
+        dice ^= dice << 13;
+        dice ^= dice >> 17;
+        dice ^= dice << 5;
+        dice as f32 / u32::MAX as f32
+    };
+    let tau = std::f32::consts::TAU;
+    for syllable in 0..syllables {
+        let start = ((length + gap) * syllable as f32 * rate) as usize;
+        let (first, second) = VOWELS[(roll() * VOWELS.len() as f32) as usize % VOWELS.len()];
+        let through = syllable as f32 / syllables.max(2) as f32;
+        let mut pitch = voice.pitch * (1.06 - 0.12 * through) * (0.96 + 0.08 * roll());
+        if question && syllable + 2 >= syllables {
+            pitch *= if syllable + 1 == syllables {
+                1.35
+            } else {
+                1.15
+            };
+        }
+        let breath = roll() < 0.4;
+        let count = (length * rate) as usize;
+        let mut hiss = 0.0_f32;
+        for offset in 0..count.min(total - start) {
+            let t = offset as f32 / rate;
+            let envelope = (t / 0.008).min(1.0) * ((length - t) / 0.02).clamp(0.0, 1.0);
+            let mut sample = 0.0;
+            // Harmonics of the pitch, loudest near the vowel's resonances.
+            for harmonic in 1..=14 {
+                let frequency = pitch * harmonic as f32;
+                if frequency > rate / 2.0 {
+                    break;
+                }
+                let near =
+                    |centre: f32, width: f32| (-((frequency - centre) / width).powi(2)).exp();
+                let weight = near(first, 130.0)
+                    + voice.brightness * 0.7 * near(second, 220.0)
+                    + 0.15 / harmonic as f32;
+                sample += weight * (tau * frequency * t).sin();
+            }
+            if breath && t < 0.018 {
+                let white = roll() * 2.0 - 1.0;
+                hiss += 0.5 * (white - hiss);
+                sample += 1.2 * hiss * (1.0 - t / 0.018);
+            }
+            samples[start + offset] += sample * envelope;
+        }
+    }
+    let peak = samples
+        .iter()
+        .fold(0.0_f32, |peak, sample| peak.max(sample.abs()));
+    let gain = if peak > 0.0 { 0.38 / peak } else { 0.0 };
+    samples
+        .into_iter()
+        .map(|sample| ((sample * gain).clamp(-1.0, 1.0) * i16::MAX as f32) as i16)
+        .collect()
+}
+
+/// The four sounds a player can set apart.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Channel {
+    Music,
+    Ambience,
+    Voices,
+    Interface,
+}
+
+impl Channel {
+    pub const ALL: [Channel; 4] = [
+        Channel::Music,
+        Channel::Ambience,
+        Channel::Voices,
+        Channel::Interface,
+    ];
+
+    /// How loud the channel plays at full, before the player's level.
+    fn full(self) -> f32 {
+        match self {
+            Channel::Music => 0.3,
+            Channel::Ambience => 0.35,
+            Channel::Voices => 0.45,
+            Channel::Interface => 0.5,
+        }
+    }
+
+    /// The level a channel starts at, as a percentage.
+    pub fn default_level(self) -> u8 {
+        match self {
+            Channel::Music => 60,
+            Channel::Ambience => 70,
+            Channel::Voices => 70,
+            Channel::Interface => 80,
+        }
+    }
+}
+
+static LEVELS: [AtomicU8; 4] = [
+    AtomicU8::new(60),
+    AtomicU8::new(70),
+    AtomicU8::new(70),
+    AtomicU8::new(80),
+];
+
+fn slot(channel: Channel) -> usize {
+    Channel::ALL
+        .iter()
+        .position(|each| *each == channel)
+        .unwrap_or(0)
+}
+
+/// The player's level for a channel, from 0 to 100.
+pub fn level(channel: Channel) -> u8 {
+    LEVELS[slot(channel)].load(Ordering::Relaxed)
+}
+
+/// Record the player's level for a channel.
+pub fn set_level(channel: Channel, percent: u8) {
+    LEVELS[slot(channel)].store(percent.min(100), Ordering::Relaxed);
+}
+
+/// How loud to play a channel now: its full volume times the player's
+/// level, or nothing with sound off.
+pub fn volume(channel: Channel) -> f32 {
+    if !enabled() {
+        return 0.0;
+    }
+    channel.full() * f32::from(level(channel)) / 100.0
 }
 
 /// A mono 16-bit WAV file holding `samples`.
@@ -207,12 +396,45 @@ pub fn file_name(palette: Palette) -> String {
     format!("{key:016x}.wav")
 }
 
+/// What one of a World's two loops plays: its landscape's sound, or its
+/// music at a moment.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Loop {
+    Ambience(Palette),
+    Music(Palette, crate::music::Moment),
+}
+
+impl Loop {
+    pub fn channel(self) -> Channel {
+        match self {
+            Loop::Ambience(_) => Channel::Ambience,
+            Loop::Music(..) => Channel::Music,
+        }
+    }
+
+    pub fn file_name(self) -> String {
+        match self {
+            Loop::Ambience(palette) => file_name(palette),
+            Loop::Music(palette, moment) => crate::music::file_name(palette, moment),
+        }
+    }
+
+    pub fn samples(self) -> Vec<i16> {
+        match self {
+            Loop::Ambience(palette) => synthesize(palette),
+            Loop::Music(palette, moment) => crate::music::compose(palette, moment),
+        }
+    }
+}
+
 #[cfg(target_os = "macos")]
 pub mod player {
-    //! Plays one World's loop at a time with the system's own player, and
-    //! stops it the moment it is no longer wanted.
+    //! Plays one World's two loops at a time, its landscape and its music,
+    //! with the system's own player, and stops them the moment they are no
+    //! longer wanted. When the hour or the weather changes, the music moves
+    //! to its new mix where the loop ends, so it never cuts off mid-phrase.
 
-    use super::{file_name, synthesize, wav, Palette};
+    use super::{volume, wav, Channel, Loop, Palette};
     use std::path::PathBuf;
     use std::process::{Child, Command, Stdio};
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -221,21 +443,33 @@ pub mod player {
     struct Playing {
         owner: u64,
         palette: Palette,
+        wanted: Arc<Mutex<Loop>>,
         stop: Arc<AtomicBool>,
         child: Arc<Mutex<Option<Child>>>,
     }
 
-    static PLAYING: Mutex<Option<Playing>> = Mutex::new(None);
+    /// The ambience loop, then the music loop.
+    static PLAYING: Mutex<[Option<Playing>; 2]> = Mutex::new([None, None]);
+    /// The variation each small sound played last.
+    static LAST: Mutex<[Option<u8>; 4]> = Mutex::new([None; 4]);
     /// How often the player checks whether its loop has ended.
     const POLL: std::time::Duration = std::time::Duration::from_millis(100);
 
-    fn sound_file(palette: Palette) -> Option<PathBuf> {
+    fn directory() -> Option<PathBuf> {
         let root = crate::analyst_settings::application_support_root().ok()?;
         let directory = root.join("Ambience");
         std::fs::create_dir_all(&directory).ok()?;
-        let path = directory.join(file_name(palette));
+        Some(directory)
+    }
+
+    /// The file for a loop, made the first time it is wanted. Called off
+    /// the window's thread, since music takes a moment to make.
+    fn sound_file(sound: Loop) -> Option<PathBuf> {
+        let path = directory()?.join(sound.file_name());
         if !path.is_file() {
-            std::fs::write(&path, wav(&synthesize(palette))).ok()?;
+            let partial = path.with_extension("part");
+            std::fs::write(&partial, wav(&sound.samples())).ok()?;
+            std::fs::rename(&partial, &path).ok()?;
         }
         Some(path)
     }
@@ -249,35 +483,24 @@ pub mod player {
         }
     }
 
-    /// The window `owner` is in front and shows a World in `palette`: play
-    /// its sound, unless it already plays.
-    pub fn claim(owner: u64, palette: Palette) {
-        if !super::enabled() {
-            return;
-        }
-        let Ok(mut playing) = PLAYING.lock() else {
-            return;
-        };
-        if playing
-            .as_ref()
-            .is_some_and(|current| current.owner == owner && current.palette == palette)
-        {
-            return;
-        }
-        if let Some(previous) = playing.take() {
-            halt(previous);
-        }
-        let Some(path) = sound_file(palette) else {
-            return;
-        };
-        let stop = Arc::new(AtomicBool::new(false));
-        let child = Arc::new(Mutex::new(None));
-        let (thread_stop, thread_child) = (Arc::clone(&stop), Arc::clone(&child));
+    fn start(wanted: Arc<Mutex<Loop>>, stop: Arc<AtomicBool>, child: Arc<Mutex<Option<Child>>>) {
         std::thread::spawn(move || {
-            while !thread_stop.load(Ordering::Relaxed) {
+            while !stop.load(Ordering::Relaxed) {
+                let Ok(sound) = wanted.lock().map(|sound| *sound) else {
+                    return;
+                };
+                let level = volume(sound.channel());
+                if level <= 0.0 {
+                    // Turned right down: wait until it is turned up again.
+                    std::thread::sleep(POLL * 5);
+                    continue;
+                }
+                let Some(path) = sound_file(sound) else {
+                    return;
+                };
                 let spawned = Command::new("/usr/bin/afplay")
                     .arg("-v")
-                    .arg("0.35")
+                    .arg(format!("{level:.2}"))
                     .arg(&path)
                     .stdout(Stdio::null())
                     .stderr(Stdio::null())
@@ -285,16 +508,16 @@ pub mod player {
                 let Ok(spawned) = spawned else {
                     return;
                 };
-                if let Ok(mut slot) = thread_child.lock() {
+                if let Ok(mut slot) = child.lock() {
                     *slot = Some(spawned);
                 }
                 // Poll rather than wait, so the lock is only ever held for
                 // a moment and stopping never waits on a loop to finish.
                 let finished = loop {
-                    if thread_stop.load(Ordering::Relaxed) {
+                    if stop.load(Ordering::Relaxed) {
                         return;
                     }
-                    let polled = thread_child
+                    let polled = child
                         .lock()
                         .ok()
                         .and_then(|mut slot| slot.as_mut().map(|child| child.try_wait()));
@@ -309,12 +532,46 @@ pub mod player {
                 }
             }
         });
-        *playing = Some(Playing {
-            owner,
-            palette,
-            stop,
-            child,
-        });
+    }
+
+    /// The window `owner` is in front and shows a World in `palette` at
+    /// `moment`: play its landscape and its music, unless they already
+    /// play. A new moment is picked up where the music's loop ends.
+    pub fn claim(owner: u64, palette: Palette, moment: crate::music::Moment) {
+        if !super::enabled() {
+            return;
+        }
+        let Ok(mut playing) = PLAYING.lock() else {
+            return;
+        };
+        for (index, sound) in [Loop::Ambience(palette), Loop::Music(palette, moment)]
+            .into_iter()
+            .enumerate()
+        {
+            if let Some(current) = playing[index]
+                .as_ref()
+                .filter(|current| current.owner == owner && current.palette == palette)
+            {
+                if let Ok(mut wanted) = current.wanted.lock() {
+                    *wanted = sound;
+                }
+                continue;
+            }
+            if let Some(previous) = playing[index].take() {
+                halt(previous);
+            }
+            let wanted = Arc::new(Mutex::new(sound));
+            let stop = Arc::new(AtomicBool::new(false));
+            let child = Arc::new(Mutex::new(None));
+            start(Arc::clone(&wanted), Arc::clone(&stop), Arc::clone(&child));
+            playing[index] = Some(Playing {
+                owner,
+                palette,
+                wanted,
+                stop,
+                child,
+            });
+        }
     }
 
     /// The window `owner` closed or went behind: stop its sound if it is
@@ -323,46 +580,75 @@ pub mod player {
         let Ok(mut playing) = PLAYING.lock() else {
             return;
         };
-        if playing
-            .as_ref()
-            .is_some_and(|current| current.owner == owner)
-        {
-            if let Some(previous) = playing.take() {
-                halt(previous);
+        for slot in playing.iter_mut() {
+            if slot.as_ref().is_some_and(|current| current.owner == owner) {
+                if let Some(previous) = slot.take() {
+                    halt(previous);
+                }
             }
         }
     }
 
-    /// Play a small sound once, if the player wants sound.
+    /// Play a small sound once, if the player wants sound: the next of its
+    /// variations, on the voices channel for a babble and the interface
+    /// channel for the rest.
     pub fn cue(cue: world_gpui::Cue) {
-        if !super::enabled() {
-            return;
-        }
-        let Some(root) = crate::analyst_settings::application_support_root().ok() else {
-            return;
+        let (kind, channel) = match cue {
+            world_gpui::Cue::Flip => (0, Channel::Interface),
+            world_gpui::Cue::Turn => (1, Channel::Interface),
+            world_gpui::Cue::Built => (2, Channel::Interface),
+            world_gpui::Cue::Babble { .. } => (3, Channel::Voices),
         };
-        let directory = root.join("Ambience");
-        if std::fs::create_dir_all(&directory).is_err() {
+        let level = volume(channel);
+        if level <= 0.0 {
             return;
         }
-        let path = directory.join(format!("cue-{cue:?}.wav").to_lowercase());
-        if !path.is_file() && std::fs::write(&path, wav(&super::cue_samples(cue))).is_err() {
-            return;
-        }
-        let _ = Command::new("/usr/bin/afplay")
-            .arg("-v")
-            .arg("0.5")
-            .arg(&path)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn();
+        let variation = match LAST.lock() {
+            Ok(mut last) => {
+                let next = super::next_variation(last[kind]);
+                last[kind] = Some(next);
+                next
+            }
+            Err(_) => 0,
+        };
+        std::thread::spawn(move || {
+            let Some(directory) = directory() else {
+                return;
+            };
+            let name = match cue {
+                world_gpui::Cue::Babble {
+                    voice,
+                    syllables,
+                    question,
+                } => format!(
+                    "babble-{voice:08x}-{syllables}-{}-{variation}.wav",
+                    u8::from(question)
+                ),
+                other => format!("cue-{other:?}-{variation}.wav").to_lowercase(),
+            };
+            let path = directory.join(name);
+            if !path.is_file()
+                && std::fs::write(&path, wav(&super::cue_samples(cue, variation))).is_err()
+            {
+                return;
+            }
+            let _ = Command::new("/usr/bin/afplay")
+                .arg("-v")
+                .arg(format!("{level:.2}"))
+                .arg(&path)
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
+        });
     }
 
     /// Silence, whatever plays.
     pub fn stop() {
         if let Ok(mut playing) = PLAYING.lock() {
-            if let Some(previous) = playing.take() {
-                halt(previous);
+            for slot in playing.iter_mut() {
+                if let Some(previous) = slot.take() {
+                    halt(previous);
+                }
             }
         }
     }
@@ -410,34 +696,101 @@ mod tests {
         }
     }
 
+    const CUES: [world_gpui::Cue; 4] = [
+        world_gpui::Cue::Flip,
+        world_gpui::Cue::Turn,
+        world_gpui::Cue::Built,
+        world_gpui::Cue::Babble {
+            voice: 7,
+            syllables: 5,
+            question: false,
+        },
+    ];
+
     #[test]
     fn cues_are_short_quiet_and_fade_to_nothing() {
-        for cue in [
-            world_gpui::Cue::Flip,
-            world_gpui::Cue::Turn,
-            world_gpui::Cue::Built,
-        ] {
-            let samples = cue_samples(cue);
-            assert!(
-                !samples.is_empty() && samples.len() <= SAMPLE_RATE as usize,
-                "{cue:?}"
-            );
-            let peak = samples
-                .iter()
-                .map(|sample| sample.unsigned_abs())
-                .max()
-                .unwrap();
-            assert!(peak > 500 && peak < i16::MAX as u16 / 2, "{cue:?}: {peak}");
-            let tail = samples[samples.len() * 9 / 10..]
-                .iter()
-                .map(|sample| sample.unsigned_abs())
-                .max()
-                .unwrap();
-            assert!(
-                tail < peak / 8,
-                "{cue:?} should have died away: {tail} of {peak}"
-            );
-            assert_eq!(samples, cue_samples(cue));
+        for cue in CUES {
+            for variation in 0..VARIATIONS {
+                let samples = cue_samples(cue, variation);
+                assert!(
+                    !samples.is_empty() && samples.len() <= SAMPLE_RATE as usize,
+                    "{cue:?}"
+                );
+                let peak = samples
+                    .iter()
+                    .map(|sample| sample.unsigned_abs())
+                    .max()
+                    .unwrap();
+                assert!(peak > 500 && peak < i16::MAX as u16 / 2, "{cue:?}: {peak}");
+                let tail = samples[samples.len() * 9 / 10..]
+                    .iter()
+                    .map(|sample| sample.unsigned_abs())
+                    .max()
+                    .unwrap();
+                assert!(
+                    tail < peak / 8,
+                    "{cue:?} should have died away: {tail} of {peak}"
+                );
+                assert_eq!(samples, cue_samples(cue, variation));
+            }
+        }
+    }
+
+    #[test]
+    fn every_small_sound_has_three_versions_never_heard_twice_running() {
+        for cue in CUES {
+            let versions = (0..VARIATIONS)
+                .map(|variation| cue_samples(cue, variation))
+                .collect::<std::collections::BTreeSet<_>>();
+            assert!(versions.len() >= 3, "{cue:?}");
+        }
+        let mut last = None;
+        for _ in 0..30 {
+            let next = next_variation(last);
+            assert_ne!(Some(next), last);
+            assert!(next < VARIATIONS);
+            last = Some(next);
+        }
+    }
+
+    #[test]
+    fn everyone_babbles_in_a_voice_of_their_own() {
+        use world_gpui::SelectionId;
+        let line = "Morning! The boats are late again.";
+        let mut voices = std::collections::BTreeSet::new();
+        for id in 0..40 {
+            let world_gpui::Cue::Babble { voice: seed, .. } = world_gpui::babble(
+                SelectionId::from_stable_key(&format!("entity-{}", id + 1)).unwrap(),
+                line,
+            ) else {
+                panic!("a line is a babble");
+            };
+            let heard = voice(seed);
+            assert!(heard.pitch >= 150.0 && heard.pitch <= 370.0);
+            voices.insert(babble(seed, 6, false, 0));
+            assert_eq!(babble(seed, 6, false, 0), babble(seed, 6, false, 0));
+        }
+        assert_eq!(voices.len(), 40, "no two people sound the same");
+        // A longer line is a longer babble, and a question rises.
+        let short = babble(11, 2, false, 0);
+        let long = babble(11, 9, false, 0);
+        assert!(long.len() > short.len() * 3);
+        assert_ne!(babble(11, 4, true, 0), babble(11, 4, false, 0));
+    }
+
+    #[test]
+    fn a_level_scales_its_channel_and_sound_off_silences_all() {
+        set_enabled(true);
+        set_level(Channel::Voices, 100);
+        let full = volume(Channel::Voices);
+        set_level(Channel::Voices, 50);
+        assert!((volume(Channel::Voices) - full / 2.0).abs() < 1e-6);
+        set_level(Channel::Voices, 0);
+        assert_eq!(volume(Channel::Voices), 0.0);
+        set_level(Channel::Voices, Channel::Voices.default_level());
+        set_enabled(false);
+        for channel in Channel::ALL {
+            assert_eq!(volume(channel), 0.0);
         }
     }
 

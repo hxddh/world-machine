@@ -76,6 +76,8 @@ pub(crate) struct Looking {
     pub(crate) camera_now: Option<Camera>,
     /// Who the player last clicked on, and when: they wave.
     pub(crate) poked: Option<(SelectionId, Instant)>,
+    /// The line last given a babble, so each is heard once as it appears.
+    pub(crate) babbled: Option<(SelectionId, String)>,
 }
 
 /// The player's hands: which verb they picked, and what they are about to
@@ -1009,6 +1011,18 @@ impl ProjectionView {
                 false,
             ))
         };
+        // A new line is heard in its speaker's voice as it appears.
+        if let Some((who, text, ..)) = &line {
+            let heard = self
+                .looking
+                .babbled
+                .as_ref()
+                .is_some_and(|(before, words)| before == who && words == text);
+            if !heard {
+                self.looking.babbled = Some((*who, text.clone()));
+                self.cue(crate::babble(*who, text));
+            }
+        }
         let card_people = self
             .card_command()
             .map(|command| asker_ids(&self.snapshot, command.asker))

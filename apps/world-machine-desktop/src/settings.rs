@@ -43,6 +43,8 @@ struct SettingsView {
     key_stored: bool,
     voice_on: bool,
     sound_on: bool,
+    /// The level of each sound, in `ambience::Channel::ALL` order.
+    levels: [u8; 4],
     source: VoiceSource,
     program: Option<String>,
     status: Option<SharedString>,
@@ -57,6 +59,7 @@ impl SettingsView {
             key_stored: false,
             voice_on: false,
             sound_on: false,
+            levels: ambience::Channel::ALL.map(ambience::Channel::default_level),
             source: VoiceSource::Program,
             program: None,
             status: None,
@@ -76,12 +79,14 @@ impl SettingsView {
             Some(settings) => {
                 self.voice_on = settings.world_voice;
                 self.sound_on = settings.ambient_sound;
+                self.levels = ambience::Channel::ALL.map(|channel| settings.sound_level(channel));
                 self.source = settings.world_voice_source.unwrap_or_default();
                 self.program = settings.pi_program.map(|path| path.display().to_string());
             }
             None => {
                 self.voice_on = false;
                 self.sound_on = false;
+                self.levels = ambience::Channel::ALL.map(ambience::Channel::default_level);
                 self.source = VoiceSource::Program;
                 self.program = None;
             }
@@ -121,6 +126,21 @@ impl SettingsView {
             cx,
         );
         ambience::set_enabled(self.sound_on);
+    }
+
+    fn set_level(&mut self, channel: ambience::Channel, percent: u8, cx: &mut Context<Self>) {
+        self.apply(
+            move || {
+                let root = analyst_settings::application_support_root()
+                    .map_err(|error| error.to_string())?;
+                analyst_settings::save_sound_level(&root, channel, percent)
+                    .map_err(|error| error.to_string())
+            },
+            cx,
+        );
+        for (channel, level) in ambience::Channel::ALL.into_iter().zip(self.levels) {
+            ambience::set_level(channel, level);
+        }
     }
 
     fn set_source(&mut self, source: VoiceSource, cx: &mut Context<Self>) {
@@ -413,6 +433,60 @@ impl Render for SettingsView {
             );
         }
         let sound_on = self.sound_on;
+        let mut mixer = group();
+        for (index, channel) in ambience::Channel::ALL.into_iter().enumerate() {
+            let (name, what) = match channel {
+                ambience::Channel::Music => (
+                    "Music",
+                    "Chords, a morning tune and an evening one, by the hour and the weather",
+                ),
+                ambience::Channel::Ambience => ("Landscape", "Wind and the hum of the place"),
+                ambience::Channel::Voices => ("Voices", "Everyone's own babble as they speak"),
+                ambience::Channel::Interface => (
+                    "Ticks and bells",
+                    "Cards turning, turns passing, things built",
+                ),
+            };
+            let level = self.levels[index];
+            let mut steps = div().flex_shrink_0().flex().items_end().gap_1();
+            for step in 0..=4_u8 {
+                let percent = step * 25;
+                let lit = percent <= level && level > 0;
+                steps = steps.child(
+                    div()
+                        .id(("sound-level", usize::from(step) + index * 5))
+                        .w(px(22.0))
+                        .h(px(8.0 + f32::from(step) * 3.0))
+                        .rounded_sm()
+                        .cursor_pointer()
+                        .bg(ui::color(if lit {
+                            tokens::ACCENT
+                        } else {
+                            tokens::BORDER_STRONG
+                        }))
+                        .on_click(
+                            cx.listener(move |this, _, _, cx| this.set_level(channel, percent, cx)),
+                        ),
+                );
+            }
+            mixer = mixer.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w(px(0.0))
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .child(ui::row_title(name))
+                            .child(ui::caption(what)),
+                    )
+                    .child(steps),
+            );
+        }
         page.child(ui::caption(
             "Only an API key sends anything off this Mac: what a World has recorded, once per return. Worlds already open keep the voice they opened with.",
         ))
@@ -432,7 +506,7 @@ impl Render for SettingsView {
                             .gap_1()
                             .child(ui::row_title("Sound"))
                             .child(ui::caption(
-                                "The World in front plays its landscape's quiet sound, and a soft tick, bell or chime as cards turn, turns pass and things are built.",
+                                "The World in front plays its music and its landscape's sound, everyone speaks in a voice of their own, and cards, turns and building each have a small sound.",
                             )),
                     )
                     .child(
@@ -441,5 +515,6 @@ impl Render for SettingsView {
                     ),
             ),
         )
+        .when(sound_on, |page| page.child(mixer))
     }
 }

@@ -1019,7 +1019,8 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window) {
     for index in 0..clouds {
         let speed = 4.0 + index as f32 * 1.7;
         let span = width + 320.0;
-        let x = ox + ((index as f32 * 331.0 + t * speed - frame.pan * PARALLAX[0]).rem_euclid(span))
+        let x = ox
+            + ((index as f32 * 331.0 + t * speed - frame.pan * PARALLAX[0]).rem_euclid(span))
             - 160.0;
         let y = oy + frame.horizon * (0.12 + 0.11 * (index % 5) as f32);
         let s = (1.0 - (index % 5) as f32 * 0.12) * k;
@@ -1779,9 +1780,14 @@ mod tests {
 
     #[test]
     fn every_hour_has_a_light_of_its_own_and_far_layers_move_least() {
-        let grades = [Daylight::Dawn, Daylight::Day, Daylight::Dusk, Daylight::Night]
-            .map(grade)
-            .map(|((warm, a), (cool, b))| (warm, (a * 100.0) as u32, cool, (b * 100.0) as u32));
+        let grades = [
+            Daylight::Dawn,
+            Daylight::Day,
+            Daylight::Dusk,
+            Daylight::Night,
+        ]
+        .map(grade)
+        .map(|((warm, a), (cool, b))| (warm, (a * 100.0) as u32, cool, (b * 100.0) as u32));
         let distinct = grades.iter().collect::<BTreeSet<_>>();
         assert_eq!(distinct.len(), 4);
         assert!(PARALLAX.windows(2).all(|pair| pair[0] < pair[1]));
@@ -1796,13 +1802,28 @@ mod tests {
     fn a_busy_frame_is_worked_out_in_4_ms() {
         let mut items = Vec::new();
         for id in 0..12 {
-            items.push(item(100 + id, CanvasItemKind::Place, id as f32 / 12.0, None));
+            items.push(item(
+                100 + id,
+                CanvasItemKind::Place,
+                id as f32 / 12.0,
+                None,
+            ));
         }
         for id in 0..20 {
-            items.push(item(300 + id, CanvasItemKind::Object, id as f32 / 20.0, Some(100 + id % 12)));
+            items.push(item(
+                300 + id,
+                CanvasItemKind::Object,
+                id as f32 / 20.0,
+                Some(100 + id % 12),
+            ));
         }
         for id in 0..15 {
-            items.push(item(id + 1, CanvasItemKind::Actor, id as f32 / 15.0, Some(100 + id % 12)));
+            items.push(item(
+                id + 1,
+                CanvasItemKind::Actor,
+                id as f32 / 15.0,
+                Some(100 + id % 12),
+            ));
         }
         let snapshot = ProjectionSnapshot {
             canvas: CanvasProjection {
@@ -1817,7 +1838,14 @@ mod tests {
         let started = std::time::Instant::now();
         for run in 0..runs {
             let stage = stage(&snapshot, 1400.0, 900.0);
-            let lives = living(&stage, &snapshot, run as f32 / 60.0, Daylight::Day, &pinned, None);
+            let lives = living(
+                &stage,
+                &snapshot,
+                run as f32 / 60.0,
+                Daylight::Day,
+                &pinned,
+                None,
+            );
             let frame = frame(
                 &snapshot,
                 &stage,
@@ -1846,10 +1874,16 @@ mod tests {
             ("diorama.rs", include_str!("diorama.rs")),
             ("art.rs", include_str!("art.rs")),
             ("scene.rs", include_str!("scene.rs")),
-            ("macos/world_window.rs", include_str!("macos/world_window.rs")),
+            (
+                "macos/world_window.rs",
+                include_str!("macos/world_window.rs"),
+            ),
             ("macos.rs", include_str!("macos.rs")),
         ];
-        let drawing = ["let fx = left + (right - left) * t;", "|t: f32| point(from.x + (to.x - from.x) * t"];
+        let drawing = [
+            "let fx = left + (right - left) * t;",
+            "|t: f32| point(from.x + (to.x - from.x) * t",
+        ];
         for (name, source) in sources {
             let lines = source.lines().collect::<Vec<_>>();
             for (index, line) in lines.iter().enumerate() {
@@ -1859,7 +1893,12 @@ mod tests {
                 let eased = lines[index.saturating_sub(8)..=index]
                     .iter()
                     .any(|nearby| nearby.contains("ease(") || nearby.contains("with_easing"));
-                assert!(eased, "{name}:{}: linear motion: {}", index + 1, line.trim());
+                assert!(
+                    eased,
+                    "{name}:{}: linear motion: {}",
+                    index + 1,
+                    line.trim()
+                );
             }
         }
     }

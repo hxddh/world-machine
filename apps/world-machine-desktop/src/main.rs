@@ -623,17 +623,34 @@ impl Render for WorldDocumentView {
         // The World in front plays its landscape's sound, if the player
         // wants sound; one behind stops.
         let sound_owner = cx.entity_id().as_u64();
-        let palette = self.projection.read(cx).snapshot().scenery.map(|scenery| {
-            [
-                scenery.sky_top,
-                scenery.sky_bottom,
-                scenery.far,
-                scenery.near,
-                scenery.sun,
-            ]
-        });
+        let (palette, weather) = {
+            let snapshot = self.projection.read(cx).snapshot();
+            let palette = snapshot.scenery.map(|scenery| {
+                [
+                    scenery.sky_top,
+                    scenery.sky_bottom,
+                    scenery.far,
+                    scenery.near,
+                    scenery.sun,
+                ]
+            });
+            (palette, snapshot.weather)
+        };
+        let moment = world_machine_desktop::music::Moment {
+            hour: world_gpui::scene::hour_now(),
+            sky: match weather {
+                world_projection::Weather::Clear => world_machine_desktop::music::Sky::Clear,
+                world_projection::Weather::Cloudy | world_projection::Weather::Fog => {
+                    world_machine_desktop::music::Sky::Grey
+                }
+                world_projection::Weather::Rain
+                | world_projection::Weather::Snow
+                | world_projection::Weather::Dust => world_machine_desktop::music::Sky::Wet,
+                world_projection::Weather::Storm => world_machine_desktop::music::Sky::Storm,
+            },
+        };
         match (window.is_window_active(), palette) {
-            (true, Some(palette)) => ambience::player::claim(sound_owner, palette),
+            (true, Some(palette)) => ambience::player::claim(sound_owner, palette, moment),
             _ => ambience::player::release(sound_owner),
         }
         // Branching and comparing mean something only once a World has a
@@ -4394,12 +4411,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     system_open::install(&application);
     diagnostics::init();
     load_window_geometry();
+    let saved = world_machine_desktop::analyst_settings::application_support_root()
+        .ok()
+        .and_then(|root| world_machine_desktop::analyst_settings::load(&root).ok());
     ambience::set_enabled(
-        world_machine_desktop::analyst_settings::application_support_root()
-            .ok()
-            .and_then(|root| world_machine_desktop::analyst_settings::load(&root).ok())
+        saved
+            .as_ref()
             .is_some_and(|settings| settings.ambient_sound),
     );
+    if let Some(settings) = &saved {
+        for channel in ambience::Channel::ALL {
+            ambience::set_level(channel, settings.sound_level(channel));
+        }
+    }
     let library = Arc::new(discover_library()?);
     let pack_catalog_path = discover_pack_catalog_path(library.as_ref());
     diagnostics::info(format!(

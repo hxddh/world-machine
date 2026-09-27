@@ -587,7 +587,11 @@ impl From<&Drawing> for DrawingWire {
                         .iter()
                         .map(|stance| stance.id().to_string())
                         .collect(),
-                    moods: part.moods.iter().map(|mood| mood.id().to_string()).collect(),
+                    moods: part
+                        .moods
+                        .iter()
+                        .map(|mood| mood.id().to_string())
+                        .collect(),
                     swing: part.swing,
                 })
                 .collect(),

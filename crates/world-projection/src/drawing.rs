@@ -604,9 +604,21 @@ pub fn person_base(id: impl Into<String>) -> Drawing {
     parts.push(rect(-0.35, 6.4, 0.7, 0.5, Ink::Skin));
     // Sitting: the whole figure is drawn lower (see [`drop_of`]), so these
     // legs run forward from the hem and down to the lowered ground.
-    parts.push(rect(-0.6, 2.75, 3.0, 0.9, trousers).round(0.1).only(&[Sitting]));
-    parts.push(rect(1.55, 2.55, 0.9, 1.0, trousers).round(0.08).only(&[Sitting]));
-    parts.push(rect(1.45, 2.4, 1.5, 0.42, shoes).round(0.06).only(&[Sitting]));
+    parts.push(
+        rect(-0.6, 2.75, 3.0, 0.9, trousers)
+            .round(0.1)
+            .only(&[Sitting]),
+    );
+    parts.push(
+        rect(1.55, 2.55, 0.9, 1.0, trousers)
+            .round(0.08)
+            .only(&[Sitting]),
+    );
+    parts.push(
+        rect(1.45, 2.4, 1.5, 0.42, shoes)
+            .round(0.06)
+            .only(&[Sitting]),
+    );
     // Working: both hands forward at the chest, holding what they work on.
     for side in [-1.0_f32, 1.0] {
         parts.push(sleeve((side * 1.5, 6.0), (side * 0.8, 4.5)).only(&[Working]));
@@ -635,18 +647,16 @@ fn face() -> Vec<DrawPart> {
     let quiet = [Standing, Walking, Working, LookingAround, Sitting, Waving];
     let mut parts = Vec::new();
     for side in [-1.0_f32, 1.0] {
-        parts.push(
-            ellipse(side * 0.55, 8.1, 0.17, 0.17, dark).only(&[
-                Standing,
-                Walking,
-                Working,
-                Talking,
-                Celebrating,
-                LookingAround,
-                Sitting,
-                Waving,
-            ]),
-        );
+        parts.push(ellipse(side * 0.55, 8.1, 0.17, 0.17, dark).only(&[
+            Standing,
+            Walking,
+            Working,
+            Talking,
+            Celebrating,
+            LookingAround,
+            Sitting,
+            Waving,
+        ]));
         // Eyes shut in a stretch and a big smile.
         parts.push(
             line(
@@ -680,9 +690,12 @@ fn face() -> Vec<DrawPart> {
             .feeling(&[Happy]),
     );
     parts.push(
-        polygon(&[(-0.28, 7.45), (0.28, 7.45), (0.46, 7.2), (-0.46, 7.2)], lips)
-            .only(&quiet)
-            .feeling(&[Sad]),
+        polygon(
+            &[(-0.28, 7.45), (0.28, 7.45), (0.46, 7.2), (-0.46, 7.2)],
+            lips,
+        )
+        .only(&quiet)
+        .feeling(&[Sad]),
     );
     parts.push(
         line((-0.38, 7.35), (0.38, 7.35), 0.14, lips)
@@ -696,10 +709,7 @@ fn face() -> Vec<DrawPart> {
     );
     // A glow in the cheeks when happy.
     for side in [-1.0_f32, 1.0] {
-        parts.push(
-            ellipse(side * 0.95, 7.65, 0.3, 0.14, Ink::Colour(0xe89a8a))
-                .feeling(&[Happy]),
-        );
+        parts.push(ellipse(side * 0.95, 7.65, 0.3, 0.14, Ink::Colour(0xe89a8a)).feeling(&[Happy]));
     }
     parts
 }
@@ -752,7 +762,13 @@ pub fn person(id: impl Into<String>, variant: u32, base: &Drawing) -> Drawing {
         }
         3 => {
             // Curls all round.
-            for (x, y) in [(-1.3, 8.6), (-0.7, 9.35), (0.0, 9.55), (0.7, 9.35), (1.3, 8.6)] {
+            for (x, y) in [
+                (-1.3, 8.6),
+                (-0.7, 9.35),
+                (0.0, 9.55),
+                (0.7, 9.35),
+                (1.3, 8.6),
+            ] {
                 parts.push(ellipse(x, y, 0.62, 0.58, Ink::Hair));
             }
         }
@@ -771,12 +787,20 @@ pub fn person(id: impl Into<String>, variant: u32, base: &Drawing) -> Drawing {
         1 => {
             // A cap with a peak.
             parts.push(ellipse(0.0, 9.25, 1.6, 0.75, hat_colour));
-            parts.push(rect(0.3, 8.95, 1.9, 0.32, hat_colour).round(0.1).tone(-0.15));
+            parts.push(
+                rect(0.3, 8.95, 1.9, 0.32, hat_colour)
+                    .round(0.1)
+                    .tone(-0.15),
+            );
         }
         2 => {
             // A woolly hat.
             parts.push(ellipse(0.0, 9.5, 1.55, 1.05, hat_colour));
-            parts.push(rect(-1.65, 8.75, 3.3, 0.55, hat_colour).round(0.12).tone(-0.2));
+            parts.push(
+                rect(-1.65, 8.75, 3.3, 0.55, hat_colour)
+                    .round(0.12)
+                    .tone(-0.2),
+            );
             parts.push(ellipse(0.0, 10.55, 0.35, 0.32, hat_colour).tone(0.3));
         }
         3 => {
@@ -892,8 +916,22 @@ mod tests {
     #[ignore]
     fn write_people_sheet() {
         let base = person_base("base");
-        let colours = [0x3f6fb0_u32, 0xc8553d, 0x3c9a8f, 0xe8b33c, 0x7b4bb3, 0x5b8c3a];
-        let hairs = [0x2b1d14_u32, 0x8a4b2a, 0xd8b25a, 0x1a1414, 0x9a9a9a, 0x5a3b22];
+        let colours = [
+            0x3f6fb0_u32,
+            0xc8553d,
+            0x3c9a8f,
+            0xe8b33c,
+            0x7b4bb3,
+            0x5b8c3a,
+        ];
+        let hairs = [
+            0x2b1d14_u32,
+            0x8a4b2a,
+            0xd8b25a,
+            0x1a1414,
+            0x9a9a9a,
+            0x5a3b22,
+        ];
         let mut body = String::new();
         let (h, gap) = (160.0_f32, 30.0_f32);
         let mut y = gap;
@@ -910,14 +948,21 @@ mod tests {
             let cells = Stance::ALL
                 .iter()
                 .map(|stance| (*stance, Mood::Content))
-                .chain(Mood::ALL.iter().skip(1).map(|mood| (Stance::Standing, *mood)));
+                .chain(
+                    Mood::ALL
+                        .iter()
+                        .skip(1)
+                        .map(|mood| (Stance::Standing, *mood)),
+                );
             for (stance, mood) in cells {
                 let svg = drawing.to_svg_feeling(stance, mood, h, &inks);
                 let inner = svg
                     .split_once('>')
                     .map(|(_, rest)| rest.trim_end_matches("</svg>"))
                     .unwrap_or_default();
-                body.push_str(&format!(r#"<g transform="translate({x:.1},{y:.1})">{inner}</g>"#));
+                body.push_str(&format!(
+                    r#"<g transform="translate({x:.1},{y:.1})">{inner}</g>"#
+                ));
                 x += h * 0.75;
             }
             y += h + gap;

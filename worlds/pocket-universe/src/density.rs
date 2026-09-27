@@ -963,7 +963,11 @@ fn everyone_on_the_scene_has_an_outline_of_their_own_in_every_place() {
     for seed in SEEDS {
         let played = play(seed, Policy::Generous, 120);
         let snapshot = projection::snapshot(played.universe.world());
-        assert!(snapshot.drawings.len() <= 64, "{seed}: {}", snapshot.drawings.len());
+        assert!(
+            snapshot.drawings.len() <= 64,
+            "{seed}: {}",
+            snapshot.drawings.len()
+        );
         let people = snapshot
             .canvas
             .items
