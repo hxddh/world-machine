@@ -448,6 +448,9 @@ where
         // A World that has just begun opens on its first question.
         if action.starts_with("seed_") {
             story::tick(&mut self.world, &self.actions, false)?;
+            // Someone comes over to say hello.
+            let cast = life::cast(self.world.state());
+            lives::greet(&mut self.world, &self.actions, &cast)?;
         }
         Ok(event)
     }

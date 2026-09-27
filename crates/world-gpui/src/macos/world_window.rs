@@ -27,6 +27,8 @@ const FRAME: Duration = Duration::from_millis(250);
 const LINE_SECONDS: f32 = 4.6;
 const BEAT_SECONDS: f32 = 5.2;
 const ANSWER_SECONDS: f32 = 9.0;
+/// How long a keepsake handed over in front of the player stays up.
+const GIFT_SECONDS: f32 = 5.0;
 /// How long the camera takes to move.
 const CAMERA_SECONDS: f32 = 0.9;
 /// How many of today's exchanges with someone their card shows.
@@ -78,6 +80,10 @@ pub(crate) struct Looking {
     pub(crate) poked: Option<(SelectionId, Instant)>,
     /// The line last given a babble, so each is heard once as it appears.
     pub(crate) babbled: Option<(SelectionId, String)>,
+    /// How many keepsakes the player held last frame, and when a new one
+    /// was handed over while they watched.
+    pub(crate) keepsakes_seen: Option<usize>,
+    pub(crate) gift_at: Option<Instant>,
 }
 
 /// The player's hands: which verb they picked, and what they are about to
@@ -331,6 +337,69 @@ fn asker_ids(snapshot: &ProjectionSnapshot, asker: Option<SelectionId>) -> Vec<S
     } else {
         Vec::new()
     }
+}
+
+/// How wide a speech bubble's line is, in the width of a Latin letter;
+/// a Chinese or Japanese character takes two.
+pub(crate) const BUBBLE_LINE: usize = 36;
+
+fn text_width(text: &str) -> usize {
+    text.chars()
+        .map(|character| {
+            if !character.is_ascii() && character.is_alphanumeric() && !character.is_alphabetic()
+                || ('\u{2e80}'..='\u{9fff}').contains(&character)
+                || ('\u{ff00}'..='\u{ffef}').contains(&character)
+                || ('\u{3000}'..='\u{303f}').contains(&character)
+            {
+                2
+            } else {
+                1
+            }
+        })
+        .sum()
+}
+
+/// A line cut into pages of at most two bubble lines each, broken between
+/// words, or anywhere in a language written without spaces.
+pub fn speech_pages(line: &str) -> Vec<String> {
+    let mut rows: Vec<String> = Vec::new();
+    let mut row = String::new();
+    for word in line.split_whitespace() {
+        // A word too wide for a line (or a run of Chinese) is cut where
+        // it has to be.
+        let mut pieces = Vec::new();
+        let mut piece = String::new();
+        for character in word.chars() {
+            if text_width(&piece) + text_width(&character.to_string()) > BUBBLE_LINE {
+                pieces.push(std::mem::take(&mut piece));
+            }
+            piece.push(character);
+        }
+        pieces.push(piece);
+        for piece in pieces {
+            let wide = text_width(&row) + usize::from(!row.is_empty()) + text_width(&piece);
+            if !row.is_empty() && wide > BUBBLE_LINE {
+                rows.push(std::mem::take(&mut row));
+            }
+            if !row.is_empty() {
+                row.push(' ');
+            }
+            row.push_str(&piece);
+        }
+    }
+    if !row.is_empty() {
+        rows.push(row);
+    }
+    if rows.is_empty() {
+        return vec![String::new()];
+    }
+    rows.chunks(2).map(|pair| pair.join("\n")).collect()
+}
+
+/// How long an answer to the player stays over its speaker: long enough
+/// to read every page of it.
+fn answer_seconds(answer: &str) -> f32 {
+    ANSWER_SECONDS.max(LINE_SECONDS * speech_pages(answer).len() as f32 + 2.0)
 }
 
 /// A speech bubble over someone: what they say, with a tail pointing down
@@ -962,29 +1031,38 @@ impl ProjectionView {
 
         // Who is needed where they are, and who is talking.
         let speaking = voices_now(&self.snapshot);
-        let answered = self
-            .looking
-            .answered
-            .filter(|(_, at)| at.elapsed().as_secs_f32() < ANSWER_SECONDS)
-            .and_then(|(index, at)| Some((self.snapshot.talks.get(index)?, at)));
+        let answered = self.looking.answered.and_then(|(index, at)| {
+            let talk = self.snapshot.talks.get(index)?;
+            (at.elapsed().as_secs_f32() < answer_seconds(&talk.answer)).then_some((talk, at))
+        });
         let beat_voice = self
             .current_beat()
             .and_then(|beat| beat.selection)
             .and_then(|moment| self.snapshot.voice_at(moment));
-        let line_slot = (seconds / LINE_SECONDS) as usize;
-        let said = self
-            .looking
-            .said_at
-            .filter(|at| at.elapsed().as_secs_f32() < ANSWER_SECONDS)
-            .and_then(|at| {
-                let who = self.looking.asking?;
-                let exchange = self.snapshot.exchanges_with(who).last()?;
-                Some((exchange, at))
-            });
+        let said = self.looking.said_at.and_then(|at| {
+            let who = self.looking.asking?;
+            let exchange = self.snapshot.exchanges_with(who).last()?;
+            (at.elapsed().as_secs_f32() < answer_seconds(&exchange.answer))
+                .then_some((exchange, at))
+        });
+        // What is said now, by whom, how long ago it began, whether it
+        // answers the player, and how long it stays.
         let line = if let Some((exchange, at)) = said {
-            Some((exchange.who, exchange.answer.clone(), since(Some(at)), true))
+            Some((
+                exchange.who,
+                exchange.answer.clone(),
+                since(Some(at)),
+                true,
+                answer_seconds(&exchange.answer),
+            ))
         } else if let Some((talk, at)) = answered {
-            Some((talk.who, talk.answer.clone(), since(Some(at)), true))
+            Some((
+                talk.who,
+                talk.answer.clone(),
+                since(Some(at)),
+                true,
+                answer_seconds(&talk.answer),
+            ))
         } else if self.retelling.is_some() {
             beat_voice.map(|voice| {
                 (
@@ -992,6 +1070,7 @@ impl ProjectionView {
                     voice.line.clone(),
                     since(self.looking.beat_at),
                     true,
+                    f32::MAX,
                 )
             })
         } else if speaking.is_empty()
@@ -1003,14 +1082,52 @@ impl ProjectionView {
             // keeps quiet.
             None
         } else {
-            let voice = speaking[line_slot % speaking.len()];
-            Some((
-                voice.speaker,
-                voice.line.clone(),
-                seconds % LINE_SECONDS,
-                false,
-            ))
+            // Each speaker in turn, a long line given a turn for each of
+            // its pages.
+            let lengths = speaking
+                .iter()
+                .map(|voice| LINE_SECONDS * speech_pages(&voice.line).len() as f32)
+                .collect::<Vec<_>>();
+            let round = lengths.iter().sum::<f32>();
+            let mut left = seconds % round;
+            let mut chosen = None;
+            for (voice, length) in speaking.iter().zip(&lengths) {
+                if left < *length {
+                    chosen = Some((voice, *length));
+                    break;
+                }
+                left -= length;
+            }
+            chosen.map(|(voice, length)| {
+                (
+                    voice.speaker,
+                    voice.line.clone(),
+                    left.min(length),
+                    false,
+                    length,
+                )
+            })
         };
+        // At most two lines at a time: a long line is said a page at a
+        // time, each page for a line's while.
+        let line = line.map(|(who, text, age, strong, length)| {
+            let pages = speech_pages(&text);
+            let page = ((age / LINE_SECONDS) as usize).min(pages.len() - 1);
+            let page_age = if strong {
+                age
+            } else {
+                age - page as f32 * LINE_SECONDS
+            };
+            let last = page + 1 == pages.len();
+            let fade = if strong {
+                (age / 0.25).clamp(0.0, 1.0)
+            } else {
+                let fade_in = if page == 0 { page_age / 0.35 } else { 1.0 };
+                let fade_out = if last { (length - age) / 0.45 } else { 1.0 };
+                fade_in.min(fade_out).clamp(0.0, 1.0)
+            };
+            (who, pages[page].clone(), fade, strong)
+        });
         // A new line is heard in its speaker's voice as it appears.
         if let Some((who, text, ..)) = &line {
             let heard = self
@@ -1211,13 +1328,8 @@ impl ProjectionView {
             );
         }
         // Whoever is talking, over their head.
-        if let Some((who, text, age, strong)) = line {
+        if let Some((who, text, fade, strong)) = line {
             if let Some((_, x, y)) = heads.iter().find(|(id, ..)| *id == who) {
-                let fade = if strong {
-                    (age / 0.25).clamp(0.0, 1.0)
-                } else {
-                    ((age / 0.35).min((LINE_SECONDS - age) / 0.45)).clamp(0.0, 1.0)
-                };
                 root = root.child(bubble(
                     format!("line-{}", who.stable_key()),
                     text,
@@ -1230,6 +1342,55 @@ impl ProjectionView {
             }
         }
 
+        // Something handed over while the player watches is shown for a
+        // moment, with a chime, before it goes into the drawer.
+        let held = self.snapshot.keepsakes.len();
+        if self.looking.keepsakes_seen.is_some_and(|seen| held > seen) {
+            self.looking.gift_at = Some(Instant::now());
+            self.cue(crate::Cue::Built);
+        }
+        self.looking.keepsakes_seen = Some(held);
+        if let Some((keepsake, at)) = self
+            .looking
+            .gift_at
+            .filter(|at| at.elapsed().as_secs_f32() < GIFT_SECONDS)
+            .and_then(|at| Some((self.snapshot.keepsakes.last()?, at)))
+        {
+            let age = at.elapsed().as_secs_f32();
+            let from = label_of(&self.snapshot, keepsake.from).unwrap_or_default();
+            let opacity = (age / 0.3).min((GIFT_SECONDS - age) / 0.6).clamp(0.0, 1.0);
+            let rise = 12.0 * (1.0 - crate::diorama::ease((age / 0.5).min(1.0)));
+            root = root.child(
+                div()
+                    .absolute()
+                    .top(px(72.0 + rise))
+                    .left_0()
+                    .right_0()
+                    .flex()
+                    .justify_center()
+                    .opacity(opacity)
+                    .child(
+                        div()
+                            .max_w(px(420.0))
+                            .px_4()
+                            .py_2()
+                            .rounded_xl()
+                            .bg(gpui::white())
+                            .shadow_md()
+                            .flex()
+                            .flex_col()
+                            .items_center()
+                            .child(ui::caption(format!("{from} gave you")))
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .text_color(color(tokens::TEXT))
+                                    .child(capitalized(&keepsake.what)),
+                            ),
+                    ),
+            );
+        }
         root = root.child(self.render_hud(cx));
         if let Some(beginning) = self.render_beginning(width >= 760.0, cx) {
             root = root.child(

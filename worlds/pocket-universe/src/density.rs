@@ -987,3 +987,116 @@ fn everyone_on_the_scene_has_an_outline_of_their_own_in_every_place() {
         }
     }
 }
+
+/// A newcomer's first session in each place, on a clock: choosing a place
+/// takes 8 s, someone takes 3 s to walk up, reading takes a second for
+/// every 15 characters, and finding something to make takes 12 s. Someone
+/// greets them within 20 s, the first choice is theirs within 60 s, and
+/// they hold a keepsake within 5 minutes.
+#[test]
+fn a_first_session_greets_offers_and_gives_in_time_in_every_place() {
+    let read = |text: &str| text.chars().count() as f32 / 15.0;
+    let mut registry = world_host::WorldRegistry::new();
+    registry
+        .register(crate::pocket_universe_registration())
+        .unwrap();
+    for seed in [
+        MARS,
+        crate::SEED_1980S_TOWN_COMMAND,
+        crate::SEED_PENGUIN_CIVILIZATION_COMMAND,
+    ] {
+        let mut session = registry.create(crate::POCKET_UNIVERSE_PACK_ID).unwrap();
+        let mut clock = 2.0 + 8.0;
+        let opened = session
+            .handle(world_projection::ProjectionIntent::InvokeCommand(
+                seed.into(),
+            ))
+            .unwrap();
+        let greeting = opened
+            .voices
+            .iter()
+            .find(|voice| voice.line.contains("I'm "))
+            .unwrap_or_else(|| panic!("{seed}: nobody says hello: {:?}", opened.voices));
+        // It is said now, and first: the window shows what is said now,
+        // news before everyday talk, in order.
+        let now = |voice: &world_projection::Voice| {
+            opened
+                .timeline
+                .items
+                .iter()
+                .find(|item| item.id == voice.moment)
+                .filter(|item| item.world_time == opened.world_time)
+                .map(|item| item.routine)
+        };
+        assert_eq!(now(greeting), Some(false), "the greeting is news, said now");
+        // The window says what is said now in turn, news first, each for
+        // 4.6 s a page of two lines.
+        let turn =
+            |voice: &world_projection::Voice| 4.6 * voice.line.chars().count().div_ceil(72) as f32;
+        let before: f32 = opened
+            .voices
+            .iter()
+            .filter(|voice| now(voice) == Some(false))
+            .take_while(|voice| *voice != greeting)
+            .map(turn)
+            .sum();
+        clock += before;
+        clock += 3.0;
+        assert!(clock <= 20.0, "{seed}: greeted at {clock} s");
+        clock += read(&greeting.line);
+        let deed = opened
+            .commands
+            .iter()
+            .find(|command| command.unavailable.is_none() && command.hand.is_some())
+            .unwrap_or_else(|| panic!("{seed}: something to make at once"))
+            .id
+            .clone();
+        clock += 12.0;
+        assert!(clock <= 60.0, "{seed}: first choice at {clock} s");
+        let after = session
+            .handle(world_projection::ProjectionIntent::InvokeCommand(deed))
+            .unwrap();
+        let keepsake = after
+            .keepsakes
+            .first()
+            .unwrap_or_else(|| panic!("{seed}: a keepsake for the first deed"));
+        clock += 3.0 + read(&keepsake.what) + read(&keepsake.note);
+        assert!(clock <= 300.0, "{seed}: first keepsake at {clock} s");
+    }
+}
+
+/// Every card fits in two lines: a title in about 90 characters and its
+/// detail in about 116, across 150 periods of answering in each place.
+#[test]
+fn every_card_fits_in_two_lines_in_every_place() {
+    let mut long = std::collections::BTreeSet::new();
+    for seed in [
+        MARS,
+        crate::SEED_1980S_TOWN_COMMAND,
+        crate::SEED_PENGUIN_CIVILIZATION_COMMAND,
+    ] {
+        let mut universe = PocketUniverse::new().unwrap();
+        universe.invoke_projection_command(seed).unwrap();
+        for _ in 0..150 {
+            let snapshot = projection::snapshot(universe.world());
+            for command in snapshot.commands.iter().filter(|c| c.question.is_some()) {
+                if command.title.chars().count() > 90 {
+                    long.insert(command.title.clone());
+                }
+                if command.detail.chars().count() > 116 {
+                    long.insert(command.detail.clone());
+                }
+            }
+            let pick = snapshot
+                .commands
+                .iter()
+                .find(|c| c.question.is_some() && c.unavailable.is_none())
+                .map(|c| c.id.clone());
+            if let Some(pick) = pick {
+                universe.invoke_projection_command(&pick).unwrap();
+            }
+            universe.invoke_projection_command(NUDGE_COMMAND).unwrap();
+        }
+    }
+    assert!(long.is_empty(), "longer than two lines: {long:#?}");
+}

@@ -1604,7 +1604,8 @@ pub(crate) fn told(world: &World, event: &Event) -> Option<String> {
             _ => None,
         };
     }
-    if lives::is_news(event) {
+    // Being greeted is the first thing that happens to a newcomer.
+    if lives::is_news(event) || event.kind == "greeted" {
         return lives::told(event);
     }
     if hands::is_hands(event) {

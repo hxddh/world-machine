@@ -322,7 +322,7 @@ pub fn stage(snapshot: &ProjectionSnapshot, width: f32, height: f32) -> Stage {
 /// How long someone takes to walk to where a turn put them.
 pub const WALK_SECONDS: f32 = 1.4;
 
-fn ease(t: f32) -> f32 {
+pub(crate) fn ease(t: f32) -> f32 {
     let t = t.clamp(0.0, 1.0);
     t * t * (3.0 - 2.0 * t)
 }

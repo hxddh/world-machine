@@ -287,7 +287,7 @@ pub(crate) fn available_commands(world: &World) -> Vec<ProjectionCommand> {
             id: crate::REOPEN_BAKERY_COMMAND.into(),
             title: "Reopen with Mara's savings".into(),
             detail: format!(
-                "Invest {} of Mara's cash to reopen Harbor Bakery. Mara returns to work; former workers are not automatically rehired.",
+                "Mara puts {} of her savings into Harbor Bakery and goes back to work. The old staff aren't rehired.",
                 crate::BAKERY_REOPEN_INVESTMENT
             ), effects: Vec::new(),
             scenery: None, asker: None, moves: Vec::new(), question: None, unavailable: None, hand: None,
@@ -301,7 +301,7 @@ pub(crate) fn available_commands(world: &World) -> Vec<ProjectionCommand> {
             id: crate::LEAN_REOPEN_BAKERY_COMMAND.into(),
             title: "Reopen as an owner-run counter".into(),
             detail: format!(
-                "Invest {} of Mara's cash and reopen Harbor Bakery without a fixed daily Bakery wage. Lower overhead can survive weak demand, but Mara gives up predictable pay.",
+                "Mara puts in {} and runs the counter herself: cheap to keep open, but no steady wage.",
                 crate::recovery::LEAN_REOPEN_INVESTMENT
             ), effects: Vec::new(),
             scenery: None, asker: None, moves: Vec::new(), question: None, unavailable: None, hand: None,
@@ -313,7 +313,7 @@ pub(crate) fn available_commands(world: &World) -> Vec<ProjectionCommand> {
             id: crate::REPAIR_BOAT_COMMAND.into(),
             title: "Repair Sea Finch with Leo's backing".into(),
             detail: format!(
-                "Leo pays Evan {} to repair Sea Finch. Jonas returns to Harbor fishing once the boat is sound. Leo's backing does not stand indefinitely.",
+                "Leo pays Evan {} to mend Sea Finch, and Jonas goes back to fishing. Leo won't wait forever.",
                 crate::social::SEA_FINCH_REPAIR_COST
             ), effects: Vec::new(),
             scenery: None, asker: None, moves: Vec::new(), question: None, unavailable: None, hand: None,

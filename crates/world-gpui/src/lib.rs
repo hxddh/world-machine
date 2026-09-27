@@ -5,7 +5,9 @@ pub mod scene;
 pub mod text_input;
 pub mod ui;
 
-pub use macos::{is_beginning, scene_share, words_at_rest, ProjectionView, RESTING_WORD_LIMIT};
+pub use macos::{
+    is_beginning, scene_share, speech_pages, words_at_rest, ProjectionView, RESTING_WORD_LIMIT,
+};
 pub use world_projection::{Ears, ProjectionIntent, ProjectionSnapshot, SelectionId};
 
 use std::time::Duration;
@@ -105,6 +107,29 @@ pub fn babble(who: SelectionId, text: &str) -> Cue {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn speech_shows_at_most_two_lines_at_a_time() {
+        let long = "Here we are again. Last time: Evan took a week's work on the mainland. A week's carpentry on the mainland. Should I go?";
+        let pages = speech_pages(long);
+        assert!(pages.len() >= 2, "{pages:?}");
+        for page in &pages {
+            assert!(page.lines().count() <= 2, "{page:?}");
+            for line in page.lines() {
+                assert!(line.chars().count() <= 36, "{line:?}");
+            }
+        }
+        assert_eq!(pages.join(" ").replace('\n', " "), long, "nothing is lost");
+        assert_eq!(speech_pages("Morning!"), vec!["Morning!".to_string()]);
+        // A language without spaces is cut by width: two columns a
+        // character.
+        let chinese = "今天港口的船都回来了，大家都很高兴，晚上我们在码头一起吃饭吧，你也来吗？";
+        for page in speech_pages(chinese) {
+            for line in page.lines() {
+                assert!(line.chars().count() <= 18, "{line:?}");
+            }
+        }
+    }
 
     #[test]
     fn a_line_babbles_by_its_length_and_rises_as_a_question() {

@@ -122,7 +122,10 @@ impl TinySocietyBranch {
     /// first question waits for the player's first deed.
     pub fn begin_story(&mut self) -> Result<Vec<EventId>, Box<dyn Error>> {
         let actions = build_action_registry()?;
-        Ok(story::tick(&mut self.world, &actions, false)?)
+        let mut events = story::tick(&mut self.world, &actions, false)?;
+        // Someone comes over to say hello.
+        events.extend(lives::greet(&mut self.world, &actions, &life::cast())?);
+        Ok(events)
     }
 
     pub fn fork_before_event(&mut self, event_id: EventId) -> Result<(), Box<dyn Error>> {

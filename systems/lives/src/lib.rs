@@ -1627,6 +1627,22 @@ const LEFT_FOR_YOU: [&str; 6] = [
     "a postcard with a few lines on it",
 ];
 
+/// What someone gives a newcomer after their first deed.
+const WELCOME: [&str; 4] = [
+    "a hand-drawn map of the {settlement}",
+    "a smooth stone from by the {gathering}",
+    "a little welcome card, signed by everyone",
+    "a paper star to hang up",
+];
+
+/// How a newcomer is greeted: who greets them, and a nudge to make
+/// something.
+const GREETINGS: [&str; 3] = [
+    "Hello, you're new! I'm {name}. Build us something, if you like.",
+    "Oh, a new face! I'm {name}. Welcome to the {settlement}.",
+    "Welcome to the {settlement}! I'm {name}. Make yourself at home.",
+];
+
 fn best_friend(state: &WorldState, person: EntityId) -> Option<EntityId> {
     cast_ids(state)
         .into_iter()
@@ -2590,6 +2606,43 @@ impl Action for Reacts {
     }
 }
 
+/// Someone comes over to say hello to a new player.
+struct Greets(fn(&WorldState) -> Cast);
+
+impl Action for Greets {
+    fn name(&self) -> &'static str {
+        "lives_greets"
+    }
+
+    fn evaluate(
+        &self,
+        state: &WorldState,
+        request: &ActionRequest,
+    ) -> Result<EventDraft, ActionError> {
+        let cast = (self.0)(state);
+        let who = arg_entity(request, "who")?;
+        if state.entity(who).is_none() || gone(state, who) {
+            return Err(ActionError::Invalid("nobody to say hello".into()));
+        }
+        let words = [
+            ("name", first_name(state, who)),
+            ("settlement", cast.settlement.to_string()),
+        ];
+        let said = pick(&GREETINGS, mix(&[who.0, 7]))
+            .map(|line| fill_owned(line, &words))
+            .unwrap_or_default();
+        let mut draft = EventDraft::new("greeted");
+        draft.actor = Some(who);
+        draft.targets = vec![who];
+        draft.payload.insert(
+            "told".into(),
+            format!("{} came over to say hello", first_name(state, who)).into(),
+        );
+        draft.payload.insert("said".into(), said.into());
+        Ok(draft)
+    }
+}
+
 /// Someone leaves the player something while they are away.
 struct LeavesKeepsake(fn(&WorldState) -> Cast);
 
@@ -2614,15 +2667,23 @@ impl Action for LeavesKeepsake {
             ("settlement", cast.settlement.to_string()),
             ("unit", cast.unit.to_string()),
         ];
-        let what = pick(&LEFT_FOR_YOU, mix(&[who.0, period(state, &cast), 31]))
+        let welcome = arg_text(request, "welcome").is_ok();
+        let pool: &[&str] = if welcome { &WELCOME } else { &LEFT_FOR_YOU };
+        let what = pick(pool, mix(&[who.0, period(state, &cast), 31]))
             .map(|what| fill_owned(what, &words))
             .unwrap_or_default();
-        let note = if why.is_empty() {
+        let note = if welcome {
+            format!("For your first day in the {}. Welcome.", cast.settlement)
+        } else if why.is_empty() {
             "Missed you round here.".to_string()
         } else {
             format!("I kept this for you while you were away. {why}")
         };
-        let told = format!("{} left you {what}", first_name(state, who));
+        let told = if welcome {
+            format!("{} gave you {what} to welcome you", first_name(state, who))
+        } else {
+            format!("{} left you {what}", first_name(state, who))
+        };
         let mut draft = EventDraft::new("keepsake_left");
         draft.actor = Some(who);
         draft.targets = vec![who];
@@ -2686,6 +2747,44 @@ pub fn react_to(
         .arg("deed", event.kind.clone())
         .arg("thing", name(state, *thing))
         .arg("place", Value::Entity(*place));
+    let first =
+        keepsakes(world).is_empty() && !world.events().iter().any(|event| event.kind == "reacted");
+    let reaction = world.execute(actions, &request).ok().map(|event| event.id);
+    // The player's first deed earns them something to keep at once, from
+    // whoever saw it: their first minutes end with a keepsake in hand.
+    if let (true, Some(reaction)) = (first, reaction) {
+        let welcome = ActionRequest::new("lives_leaves_keepsake")
+            .actor(who)
+            .caused_by(reaction)
+            .arg("who", Value::Entity(who))
+            .arg("why", "")
+            .arg("welcome", "first deed");
+        let _ = world.execute(actions, &welcome);
+    }
+    Ok(reaction)
+}
+
+/// A new player is greeted: whoever welcomes strangers comes over, says
+/// who they are, and suggests something to make. Once per World.
+pub fn greet(
+    world: &mut World,
+    actions: &ActionRegistry,
+    cast: &Cast,
+) -> Result<Option<EventId>, WorldError> {
+    if world.events().iter().any(|event| event.kind == "greeted") {
+        return Ok(None);
+    }
+    let people = (cast.people)(world);
+    let state = world.state();
+    let Some(who) = std::iter::once(cast.host)
+        .chain(people)
+        .find(|person| state.entity(*person).is_some() && !gone(state, *person))
+    else {
+        return Ok(None);
+    };
+    let request = ActionRequest::new("lives_greets")
+        .actor(who)
+        .arg("who", Value::Entity(who));
     Ok(world.execute(actions, &request).ok().map(|event| event.id))
 }
 
@@ -2806,6 +2905,7 @@ pub fn register_actions(
     registry.register(Forgets(cast))?;
     registry.register(Reacts(cast))?;
     registry.register(LeavesKeepsake(cast))?;
+    registry.register(Greets(cast))?;
     Ok(())
 }
 
@@ -2924,6 +3024,7 @@ pub fn is_life(event: &Event) -> bool {
             | "situation_lapsed"
             | "reacted"
             | "keepsake_left"
+            | "greeted"
     )
 }
 
