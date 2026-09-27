@@ -23,6 +23,7 @@ mod speech;
 mod staffing;
 mod story;
 mod talk;
+mod voices;
 
 use std::error::Error;
 use world_agent::{

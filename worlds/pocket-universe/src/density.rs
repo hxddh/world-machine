@@ -250,8 +250,31 @@ fn show_sixty_periods() {
 /// from earlier answers.
 #[test]
 fn what_you_choose_changes_the_place_and_comes_back() {
-    let generous = play(MARS, Policy::Generous, 30);
-    let contrary = play(MARS, Policy::Contrary, 30);
+    // A third of all questions besides the calendar's follow from an
+    // earlier answer, across every place and both ways of playing.
+    let mut followed = (0, 0);
+    for seed in [
+        MARS,
+        crate::SEED_1980S_TOWN_COMMAND,
+        crate::SEED_PENGUIN_CIVILIZATION_COMMAND,
+    ] {
+        let (following, all) = choices_change_and_come_back(seed);
+        followed.0 += following;
+        followed.1 += all;
+    }
+    assert!(
+        followed.0 * 3 >= followed.1,
+        "{} of {} questions followed from an earlier answer",
+        followed.0,
+        followed.1
+    );
+}
+
+/// In one place: how many questions followed from an earlier answer, of
+/// how many, checking the rest of the bar as it goes.
+fn choices_change_and_come_back(seed: &str) -> (usize, usize) {
+    let generous = play(seed, Policy::Generous, 30);
+    let contrary = play(seed, Policy::Contrary, 30);
     // Across both ways of playing, at least half of all answers change the
     // scene and a third of all questions besides the calendar's follow from
     // an earlier answer; neither way of playing falls far below that.
@@ -309,12 +332,6 @@ fn what_you_choose_changes_the_place_and_comes_back() {
             >= generous.answered + contrary.answered,
         "fewer than half of all answers changed the scene"
     );
-    assert!(
-        followed.0 * 3 >= followed.1,
-        "{} of {} questions followed from an earlier answer",
-        followed.0,
-        followed.1
-    );
     let names = |played: &Played| {
         let world = played.universe.world();
         projection::snapshot(world)
@@ -329,8 +346,9 @@ fn what_you_choose_changes_the_place_and_comes_back() {
     eprintln!("differences {differences:?}");
     assert!(
         differences.len() >= 3,
-        "yes and last answer end too alike: {differences:?}"
+        "{seed}: yes and last answer end too alike: {differences:?}"
     );
+    followed
 }
 
 /// The v0.15 bar: a new World opens on the place, not a card. The first

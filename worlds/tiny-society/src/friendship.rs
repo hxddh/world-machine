@@ -57,7 +57,7 @@ fn came_up(events: &[world_core::Event]) -> Vec<(String, EntityId)> {
 #[test]
 fn a_warm_friendship_opens_doors_once_each() {
     let mut branch = opened();
-    for _ in 0..120 {
+    for _ in 0..180 {
         branch.say(MARA, "your bread is wonderful").unwrap();
         let gift = commands(&branch).into_iter().find(|command| {
             command.unavailable.is_none()
@@ -77,11 +77,35 @@ fn a_warm_friendship_opens_doors_once_each() {
     let doors = came_up(world.events())
         .into_iter()
         .filter(|(kind, who)| {
-            *who == MARA && matches!(kind.as_str(), "confide" | "favour" | "keepsake")
+            *who == MARA && matches!(kind.as_str(), "confide" | "invite" | "favour" | "keepsake")
         })
         .map(|(kind, _)| kind)
         .collect::<Vec<_>>();
-    assert_eq!(doors, vec!["confide", "favour", "keepsake"], "{doors:?}");
+    assert_eq!(
+        doors,
+        vec!["confide", "invite", "favour", "keepsake"],
+        "{doors:?}"
+    );
+    // Each in Mara's own words, which nobody else says.
+    let prompts = world
+        .events()
+        .iter()
+        .filter(|event| {
+            matches!(event.kind.as_str(), "situation_came_up" | "warmed")
+                && event.actor == Some(MARA)
+        })
+        .filter_map(|event| match event.payload.get("said") {
+            Some(Value::Text(said)) => Some(said.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    for scene in crate::voices::MARA_VOICE.scenes {
+        let opening = scene.prompt.split('{').next().unwrap();
+        assert!(
+            prompts.iter().any(|prompt| prompt.starts_with(opening)),
+            "{opening:?} never said: {prompts:?}"
+        );
+    }
     assert!(lives::keepsakes(world).iter().any(|kept| kept.from == MARA));
     let standing = speech::standing_of(world, MARA).unwrap();
     assert_eq!(standing.level, 2, "{standing:?}");

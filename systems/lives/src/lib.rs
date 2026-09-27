@@ -19,7 +19,10 @@
 //! to decide anything again. It knows nothing about harbours or colonies:
 //! a World Pack gives it a [`Cast`], with its people, places and words.
 
+mod voice;
+
 use std::collections::{BTreeMap, BTreeSet};
+pub use voice::{keepsake_of, own_lines, restyle, scene_of, Scene, Voice};
 use world_core::{
     Action, ActionError, ActionRegistry, ActionRequest, Entity, EntityId, Event, EventDraft,
     EventId, StateChange, Value, World, WorldError, WorldState,
@@ -164,6 +167,9 @@ pub struct Cast {
     pub most_people: usize,
     /// How many situations may be open at once.
     pub most_open: usize,
+    /// How someone speaks, for the people the Pack gives a voice; anyone
+    /// else speaks from their traits.
+    pub voice: fn(EntityId) -> Option<&'static Voice>,
 }
 
 /// Traits someone can have, and the ones that grate on each other.
@@ -209,6 +215,11 @@ pub fn door_opened(state: &WorldState, person: EntityId, kind: Kind) -> Option<i
 /// to offer a favour or give a keepsake.
 pub const WARM: i64 = 20;
 pub const CLOSE: i64 = 50;
+/// How warmly someone must regard the player to share a first moment:
+/// more than everyday life brings on its own, so it takes the player's
+/// doing; and to ask them along somewhere of theirs.
+pub const FOND: i64 = 16;
+pub const DEAR: i64 = 35;
 /// How low someone's regard for the player falls before they hold a
 /// grudge: they stop asking for help, and let it show.
 pub const GRUDGE: i64 = -20;
@@ -684,6 +695,7 @@ fn personal(state: &WorldState, person: EntityId, base: &str, heard: &Heard, see
 /// stand with the people they care about.
 fn saying(
     state: &WorldState,
+    cast: &Cast,
     person: EntityId,
     activity: &Activity,
     words: &[(&str, &str)],
@@ -697,12 +709,22 @@ fn saying(
     if let Some(friend) = &friend {
         all_words.push(("friend", friend.as_str()));
     }
-    let lines = activity
-        .said
-        .iter()
-        .filter(|line| friend.is_some() || !line.contains("{friend}"))
-        .map(|line| fill(line, &all_words))
-        .collect::<Vec<_>>();
+    // Someone with a voice of their own says one of their own lines about
+    // half the time, and anything else in their own words.
+    let voice = (cast.voice)(person);
+    let lines = match voice {
+        Some(voice) if (seed / 3).is_multiple_of(2) => own_lines(voice)
+            .into_iter()
+            .filter(|line| friend.is_some() || !line.contains("{friend}"))
+            .map(|line| fill(&line, &all_words))
+            .collect::<Vec<_>>(),
+        _ => activity
+            .said
+            .iter()
+            .filter(|line| friend.is_some() || !line.contains("{friend}"))
+            .map(|line| fill(line, &all_words))
+            .collect::<Vec<_>>(),
+    };
     let fresh = lines
         .iter()
         .filter(|line| !heard.lately(line))
@@ -895,7 +917,7 @@ impl Action for Lives {
         moves.set(person, AT, Value::Entity(place));
 
         let mut told = fill(activity.told, &words);
-        let (mut said, base) = saying(state, person, activity, &words, seed, &heard);
+        let (mut said, base) = saying(state, &cast, person, activity, &words, seed, &heard);
         if quarrel {
             told.push_str(", and they had words");
             let topic = pick(cast.topics, seed / 19).copied().unwrap_or("nothing");
@@ -912,6 +934,9 @@ impl Action for Lives {
                 .find(|line| !heard.lately(line))
                 .cloned()
                 .unwrap_or_else(|| options[0].clone());
+        }
+        if let Some(voice) = (cast.voice)(person) {
+            said = restyle(voice, &said, seed / 29);
         }
         remember_saying(&mut moves, &heard, &said);
         remember_saying(&mut moves, &heard, &base);
@@ -1129,8 +1154,12 @@ pub enum Kind {
     Visitor,
     Leaving,
     RoughPatch,
+    /// Someone warming to the player shares a small moment with them.
+    Warming,
     /// A friend tells the player something they have told nobody.
     Confide,
+    /// A friend asks the player along somewhere of theirs.
+    Invite,
     /// A close friend offers the player a favour.
     Favour,
     /// A close friend gives the player something to keep.
@@ -1140,7 +1169,7 @@ pub enum Kind {
 }
 
 impl Kind {
-    const ALL: [Kind; 14] = [
+    const ALL: [Kind; 16] = [
         Kind::Feud,
         Kind::Sweet,
         Kind::Learn,
@@ -1151,7 +1180,9 @@ impl Kind {
         Kind::Visitor,
         Kind::Leaving,
         Kind::RoughPatch,
+        Kind::Warming,
         Kind::Confide,
+        Kind::Invite,
         Kind::Favour,
         Kind::Keepsake,
         Kind::Cold,
@@ -1169,7 +1200,9 @@ impl Kind {
             Kind::Visitor => "visitor",
             Kind::Leaving => "leaving",
             Kind::RoughPatch => "rough",
+            Kind::Warming => "warming",
             Kind::Confide => "confide",
+            Kind::Invite => "invite",
             Kind::Favour => "favour",
             Kind::Keepsake => "keepsake",
             Kind::Cold => "cold",
@@ -1195,7 +1228,7 @@ impl Kind {
         match self {
             Kind::Visitor => 0,
             Kind::Party => 60,
-            Kind::Confide | Kind::Favour | Kind::Keepsake => 12,
+            Kind::Warming | Kind::Confide | Kind::Invite | Kind::Favour | Kind::Keepsake => 12,
             _ => 24,
         }
     }
@@ -1431,17 +1464,23 @@ pub fn candidates(world: &World, cast: &Cast) -> Vec<Candidate> {
             b: None,
             topic: mix(&[a.0, 11]) % 1000,
         };
-        if regard >= WARM && door(Kind::Confide).is_none() {
-            found.push((40, door_candidate(Kind::Confide)));
+        // A door that has waited grows more pressing, so a friendship's
+        // moments come round in weeks, not whenever nobody is in trouble.
+        let waited = |before: Kind| door(before).map_or(0, |at| (now as i64 - at).clamp(0, 15));
+        if regard >= WARM && door(Kind::Warming).is_some() && door(Kind::Confide).is_none() {
+            found.push((40 + waited(Kind::Warming), door_candidate(Kind::Confide)));
         }
-        if regard >= CLOSE && door(Kind::Confide).is_some() && door(Kind::Favour).is_none() {
-            found.push((45, door_candidate(Kind::Favour)));
+        if regard >= DEAR && door(Kind::Confide).is_some() && door(Kind::Invite).is_none() {
+            found.push((42 + waited(Kind::Confide), door_candidate(Kind::Invite)));
+        }
+        if regard >= CLOSE && door(Kind::Invite).is_some() && door(Kind::Favour).is_none() {
+            found.push((45 + waited(Kind::Invite), door_candidate(Kind::Favour)));
         }
         if regard >= CLOSE
             && door(Kind::Keepsake).is_none()
             && door(Kind::Favour).is_some_and(|at| now as i64 - at >= 3)
         {
-            found.push((50, door_candidate(Kind::Keepsake)));
+            found.push((47 + waited(Kind::Favour), door_candidate(Kind::Keepsake)));
         }
         if regard <= GRUDGE {
             found.push((
@@ -1599,23 +1638,37 @@ fn words_for(
         words.push(("friend", name(state, friend)));
     }
     if candidate.kind == Kind::Keepsake {
-        let what = pick(&KEEPSAKES, mix(&[candidate.a.0, 23]))
-            .map(|what| fill_owned(what, &words))
-            .unwrap_or_default();
+        let what = fill_owned(
+            keepsake_of((cast.voice)(candidate.a), (cast.traits)(candidate.a)),
+            &words,
+        );
         words.push(("keepsake", what));
     }
     words
 }
 
-/// What a friend gives the player to keep.
-const KEEPSAKES: [&str; 6] = [
-    "a pressed flower from the {gathering}",
-    "a photograph of the {settlement} at dawn",
-    "a brass button off my father's coat",
-    "a little drawing I made of you",
-    "a smooth stone I've carried for years",
-    "a letter, to open on a bad {unit}",
-];
+/// Which of the five doors a kind is, if it is one.
+fn door_index(kind: Kind) -> Option<usize> {
+    [
+        Kind::Warming,
+        Kind::Confide,
+        Kind::Invite,
+        Kind::Favour,
+        Kind::Keepsake,
+    ]
+    .iter()
+    .position(|door| *door == kind)
+}
+
+/// The scene someone opens at a door: their own words.
+fn door_scene(cast: &Cast, candidate: &Candidate) -> Option<Scene> {
+    let index = door_index(candidate.kind)?;
+    Some(scene_of(
+        (cast.voice)(candidate.a),
+        (cast.traits)(candidate.a),
+        index,
+    ))
+}
 
 /// What someone leaves for the player while they are away.
 const LEFT_FOR_YOU: [&str; 6] = [
@@ -1625,6 +1678,18 @@ const LEFT_FOR_YOU: [&str; 6] = [
     "a photograph from while you were gone",
     "a pressed flower in an envelope",
     "a postcard with a few lines on it",
+];
+
+/// What someone says when a moment they offered passes by.
+const MISSED: [&str; 8] = [
+    "Oh well. Another time.",
+    "Never mind. It'll come round.",
+    "I looked for you, that's all.",
+    "Maybe next time.",
+    "It was only a small thing.",
+    "Went on my own. It was fine.",
+    "You were busy. I understand.",
+    "Some other day, then.",
 ];
 
 /// What someone gives a newcomer after their first deed.
@@ -1755,6 +1820,16 @@ fn script(kind: Kind) -> Script {
             told: "{a} and {b} hit a rough patch",
             answers: &[("talk", "Help them talk"), ("apart", "Time apart")],
         },
+        Kind::Warming => Script {
+            prompts: &["It's good to see you."],
+            told: "{a} shared a quiet moment with you",
+            answers: &[("stay", "Stay a while"), ("wave", "Wave and go on")],
+        },
+        Kind::Invite => Script {
+            prompts: &["Come with me somewhere?"],
+            told: "{a} asked you along",
+            answers: &[("go", "Go along"), ("another", "Another time")],
+        },
         Kind::Confide => Script {
             prompts: &[
                 "Can I tell you something? I nearly didn't come to the {settlement} at all.",
@@ -1816,9 +1891,12 @@ fn fill_owned(template: &str, words: &[(&'static str, String)]) -> String {
 fn compose(state: &WorldState, cast: &Cast, candidate: &Candidate) -> Situation {
     let words = words_for(state, cast, candidate);
     let script = script(candidate.kind);
-    let prompt = pick(script.prompts, candidate.topic / 3)
-        .map(|prompt| fill_owned(prompt, &words))
-        .unwrap_or_default();
+    let prompt = match door_scene(cast, candidate) {
+        Some(scene) => fill_owned(scene.prompt, &words),
+        None => pick(script.prompts, candidate.topic / 3)
+            .map(|prompt| fill_owned(prompt, &words))
+            .unwrap_or_default(),
+    };
     let answers = script
         .answers
         .iter()
@@ -1891,14 +1969,17 @@ impl Action for Opens {
             return Err(ActionError::Invalid("already open".into()));
         }
         let mut situation = compose(state, &cast, &candidate);
-        // Put in words nobody has used lately.
+        // Put in words nobody has used lately; at a door, in their own.
         let heard = Heard::of(state, &cast);
         let words = words_for(state, &cast, &candidate);
-        let prompts = script(candidate.kind)
-            .prompts
-            .iter()
-            .map(|prompt| fill_owned(prompt, &words))
-            .collect::<Vec<_>>();
+        let prompts = match door_scene(&cast, &candidate) {
+            Some(_) => vec![situation.prompt.clone()],
+            None => script(candidate.kind)
+                .prompts
+                .iter()
+                .map(|prompt| fill_owned(prompt, &words))
+                .collect::<Vec<_>>(),
+        };
         situation.prompt = match prompts.iter().find(|prompt| !heard.lately(prompt)) {
             Some(prompt) => prompt.clone(),
             None => personal(
@@ -2331,6 +2412,49 @@ fn outcome(
                 w("It's for the best. I think."),
             )
         }
+        (Kind::Warming, "stay") => {
+            moves.set(a, &door_key(Kind::Warming), now_period);
+            moves.regard(state, a, 6);
+            moves.lack(state, a, Need::Company, -15);
+            (w("{a} shared a quiet moment with you"), w("That was nice."))
+        }
+        (Kind::Warming, "wave") => {
+            moves.set(a, &door_key(Kind::Warming), now_period);
+            moves.regard(state, a, 2);
+            (w("{a} waved you on your way"), w("See you, then."))
+        }
+        // A moment that passes has passed: the friendship goes on to the
+        // next door without it.
+        (Kind::Warming, "lapse") => {
+            moves.set(a, &door_key(Kind::Warming), now_period);
+            let said = pick(&MISSED, mix(&[a.0, 3])).copied().unwrap_or("Oh well.");
+            (w("{a} looked for you"), w(said))
+        }
+        (Kind::Invite, "go") => {
+            moves.set(a, &door_key(Kind::Invite), now_period);
+            moves.regard(state, a, 8);
+            moves.lack(state, a, Need::Company, -20);
+            moves.lack(state, a, Need::Purpose, -10);
+            (
+                w("{a} took you somewhere of theirs"),
+                w("I'm glad you came."),
+            )
+        }
+        (Kind::Invite, "another") => {
+            moves.set(a, &door_key(Kind::Invite), now_period);
+            moves.regard(state, a, 2);
+            (
+                w("{a} asked you along, another time"),
+                w("Another time, then."),
+            )
+        }
+        (Kind::Invite, "lapse") => {
+            moves.set(a, &door_key(Kind::Invite), now_period);
+            let said = pick(&MISSED, mix(&[a.0, 9]))
+                .copied()
+                .unwrap_or("Never mind.");
+            (w("{a} went on their own"), w(said))
+        }
         (Kind::Confide, "keep") => {
             moves.set(a, &door_key(Kind::Confide), now_period);
             moves.regard(state, a, 10);
@@ -2484,6 +2608,16 @@ impl Action for Answers {
             }
         }
         let (mut moves, told, said) = outcome(state, &cast, &candidate, answer)?;
+        // At a door, they answer in their own words: the first reply to
+        // the warmer answer, the second to the other.
+        let said = match (door_scene(&cast, &candidate), lapsed) {
+            (Some(scene), false) => {
+                let warmer = matches!(answer, "stay" | "keep" | "go" | "word" | "help");
+                let words = words_for(state, &cast, &candidate);
+                fill_owned(scene.replies[usize::from(!warmer)], &words)
+            }
+            _ => said,
+        };
         let heard = Heard::of(state, &cast);
         let said = personal(
             state,
@@ -2587,6 +2721,10 @@ impl Action for Reacts {
             })
             .collect::<Vec<_>>();
         let said = pick_line(&options, &heard, who);
+        let said = match (cast.voice)(who) {
+            Some(voice) => restyle(voice, &said, mix(&[who.0, heard.now, 41])),
+            None => said,
+        };
         let mut moves = Moves::default();
         remember_saying(&mut moves, &heard, &said);
         if deed != "moved_by_hand" {
@@ -2600,6 +2738,55 @@ impl Action for Reacts {
         draft
             .payload
             .insert("place".into(), name(state, place).into());
+        draft.payload.insert("said".into(), said.into());
+        draft.changes = moves.changes;
+        Ok(draft)
+    }
+}
+
+/// Someone warming to the player shares a small moment with them: the
+/// first of their five scenes, said unasked.
+struct Warms(fn(&WorldState) -> Cast);
+
+impl Action for Warms {
+    fn name(&self) -> &'static str {
+        "lives_warms"
+    }
+
+    fn evaluate(
+        &self,
+        state: &WorldState,
+        request: &ActionRequest,
+    ) -> Result<EventDraft, ActionError> {
+        let cast = (self.0)(state);
+        let who = arg_entity(request, "who")?;
+        if !enrolled(state, who) || gone(state, who) {
+            return Err(ActionError::Invalid("nobody to warm".into()));
+        }
+        if door_opened(state, who, Kind::Warming).is_some() {
+            return Err(ActionError::Invalid("already warmed".into()));
+        }
+        let candidate = Candidate {
+            kind: Kind::Warming,
+            a: who,
+            b: None,
+            topic: 0,
+        };
+        let words = words_for(state, &cast, &candidate);
+        let scene = scene_of((cast.voice)(who), (cast.traits)(who), 0);
+        let said = fill_owned(scene.prompt, &words);
+        let mut moves = Moves::default();
+        moves.set(who, &door_key(Kind::Warming), period(state, &cast) as i64);
+        moves.regard(state, who, 2);
+        let heard = Heard::of(state, &cast);
+        remember_saying(&mut moves, &heard, &said);
+        let mut draft = EventDraft::new("warmed");
+        draft.actor = Some(who);
+        draft.targets = vec![who];
+        draft.payload.insert(
+            "told".into(),
+            format!("{} shared a quiet moment with you", first_name(state, who)).into(),
+        );
         draft.payload.insert("said".into(), said.into());
         draft.changes = moves.changes;
         Ok(draft)
@@ -2906,6 +3093,7 @@ pub fn register_actions(
     registry.register(Reacts(cast))?;
     registry.register(LeavesKeepsake(cast))?;
     registry.register(Greets(cast))?;
+    registry.register(Warms(cast))?;
     Ok(())
 }
 
@@ -2991,6 +3179,25 @@ pub fn tick_holding(
             events.push(world.execute(actions, &answer_request(&key, "lapse"))?.id);
         }
     }
+    // Someone warming to the player shares a first small moment with them,
+    // unasked: the first of the five a friendship opens.
+    let warming = {
+        let state = world.state();
+        living(world, cast).into_iter().find(|person| {
+            enrolled(state, *person)
+                && !gone(state, *person)
+                && regard(state, *person) >= FOND
+                && door_opened(state, *person, Kind::Warming).is_none()
+        })
+    };
+    if let Some(person) = warming {
+        let request = ActionRequest::new("lives_warms")
+            .actor(person)
+            .arg("who", Value::Entity(person));
+        if let Ok(event) = world.execute(actions, &request) {
+            events.push(event.id);
+        }
+    }
     if !hold && open(world.state(), cast).len() < cast.most_open {
         if let Some(candidate) = candidates(world, cast).into_iter().next() {
             let request =
@@ -3025,6 +3232,7 @@ pub fn is_life(event: &Event) -> bool {
             | "reacted"
             | "keepsake_left"
             | "greeted"
+            | "warmed"
     )
 }
 
