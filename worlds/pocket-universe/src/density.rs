@@ -533,3 +533,64 @@ fn your_hands_shape_each_place() {
         );
     }
 }
+
+/// The v0.12 bar for branches, on Mars: split at period 10 by one different
+/// answer and played 90 periods the same way, the two colonies meet
+/// situations at least a third different, and look different.
+#[test]
+fn branches_become_different_colonies() {
+    let mut universe = PocketUniverse::new().unwrap();
+    universe.invoke_projection_command(MARS).unwrap();
+    let step = |universe: &mut PocketUniverse<crate::PocketMind>, last: bool| {
+        let snapshot = projection::snapshot(universe.world());
+        let answers = snapshot
+            .choices()
+            .filter(|command| command.question.is_some() && command.unavailable.is_none())
+            .map(|command| command.id.clone())
+            .collect::<Vec<_>>();
+        let pick = if last {
+            answers.last()
+        } else {
+            answers.first()
+        };
+        if let Some(answer) = pick {
+            universe.invoke_projection_command(answer).unwrap();
+        }
+        universe.invoke_projection_command(NUDGE_COMMAND).unwrap();
+    };
+    for _ in 0..10 {
+        step(&mut universe, false);
+    }
+    let split = universe.world().events().len();
+    let archive = universe.archive().unwrap();
+    let mut left = universe;
+    let mut right = PocketUniverse::resume_archive(&archive).unwrap();
+    step(&mut left, false);
+    step(&mut right, true);
+    for _ in 0..90 {
+        step(&mut left, false);
+        step(&mut right, false);
+    }
+    let met = |universe: &PocketUniverse<crate::PocketMind>| {
+        universe.world().events()[split..]
+            .iter()
+            .filter_map(|event| match event.kind.as_str() {
+                "situation_arose" => event.payload.get("storylet"),
+                "situation_came_up" => event.payload.get("situation"),
+                _ => None,
+            })
+            .filter_map(|key| match key {
+                world_core::Value::Text(key) => Some(key.clone()),
+                _ => None,
+            })
+            .collect::<std::collections::BTreeSet<_>>()
+    };
+    let (a, b) = (met(&left), met(&right));
+    let differ = a.symmetric_difference(&b).count();
+    let all = a.union(&b).count();
+    assert!(
+        differ * 3 >= all,
+        "only {differ} of {all} situations differ between the branches"
+    );
+    assert_ne!(scene(left.world()), scene(right.world()));
+}

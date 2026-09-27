@@ -414,6 +414,7 @@ pub(crate) fn cast() -> Cast {
         stays,
         traits,
         kept: |_, _| false,
+        mood: |state| crate::story::spirits_of(state),
         work,
         home,
         gathering: PUB,

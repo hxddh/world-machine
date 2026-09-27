@@ -1439,6 +1439,14 @@ fn text(world: &World, id: EntityId, key: &str) -> Option<String> {
 }
 
 /// How the harbour feels, from -5 to 5.
+/// The harbour's spirits, read straight from its state.
+pub(crate) fn spirits_of(state: &world_core::WorldState) -> i64 {
+    match state.entity(STORY).and_then(|story| story.component(MOOD)) {
+        Some(Value::Integer(mood)) => *mood * 2,
+        _ => 0,
+    }
+}
+
 pub(crate) fn spirits(world: &World) -> i64 {
     integer(world, STORY, MOOD).unwrap_or(0)
 }

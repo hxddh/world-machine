@@ -572,3 +572,67 @@ fn the_weather_follows_the_world() {
     }
     assert!(seen.len() >= 4, "{seen:?}");
 }
+
+/// The v0.12 bar for branches: two branches split at day 10 by one
+/// different answer, then played 90 days the same way, end up different
+/// towns: at least a third of the situations their people met differ, and
+/// so does what stands in the place.
+#[test]
+fn branches_become_different_towns() {
+    let mut society = TinySociety::new().unwrap();
+    society.run_story().unwrap();
+    let mut branch = society.branch();
+    branch.begin_story().unwrap();
+    let answer_first = |branch: &mut TinySocietyBranch, last: bool| {
+        let snapshot = branch.projection_snapshot();
+        let answers = snapshot
+            .choices()
+            .filter(|command| command.question.is_some() && command.unavailable.is_none())
+            .map(|command| command.id.clone())
+            .collect::<Vec<_>>();
+        let pick = if last {
+            answers.last()
+        } else {
+            answers.first()
+        };
+        if let Some(answer) = pick {
+            branch.invoke_projection_command(answer).unwrap();
+        }
+        branch
+            .invoke_projection_command(story::WAIT_COMMAND)
+            .unwrap();
+    };
+    for _ in 0..10 {
+        answer_first(&mut branch, false);
+    }
+    let split = branch.world().events().len();
+    let (mut left, mut right) = (branch.clone(), branch);
+    answer_first(&mut left, false);
+    answer_first(&mut right, true);
+    for _ in 0..90 {
+        answer_first(&mut left, false);
+        answer_first(&mut right, false);
+    }
+    let met = |branch: &TinySocietyBranch| {
+        branch.world().events()[split..]
+            .iter()
+            .filter_map(|event| match event.kind.as_str() {
+                "situation_arose" => event.payload.get("storylet"),
+                "situation_came_up" => event.payload.get("situation"),
+                _ => None,
+            })
+            .filter_map(|key| match key {
+                world_core::Value::Text(key) => Some(key.clone()),
+                _ => None,
+            })
+            .collect::<std::collections::BTreeSet<_>>()
+    };
+    let (a, b) = (met(&left), met(&right));
+    let differ = a.symmetric_difference(&b).count();
+    let all = a.union(&b).count();
+    assert!(
+        differ * 3 >= all,
+        "only {differ} of {all} situations differ between the branches"
+    );
+    assert_ne!(scene(left.world()), scene(right.world()));
+}

@@ -672,6 +672,18 @@ fn traits(person: EntityId) -> Option<[&'static str; 2]> {
     })
 }
 
+/// How the place feels: how the pair get on, trust against tension.
+fn mood(state: &WorldState) -> i64 {
+    let value = |key: &str| match state
+        .entity(crate::RELATIONSHIP)
+        .and_then(|relationship| relationship.component(key))
+    {
+        Some(Value::Integer(value)) => *value,
+        _ => 0,
+    };
+    value("trust") - value("tension")
+}
+
 /// The pair's standing with each other is Pocket Universe's own story.
 fn kept(a: EntityId, b: EntityId) -> bool {
     (a == SLOT_B && b == SLOT_E) || (a == SLOT_E && b == SLOT_B)
@@ -934,6 +946,7 @@ pub(crate) fn cast(state: &WorldState) -> Cast {
         stays,
         traits,
         kept,
+        mood,
         work,
         home,
         gathering: SLOT_A,

@@ -140,6 +140,10 @@ pub struct Cast {
     /// Two people whose standing with each other is the Pack's own story,
     /// which this System leaves alone.
     pub kept: fn(EntityId, EntityId) -> bool,
+    /// How the place feels as a whole, in the Pack's terms, from -10
+    /// (bitter) to 10 (bright): it colours everyone's days, so what the
+    /// player decides reaches into people's lives.
+    pub mood: fn(&WorldState) -> i64,
     /// Where someone works and where they live, if anywhere.
     pub work: fn(&WorldState, EntityId) -> Option<EntityId>,
     pub home: fn(&WorldState, EntityId) -> Option<EntityId>,
@@ -739,7 +743,8 @@ impl Action for Lives {
             _ => Vec::new(),
         };
         let now = period(state, &cast);
-        let seed = mix(&[now, person.0, 11]);
+        let mood = (cast.mood)(state).clamp(-10, 10);
+        let seed = mix(&[now, person.0, 11, (mood + 10) as u64]);
         // Two days in five, whoever has work goes to it, unless they are
         // dead on their feet; the rest are theirs.
         let working = (cast.work)(state, person).is_some()
@@ -823,7 +828,10 @@ impl Action for Lives {
             let frayed = Need::ALL
                 .iter()
                 .any(|need| lack(state, person, *need) >= 70 || lack(state, other, *need) >= 80);
-            quarrel = chance < ((18 - fit * 4).max(5) + if frayed { 12 } else { 0 }) as u64;
+            // A sour mood in the place shortens tempers; a bright one
+            // lengthens them.
+            let temper = (18 - fit * 4).max(5) + if frayed { 12 } else { 0 } - mood;
+            quarrel = chance < temper.max(2) as u64;
             let by = if quarrel {
                 -(10 + (chance % 12) as i64)
             } else {
@@ -1224,6 +1232,15 @@ fn open_map<'a>(
     }
 }
 
+/// How the place stands, as one number: everyone's goodwill toward it.
+fn standing_of(state: &WorldState, people: &[EntityId]) -> u64 {
+    people
+        .iter()
+        .map(|person| integer(state, *person, REGARD).unwrap_or(0))
+        .sum::<i64>()
+        .unsigned_abs()
+}
+
 fn next_visitor(state: &WorldState, cast: &Cast) -> Option<EntityId> {
     let visitors = cast.visitors?;
     (visitors.first..visitors.first + visitors.room)
@@ -1367,7 +1384,9 @@ pub fn candidates(world: &World, cast: &Cast) -> Vec<Candidate> {
                     kind: Kind::Visitor,
                     a: cast.host,
                     b: Some(visitor),
-                    topic: mix(&[visitor.0, 5]) % 1000,
+                    // Who turns up depends on how the place is doing:
+                    // two branches of a World meet different strangers.
+                    topic: mix(&[visitor.0, standing_of(state, &people), now]) % 1000,
                 },
             ));
         }
@@ -1449,7 +1468,7 @@ fn words_for(
     if let Some(b) = candidate.b {
         if candidate.kind == Kind::Visitor {
             if let Some(visitors) = cast.visitors {
-                let seed = mix(&[b.0, 17]);
+                let seed = mix(&[b.0, candidate.topic, 17]);
                 words.push((
                     "b",
                     pick(visitors.names, seed)
@@ -1771,6 +1790,11 @@ fn outcome(
         Ok(())
     };
     let people = cast_ids(state);
+    let heard = Heard::of(state, cast);
+    let say = |options: &[&str]| {
+        let options = options.iter().map(|option| w(option)).collect::<Vec<_>>();
+        pick_line(&options, &heard, a)
+    };
     // Where an answer sends people shows on the scene.
     let go = |moves: &mut Moves, who: EntityId, place: EntityId| {
         if state.entity(who).is_some() {
@@ -1853,7 +1877,12 @@ fn outcome(
             go(&mut moves, a, gathering);
             (
                 w("{a} kept it to themselves"),
-                w("Maybe you're right. Maybe."),
+                say(&[
+                    "Maybe you're right. Maybe.",
+                    "I'll wait. For now.",
+                    "Best not rush it.",
+                    "Not yet, then.",
+                ]),
             )
         }
         (Kind::Learn, "teach") => {
@@ -1871,7 +1900,15 @@ fn outcome(
             moves.lack(state, a, Need::Purpose, 10);
             moves.regard(state, a, -5);
             go(&mut moves, a, quiet);
-            (w("{a} was told not now"), w("Another time, then."))
+            (
+                w("{a} was told not now"),
+                say(&[
+                    "Another time, then.",
+                    "Maybe next month.",
+                    "I'll ask again. Later.",
+                    "Fair enough.",
+                ]),
+            )
         }
         (Kind::Short, "fund") => {
             spend(&mut moves)?;
@@ -1900,7 +1937,15 @@ fn outcome(
             moves.regard(state, a, -8);
             moves.lack(state, a, Need::Money, 5);
             go(&mut moves, a, work_of(a));
-            (w("{a} scraped by"), w("Right. I'll manage."))
+            (
+                w("{a} scraped by"),
+                say(&[
+                    "Right. I'll manage.",
+                    "I'll find a way.",
+                    "Tighten the belt, then.",
+                    "Somehow. I'll manage.",
+                ]),
+            )
         }
         (Kind::Lonely, "invite") => {
             moves.lack(state, a, Need::Company, -55);
@@ -1939,27 +1984,56 @@ fn outcome(
             moves.lack(state, a, Need::Company, 8);
             moves.regard(state, a, -3);
             go(&mut moves, a, quiet);
-            (w("{a} kept to themselves"), w("Maybe tomorrow."))
+            (
+                w("{a} kept to themselves"),
+                say(&[
+                    "Maybe tomorrow.",
+                    "I'm fine on my own. Mostly.",
+                    "Quiet suits me. For now.",
+                    "Another evening, perhaps.",
+                ]),
+            )
         }
         (Kind::Worn, "rest") => {
             moves.lack(state, a, Need::Rest, -65);
             moves.lack(state, a, Need::Money, 10);
             moves.regard(state, a, 8);
             go(&mut moves, a, quiet);
-            (w("{a} took a day off"), w("Slept till noon. Bliss."))
+            (
+                w("{a} took a day off"),
+                say(&[
+                    "Slept till noon. Bliss.",
+                    "A whole day off. I'd forgotten what that was.",
+                    "Rested. Human again.",
+                ]),
+            )
         }
         (Kind::Worn, "push") => {
             moves.lack(state, a, Need::Rest, 10);
             moves.lack(state, a, Need::Money, -20);
             moves.regard(state, a, -6);
             go(&mut moves, a, work_of(a));
-            (w("{a} pushed on"), w("One more push, then."))
+            (
+                w("{a} pushed on"),
+                say(&[
+                    "One more push, then.",
+                    "Fine. Back to it.",
+                    "I'll keep going. For now.",
+                ]),
+            )
         }
         (Kind::Worn, "lapse") => {
             moves.lack(state, a, Need::Rest, -35);
             moves.regard(state, a, -4);
             go(&mut moves, a, quiet);
-            (w("{a} took the day anyway"), w("I needed that. Sorry."))
+            (
+                w("{a} took the day anyway"),
+                say(&[
+                    "I needed that. Sorry.",
+                    "Had to stop. Couldn't go on.",
+                    "Took the day. Don't be cross.",
+                ]),
+            )
         }
         (Kind::Party, "party") => {
             spend(&mut moves)?;
@@ -1993,7 +2067,7 @@ fn outcome(
             if state.entity(visitor).is_some() {
                 return Err(ActionError::Invalid("already here".into()));
             }
-            let seed = mix(&[visitor.0, 17]);
+            let seed = mix(&[visitor.0, candidate.topic, 17]);
             let visitor_name = pick(visitors.names, seed).copied().unwrap_or("A stranger");
             let (_, job) = pick(visitors.trades, seed / 7)
                 .copied()

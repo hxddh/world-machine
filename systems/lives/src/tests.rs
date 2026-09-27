@@ -112,6 +112,7 @@ fn cast() -> Cast {
         stays: |id| id.0 <= 2,
         traits: |_| None,
         kept: |_, _| false,
+        mood: |_| 0,
         work,
         home,
         gathering: PUB,
