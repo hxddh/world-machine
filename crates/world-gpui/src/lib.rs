@@ -6,7 +6,7 @@ pub mod text_input;
 pub mod ui;
 
 pub use macos::{is_beginning, scene_share, words_at_rest, ProjectionView, RESTING_WORD_LIMIT};
-pub use world_projection::{ProjectionIntent, ProjectionSnapshot};
+pub use world_projection::{ProjectionIntent, ProjectionSnapshot, SelectionId};
 
 pub trait ProjectionController {
     fn snapshot(&self) -> ProjectionSnapshot;
