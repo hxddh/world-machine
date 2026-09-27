@@ -1,6 +1,7 @@
 mod actions;
 mod almanac;
 mod behaviors;
+mod book;
 mod drawings;
 mod drift;
 mod fishing;
@@ -17,12 +18,15 @@ mod persistence;
 mod projection;
 mod reciprocity;
 mod recovery;
+#[cfg(test)]
+mod red_team;
 mod seed;
 mod social;
 mod speech;
 mod staffing;
 mod story;
 mod talk;
+mod voices;
 
 use std::error::Error;
 use world_agent::{
@@ -46,6 +50,25 @@ pub use model::{
 pub use persistence::{
     tiny_society_pack_ref, VisitCursor, TINY_SOCIETY_PACK_ID, TINY_SOCIETY_PACK_VERSION,
 };
+
+/// Tiny Society in Simplified Chinese: English, a tab, then the
+/// translation, a line each.
+pub const ZH_HANS: &str = include_str!("../locales/zh-Hans.tsv");
+
+/// The core residents' own lines as templates and what fills them, for
+/// showing every one of them in another language.
+pub type VoiceTemplates = Vec<(
+    &'static [&'static str],
+    &'static [(&'static str, &'static [&'static str])],
+)>;
+
+pub fn voice_templates() -> VoiceTemplates {
+    [JONAS, MARA, LEO, EMMA, MIA, NOAH, EVAN, SOFIA]
+        .into_iter()
+        .filter_map(voices::voice)
+        .map(|voice| (voice.lines, voice.slots))
+        .collect()
+}
 
 pub const RETAIN_WORKER_COMMAND: &str = "tiny-society.retain-worker";
 pub const REOPEN_BAKERY_COMMAND: &str = "tiny-society.reopen-bakery";
@@ -122,7 +145,10 @@ impl TinySocietyBranch {
     /// first question waits for the player's first deed.
     pub fn begin_story(&mut self) -> Result<Vec<EventId>, Box<dyn Error>> {
         let actions = build_action_registry()?;
-        Ok(story::tick(&mut self.world, &actions, false)?)
+        let mut events = story::tick(&mut self.world, &actions, false)?;
+        // Someone comes over to say hello.
+        events.extend(lives::greet(&mut self.world, &actions, &life::cast())?);
+        Ok(events)
     }
 
     pub fn fork_before_event(&mut self, event_id: EventId) -> Result<(), Box<dyn Error>> {
@@ -219,6 +245,11 @@ impl TinySocietyBranch {
         let deed = handwork::parse_command(command_id)
             .ok_or_else(|| std::io::Error::other(format!("not a deed: {command_id}")))?;
         let actions = build_action_registry()?;
+        if deed == handwork::UNDO {
+            return Ok(vec![
+                self.world.execute(&actions, &hands::undo_request())?.id,
+            ]);
+        }
         let event = self.world.execute(&actions, &hands::do_request(deed))?.id;
         let mut events = vec![event];
         // Someone nearby says what they make of it, and in a new harbour

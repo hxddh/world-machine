@@ -963,6 +963,7 @@ pub(crate) fn cast(state: &WorldState) -> Cast {
         visitors: Some(visitors),
         most_people: 8,
         most_open: 1,
+        voice: |_| None,
     }
 }
 

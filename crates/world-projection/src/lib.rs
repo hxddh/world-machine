@@ -10,8 +10,8 @@ use world_core::{
 
 pub use causal::{why_from_world, why_map_from_world, WhyNode, WhyProjection};
 pub use drawing::{
-    contact_sheet, figure, figure_point, person_base, short_hair, toned, DrawPart, DrawShape,
-    Drawing, Ink, Stance,
+    contact_sheet, drop_of, figure, figure_point, person, person_base, short_hair, toned, DrawPart,
+    DrawShape, Drawing, Ink, Mood, Stance, SILHOUETTES,
 };
 pub use influence::effect_headline;
 
@@ -429,6 +429,23 @@ pub struct ProjectionSnapshot {
     /// What people have given the player to keep, oldest first: the
     /// drawer's keepsakes.
     pub keepsakes: Vec<Keepsake>,
+    /// Everything there is to find in this World, found or not: the book
+    /// the drawer keeps, with a silhouette for what is still to come.
+    pub book: Vec<BookEntry>,
+}
+
+/// One entry in a World's book of everything to find: a keepsake, a person
+/// met, something made, a festival day.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BookEntry {
+    /// Which shelf it sits on: "Keepsakes", "People", "Made", "Days".
+    pub shelf: String,
+    pub name: String,
+    pub found: bool,
+    /// How it is drawn, found or as a silhouette.
+    pub shape: Option<MarkShape>,
+    /// A word on how it might be found, for what is still to come.
+    pub hint: String,
 }
 
 /// Something someone gave the player to keep, in the Pack's words: who
@@ -1425,6 +1442,22 @@ pub enum MarkShape {
     Bench,
     /// Seedlings just up out of the ground.
     Sprouts,
+    /// A stone well with a little roof and a bucket.
+    Well,
+    /// A swing hung from a frame.
+    Swing,
+    /// A round stone fountain, water rising.
+    Fountain,
+    /// A post with arms pointing the way.
+    Signpost,
+    /// A birdhouse on a pole.
+    Birdhouse,
+    /// A long box of flowers.
+    Planter,
+    /// A figure on a plinth.
+    Statue,
+    /// A pillar box for letters.
+    Postbox,
 }
 
 /// How a connection reads: warm, strained, or neither.
@@ -1486,6 +1519,12 @@ pub struct CanvasItem {
     /// How a person stands with the player, for a World the player can
     /// talk in.
     pub standing: Option<Standing>,
+    /// How a person feels, for their face.
+    pub mood: Option<Mood>,
+    /// Where along the ground a thing stands, from 0 (the left edge) to 1
+    /// (the right), when the player put it somewhere of their choosing;
+    /// `None` stands it beside its place.
+    pub spot: Option<f32>,
 }
 
 /// How someone stands with the player: a mark from -2 (does not trust

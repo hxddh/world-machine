@@ -14,7 +14,7 @@ use world_theme::tokens;
 use crate::scene;
 
 mod world_window;
-pub use world_window::{scene_share, words_at_rest, RESTING_WORD_LIMIT};
+pub use world_window::{scene_share, speech_pages, words_at_rest, RESTING_WORD_LIMIT};
 
 const ENTITY_HISTORY_LIMIT: usize = 6;
 const RELATION_HISTORY_LIMIT: usize = 6;
@@ -1217,6 +1217,8 @@ impl Render for ProjectionView {
             window.appearance(),
             gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark
         ));
+        // Text as large as the player asked for, everywhere in the window.
+        window.set_rem_size(px(crate::rem_size()));
         let world = self.render_world(window, cx);
         let mut root = div()
             .size_full()

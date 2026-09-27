@@ -96,12 +96,13 @@ pub(crate) fn snapshot_since(
         gauges: gauges(world),
         voices: crate::talk::voices(world),
         exchanges: exchanges(world, &commands_on_offer),
-        drawings: crate::drawings::drawings().to_vec(),
+        drawings: crate::drawings::drawings_for(world),
         talks,
         goals: crate::story::goals(world),
         chapters: crate::story::chapters(world),
         weather: crate::story::weather(world),
         keepsakes: crate::life::keepsakes(world),
+        book: crate::book::book(world),
     };
     snapshot.tell_events_as_history_does();
     snapshot
@@ -287,7 +288,7 @@ pub(crate) fn available_commands(world: &World) -> Vec<ProjectionCommand> {
             id: crate::REOPEN_BAKERY_COMMAND.into(),
             title: "Reopen with Mara's savings".into(),
             detail: format!(
-                "Invest {} of Mara's cash to reopen Harbor Bakery. Mara returns to work; former workers are not automatically rehired.",
+                "Mara puts {} of her savings into Harbor Bakery and goes back to work. The old staff aren't rehired.",
                 crate::BAKERY_REOPEN_INVESTMENT
             ), effects: Vec::new(),
             scenery: None, asker: None, moves: Vec::new(), question: None, unavailable: None, hand: None,
@@ -301,7 +302,7 @@ pub(crate) fn available_commands(world: &World) -> Vec<ProjectionCommand> {
             id: crate::LEAN_REOPEN_BAKERY_COMMAND.into(),
             title: "Reopen as an owner-run counter".into(),
             detail: format!(
-                "Invest {} of Mara's cash and reopen Harbor Bakery without a fixed daily Bakery wage. Lower overhead can survive weak demand, but Mara gives up predictable pay.",
+                "Mara puts in {} and runs the counter herself: cheap to keep open, but no steady wage.",
                 crate::recovery::LEAN_REOPEN_INVESTMENT
             ), effects: Vec::new(),
             scenery: None, asker: None, moves: Vec::new(), question: None, unavailable: None, hand: None,
@@ -313,7 +314,7 @@ pub(crate) fn available_commands(world: &World) -> Vec<ProjectionCommand> {
             id: crate::REPAIR_BOAT_COMMAND.into(),
             title: "Repair Sea Finch with Leo's backing".into(),
             detail: format!(
-                "Leo pays Evan {} to repair Sea Finch. Jonas returns to Harbor fishing once the boat is sound. Leo's backing does not stand indefinitely.",
+                "Leo pays Evan {} to mend Sea Finch, and Jonas goes back to fishing. Leo won't wait forever.",
                 crate::social::SEA_FINCH_REPAIR_COST
             ), effects: Vec::new(),
             scenery: None, asker: None, moves: Vec::new(), question: None, unavailable: None, hand: None,
@@ -872,6 +873,7 @@ fn place_shape(id: EntityId) -> MarkShape {
 }
 
 fn canvas_items(world: &World) -> Vec<CanvasItem> {
+    let askers = crate::speech::askers(world);
     let mut items = Vec::new();
 
     for (id, x, y) in [
@@ -906,6 +908,8 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                 drawing: crate::drawings::drawing_of(id, false),
                 stance: None,
                 standing: None,
+                mood: None,
+                spot: None,
             });
         }
     }
@@ -949,6 +953,8 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                 drawing: crate::drawings::drawing_of(id, true),
                 stance: crate::drawings::stance_of(world, id, workplace(world, id)),
                 standing: crate::speech::standing_of(world, id),
+                mood: crate::speech::mood_of(world, id, &askers),
+                spot: None,
             });
         }
     }
@@ -980,6 +986,8 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                 drawing: crate::drawings::drawing_of(id, true),
                 stance: crate::drawings::stance_of(world, id, crate::life::work(world.state(), id)),
                 standing: crate::speech::standing_of(world, id),
+                mood: crate::speech::mood_of(world, id, &askers),
+                spot: None,
             });
         }
     }
@@ -1017,6 +1025,8 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                 drawing: None,
                 stance: None,
                 standing: None,
+                mood: None,
+                spot: None,
             });
         }
     }
@@ -1507,6 +1517,7 @@ mod probe_parts {
         t!("goals", crate::story::goals(world));
         t!("chapters", crate::story::chapters(world));
         t!("weather", crate::story::weather(world));
+        t!("book", crate::book::book(world));
         let mut s = t!("snapshot", snapshot(world));
         t!("tell", s.tell_events_as_history_does());
         eprintln!("events {}", world.events().len());

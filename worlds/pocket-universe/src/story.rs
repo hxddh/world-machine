@@ -1604,7 +1604,8 @@ pub(crate) fn told(world: &World, event: &Event) -> Option<String> {
             _ => None,
         };
     }
-    if lives::is_news(event) {
+    // Being greeted is the first thing that happens to a newcomer.
+    if lives::is_news(event) || event.kind == "greeted" {
         return lives::told(event);
     }
     if hands::is_hands(event) {
@@ -1630,6 +1631,9 @@ pub(crate) fn line(world: &World, event: &Event) -> Option<(EntityId, String)> {
     }
     if calendar::is_calendar(event) {
         return calendar::said(event);
+    }
+    if hands::is_hands(event) {
+        return hands::said(event);
     }
     let spec = storylet_of(event)?;
     let asker = spec.storylet.asker;
@@ -3676,7 +3680,7 @@ fn threads() -> Vec<Spec> {
 
 /// How a fixture is drawn here: the second home and the beacon take the
 /// place's own shapes.
-fn fixture_shape(world: &World, shape: &str) -> world_projection::MarkShape {
+pub(crate) fn fixture_shape(world: &World, shape: &str) -> world_projection::MarkShape {
     use world_projection::MarkShape;
     match (shape, seed_id(world)) {
         ("second", "mars-colony") => MarkShape::Dome,
@@ -3694,6 +3698,15 @@ fn fixture_shape(world: &World, shape: &str) -> world_projection::MarkShape {
         ("bench", _) => MarkShape::Bench,
         ("sprouts", _) => MarkShape::Sprouts,
         ("tree", _) => MarkShape::Tree,
+        ("boat", _) => MarkShape::Boat,
+        ("well", _) => MarkShape::Well,
+        ("swing", _) => MarkShape::Swing,
+        ("fountain", _) => MarkShape::Fountain,
+        ("signpost", _) => MarkShape::Signpost,
+        ("birdhouse", _) => MarkShape::Birdhouse,
+        ("planter", _) => MarkShape::Planter,
+        ("statue", _) => MarkShape::Statue,
+        ("postbox", _) => MarkShape::Postbox,
         _ => MarkShape::Parcel,
     }
 }
@@ -3725,6 +3738,11 @@ pub(crate) fn fixtures(world: &World) -> Vec<world_projection::CanvasItem> {
                 drawing: crate::drawings::fixture_drawing(world, &text("shape")),
                 stance: None,
                 standing: None,
+                mood: None,
+                spot: match fixture.component(hands::SPOT) {
+                    Some(Value::Integer(spot)) => Some((*spot).clamp(0, 100) as f32 / 100.0),
+                    _ => None,
+                },
             }
         })
         .collect()

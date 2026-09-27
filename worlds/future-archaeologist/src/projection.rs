@@ -45,6 +45,7 @@ pub(crate) fn snapshot(world: &World) -> ProjectionSnapshot {
         goals: Vec::new(),
         weather: Default::default(),
         keepsakes: Vec::new(),
+        book: Vec::new(),
         exchanges: Vec::new(),
         drawings: Vec::new(),
     }
@@ -196,6 +197,8 @@ fn canvas(world: &World, artifacts: &[EntityId]) -> CanvasProjection {
                 drawing: None,
                 stance: None,
                 standing: None,
+                mood: None,
+                spot: None,
             });
         }
     }
@@ -229,6 +232,8 @@ fn canvas(world: &World, artifacts: &[EntityId]) -> CanvasProjection {
             drawing: None,
             stance: None,
             standing: None,
+            mood: None,
+            spot: None,
         });
     }
 

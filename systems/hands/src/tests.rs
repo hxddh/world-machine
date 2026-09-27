@@ -15,6 +15,7 @@ const THINGS: &[Thing] = &[
         cost: 30,
         lasts: None,
         stages: &[],
+        effect: Effect::Rest,
     },
     Thing {
         id: "bunting",
@@ -24,6 +25,7 @@ const THINGS: &[Thing] = &[
         cost: 10,
         lasts: Some(3),
         stages: &[],
+        effect: Effect::None,
     },
     Thing {
         id: "garden",
@@ -37,6 +39,7 @@ const THINGS: &[Thing] = &[
             ("Vegetable patch", "garden"),
             ("Garden in bloom", "garden"),
         ],
+        effect: Effect::Harvest,
     },
 ];
 
@@ -72,6 +75,13 @@ fn kit(_: &WorldState) -> Kit {
         gathering: SQUARE,
         growing: 3,
         per_period: 2,
+        enjoy: |_, who, effect| {
+            vec![StateChange::SetComponent {
+                entity: who,
+                key: format!("enjoyed.{}", effect.id()),
+                value: true.into(),
+            }]
+        },
         most_standing: 10,
     }
 }
@@ -209,4 +219,129 @@ fn only_someone_living_here_can_be_given_to_or_invited() {
         world.state().entity(SQUARE).unwrap().component("glad"),
         None
     );
+}
+
+#[test]
+fn what_you_make_can_stand_anywhere_along_the_ground_and_move_there() {
+    let (mut world, registry) = world(100);
+    let deed = deeds(&world, &kit(world.state()))
+        .into_iter()
+        .find(|deed| deed.verb == Verb::Build && deed.at == QUAY)
+        .unwrap();
+    world
+        .execute(&registry, &do_request(&at_spot(&deed.key, 37)))
+        .unwrap();
+    let bench = made(world.state())[0];
+    assert_eq!(integer(world.state(), bench, SPOT), Some(37));
+    // A spot beyond the ground, or on a person, is refused.
+    assert!(world
+        .execute(&registry, &do_request(&format!("{}@140", deed.key)))
+        .is_err());
+    pass(&mut world, &registry);
+    let moved = format!("move.{}.{}", bench.0, SQUARE.0);
+    world
+        .execute(&registry, &do_request(&at_spot(&moved, 80)))
+        .unwrap();
+    assert_eq!(integer(world.state(), bench, SPOT), Some(80));
+    let replayed = world.replay().unwrap();
+    assert_eq!(replayed.state(), world.state());
+}
+
+#[test]
+fn what_you_just_made_or_moved_can_be_taken_back_the_same_period() {
+    let (mut world, registry) = world(100);
+    let deed = deeds(&world, &kit(world.state()))
+        .into_iter()
+        .find(|deed| deed.verb == Verb::Build && deed.at == QUAY)
+        .unwrap();
+    world.execute(&registry, &do_request(&deed.key)).unwrap();
+    assert_eq!(integer(world.state(), FUND, "cash"), Some(70));
+    assert_eq!(
+        can_undo(world.state(), &kit(world.state())).as_deref(),
+        Some("Take back the bench")
+    );
+    world.execute(&registry, &undo_request()).unwrap();
+    assert!(made(world.state()).is_empty(), "the bench is gone again");
+    assert_eq!(
+        integer(world.state(), FUND, "cash"),
+        Some(100),
+        "and paid back"
+    );
+    assert_eq!(left_this_period(world.state(), &kit(world.state())), 2);
+    assert!(
+        world.execute(&registry, &undo_request()).is_err(),
+        "once only"
+    );
+    // A move is taken back to where it stood; the next period, nothing is.
+    world
+        .execute(&registry, &do_request(&at_spot(&deed.key, 20)))
+        .unwrap();
+    let bench = made(world.state())[0];
+    pass(&mut world, &registry);
+    assert!(can_undo(world.state(), &kit(world.state())).is_none());
+    world
+        .execute(
+            &registry,
+            &do_request(&format!("move.{}.{}", bench.0, SQUARE.0)),
+        )
+        .unwrap();
+    world.execute(&registry, &undo_request()).unwrap();
+    let entity = world.state().entity(bench).unwrap();
+    assert_eq!(entity.component("at"), Some(&Value::Entity(QUAY)));
+    assert_eq!(integer(world.state(), bench, SPOT), Some(20));
+    let replayed = world.replay().unwrap();
+    assert_eq!(replayed.state(), world.state());
+}
+
+#[test]
+fn people_use_what_you_make() {
+    let (mut world, registry) = world(100);
+    let build = deeds(&world, &kit(world.state()))
+        .into_iter()
+        .find(|deed| deed.verb == Verb::Build && deed.at == QUAY)
+        .unwrap();
+    world.execute(&registry, &do_request(&build.key)).unwrap();
+    let plant = deeds(&world, &kit(world.state()))
+        .into_iter()
+        .find(|deed| deed.verb == Verb::Plant && deed.at == SQUARE)
+        .unwrap();
+    world.execute(&registry, &do_request(&plant.key)).unwrap();
+    for _ in 0..16 {
+        pass(&mut world, &registry);
+    }
+    let enjoyed = world
+        .events()
+        .iter()
+        .filter(|event| event.kind == "enjoyed")
+        .collect::<Vec<_>>();
+    let rested = enjoyed
+        .iter()
+        .find(|event| event.payload.get("effect") == Some(&Value::Text("rest".into())))
+        .expect("someone rests on the bench");
+    assert_eq!(rested.actor, Some(ANN));
+    assert!(said(rested).is_some(), "and says so");
+    assert_eq!(
+        world.state().entity(ANN).unwrap().component("enjoyed.rest"),
+        Some(&Value::Bool(true))
+    );
+    // Once the garden has grown, what it grows is brought to the player.
+    let harvest = enjoyed
+        .iter()
+        .find(|event| event.payload.get("effect") == Some(&Value::Text("harvest".into())))
+        .expect("the garden gives");
+    assert_eq!(harvest.payload.get("kept"), Some(&Value::Bool(true)));
+    assert!(matches!(
+        harvest.payload.get("keepsake"),
+        Some(Value::Text(_))
+    ));
+    let grown_at = world
+        .events()
+        .iter()
+        .filter(|event| event.kind == "plant_grew")
+        .map(|event| event.world_time)
+        .max()
+        .unwrap();
+    assert!(harvest.world_time > grown_at, "only once it has grown");
+    let replayed = world.replay().unwrap();
+    assert_eq!(replayed.state(), world.state());
 }

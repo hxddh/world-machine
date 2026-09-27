@@ -244,13 +244,17 @@ pub fn daylight_at(hour: u32) -> Daylight {
 /// The part of the day it is now, on this computer's clock. The hour can be
 /// pinned with `WORLD_MACHINE_HOUR` to look at a World by night in daytime.
 pub fn daylight_now() -> Daylight {
+    daylight_at(hour_now())
+}
+
+/// The hour now on this computer's clock (0 to 23), or the pinned one.
+pub fn hour_now() -> u32 {
     use chrono::Timelike;
-    let hour = std::env::var("WORLD_MACHINE_HOUR")
+    std::env::var("WORLD_MACHINE_HOUR")
         .ok()
         .and_then(|hour| hour.parse::<u32>().ok())
         .filter(|hour| *hour < 24)
-        .unwrap_or_else(|| chrono::Local::now().hour());
-    daylight_at(hour)
+        .unwrap_or_else(|| chrono::Local::now().hour())
 }
 
 /// The light over the stage at this part of the day: nothing by day, a
@@ -1816,6 +1820,8 @@ mod tests {
             drawing: None,
             stance: None,
             standing: None,
+            mood: None,
+            spot: None,
         }
     }
 

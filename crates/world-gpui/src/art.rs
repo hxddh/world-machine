@@ -831,7 +831,15 @@ pub fn paint_building(
         | MarkShape::Lantern
         | MarkShape::Tent
         | MarkShape::Bench
-        | MarkShape::Sprouts => {
+        | MarkShape::Sprouts
+        | MarkShape::Well
+        | MarkShape::Swing
+        | MarkShape::Fountain
+        | MarkShape::Signpost
+        | MarkShape::Birdhouse
+        | MarkShape::Planter
+        | MarkShape::Statue
+        | MarkShape::Postbox => {
             paint_thing(window, x, base, w, shape, palette, 0.0);
         }
     }
@@ -1206,6 +1214,362 @@ pub fn paint_thing(
                 shade(wood, -0.1),
             );
         }
+        MarkShape::Well => {
+            let h = w * 0.7;
+            ellipse(
+                window,
+                x,
+                base,
+                w * 0.45,
+                h * 0.08,
+                gpui::black().opacity(0.12),
+            );
+            let stone = hex(0x9c9488);
+            rect(
+                window,
+                x - w * 0.34,
+                base - h * 0.4,
+                w * 0.68,
+                h * 0.4,
+                3.0,
+                stone,
+            );
+            for row in 0..2 {
+                for column in 0..3 {
+                    let offset = if row == 0 { 0.0 } else { 0.11 };
+                    rect(
+                        window,
+                        x - w * 0.3 + w * (0.22 * column as f32 + offset),
+                        base - h * (0.36 - 0.17 * row as f32),
+                        w * 0.18,
+                        h * 0.12,
+                        1.5,
+                        shade(stone, 0.12),
+                    );
+                }
+            }
+            for dx in [-0.3, 0.26] {
+                rect(
+                    window,
+                    x + w * dx,
+                    base - h * 0.95,
+                    w * 0.04,
+                    h * 0.55,
+                    0.0,
+                    hex(0x7a5534),
+                );
+            }
+            polygon(
+                window,
+                &[
+                    (x - w * 0.42, base - h * 0.88),
+                    (x, base - h * 1.1),
+                    (x + w * 0.42, base - h * 0.88),
+                ],
+                hex(0xa04a3a),
+            );
+            rect(
+                window,
+                x - w * 0.06,
+                base - h * 0.7 + sway * 1.5,
+                w * 0.12,
+                h * 0.12,
+                2.0,
+                hex(0x6b6f78),
+            );
+        }
+        MarkShape::Swing => {
+            let h = w * 0.85;
+            ellipse(
+                window,
+                x,
+                base,
+                w * 0.45,
+                h * 0.06,
+                gpui::black().opacity(0.1),
+            );
+            let frame = hex(0x7a5534);
+            polygon(
+                window,
+                &[
+                    (x - w * 0.42, base),
+                    (x - w * 0.3, base - h),
+                    (x - w * 0.26, base - h),
+                    (x - w * 0.36, base),
+                ],
+                frame,
+            );
+            polygon(
+                window,
+                &[
+                    (x + w * 0.42, base),
+                    (x + w * 0.3, base - h),
+                    (x + w * 0.26, base - h),
+                    (x + w * 0.36, base),
+                ],
+                frame,
+            );
+            rect(
+                window,
+                x - w * 0.34,
+                base - h,
+                w * 0.68,
+                h * 0.06,
+                1.0,
+                frame,
+            );
+            let swing = sway * w * 0.05;
+            for dx in [-0.1, 0.1] {
+                rect(
+                    window,
+                    x + w * dx + swing * 0.5,
+                    base - h * 0.95,
+                    1.2,
+                    h * 0.62,
+                    0.0,
+                    hex(0x5b5d63),
+                );
+            }
+            rect(
+                window,
+                x - w * 0.14 + swing,
+                base - h * 0.34,
+                w * 0.28,
+                h * 0.05,
+                1.5,
+                hex(0xc9542f),
+            );
+        }
+        MarkShape::Fountain => {
+            let h = w * 0.62;
+            ellipse(
+                window,
+                x,
+                base,
+                w * 0.5,
+                h * 0.1,
+                gpui::black().opacity(0.12),
+            );
+            let stone = hex(0xb3aca0);
+            rect(
+                window,
+                x - w * 0.46,
+                base - h * 0.3,
+                w * 0.92,
+                h * 0.3,
+                6.0,
+                stone,
+            );
+            ellipse(window, x, base - h * 0.3, w * 0.44, h * 0.08, hex(0x6fa8c9));
+            rect(
+                window,
+                x - w * 0.06,
+                base - h * 0.75,
+                w * 0.12,
+                h * 0.45,
+                2.0,
+                shade(stone, -0.1),
+            );
+            ellipse(window, x, base - h * 0.75, w * 0.2, h * 0.05, stone);
+            let rise = 0.9 + 0.1 * sway;
+            for dx in [-0.12, 0.0, 0.12] {
+                circle(
+                    window,
+                    x + w * dx,
+                    base - h * (0.85 + 0.12 * rise),
+                    w * 0.035,
+                    hex(0xa9d8ee).opacity(0.85),
+                );
+            }
+        }
+        MarkShape::Signpost => {
+            let h = w * 0.95;
+            let wood = hex(0x8a6038);
+            rect(window, x - w * 0.03, base - h, w * 0.06, h, 0.0, wood);
+            polygon(
+                window,
+                &[
+                    (x, base - h * 0.9),
+                    (x + w * 0.36, base - h * 0.9),
+                    (x + w * 0.44, base - h * 0.84),
+                    (x + w * 0.36, base - h * 0.78),
+                    (x, base - h * 0.78),
+                ],
+                shade(wood, 0.15),
+            );
+            polygon(
+                window,
+                &[
+                    (x, base - h * 0.66),
+                    (x - w * 0.36, base - h * 0.66),
+                    (x - w * 0.44, base - h * 0.6),
+                    (x - w * 0.36, base - h * 0.54),
+                    (x, base - h * 0.54),
+                ],
+                shade(wood, 0.1),
+            );
+        }
+        MarkShape::Birdhouse => {
+            let h = w * 1.0;
+            rect(
+                window,
+                x - w * 0.025,
+                base - h * 0.6,
+                w * 0.05,
+                h * 0.6,
+                0.0,
+                hex(0x6b6f78),
+            );
+            rect(
+                window,
+                x - w * 0.16,
+                base - h * 0.88,
+                w * 0.32,
+                h * 0.3,
+                2.0,
+                hex(0xd9b36c),
+            );
+            polygon(
+                window,
+                &[
+                    (x - w * 0.22, base - h * 0.86),
+                    (x, base - h * 1.02),
+                    (x + w * 0.22, base - h * 0.86),
+                ],
+                hex(0xa04a3a),
+            );
+            circle(window, x, base - h * 0.74, w * 0.05, hex(0x3a2a1a));
+            circle(
+                window,
+                x + w * 0.1 + sway,
+                base - h * 0.95,
+                w * 0.045,
+                hex(0x5a7fb0),
+            );
+        }
+        MarkShape::Planter => {
+            let h = w * 0.34;
+            ellipse(
+                window,
+                x,
+                base,
+                w * 0.5,
+                h * 0.12,
+                gpui::black().opacity(0.1),
+            );
+            rect(
+                window,
+                x - w * 0.46,
+                base - h * 0.5,
+                w * 0.92,
+                h * 0.5,
+                2.0,
+                hex(0x8a5a36),
+            );
+            for (index, colour) in [
+                0xe06f8b_u32,
+                0xffd05a,
+                0xb46fe0,
+                0xffffff,
+                0xe0806f,
+                0xffd05a,
+            ]
+            .iter()
+            .enumerate()
+            {
+                let dx = -0.38 + 0.15 * index as f32;
+                circle(window, x + w * dx, base - h * 0.62, w * 0.05, hex(0x5f9a4a));
+                circle(window, x + w * dx, base - h * 0.8, w * 0.04, hex(*colour));
+            }
+        }
+        MarkShape::Statue => {
+            let h = w * 1.1;
+            ellipse(
+                window,
+                x,
+                base,
+                w * 0.35,
+                h * 0.05,
+                gpui::black().opacity(0.12),
+            );
+            let stone = hex(0xc3bdb2);
+            rect(
+                window,
+                x - w * 0.24,
+                base - h * 0.28,
+                w * 0.48,
+                h * 0.28,
+                1.5,
+                shade(stone, -0.12),
+            );
+            rect(
+                window,
+                x - w * 0.1,
+                base - h * 0.78,
+                w * 0.2,
+                h * 0.5,
+                4.0,
+                stone,
+            );
+            circle(window, x, base - h * 0.86, w * 0.09, stone);
+            polygon(
+                window,
+                &[
+                    (x + w * 0.1, base - h * 0.7),
+                    (x + w * 0.26, base - h * 0.92),
+                    (x + w * 0.3, base - h * 0.88),
+                    (x + w * 0.12, base - h * 0.62),
+                ],
+                stone,
+            );
+        }
+        MarkShape::Postbox => {
+            let h = w * 0.9;
+            ellipse(
+                window,
+                x,
+                base,
+                w * 0.25,
+                h * 0.05,
+                gpui::black().opacity(0.12),
+            );
+            let red = hex(0xc0302a);
+            rect(
+                window,
+                x - w * 0.16,
+                base - h * 0.85,
+                w * 0.32,
+                h * 0.85,
+                4.0,
+                red,
+            );
+            ellipse(
+                window,
+                x,
+                base - h * 0.85,
+                w * 0.18,
+                h * 0.06,
+                shade(red, -0.15),
+            );
+            rect(
+                window,
+                x - w * 0.1,
+                base - h * 0.64,
+                w * 0.2,
+                h * 0.04,
+                1.0,
+                hex(0x2a1a1a),
+            );
+            rect(
+                window,
+                x - w * 0.18,
+                base - h * 0.08,
+                w * 0.36,
+                h * 0.08,
+                1.0,
+                shade(red, -0.25),
+            );
+        }
         MarkShape::Sprouts => {
             let h = w * 0.28;
             ellipse(
@@ -1485,16 +1849,18 @@ pub fn paint_drawing(
     drawing: &world_projection::Drawing,
     inks: &Inks,
     stance: world_projection::Stance,
+    mood: world_projection::Mood,
     swing: f32,
     bob: f32,
     facing: f32,
 ) {
     use world_projection::DrawShape;
     let flip = if facing < 0.0 { -1.0 } else { 1.0 };
-    for part in drawing.parts.iter().filter(|part| part.shows_in(stance)) {
+    let drop = world_projection::drop_of(stance) * h;
+    for part in drawing.parts.iter().filter(|part| part.shows(stance, mood)) {
         let step = part.swing * swing;
         let px = |dx: f32| x + (dx + step) * w * flip;
-        let py = |dy: f32| base - dy * h - bob;
+        let py = |dy: f32| base - dy * h - bob + drop;
         let colour = match part.ink {
             world_projection::Ink::Shade => inks.of(part.ink),
             ink => shade(inks.of(ink), part.tone),

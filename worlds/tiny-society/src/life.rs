@@ -441,6 +441,7 @@ pub(crate) fn cast() -> Cast {
         }),
         most_people: 14,
         most_open: 1,
+        voice: crate::voices::voice,
     }
 }
 

@@ -19,12 +19,16 @@ const CHROME: f32 = 52.0;
 const CARD_WIDTH: f32 = 560.0;
 const DRAWER_WIDTH: f32 = 360.0;
 /// How often a living World redraws while its window is in front.
-const FRAME: Duration = Duration::from_millis(40);
+/// How often a window behind others checks whether it has come to the
+/// front again. In front, it draws at the display's own rate.
+const FRAME: Duration = Duration::from_millis(250);
 /// How long each thing someone says stays over them, and how long a beat
 /// of a return plays before the next.
 const LINE_SECONDS: f32 = 4.6;
 const BEAT_SECONDS: f32 = 5.2;
 const ANSWER_SECONDS: f32 = 9.0;
+/// How long a keepsake handed over in front of the player stays up.
+const GIFT_SECONDS: f32 = 5.0;
 /// How long the camera takes to move.
 const CAMERA_SECONDS: f32 = 0.9;
 /// How many of today's exchanges with someone their card shows.
@@ -72,6 +76,18 @@ pub(crate) struct Looking {
     /// Where the camera looked last frame, to turn the pointer into a
     /// stage point.
     pub(crate) camera_now: Option<Camera>,
+    /// Who the player last clicked on, and when: they wave.
+    pub(crate) poked: Option<(SelectionId, Instant)>,
+    /// The line last given a babble, so each is heard once as it appears.
+    pub(crate) babbled: Option<(SelectionId, String)>,
+    /// How many keepsakes the player held last frame, and when a new one
+    /// was handed over while they watched.
+    pub(crate) keepsakes_seen: Option<usize>,
+    pub(crate) gift_at: Option<Instant>,
+    /// A photograph being taken (everything but the scene hidden), and
+    /// when the last was saved.
+    pub(crate) photographing: bool,
+    pub(crate) photo_saved: Option<Instant>,
 }
 
 /// The player's hands: which verb they picked, and what they are about to
@@ -327,6 +343,75 @@ fn asker_ids(snapshot: &ProjectionSnapshot, asker: Option<SelectionId>) -> Vec<S
     }
 }
 
+/// How wide a speech bubble's line is, in the width of a Latin letter;
+/// a Chinese or Japanese character takes two.
+pub(crate) const BUBBLE_LINE: usize = 36;
+
+/// How wide a bubble line is at the text size the player chose: larger
+/// text, fewer letters to a line.
+fn bubble_line() -> usize {
+    ((BUBBLE_LINE as f32 / crate::text_scale()) as usize).max(14)
+}
+
+fn text_width(text: &str) -> usize {
+    text.chars()
+        .map(|character| {
+            if !character.is_ascii() && character.is_alphanumeric() && !character.is_alphabetic()
+                || ('\u{2e80}'..='\u{9fff}').contains(&character)
+                || ('\u{ff00}'..='\u{ffef}').contains(&character)
+                || ('\u{3000}'..='\u{303f}').contains(&character)
+            {
+                2
+            } else {
+                1
+            }
+        })
+        .sum()
+}
+
+/// A line cut into pages of at most two bubble lines each, broken between
+/// words, or anywhere in a language written without spaces.
+pub fn speech_pages(line: &str) -> Vec<String> {
+    let mut rows: Vec<String> = Vec::new();
+    let mut row = String::new();
+    for word in line.split_whitespace() {
+        // A word too wide for a line (or a run of Chinese) is cut where
+        // it has to be.
+        let mut pieces = Vec::new();
+        let mut piece = String::new();
+        for character in word.chars() {
+            if text_width(&piece) + text_width(&character.to_string()) > bubble_line() {
+                pieces.push(std::mem::take(&mut piece));
+            }
+            piece.push(character);
+        }
+        pieces.push(piece);
+        for piece in pieces {
+            let wide = text_width(&row) + usize::from(!row.is_empty()) + text_width(&piece);
+            if !row.is_empty() && wide > bubble_line() {
+                rows.push(std::mem::take(&mut row));
+            }
+            if !row.is_empty() {
+                row.push(' ');
+            }
+            row.push_str(&piece);
+        }
+    }
+    if !row.is_empty() {
+        rows.push(row);
+    }
+    if rows.is_empty() {
+        return vec![String::new()];
+    }
+    rows.chunks(2).map(|pair| pair.join("\n")).collect()
+}
+
+/// How long an answer to the player stays over its speaker: long enough
+/// to read every page of it.
+fn answer_seconds(answer: &str) -> f32 {
+    ANSWER_SECONDS.max(LINE_SECONDS * speech_pages(answer).len() as f32 + 2.0)
+}
+
 /// A speech bubble over someone: what they say, with a tail pointing down
 /// at them. `x`, `y` is the top of their head, on screen.
 fn bubble(
@@ -531,6 +616,7 @@ impl ProjectionView {
         }
         self.looking.asking = Some(who);
         self.looking.answered = None;
+        self.looking.poked = Some((who, Instant::now()));
         self.selected = Some(who);
         cx.notify();
     }
@@ -661,6 +747,9 @@ impl ProjectionView {
         }
         match key {
             "i" if command => self.toggle_drawer(cx),
+            "z" if command => self.undo(cx),
+            "h" if !command && self.retelling.is_none() => self.toggle_hands(cx),
+            "p" if !command && self.retelling.is_none() => self.take_photo(window, cx),
             "escape" => {
                 if self.looking.hands.is_some() {
                     self.looking.hands = None;
@@ -883,6 +972,99 @@ impl ProjectionView {
         true
     }
 
+    /// Clicking open ground while placing puts what the player picked right
+    /// there: counted with the nearest place, standing at the spot along
+    /// the ground that was clicked.
+    fn place_on_ground(
+        &mut self,
+        position: gpui::Point<gpui::Pixels>,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(hands) = self.looking.hands.as_ref() else {
+            return false;
+        };
+        if !matches!(
+            hands.verb.as_deref(),
+            Some("Build" | "Decorate" | "Plant" | "Move")
+        ) || hands.thing.as_deref().is_none_or(|thing| thing == "*")
+        {
+            return false;
+        }
+        let (width, height) = self.stage_size(window);
+        let stage = diorama::stage(&self.snapshot, width, height);
+        let camera = self
+            .looking
+            .camera_now
+            .unwrap_or_else(|| Camera::whole(&stage));
+        let (x, _) = camera.stage_point(
+            &stage,
+            f32::from(position.x),
+            f32::from(position.y) - CHROME,
+        );
+        let targets = self.hand_targets().unwrap_or_default();
+        let nearest = stage
+            .buildings
+            .iter()
+            .filter(|spot| targets.contains(&self.snapshot.canvas.items[spot.index].id))
+            .min_by(|a, b| (a.x - x).abs().total_cmp(&(b.x - x).abs()));
+        let Some(nearest) = nearest else {
+            return false;
+        };
+        let Some(deed) = self.deed_at(self.snapshot.canvas.items[nearest.index].id) else {
+            return false;
+        };
+        let spot = diorama::ground_spot(&stage, x);
+        self.looking.hands = None;
+        self.invoke_command(format!("{deed}@{spot}"), cx);
+        true
+    }
+
+    /// The player's last thing made or moved, which they can take back
+    /// this period: the command, and what it says.
+    fn undo_command(&self) -> Option<(String, String)> {
+        self.snapshot
+            .deeds()
+            .find(|(_, command, hand)| hand.verb == "Undo" && command.unavailable.is_none())
+            .map(|(_, command, _)| (command.id.clone(), command.title.clone()))
+    }
+
+    fn undo(&mut self, cx: &mut Context<Self>) {
+        if let Some((command, _)) = self.undo_command() {
+            self.invoke_command(command, cx);
+        }
+    }
+
+    /// A photograph of the scene: the chrome is hidden for a frame, the
+    /// window's picture is saved to Pictures, and the chrome comes back.
+    fn take_photo(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.looking.photographing {
+            return;
+        }
+        self.looking.photographing = true;
+        let bounds = window.bounds();
+        let title = self.snapshot.title.clone();
+        cx.notify();
+        cx.spawn_in(window, async move |this, cx| {
+            cx.background_executor()
+                .timer(Duration::from_millis(180))
+                .await;
+            let saved = cx
+                .background_executor()
+                .spawn(async move { save_photo(bounds, &title) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.looking.photographing = false;
+                if saved {
+                    this.looking.photo_saved = Some(Instant::now());
+                    this.cue(crate::Cue::Flip);
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     fn toggle_hands(&mut self, cx: &mut Context<Self>) {
         self.looking.hands = match self.looking.hands {
             Some(_) => None,
@@ -921,6 +1103,12 @@ impl ProjectionView {
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
         self.keep_living(window, cx);
+        // In front, the World is drawn at the display's own rate (60 or
+        // 120 times a second); with Reduce Motion on, a few times a second
+        // is enough for what still moves.
+        if window.is_window_active() && !cx.reduce_motion() {
+            window.request_animation_frame();
+        }
         let focus = self
             .looking
             .focus
@@ -949,29 +1137,38 @@ impl ProjectionView {
 
         // Who is needed where they are, and who is talking.
         let speaking = voices_now(&self.snapshot);
-        let answered = self
-            .looking
-            .answered
-            .filter(|(_, at)| at.elapsed().as_secs_f32() < ANSWER_SECONDS)
-            .and_then(|(index, at)| Some((self.snapshot.talks.get(index)?, at)));
+        let answered = self.looking.answered.and_then(|(index, at)| {
+            let talk = self.snapshot.talks.get(index)?;
+            (at.elapsed().as_secs_f32() < answer_seconds(&talk.answer)).then_some((talk, at))
+        });
         let beat_voice = self
             .current_beat()
             .and_then(|beat| beat.selection)
             .and_then(|moment| self.snapshot.voice_at(moment));
-        let line_slot = (seconds / LINE_SECONDS) as usize;
-        let said = self
-            .looking
-            .said_at
-            .filter(|at| at.elapsed().as_secs_f32() < ANSWER_SECONDS)
-            .and_then(|at| {
-                let who = self.looking.asking?;
-                let exchange = self.snapshot.exchanges_with(who).last()?;
-                Some((exchange, at))
-            });
+        let said = self.looking.said_at.and_then(|at| {
+            let who = self.looking.asking?;
+            let exchange = self.snapshot.exchanges_with(who).last()?;
+            (at.elapsed().as_secs_f32() < answer_seconds(&exchange.answer))
+                .then_some((exchange, at))
+        });
+        // What is said now, by whom, how long ago it began, whether it
+        // answers the player, and how long it stays.
         let line = if let Some((exchange, at)) = said {
-            Some((exchange.who, exchange.answer.clone(), since(Some(at)), true))
+            Some((
+                exchange.who,
+                exchange.answer.clone(),
+                since(Some(at)),
+                true,
+                answer_seconds(&exchange.answer),
+            ))
         } else if let Some((talk, at)) = answered {
-            Some((talk.who, talk.answer.clone(), since(Some(at)), true))
+            Some((
+                talk.who,
+                talk.answer.clone(),
+                since(Some(at)),
+                true,
+                answer_seconds(&talk.answer),
+            ))
         } else if self.retelling.is_some() {
             beat_voice.map(|voice| {
                 (
@@ -979,6 +1176,7 @@ impl ProjectionView {
                     voice.line.clone(),
                     since(self.looking.beat_at),
                     true,
+                    f32::MAX,
                 )
             })
         } else if speaking.is_empty()
@@ -990,14 +1188,64 @@ impl ProjectionView {
             // keeps quiet.
             None
         } else {
-            let voice = speaking[line_slot % speaking.len()];
-            Some((
-                voice.speaker,
-                voice.line.clone(),
-                seconds % LINE_SECONDS,
-                false,
-            ))
+            // Each speaker in turn, a long line given a turn for each of
+            // its pages.
+            let lengths = speaking
+                .iter()
+                .map(|voice| LINE_SECONDS * speech_pages(&voice.line).len() as f32)
+                .collect::<Vec<_>>();
+            let round = lengths.iter().sum::<f32>();
+            let mut left = seconds % round;
+            let mut chosen = None;
+            for (voice, length) in speaking.iter().zip(&lengths) {
+                if left < *length {
+                    chosen = Some((voice, *length));
+                    break;
+                }
+                left -= length;
+            }
+            chosen.map(|(voice, length)| {
+                (
+                    voice.speaker,
+                    voice.line.clone(),
+                    left.min(length),
+                    false,
+                    length,
+                )
+            })
         };
+        // At most two lines at a time: a long line is said a page at a
+        // time, each page for a line's while.
+        let line = line.map(|(who, text, age, strong, length)| {
+            let pages = speech_pages(&text);
+            let page = ((age / LINE_SECONDS) as usize).min(pages.len() - 1);
+            let page_age = if strong {
+                age
+            } else {
+                age - page as f32 * LINE_SECONDS
+            };
+            let last = page + 1 == pages.len();
+            let fade = if strong {
+                (age / 0.25).clamp(0.0, 1.0)
+            } else {
+                let fade_in = if page == 0 { page_age / 0.35 } else { 1.0 };
+                let fade_out = if last { (length - age) / 0.45 } else { 1.0 };
+                fade_in.min(fade_out).clamp(0.0, 1.0)
+            };
+            (who, pages[page].clone(), fade, strong)
+        });
+        // A new line is heard in its speaker's voice as it appears.
+        if let Some((who, text, ..)) = &line {
+            let heard = self
+                .looking
+                .babbled
+                .as_ref()
+                .is_some_and(|(before, words)| before == who && words == text);
+            if !heard {
+                self.looking.babbled = Some((*who, text.clone()));
+                self.cue(crate::babble(*who, text));
+            }
+        }
         let card_people = self
             .card_command()
             .map(|command| asker_ids(&self.snapshot, command.asker))
@@ -1013,7 +1261,7 @@ impl ProjectionView {
                 since(self.looking.turn_at) / diorama::WALK_SECONDS,
             )
         });
-        let living = diorama::living(
+        let mut living = diorama::living(
             &stage,
             &self.snapshot,
             seconds,
@@ -1023,6 +1271,12 @@ impl ProjectionView {
                 .as_ref()
                 .map(|(stage, snapshot, progress)| (stage, *snapshot, *progress)),
         );
+        let poked = self
+            .looking
+            .poked
+            .map(|(who, at)| [(who, at.elapsed().as_secs_f32())].into_iter().collect())
+            .unwrap_or_default();
+        diorama::wave(&mut living, &stage, &self.snapshot, &poked);
         let grew = self
             .before_turn
             .as_ref()
@@ -1042,6 +1296,7 @@ impl ProjectionView {
             &self.glows(),
             rising,
         );
+        frame.bounce(&self.snapshot, &poked);
         // Whoever is speaking is drawn talking.
         if let Some((speaker, ..)) = &line {
             for person in &mut frame.people {
@@ -1093,7 +1348,11 @@ impl ProjectionView {
                         .top_0()
                         .left_0()
                         .size_full()
-                        .on_click(cx.listener(|this, _, _, cx| this.look_away(cx))),
+                        .on_click(cx.listener(|this, event: &gpui::ClickEvent, window, cx| {
+                            if !this.place_on_ground(event.position(), window, cx) {
+                                this.look_away(cx);
+                            }
+                        })),
                 );
 
         // Buildings: named when pointed at, opening the drawer on a click.
@@ -1111,6 +1370,7 @@ impl ProjectionView {
                         "stage-{}",
                         selection.stable_key()
                     )))
+                    .aria_label(label_of(&self.snapshot, selection).unwrap_or_default())
                     .group(group.clone())
                     .absolute()
                     .left(px(x - w / 2.0))
@@ -1130,6 +1390,7 @@ impl ProjectionView {
                         if this.place_at(selection, cx) {
                             return;
                         }
+                        this.looking.poked = Some((selection, Instant::now()));
                         this.select(selection, cx);
                         this.looking.drawer = true;
                     })),
@@ -1153,6 +1414,7 @@ impl ProjectionView {
                         "stage-{}",
                         selection.stable_key()
                     )))
+                    .aria_label(label_of(&self.snapshot, selection).unwrap_or_default())
                     .group(group.clone())
                     .absolute()
                     .left(px(person.x - w / 2.0 - 20.0))
@@ -1178,13 +1440,8 @@ impl ProjectionView {
             );
         }
         // Whoever is talking, over their head.
-        if let Some((who, text, age, strong)) = line {
+        if let Some((who, text, fade, strong)) = line {
             if let Some((_, x, y)) = heads.iter().find(|(id, ..)| *id == who) {
-                let fade = if strong {
-                    (age / 0.25).clamp(0.0, 1.0)
-                } else {
-                    ((age / 0.35).min((LINE_SECONDS - age) / 0.45)).clamp(0.0, 1.0)
-                };
                 root = root.child(bubble(
                     format!("line-{}", who.stable_key()),
                     text,
@@ -1197,6 +1454,78 @@ impl ProjectionView {
             }
         }
 
+        // Something handed over while the player watches is shown for a
+        // moment, with a chime, before it goes into the drawer.
+        let held = self.snapshot.keepsakes.len();
+        if self.looking.keepsakes_seen.is_some_and(|seen| held > seen) {
+            self.looking.gift_at = Some(Instant::now());
+            self.cue(crate::Cue::Built);
+        }
+        self.looking.keepsakes_seen = Some(held);
+        if let Some((keepsake, at)) = self
+            .looking
+            .gift_at
+            .filter(|at| at.elapsed().as_secs_f32() < GIFT_SECONDS)
+            .and_then(|at| Some((self.snapshot.keepsakes.last()?, at)))
+        {
+            let age = at.elapsed().as_secs_f32();
+            let from = label_of(&self.snapshot, keepsake.from).unwrap_or_default();
+            let opacity = (age / 0.3).min((GIFT_SECONDS - age) / 0.6).clamp(0.0, 1.0);
+            let rise = 12.0 * (1.0 - crate::diorama::ease((age / 0.5).min(1.0)));
+            root = root.child(
+                div()
+                    .absolute()
+                    .top(px(72.0 + rise))
+                    .left_0()
+                    .right_0()
+                    .flex()
+                    .justify_center()
+                    .opacity(opacity)
+                    .child(
+                        div()
+                            .max_w(px(420.0))
+                            .px_4()
+                            .py_2()
+                            .rounded_xl()
+                            .bg(gpui::white())
+                            .shadow_md()
+                            .flex()
+                            .flex_col()
+                            .items_center()
+                            .child(ui::caption(format!("{from} gave you")))
+                            .id("gift-shown")
+                            .aria_label(format!("{from} gave you {}", keepsake.what))
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .text_color(color(tokens::TEXT))
+                                    .child(capitalized(&keepsake.what)),
+                            ),
+                    ),
+            );
+        }
+        if self.looking.photographing {
+            return root.into_any_element();
+        }
+        if let Some(at) = self
+            .looking
+            .photo_saved
+            .filter(|at| at.elapsed().as_secs_f32() < 2.5)
+        {
+            let age = at.elapsed().as_secs_f32();
+            root = root.child(
+                div()
+                    .absolute()
+                    .bottom(px(24.0))
+                    .left_0()
+                    .right_0()
+                    .flex()
+                    .justify_center()
+                    .opacity((age / 0.2).min((2.5 - age) / 0.5).clamp(0.0, 1.0))
+                    .child(pill().child(ui::t("Photo saved to Pictures"))),
+            );
+        }
         root = root.child(self.render_hud(cx));
         if let Some(beginning) = self.render_beginning(width >= 760.0, cx) {
             root = root.child(
@@ -1304,6 +1633,7 @@ impl ProjectionView {
             right = right.child(
                 pill()
                     .id("hands-handle")
+                    .aria_label(ui::t("Make something (H)"))
                     .cursor_pointer()
                     .when(open, |pill| pill.bg(color(tokens::ACCENT)))
                     .hover(|style| style.bg(color(tokens::SURFACE)))
@@ -1311,9 +1641,32 @@ impl ProjectionView {
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_hands(cx))),
             );
         }
+        if let (true, Some((_, title))) = (has_deeds, self.undo_command()) {
+            right = right.child(
+                pill()
+                    .id("undo-handle")
+                    .aria_label(ui::t(format!("{title} (⌘Z)")))
+                    .cursor_pointer()
+                    .hover(|style| style.bg(color(tokens::SURFACE)))
+                    .child(format!("↶ {}", ui::t(title.clone())))
+                    .on_click(cx.listener(|this, _, _, cx| this.undo(cx))),
+            );
+        }
+        if self.controller.is_some() && self.retelling.is_none() && !is_beginning(&self.snapshot) {
+            right = right.child(
+                pill()
+                    .id("photo-handle")
+                    .aria_label(ui::t("Save a photo of the scene (P)"))
+                    .cursor_pointer()
+                    .hover(|style| style.bg(color(tokens::SURFACE)))
+                    .child(ui::t("Photo"))
+                    .on_click(cx.listener(|this, _, window, cx| this.take_photo(window, cx))),
+            );
+        }
         right = right.child(
             pill()
                 .id("drawer-handle")
+                .aria_label(ui::t("The drawer: story, keepsakes and the book (⌘I)"))
                 .cursor_pointer()
                 .hover(|style| style.bg(color(tokens::SURFACE)))
                 .child(drawer_glyph().size(px(16.0)))
@@ -1347,6 +1700,7 @@ impl ProjectionView {
             tabs = tabs.child(
                 div()
                     .id(SharedString::from(format!("hands-verb-{verb}")))
+                    .aria_label(ui::t(verb))
                     .px_2()
                     .py(px(3.0))
                     .rounded_full()
@@ -1902,6 +2256,55 @@ impl ProjectionView {
         Some(kept)
     }
 
+    /// The book of everything to find: a shelf each for keepsakes, people,
+    /// things made and festival days, what has been found drawn in colour
+    /// and what is still to come as a silhouette with a hint.
+    pub(crate) fn render_book(&self) -> Option<Div> {
+        let book = &self.snapshot.book;
+        if book.is_empty() {
+            return None;
+        }
+        let found = book.iter().filter(|entry| entry.found).count();
+        let mut section = div()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .child(ui::section_label(format!(
+                "Book · {found} of {}",
+                book.len()
+            )));
+        let mut shelves = Vec::<&str>::new();
+        for entry in book {
+            if !shelves.contains(&entry.shelf.as_str()) {
+                shelves.push(&entry.shelf);
+            }
+        }
+        for shelf in shelves {
+            let entries = book
+                .iter()
+                .filter(|entry| entry.shelf == shelf)
+                .collect::<Vec<_>>();
+            let found = entries.iter().filter(|entry| entry.found).count();
+            let mut grid = div().flex().flex_wrap().gap_2();
+            for entry in entries {
+                grid = grid.child(book_tile(entry));
+            }
+            section = section.child(
+                div()
+                    .px_3()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .child(ui::caption(format!(
+                        "{shelf} · {found} of {}",
+                        shelf_len(book, shelf)
+                    )))
+                    .child(grid),
+            );
+        }
+        Some(section)
+    }
+
     /// What someone can be asked, beside them: their questions, and once
     /// one is asked, their answer, and what they ask for if they do.
     fn render_asking(
@@ -2184,6 +2587,7 @@ impl ProjectionView {
         for part in [
             self.render_chapters(),
             self.render_keepsakes(),
+            self.render_book(),
             self.render_closer_look(cx),
             self.render_story(cx),
             self.render_standing(cx),
@@ -2389,7 +2793,13 @@ fn bottom_card(card: impl IntoElement, width: f32) -> Div {
         .px_4()
         .flex()
         .justify_center()
-        .child(div().w(px(CARD_WIDTH.min(width - 32.0))).child(card))
+        .child(
+            div()
+                .w(px(
+                    (CARD_WIDTH * crate::text_scale().sqrt()).min(width - 32.0)
+                ))
+                .child(card),
+        )
 }
 
 /// How someone stands with the player: five small marks, as many filled as
@@ -2423,4 +2833,138 @@ fn standing_row(standing: &world_projection::Standing) -> Div {
 fn thinking_dots(since: Option<Instant>) -> String {
     let beat = since.map_or(0, |since| since.elapsed().as_millis() / 400) % 3;
     ".".repeat(beat as usize + 1)
+}
+
+/// Saves the screen area `bounds` covers as a picture in the player's
+/// Pictures, in a World Machine folder, named after the World and the
+/// time. Whether it was saved.
+fn save_photo(bounds: gpui::Bounds<gpui::Pixels>, title: &str) -> bool {
+    let Some(home) = std::env::var_os("HOME") else {
+        return false;
+    };
+    let folder = std::path::Path::new(&home)
+        .join("Pictures")
+        .join("World Machine");
+    if std::fs::create_dir_all(&folder).is_err() {
+        return false;
+    }
+    let name = title
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == ' ' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>();
+    let stamp = chrono::Local::now().format("%Y-%m-%d at %H.%M.%S");
+    let path = folder.join(format!("{} {stamp}.png", name.trim()));
+    let region = format!(
+        "{},{},{},{}",
+        f32::from(bounds.origin.x).round(),
+        f32::from(bounds.origin.y).round(),
+        f32::from(bounds.size.width).round(),
+        f32::from(bounds.size.height).round()
+    );
+    std::process::Command::new("/usr/sbin/screencapture")
+        .arg("-x")
+        .arg("-R")
+        .arg(region)
+        .arg(&path)
+        .status()
+        .is_ok_and(|status| status.success())
+        && path.is_file()
+}
+
+fn shelf_len(book: &[world_projection::BookEntry], shelf: &str) -> usize {
+    book.iter().filter(|entry| entry.shelf == shelf).count()
+}
+
+/// One entry of the book: drawn in colour with its name once found, a
+/// silhouette with a hint until then.
+fn book_tile(entry: &world_projection::BookEntry) -> Div {
+    let found = entry.found;
+    let shape = entry.shape;
+    let key = entry.name.clone();
+    let icon = canvas(
+        |_, _, _| (),
+        move |bounds, _, window, _| {
+            let x = f32::from(bounds.origin.x) + f32::from(bounds.size.width) / 2.0;
+            let base = f32::from(bounds.origin.y) + f32::from(bounds.size.height) - 2.0;
+            let w = f32::from(bounds.size.width) * 0.62;
+            let shadow: Hsla = gpui::black().opacity(0.28);
+            match (shape, found) {
+                (Some(shape), true) => {
+                    art::paint_building(
+                        window,
+                        x,
+                        base,
+                        w,
+                        w * 0.8,
+                        shape,
+                        &art::Palette::of(&key, false),
+                    );
+                }
+                (Some(shape), false) => {
+                    crate::ui::paint_mark(
+                        window,
+                        gpui::Bounds::new(
+                            gpui::point(px(x - w / 2.0), px(base - w * 0.8)),
+                            gpui::size(px(w), px(w * 0.8)),
+                        ),
+                        shape,
+                        shadow,
+                        shadow,
+                    );
+                }
+                (None, _) => {
+                    // Someone: a head and shoulders.
+                    let colour: Hsla = if found { art::hex(0x7a8fb0) } else { shadow };
+                    let r = w * 0.2;
+                    art::circle(window, x, base - w * 0.62, r, colour);
+                    art::rect(
+                        window,
+                        x - w * 0.3,
+                        base - w * 0.38,
+                        w * 0.6,
+                        w * 0.38,
+                        w * 0.2,
+                        colour,
+                    );
+                }
+            }
+        },
+    )
+    .w(px(64.0))
+    .h(px(48.0));
+    div()
+        .w(px(88.0))
+        .p_1()
+        .rounded_md()
+        .bg(color(if found {
+            tokens::SURFACE
+        } else {
+            tokens::SIDEBAR
+        }))
+        .flex()
+        .flex_col()
+        .items_center()
+        .gap_1()
+        .child(icon)
+        .child(
+            div()
+                .text_xs()
+                .text_center()
+                .text_color(color(if found {
+                    tokens::TEXT
+                } else {
+                    tokens::TEXT_TERTIARY
+                }))
+                .child(if found {
+                    capitalized(&entry.name)
+                } else {
+                    entry.hint.clone()
+                }),
+        )
 }

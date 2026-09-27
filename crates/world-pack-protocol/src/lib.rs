@@ -476,7 +476,27 @@ pub struct ProjectionSnapshotWire {
     pub drawings: Vec<DrawingWire>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub keepsakes: Vec<KeepsakeWire>,
+    /// Optional both ways: the book of everything to find. An older Pack
+    /// sends none, and the drawer shows no book.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub book: Vec<BookEntryWire>,
 }
+
+/// One entry in a World's book, as it crosses the boundary.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct BookEntryWire {
+    pub shelf: String,
+    pub name: String,
+    #[serde(default)]
+    pub found: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shape: Option<MarkShapeWire>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub hint: String,
+}
+
+/// The most entries one book carries.
+pub const MOST_BOOK_ENTRIES: usize = 400;
 
 /// Something someone gave the player to keep.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -510,6 +530,9 @@ pub struct DrawPartWire {
     /// Stances this build does not know are left out of the list.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub stances: Vec<String>,
+    /// Moods this build does not know are left out of the list.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub moods: Vec<String>,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub swing: f32,
 }
@@ -584,6 +607,11 @@ impl From<&Drawing> for DrawingWire {
                         .iter()
                         .map(|stance| stance.id().to_string())
                         .collect(),
+                    moods: part
+                        .moods
+                        .iter()
+                        .map(|mood| mood.id().to_string())
+                        .collect(),
                     swing: part.swing,
                 })
                 .collect(),
@@ -618,6 +646,11 @@ impl From<DrawingWire> for Drawing {
                         .stances
                         .iter()
                         .filter_map(|stance| Stance::from_id(stance))
+                        .collect(),
+                    moods: part
+                        .moods
+                        .iter()
+                        .filter_map(|mood| world_projection::Mood::from_id(mood))
                         .collect(),
                     swing: part.swing,
                 })
@@ -1050,6 +1083,17 @@ impl From<&ProjectionSnapshot> for ProjectionSnapshotWire {
                     moment: keepsake.moment.into(),
                 })
                 .collect(),
+            book: snapshot
+                .book
+                .iter()
+                .map(|entry| BookEntryWire {
+                    shelf: entry.shelf.clone(),
+                    name: entry.name.clone(),
+                    found: entry.found,
+                    shape: entry.shape.map(Into::into),
+                    hint: entry.hint.clone(),
+                })
+                .collect(),
         }
     }
 }
@@ -1200,6 +1244,20 @@ impl TryFrom<ProjectionSnapshotWire> for ProjectionSnapshot {
                     what: keepsake.what,
                     note: keepsake.note,
                     moment: keepsake.moment.into(),
+                })
+                .collect(),
+            // A book no longer than the app keeps, of entries with names.
+            book: snapshot
+                .book
+                .into_iter()
+                .filter(|entry| !entry.name.trim().is_empty() && !entry.shelf.trim().is_empty())
+                .take(MOST_BOOK_ENTRIES)
+                .map(|entry| world_projection::BookEntry {
+                    shelf: entry.shelf,
+                    name: entry.name,
+                    found: entry.found,
+                    shape: entry.shape.map(Into::into),
+                    hint: entry.hint,
                 })
                 .collect(),
         })
@@ -1694,6 +1752,14 @@ pub enum MarkShapeWire {
     Tent,
     Bench,
     Sprouts,
+    Well,
+    Swing,
+    Fountain,
+    Signpost,
+    Birdhouse,
+    Planter,
+    Statue,
+    Postbox,
     #[serde(other)]
     Unknown,
 }
@@ -1720,6 +1786,14 @@ impl From<MarkShape> for MarkShapeWire {
             MarkShape::Tent => Self::Tent,
             MarkShape::Bench => Self::Bench,
             MarkShape::Sprouts => Self::Sprouts,
+            MarkShape::Well => Self::Well,
+            MarkShape::Swing => Self::Swing,
+            MarkShape::Fountain => Self::Fountain,
+            MarkShape::Signpost => Self::Signpost,
+            MarkShape::Birdhouse => Self::Birdhouse,
+            MarkShape::Planter => Self::Planter,
+            MarkShape::Statue => Self::Statue,
+            MarkShape::Postbox => Self::Postbox,
         }
     }
 }
@@ -1746,6 +1820,14 @@ impl From<MarkShapeWire> for MarkShape {
             MarkShapeWire::Tent => Self::Tent,
             MarkShapeWire::Bench => Self::Bench,
             MarkShapeWire::Sprouts => Self::Sprouts,
+            MarkShapeWire::Well => Self::Well,
+            MarkShapeWire::Swing => Self::Swing,
+            MarkShapeWire::Fountain => Self::Fountain,
+            MarkShapeWire::Signpost => Self::Signpost,
+            MarkShapeWire::Birdhouse => Self::Birdhouse,
+            MarkShapeWire::Planter => Self::Planter,
+            MarkShapeWire::Statue => Self::Statue,
+            MarkShapeWire::Postbox => Self::Postbox,
         }
     }
 }
@@ -1906,6 +1988,13 @@ pub struct CanvasItemWire {
     pub stance: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub standing: Option<StandingWire>,
+    /// A mood this build does not know is drawn content.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mood: Option<String>,
+    /// Where along the ground a thing stands (0 to 1), when the player
+    /// chose; an older Pack sends none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spot: Option<f32>,
 }
 
 /// The longest few words a standing is told in.
@@ -1954,6 +2043,8 @@ impl From<&CanvasItem> for CanvasItemWire {
                 level: standing.level,
                 words: standing.words.clone(),
             }),
+            mood: item.mood.map(|mood| mood.id().to_string()),
+            spot: item.spot,
         }
     }
 }
@@ -1997,6 +2088,13 @@ impl From<CanvasItemWire> for CanvasItem {
                     level: standing.level.clamp(-2, 2),
                     words: standing.words.trim().to_string(),
                 }),
+            mood: item
+                .mood
+                .map(|mood| world_projection::Mood::from_id(&mood).unwrap_or_default()),
+            spot: item
+                .spot
+                .filter(|spot| spot.is_finite())
+                .map(|spot| spot.clamp(0.0, 1.0)),
         }
     }
 }
@@ -2364,6 +2462,8 @@ mod tests {
                     drawing: None,
                     stance: None,
                     standing: None,
+                    mood: None,
+                    spot: None,
                 }],
                 links: vec![CanvasLink {
                     from: entity,
@@ -2415,6 +2515,7 @@ mod tests {
             exchanges: Vec::new(),
             drawings: Vec::new(),
             keepsakes: Vec::new(),
+            book: Vec::new(),
         }
     }
 

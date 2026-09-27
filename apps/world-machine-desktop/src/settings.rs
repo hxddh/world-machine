@@ -43,6 +43,14 @@ struct SettingsView {
     key_stored: bool,
     voice_on: bool,
     sound_on: bool,
+    /// The level of each sound, in `ambience::Channel::ALL` order.
+    levels: [u8; 4],
+    /// The language chosen ("en", "zh-Hans"), or `None` to follow the Mac.
+    language: Option<String>,
+    /// How large text is drawn, in percent.
+    text_scale: u32,
+    /// More contrast, fewer or as the Mac says.
+    contrast: Option<bool>,
     source: VoiceSource,
     program: Option<String>,
     status: Option<SharedString>,
@@ -57,6 +65,10 @@ impl SettingsView {
             key_stored: false,
             voice_on: false,
             sound_on: false,
+            levels: ambience::Channel::ALL.map(ambience::Channel::default_level),
+            language: None,
+            text_scale: 100,
+            contrast: None,
             source: VoiceSource::Program,
             program: None,
             status: None,
@@ -76,12 +88,20 @@ impl SettingsView {
             Some(settings) => {
                 self.voice_on = settings.world_voice;
                 self.sound_on = settings.ambient_sound;
+                self.levels = ambience::Channel::ALL.map(|channel| settings.sound_level(channel));
+                self.language = settings.language.clone();
+                self.text_scale = settings.text_scale.unwrap_or(100);
+                self.contrast = settings.increase_contrast;
                 self.source = settings.world_voice_source.unwrap_or_default();
                 self.program = settings.pi_program.map(|path| path.display().to_string());
             }
             None => {
                 self.voice_on = false;
                 self.sound_on = false;
+                self.levels = ambience::Channel::ALL.map(ambience::Channel::default_level);
+                self.language = None;
+                self.text_scale = 100;
+                self.contrast = None;
                 self.source = VoiceSource::Program;
                 self.program = None;
             }
@@ -121,6 +141,67 @@ impl SettingsView {
             cx,
         );
         ambience::set_enabled(self.sound_on);
+    }
+
+    /// Shows every window the way the player now asks.
+    fn show_as_chosen(&mut self, cx: &mut Context<Self>) {
+        let settings = analyst_settings::application_support_root()
+            .ok()
+            .and_then(|root| analyst_settings::load(&root).ok());
+        world_machine_desktop::display::apply(settings.as_ref());
+        cx.refresh_windows();
+    }
+
+    fn set_language(&mut self, language: Option<String>, cx: &mut Context<Self>) {
+        self.apply(
+            move || {
+                let root = analyst_settings::application_support_root()
+                    .map_err(|error| error.to_string())?;
+                analyst_settings::save_language(&root, language).map_err(|error| error.to_string())
+            },
+            cx,
+        );
+        self.show_as_chosen(cx);
+    }
+
+    fn set_text_scale(&mut self, percent: u32, cx: &mut Context<Self>) {
+        self.apply(
+            move || {
+                let root = analyst_settings::application_support_root()
+                    .map_err(|error| error.to_string())?;
+                analyst_settings::save_text_scale(&root, percent).map_err(|error| error.to_string())
+            },
+            cx,
+        );
+        self.show_as_chosen(cx);
+    }
+
+    fn set_contrast(&mut self, on: Option<bool>, cx: &mut Context<Self>) {
+        self.apply(
+            move || {
+                let root = analyst_settings::application_support_root()
+                    .map_err(|error| error.to_string())?;
+                analyst_settings::save_increase_contrast(&root, on)
+                    .map_err(|error| error.to_string())
+            },
+            cx,
+        );
+        self.show_as_chosen(cx);
+    }
+
+    fn set_level(&mut self, channel: ambience::Channel, percent: u8, cx: &mut Context<Self>) {
+        self.apply(
+            move || {
+                let root = analyst_settings::application_support_root()
+                    .map_err(|error| error.to_string())?;
+                analyst_settings::save_sound_level(&root, channel, percent)
+                    .map_err(|error| error.to_string())
+            },
+            cx,
+        );
+        for (channel, level) in ambience::Channel::ALL.into_iter().zip(self.levels) {
+            ambience::set_level(channel, level);
+        }
     }
 
     fn set_source(&mut self, source: VoiceSource, cx: &mut Context<Self>) {
@@ -286,6 +367,7 @@ impl Render for SettingsView {
             window.appearance(),
             gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark
         ));
+        window.set_rem_size(gpui::px(world_gpui::rem_size()));
         window.set_window_title("World Machine Settings");
 
         let on = self.voice_on;
@@ -413,6 +495,60 @@ impl Render for SettingsView {
             );
         }
         let sound_on = self.sound_on;
+        let mut mixer = group();
+        for (index, channel) in ambience::Channel::ALL.into_iter().enumerate() {
+            let (name, what) = match channel {
+                ambience::Channel::Music => (
+                    "Music",
+                    "Chords, a morning tune and an evening one, by the hour and the weather",
+                ),
+                ambience::Channel::Ambience => ("Landscape", "Wind and the hum of the place"),
+                ambience::Channel::Voices => ("Voices", "Everyone's own babble as they speak"),
+                ambience::Channel::Interface => (
+                    "Ticks and bells",
+                    "Cards turning, turns passing, things built",
+                ),
+            };
+            let level = self.levels[index];
+            let mut steps = div().flex_shrink_0().flex().items_end().gap_1();
+            for step in 0..=4_u8 {
+                let percent = step * 25;
+                let lit = percent <= level && level > 0;
+                steps = steps.child(
+                    div()
+                        .id(("sound-level", usize::from(step) + index * 5))
+                        .w(px(22.0))
+                        .h(px(8.0 + f32::from(step) * 3.0))
+                        .rounded_sm()
+                        .cursor_pointer()
+                        .bg(ui::color(if lit {
+                            tokens::ACCENT
+                        } else {
+                            tokens::BORDER_STRONG
+                        }))
+                        .on_click(
+                            cx.listener(move |this, _, _, cx| this.set_level(channel, percent, cx)),
+                        ),
+                );
+            }
+            mixer = mixer.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w(px(0.0))
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .child(ui::row_title(name))
+                            .child(ui::caption(what)),
+                    )
+                    .child(steps),
+            );
+        }
         page.child(ui::caption(
             "Only an API key sends anything off this Mac: what a World has recorded, once per return. Worlds already open keep the voice they opened with.",
         ))
@@ -432,7 +568,7 @@ impl Render for SettingsView {
                             .gap_1()
                             .child(ui::row_title("Sound"))
                             .child(ui::caption(
-                                "The World in front plays its landscape's quiet sound, and a soft tick, bell or chime as cards turn, turns pass and things are built.",
+                                "The World in front plays its music and its landscape's sound, everyone speaks in a voice of their own, and cards, turns and building each have a small sound.",
                             )),
                     )
                     .child(
@@ -441,5 +577,118 @@ impl Render for SettingsView {
                     ),
             ),
         )
+        .when(sound_on, |page| page.child(mixer))
+        .child(div().pt_4().child(ui::page_title("Display")))
+        .child(self.render_display(cx))
+    }
+}
+
+impl SettingsView {
+    /// Language, text size and contrast.
+    fn render_display(&self, cx: &mut Context<Self>) -> gpui::Div {
+        let chip = |id: SharedString, label: String, selected: bool| {
+            div()
+                .id(id)
+                .px_3()
+                .py_1()
+                .rounded_md()
+                .cursor_pointer()
+                .border_1()
+                .border_color(ui::color(if selected {
+                    tokens::ACCENT
+                } else {
+                    tokens::BORDER
+                }))
+                .bg(ui::color(if selected {
+                    tokens::ACCENT_SOFT
+                } else {
+                    tokens::SURFACE
+                }))
+                .text_sm()
+                .aria_label(label.clone())
+                .child(label)
+        };
+        let row = |title: &'static str, what: &'static str| {
+            div()
+                .flex_1()
+                .min_w(px(0.0))
+                .flex()
+                .flex_col()
+                .gap_1()
+                .child(ui::row_title(title))
+                .child(ui::caption(what))
+        };
+        let mut languages = div().flex().flex_wrap().gap_2();
+        for (index, (id, label)) in [
+            (None, ui::t("Follow the Mac").to_string()),
+            (Some("en"), "English".to_string()),
+            (Some("zh-Hans"), "简体中文".to_string()),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let selected = self.language.as_deref() == id;
+            let chosen = id.map(str::to_string);
+            languages = languages.child(
+                chip(
+                    SharedString::from(format!("language-{index}")),
+                    label,
+                    selected,
+                )
+                .on_click(cx.listener(move |this, _, _, cx| this.set_language(chosen.clone(), cx))),
+            );
+        }
+        let mut sizes = div().flex().flex_wrap().gap_2();
+        for percent in [100_u32, 125, 150, 175, 200] {
+            sizes = sizes.child(
+                chip(
+                    SharedString::from(format!("text-size-{percent}")),
+                    format!("{percent}%"),
+                    self.text_scale == percent,
+                )
+                .on_click(cx.listener(move |this, _, _, cx| this.set_text_scale(percent, cx))),
+            );
+        }
+        let contrast_on = self
+            .contrast
+            .unwrap_or_else(world_machine_desktop::display::system_increase_contrast);
+        group()
+            .gap_4()
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .child(row("Language", "The app and the Worlds that come with it."))
+                    .child(languages),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .child(row(
+                        "Text size",
+                        "Everything written, from cards to speech.",
+                    ))
+                    .child(sizes),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .child(row(
+                        "Increase contrast",
+                        "Quiet text and outlines drawn stronger.",
+                    ))
+                    .child(
+                        switch("contrast-switch", contrast_on)
+                            .aria_label(ui::t("Increase contrast"))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.set_contrast(Some(!contrast_on), cx)
+                            })),
+                    ),
+            )
     }
 }

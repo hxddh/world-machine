@@ -111,6 +111,16 @@ impl Stage {
     }
 }
 
+/// Where along the ground a stage point `x` is, from 0 (the left edge of
+/// the row places stand in) to 100 (its right edge): the spot something
+/// the player puts down there takes.
+pub fn ground_spot(stage: &Stage, x: f32) -> u8 {
+    let usable = stage.width * (1.0 - 2.0 * MARGIN);
+    (((x - stage.width * MARGIN) / usable.max(1.0)) * 100.0)
+        .round()
+        .clamp(0.0, 100.0) as u8
+}
+
 /// Pairs a Pack wants drawn together, who stand side by side.
 fn pairs(snapshot: &ProjectionSnapshot) -> Vec<(SelectionId, SelectionId)> {
     snapshot
@@ -146,8 +156,14 @@ pub fn stage(snapshot: &ProjectionSnapshot, width: f32, height: f32) -> Stage {
         let host = *index_of.get(&items[index].at?)?;
         (host != index && items[host].at.is_none()).then_some(host)
     };
+    // What the player stood somewhere of their choosing keeps its spot and
+    // takes no place in the row.
     let mut anchors = (0..items.len())
-        .filter(|index| host(*index).is_none() && items[*index].kind != CanvasItemKind::Actor)
+        .filter(|index| {
+            host(*index).is_none()
+                && items[*index].kind != CanvasItemKind::Actor
+                && items[*index].spot.is_none()
+        })
         .collect::<Vec<_>>();
     anchors.sort_by(|a, b| {
         items[*a]
@@ -193,6 +209,14 @@ pub fn stage(snapshot: &ProjectionSnapshot, width: f32, height: f32) -> Stage {
     let mut beside = BTreeMap::<usize, usize>::new();
     for (index, item) in items.iter().enumerate() {
         if item.kind == CanvasItemKind::Actor {
+            continue;
+        }
+        if let Some(spot) = item.spot {
+            things.push(Spot {
+                index,
+                x: width * MARGIN + usable * spot.clamp(0.0, 1.0),
+                y: feet,
+            });
             continue;
         }
         let Some(host) = host(index) else {
@@ -322,7 +346,7 @@ pub fn stage(snapshot: &ProjectionSnapshot, width: f32, height: f32) -> Stage {
 /// How long someone takes to walk to where a turn put them.
 pub const WALK_SECONDS: f32 = 1.4;
 
-fn ease(t: f32) -> f32 {
+pub(crate) fn ease(t: f32) -> f32 {
     let t = t.clamp(0.0, 1.0);
     t * t * (3.0 - 2.0 * t)
 }
@@ -332,6 +356,59 @@ fn ease(t: f32) -> f32 {
 pub struct Living {
     pub x: f32,
     pub pose: Pose,
+    /// What they do with an idle moment, or how they answer a click, over
+    /// whatever their Pack says they are doing.
+    pub stance: Option<Stance>,
+}
+
+/// How long a building or thing springs after a click, in seconds.
+pub const BOUNCE_SECONDS: f32 = 0.5;
+
+/// How long a wave lasts after someone is clicked on, in seconds.
+pub const WAVE_SECONDS: f32 = 1.2;
+
+/// What someone does with an idle moment `seconds` in: most of the time
+/// nothing much, and now and then, on a cycle of their own, one of the
+/// idle things people do. At night they only sit or look about.
+fn idle(seed: u32, seconds: f32, daylight: Daylight) -> Option<Stance> {
+    let period = 16.0 + (seed % 9) as f32;
+    let shifted = seconds + (seed % 997) as f32 * 0.53;
+    let phase = (shifted % period) / period;
+    if !(0.55..0.82).contains(&phase) {
+        return None;
+    }
+    let turn = (shifted / period) as u32 + seed;
+    let choices: &[Stance] = if daylight == Daylight::Night {
+        &[Stance::Sitting, Stance::LookingAround]
+    } else {
+        &Stance::IDLE
+    };
+    Some(choices[(turn as usize) % choices.len()])
+}
+
+/// Everyone clicked on in the last [`WAVE_SECONDS`] waves and hops, from
+/// how long ago each was clicked. `figure_h` sizes the hop.
+pub fn wave(
+    living: &mut [Living],
+    stage: &Stage,
+    snapshot: &ProjectionSnapshot,
+    poked: &BTreeMap<SelectionId, f32>,
+) {
+    for (life, spot) in living.iter_mut().zip(&stage.people) {
+        let Some(item) = snapshot.canvas.items.get(spot.index) else {
+            continue;
+        };
+        let Some(ago) = poked.get(&item.id) else {
+            continue;
+        };
+        if (0.0..WAVE_SECONDS).contains(ago) && life.pose.stride.is_none() {
+            let t = ago / WAVE_SECONDS;
+            // A quick hop up that settles: up fast, down with a little give.
+            let hop = (t * std::f32::consts::PI).sin() * (1.0 - t).max(0.0);
+            life.pose.bob += hop * stage.figure_h * 0.18;
+            life.stance = Some(Stance::Waving);
+        }
+    }
 }
 
 /// Where each person is this frame, `seconds` into looking at the World.
@@ -378,6 +455,7 @@ pub fn living(
                                     bob: 0.0,
                                     facing: (home - old.x).signum(),
                                 },
+                                stance: None,
                             };
                         }
                     }
@@ -389,6 +467,11 @@ pub fn living(
                     stride: None,
                     bob: breathe,
                     facing: ((seconds * 0.11 + (seed % 7) as f32).sin() * 1.4).clamp(-1.0, 1.0),
+                },
+                stance: if pinned.contains(&item.id) {
+                    None
+                } else {
+                    idle(seed, seconds, daylight)
                 },
             };
             if pinned.contains(&item.id) || daylight == Daylight::Night || stops.len() < 2 {
@@ -413,10 +496,15 @@ pub fn living(
                     bob: 0.0,
                     facing: (to - from).signum(),
                 },
+                stance: None,
             };
             match phase {
                 p if (0.60..0.68).contains(&p) => walk(home, away, (p - 0.60) / 0.08),
-                p if (0.68..0.80).contains(&p) => Living { x: away, ..still },
+                p if (0.68..0.80).contains(&p) => Living {
+                    x: away,
+                    stance: Some(Stance::LookingAround),
+                    ..still
+                },
                 p if (0.80..0.88).contains(&p) => walk(away, home, (p - 0.80) / 0.08),
                 _ => still,
             }
@@ -512,6 +600,8 @@ pub struct PersonPaint {
     pub drawing: Option<Drawing>,
     /// What they are doing, for their drawing.
     pub stance: Stance,
+    /// How they feel, for their face.
+    pub mood: world_projection::Mood,
 }
 
 #[derive(Clone, Debug)]
@@ -561,9 +651,37 @@ pub struct Frame {
     pub people: Vec<PersonPaint>,
     bonds: Vec<(f32, f32, f32, CanvasLinkTone)>,
     weather: Weather,
+    /// How far the camera has moved across from the middle, in screen
+    /// pixels: far layers move less than near ones.
+    pan: f32,
 }
 
 impl Frame {
+    /// A building or thing clicked in the last [`BOUNCE_SECONDS`] squashes
+    /// and springs back: a little wider and lower, then taller, then
+    /// settled.
+    pub fn bounce(&mut self, snapshot: &ProjectionSnapshot, poked: &BTreeMap<SelectionId, f32>) {
+        for (id, ago) in poked {
+            if !(0.0..BOUNCE_SECONDS).contains(ago) {
+                continue;
+            }
+            let Some(index) = snapshot.canvas.items.iter().position(|item| item.id == *id) else {
+                continue;
+            };
+            let t = ago / BOUNCE_SECONDS;
+            // Squash, then overshoot, then settle: a damped spring.
+            let spring = (t * std::f32::consts::TAU * 1.5).sin() * (1.0 - t) * (1.0 - t);
+            for building in self.buildings.iter_mut().filter(|b| b.index == index) {
+                building.h *= 1.0 + 0.08 * spring;
+                building.w *= 1.0 - 0.05 * spring;
+            }
+            for thing in self.things.iter_mut().filter(|thing| thing.index == index) {
+                thing.w *= 1.0 - 0.08 * spring;
+                thing.base -= thing.w * 0.12 * spring.max(0.0);
+            }
+        }
+    }
+
     /// Whether the item at `index` is lit up this frame.
     pub fn lit(&self, index: usize) -> bool {
         self.buildings
@@ -737,11 +855,17 @@ pub fn frame(
                 },
                 glow: glow_of(item),
                 drawing: snapshot.drawing_of(item).cloned(),
-                stance: if life.pose.stride.is_some() {
-                    Stance::Walking
-                } else {
-                    item.stance.unwrap_or_default()
+                // Walking beats everything; a wave beats what the Pack says;
+                // what the Pack says (talking, celebrating, working) beats an
+                // idle moment.
+                stance: match (life.pose.stride, life.stance, item.stance) {
+                    (Some(_), _, _) => Stance::Walking,
+                    (None, Some(Stance::Waving), _) => Stance::Waving,
+                    (None, _, Some(pack)) if pack != Stance::Standing => pack,
+                    (None, Some(idle), _) => idle,
+                    _ => Stance::Standing,
                 },
+                mood: item.mood.unwrap_or_default(),
             }
         })
         .collect::<Vec<_>>();
@@ -792,6 +916,23 @@ pub fn frame(
         people,
         bonds,
         weather: snapshot.weather,
+        pan: (camera.x - stage.width / 2.0) * z,
+    }
+}
+
+/// How much each layer moves with the camera, from the sky (least) to
+/// the ground under people's feet (fully).
+pub const PARALLAX: [f32; 4] = [0.06, 0.18, 0.4, 1.0];
+
+/// The light an hour lays over the whole scene, like a diorama under a
+/// lamp: a warm key light from the upper left and a cool shade low down,
+/// each a colour and how strong it is.
+pub fn grade(daylight: Daylight) -> ((u32, f32), (u32, f32)) {
+    match daylight {
+        Daylight::Dawn => ((0xffc79a, 0.16), (0x5a6aa8, 0.10)),
+        Daylight::Day => ((0xfff0c8, 0.10), (0x4a6a9a, 0.08)),
+        Daylight::Dusk => ((0xff9a5c, 0.20), (0x4a3070, 0.16)),
+        Daylight::Night => ((0x9ab0ff, 0.06), (0x0a1030, 0.22)),
     }
 }
 
@@ -902,7 +1043,9 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window) {
     for index in 0..clouds {
         let speed = 4.0 + index as f32 * 1.7;
         let span = width + 320.0;
-        let x = ox + ((index as f32 * 331.0 + t * speed) % span) - 160.0;
+        let x = ox
+            + ((index as f32 * 331.0 + t * speed - frame.pan * PARALLAX[0]).rem_euclid(span))
+            - 160.0;
         let y = oy + frame.horizon * (0.12 + 0.11 * (index % 5) as f32);
         let s = (1.0 - (index % 5) as f32 * 0.12) * k;
         art::ellipse(window, x, y, 46.0 * s, 16.0 * s, cloud);
@@ -939,19 +1082,48 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window) {
         }
     };
     let far = darken(art::hex(scenery.far));
+    // The distant hills, pale with the air between, behind everything and
+    // moving least with the camera.
+    let haze = art::hex(scenery.sky_bottom);
+    let distant = gpui::Hsla {
+        l: (far.l * 0.5 + haze.l * 0.5).min(0.92),
+        s: far.s * 0.45,
+        ..far
+    };
+    let hills_top = horizon - (frame.base - frame.horizon) * 0.6;
+    let shift = -frame.pan * PARALLAX[1];
+    let mut hills = PathBuilder::fill();
+    hills.move_to(point(px(ox - 40.0), px(horizon + 4.0)));
+    let bumps = 5;
+    for bump in 0..bumps {
+        let x0 = ox - 40.0 + (width + 80.0) * bump as f32 / bumps as f32 + shift;
+        let x1 = ox - 40.0 + (width + 80.0) * (bump as f32 + 1.0) / bumps as f32 + shift;
+        let peak = hills_top + ((bump * 37 % 5) as f32) * (frame.base - frame.horizon) * 0.06;
+        hills.curve_to(
+            point(px(x1), px(horizon + 2.0)),
+            point(px((x0 + x1) / 2.0), px(peak)),
+        );
+    }
+    hills.line_to(point(px(ox + width + 40.0), px(oy + height)));
+    hills.line_to(point(px(ox - 40.0), px(oy + height)));
+    hills.close();
+    if let Ok(path) = hills.build() {
+        window.paint_path(path, distant);
+    }
     let ridge_top = horizon - (frame.base - frame.horizon) * 0.35;
+    let shift = -frame.pan * PARALLAX[2];
     let mut ridge = PathBuilder::fill();
-    ridge.move_to(point(px(ox), px(horizon + 6.0)));
+    ridge.move_to(point(px(ox - 60.0 + shift), px(horizon + 6.0)));
     ridge.curve_to(
-        point(px(ox + width * 0.45), px(ridge_top + 10.0)),
-        point(px(ox + width * 0.2), px(ridge_top - 16.0)),
+        point(px(ox + width * 0.45 + shift), px(ridge_top + 10.0)),
+        point(px(ox + width * 0.2 + shift), px(ridge_top - 16.0)),
     );
     ridge.curve_to(
-        point(px(ox + width), px(horizon)),
-        point(px(ox + width * 0.78), px(ridge_top + 24.0)),
+        point(px(ox + width + 60.0 + shift), px(horizon)),
+        point(px(ox + width * 0.78 + shift), px(ridge_top + 24.0)),
     );
-    ridge.line_to(point(px(ox + width), px(oy + height)));
-    ridge.line_to(point(px(ox), px(oy + height)));
+    ridge.line_to(point(px(ox + width + 60.0), px(oy + height)));
+    ridge.line_to(point(px(ox - 60.0), px(oy + height)));
     ridge.close();
     if let Ok(path) = ridge.build() {
         window.paint_path(path, art::shade(far, -0.08));
@@ -1147,6 +1319,7 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window) {
                 drawing,
                 &Inks::of_place(&building.palette).lit(lit_windows),
                 Stance::Standing,
+                world_projection::Mood::Content,
                 0.0,
                 0.0,
                 1.0,
@@ -1192,6 +1365,7 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window) {
                 drawing,
                 &Inks::of_place(&thing.palette),
                 Stance::Standing,
+                world_projection::Mood::Content,
                 thing.sway * 0.3,
                 0.0,
                 1.0,
@@ -1237,6 +1411,7 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window) {
                     drawing,
                     &Inks::of_person(&person.figure),
                     person.stance,
+                    person.mood,
                     swing,
                     person.pose.bob,
                     person.pose.facing,
@@ -1254,6 +1429,35 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window) {
     }
     for (x, y, r, tone) in &frame.bonds {
         art::paint_bond(window, ox + x, oy + y, *r, *tone);
+    }
+    // The hour's light over everything: warm from the upper left, cool
+    // low down, and the edges a touch darker, so the middle reads first.
+    let ((warm, warm_alpha), (cool, cool_alpha)) = grade(frame.daylight);
+    window.paint_quad(gpui::fill(
+        bounds,
+        linear_gradient(
+            135.0,
+            linear_color_stop(art::hex(warm).opacity(warm_alpha), 0.0),
+            linear_color_stop(art::hex(warm).opacity(0.0), 0.6),
+        ),
+    ));
+    window.paint_quad(gpui::fill(
+        bounds,
+        linear_gradient(
+            180.0,
+            linear_color_stop(art::hex(cool).opacity(0.0), 0.55),
+            linear_color_stop(art::hex(cool).opacity(cool_alpha), 1.0),
+        ),
+    ));
+    for angle in [90.0_f32, 270.0] {
+        window.paint_quad(gpui::fill(
+            bounds,
+            linear_gradient(
+                angle,
+                linear_color_stop(gpui::black().opacity(0.10), 0.0),
+                linear_color_stop(gpui::black().opacity(0.0), 0.12),
+            ),
+        ));
     }
     paint_weather(window, frame, ox, oy, width, height, k);
     let _ = frame.zoom;
@@ -1445,6 +1649,8 @@ mod tests {
             drawing: None,
             stance: None,
             standing: None,
+            mood: None,
+            spot: None,
         }
     }
 
@@ -1556,6 +1762,181 @@ mod tests {
             .any(|(life, home)| (life.x - home).abs() > stage.figure_h)
         });
         assert!(wandered);
+    }
+
+    /// The v0.16 bar: everyone has at least four idle behaviours over a
+    /// few minutes of day, and a click brings a wave within the frame.
+    #[test]
+    fn everyone_has_idle_behaviours_and_waves_when_clicked() {
+        let snapshot = harbour();
+        let stage = stage(&snapshot, 1100.0, 848.0);
+        let pinned = BTreeSet::new();
+        let mut seen = vec![BTreeSet::new(); stage.people.len()];
+        for tenth in 0..3000 {
+            let lives = living(
+                &stage,
+                &snapshot,
+                tenth as f32 / 10.0,
+                Daylight::Day,
+                &pinned,
+                None,
+            );
+            for (index, life) in lives.iter().enumerate() {
+                if let Some(stance) = life.stance {
+                    seen[index].insert(stance);
+                }
+            }
+        }
+        for (index, stances) in seen.iter().enumerate() {
+            assert!(stances.len() >= 4, "person {index}: {stances:?}");
+        }
+        let mut lives = living(&stage, &snapshot, 5.0, Daylight::Day, &pinned, None);
+        let who = snapshot.canvas.items[stage.people[0].index].id;
+        let poked = [(who, 0.3_f32)].into_iter().collect();
+        let before = lives[0].pose.bob;
+        wave(&mut lives, &stage, &snapshot, &poked);
+        assert_eq!(lives[0].stance, Some(Stance::Waving));
+        assert!(lives[0].pose.bob > before, "a hop");
+        let later = [(who, WAVE_SECONDS + 0.1)].into_iter().collect();
+        let mut settled = living(&stage, &snapshot, 5.0, Daylight::Day, &pinned, None);
+        wave(&mut settled, &stage, &snapshot, &later);
+        assert_ne!(settled[0].stance, Some(Stance::Waving));
+    }
+
+    #[test]
+    fn every_hour_has_a_light_of_its_own_and_far_layers_move_least() {
+        let grades = [
+            Daylight::Dawn,
+            Daylight::Day,
+            Daylight::Dusk,
+            Daylight::Night,
+        ]
+        .map(grade)
+        .map(|((warm, a), (cool, b))| (warm, (a * 100.0) as u32, cool, (b * 100.0) as u32));
+        let distinct = grades.iter().collect::<BTreeSet<_>>();
+        assert_eq!(distinct.len(), 4);
+        assert!(PARALLAX.windows(2).all(|pair| pair[0] < pair[1]));
+        assert!(PARALLAX.len() >= 3);
+    }
+
+    /// The v0.16 bar: working out a frame of a busy scene (fifteen people,
+    /// a dozen buildings, twenty things) fits well inside a 60 fps frame,
+    /// leaving the rest of the 16 ms for painting. Timed in a release
+    /// build; a debug build only checks it finishes.
+    #[test]
+    fn a_busy_frame_is_worked_out_in_4_ms() {
+        let mut items = Vec::new();
+        for id in 0..12 {
+            items.push(item(
+                100 + id,
+                CanvasItemKind::Place,
+                id as f32 / 12.0,
+                None,
+            ));
+        }
+        for id in 0..20 {
+            items.push(item(
+                300 + id,
+                CanvasItemKind::Object,
+                id as f32 / 20.0,
+                Some(100 + id % 12),
+            ));
+        }
+        for id in 0..15 {
+            items.push(item(
+                id + 1,
+                CanvasItemKind::Actor,
+                id as f32 / 15.0,
+                Some(100 + id % 12),
+            ));
+        }
+        let snapshot = ProjectionSnapshot {
+            canvas: CanvasProjection {
+                items,
+                links: Vec::new(),
+                marks: Vec::new(),
+            },
+            ..ProjectionSnapshot::default()
+        };
+        let pinned = BTreeSet::new();
+        let runs = 200;
+        let started = std::time::Instant::now();
+        for run in 0..runs {
+            let stage = stage(&snapshot, 1400.0, 900.0);
+            let lives = living(
+                &stage,
+                &snapshot,
+                run as f32 / 60.0,
+                Daylight::Day,
+                &pinned,
+                None,
+            );
+            let frame = frame(
+                &snapshot,
+                &stage,
+                &lives,
+                Camera::whole(&stage),
+                run as f32 / 60.0,
+                Daylight::Day,
+                &Glows::new(),
+                1.0,
+            );
+            assert_eq!(frame.people.len(), 15);
+        }
+        let each = started.elapsed() / runs;
+        if !cfg!(debug_assertions) {
+            assert!(each.as_micros() < 4_000, "{each:?} a frame");
+        }
+    }
+
+    /// No motion over time is linear: every move between two places is
+    /// eased. Interpolations along a shape (a line, a curve) are drawing,
+    /// not motion, and are named here.
+    #[test]
+    fn no_motion_is_linear() {
+        let lerp = regex_lite_like;
+        let sources = [
+            ("diorama.rs", include_str!("diorama.rs")),
+            ("art.rs", include_str!("art.rs")),
+            ("scene.rs", include_str!("scene.rs")),
+            (
+                "macos/world_window.rs",
+                include_str!("macos/world_window.rs"),
+            ),
+            ("macos.rs", include_str!("macos.rs")),
+        ];
+        let drawing = [
+            "let fx = left + (right - left) * t;",
+            "|t: f32| point(from.x + (to.x - from.x) * t",
+        ];
+        for (name, source) in sources {
+            let lines = source.lines().collect::<Vec<_>>();
+            for (index, line) in lines.iter().enumerate() {
+                if !lerp(line) || drawing.iter().any(|allowed| line.contains(allowed)) {
+                    continue;
+                }
+                let eased = lines[index.saturating_sub(8)..=index]
+                    .iter()
+                    .any(|nearby| nearby.contains("ease(") || nearby.contains("with_easing"));
+                assert!(
+                    eased,
+                    "{name}:{}: linear motion: {}",
+                    index + 1,
+                    line.trim()
+                );
+            }
+        }
+    }
+
+    /// Whether a line moves something by a raw fraction of time: `(to -
+    /// from) * t`, `* progress`, `* phase`.
+    fn regex_lite_like(line: &str) -> bool {
+        let code = line.split("//").next().unwrap_or_default();
+        ["* t)", "* t,", "* t;", "* progress", "* phase"]
+            .iter()
+            .any(|tail| code.contains(tail))
+            && code.contains(" - ")
+            && code.contains(") *")
     }
 
     #[test]

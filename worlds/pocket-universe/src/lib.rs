@@ -1,4 +1,5 @@
 mod almanac;
+mod book;
 #[cfg(test)]
 mod density;
 mod drawings;
@@ -30,7 +31,7 @@ use world_persistence::{PersistenceError, WorldArchive, WorldPackRef};
 use world_projection::{ProjectionIntent, ProjectionSnapshot};
 
 pub const POCKET_UNIVERSE_PACK_ID: &str = "world-machine.pocket-universe";
-pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.26.0";
+pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.27.0";
 
 pub const SEED_MARS_COLONY_COMMAND: &str = "pocket-universe.seed-mars-colony";
 pub const SEED_1980S_TOWN_COMMAND: &str = "pocket-universe.seed-1980s-town";
@@ -400,6 +401,12 @@ where
         }
 
         if let Some(deed) = handwork::parse_command(command_id) {
+            if deed == handwork::UNDO {
+                return Ok(self
+                    .world
+                    .execute(&self.actions, &hands::undo_request())?
+                    .id);
+            }
             let event = self
                 .world
                 .execute(&self.actions, &hands::do_request(deed))?
@@ -448,6 +455,9 @@ where
         // A World that has just begun opens on its first question.
         if action.starts_with("seed_") {
             story::tick(&mut self.world, &self.actions, false)?;
+            // Someone comes over to say hello.
+            let cast = life::cast(self.world.state());
+            lives::greet(&mut self.world, &self.actions, &cast)?;
         }
         Ok(event)
     }

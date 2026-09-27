@@ -824,6 +824,8 @@ fn cast_from_document(
                 drawing: figure.drawing.clone(),
                 stance: None,
                 standing: None,
+                mood: None,
+                spot: None,
             })
         })
         .collect()
@@ -851,6 +853,14 @@ fn mark_shape_name(shape: world_projection::MarkShape) -> &'static str {
         MarkShape::Tent => "tent",
         MarkShape::Bench => "bench",
         MarkShape::Sprouts => "sprouts",
+        MarkShape::Well => "well",
+        MarkShape::Swing => "swing",
+        MarkShape::Fountain => "fountain",
+        MarkShape::Signpost => "signpost",
+        MarkShape::Birdhouse => "birdhouse",
+        MarkShape::Planter => "planter",
+        MarkShape::Statue => "statue",
+        MarkShape::Postbox => "postbox",
     }
 }
 
@@ -875,6 +885,14 @@ fn mark_shape_from_name(name: &str) -> world_projection::MarkShape {
         "tent" => MarkShape::Tent,
         "bench" => MarkShape::Bench,
         "sprouts" => MarkShape::Sprouts,
+        "well" => MarkShape::Well,
+        "swing" => MarkShape::Swing,
+        "fountain" => MarkShape::Fountain,
+        "signpost" => MarkShape::Signpost,
+        "birdhouse" => MarkShape::Birdhouse,
+        "planter" => MarkShape::Planter,
+        "statue" => MarkShape::Statue,
+        "postbox" => MarkShape::Postbox,
         _ => MarkShape::House,
     }
 }
@@ -1794,6 +1812,8 @@ mod tests {
                         drawing: None,
                         stance: None,
                         standing: None,
+                        mood: None,
+                        spot: None,
                     },
                     world_projection::CanvasItem {
                         id: world_projection::SelectionId::from_stable_key("entity-11").unwrap(),
@@ -1815,6 +1835,8 @@ mod tests {
                         drawing: None,
                         stance: None,
                         standing: None,
+                        mood: None,
+                        spot: None,
                     },
                 ],
                 ..Default::default()

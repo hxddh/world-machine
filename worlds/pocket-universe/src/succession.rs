@@ -178,7 +178,7 @@ pub(crate) fn copy_for_seed(seed: &str) -> SuccessionCopy {
             entrust_detail: "Nia teaches Ines the habits Ares built, unchanged, and steps back. The colony keeps doing what worked.",
             entrust_summary: "Nia handed Ares's routines to Ines unchanged. The colony's habits outlived the people who made them.",
             release_title: "Let Ines run Ares her own way",
-            release_detail: "Nia lets Ines rebuild the colony's routines for people who were born here. What Ares learned is hers to keep or drop.",
+            release_detail: "Nia lets Ines remake the routines for those born here. What Ares learned is hers to keep or drop.",
             release_summary: "Ines rebuilt Ares's routines for people born on the ridge. What the colony learned is a story now, not a rule.",
         },
         "1980s-town" => SuccessionCopy {
@@ -204,7 +204,7 @@ pub(crate) fn copy_for_seed(seed: &str) -> SuccessionCopy {
             entrust_detail: "Piko teaches Sura the council's rites unchanged and steps back. Icebridge keeps the crossings it knows.",
             entrust_summary: "Piko handed the crossing rites to Sura unchanged. The rites outlived the keeper who kept them.",
             release_title: "Let Sura keep the bridge her way",
-            release_detail: "Piko lets Sura rewrite the rites for a colony that has never lost a span. What Icebridge learned is hers to keep or drop.",
+            release_detail: "Piko lets Sura rewrite the rites for a colony that never lost a span. The old ways are hers to keep or drop.",
             release_summary: "Sura rewrote the crossing rites for a colony that never lost a span. What Icebridge learned is a story now, not a rule.",
         },
         _ => SuccessionCopy {

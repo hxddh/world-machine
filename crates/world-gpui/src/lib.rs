@@ -1,12 +1,35 @@
 pub mod art;
 pub mod diorama;
+pub mod i18n;
 mod macos;
 pub mod scene;
 pub mod text_input;
 pub mod ui;
 
-pub use macos::{is_beginning, scene_share, words_at_rest, ProjectionView, RESTING_WORD_LIMIT};
+pub use macos::{
+    is_beginning, scene_share, speech_pages, words_at_rest, ProjectionView, RESTING_WORD_LIMIT,
+};
+pub use world_i18n::{set_language, Language};
 pub use world_projection::{Ears, ProjectionIntent, ProjectionSnapshot, SelectionId};
+
+static TEXT_SCALE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(100);
+
+/// How large text is drawn, as a percentage from 100 to 200.
+pub fn set_text_scale(percent: u32) {
+    TEXT_SCALE.store(
+        percent.clamp(100, 200),
+        std::sync::atomic::Ordering::Relaxed,
+    );
+}
+
+pub fn text_scale() -> f32 {
+    TEXT_SCALE.load(std::sync::atomic::Ordering::Relaxed) as f32 / 100.0
+}
+
+/// The size one rem is drawn at: 16 points, scaled as the player asked.
+pub fn rem_size() -> f32 {
+    16.0 * text_scale()
+}
 
 use std::time::Duration;
 
@@ -56,11 +79,140 @@ pub enum Cue {
     Turn,
     /// Something new was built.
     Built,
+    /// Someone says a line: a babble in their own voice, a syllable or so
+    /// for every few letters, rising at the end of a question.
+    Babble {
+        /// Stable per person, so each always sounds like themselves.
+        voice: u32,
+        syllables: u8,
+        question: bool,
+    },
+}
+
+/// The babble under a line `text` said by `who`.
+pub fn babble(who: SelectionId, text: &str) -> Cue {
+    let voice = who
+        .stable_key()
+        .bytes()
+        .fold(0x811c_9dc5_u32, |hash, byte| {
+            (hash ^ u32::from(byte)).wrapping_mul(0x0100_0193)
+        });
+    // A syllable for each group of vowels in a word, and one for every
+    // other character of a language written without spaces.
+    let mut syllables = 0_usize;
+    let mut in_vowel = false;
+    for character in text.chars() {
+        if character.is_ascii_alphabetic() {
+            let vowel = "aeiouyAEIOUY".contains(character);
+            if vowel && !in_vowel {
+                syllables += 1;
+            }
+            in_vowel = vowel;
+        } else {
+            in_vowel = false;
+            if !character.is_ascii() && character.is_alphanumeric() {
+                syllables += 1;
+            }
+        }
+    }
+    let trimmed = text.trim_end_matches(|character: char| {
+        character.is_whitespace() || matches!(character, '"' | '\'' | '”' | '’' | ')')
+    });
+    Cue::Babble {
+        voice,
+        syllables: syllables.div_ceil(2).clamp(2, 12) as u8,
+        question: trimmed.ends_with('?') || trimmed.ends_with('？'),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn speech_shows_at_most_two_lines_at_a_time() {
+        let long = "Here we are again. Last time: Evan took a week's work on the mainland. A week's carpentry on the mainland. Should I go?";
+        let pages = speech_pages(long);
+        assert!(pages.len() >= 2, "{pages:?}");
+        for page in &pages {
+            assert!(page.lines().count() <= 2, "{page:?}");
+            for line in page.lines() {
+                assert!(line.chars().count() <= 36, "{line:?}");
+            }
+        }
+        assert_eq!(pages.join(" ").replace('\n', " "), long, "nothing is lost");
+        assert_eq!(speech_pages("Morning!"), vec!["Morning!".to_string()]);
+        // A language without spaces is cut by width: two columns a
+        // character.
+        let chinese = "今天港口的船都回来了，大家都很高兴，晚上我们在码头一起吃饭吧，你也来吗？";
+        for page in speech_pages(chinese) {
+            for line in page.lines() {
+                assert!(line.chars().count() <= 18, "{line:?}");
+            }
+        }
+    }
+
+    /// At twice the text size, a line a third longer than English (as
+    /// many translations are) still shows at most two lines at a time,
+    /// each narrow enough for the bubble.
+    #[test]
+    fn a_long_translation_at_double_size_still_pages_in_twos() {
+        let english =
+            "Here we are again. Last time: Evan took a week's work on the mainland. Should I go?";
+        let longer = format!("{english} {}", &english[..english.len() / 3]);
+        set_text_scale(200);
+        let pages = speech_pages(&longer);
+        set_text_scale(100);
+        assert!(pages.len() >= 3, "{pages:?}");
+        for page in &pages {
+            assert!(page.lines().count() <= 2, "{page:?}");
+            for line in page.lines() {
+                assert!(line.chars().count() <= 18, "{line:?} is too wide at 200%");
+            }
+        }
+        assert_eq!(pages.join(" ").replace('\n', " "), longer);
+    }
+
+    #[test]
+    fn a_line_babbles_by_its_length_and_rises_as_a_question() {
+        let mara = SelectionId::from_stable_key("entity-4").unwrap();
+        let leo = SelectionId::from_stable_key("entity-5").unwrap();
+        let short = babble(mara, "Hi!");
+        let long = babble(
+            mara,
+            "The boats came in late again, and the market will be quiet.",
+        );
+        let (
+            Cue::Babble {
+                voice,
+                syllables: few,
+                question: false,
+            },
+            Cue::Babble {
+                voice: same,
+                syllables: many,
+                ..
+            },
+        ) = (short, long)
+        else {
+            panic!("{short:?} {long:?}");
+        };
+        assert_eq!(voice, same, "one person, one voice");
+        assert!(many > few);
+        assert!(matches!(
+            babble(mara, "Are you staying for supper?"),
+            Cue::Babble { question: true, .. }
+        ));
+        assert!(matches!(
+            babble(mara, "你今天好吗？"),
+            Cue::Babble {
+                question: true,
+                syllables: 3,
+                ..
+            }
+        ));
+        assert_ne!(babble(mara, "Hello there"), babble(leo, "Hello there"));
+    }
     use std::time::Instant;
 
     #[test]

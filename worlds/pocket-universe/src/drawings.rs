@@ -86,20 +86,111 @@ pub(crate) fn drawing_of(world: &World, id: EntityId, person: bool) -> Option<St
             ("mars-colony", SLOT_C) => "greenhouse",
             ("mars-colony", SLOT_B) => "nia",
             ("mars-colony", SLOT_E) => "tomas",
-            ("mars-colony", _) if person => "colonist",
+            ("mars-colony", _) if person => return Some(format!("colonist-{}", id.0)),
             ("1980s-town", SLOT_A) => "arcade",
             ("1980s-town", SLOT_C) => "radio",
             ("1980s-town", SLOT_B) => "lena",
             ("1980s-town", SLOT_E) => "max",
-            ("1980s-town", _) if person => "townie",
+            ("1980s-town", _) if person => return Some(format!("townie-{}", id.0)),
             ("penguin-civilization", SLOT_A) => "icebridge",
             ("penguin-civilization", SLOT_C) => "fish-vault",
             ("penguin-civilization", SLOT_D) => "council",
-            ("penguin-civilization", _) if person => "penguin",
+            ("penguin-civilization", _) if person => return Some(format!("penguin-{}", id.0)),
             _ => return None,
         }
         .into(),
     )
+}
+
+/// Which of the generated looks someone gets, by the order they joined:
+/// nobody shares a silhouette until more people have lived there than
+/// there are looks.
+fn variant_of(world: &World, id: EntityId, looks: u32) -> u32 {
+    let rank = lives::joined_rank(world.state(), id).unwrap_or(id.0 as usize) as u32;
+    (rank.wrapping_mul(7)) % looks
+}
+
+/// Every drawing the Pack draws now: its own, and a look of their own for
+/// everyone living there without one.
+pub(crate) fn drawings_for(world: &World) -> Vec<Drawing> {
+    let mut all = drawings().to_vec();
+    for id in crate::life::people(world) {
+        let Some(name) = drawing_of(world, id, true) else {
+            continue;
+        };
+        let generated = if name.starts_with("colonist-") {
+            let base = person_base("person").with("colonist-base", jumpsuit());
+            world_projection::person(
+                name,
+                variant_of(world, id, world_projection::SILHOUETTES),
+                &base,
+            )
+        } else if name.starts_with("townie-") {
+            let base = person_base("person").with("townie-base", jacket());
+            world_projection::person(
+                name,
+                variant_of(world, id, world_projection::SILHOUETTES),
+                &base,
+            )
+        } else if name.starts_with("penguin-") {
+            penguin_of(name, variant_of(world, id, PENGUIN_LOOKS))
+        } else {
+            continue;
+        };
+        all.push(generated);
+    }
+    all
+}
+
+/// How many different penguins [`penguin_of`] draws.
+const PENGUIN_LOOKS: u32 = 36;
+
+/// A penguin of their own: one of four hats (or none), a bow tie, a scarf
+/// or nothing at the neck, and a tuft, a crest or a smooth head.
+fn penguin_of(id: String, variant: u32) -> Drawing {
+    let hat_colour = colour([0xb8433a, 0x2f5d8a, 0xd9a441, 0x3c7a55][(variant / 4 % 4) as usize]);
+    let mut parts = Vec::new();
+    match variant % 4 {
+        1 => {
+            parts.push(ellipse(0.0, 9.15, 1.5, 0.7, hat_colour));
+            parts.push(rect(0.3, 8.85, 1.8, 0.3, hat_colour).round(0.1).tone(-0.15));
+        }
+        2 => {
+            parts.push(ellipse(0.0, 9.35, 1.45, 0.95, hat_colour));
+            parts.push(
+                rect(-1.55, 8.7, 3.1, 0.5, hat_colour)
+                    .round(0.12)
+                    .tone(-0.2),
+            );
+        }
+        3 => {
+            parts.push(ellipse(0.0, 9.1, 2.5, 0.32, hat_colour));
+            parts.push(ellipse(0.0, 9.45, 1.3, 0.7, hat_colour).tone(-0.1));
+        }
+        _ => {}
+    }
+    match (variant / 4) % 3 {
+        1 => {
+            parts.push(polygon(&[(-0.9, 6.6), (0.0, 6.3), (-0.9, 6.0)], hat_colour));
+            parts.push(polygon(&[(0.9, 6.6), (0.0, 6.3), (0.9, 6.0)], hat_colour));
+        }
+        2 => parts.push(rect(-1.8, 6.1, 3.6, 0.6, hat_colour).round(0.2).tone(0.15)),
+        _ => {}
+    }
+    let black = colour(0x23262d);
+    match (variant / 12) % 3 {
+        1 => parts.push(polygon(&[(-0.3, 9.2), (0.1, 10.3), (0.4, 9.2)], black)),
+        2 => {
+            for x in [-0.5_f32, 0.0, 0.5] {
+                parts.push(polygon(
+                    &[(x - 0.2, 9.2), (x + 0.1, 10.1), (x + 0.25, 9.2)],
+                    black,
+                ));
+            }
+        }
+        _ => {}
+    }
+    penguin().with(id, parts)
 }
 
 /// What someone is doing, as far as their drawing goes: celebrating where a
@@ -199,7 +290,10 @@ fn cap_backwards() -> Vec<DrawPart> {
 
 /// A penguin in its scarf: flippers and feet for every stance.
 fn penguin() -> Drawing {
-    use Stance::{Celebrating, Standing, Talking, Walking, Working};
+    use Stance::{
+        Celebrating, LookingAround, Sitting, Standing, Stretching, Talking, Walking, Waving,
+        Working,
+    };
     let black = colour(0x23262d);
     let white = colour(0xf4f4f0);
     let orange = colour(0xf0a030);
@@ -212,16 +306,17 @@ fn penguin() -> Drawing {
     for side in [-1.0_f32, 1.0] {
         parts.push(
             flipper(&[(side * 1.9, 6.0), (side * 2.6, 3.0), (side * 1.9, 3.4)])
-                .only(&[Standing, Walking])
+                .only(&[Standing, Walking, LookingAround, Sitting])
                 .swing(side * -0.08),
         );
         parts.push(
             flipper(&[(side * 1.9, 6.4), (side * 3.4, 8.6), (side * 2.1, 5.2)])
-                .only(&[Celebrating]),
+                .only(&[Celebrating, Stretching]),
         );
     }
-    parts.push(flipper(&[(-1.9, 6.0), (-2.6, 3.0), (-1.9, 3.4)]).only(&[Talking]));
+    parts.push(flipper(&[(-1.9, 6.0), (-2.6, 3.0), (-1.9, 3.4)]).only(&[Talking, Waving]));
     parts.push(flipper(&[(1.9, 6.0), (3.2, 7.4), (2.1, 5.0)]).only(&[Talking]));
+    parts.push(flipper(&[(1.9, 6.2), (2.9, 9.4), (2.2, 5.4)]).only(&[Waving]));
     parts.extend([
         ellipse(0.0, 4.3, 2.2, 3.6, black),
         ellipse(0.0, 3.9, 1.5, 2.9, white),
@@ -245,6 +340,14 @@ fn penguin() -> Drawing {
         );
     }
     parts.push(ellipse(0.0, 6.95, 0.25, 0.12, colour(0x7a3a2a)).only(&[Talking, Celebrating]));
+    // Brows for how they feel.
+    use world_projection::Mood::{Cross, Sad, Thinking};
+    let brow = |from: (f32, f32), to: (f32, f32)| line(from, to, 0.18, black);
+    parts.push(brow((-0.85, 8.55), (-0.2, 8.3)).feeling(&[Cross]));
+    parts.push(brow((0.2, 8.3), (0.85, 8.55)).feeling(&[Cross]));
+    parts.push(brow((-0.85, 8.3), (-0.2, 8.5)).feeling(&[Sad]));
+    parts.push(brow((0.2, 8.5), (0.85, 8.3)).feeling(&[Sad]));
+    parts.push(brow((0.2, 8.45), (0.85, 8.6)).feeling(&[Thinking]));
     Drawing::new("penguin", 0.6, parts)
 }
 

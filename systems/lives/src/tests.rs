@@ -145,6 +145,7 @@ fn cast() -> Cast {
         }),
         most_people: 8,
         most_open: 2,
+        voice: |_| None,
     }
 }
 
@@ -362,15 +363,32 @@ fn a_warm_friendship_opens_doors_once_each() {
     let (world, _, came_up) = play_from(vec![(cat, REGARD, Value::Integer(80))], 90);
     let doors = came_up
         .iter()
-        .filter(|c| c.a == cat && matches!(c.kind, Kind::Confide | Kind::Favour | Kind::Keepsake))
+        .filter(|c| {
+            c.a == cat
+                && matches!(
+                    c.kind,
+                    Kind::Warming | Kind::Confide | Kind::Invite | Kind::Favour | Kind::Keepsake
+                )
+        })
         .map(|c| c.kind)
         .collect::<Vec<_>>();
+    assert!(door_opened(world.state(), cat, Kind::Warming).is_some());
+    assert!(world
+        .events()
+        .iter()
+        .any(|event| event.kind == "warmed" && event.actor == Some(cat)));
     assert_eq!(
         doors,
-        vec![Kind::Confide, Kind::Favour, Kind::Keepsake],
+        vec![Kind::Confide, Kind::Invite, Kind::Favour, Kind::Keepsake],
         "each door once, in turn"
     );
-    for kind in [Kind::Confide, Kind::Favour, Kind::Keepsake] {
+    for kind in [
+        Kind::Warming,
+        Kind::Confide,
+        Kind::Invite,
+        Kind::Favour,
+        Kind::Keepsake,
+    ] {
         assert!(door_opened(world.state(), cat, kind).is_some(), "{kind:?}");
     }
     let given = keepsakes(&world);
@@ -382,6 +400,7 @@ fn a_warm_friendship_opens_doors_once_each() {
     let (_, strangers) = play(90, false);
     assert!(
         !strangers.iter().any(|(_, key)| key.starts_with("confide")
+            || key.starts_with("invite")
             || key.starts_with("favour")
             || key.starts_with("keepsake")),
         "{strangers:?}"

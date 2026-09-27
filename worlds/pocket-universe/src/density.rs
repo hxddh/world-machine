@@ -250,8 +250,31 @@ fn show_sixty_periods() {
 /// from earlier answers.
 #[test]
 fn what_you_choose_changes_the_place_and_comes_back() {
-    let generous = play(MARS, Policy::Generous, 30);
-    let contrary = play(MARS, Policy::Contrary, 30);
+    // A third of all questions besides the calendar's follow from an
+    // earlier answer, across every place and both ways of playing.
+    let mut followed = (0, 0);
+    for seed in [
+        MARS,
+        crate::SEED_1980S_TOWN_COMMAND,
+        crate::SEED_PENGUIN_CIVILIZATION_COMMAND,
+    ] {
+        let (following, all) = choices_change_and_come_back(seed);
+        followed.0 += following;
+        followed.1 += all;
+    }
+    assert!(
+        followed.0 * 3 >= followed.1,
+        "{} of {} questions followed from an earlier answer",
+        followed.0,
+        followed.1
+    );
+}
+
+/// In one place: how many questions followed from an earlier answer, of
+/// how many, checking the rest of the bar as it goes.
+fn choices_change_and_come_back(seed: &str) -> (usize, usize) {
+    let generous = play(seed, Policy::Generous, 30);
+    let contrary = play(seed, Policy::Contrary, 30);
     // Across both ways of playing, at least half of all answers change the
     // scene and a third of all questions besides the calendar's follow from
     // an earlier answer; neither way of playing falls far below that.
@@ -309,12 +332,6 @@ fn what_you_choose_changes_the_place_and_comes_back() {
             >= generous.answered + contrary.answered,
         "fewer than half of all answers changed the scene"
     );
-    assert!(
-        followed.0 * 3 >= followed.1,
-        "{} of {} questions followed from an earlier answer",
-        followed.0,
-        followed.1
-    );
     let names = |played: &Played| {
         let world = played.universe.world();
         projection::snapshot(world)
@@ -329,8 +346,9 @@ fn what_you_choose_changes_the_place_and_comes_back() {
     eprintln!("differences {differences:?}");
     assert!(
         differences.len() >= 3,
-        "yes and last answer end too alike: {differences:?}"
+        "{seed}: yes and last answer end too alike: {differences:?}"
     );
+    followed
 }
 
 /// The v0.15 bar: a new World opens on the place, not a card. The first
@@ -419,6 +437,14 @@ fn a_week_away_lapses_at_most_three_questions() {
 fn a_year(seed: &str, policy: Policy) {
     let played = play(seed, policy, 365);
     let world = played.universe.world();
+    if matches!(policy, Policy::Generous) {
+        let unfinished = crate::story::goals(world)
+            .iter()
+            .filter(|goal| !goal.finished())
+            .map(|goal| format!("{} {} of {}", goal.label, goal.done, goal.parts))
+            .collect::<Vec<_>>();
+        assert!(unfinished.is_empty(), "{seed}: {unfinished:?}");
+    }
 
     // A festival told in its second year is told against its first.
     let mut told = std::collections::BTreeMap::<String, Vec<String>>::new();
@@ -952,5 +978,174 @@ fn someone_sees_what_you_made_and_remembers_it_in_every_place() {
             recalled.contains(&format!("{thing} you built")),
             "{seed}: {recalled:?}"
         );
+    }
+}
+
+/// The v0.16 bar: everyone on the scene has an outline of their own, in
+/// every place, and the drawings a snapshot carries stay within what the
+/// app takes.
+#[test]
+fn everyone_on_the_scene_has_an_outline_of_their_own_in_every_place() {
+    for seed in SEEDS {
+        let played = play(seed, Policy::Generous, 120);
+        let snapshot = projection::snapshot(played.universe.world());
+        assert!(
+            snapshot.drawings.len() <= 64,
+            "{seed}: {}",
+            snapshot.drawings.len()
+        );
+        let people = snapshot
+            .canvas
+            .items
+            .iter()
+            .filter(|item| item.kind == world_projection::CanvasItemKind::Actor)
+            .collect::<Vec<_>>();
+        assert!(people.len() >= 4, "{seed}: {} people", people.len());
+        let mut outlines = std::collections::BTreeMap::new();
+        for item in people {
+            let drawing = snapshot
+                .drawing_of(item)
+                .unwrap_or_else(|| panic!("{seed}: {} has no drawing", item.label));
+            assert!(drawing.is_drawable(), "{seed}: {}", drawing.id);
+            if let Some(other) = outlines.insert(drawing.silhouette(), item.label.clone()) {
+                panic!("{seed}: {} and {other} share an outline", item.label);
+            }
+        }
+    }
+}
+
+/// A newcomer's first session in each place, on a clock: choosing a place
+/// takes 8 s, someone takes 3 s to walk up, reading takes a second for
+/// every 15 characters, and finding something to make takes 12 s. Someone
+/// greets them within 20 s, the first choice is theirs within 60 s, and
+/// they hold a keepsake within 5 minutes.
+#[test]
+fn a_first_session_greets_offers_and_gives_in_time_in_every_place() {
+    let read = |text: &str| text.chars().count() as f32 / 15.0;
+    let mut registry = world_host::WorldRegistry::new();
+    registry
+        .register(crate::pocket_universe_registration())
+        .unwrap();
+    for seed in [
+        MARS,
+        crate::SEED_1980S_TOWN_COMMAND,
+        crate::SEED_PENGUIN_CIVILIZATION_COMMAND,
+    ] {
+        let mut session = registry.create(crate::POCKET_UNIVERSE_PACK_ID).unwrap();
+        let mut clock = 2.0 + 8.0;
+        let opened = session
+            .handle(world_projection::ProjectionIntent::InvokeCommand(
+                seed.into(),
+            ))
+            .unwrap();
+        let greeting = opened
+            .voices
+            .iter()
+            .find(|voice| voice.line.contains("I'm "))
+            .unwrap_or_else(|| panic!("{seed}: nobody says hello: {:?}", opened.voices));
+        // It is said now, and first: the window shows what is said now,
+        // news before everyday talk, in order.
+        let now = |voice: &world_projection::Voice| {
+            opened
+                .timeline
+                .items
+                .iter()
+                .find(|item| item.id == voice.moment)
+                .filter(|item| item.world_time == opened.world_time)
+                .map(|item| item.routine)
+        };
+        assert_eq!(now(greeting), Some(false), "the greeting is news, said now");
+        // The window says what is said now in turn, news first, each for
+        // 4.6 s a page of two lines.
+        let turn =
+            |voice: &world_projection::Voice| 4.6 * voice.line.chars().count().div_ceil(72) as f32;
+        let before: f32 = opened
+            .voices
+            .iter()
+            .filter(|voice| now(voice) == Some(false))
+            .take_while(|voice| *voice != greeting)
+            .map(turn)
+            .sum();
+        clock += before;
+        clock += 3.0;
+        assert!(clock <= 20.0, "{seed}: greeted at {clock} s");
+        clock += read(&greeting.line);
+        let deed = opened
+            .commands
+            .iter()
+            .find(|command| command.unavailable.is_none() && command.hand.is_some())
+            .unwrap_or_else(|| panic!("{seed}: something to make at once"))
+            .id
+            .clone();
+        clock += 12.0;
+        assert!(clock <= 60.0, "{seed}: first choice at {clock} s");
+        let after = session
+            .handle(world_projection::ProjectionIntent::InvokeCommand(deed))
+            .unwrap();
+        let keepsake = after
+            .keepsakes
+            .first()
+            .unwrap_or_else(|| panic!("{seed}: a keepsake for the first deed"));
+        clock += 3.0 + read(&keepsake.what) + read(&keepsake.note);
+        assert!(clock <= 300.0, "{seed}: first keepsake at {clock} s");
+    }
+}
+
+/// Every card fits in two lines: a title in about 90 characters and its
+/// detail in about 116, across 150 periods of answering in each place.
+#[test]
+fn every_card_fits_in_two_lines_in_every_place() {
+    let mut long = std::collections::BTreeSet::new();
+    for seed in [
+        MARS,
+        crate::SEED_1980S_TOWN_COMMAND,
+        crate::SEED_PENGUIN_CIVILIZATION_COMMAND,
+    ] {
+        let mut universe = PocketUniverse::new().unwrap();
+        universe.invoke_projection_command(seed).unwrap();
+        for _ in 0..150 {
+            let snapshot = projection::snapshot(universe.world());
+            for command in snapshot.commands.iter().filter(|c| c.question.is_some()) {
+                if command.title.chars().count() > 90 {
+                    long.insert(command.title.clone());
+                }
+                if command.detail.chars().count() > 116 {
+                    long.insert(command.detail.clone());
+                }
+            }
+            let pick = snapshot
+                .commands
+                .iter()
+                .find(|c| c.question.is_some() && c.unavailable.is_none())
+                .map(|c| c.id.clone());
+            if let Some(pick) = pick {
+                universe.invoke_projection_command(&pick).unwrap();
+            }
+            universe.invoke_projection_command(NUDGE_COMMAND).unwrap();
+        }
+    }
+    assert!(long.is_empty(), "longer than two lines: {long:#?}");
+}
+
+/// The goals on the horizon can be finished: a player who says yes builds
+/// every one within a year, in every place. Three years of play, so run
+/// by hand; Mars is checked on every run by its year-long test.
+#[test]
+#[ignore]
+fn a_careful_player_finishes_every_goal_in_a_year() {
+    for seed in [
+        MARS,
+        crate::SEED_1980S_TOWN_COMMAND,
+        crate::SEED_PENGUIN_CIVILIZATION_COMMAND,
+    ] {
+        let played = play(seed, Policy::Generous, 365);
+        let goals = crate::story::goals(played.universe.world());
+        assert!(!goals.is_empty(), "{seed}");
+        let unfinished = goals
+            .iter()
+            .filter(|goal| !goal.finished())
+            .map(|goal| format!("{} {} of {}", goal.label, goal.done, goal.parts))
+            .collect::<Vec<_>>();
+        assert!(unfinished.is_empty(), "{seed}: {unfinished:?}");
     }
 }

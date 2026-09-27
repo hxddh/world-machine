@@ -249,7 +249,7 @@ pub(crate) fn copy_for(seed: &str, kind: &str) -> PressureCopy {
             lost_status: "upper deck abandoned",
             lost_summary: "The intakes clogged past clearing. Ares abandoned its upper deck and lives lower, and darker, than it did.",
             hold_title: "Clear the intakes by hand, every shift",
-            hold_detail: "Ares puts every spare pair of hands on the intakes and clears them by hand until the season turns. Nothing comes from outside.",
+            hold_detail: "Every spare pair of hands clears the intakes until the season turns. Nothing comes from outside.",
             hold_status: "intakes held by hand",
             hold_summary: "Ares cleared its intakes by hand through the whole season. It cost sleep and nothing else.",
             reach_title: "Trade for filters from the relay",

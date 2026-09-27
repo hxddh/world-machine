@@ -3897,7 +3897,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-universe"
-version = "0.26.0"
+version = "0.27.0"
 dependencies = [
  "calendar",
  "conversation",
@@ -3917,7 +3917,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-universe-pack"
-version = "0.26.0"
+version = "0.27.0"
 dependencies = [
  "pocket-universe",
  "serde_json",
@@ -5421,7 +5421,7 @@ dependencies = [
 
 [[package]]
 name = "tiny-society"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "calendar",
  "conversation",
@@ -5452,7 +5452,7 @@ dependencies = [
 
 [[package]]
 name = "tiny-society-pack"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "tiny-society",
  "world-host",
@@ -6710,6 +6710,8 @@ dependencies = [
  "future-archaeologist",
  "tiny-society",
  "world-host",
+ "world-i18n",
+ "world-projection",
 ]
 
 [[package]]
@@ -6753,6 +6755,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "gpui",
+ "world-i18n",
  "world-projection",
  "world-theme",
 ]
@@ -6765,6 +6768,10 @@ dependencies = [
  "world-persistence",
  "world-projection",
 ]
+
+[[package]]
+name = "world-i18n"
+version = "0.1.0"
 
 [[package]]
 name = "world-integrity"
@@ -6841,7 +6848,7 @@ dependencies = [
 
 [[package]]
 name = "world-machine-desktop"
-version = "0.15.0"
+version = "0.16.0"
 dependencies = [
  "gpui",
  "gpui_platform",
@@ -6853,6 +6860,7 @@ dependencies = [
  "world-document",
  "world-gpui",
  "world-host",
+ "world-i18n",
  "world-library",
  "world-lineage",
  "world-lineage-compare",

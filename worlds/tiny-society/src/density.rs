@@ -437,6 +437,22 @@ fn a_year(policy: Policy) {
     let played = play(policy, 365);
     let world = played.branch.world();
 
+    // The goals on the horizon can be finished: a player who says yes to
+    // what the harbour can afford builds the pier and lights the lamp.
+    if matches!(policy, Policy::Generous) {
+        let goals = crate::story::goals(world);
+        assert_eq!(goals.len(), 2);
+        for goal in goals {
+            assert!(
+                goal.finished(),
+                "{} is {} of {} after a year",
+                goal.label,
+                goal.done,
+                goal.parts
+            );
+        }
+    }
+
     // A festival told in its second year is told against its first.
     let mut told = std::collections::BTreeMap::<String, Vec<String>>::new();
     for event in world
@@ -584,7 +600,14 @@ fn a_year(policy: Policy) {
                 })
                 .map(|event| day(event) as i64 - first as i64 - 1 - could as i64)
                 .find(|waited| *waited >= 0)
-                .unwrap_or(365);
+                // Never raised: it waited as long as it could still come
+                // up; a goal finished first ends the wait.
+                .unwrap_or_else(|| {
+                    played.could[could..]
+                        .iter()
+                        .filter(|ids| ids.contains(&storylet.id))
+                        .count() as i64
+                });
             assert!(
                 waited <= 60,
                 "{policy:?}: {} waited {waited} days to come up",
@@ -952,5 +975,147 @@ fn measure_a_year() {
         for (kind, count) in &kinds {
             println!("  {kind}: {count}");
         }
+    }
+}
+
+/// The v0.16 bar: everyone on the scene has an outline of their own, and
+/// the drawings a snapshot carries stay within what the app takes.
+#[test]
+fn everyone_on_the_scene_has_an_outline_of_their_own() {
+    let played = play(Policy::Generous, 120);
+    let snapshot = projection::snapshot(played.branch.world());
+    assert!(snapshot.drawings.len() <= 64, "{}", snapshot.drawings.len());
+    let people = snapshot
+        .canvas
+        .items
+        .iter()
+        .filter(|item| item.kind == world_projection::CanvasItemKind::Actor)
+        .collect::<Vec<_>>();
+    assert!(people.len() >= 10, "{} people", people.len());
+    let mut outlines = std::collections::BTreeMap::new();
+    for item in people {
+        let drawing = snapshot.drawing_of(item).expect("a drawing of their own");
+        assert!(drawing.is_drawable(), "{}", drawing.id);
+        assert!(item.mood.is_some(), "{} has no mood", item.label);
+        if let Some(other) = outlines.insert(drawing.silhouette(), item.label.clone()) {
+            panic!("{} and {other} share an outline", item.label);
+        }
+    }
+}
+
+/// A newcomer's first session, on a clock: the window takes 2 s to open,
+/// someone takes 3 s to walk up, reading takes a second for every 15
+/// characters, and finding something to make and choosing it takes 12 s.
+/// Someone greets them within 20 s, the first choice is theirs within
+/// 60 s, and they hold a keepsake within 5 minutes.
+#[test]
+fn a_first_session_greets_offers_and_gives_in_time() {
+    let read = |text: &str| text.chars().count() as f32 / 15.0;
+    let mut registry = world_host::WorldRegistry::new();
+    registry
+        .register(crate::tiny_society_registration())
+        .unwrap();
+    let mut session = registry.create(crate::TINY_SOCIETY_PACK_ID).unwrap();
+    let opened = session.snapshot();
+    let mut clock = 2.0;
+
+    let greeting = opened
+        .voices
+        .iter()
+        .find(|voice| voice.line.contains("I'm "))
+        .expect("someone says hello");
+    // It is said now, and first: the window shows what is said now,
+    // news before everyday talk, in order.
+    let now = |voice: &world_projection::Voice| {
+        opened
+            .timeline
+            .items
+            .iter()
+            .find(|item| item.id == voice.moment)
+            .filter(|item| item.world_time == opened.world_time)
+            .map(|item| item.routine)
+    };
+    assert_eq!(now(greeting), Some(false), "the greeting is news, said now");
+    // The window says what is said now in turn, news first, each for
+    // 4.6 s a page of two lines.
+    let turn =
+        |voice: &world_projection::Voice| 4.6 * voice.line.chars().count().div_ceil(72) as f32;
+    let before: f32 = opened
+        .voices
+        .iter()
+        .filter(|voice| now(voice) == Some(false))
+        .take_while(|voice| *voice != greeting)
+        .map(turn)
+        .sum();
+    clock += before;
+    clock += 3.0;
+    assert!(clock <= 20.0, "greeted at {clock} s");
+    clock += read(&greeting.line);
+
+    let deed = opened
+        .commands
+        .iter()
+        .find(|command| {
+            command.unavailable.is_none()
+                && command
+                    .hand
+                    .as_ref()
+                    .is_some_and(|hand| hand.verb == "Build")
+        })
+        .expect("something to make at once")
+        .id
+        .clone();
+    clock += 12.0;
+    assert!(clock <= 60.0, "first choice at {clock} s");
+
+    let after = session
+        .handle(world_projection::ProjectionIntent::InvokeCommand(deed))
+        .unwrap();
+    let reaction = after
+        .voices
+        .iter()
+        .find(|voice| !opened.voices.contains(voice))
+        .expect("someone says what they make of it");
+    clock += 1.0 + read(&reaction.line);
+    let keepsake = after
+        .keepsakes
+        .first()
+        .expect("a keepsake for the first deed");
+    clock += read(&keepsake.what) + read(&keepsake.note);
+    assert!(clock <= 300.0, "first keepsake at {clock} s");
+    assert!(
+        after
+            .commands
+            .iter()
+            .any(|command| command.question.is_some()),
+        "and then the first question"
+    );
+}
+
+/// Every card fits in two lines: a title in about 90 characters and its
+/// detail in about 116, across a year of answering.
+#[test]
+fn every_card_fits_in_two_lines() {
+    let mut society = TinySociety::new().unwrap();
+    society.run_story().unwrap();
+    let mut branch = society.branch();
+    branch.begin_story().unwrap();
+    for _ in 0..200 {
+        let snapshot = projection::snapshot(branch.world());
+        for command in snapshot.commands.iter().filter(|c| c.question.is_some()) {
+            assert!(command.title.chars().count() <= 90, "{}", command.title);
+            assert!(command.detail.chars().count() <= 116, "{}", command.detail);
+        }
+        let pick = snapshot
+            .commands
+            .iter()
+            .find(|c| c.question.is_some() && c.unavailable.is_none())
+            .map(|c| c.id.clone());
+        if let Some(pick) = pick {
+            let _ = branch.invoke_projection_command(&pick);
+        }
+        branch
+            .invoke_projection_command(story::WAIT_COMMAND)
+            .unwrap();
     }
 }

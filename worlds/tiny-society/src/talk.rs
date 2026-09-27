@@ -167,9 +167,10 @@ fn in_passing(world: &World, event: &Event, who: EntityId) -> String {
 
 /// Who says the line for a moment, and what they say.
 fn said(world: &World, event: &Event) -> Option<(EntityId, String)> {
-    if let Some(said) = crate::story::line(event) {
-        world.state().entity(said.0)?;
-        return Some(said);
+    if let Some((who, line)) = crate::story::line(event) {
+        world.state().entity(who)?;
+        // A birthday's "Last time: {name} had a party" says whose.
+        return Some((who, crate::story::named(world, &line, who)));
     }
     let actor = event.actor;
     // Once people live their own lives, what they did with their day is

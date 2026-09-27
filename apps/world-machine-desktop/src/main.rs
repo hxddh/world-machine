@@ -262,7 +262,7 @@ struct HostProjectionController {
 #[cfg(target_os = "macos")]
 impl world_gpui::ProjectionController for HostProjectionController {
     fn snapshot(&self) -> world_gpui::ProjectionSnapshot {
-        self.document.borrow().session.snapshot()
+        world_gpui::i18n::localize(self.document.borrow().session.snapshot())
     }
 
     fn cue(&mut self, cue: world_gpui::Cue) {
@@ -300,7 +300,7 @@ impl world_gpui::ProjectionController for HostProjectionController {
         if result.is_ok() && is_library_world {
             mark_library_changed();
         }
-        result
+        result.map(world_gpui::i18n::localize)
     }
 }
 
@@ -615,6 +615,7 @@ impl Render for WorldDocumentView {
             window.appearance(),
             gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark
         ));
+        window.set_rem_size(gpui::px(world_gpui::rem_size()));
         remember_window_geometry(window, RememberedWindow::World);
         // A World's name follows it as it changes ("A new World" becomes
         // "Ares Pocket Colony" when it is seeded), so read it every time.
@@ -623,17 +624,34 @@ impl Render for WorldDocumentView {
         // The World in front plays its landscape's sound, if the player
         // wants sound; one behind stops.
         let sound_owner = cx.entity_id().as_u64();
-        let palette = self.projection.read(cx).snapshot().scenery.map(|scenery| {
-            [
-                scenery.sky_top,
-                scenery.sky_bottom,
-                scenery.far,
-                scenery.near,
-                scenery.sun,
-            ]
-        });
+        let (palette, weather) = {
+            let snapshot = self.projection.read(cx).snapshot();
+            let palette = snapshot.scenery.map(|scenery| {
+                [
+                    scenery.sky_top,
+                    scenery.sky_bottom,
+                    scenery.far,
+                    scenery.near,
+                    scenery.sun,
+                ]
+            });
+            (palette, snapshot.weather)
+        };
+        let moment = world_machine_desktop::music::Moment {
+            hour: world_gpui::scene::hour_now(),
+            sky: match weather {
+                world_projection::Weather::Clear => world_machine_desktop::music::Sky::Clear,
+                world_projection::Weather::Cloudy | world_projection::Weather::Fog => {
+                    world_machine_desktop::music::Sky::Grey
+                }
+                world_projection::Weather::Rain
+                | world_projection::Weather::Snow
+                | world_projection::Weather::Dust => world_machine_desktop::music::Sky::Wet,
+                world_projection::Weather::Storm => world_machine_desktop::music::Sky::Storm,
+            },
+        };
         match (window.is_window_active(), palette) {
-            (true, Some(palette)) => ambience::player::claim(sound_owner, palette),
+            (true, Some(palette)) => ambience::player::claim(sound_owner, palette, moment),
             _ => ambience::player::release(sound_owner),
         }
         // Branching and comparing mean something only once a World has a
@@ -3020,6 +3038,7 @@ impl Render for WorldMachineHome {
             window.appearance(),
             gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark
         ));
+        window.set_rem_size(gpui::px(world_gpui::rem_size()));
         remember_window_geometry(window, RememberedWindow::Home);
         window.set_window_title("World Machine");
 
@@ -4394,12 +4413,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     system_open::install(&application);
     diagnostics::init();
     load_window_geometry();
+    let saved = world_machine_desktop::analyst_settings::application_support_root()
+        .ok()
+        .and_then(|root| world_machine_desktop::analyst_settings::load(&root).ok());
+    // The app's words and the built-in Worlds' in Simplified Chinese, and
+    // the language, text size and contrast the player chose.
+    world_i18n::install(world_gpui::i18n::APP_ZH_HANS);
+    for catalog in world_builtins::ZH_HANS {
+        world_i18n::install(catalog);
+    }
+    world_i18n::install(&world_builtins::zh_hans_voices());
+    world_machine_desktop::display::apply(saved.as_ref());
     ambience::set_enabled(
-        world_machine_desktop::analyst_settings::application_support_root()
-            .ok()
-            .and_then(|root| world_machine_desktop::analyst_settings::load(&root).ok())
+        saved
+            .as_ref()
             .is_some_and(|settings| settings.ambient_sound),
     );
+    if let Some(settings) = &saved {
+        for channel in ambience::Channel::ALL {
+            ambience::set_level(channel, settings.sound_level(channel));
+        }
+    }
     let library = Arc::new(discover_library()?);
     let pack_catalog_path = discover_pack_catalog_path(library.as_ref());
     diagnostics::info(format!(

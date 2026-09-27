@@ -221,6 +221,7 @@ impl Render for AboutView {
             window.appearance(),
             gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark
         ));
+        window.set_rem_size(gpui::px(world_gpui::rem_size()));
         window.set_window_title("About World Machine");
         let environment = diagnostics::environment();
         let library = environment
