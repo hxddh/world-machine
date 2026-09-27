@@ -30,6 +30,7 @@ fn kit(_: &WorldState) -> Kit {
         },
         weather: |_| "Grey and wet.".into(),
         occasions: |_| vec!["the Harbour Fair".into()],
+        recalled: |_, _, _| None,
     }
 }
 
@@ -525,4 +526,75 @@ fn no_clause_repeats_within_an_answer_or_every_day() {
     }
     let most = openings.values().max().copied().unwrap_or_default();
     assert!(most <= 15, "{openings:#?}");
+}
+
+/// Records one moment as given, for putting a World where a test needs it.
+struct Happened(
+    &'static str,
+    EntityId,
+    Vec<(&'static str, Value)>,
+    Vec<EntityId>,
+);
+
+impl world_core::Action for Happened {
+    fn name(&self) -> &'static str {
+        self.0
+    }
+
+    fn evaluate(
+        &self,
+        _state: &WorldState,
+        _request: &ActionRequest,
+    ) -> Result<world_core::EventDraft, world_core::ActionError> {
+        let mut draft = world_core::EventDraft::new(self.0);
+        draft.actor = Some(self.1);
+        draft.targets = self.3.clone();
+        for (key, value) in &self.2 {
+            draft.payload.insert(key.to_string(), value.clone());
+        }
+        Ok(draft)
+    }
+}
+
+#[test]
+fn people_remember_what_you_did_for_them() {
+    let (mut world, mut actions) = world();
+    let kit = kit(world.state());
+    actions
+        .register(Happened(
+            "reacted",
+            MARA,
+            vec![
+                ("deed", "built_by_hand".into()),
+                ("thing", "Bench".into()),
+                ("place", "Harbor Bakery".into()),
+            ],
+            vec![MARA],
+        ))
+        .unwrap();
+    actions
+        .register(Happened(
+            "situation_answered",
+            LEO,
+            vec![("kind", "worn".into()), ("answer", "rest".into())],
+            Vec::new(),
+        ))
+        .unwrap();
+    world
+        .execute(&actions, &ActionRequest::new("reacted"))
+        .unwrap();
+    world
+        .execute(&actions, &ActionRequest::new("situation_answered"))
+        .unwrap();
+    // Not on the day itself.
+    assert_eq!(recollection(&world, &kit, MARA), None);
+    next_day(&mut world, &actions);
+    assert_eq!(
+        recollection(&world, &kit, MARA).as_deref(),
+        Some("The bench you built by Harbor Bakery yesterday. I use it most days.")
+    );
+    assert_eq!(
+        recollection(&world, &kit, LEO).as_deref(),
+        Some("That day off you gave me yesterday. I needed it.")
+    );
 }

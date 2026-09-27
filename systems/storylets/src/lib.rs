@@ -351,6 +351,27 @@ pub fn can_arise(state: &WorldState, deck: &Deck, storylet: &Storylet) -> bool {
     rested && all_hold(state, deck, &storylet.requires)
 }
 
+/// How many times a storylet has come up in this World.
+pub fn times_raised(state: &WorldState, deck: &Deck, id: &str) -> i64 {
+    integer(state, deck.story, &key("count", id)).unwrap_or(0)
+}
+
+/// Whether anything has ever come up in this World.
+pub fn anything_raised(state: &WorldState, deck: &Deck) -> bool {
+    state.entity(deck.story).is_some_and(|story| {
+        story
+            .components
+            .keys()
+            .any(|key| key.starts_with("story.count."))
+    })
+}
+
+/// How a storylet ended the last time: the choice made, or `"lapse"` if
+/// nobody chose in time.
+pub fn last_outcome<'a>(state: &'a WorldState, deck: &Deck, id: &str) -> Option<&'a str> {
+    text(state, deck.story, &key("outcome", id))
+}
+
 /// How many times someone's wants have been granted, and let lapse.
 pub fn kindness(state: &WorldState, deck: &Deck, person: EntityId) -> (i64, i64) {
     let who = person.to_string();
@@ -440,6 +461,10 @@ fn pressure_for(deck: &Deck, chapter: i64) -> Option<&'static str> {
     (!deck.pressures.is_empty())
         .then(|| deck.pressures[((chapter - 1).max(0) as usize) % deck.pressures.len()])
 }
+
+/// How many periods apart a question that has never come up is let into a
+/// free place.
+const FIRST_TIME_GAP: i64 = 2;
 
 /// How many periods a chapter runs on once a gauge at its end has brought
 /// its end forward.
@@ -777,6 +802,23 @@ impl Action for Arises {
             key: key("open", storylet.id),
             value: (state.world_time() as i64).into(),
         });
+        let times = times_raised(state, &deck, storylet.id) + 1;
+        draft.changes.push(StateChange::SetComponent {
+            entity: deck.story,
+            key: key("count", storylet.id),
+            value: times.into(),
+        });
+        draft.payload.insert("times".into(), times.into());
+        if times == 1 {
+            draft.changes.push(StateChange::SetComponent {
+                entity: deck.story,
+                key: "story.first_at".into(),
+                value: (period_index(state, &deck) as i64).into(),
+            });
+        }
+        if let Some(last) = last_outcome(state, &deck, storylet.id) {
+            draft.payload.insert("last".into(), last.into());
+        }
         Ok(draft)
     }
 }
@@ -817,6 +859,11 @@ impl Action for Chosen {
         draft.payload.insert("choice".into(), choice.id.into());
         draft.changes = applied(state, &deck, &choice.outcome.effects);
         draft.changes.extend(closing(state, &deck, storylet));
+        draft.changes.push(StateChange::SetComponent {
+            entity: deck.story,
+            key: key("outcome", storylet.id),
+            value: choice.id.into(),
+        });
         if storylet.want && choice.refuses {
             draft.changes.push(grudge(state, &deck, storylet.asker));
         } else if storylet.want {
@@ -862,6 +909,11 @@ impl Action for Lapsed {
         draft.payload.insert("lapsed".into(), true.into());
         draft.changes = applied(state, &deck, &storylet.lapse.effects);
         draft.changes.extend(closing(state, &deck, storylet));
+        draft.changes.push(StateChange::SetComponent {
+            entity: deck.story,
+            key: key("outcome", storylet.id),
+            value: "lapse".into(),
+        });
         if storylet.want {
             draft.changes.push(grudge(state, &deck, storylet.asker));
         }
@@ -1008,6 +1060,10 @@ pub struct Reading {
     pub at_end: bool,
     /// The chapter's ending, in the Pack's words: a title and a sentence.
     pub chapter_ending: Box<ChapterEnding>,
+    /// Whether nothing new should come up yet: a new World waits for the
+    /// player to do something of their own before anyone asks them
+    /// anything.
+    pub hold: bool,
 }
 
 fn eases_pinned(storylet: &Storylet, pinned: &[Pinned]) -> bool {
@@ -1083,6 +1139,9 @@ pub fn tick(
     }
     let period = period_index(world.state(), deck);
     loop {
+        if reading.hold {
+            break;
+        }
         let state = world.state();
         let open_now = open(state, deck);
         if open_now.len() >= deck.most_open {
@@ -1092,6 +1151,12 @@ pub fn tick(
             .iter()
             .any(|storylet| eases_pinned(storylet, &reading.pinned));
         let wants_open = open_now.iter().any(|storylet| storylet.want);
+        // A first-time question is let in at most every few periods, so
+        // the rest of the deck is heard without crowding the World's own
+        // story.
+        let last_first = integer(state, deck.story, "story.first_at").unwrap_or(0);
+        let settled = period >= deck.chapter_periods
+            && period as i64 >= last_first.saturating_add(FIRST_TIME_GAP);
         let score = |storylet: &Storylet| -> u64 {
             let mut score = u64::from(storylet.weight) * 10;
             if storylet.timely {
@@ -1103,10 +1168,16 @@ pub fn tick(
             if storylet.want && !wants_open {
                 score += 50;
             }
+            // What has never come up is favoured, so the whole deck is
+            // heard, not only its heaviest few.
+            if times_raised(state, deck, storylet.id) == 0 {
+                score += 40;
+            }
             score * 1_000 + mix(&[period, text_hash(storylet.id)]) % 997
         };
-        // Past the first, only what cannot wait, what the World needs, or
-        // someone's want when nobody has one open.
+        // Past the first, only what cannot wait, what the World needs,
+        // someone's want when nobody has one open, or what has never come
+        // up.
         let needed = |storylet: &Storylet| {
             if reading.away && !open_now.is_empty() {
                 return storylet.timely;
@@ -1115,6 +1186,10 @@ pub fn tick(
                 || storylet.timely
                 || (!easing && eases_pinned(storylet, &reading.pinned))
                 || (storylet.want && !wants_open)
+                // Once the first chapter has told the World's own
+                // story, what has never come up may take a free place, so
+                // nothing in the deck waits forever behind the rest.
+                || (settled && times_raised(state, deck, storylet.id) == 0)
         };
         let pick = deck
             .storylets
@@ -1279,6 +1354,7 @@ mod tests {
             away: false,
             at_end: false,
             chapter_ending: Box::new(|_| ("An end".into(), "It went well.".into())),
+            hold: false,
         }
     }
 
@@ -1414,6 +1490,7 @@ mod tests {
             away: false,
             at_end: true,
             chapter_ending: Box::new(|_| ("Broke".into(), "Ann ran out.".into())),
+            hold: false,
         };
         world.advance_to(&actions, 10).unwrap();
         tick(&mut world, &actions, &long(), &at_end).unwrap();
@@ -1446,6 +1523,7 @@ mod tests {
             away: false,
             at_end: false,
             chapter_ending: Box::new(|_| (String::new(), String::new())),
+            hold: false,
         };
         // Off market day, with nothing open: the want that spends comes up.
         world.advance_to(&actions, 10).unwrap();
@@ -1547,6 +1625,7 @@ mod tests {
             away: true,
             at_end: false,
             chapter_ending: Box::new(|_| (String::new(), String::new())),
+            hold: false,
         };
         world
             .execute(
@@ -1574,6 +1653,51 @@ mod tests {
             pick_line(&pool, 1, &["a".into(), "b".into(), "c".into()]),
             Some("b")
         );
+    }
+
+    #[test]
+    fn it_remembers_how_often_each_came_up_and_how_it_ended() {
+        let (mut world, actions) = world();
+        tick(&mut world, &actions, &deck(), &reading()).unwrap();
+        assert_eq!(times_raised(world.state(), &deck(), "roof"), 1);
+        world
+            .execute(&actions, &choose_request("roof", "mend"))
+            .unwrap();
+        assert_eq!(last_outcome(world.state(), &deck(), "roof"), Some("mend"));
+        // Market day runs out unanswered.
+        pass(&mut world, &actions);
+        assert_eq!(
+            last_outcome(world.state(), &deck(), "market"),
+            Some("lapse")
+        );
+        for _ in 0..8 {
+            pass(&mut world, &actions);
+        }
+        assert!(times_raised(world.state(), &deck(), "market") >= 2);
+    }
+
+    #[test]
+    fn what_has_never_come_up_comes_first() {
+        let (mut world, actions) = world();
+        // Off market day with the roof done and resting, "chat" is the only
+        // one never heard, and is picked over nothing else being needed.
+        world.advance_to(&actions, 10).unwrap();
+        tick(&mut world, &actions, &deck(), &reading()).unwrap();
+        let first = open(world.state(), &deck())[0].id;
+        assert_eq!(times_raised(world.state(), &deck(), first), 1);
+    }
+
+    #[test]
+    fn nothing_comes_up_while_held() {
+        let (mut world, actions) = world();
+        let held = Reading {
+            hold: true,
+            ..reading()
+        };
+        tick(&mut world, &actions, &deck(), &held).unwrap();
+        assert!(open(world.state(), &deck()).is_empty());
+        tick(&mut world, &actions, &deck(), &reading()).unwrap();
+        assert!(!open(world.state(), &deck()).is_empty());
     }
 
     #[test]

@@ -44,14 +44,13 @@ The bar, checked by tests on the real Packs:
 
 - **A friendship opens doors.** At least three moments a person offers only at a warm enough standing: a scene, a favour or a keepsake. Each one happens once per person per World, and a test that plays a friendship up proves each is reached. A cold standing closes doors too: a person with a grudge won't ask the player for help.
 - **People remember what you did.** Within three periods of the player answering someone's question, building, planting or decorating near them, or giving them something, that person mentions it by what it was. Things the player made are named as the player's ("the bench you put up by the pier") in speech, festivals and chapter endings.
-- **The same question, told differently.** A question that comes round again never uses its previous wording, and says what happened last time ("Market day again. Last time you sent Leo; he sold out by noon."). Over a year at least 90% of the deck is raised for a player who answers.
+- **The same question, told differently.** A question that comes round again never uses its previous wording, and says what happened last time ("Market day again. Last time you sent Leo; he sold out by noon."). For a player who answers, nothing that could come up waits more than 60 days, the calendar's days aside.
 - **Each return has a keepsake.** Every return of a period or more hands the player one thing to keep: a note, a drawing, a photo, a pressed flower, or a line in the chapter book. It comes from someone they know, for something that happened. Keepsakes collect in a drawer.
-- **The first minutes are a toy.** A new World opens on the place, not a card. The first deed can be done at once, can't fail, and someone reacts to it the same period. The first question comes after that.
+- **The first minutes are a toy.** A new World opens on the place, not a card. The first deed can be done at once, can't fail, and someone reacts to it the same period. The first question comes after that, or when the first period passes.
 
 1. **Bonds that open doors (a System, not a Pack rule).**
-   - `systems/conversation`'s standing becomes a condition storylets can read (`Condition::Standing(person, at_least)`), so Packs write warm-only and cold-only moments without knowing how standing is scored.
-   - Each Pack writes, for each resident, a warm scene (a confidence, an invitation into their life), a favour they offer, and a keepsake they give. Each is marked once so it never repeats.
-   - A full standing stops wearing away; the rest drifts back slowly, never by more than one mark in a week.
+   - Standing is each person's regard for the player, which storylet conditions can already read. The doors belong to `systems/lives`, so both Packs have them without writing them: a confidence, a favour and a keepsake, each marked once so it never repeats, and a cold shoulder from anyone with a grudge.
+   - Nothing wears a friendship away; standing moves only with what happens.
 2. **Memory of deeds and answers.**
    - What a person remembers widens from talk to every event the player caused that touches them: an answer to their question, something made near where they live or work, a gift. The recollection names what it was, from the event itself, so replay needs no model.
    - Things the player made carry a maker, and speech, festival tellings and chapter summaries name them as the player's.
@@ -60,14 +59,14 @@ The bar, checked by tests on the real Packs:
    - The storyteller favours storylets not yet raised this year, so the deck is used, and keeps its current pacing bars.
 4. **Keepsakes and a gentler start.**
    - A keepsake is an event with a giver, a reason and a drawing, kept in a drawer. The return film ends on it.
-   - A new World's first period offers a deed before a question. The first question is held until the player has acted or a minute has passed.
+   - A new World's first period offers a deed before a question. The first question is held until the player has acted or the first period has passed.
 
 ## How we'll know
 
 - `a_warm_friendship_opens_doors` and `a_grudge_closes_them`, played up and down with one resident in each Pack; `doors_open_once` across replay and branches.
 - `people_remember_what_you_did`: for each kind of deed and for answers, a mention within three periods, naming it.
 - `what_you_made_is_named_as_yours` in speech, festival tellings and chapter summaries.
-- `a_question_never_repeats_its_wording` and `the_deck_is_used` (at least 90% raised in a year for a player who answers), next to the existing year-long and story-density bars.
+- No question asked in the same words twice running, and no wait over 60 days for a player who answers, checked in each Pack's year-long test next to the existing year-long and story-density bars.
 - `every_return_brings_a_keepsake` for returns of 1 to 7 periods; `a_new_world_opens_on_the_place`.
 - Hearing: a fifth set of unseen phrases, written before any tuning by someone other than the author of the rules, with the unheard share reported, not tuned away.
 - As before, a year-old World's snapshot in 10 ms at most.
@@ -75,3 +74,34 @@ The bar, checked by tests on the real Packs:
 Out of scope by decision: Worlds saved by earlier releases. They are not carried forward.
 
 Still to do, and outside the code: trying World voice against a real model on a Mac, a commissioned artist's set, the two-week diary on a real Mac, and the five signing secrets.
+
+## Progress
+
+`v0.15.0` ships all four. What changed from the measured start, on a year of Tiny Society (365 periods) and the same bars in Pocket Universe:
+
+| The bar | Tiny Society | Pocket Universe |
+| --- | --- | --- |
+| What reads standing | the doors (a secret at "likes you", a favour and then a keepsake at "thinks the world of you") and the cold shoulder, each tested by playing one friendship up and one grudge down | the same, in every seed |
+| Doors opened by one befriended person in 120 periods | a secret, a favour, a keepsake, once each, in that order | the same, in every seed |
+| Asking for help while holding a grudge | never, over 60 periods of insults | the same System |
+| What people remember of the player | words, answers to their questions, things they saw the player make, presents, evenings out, a kept secret | the same |
+| An answer or a deed brought up | within three periods, naming it | the same, in every seed |
+| What the player made, named as theirs | in festivals held where it stands, and in the chapter's ending | the same |
+| A repeat question worded as last time | never, over a year, three ways of playing | the same, three seeds |
+| Longest wait for a question that could come up, for a player who answers | at most 60 days, the calendar aside, saying yes or taking the last answer | not yet measured |
+| A return's last beat | a keepsake, for every return of 1 to 7 periods | the same, in every seed |
+| A new World | opens on the place; the first deed brings a reaction and then the first question | the same, in every seed |
+
+What did not move: for a player who always says yes, 11 of the 64 storylets still never come up in a year. They are threads that only follow a refusal, plus two goals (the pier and the lamp) that are built by answers costing money a yes-to-what-you-can-afford player never has. That is a finding for the next release, not a deck that goes unused. A year-old World's snapshot measured the same as `v0.14.0` on the machine this was built on (12 to 20 ms for both, where `v0.14.0` had measured 9 ms on a quieter machine); it needs re-timing on a quiet machine or a real Mac.
+
+These are checked by the tests below, next to every earlier release's tests, which still hold:
+
+- `a_warm_friendship_opens_doors_once_each`, `a_grudge_closes_doors_and_shows` in `systems/lives` and Tiny Society; `a_warm_friendship_opens_doors_in_every_place` in Pocket Universe
+- `people_remember_what_you_did_for_them` in `systems/conversation`; `people_remember_how_you_answered_them`, `someone_sees_what_you_made_and_remembers_it` (and `…_in_every_place`)
+- `what_you_made_is_named_as_yours`
+- `every_return_brings_a_keepsake` (and `…_in_every_place`), `a_return_brings_a_keepsake_from_someone_who_likes_you`
+- `a_new_world_opens_on_the_place` in both Packs
+- `it_remembers_how_often_each_came_up_and_how_it_ended`, `what_has_never_come_up_comes_first`, `nothing_comes_up_while_held` in `systems/storylets`
+- `keepsakes_cross_the_wire_and_an_older_pack_sends_none`
+
+Still to do: each person's own secrets and keepsakes instead of shared ones, goals a careful player can finish, a commissioned artist's set, trying World voice against a real model on a Mac, the two-week diary on a real Mac, and the five signing secrets.

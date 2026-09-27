@@ -197,6 +197,10 @@ pub struct Kit {
     /// The names of the days on the place's calendar, so a player can ask
     /// about them.
     pub occasions: fn(&WorldState) -> Vec<String>,
+    /// What someone says about something the player did for them, in the
+    /// Pack's own moments (an answer to their question, say), with `{ago}`
+    /// where when it was goes: "You said to mend the roof {ago}."
+    pub recalled: fn(&World, &Event, EntityId) -> Option<String>,
 }
 
 const TALKED: &str = "conversation.talked";
@@ -1265,10 +1269,130 @@ fn outing_of(words: &str) -> &'static str {
     .unwrap_or("our time together")
 }
 
-/// Something the player said before that someone brings up again: the
-/// latest of what they remember that is worth mentioning, from before
+/// What someone says about something the player did for them, with
+/// `{ago}` where when it was goes: an answer to something they asked, a
+/// thing the player made that they saw, a present, an evening out, or one
+/// of the Pack's own moments.
+fn doing_line(world: &World, kit: &Kit, who: EntityId, event: &Event) -> Option<String> {
+    // Only what was theirs, or done to them, is theirs to bring up.
+    if event.actor != Some(who) && event.targets.last() != Some(&who) {
+        return None;
+    }
+    if let Some(line) = (kit.recalled)(world, event, who) {
+        return Some(line);
+    }
+    let state = world.state();
+    let text = |key: &str| payload_text(event, key).unwrap_or_default().to_string();
+    match event.kind.as_str() {
+        "situation_answered" if event.actor == Some(who) => {
+            let b = event
+                .targets
+                .first()
+                .map(|b| lives::first_name(state, *b))
+                .unwrap_or_default();
+            let line = match (text("kind").as_str(), text("answer").as_str()) {
+                ("feud", "mend") => {
+                    format!("You got {b} and me talking {{ago}}. We're better for it.")
+                }
+                ("feud", "side") => {
+                    format!("You took my side against {b} {{ago}}. I won't forget it.")
+                }
+                ("sweet", "ask") => {
+                    format!("You told me to go for it with {b} {{ago}}. I'm glad I did.")
+                }
+                ("learn", "teach") => format!(
+                    "Those lessons with {b} you set up {{ago}}? I'm getting the hang of it."
+                ),
+                ("short", "fund") | ("short", "friend") => {
+                    "You helped me out {ago} when I was short. I'm back on my feet.".into()
+                }
+                ("lonely", "invite") => {
+                    "You took me out {ago} when I was low. It meant a lot.".into()
+                }
+                ("worn", "rest") => "That day off you gave me {ago}. I needed it.".into(),
+                ("worn", "push") => "You told me to push on {ago}. I'm still tired.".into(),
+                ("party", "party") => "That party {ago}! My feet still ache.".into(),
+                ("leaving", "stay") => "You asked me to stay {ago}. I'm glad I did.".into(),
+                ("rough", "talk") => {
+                    format!("You helped {b} and me talk {{ago}}. We're all right now.")
+                }
+                ("confide", "keep") => {
+                    "You kept what I told you {ago} to yourself. Thank you.".into()
+                }
+                ("confide", "share") => {
+                    "I've been thinking about what you said {ago}. Maybe I will share it.".into()
+                }
+                ("keepsake", _) => format!("Do you still have {}?", text("keepsake")),
+                ("cold", "sorry") => "You said sorry {ago}. That took something.".into(),
+                _ => return None,
+            };
+            Some(line)
+        }
+        "reacted" if event.actor == Some(who) => {
+            let thing = text("thing").to_lowercase();
+            let place = text("place");
+            Some(match text("deed").as_str() {
+                "built_by_hand" => {
+                    format!("The {thing} you built by {place} {{ago}}. I use it most days.")
+                }
+                "decorated_by_hand" => {
+                    format!("The {thing} you put up at {place} {{ago}} cheered everyone.")
+                }
+                "planted_by_hand" => {
+                    format!("What you planted by {place} {{ago}} is coming along.")
+                }
+                _ => return None,
+            })
+        }
+        "gift_given" if event.targets.last() == Some(&who) => {
+            Some("Thank you again for the present {ago}.".into())
+        }
+        "invited_out" if event.targets.last() == Some(&who) => {
+            Some("I enjoyed our evening out {ago}.".into())
+        }
+        _ => None,
+    }
+}
+
+/// The latest thing the player did for someone that they would bring up,
+/// from before today, within what they remember: when, and the line.
+fn latest_doing(world: &World, kit: &Kit, who: EntityId) -> Option<(i64, String)> {
+    let state = world.state();
+    let now = period(state, kit);
+    let period_len = kit.period.max(1);
+    let since = world
+        .world_time()
+        .saturating_sub(period_len.saturating_mul(MEMORY_PERIODS as u64));
+    world
+        .events()
+        .iter()
+        .rev()
+        .take_while(|event| event.world_time >= since)
+        .filter(|event| ((event.world_time / period_len) as i64) < now)
+        .find_map(|event| {
+            let then = (event.world_time / period_len) as i64;
+            Some((then, doing_line(world, kit, who, event)?))
+        })
+}
+
+/// Something the player said or did before that someone brings up again:
+/// the latest of what they remember that is worth mentioning, from before
 /// today.
 pub fn recollection(world: &World, kit: &Kit, who: EntityId) -> Option<String> {
+    let now = period(world.state(), kit);
+    let said = recollection_of_words(world, kit, who);
+    let done = latest_doing(world, kit, who);
+    match (said, done) {
+        (Some((said_at, said)), Some((done_at, _))) if said_at >= done_at => Some(said),
+        (_, Some((done_at, line))) => Some(line.replace("{ago}", &when(kit, now - done_at))),
+        (Some((_, said)), None) => Some(said),
+        (None, None) => None,
+    }
+}
+
+/// Something the player said before that someone brings up again, and
+/// when.
+fn recollection_of_words(world: &World, kit: &Kit, who: EntityId) -> Option<(i64, String)> {
     let state = world.state();
     let now = period(state, kit);
     remembered(world, kit, who).into_iter().find_map(|event| {
@@ -1282,7 +1406,7 @@ pub fn recollection(world: &World, kit: &Kit, who: EntityId) -> Option<String> {
             _ => None,
         };
         let words = payload_text(event, "words").unwrap_or_default();
-        match Intent::from_id(payload_text(event, "intent")?)? {
+        let line = match Intent::from_id(payload_text(event, "intent")?)? {
             Intent::Rude if hurt_recently(state, kit, who) => {
                 Some(format!("I haven't forgotten what you said {ago}."))
             }
@@ -1310,7 +1434,8 @@ pub fn recollection(world: &World, kit: &Kit, who: EntityId) -> Option<String> {
             }
             Intent::Compliment => Some(format!("What you said {ago} was kind. It stayed with me.")),
             _ => None,
-        }
+        };
+        line.map(|line| (then, line))
     })
 }
 

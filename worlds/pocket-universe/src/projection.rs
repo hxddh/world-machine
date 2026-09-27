@@ -110,6 +110,7 @@ pub(crate) fn snapshot_since(
         goals: crate::story::goals(world),
         chapters: crate::story::chapters(world),
         weather: crate::story::weather(world),
+        keepsakes: crate::life::keepsakes(world),
     };
     snapshot.tell_events_as_history_does();
     snapshot
@@ -1143,6 +1144,23 @@ fn briefing(world: &World, seeded: bool, since_event_count: Option<usize>) -> Br
         }
         items.push(return_compass_item(world));
         extend_with_persistent_consequences(world, &mut items);
+        // What someone left the player while they were away closes the
+        // story of the return.
+        if let Some(left) = events
+            .iter()
+            .rev()
+            .find(|event| event.kind == "keepsake_left")
+        {
+            if let Some(title) = lives::told(left) {
+                items.push(BriefingItem {
+                    kind: BriefingItemKind::Beat,
+                    selection: Some(SelectionId::Event(left.id)),
+                    title,
+                    detail: lives::said(left).map(|(_, note)| note).unwrap_or_default(),
+                    tone: world_projection::Tone::Good,
+                });
+            }
+        }
         return BriefingProjection {
             eyebrow: format!("Pocket Universe · {}", seed_label(seed_id(world))),
             title: "While you were away".into(),
@@ -1995,7 +2013,12 @@ pub(crate) fn digest_events(events: &[Event]) -> Vec<(&Event, usize)> {
     for event in events.iter().rev().filter(|event| {
         // Agent plumbing is not news, and a narrated line is not an event of
         // its own: it is how the event it re-words gets read.
-        event.kind != "agent_decision_recorded" && event.kind != narrator::NARRATED
+        // What someone left the player closes the return on its own, and
+        // what someone said of a deed is heard as it happens.
+        event.kind != "agent_decision_recorded"
+            && event.kind != narrator::NARRATED
+            && event.kind != "keepsake_left"
+            && event.kind != "reacted"
     }) {
         if let Some((_, count)) = groups
             .iter_mut()

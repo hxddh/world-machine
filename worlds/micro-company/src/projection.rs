@@ -34,6 +34,7 @@ pub(crate) fn snapshot(world: &World, since_event_count: Option<usize>) -> Proje
         chapters: Vec::new(),
         goals: Vec::new(),
         weather: Default::default(),
+        keepsakes: Vec::new(),
         exchanges: Vec::new(),
         drawings: Vec::new(),
     }

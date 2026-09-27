@@ -560,6 +560,36 @@ pub fn tick(
     Ok(events)
 }
 
+/// The latest thing the player made, put up or planted since a moment, as
+/// it was told: "You built a bench by the quay".
+pub fn latest_made_since(world: &World, since: u64) -> Option<String> {
+    world
+        .events()
+        .iter()
+        .rev()
+        .take_while(|event| event.world_time >= since)
+        .filter(|event| {
+            matches!(
+                event.kind.as_str(),
+                "built_by_hand" | "decorated_by_hand" | "planted_by_hand"
+            )
+        })
+        .find_map(told)
+}
+
+/// What the player made that stands at a place now, by name: "Bench".
+pub fn made_at(state: &WorldState, place: EntityId) -> Option<String> {
+    made(state).into_iter().find_map(|id| {
+        let entity = state.entity(id)?;
+        match (entity.component("at"), entity.component("name")) {
+            (Some(Value::Entity(at)), Some(Value::Text(name))) if *at == place => {
+                Some(name.clone())
+            }
+            _ => None,
+        }
+    })
+}
+
 /// Whether an event is one of this System's.
 pub fn is_hands(event: &Event) -> bool {
     matches!(

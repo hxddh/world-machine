@@ -294,3 +294,183 @@ fn unanswered_situations_run_out() {
         .any(|event| event.kind == "situation_lapsed"));
     assert!(open(world.state(), &cast()).len() <= cast().most_open);
 }
+
+/// Sets components outright, for putting a World where a test needs it.
+struct Put(Vec<(EntityId, &'static str, Value)>);
+
+impl Action for Put {
+    fn name(&self) -> &'static str {
+        "put_for_test"
+    }
+
+    fn evaluate(
+        &self,
+        _state: &WorldState,
+        _request: &ActionRequest,
+    ) -> Result<EventDraft, ActionError> {
+        let mut draft = EventDraft::new("put_for_test");
+        draft.changes = self
+            .0
+            .iter()
+            .map(|(entity, key, value)| StateChange::SetComponent {
+                entity: *entity,
+                key: key.to_string(),
+                value: value.clone(),
+            })
+            .collect();
+        Ok(draft)
+    }
+}
+
+/// Plays `periods` from a World where `put` has been set once everyone is
+/// enrolled, answering the first answer offered, and returns the World
+/// and every situation that came up.
+fn play_from(
+    put: Vec<(EntityId, &'static str, Value)>,
+    periods: u64,
+) -> (World, ActionRegistry, Vec<Candidate>) {
+    let (mut world, mut registry) = world();
+    registry.register(Put(put)).unwrap();
+    pass(&mut world, &registry);
+    let mut came_up = Vec::new();
+    for _ in 0..periods {
+        world
+            .execute(&registry, &ActionRequest::new("put_for_test"))
+            .unwrap();
+        pass(&mut world, &registry);
+        for situation in situations(&world, &cast()) {
+            if let Some(answer) = situation.answers.iter().find(|a| a.unavailable.is_none()) {
+                world
+                    .execute(&registry, &answer_request(&situation.key, answer.id))
+                    .unwrap();
+            }
+        }
+    }
+    for event in world.events() {
+        if event.kind == "situation_came_up" {
+            if let Some(Value::Text(key)) = event.payload.get("situation") {
+                came_up.extend(Candidate::parse(key));
+            }
+        }
+    }
+    (world, registry, came_up)
+}
+
+#[test]
+fn a_warm_friendship_opens_doors_once_each() {
+    let cat = EntityId::new(3);
+    let (world, _, came_up) = play_from(vec![(cat, REGARD, Value::Integer(80))], 90);
+    let doors = came_up
+        .iter()
+        .filter(|c| c.a == cat && matches!(c.kind, Kind::Confide | Kind::Favour | Kind::Keepsake))
+        .map(|c| c.kind)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        doors,
+        vec![Kind::Confide, Kind::Favour, Kind::Keepsake],
+        "each door once, in turn"
+    );
+    for kind in [Kind::Confide, Kind::Favour, Kind::Keepsake] {
+        assert!(door_opened(world.state(), cat, kind).is_some(), "{kind:?}");
+    }
+    let given = keepsakes(&world);
+    assert!(
+        given.iter().any(|k| k.from == cat && !k.what.contains('{')),
+        "{given:?}"
+    );
+    // A player who never answers anyone opens no doors at all.
+    let (_, strangers) = play(90, false);
+    assert!(
+        !strangers.iter().any(|(_, key)| key.starts_with("confide")
+            || key.starts_with("favour")
+            || key.starts_with("keepsake")),
+        "{strangers:?}"
+    );
+    let replayed = world.replay().unwrap();
+    assert_eq!(replayed.state(), world.state());
+}
+
+#[test]
+fn a_grudge_closes_doors_and_shows() {
+    let dan = EntityId::new(4);
+    let (_, _, came_up) = play_from(
+        vec![
+            (dan, REGARD, Value::Integer(-60)),
+            (dan, Need::Money.key(), Value::Integer(95)),
+            (dan, Need::Company.key(), Value::Integer(95)),
+        ],
+        60,
+    );
+    let dans = came_up
+        .iter()
+        .filter(|c| c.a == dan)
+        .map(|c| c.kind)
+        .collect::<Vec<_>>();
+    assert!(
+        !dans.iter().any(|kind| kind.asks_for_help()),
+        "someone with a grudge asked for help: {dans:?}"
+    );
+    assert!(dans.contains(&Kind::Cold), "{dans:?}");
+}
+
+#[test]
+fn someone_says_what_they_make_of_what_you_made() {
+    struct Made;
+    impl Action for Made {
+        fn name(&self) -> &'static str {
+            "made_for_test"
+        }
+        fn evaluate(
+            &self,
+            _state: &WorldState,
+            _request: &ActionRequest,
+        ) -> Result<EventDraft, ActionError> {
+            let bench = EntityId::new(300);
+            let mut draft = EventDraft::new("built_by_hand");
+            draft.targets = vec![bench, PUB];
+            draft.changes.push(StateChange::CreateEntity(
+                Entity::new(bench, "fixture").with_component("name", "Bench"),
+            ));
+            Ok(draft)
+        }
+    }
+    let (mut world, mut registry) = world();
+    registry.register(Made).unwrap();
+    pass(&mut world, &registry);
+    let deed = world
+        .execute(&registry, &ActionRequest::new("made_for_test"))
+        .unwrap()
+        .id;
+    let reacted = react_to(&mut world, &registry, &cast(), deed)
+        .unwrap()
+        .expect("someone reacts");
+    let event = world.event(reacted).unwrap();
+    let (who, line) = said(event).expect("they say something");
+    assert!(event.caused_by.contains(&deed));
+    assert!(
+        at(world.state(), who) == Some(PUB) || work(world.state(), who) == Some(PUB),
+        "{who:?} is not by the Bell"
+    );
+    assert!(!line.contains('{'), "{line}");
+}
+
+#[test]
+fn a_return_brings_a_keepsake_from_someone_who_likes_you() {
+    let eve = EntityId::new(5);
+    let (mut world, registry, _) = play_from(vec![(eve, REGARD, Value::Integer(90))], 2);
+    let left = leave_keepsake(
+        &mut world,
+        &registry,
+        &cast(),
+        "The fair was the best in years.",
+    )
+    .unwrap()
+    .expect("a keepsake");
+    let event = world.event(left).unwrap();
+    assert_eq!(event.actor, Some(eve));
+    let kept = keepsakes(&world);
+    let last = kept.last().unwrap();
+    assert_eq!(last.from, eve);
+    assert!(last.note.contains("best in years"), "{last:?}");
+    assert!(!last.what.contains('{'));
+}

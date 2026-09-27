@@ -2,6 +2,33 @@
 
 Releases live on the [Releases page](https://github.com/hxddh/world-machine/releases). `0.2.0` is the first release intended to be usable without reading the repository; the `v0.1.0-pre.N` tags below were its pre-releases.
 
+## v0.15.0 (2026-09-27)
+
+**Worlds from `v0.14.0` do not open.** Tiny Society moves to `0.9.0` and Pocket Universe to `0.26.0`, because friendships now open doors, people remember what you did, and a new World begins differently. Carrying older Worlds forward is out of scope by decision; start a new one.
+
+In `v0.14.0` people remembered what you said, but nothing you built up with them paid off. Standing was a mark in a card that nothing read, nobody remembered what you had done for them, and a question came round again in exactly the same words. This release learns from *Stardew Valley*, *Animal Crossing*, *Crusader Kings III*, *Dwarf Fortress*, *Wildermyth*, *RimWorld*, *Neko Atsume* and *Townscaper*; the review is in [docs/REVIEW_v0.14.md](docs/REVIEW_v0.14.md).
+
+- **A friendship opens doors.** Once someone likes you, they tell you something they have told nobody. Once they think the world of you, they offer you a favour (a good word with a friend, or help for whoever is struggling), and a little later give you something to keep. Each happens once per person in a World.
+- **A grudge closes them.** Someone who has turned against you stops asking you for help, and lets it show: "Oh. It's you." Saying sorry mends some of it.
+- **People remember what you did.** The first time someone sees you on a day, they bring up what you did for them, not only what you said:
+  - an answer you gave them: "When I asked you yesterday, you said “Pay Evan to mend it”. The children can hear themselves think now.";
+  - something you made that they saw: "The bench you built by Harbor yesterday. I use it most days.";
+  - a present, an evening out, a secret you kept, a day off you gave them.
+- **Someone says what they make of what you make.** Build, plant or put something up, and whoever is nearby says so on the spot.
+- **What you made is yours.** Festivals are told with it ("…, around the bench you made"), and a chapter's ending says what you built that chapter.
+- **A question never comes round in the same words.** The second time, and every time after, it opens differently and says how it went last time: "Here we are again. Last time: Evan mended the school roof. The roof's dripping on the desks again." Questions that have never come up are favoured, so nothing in the deck waits behind the rest for long.
+- **Every return brings a keepsake.** Come back after a period or more and someone who thinks well of you has left you something (a note under the door, a sketch, a photograph) with a line about what happened while you were away. The return ends on it, and the drawer keeps every keepsake you have been given.
+- **A new World opens on the place.** No question waits on top of the scene. Build something first; someone says what they make of it, and the first question comes straight after. If you do nothing, the first question comes when the first period passes.
+- **Measured.** Tests play a friendship up and a grudge down with one person in each Pack and every seed, and check:
+  - each door opening once, in turn, and the keepsake reaching the drawer;
+  - nobody with a grudge asking for help, and the cold shoulder showing;
+  - an answer and a deed brought up within three periods;
+  - what you made named in a festival and a chapter's ending;
+  - every return of one to seven periods ending on a keepsake;
+  - no question asked in the same words twice running, over a year, three ways of playing;
+  - for a player who answers, nothing that could come up waiting more than 60 days (the calendar's days aside).
+- **Pack protocol:** a snapshot may carry `keepsakes`. It is optional, so a Pack that sends none shows an empty drawer.
+
 ## v0.14.0 (2026-09-27)
 
 **Worlds from `v0.13.0` do not open.** Tiny Society moves to `0.8.0` and Pocket Universe to `0.25.0`, because their people now hear and remember far more and their festivals remember earlier years. Carrying older Worlds forward is out of scope by decision; start a new one.

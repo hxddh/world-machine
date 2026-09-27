@@ -474,6 +474,18 @@ pub struct ProjectionSnapshotWire {
     pub weather: WeatherWire,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub drawings: Vec<DrawingWire>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub keepsakes: Vec<KeepsakeWire>,
+}
+
+/// Something someone gave the player to keep.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct KeepsakeWire {
+    pub from: SelectionIdWire,
+    pub what: String,
+    #[serde(default)]
+    pub note: String,
+    pub moment: SelectionIdWire,
 }
 
 /// The most drawings one snapshot carries.
@@ -933,6 +945,10 @@ impl ProjectionSnapshotWire {
                 validate_selection_for_protocol(protocol_version, moment)?;
             }
         }
+        for keepsake in &self.keepsakes {
+            validate_selection_for_protocol(protocol_version, keepsake.from)?;
+            validate_selection_for_protocol(protocol_version, keepsake.moment)?;
+        }
         for inspector in &self.inspectors {
             validate_selection_for_protocol(protocol_version, inspector.selection)?;
         }
@@ -1024,6 +1040,16 @@ impl From<&ProjectionSnapshot> for ProjectionSnapshotWire {
                 .collect(),
             weather: snapshot.weather.into(),
             drawings: snapshot.drawings.iter().map(Into::into).collect(),
+            keepsakes: snapshot
+                .keepsakes
+                .iter()
+                .map(|keepsake| KeepsakeWire {
+                    from: keepsake.from.into(),
+                    what: keepsake.what.clone(),
+                    note: keepsake.note.clone(),
+                    moment: keepsake.moment.into(),
+                })
+                .collect(),
         }
     }
 }
@@ -1164,6 +1190,17 @@ impl TryFrom<ProjectionSnapshotWire> for ProjectionSnapshot {
                 .map(Drawing::from)
                 .filter(Drawing::is_drawable)
                 .take(MOST_DRAWINGS)
+                .collect(),
+            keepsakes: snapshot
+                .keepsakes
+                .into_iter()
+                .filter(|keepsake| !keepsake.what.trim().is_empty())
+                .map(|keepsake| world_projection::Keepsake {
+                    from: keepsake.from.into(),
+                    what: keepsake.what,
+                    note: keepsake.note,
+                    moment: keepsake.moment.into(),
+                })
                 .collect(),
         })
     }
@@ -2377,6 +2414,7 @@ mod tests {
             weather: Default::default(),
             exchanges: Vec::new(),
             drawings: Vec::new(),
+            keepsakes: Vec::new(),
         }
     }
 

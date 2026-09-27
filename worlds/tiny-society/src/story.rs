@@ -1620,6 +1620,10 @@ fn chapter_ending(world: &World) -> (String, String) {
         .into_iter()
         .max_by_key(|(who, count)| (*count, std::cmp::Reverse(*who)))
         .map(|(who, _)| who);
+    // What the player made this chapter is part of how it is told.
+    if let Some(made) = hands::latest_made_since(world, started) {
+        summary.push(format!("{made}."));
+    }
     let mut summary = summary.join(" ");
     if let Some(who) = sore {
         summary.push_str(&format!(
@@ -1836,15 +1840,63 @@ pub(crate) fn tick(
         away,
         at_end: spirits(world).abs() >= 5 || !(0.02..=0.98).contains(&money),
         chapter_ending: Box::new(chapter_ending),
+        hold: waiting_for_the_player(world),
     };
     let mut events = settled;
-    events.extend(lives::tick(world, actions, &crate::life::cast(), away)?);
+    events.extend(lives::tick_holding(
+        world,
+        actions,
+        &crate::life::cast(),
+        away,
+        reading.hold,
+    )?);
     let kit = crate::handwork::kit(world.state());
     events.extend(hands::tick(world, actions, &kit)?);
     let almanac = crate::almanac::almanac(world.state());
     events.extend(calendar::tick(world, actions, &almanac)?);
     events.extend(storylets::tick(world, actions, &deck(), &reading)?);
     Ok(events)
+}
+
+/// Whether a new harbour is still waiting for the player's first deed
+/// before anyone asks them anything: nothing has come up yet, the player
+/// has neither made, given nor said anything, and its first day has not
+/// passed.
+fn waiting_for_the_player(world: &World) -> bool {
+    let deck = deck();
+    let state = world.state();
+    if storylets::anything_raised(state, &deck) {
+        return false;
+    }
+    let acted = state.entity(crate::handwork::kit(state).notes).is_some()
+        || world.events().iter().any(conversation::is_talk);
+    let (_, started) = storylets::chapter(state, &deck);
+    let first_day = state.entity(deck.story).is_none()
+        || storylets::period_index(state, &deck) <= started / deck.period.max(1);
+    !acted && first_day
+}
+
+/// Once the player has done something of their own in a new harbour, the
+/// first question comes straight after.
+pub(crate) fn after_first_deed(
+    world: &mut World,
+    actions: &ActionRegistry,
+) -> Result<Vec<EventId>, WorldError> {
+    if storylets::anything_raised(world.state(), &deck()) || waiting_for_the_player(world) {
+        return Ok(Vec::new());
+    }
+    let money = crate::projection::gauges(world)
+        .into_iter()
+        .find(|gauge| gauge.id == "money")
+        .map_or(0.5, |gauge| gauge.value);
+    let reading = Reading {
+        pinned: pinned(world),
+        away: false,
+        at_end: spirits(world).abs() >= 5 || !(0.02..=0.98).contains(&money),
+        chapter_ending: Box::new(chapter_ending),
+        hold: false,
+    };
+    storylets::tick(world, actions, &deck(), &reading)
 }
 
 fn command_id(storylet: &str, choice: &str) -> String {
@@ -1868,6 +1920,55 @@ pub(crate) fn commands(world: &World) -> Vec<world_projection::ProjectionCommand
     commands
 }
 
+/// How a question is opened when it has come round before: never in last
+/// time's words, and with what happened then.
+const AGAIN: [&str; 6] = [
+    "Here we are again.",
+    "It's come round again.",
+    "You'll remember this one.",
+    "Same as before, I'm afraid.",
+    "This again.",
+    "Back to this, then.",
+];
+
+/// What the asker says as they ask, the `times`th time it has come up,
+/// having ended `last` the time before.
+fn asked(spec: &Spec, times: i64, last: Option<&str>) -> String {
+    if times <= 1 {
+        return spec.line.to_string();
+    }
+    let opener = AGAIN[((times - 2) as usize) % AGAIN.len()];
+    let then = last.and_then(|last| {
+        if last == "lapse" {
+            Some(&spec.lapse)
+        } else {
+            spec.answers
+                .iter()
+                .find(|answer| answer.id == last)
+                .map(|answer| &answer.said)
+        }
+    });
+    match then {
+        Some(said) => format!("{opener} Last time: {}. {}", said.told, spec.line),
+        None => format!("{opener} {}", spec.line),
+    }
+}
+
+/// What the asker of an open question says as they ask it now.
+fn asking(world: &World, spec: &Spec) -> String {
+    let deck = deck();
+    let id = spec.storylet.id;
+    named(
+        world,
+        &asked(
+            spec,
+            storylets::times_raised(world.state(), &deck, id),
+            storylets::last_outcome(world.state(), &deck, id),
+        ),
+        spec.storylet.asker,
+    )
+}
+
 fn storylet_commands(world: &World) -> Vec<world_projection::ProjectionCommand> {
     let deck = deck();
     storylets::answers(world.state(), &deck)
@@ -1885,7 +1986,7 @@ fn storylet_commands(world: &World) -> Vec<world_projection::ProjectionCommand> 
                 moves: Vec::new(),
                 question: Some(world_projection::Question {
                     id: storylet.id.into(),
-                    prompt: named(world, spec.line, storylet.asker),
+                    prompt: asking(world, spec),
                 }),
                 unavailable: unmet.first().map(|condition| why_not(world, condition)),
                 hand: None,
@@ -1916,7 +2017,7 @@ pub(crate) fn wanting(world: &World, who: EntityId) -> Option<(String, Option<St
         .into_iter()
         .find(|(open, choice)| open.id == storylet.id && !choice.refuses)
         .map(|(open, choice)| command_id(open.id, choice.id));
-    Some((spec.line.to_string(), grant))
+    Some((asking(world, spec), grant))
 }
 
 /// How many wants someone has had granted, and turned down or let lapse.
@@ -1994,7 +2095,15 @@ pub(crate) fn line(event: &Event) -> Option<(EntityId, String)> {
     let spec = storylet_of(event)?;
     let who = spec.storylet.asker;
     if event.kind == "situation_arose" {
-        return Some((who, spec.line.to_string()));
+        let times = match event.payload.get("times") {
+            Some(Value::Integer(times)) => *times,
+            _ => 1,
+        };
+        let last = match event.payload.get("last") {
+            Some(Value::Text(last)) => Some(last.as_str()),
+            _ => None,
+        };
+        return Some((who, asked(spec, times, last)));
     }
     let (_, said) = outcome_of(event)?;
     Some((who, said.line.to_string()))
@@ -2029,6 +2138,30 @@ pub(crate) fn tone(event: &Event) -> Option<world_projection::Tone> {
         0 => Tone::Neutral,
         _ => Tone::Warning,
     })
+}
+
+/// What someone says about how the player answered them, with `{ago}`
+/// where when it was goes: the answer they were given, and what came of
+/// it.
+pub(crate) fn recalled(event: &Event, who: EntityId) -> Option<String> {
+    if event.actor != Some(who) || event.payload.contains_key("lapsed") {
+        return None;
+    }
+    let spec = storylet_of(event)?;
+    let choice = match event.payload.get("choice") {
+        Some(Value::Text(choice)) => choice.as_str(),
+        _ => return None,
+    };
+    let answer = spec.answers.iter().find(|answer| answer.id == choice)?;
+    let after = match (answer.refuses, answer.said.remembered) {
+        (true, _) => "I haven't forgotten.",
+        (false, Some(remembered)) => remembered,
+        (false, None) => "Thank you for that.",
+    };
+    Some(format!(
+        "When I asked you {{ago}}, you said “{}”. {after}",
+        answer.title.trim_end_matches('.')
+    ))
 }
 
 /// What someone still says, the day after something went their

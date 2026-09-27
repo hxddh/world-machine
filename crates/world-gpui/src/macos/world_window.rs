@@ -245,6 +245,15 @@ fn label_of(snapshot: &ProjectionSnapshot, id: SelectionId) -> Option<String> {
         .map(|item| item.label.clone())
 }
 
+/// A phrase as it starts a line: "a pressed flower" as "A pressed flower".
+fn capitalized(phrase: &str) -> String {
+    let mut chars = phrase.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => String::new(),
+    }
+}
+
 fn first_name(name: &str) -> String {
     name.split_whitespace().next().unwrap_or(name).to_string()
 }
@@ -1854,6 +1863,45 @@ impl ProjectionView {
         Some(book)
     }
 
+    /// What people have given the player to keep, newest first, for the
+    /// drawer: what it is, who from, and what they said with it.
+    pub(crate) fn render_keepsakes(&self) -> Option<Div> {
+        if self.snapshot.keepsakes.is_empty() {
+            return None;
+        }
+        let mut kept = div()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .child(ui::section_label(format!(
+                "Keepsakes · {}",
+                self.snapshot.keepsakes.len()
+            )));
+        for keepsake in self.snapshot.keepsakes.iter().rev() {
+            let from = label_of(&self.snapshot, keepsake.from)
+                .map(|name| format!("From {}", first_name(&name)))
+                .unwrap_or_else(|| "From a friend".into());
+            kept = kept.child(
+                div()
+                    .px_3()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(ui::caption(from))
+                    .child(
+                        div()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(capitalized(&keepsake.what)),
+                    )
+                    .children(
+                        (!keepsake.note.is_empty())
+                            .then(|| ui::detail(format!("“{}”", keepsake.note))),
+                    ),
+            );
+        }
+        Some(kept)
+    }
+
     /// What someone can be asked, beside them: their questions, and once
     /// one is asked, their answer, and what they ask for if they do.
     fn render_asking(
@@ -2135,6 +2183,7 @@ impl ProjectionView {
         // chapters it has closed.
         for part in [
             self.render_chapters(),
+            self.render_keepsakes(),
             self.render_closer_look(cx),
             self.render_story(cx),
             self.render_standing(cx),

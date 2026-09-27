@@ -44,6 +44,7 @@ pub(crate) fn snapshot(world: &World) -> ProjectionSnapshot {
         chapters: Vec::new(),
         goals: Vec::new(),
         weather: Default::default(),
+        keepsakes: Vec::new(),
         exchanges: Vec::new(),
         drawings: Vec::new(),
     }

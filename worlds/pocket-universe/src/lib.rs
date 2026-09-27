@@ -30,7 +30,7 @@ use world_persistence::{PersistenceError, WorldArchive, WorldPackRef};
 use world_projection::{ProjectionIntent, ProjectionSnapshot};
 
 pub const POCKET_UNIVERSE_PACK_ID: &str = "world-machine.pocket-universe";
-pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.25.0";
+pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.26.0";
 
 pub const SEED_MARS_COLONY_COMMAND: &str = "pocket-universe.seed-mars-colony";
 pub const SEED_1980S_TOWN_COMMAND: &str = "pocket-universe.seed-1980s-town";
@@ -367,7 +367,9 @@ where
     ) -> Result<EventId, Box<dyn Error>> {
         let request =
             speech::say(&self.world, who, words, listener).map_err(std::io::Error::other)?;
-        Ok(self.world.execute(&self.actions, &request)?.id)
+        let event = self.world.execute(&self.actions, &request)?.id;
+        story::after_first_deed(&mut self.world, &self.actions)?;
+        Ok(event)
     }
 
     pub fn invoke_projection_command(
@@ -398,10 +400,16 @@ where
         }
 
         if let Some(deed) = handwork::parse_command(command_id) {
-            return Ok(self
+            let event = self
                 .world
                 .execute(&self.actions, &hands::do_request(deed))?
-                .id);
+                .id;
+            // Someone nearby says what they make of it, and in a new World
+            // the first question follows.
+            let cast = life::cast(self.world.state());
+            lives::react_to(&mut self.world, &self.actions, &cast, event)?;
+            story::after_first_deed(&mut self.world, &self.actions)?;
+            return Ok(event);
         }
 
         if let Some((situation, answer)) = life::parse_command(command_id) {
@@ -507,9 +515,33 @@ where
         }
         self.world = world;
         outcome?;
+        self.leave_keepsake(since)?;
         // Once, for the lines an observer is about to read — not once per
         // period. A week-long catch-up resolves as fast as it always did.
         self.narrate_return(since);
+        Ok(())
+    }
+
+    /// On the player's return, someone who thinks well of them leaves them
+    /// something, with a line about the latest of what happened since the
+    /// `since`th event.
+    fn leave_keepsake(&mut self, since: usize) -> Result<(), Box<dyn Error>> {
+        if seed_id(&self.world) == UNSEEDED || self.world.events().len() <= since {
+            return Ok(());
+        }
+        let why = self.world.events()[since..]
+            .iter()
+            .rev()
+            .filter(|event| {
+                lives::is_news(event)
+                    || event.kind == "festival_held"
+                    || event.payload.contains_key("storylet")
+            })
+            .find_map(|event| story::told(&self.world, event))
+            .map(|told| format!("{told}."))
+            .unwrap_or_default();
+        let cast = life::cast(self.world.state());
+        lives::leave_keepsake(&mut self.world, &self.actions, &cast, &why)?;
         Ok(())
     }
 
@@ -2763,7 +2795,7 @@ mod tests {
             briefing
                 .items
                 .iter()
-                .filter(|item| item.selection.is_some())
+                .filter(|item| item.selection.is_some() && !item.title.contains(" left you "))
                 .count(),
             3,
             "the return digest should keep three selected history items"
@@ -3421,7 +3453,7 @@ mod tests {
             briefing
                 .items
                 .iter()
-                .filter(|item| item.selection.is_some())
+                .filter(|item| item.selection.is_some() && !item.title.contains(" left you "))
                 .count(),
             3,
             "the return digest should stay bounded independently of the Compass"
