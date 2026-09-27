@@ -1,0 +1,620 @@
+# Simplified Chinese for app: English, a tab, then the translation. Generated with a model and checked by tests; edit freely.
+World Machine	World Machine
+About World Machine…	关于 World Machine…
+Settings…	设置…
+Services	服务
+Hide World Machine	隐藏 World Machine
+Hide Others	隐藏其他
+Show All	显示全部
+Quit World Machine	退出 World Machine
+File	文件
+Import World…	导入世界…
+Install World Pack…	安装世界包…
+Refresh My Worlds	刷新我的世界
+World	世界
+Branch This World	分支这个世界
+What If…	假如…
+Save As…	另存为…
+Reload from Disk	从磁盘重新加载
+Compare with Parent	与父版本比较
+Compare Saved Worlds…	比较已保存的世界…
+Lineage…	世系…
+Analyze Saved Worlds (Experimental)…	分析已保存的世界(实验性)…
+Window	窗口
+Minimize	最小化
+Zoom	缩放
+Enter Full Screen	进入全屏幕
+Close Window	关闭窗口
+Help	帮助
+Check for Updates…	检查更新…
+Install Guide	安装指南
+Report a Problem…	报告问题…
+Copy Diagnostics	复制诊断信息
+Show Log in Finder	在访达中显示日志
+About World Machine	关于 World Machine
+Copied	已复制
+Small worlds that keep living while you are away.	你不在的时候，小世界仍在继续生活。
+Not yet notarized by Apple: the first launch asks once.	尚未通过苹果公证：首次启动会询问一次。
+Worlds: {library}	世界：{library}
+Log: {log}	日志：{log}
+Ambience	环境音
+Only saved Library Worlds can be analyzed	只有已保存的世界库中的世界才能被分析
+Filter saved Worlds…	筛选已保存的世界…
+Ask why these Worlds differ…	询问这些世界为何不同…
+World analyst needs at least two saved Worlds.	世界分析师至少需要两个已保存的世界。
+Create or import another saved World, then Recheck.	创建或导入另一个已保存的世界，然后重新检查。
+The selected left World is no longer saved.	选中的左侧世界已不再被保存。
+Choose another saved World for Left to continue.	为左侧选择另一个已保存的世界以继续。
+World analyst needs at least two distinct saved Worlds.	世界分析师至少需要两个不同的已保存世界。
+Choose a different World for Right.	为右侧选择一个不同的世界。
+Could not refresh saved Worlds: {error}	无法刷新已保存的世界：{error}
+Choose {label} executable	选择{label}可执行文件
+Could not choose {label} executable: {error}	无法选择{label}可执行文件：{error}
+{label} executable chooser was interrupted: {error}	{label}可执行文件选择被中断：{error}
+World analyst runtime is not ready.	世界分析师运行时尚未就绪。
+Recheck the runtime first.	请先重新检查运行时。
+Enter a question before asking the analyst	提问前请先输入问题
+World analyst session is not available	世界分析师会话不可用
+Analysis cancelled by user	分析已被用户取消
+World analyst session closed	世界分析师会话已关闭
+Analysis cancellation failed; recover before continuing	分析取消失败;请先恢复再继续
+World analyst session could not close cleanly	世界分析师会话未能正常关闭
+{label} · waiting for runtime check	{label} · 等待运行时检查
+{label} · settings unavailable until runtime settings load	{label} · 运行时设置加载完成前设置不可用
+Environment controlled	由环境变量控制
+Choose…	选择…
+Clear saved path	清除已保存的路径
+Left	左侧
+Right	右侧
+Saved World	已保存的世界
+{} · t={} · {} events	{} · t={} · {} 个事件
+No other saved Worlds match this filter	没有其他已保存的世界符合此筛选条件
+Swap sides	交换两侧
+Choose two distinct saved Worlds to compare.	选择两个不同的已保存世界进行比较。
+Recheck	重新检查
+Refreshing saved Worlds…	正在刷新已保存的世界…
+Checking analyst runtime readiness…	正在检查分析师运行时是否就绪…
+Analyst runtime ready · Node and Pi resolved	分析师运行时已就绪 · Node 和 Pi 已解析
+Analyst runtime readiness is unavailable.	无法获取分析师运行时的就绪状态。
+Recheck the runtime.	重新检查运行时。
+Starting…	正在启动…
+Saving runtime path…	正在保存运行时路径…
+Start analysis	开始分析
+Ask a question about what changed, why the Worlds diverged, or which evidence explains the difference.	提问世界发生了什么变化、为何产生分歧，或有哪些证据可以解释这种差异。
+Analyzing…	正在分析…
+Ask	提问
+Cancelling…	正在取消…
+Cancel analysis	取消分析
+Read-only · fixed snapshot pair	只读 · 固定快照对
+New comparison	新建比较
+Recover and recheck runtime	恢复并重新检查运行时
+Analyst session ended: {message}	分析师会话已结束：{message}
+World Analyst — World Machine	世界分析师 — World Machine
+World Analyst	世界分析师
+Evidence-backed questions over two immutable saved-World snapshots	基于两个不可变的已保存世界快照，提出有证据支持的问题
+Failed question	提问失败
+Retry failed question	重试失败的提问
+Dismiss failed question	关闭失败的提问
+Node	Node
+Pi	Pi
+Environment override	环境变量覆盖
+Saved path	已保存的路径
+ID {id}	ID {id}
+Pack {} · {}	包 {} · {}
+The analyst returned no text answer.	分析师没有返回文字回答。
+Question	问题
+Analyst	分析师
+Evidence calls · {}	证据调用 · {}
+Runtime error · {error}	运行时错误 · {error}
+World Machine analyst runtime is incomplete: missing {}	World Machine 分析师运行时不完整：缺少 {}
+World Machine analyst runtime is incomplete: {} is not a non-empty file	World Machine 分析师运行时不完整：{} 不是非空文件
+World Machine analyst runtime is incomplete: {} is not readable by the current user	World Machine 分析师运行时不完整：当前用户无法读取 {}
+World Machine analyst launcher needs `{launcher_program}`, but it is not executable in an absolute PATH directory.	World Machine 分析师启动器需要 `{launcher_program}`，但它在 PATH 的绝对路径目录中不可执行。
+Ensure the standard macOS system executable directories are available on PATH.	请确保标准的 macOS 系统可执行目录已包含在 PATH 中。
+World Machine analyst needs Node, but `{}` is not executable or not available on PATH.	World Machine 分析师需要 Node，但 `{}` 不可执行或不在 PATH 中。
+Set WORLD_MACHINE_NODE_PROGRAM to an executable Node path.	请将 WORLD_MACHINE_NODE_PROGRAM 设置为可执行的 Node 路径。
+World Machine analyst needs Pi, but `{}` is not executable or not available on PATH.	World Machine 分析师需要 Pi，但 `{}` 不可执行或不在 PATH 中。
+Set PI_PROGRAM to the Pi executable path.	请将 PI_PROGRAM 设置为 Pi 可执行文件的路径。
+World Machine analyst tool host is not configured.	World Machine 分析师工具主机尚未配置。
+World Machine analyst tool host is not executable or unavailable: {}	World Machine 分析师工具主机不可执行或不可用：{}
+World Analyst executable selection must be an absolute path: {}	世界分析师所选的可执行文件必须是绝对路径：{}
+{} is controlled by an environment override; remove that override before saving a user path	{} 由环境变量覆盖控制;请先移除该覆盖，再保存用户路径
+World Machine analyst runtime is unavailable.	World Machine 分析师运行时不可用。
+Expected the bundled `Analyst Runtime` resource or set {RUNTIME_ROOT_ENV}.	需要内置的 `Analyst Runtime` 资源，或设置 {RUNTIME_ROOT_ENV}。
+{RUNTIME_ROOT_ENV} is relative, but the current directory could not be resolved.	{RUNTIME_ROOT_ENV} 是相对路径，但无法解析当前目录。
+Set it to an absolute analyst runtime path.	请将其设置为分析师运行时的绝对路径。
+World Analyst settings are malformed: {message}	世界分析师设置格式错误：{message}
+World Analyst settings use unsupported format version {version}	世界分析师设置使用了不受支持的格式版本 {version}
+World Analyst {field} path must be absolute: {}	世界分析师的 {field} 路径必须是绝对路径：{}
+World Analyst could not locate the user's home directory	世界分析师无法定位用户的主目录
+World Analyst could not read settings at {}: {error}	世界分析师无法读取位于 {} 的设置：{error}
+World Analyst could not create settings directory {}: {error}	世界分析师无法创建设置目录 {}:{error}
+World Analyst could not replace settings at {}: {error}	世界分析师无法替换位于 {} 的设置：{error}
+World Analyst could not write temporary settings {}: {error}	世界分析师无法写入临时设置 {}:{error}
+World Analyst could not finish temporary settings {}: {error}	世界分析师无法完成临时设置 {}:{error}
+World Analyst could not sync temporary settings {}: {error}	世界分析师无法同步临时设置 {}:{error}
+World Machine {version} · build {commit} · {architecture}	World Machine {version} · 构建 {commit} · {architecture}
+Logs	日志
+macOS {version} ({build}) · {arch}	macOS {version} ({build}) · {arch}
+macOS {version} · {arch}	macOS {version} · {arch}
+Copy diagnostics	复制诊断信息
+World Machine diagnostics	World Machine 诊断信息
+Build: {build_label}	构建：{build_label}
+Signing: ad-hoc, not notarized	签名：临时签名，未公证
+Host: {host}	主机：{host}
+Worlds: {}	世界：{}
+Packs catalog: {}	包目录：{}
+Included Packs: {}	内置的包：{}
+none found	未找到
+Log: {}	日志：{}
+Recent log lines:	最近的日志：
+World Packs	世界包
+Pocket Universe	口袋宇宙
+Begin a tiny world, let the people in it live, and watch their choices, friendships and habits become what that place is known for.	开启一个微型世界，让其中的人们生活下去，看着他们的选择、友谊与习惯，渐渐成为这个地方的名片。
+Pick a place · Answer what they ask · Branch what happens next	选择一个地方 · 回应他们的请求 · 分支接下来发生的事
+Micro Company	微型公司
+Run a tiny product company where two founders make small decisions and the business either finds its customers or runs out of cash.	经营一家微型产品公司，两位创始人做出一个个小决定，公司要么找到客户，要么耗尽现金。
+Choose a direction · Watch demand and cash · Adapt	选择方向 · 关注需求与现金 · 随机应变
+Tiny Society	小小社会
+A harbour town that keeps living while you are away.	一座即使你不在，也照常生活的港口小镇。
+Its people want things of you, the sea and the calendar bring storms and feasts, and every season closes a chapter of the town's story.	镇上的人们对你有所求，大海与日历带来风暴与盛宴，每个季节都为小镇的故事合上一个篇章。
+Answer what people ask · Build the pier · See how the chapter ends	回应人们的请求 · 修建码头 · 看看这一章如何收尾
+no key	没有密钥
+World Machine · World voice	World Machine · 世界之声
+a key with nothing in it is not a key	空的密钥算不上密钥
+the app opens where I left it	应用会在我上次离开的地方打开
+document: {message}	文档：{message}
+Branched from …	分支自…
+What if · {left} vs {right} · {} periods	假如 · {left} 对比 {right} · {} 个周期
+Opened {} · {error}	已打开 {} · {error}
+Reloaded {} · {}	已重新加载 {} · {}
+Reload failed: {error}	重新加载失败：{error}
+Could not open Save As dialog: {error}	无法打开"另存为"对话框：{error}
+Save As dialog was interrupted: {error}	"另存为"对话框被中断：{error}
+Saved As {} · {}	已另存为 {} · {}
+Save As failed: {error}	另存为失败：{error}
+Branched as {} · {warning}	已分支为 {} · {warning}
+Branched as {}	已分支为 {}
+Could not branch: {error}	无法创建分支：{error}
+Comparing {left} with {right}	正在比较 {left} 与 {right}
+Could not compare with parent: {error}	无法与父版本比较：{error}
+Choose another saved World to compare · {count} available	选择另一个已保存的世界进行比较 · 还有 {count} 个可选
+Could not compare saved Worlds: {error}	无法比较已保存的世界：{error}
+Opened Branches · {count} Worlds	已打开分支 · {count} 个世界
+Could not open Branches: {error}	无法打开分支：{error}
+The World Analyst needs Node and the Pi runtime installed on this Mac.	世界分析师需要这台 Mac 上安装 Node 和 Pi 运行时。
+Opened the World Analyst	已打开世界分析师
+Could not open the Analyst: {error}	无法打开分析师：{error}
+A new World	一个新世界
+Ares Pocket Colony	阿瑞斯口袋殖民地
+Branch	分支
+What if…	假如…
+Could not open World file: {error}	无法打开世界文件：{error}
+Could not open Installed Packs catalog {}: {error}	无法打开已安装的包目录 {}:{error}
+Included Pack identity mismatch: expected {} @ {}, found {} @ {}	内置包身份不匹配：预期为 {} @ {}，实际为 {} @ {}
+Review {} @ {} before trusting its executable bytes	在信任 {} @ {} 的可执行文件内容前，请先检查
+Could not inspect {}: {error}	无法检查 {}:{error}
+World Machine {} is available.	World Machine {} 已发布。
+You have {}.	你当前使用的是 {}。
+Download	下载
+Later	稍后
+Could not prepare {}: {error}	无法准备 {}:{error}
+Could not prepare {}: bundle contains {} @ {}, expected {} @ {}	无法准备 {}:包中包含 {} @ {}，预期为 {} @ {}
+Preparing {} for its first launch…	正在为 {} 准备首次启动…
+Install World Pack	安装世界包
+Could not open Install Pack dialog: {error}	无法打开"安装包"对话框：{error}
+Install Pack dialog was interrupted: {error}	"安装包"对话框被中断：{error}
+Pack was not installed.	包未被安装。
+Re-open it to review current content: {error}	重新打开以查看当前内容：{error}
+Testing this World before first launch…	首次启动前正在测试此世界…
+Preparing {title} for its first launch…	正在为 {title} 准备首次启动…
+Testing trusted Pack {} @ {} · Create → Archive → fresh-process Open…	正在测试受信任的包 {} @ {} · 创建 → 归档 → 全新进程打开…
+Installed Packs catalog is unavailable	已安装的包目录不可用
+{title} is installed and ready.	{title} 已安装并准备就绪。
+Pack {} @ {} passed its durable probe, but Registry rebuild failed: {error}	包 {} @ {} 通过了持久性检测，但注册表重建失败：{error}
+Pack {} @ {} passed its durable probe, but could not be enabled: {error}	包 {} @ {} 通过了持久性检测，但无法启用：{error}
+Installed and trusted {} @ {}, but its durable activation probe failed.	已安装并信任 {} @ {}，但其持久性激活检测失败。
+The Pack remains disabled: {error}	该包仍处于禁用状态：{error}
+Start your first World	开启你的第一个世界
+Pack installation cancelled; no external code was installed.	包安装已取消;未安装任何外部代码。
+Activated {} @ {} for new Worlds	已为新世界启用 {} @ {}
+Changed active Pack to {} @ {}, but Registry rebuild failed: {error}	已将当前包切换为 {} @ {}，但注册表重建失败：{error}
+Could not activate {} @ {}: {error}	无法启用 {} @ {}:{error}
+Enabled	已启用
+Disabled	已禁用
+Updated {} @ {}, but Registry rebuild failed: {error}	已更新 {} @ {}，但注册表重建失败：{error}
+Could not {} {} @ {}: {error}	无法{} {} @ {}:{error}
+Could not open World: {} @ {} should be available, but is not registered	无法打开世界：{} @ {} 应该可用，但尚未注册
+Could not open World: {} @ {} is installed but disabled.	无法打开世界：{} @ {} 已安装但已禁用。
+Use Test & Enable under Installed Packs.	请在"已安装的包"中使用"测试并启用"。
+Could not open World: {} @ {} is installed but no longer matches its approved content: {reason}	无法打开世界：{} @ {} 已安装，但内容已与已批准版本不一致：{reason}
+Could not open World: it requires {} @ {}, but installed versions are {}.	无法打开世界：它需要 {} @ {}，但已安装的版本是 {}。
+Install that exact Pack version.	请安装该确切版本的包。
+Could not open World: it requires {} @ {}, which is not installed.	无法打开世界：它需要 {} @ {}，但尚未安装。
+Use Install Pack… to add that exact version.	使用"安装包…"添加该确切版本。
+Could not read World Library: {error}	无法读取世界库：{error}
+Could not show this World's branches: {error}	无法显示此世界的分支：{error}
+My Worlds · {count} World(s)	我的世界 · {count} 个世界
+{title} lived {} while you were away	{title} 在你离开的这段时间里生活了 {}
+Opened {title}, but the time you were away could not be caught up: {error}	已打开 {title}，但无法补上你离开期间的时间：{error}
+Could not open {title}: {error}	无法打开 {title}:{error}
+Could not create {title}: {error}	无法创建 {title}:{error}
+Could not open {}: choose a {} document or {} Pack	无法打开 {}:请选择一个 {} 文档或 {} 包
+Could not open {}: {error}	无法打开 {}:{error}
+Could not import {}: choose a {} file	无法导入 {}:请选择一个 {} 文件
+Could not import {}: {error}	无法导入 {}:{error}
+Import World	导入世界
+Could not open Import dialog: {error}	无法打开导入对话框：{error}
+Import dialog was interrupted: {error}	导入对话框被中断：{error}
+Could not open Export dialog: {error}	无法打开导出对话框：{error}
+Export dialog was interrupted: {error}	导出对话框被中断：{error}
+Exported {} to {}	已将 {} 导出到 {}
+Could not export {document_id}: {error}	无法导出 {document_id}:{error}
+Order	排序
+Could not rename this World: {error}	无法重命名此世界：{error}
+Could not remove this World: {error}	无法移除此世界：{error}
+Save name	保存名称
+Cancel	取消
+An empty name lists this World under its own title again.	名称留空，这个世界会重新显示为它自己的标题。
+Remove {title}?	移除{title}?
+Its file moves to the {} folder inside your Worlds folder, so you can put it back.	它的文件会移动到"世界"文件夹内的 {} 文件夹中，方便你之后放回来。
+Remove	移除
+Keep	保留
+Rename	重命名
+Export…	导出…
+Where it branched from	它的分支来源
+Open	打开
+START HERE · A WORLD THAT KEEPS LIVING	从这里开始 · 一个持续生活的世界
+{identity} · Included external World · reviewed before it runs	{identity} · 内置的外部世界 · 运行前已审查
+Review & Start	审查并开始
+{identity} · Included external Pack · review required	{identity} · 内置的外部包 · 需要审查
+Review & Install	审查并安装
+Create {}	创建 {}
+{title} is ready	{title} 已就绪
+Start your first World.	开启你的第一个世界。
+It keeps living between visits, and you can always create another.	它在你两次到访之间也会继续生活，你随时都能再创建一个。
+Not now	暂不
+Before this World starts	在这个世界开始之前
+A new Pack wants to install	一个新的包想要安装
+Trust & Start	信任并开始
+Install & Trust	安装并信任
+Version	版本
+Runs as	运行身份
+Fingerprint	指纹
+From	来源
+Identity	身份
+Nothing from this Pack has run yet.	这个包中还没有任何内容运行过。
+Trusting it approves exactly these bytes, then your World opens once its self-test passes.	信任它意味着仅批准这些确切的字节内容，自检通过后，你的世界才会打开。
+Trusting it approves exactly these bytes; any other version is refused.	信任它意味着仅批准这些确切的字节内容;其他任何版本都会被拒绝。
+Testing durable round-trip…	正在测试持久性往返…
+Active	已启用
+Historical · available for saved Worlds	历史版本 · 可用于已保存的世界
+Disabled · trusted, not runnable until tested	已禁用 · 已信任，测试通过前无法运行
+Invalid · {reason}	无效 · {reason}
+Missing exact version	缺少确切版本
+Not installed	未安装
+Activate	启用
+Disable	禁用
+Test & Enable	测试并启用
+Start a World →	开始一个世界 →
+No Worlds yet.	还没有世界。
+Start one below; it keeps living while you are away.	在下面开始一个;你不在的时候它也会继续生活。
+No Worlds match this Pack filter.	没有世界符合此包筛选条件。
+No Worlds match what you typed.	没有世界符合你输入的内容。
+All · {}	全部 · {}
+Start here	从这里开始
+More worlds	更多世界
+Included Worlds	内置的世界
+Start a new World	开始一个新世界
+Packs · {} · hide	包 · {} · 隐藏
+Packs · {} · show	包 · {} · 显示
+Dismiss	关闭
+Recent	最近
+Name	名称
+My Worlds · {total}	我的世界 · {total}
+My Worlds · {visible}/{total}	我的世界 · {visible}/{total}
+{pack_title} — name this World	{pack_title} — 为这个世界命名
+If this World is open in a window, choose World → Reload there.	如果这个世界正在某个窗口中打开，请在那里选择"世界 → 重新加载"。
+Renamed to {title}.	已重命名为 {title}。
+Name cleared; this World is listed as {pack_title} again.	名称已清除;这个世界重新显示为 {pack_title}。
+Removed {title}.	已移除 {title}。
+Its file moved to the {} folder inside your Worlds folder.	它的文件已移动到"世界"文件夹内的 {} 文件夹中。
+{named}, and {hidden} more	{named}，还有 {hidden} 个
+One file in your Worlds folder could not be read and is not listed: {names}.	你的"世界"文件夹中有一个文件无法读取，未列出：{names}。
+{} files in your Worlds folder could not be read and are not listed: {names}.	你的"世界"文件夹中有 {} 个文件无法读取，未列出：{names}。
+1 sol has passed	已过去 1 个火星日
+3 nights have passed	已过去 3 个夜晚
+{} {verb} passed	已过去 {} {verb}
+1 sol	1 个火星日
+3 nights	3 个夜晚
+1 {unit}	1 个{unit}
+{count} {unit}s	{count} 个{unit}
+Sol 5	火星日 5
+just begun	刚刚开始
+Worlds	世界
+Packs	包
+Keeps going without you · next sol in 5 h	你不在时依然继续 · 下一个火星日还有 5 小时
+Keeps going without you · a new {unit} waits for your next visit	你不在时依然继续 · 新的一个{unit}正等待你下次到访
+{} min	{} 分钟
+Keeps going without you · next {unit} in {wait}	你不在时依然继续 · 下一个{unit}还有 {wait}
+Sol	火星日
+Pocket Universe · Sol 5	口袋宇宙 · 火星日 5
+2 days	2 天
+Keeps going without you · next sol in 6 h	你不在时依然继续 · 下一个火星日还有 6 小时
+Keeps going without you · next night in 20 min	你不在时依然继续 · 下一个夜晚还有 20 分钟
+Keeps going without you · a new day waits for your next visit	你不在时依然继续 · 新的一天正等待你下次到访
+Installed Packs were not activated: {error}	已安装的包未被启用：{error}
+Could not locate included World Packs: {error}	无法定位内置的世界包：{error}
+{} saved World(s) · {} included Pack(s)	{} 个已保存的世界 · {} 个内置的包
+Find a World…	查找世界…
+Observer	观察者
+Only My Worlds documents can compare saved Worlds	只有"我的世界"文档才能比较已保存的世界
+My Worlds needs at least two saved Worlds to compare	"我的世界"至少需要两个已保存的世界才能比较
+{} things have happened	发生了 {} 件事
+Choose a World on the right	在右侧选择一个世界
+Choose two different saved Worlds	选择两个不同的已保存世界
+Compare Saved Worlds — World Machine	比较已保存的世界 — World Machine
+Compare Saved Worlds	比较已保存的世界
+Choose any two Worlds from My Worlds to see them side by side as they stand now.	从"我的世界"中选择任意两个世界，并排查看它们此刻的状态。
+Neither moves on while you compare them, and both need to come from the same version of their World Pack.	比较期间两者都不会继续运行，并且两者必须来自同一版本的世界包。
+World A	世界 A
+World B	世界 B
+Choose two different saved Worlds.	选择两个不同的已保存世界。
+Compare current saved state	比较当前已保存的状态
+Opened comparison · {left} ↔ {right}	已打开比较 · {left} ↔ {right}
+Could not compare: {error}	无法比较：{error}
+Same saved World	同一个已保存的世界
+Ancestor → descendant · {ancestor} → {descendant}	祖先 → 后代 · {ancestor} → {descendant}
+Sibling branches · parent {parent}	兄弟分支 · 父版本 {parent}
+Related branches · common ancestor {common_ancestor}	相关分支 · 共同祖先 {common_ancestor}
+Where these two came from is unclear · left {} · right {}	无法确定这两者的来源 · 左侧 {} · 右侧 {}
+Two unrelated Worlds	两个互不相关的世界
+Could not tell how these two are related · {reason}	无法判断这两者的关系 · {reason}
+Strategy · {choice_title} · {horizon} periods	策略 · {choice_title} · {horizon} 个周期
+Branch · {label}	分支 · {label}
+Paste an API key…	粘贴 API 密钥…
+Off.	关闭。
+Worlds read from the app's own copy, and nothing leaves this Mac.	世界从应用自带的副本中读取，任何内容都不会离开这台 Mac。
+On, through {}.	已开启，通过 {}。
+On, but no program is chosen, so Worlds still read from the app's copy.	已开启，但尚未选择程序，世界仍从应用自带的副本中读取。
+On, through your API key.	已开启，通过你的 API 密钥。
+On, but no key is stored, so Worlds still read from the app's copy.	已开启，但尚未保存密钥，世界仍从应用自带的副本中读取。
+World Machine Settings	World Machine 设置
+Let Worlds speak for themselves	让世界自己诉说
+Coming back, a World tells you what happened in its own words.	当你回来时，世界会用自己的话讲述发生了什么。
+World voice	世界之声
+Stays on this Mac · {}	留在这台 Mac 上 · {}
+Stays on this Mac · choose one in Analyst settings	留在这台 Mac 上 · 请在分析师设置中选择一个
+Each return is sent to your provider · key stored	每次回归都会发送给你的服务提供商 · 密钥已保存
+Each return is sent to your provider	每次回归都会发送给你的服务提供商
+Where the voice comes from	声音的来源
+A program on this Mac	这台 Mac 上的程序
+An API key	一个 API 密钥
+Save key	保存密钥
+Forget key	忘记密钥
+The key goes into your login keychain, never into a file.	密钥会存入你的登录钥匙串，绝不会写入文件。
+Music	音乐
+Chords, a morning tune and an evening one, by the hour and the weather	和弦，一段晨曲与一段暮曲，随时辰与天气变化
+Landscape	风景
+Wind and the hum of the place	风声与这个地方的低鸣
+Voices	人声
+Everyone's own babble as they speak	每个人说话时各自的絮语
+Ticks and bells	滴答声与钟声
+Cards turning, turns passing, things built	翻牌、回合流转、建造完成
+Only an API key sends anything off this Mac: what a World has recorded, once per return.	只有使用 API 密钥时，才会有内容离开这台 Mac:每次回归发送一次世界所记录的内容。
+Worlds already open keep the voice they opened with.	已经打开的世界会保留它们打开时所用的声音。
+Sound	声音
+The World in front plays its music and its landscape's sound, everyone speaks in a voice of their own, and cards, turns and building each have a small sound.	当前的世界会播放它的音乐与风景之声，每个人都用自己的声音说话，翻牌、回合与建造也各有一点声响。
+This World has one path right now.	这个世界目前只有一条路径。
+Continue it and try again when it offers a choice.	继续下去，等它给出选择时再试一次。
+Change choices…	更改选择…
+{horizon} periods	{horizon} 个周期
+Left choice is no longer available	左侧的选择已不再可用
+Right choice is no longer available	右侧的选择已不再可用
+Choose two different futures	选择两个不同的未来
+Compare Futures — World Machine	比较未来 — World Machine
+Compare Futures	比较未来
+Choose two possible actions from the same durable World, then decide how far each future should run.	从同一个持久世界中选择两个可能的行动，然后决定每个未来运行多久。
+Future A	未来 A
+Future B	未来 B
+Horizon	地平线
+Choose two different futures before running the comparison.	选择两个不同的未来后再进行比较。
+Run comparison · {} periods	运行比较 · {} 个周期
+Opened comparison · {left} vs {right}	已打开比较 · {left} 对 {right}
+Future A has no durable archive	未来 A 没有可保存的存档
+Future B has no durable archive	未来 B 没有可保存的存档
+Saved {side_label} as {saved_id}	已将 {side_label} 保存为 {saved_id}
+Future A has not been saved	未来 A 尚未保存
+Future B has not been saved	未来 B 尚未保存
+Saved {label} · {saved}	已保存 {label} · {saved}
+Opened saved {label} · {document}	已打开已保存的 {label} · {document}
+Open failed: {error}	打开失败：{error}
+Save {label}	保存 {label}
+Save failed: {error}	保存失败：{error}
+What if… — {}	假如…—{}
+Choose from {count} choices in the setup window	在设置窗口中从 {count} 个选项中选择
+{} or {}	{} 或 {}
+What if… · {} · {} periods ahead	假如… · {} · 提前 {} 个周期
+{label} is outside My Worlds or no longer matches this Pack	{label} 在“我的世界”之外，或已不再匹配此 Pack
+Branched from {parent}	分支自 {parent}
+Add this World to My Worlds before opening Branches	打开分支前，请先将此世界加入“我的世界”
+Advanced {} background period(s) · World time {}	已推进 {} 个后台周期 · 世界时间 {}
+Catch-up skipped: {error}	已跳过追赶：{error}
+this moment	此刻
+Branched before “{event_title}”	分支于“{event_title}”之前
+Couldn't branch here: {error}	无法在此处分支：{error}
+Couldn't continue: {error}	无法继续：{error}
+While you were away · {} of {count}	你离开的这段时间 · {} / {count}
+Skip to your turn	跳到你的回合
+Your turn →	轮到你了 →
+Next →	下一步 →
+What happened	发生了什么
+What happened · {count}	发生了什么 · {count}
+Why?	为什么？
+Begin here →	从这里开始 →
+Where things stand	目前的状况
+{hidden} earlier moments	{hidden} 个更早的时刻
+History	历史
+Relationship	关系
+Connected to	关联到
+What changed it	是什么改变了它
+Between	之间
+How it changed	它是如何变化的
+What this changed	这改变了什么
+Nothing anyone would notice has come of it yet.	目前还没有引起任何人注意的变化。
+{visible} {} so far, up to {max_depth} {} removed.	目前 {visible} {}，最远 {max_depth} {} 之外。
+thing followed from it	由此引出的一件事
+things followed from it	由此引出的几件事
+What it led to	它带来的结果
+{} steps in between	中间隔了 {} 步
+How it unfolded	事情是如何展开的
+Also because of it	也是因为它
+{} more	还有 {} 个
+Why it happened	为什么会发生
+Branch from before this	从这之前分支
+Directly	直接
+{depth} steps on	之后 {depth} 步
+Look closer	仔细看看
+↑ Trust	↑ 信任
+Sea Finch → repaired	海雀号 → 已修复
+Actor	行动者
+Targets	目标
+Trust ▲▲	信任 ▲▲
+{label} {}	{label} {}
+{} → {value}	{} → {value}
+World Contents	世界内容
+People and places	人物与地点
+Everyday life	日常生活
+Everyday life · {count} things	日常生活 · {count} 件事
+{hidden} more	还有 {hidden} 个
+Build	建造
+Decorate	装饰
+Plant	种植
+Move	移动
+Give	赠送
+Invite	邀请
+{season} · {coming}	{season} · {coming}
+More	更多
+Choose	选择
+Keeps going without you · next	没有你时也会继续 · 下一个
+Keeps going without you · next day in 6 h	没有你时也会继续 · 6 小时后是新的一天
+a pressed flower	一朵压花
+A pressed flower	一朵压花
+Say something…	说点什么…
+They	他们
+The moment passed before {name} could answer.	还没等 {name} 回答，这一刻就过去了。
+Couldn't say that: {error}	无法这么说：{error}
+Undo	撤销
+{from} gave you	{from} 给了你
+Photo saved to Pictures	照片已保存到“图片”
+↶ {title}	↶ {title}
+Photo	照片
+Choose who to give a present to.	选择要把礼物送给谁。
+Choose who to invite out.	选择要邀请谁出去。
+Choose where the {} goes now.	选择{}现在放在哪里。
+Choose where the {} goes.	选择{}放在哪里。
+Something else	别的东西
+{thing_name} · {cost}	{thing_name} · {cost}
+Less	更少
+Chapter {number} ends	第 {number} 章 结束
+Begin chapter {}	开始第 {} 章
+Building	建造中
+Chapters · {}	章节 · {}
+Chapter {}	第 {} 章
+Keepsakes · {}	纪念品 · {}
+From {}	来自 {}
+From a friend	来自一位朋友
+Book · {found} of {}	图书 · {found} / {}
+{shelf} · {found} of {}	{shelf} · {found} / {}
+Do it	去做
+Say	说
+More about {}	关于 {} 的更多信息
+Pictures	图片
+{} moments · {}	{} 个时刻 · {}
+→ repaired	→ 已修复
+{} {difference}	{} {difference}
+Nia Chen	Nia Chen
+NC	NC
+K-88 Radio	K-88电台
+KR	KR
+Payload	内容
+Summary	摘要
+Change	变化
+Changes	变化
+{summary} · {RECORDED_STATE}{}	{summary} · {RECORDED_STATE}{}
+· +{hidden} more recorded changes	· 还有 {hidden} 处记录的变化
+{RECORDED_STATE}{}	{RECORDED_STATE}{}
+· {RECORDED_STATE}	· {RECORDED_STATE}
+Recorded state ·	记录状态 ·
+{} {previous} → {}	{} {previous} → {}
+Recorded entity changes	记录的实体变化
+Who	谁
+With	与谁
+Caused by	起因
+Recorded relation changes	记录的关系变化
+Active relation endpoints	当前关系端点
+Relation identity endpoints	关系标识端点
+My nets are more hole than	我的网破洞比网眼还多
+Buy him nets	给他买些渔网
+Tell him to mend them	让他自己补网
+Noah hasn't 30 to spare	Noah 手头没有多余的 30
+Bench	长椅
+3 of 10	3 / 10
+Safe	安全
+Trust ↑	信任 ↑
+Ares Habitat · rebuilt	阿瑞斯栖息地 · 已重建
+Trust	信任
+World direction	世界走向
+Ares Habitat	阿瑞斯栖息地
+Keepsakes	纪念品
+People	人物
+Made	制作
+Days	天数
+a pressed flower from the Harbor	一朵来自港口的压花
+Rebuild	重建
+A bright summer	明媚的夏天
+Could you spare	你能匀给我
+Summer	夏天
+Lantern Night in 3 days	灯笼之夜还有3天
+world time	世界时间
+world state	世界状态
+larger choice	更重大的选择
+{banned}	{banned}
+The colony opened a new water-recovery loop	殖民地启用了新的水循环回收系统
+Universe	宇宙
+Sol 4	火星日 4
+Time 40	时间 40
+Sol 3	火星日 3
+Time 30	时间 30
+The beginning	开始
+Time {world_time}	时间 {world_time}
+Sol 2–5	火星日 2–5
+{} {first}–{last}	{} {first}–{last}
+Time {from}–{to}	时间 {from}–{to}
+To	至
+Partnership	伙伴关系
+Entity #{id}	实体 #{id}
+{key}: {}	{key}: {}
+Entity #{other}	实体 #{other}
+State	状态
+Relations	关系
+World time {} · {}	世界时间 {} · {}
+Status	状态
+Removed	已移除
+Relation	关系
+Properties	属性
+Relation #{} · {}	关系 #{} · {}
+Someone no longer here	某人已不在此处
+Entity #{actor}	实体 #{actor}
+Event #{id}	事件 #{id}
+Context	背景
+Time {}	时间 {}
+Create entity	创建实体
+Remove entity	移除实体
+Entity #{entity}	实体 #{entity}
+Entity #{entity} · {}	实体 #{entity} · {}
+Create relation	创建关系
+{} · Entity #{} → Entity #{}	{} · 实体 #{} → 实体 #{}
+Remove relation	移除关系
+Relation #{relation}	关系 #{relation}
+Relation #{relation} · {}	关系 #{relation} · {}

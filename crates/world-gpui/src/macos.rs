@@ -1217,6 +1217,8 @@ impl Render for ProjectionView {
             window.appearance(),
             gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark
         ));
+        // Text as large as the player asked for, everywhere in the window.
+        window.set_rem_size(px(crate::rem_size()));
         let world = self.render_world(window, cx);
         let mut root = div()
             .size_full()

@@ -51,6 +51,25 @@ pub use persistence::{
     tiny_society_pack_ref, VisitCursor, TINY_SOCIETY_PACK_ID, TINY_SOCIETY_PACK_VERSION,
 };
 
+/// Tiny Society in Simplified Chinese: English, a tab, then the
+/// translation, a line each.
+pub const ZH_HANS: &str = include_str!("../locales/zh-Hans.tsv");
+
+/// The core residents' own lines as templates and what fills them, for
+/// showing every one of them in another language.
+pub type VoiceTemplates = Vec<(
+    &'static [&'static str],
+    &'static [(&'static str, &'static [&'static str])],
+)>;
+
+pub fn voice_templates() -> VoiceTemplates {
+    [JONAS, MARA, LEO, EMMA, MIA, NOAH, EVAN, SOFIA]
+        .into_iter()
+        .filter_map(voices::voice)
+        .map(|voice| (voice.lines, voice.slots))
+        .collect()
+}
+
 pub const RETAIN_WORKER_COMMAND: &str = "tiny-society.retain-worker";
 pub const REOPEN_BAKERY_COMMAND: &str = "tiny-society.reopen-bakery";
 pub const LEAN_REOPEN_BAKERY_COMMAND: &str = "tiny-society.reopen-bakery-lean";

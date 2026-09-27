@@ -1,5 +1,6 @@
 pub mod art;
 pub mod diorama;
+pub mod i18n;
 mod macos;
 pub mod scene;
 pub mod text_input;
@@ -8,7 +9,27 @@ pub mod ui;
 pub use macos::{
     is_beginning, scene_share, speech_pages, words_at_rest, ProjectionView, RESTING_WORD_LIMIT,
 };
+pub use world_i18n::{set_language, Language};
 pub use world_projection::{Ears, ProjectionIntent, ProjectionSnapshot, SelectionId};
+
+static TEXT_SCALE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(100);
+
+/// How large text is drawn, as a percentage from 100 to 200.
+pub fn set_text_scale(percent: u32) {
+    TEXT_SCALE.store(
+        percent.clamp(100, 200),
+        std::sync::atomic::Ordering::Relaxed,
+    );
+}
+
+pub fn text_scale() -> f32 {
+    TEXT_SCALE.load(std::sync::atomic::Ordering::Relaxed) as f32 / 100.0
+}
+
+/// The size one rem is drawn at: 16 points, scaled as the player asked.
+pub fn rem_size() -> f32 {
+    16.0 * text_scale()
+}
 
 use std::time::Duration;
 
@@ -129,6 +150,27 @@ mod tests {
                 assert!(line.chars().count() <= 18, "{line:?}");
             }
         }
+    }
+
+    /// At twice the text size, a line a third longer than English (as
+    /// many translations are) still shows at most two lines at a time,
+    /// each narrow enough for the bubble.
+    #[test]
+    fn a_long_translation_at_double_size_still_pages_in_twos() {
+        let english =
+            "Here we are again. Last time: Evan took a week's work on the mainland. Should I go?";
+        let longer = format!("{english} {}", &english[..english.len() / 3]);
+        set_text_scale(200);
+        let pages = speech_pages(&longer);
+        set_text_scale(100);
+        assert!(pages.len() >= 3, "{pages:?}");
+        for page in &pages {
+            assert!(page.lines().count() <= 2, "{page:?}");
+            for line in page.lines() {
+                assert!(line.chars().count() <= 18, "{line:?} is too wide at 200%");
+            }
+        }
+        assert_eq!(pages.join(" ").replace('\n', " "), longer);
     }
 
     #[test]

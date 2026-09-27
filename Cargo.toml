@@ -34,6 +34,7 @@ members = [
   "crates/world-library",
   "crates/world-observer",
   "crates/world-voice",
+  "crates/world-i18n",
   "systems/society-basic",
   "systems/storylets",
   "systems/lives",

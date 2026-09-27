@@ -41,6 +41,18 @@ pub struct DesktopAnalystSettings {
     /// default level, and the field is omitted while all are.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub sound_levels: std::collections::BTreeMap<String, u8>,
+    /// The language the app is shown in ("en", "zh-Hans"); absent follows
+    /// the Mac.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
+    /// How large text is drawn, as a percentage from 100 to 200; absent is
+    /// 100.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_scale: Option<u32>,
+    /// Whether colours are drawn with more contrast; absent follows the
+    /// Mac's Increase Contrast.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub increase_contrast: Option<bool>,
 }
 
 fn is_off(value: &bool) -> bool {
@@ -86,6 +98,9 @@ impl DesktopAnalystSettings {
             world_voice_source: None,
             ambient_sound: false,
             sound_levels: Default::default(),
+            language: None,
+            text_scale: None,
+            increase_contrast: None,
         }
     }
 
@@ -301,6 +316,30 @@ fn sound_key(channel: crate::ambience::Channel) -> &'static str {
     }
 }
 
+/// The language the app is shown in, or `None` to follow the Mac.
+pub fn save_language(
+    root: &Path,
+    language: Option<String>,
+) -> Result<(), DesktopAnalystSettingsError> {
+    update_settings(root, move |settings| settings.language = language)
+}
+
+/// How large text is drawn, from 100 to 200 percent.
+pub fn save_text_scale(root: &Path, percent: u32) -> Result<(), DesktopAnalystSettingsError> {
+    update_settings(root, move |settings| {
+        settings.text_scale = (percent != 100).then_some(percent.clamp(100, 200))
+    })
+}
+
+/// Whether colours are drawn with more contrast, or `None` to follow the
+/// Mac.
+pub fn save_increase_contrast(
+    root: &Path,
+    on: Option<bool>,
+) -> Result<(), DesktopAnalystSettingsError> {
+    update_settings(root, move |settings| settings.increase_contrast = on)
+}
+
 /// Whether World windows play their landscape's sound.
 pub fn save_ambient_sound(root: &Path, on: bool) -> Result<(), DesktopAnalystSettingsError> {
     update_settings(root, move |settings| settings.ambient_sound = on)
@@ -475,6 +514,9 @@ mod tests {
             world_voice_source: None,
             ambient_sound: false,
             sound_levels: Default::default(),
+            language: None,
+            text_scale: None,
+            increase_contrast: None,
         };
         save(&fixture.root, &settings).unwrap();
         assert_eq!(load(&fixture.root).unwrap(), settings);
@@ -542,6 +584,9 @@ mod tests {
             world_voice_source: None,
             ambient_sound: false,
             sound_levels: Default::default(),
+            language: None,
+            text_scale: None,
+            increase_contrast: None,
         };
         let selected = selections(&settings, Some(PathBuf::from("/env/node")), None);
         assert_eq!(selected.node.program, PathBuf::from("/env/node"));
@@ -690,6 +735,9 @@ mod tests {
                 world_voice_source: None,
                 ambient_sound: false,
                 sound_levels: Default::default(),
+                language: None,
+                text_scale: None,
+                increase_contrast: None,
             }
         );
 

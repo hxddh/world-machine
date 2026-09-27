@@ -1420,7 +1420,7 @@ fn name_of(world: &World, id: EntityId) -> String {
         .unwrap_or_else(|| "Someone".into())
 }
 
-fn named(world: &World, text: &str, who: EntityId) -> String {
+pub(crate) fn named(world: &World, text: &str, who: EntityId) -> String {
     if text.contains("{name}") {
         text.replace("{name}", &name_of(world, who))
     } else {

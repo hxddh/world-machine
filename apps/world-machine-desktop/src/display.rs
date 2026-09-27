@@ -1,0 +1,68 @@
+//! How the app is shown: in which language, how large its text is, and
+//! with how much contrast. What the player chose in Settings wins; where
+//! they chose nothing, the Mac's own settings decide.
+
+use crate::analyst_settings::DesktopAnalystSettings;
+use world_gpui::Language;
+
+/// The language the app is shown in, from what the player chose or else
+/// the Mac.
+pub fn language(settings: Option<&DesktopAnalystSettings>) -> Language {
+    settings
+        .and_then(|settings| settings.language.as_deref())
+        .and_then(Language::from_id)
+        .unwrap_or_else(world_i18n::system_language)
+}
+
+/// Whether the Mac asks for more contrast.
+pub fn system_increase_contrast() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("/usr/bin/defaults")
+            .args(["read", "com.apple.universalaccess", "increaseContrast"])
+            .output()
+            .is_ok_and(|output| String::from_utf8_lossy(&output.stdout).trim() == "1")
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        false
+    }
+}
+
+/// Shows the app as the player chose.
+pub fn apply(settings: Option<&DesktopAnalystSettings>) {
+    world_gpui::set_language(language(settings));
+    world_gpui::set_text_scale(
+        settings
+            .and_then(|settings| settings.text_scale)
+            .unwrap_or(100),
+    );
+    world_gpui::ui::set_increase_contrast(
+        settings
+            .and_then(|settings| settings.increase_contrast)
+            .unwrap_or_else(system_increase_contrast),
+    );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn what_the_player_chose_wins() {
+        let mut settings = DesktopAnalystSettings::empty();
+        settings.language = Some("zh-Hans".into());
+        assert_eq!(language(Some(&settings)), Language::SimplifiedChinese);
+        settings.language = Some("en".into());
+        assert_eq!(language(Some(&settings)), Language::English);
+        settings.text_scale = Some(175);
+        settings.increase_contrast = Some(true);
+        apply(Some(&settings));
+        assert!((world_gpui::text_scale() - 1.75).abs() < 1e-6);
+        assert!(world_gpui::ui::increase_contrast());
+        apply(None);
+        assert!((world_gpui::text_scale() - 1.0).abs() < 1e-6);
+        world_gpui::ui::set_increase_contrast(false);
+        world_gpui::set_language(Language::English);
+    }
+}

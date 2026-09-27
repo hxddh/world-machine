@@ -347,6 +347,12 @@ fn asker_ids(snapshot: &ProjectionSnapshot, asker: Option<SelectionId>) -> Vec<S
 /// a Chinese or Japanese character takes two.
 pub(crate) const BUBBLE_LINE: usize = 36;
 
+/// How wide a bubble line is at the text size the player chose: larger
+/// text, fewer letters to a line.
+fn bubble_line() -> usize {
+    ((BUBBLE_LINE as f32 / crate::text_scale()) as usize).max(14)
+}
+
 fn text_width(text: &str) -> usize {
     text.chars()
         .map(|character| {
@@ -374,7 +380,7 @@ pub fn speech_pages(line: &str) -> Vec<String> {
         let mut pieces = Vec::new();
         let mut piece = String::new();
         for character in word.chars() {
-            if text_width(&piece) + text_width(&character.to_string()) > BUBBLE_LINE {
+            if text_width(&piece) + text_width(&character.to_string()) > bubble_line() {
                 pieces.push(std::mem::take(&mut piece));
             }
             piece.push(character);
@@ -382,7 +388,7 @@ pub fn speech_pages(line: &str) -> Vec<String> {
         pieces.push(piece);
         for piece in pieces {
             let wide = text_width(&row) + usize::from(!row.is_empty()) + text_width(&piece);
-            if !row.is_empty() && wide > BUBBLE_LINE {
+            if !row.is_empty() && wide > bubble_line() {
                 rows.push(std::mem::take(&mut row));
             }
             if !row.is_empty() {
@@ -742,6 +748,8 @@ impl ProjectionView {
         match key {
             "i" if command => self.toggle_drawer(cx),
             "z" if command => self.undo(cx),
+            "h" if !command && self.retelling.is_none() => self.toggle_hands(cx),
+            "p" if !command && self.retelling.is_none() => self.take_photo(window, cx),
             "escape" => {
                 if self.looking.hands.is_some() {
                     self.looking.hands = None;
@@ -1362,6 +1370,7 @@ impl ProjectionView {
                         "stage-{}",
                         selection.stable_key()
                     )))
+                    .aria_label(label_of(&self.snapshot, selection).unwrap_or_default())
                     .group(group.clone())
                     .absolute()
                     .left(px(x - w / 2.0))
@@ -1405,6 +1414,7 @@ impl ProjectionView {
                         "stage-{}",
                         selection.stable_key()
                     )))
+                    .aria_label(label_of(&self.snapshot, selection).unwrap_or_default())
                     .group(group.clone())
                     .absolute()
                     .left(px(person.x - w / 2.0 - 20.0))
@@ -1483,6 +1493,8 @@ impl ProjectionView {
                             .flex_col()
                             .items_center()
                             .child(ui::caption(format!("{from} gave you")))
+                            .id("gift-shown")
+                            .aria_label(format!("{from} gave you {}", keepsake.what))
                             .child(
                                 div()
                                     .text_sm()
@@ -1511,7 +1523,7 @@ impl ProjectionView {
                     .flex()
                     .justify_center()
                     .opacity((age / 0.2).min((2.5 - age) / 0.5).clamp(0.0, 1.0))
-                    .child(pill().child("Photo saved to Pictures")),
+                    .child(pill().child(ui::t("Photo saved to Pictures"))),
             );
         }
         root = root.child(self.render_hud(cx));
@@ -1621,6 +1633,7 @@ impl ProjectionView {
             right = right.child(
                 pill()
                     .id("hands-handle")
+                    .aria_label(ui::t("Make something (H)"))
                     .cursor_pointer()
                     .when(open, |pill| pill.bg(color(tokens::ACCENT)))
                     .hover(|style| style.bg(color(tokens::SURFACE)))
@@ -1632,9 +1645,10 @@ impl ProjectionView {
             right = right.child(
                 pill()
                     .id("undo-handle")
+                    .aria_label(ui::t(format!("{title} (⌘Z)")))
                     .cursor_pointer()
                     .hover(|style| style.bg(color(tokens::SURFACE)))
-                    .child(format!("↶ {title}"))
+                    .child(format!("↶ {}", ui::t(title.clone())))
                     .on_click(cx.listener(|this, _, _, cx| this.undo(cx))),
             );
         }
@@ -1642,15 +1656,17 @@ impl ProjectionView {
             right = right.child(
                 pill()
                     .id("photo-handle")
+                    .aria_label(ui::t("Save a photo of the scene (P)"))
                     .cursor_pointer()
                     .hover(|style| style.bg(color(tokens::SURFACE)))
-                    .child("Photo")
+                    .child(ui::t("Photo"))
                     .on_click(cx.listener(|this, _, window, cx| this.take_photo(window, cx))),
             );
         }
         right = right.child(
             pill()
                 .id("drawer-handle")
+                .aria_label(ui::t("The drawer: story, keepsakes and the book (⌘I)"))
                 .cursor_pointer()
                 .hover(|style| style.bg(color(tokens::SURFACE)))
                 .child(drawer_glyph().size(px(16.0)))
@@ -1684,6 +1700,7 @@ impl ProjectionView {
             tabs = tabs.child(
                 div()
                     .id(SharedString::from(format!("hands-verb-{verb}")))
+                    .aria_label(ui::t(verb))
                     .px_2()
                     .py(px(3.0))
                     .rounded_full()
@@ -2776,7 +2793,13 @@ fn bottom_card(card: impl IntoElement, width: f32) -> Div {
         .px_4()
         .flex()
         .justify_center()
-        .child(div().w(px(CARD_WIDTH.min(width - 32.0))).child(card))
+        .child(
+            div()
+                .w(px(
+                    (CARD_WIDTH * crate::text_scale().sqrt()).min(width - 32.0)
+                ))
+                .child(card),
+        )
 }
 
 /// How someone stands with the player: five small marks, as many filled as

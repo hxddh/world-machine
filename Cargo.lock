@@ -6710,6 +6710,8 @@ dependencies = [
  "future-archaeologist",
  "tiny-society",
  "world-host",
+ "world-i18n",
+ "world-projection",
 ]
 
 [[package]]
@@ -6753,6 +6755,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "gpui",
+ "world-i18n",
  "world-projection",
  "world-theme",
 ]
@@ -6765,6 +6768,10 @@ dependencies = [
  "world-persistence",
  "world-projection",
 ]
+
+[[package]]
+name = "world-i18n"
+version = "0.1.0"
 
 [[package]]
 name = "world-integrity"
@@ -6853,6 +6860,7 @@ dependencies = [
  "world-document",
  "world-gpui",
  "world-host",
+ "world-i18n",
  "world-library",
  "world-lineage",
  "world-lineage-compare",

@@ -12,9 +12,47 @@ use gpui::{
 };
 use world_theme::tokens::{self, Token};
 
+static INCREASE_CONTRAST: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Whether colours are drawn with more contrast, as the Mac's Increase
+/// Contrast setting (or the app's own) asks.
+pub fn set_increase_contrast(on: bool) {
+    INCREASE_CONTRAST.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn increase_contrast() -> bool {
+    INCREASE_CONTRAST.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// The colour a token stands for with contrast increased: quiet text and
+/// hairlines step up to the next stronger role.
+pub fn contrasted(token: Token) -> Token {
+    if !increase_contrast() {
+        return token;
+    }
+    if token == tokens::TEXT_SECONDARY || token == tokens::TEXT_TERTIARY {
+        tokens::TEXT
+    } else if token == tokens::BORDER {
+        tokens::BORDER_STRONG
+    } else if token == tokens::BORDER_STRONG {
+        tokens::TEXT_SECONDARY
+    } else {
+        token
+    }
+}
+
 /// The colour for a token in the current appearance.
 pub fn color(token: Token) -> Rgba {
-    rgb(token.hex())
+    rgb(contrasted(token).hex())
+}
+
+/// Text in the language the app is shown in.
+pub fn t(text: impl Into<SharedString>) -> SharedString {
+    let text: SharedString = text.into();
+    match world_i18n::tr(&text) {
+        std::borrow::Cow::Borrowed(_) => text,
+        std::borrow::Cow::Owned(translated) => translated.into(),
+    }
 }
 
 /// The largest text on a screen: what this page is about.
@@ -24,7 +62,7 @@ pub fn page_title(text: impl Into<SharedString>) -> Div {
         .font_weight(FontWeight::SEMIBOLD)
         .line_height(relative(1.25))
         .text_color(color(tokens::TEXT))
-        .child(text.into())
+        .child(t(text))
 }
 
 /// A heading inside a page: a panel title or a story beat.
@@ -34,7 +72,7 @@ pub fn heading(text: impl Into<SharedString>) -> Div {
         .font_weight(FontWeight::SEMIBOLD)
         .line_height(relative(1.35))
         .text_color(color(tokens::TEXT))
-        .child(text.into())
+        .child(t(text))
 }
 
 /// A short heading for a row or card.
@@ -44,7 +82,7 @@ pub fn row_title(text: impl Into<SharedString>) -> Div {
         .font_weight(FontWeight::MEDIUM)
         .line_height(relative(1.4))
         .text_color(color(tokens::TEXT))
-        .child(text.into())
+        .child(t(text))
 }
 
 /// Running text under a heading.
@@ -53,7 +91,7 @@ pub fn body(text: impl Into<SharedString>) -> Div {
         .text_sm()
         .line_height(relative(1.55))
         .text_color(color(tokens::TEXT_SECONDARY))
-        .child(text.into())
+        .child(t(text))
 }
 
 /// Small supporting text: a row's second line.
@@ -62,7 +100,7 @@ pub fn detail(text: impl Into<SharedString>) -> Div {
         .text_xs()
         .line_height(relative(1.5))
         .text_color(color(tokens::TEXT_SECONDARY))
-        .child(text.into())
+        .child(t(text))
 }
 
 /// A section label: names a region without competing with its content.
@@ -71,7 +109,7 @@ pub fn section_label(text: impl Into<SharedString>) -> Div {
         .text_xs()
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(color(tokens::TEXT_TERTIARY))
-        .child(text.into())
+        .child(t(text))
 }
 
 /// Timestamps, counts, and other text that should recede.
@@ -79,7 +117,7 @@ pub fn caption(text: impl Into<SharedString>) -> Div {
     div()
         .text_xs()
         .text_color(color(tokens::TEXT_TERTIARY))
-        .child(text.into())
+        .child(t(text))
 }
 
 /// A raised card on the window.
@@ -120,7 +158,7 @@ pub fn button(
         .text_sm()
         .font_weight(FontWeight::MEDIUM)
         .cursor_pointer()
-        .child(label.into());
+        .child(t(label));
     match kind {
         ButtonKind::Primary => base
             .bg(color(tokens::ACCENT))

@@ -262,7 +262,7 @@ struct HostProjectionController {
 #[cfg(target_os = "macos")]
 impl world_gpui::ProjectionController for HostProjectionController {
     fn snapshot(&self) -> world_gpui::ProjectionSnapshot {
-        self.document.borrow().session.snapshot()
+        world_gpui::i18n::localize(self.document.borrow().session.snapshot())
     }
 
     fn cue(&mut self, cue: world_gpui::Cue) {
@@ -300,7 +300,7 @@ impl world_gpui::ProjectionController for HostProjectionController {
         if result.is_ok() && is_library_world {
             mark_library_changed();
         }
-        result
+        result.map(world_gpui::i18n::localize)
     }
 }
 
@@ -615,6 +615,7 @@ impl Render for WorldDocumentView {
             window.appearance(),
             gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark
         ));
+        window.set_rem_size(gpui::px(world_gpui::rem_size()));
         remember_window_geometry(window, RememberedWindow::World);
         // A World's name follows it as it changes ("A new World" becomes
         // "Ares Pocket Colony" when it is seeded), so read it every time.
@@ -3037,6 +3038,7 @@ impl Render for WorldMachineHome {
             window.appearance(),
             gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark
         ));
+        window.set_rem_size(gpui::px(world_gpui::rem_size()));
         remember_window_geometry(window, RememberedWindow::Home);
         window.set_window_title("World Machine");
 
@@ -4414,6 +4416,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let saved = world_machine_desktop::analyst_settings::application_support_root()
         .ok()
         .and_then(|root| world_machine_desktop::analyst_settings::load(&root).ok());
+    // The app's words and the built-in Worlds' in Simplified Chinese, and
+    // the language, text size and contrast the player chose.
+    world_i18n::install(world_gpui::i18n::APP_ZH_HANS);
+    for catalog in world_builtins::ZH_HANS {
+        world_i18n::install(catalog);
+    }
+    world_i18n::install(&world_builtins::zh_hans_voices());
+    world_machine_desktop::display::apply(saved.as_ref());
     ambience::set_enabled(
         saved
             .as_ref()
