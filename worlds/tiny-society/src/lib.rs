@@ -72,7 +72,7 @@ pub(crate) fn with_previews(world: &World, mut snapshot: ProjectionSnapshot) -> 
             continue;
         }
         let mut copy = TinySocietyBranch {
-            world: world.clone(),
+            world: world.sketch(world_projection::RECENT_EVENTS),
         };
         if copy.invoke_projection_command(&command.id).is_ok() {
             command.moves =

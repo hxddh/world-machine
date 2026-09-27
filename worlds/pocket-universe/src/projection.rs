@@ -16,11 +16,11 @@ use crate::{
 use std::collections::BTreeMap;
 use world_core::{Entity, EntityId, Event, StateChange, Value, World};
 use world_projection::{
-    entity_title, inspectors_from_world, timeline_from_world, value_text, why_map_from_world,
-    BriefingItem, BriefingItemKind, BriefingProjection, CanvasChange, CanvasItem, CanvasItemKind,
-    CanvasLink, CanvasLinkTone, CanvasProjection, CollectionItem, CollectionProjection,
-    CommandEffect, EffectChange, InspectorProjection, InspectorRow, InspectorSection,
-    ProjectionCapabilities, ProjectionCommand, ProjectionSnapshot, SelectionId, Tone,
+    entity_title, inspectors_from_world, value_text, why_map_from_world, BriefingItem,
+    BriefingItemKind, BriefingProjection, CanvasChange, CanvasItem, CanvasItemKind, CanvasLink,
+    CanvasLinkTone, CanvasProjection, CollectionItem, CollectionProjection, CommandEffect,
+    EffectChange, InspectorProjection, InspectorRow, InspectorSection, ProjectionCapabilities,
+    ProjectionCommand, ProjectionSnapshot, SelectionId, Tone,
 };
 
 pub(crate) fn snapshot(world: &World) -> ProjectionSnapshot {
@@ -1890,7 +1890,16 @@ fn legacy_return_context(world: &World, legacy: &str) -> String {
 /// the small shifts between two people, a legacy renewing itself) folds
 /// under the moment it happened in.
 fn told_timeline(world: &World) -> world_projection::TimelineProjection {
-    let mut timeline = timeline_from_world(world);
+    // Everyday life is told as it happens, in what people say; History
+    // keeps to what changed, and to today's, which today's words point at.
+    let now = world.world_time();
+    let mut timeline = world_projection::timeline_of(world, |event| {
+        event.world_time == now
+            || !matches!(
+                event.kind.as_str(),
+                "lived" | "life_began" | "lines_forgotten"
+            )
+    });
     world_projection::retell_timeline(&mut timeline, world, |event| {
         let summary =
             ["summary", "change"]
@@ -1937,6 +1946,7 @@ pub(crate) fn is_routine(kind: &str) -> bool {
             | "story_began"
             | "lived"
             | "life_began"
+            | "lines_forgotten"
     )
 }
 

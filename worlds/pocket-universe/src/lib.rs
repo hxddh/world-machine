@@ -286,7 +286,7 @@ where
                 continue;
             };
             let mut copy = PocketUniverse {
-                world: self.world.clone(),
+                world: self.world.sketch(world_projection::RECENT_EVENTS),
                 actions,
                 mind: PocketMind,
                 mind_profile: DETERMINISTIC_MIND_PROFILE.into(),
@@ -300,54 +300,69 @@ where
         snapshot
     }
 
+    /// One period passing on `candidate`, as a turn: the World grows, each
+    /// of the pair takes a turn, their relationship moves, and the
+    /// storyteller and people's lives move on.
+    fn pass_period_on(&mut self, candidate: &mut World) -> Result<EventId, Box<dyn Error>> {
+        // A turn is a period passing: "let the first sol unfold" moves
+        // the clock by one sol, the same as a sol passing while nobody
+        // watches, so History can tell one day from the next.
+        let target = candidate
+            .world_time()
+            .checked_add(BACKGROUND_PERIOD)
+            .ok_or_else(|| std::io::Error::other("Pocket Universe time overflow"))?;
+        candidate.schedule_at(target, growth_request(candidate))?;
+        let growth = candidate
+            .advance_to(&self.actions, target)?
+            .last()
+            .copied()
+            .ok_or_else(|| std::io::Error::other("Pocket Universe growth did not run"))?;
+        let primary_causes = agent_turn_causes(candidate, SLOT_B, growth);
+        let primary_outcome = Self::run_agent_turn_on(
+            &mut self.mind,
+            candidate,
+            &self.actions,
+            &self.mind_profile,
+            SLOT_B,
+            &primary_causes,
+        )?;
+        let secondary_causes = agent_turn_causes(candidate, SLOT_E, primary_outcome);
+        let secondary_outcome = Self::run_agent_turn_on(
+            &mut self.mind,
+            candidate,
+            &self.actions,
+            &self.mind_profile,
+            SLOT_E,
+            &secondary_causes,
+        )?;
+        let relationship_request = with_causes(
+            ActionRequest::new("update_relationship")
+                .caused_by(primary_outcome)
+                .caused_by(secondary_outcome),
+            relationship_context_causes(candidate),
+        );
+        let relationship = candidate.execute(&self.actions, &relationship_request)?.id;
+        let returned = era::resolve_period(candidate, &self.actions, relationship)?;
+        story::tick(candidate, &self.actions, false)?;
+        Ok(returned)
+    }
+
     pub fn invoke_projection_command(
         &mut self,
         command_id: &str,
     ) -> Result<EventId, Box<dyn Error>> {
         if command_id == NUDGE_COMMAND {
             let since = self.world.events().len();
-            let mut candidate = self.world.clone();
-            // A turn is a period passing: "let the first sol unfold" moves
-            // the clock by one sol, the same as a sol passing while nobody
-            // watches, so History can tell one day from the next.
-            let target = candidate
-                .world_time()
-                .checked_add(BACKGROUND_PERIOD)
-                .ok_or_else(|| std::io::Error::other("Pocket Universe time overflow"))?;
-            candidate.schedule_at(target, growth_request(&candidate))?;
-            let growth = candidate
-                .advance_to(&self.actions, target)?
-                .last()
-                .copied()
-                .ok_or_else(|| std::io::Error::other("Pocket Universe growth did not run"))?;
-            let primary_causes = agent_turn_causes(&candidate, SLOT_B, growth);
-            let primary_outcome = Self::run_agent_turn_on(
-                &mut self.mind,
-                &mut candidate,
-                &self.actions,
-                &self.mind_profile,
-                SLOT_B,
-                &primary_causes,
-            )?;
-            let secondary_causes = agent_turn_causes(&candidate, SLOT_E, primary_outcome);
-            let secondary_outcome = Self::run_agent_turn_on(
-                &mut self.mind,
-                &mut candidate,
-                &self.actions,
-                &self.mind_profile,
-                SLOT_E,
-                &secondary_causes,
-            )?;
-            let relationship_request = with_causes(
-                ActionRequest::new("update_relationship")
-                    .caused_by(primary_outcome)
-                    .caused_by(secondary_outcome),
-                relationship_context_causes(&candidate),
-            );
-            let relationship = candidate.execute(&self.actions, &relationship_request)?.id;
-            let returned = era::resolve_period(&mut candidate, &self.actions, relationship)?;
-            story::tick(&mut candidate, &self.actions, false)?;
-            self.world = candidate;
+            // The period passes on the World itself; if any part of it
+            // fails, the World goes back to where it stood.
+            let checkpoint = self.world.checkpoint();
+            let mut world = std::mem::replace(&mut self.world, World::new(WorldState::default()));
+            let outcome = self.pass_period_on(&mut world);
+            if outcome.is_err() {
+                world.rollback(checkpoint);
+            }
+            self.world = world;
+            let returned = outcome?;
             self.narrate_return(since);
             return Ok(returned);
         }
@@ -406,40 +421,37 @@ where
         Ok(event)
     }
 
-    pub fn advance_periods(&mut self, periods: u64) -> Result<(), Box<dyn Error>> {
-        // Where the observer last looked. Everything after it is what they are
-        // about to read, and so what is worth putting into words.
-        let since = self.world.events().len();
-        let mut candidate = self.world.clone();
+    /// `periods` passing on `candidate` while nobody watches.
+    fn advance_on(&mut self, candidate: &mut World, periods: u64) -> Result<(), Box<dyn Error>> {
         for _ in 0..periods {
             let target = candidate
                 .world_time()
                 .checked_add(BACKGROUND_PERIOD)
                 .ok_or_else(|| std::io::Error::other("Pocket Universe time overflow"))?;
-            if seed_id(&candidate) == UNSEEDED {
+            if seed_id(candidate) == UNSEEDED {
                 candidate.advance_to(&self.actions, target)?;
                 continue;
             }
 
-            let growth_request = growth_request(&candidate);
+            let growth_request = growth_request(candidate);
             candidate.schedule_at(target, growth_request)?;
             let executed = candidate.advance_to(&self.actions, target)?;
             let growth = executed.last().copied().ok_or_else(|| {
                 std::io::Error::other("scheduled Pocket Universe growth did not run")
             })?;
-            let primary_causes = agent_turn_causes(&candidate, SLOT_B, growth);
+            let primary_causes = agent_turn_causes(candidate, SLOT_B, growth);
             let primary_outcome = Self::run_agent_turn_on(
                 &mut self.mind,
-                &mut candidate,
+                candidate,
                 &self.actions,
                 &self.mind_profile,
                 SLOT_B,
                 &primary_causes,
             )?;
-            let secondary_causes = agent_turn_causes(&candidate, SLOT_E, primary_outcome);
+            let secondary_causes = agent_turn_causes(candidate, SLOT_E, primary_outcome);
             let secondary_outcome = Self::run_agent_turn_on(
                 &mut self.mind,
-                &mut candidate,
+                candidate,
                 &self.actions,
                 &self.mind_profile,
                 SLOT_E,
@@ -449,13 +461,29 @@ where
                 ActionRequest::new("update_relationship")
                     .caused_by(primary_outcome)
                     .caused_by(secondary_outcome),
-                relationship_context_causes(&candidate),
+                relationship_context_causes(candidate),
             );
             let relationship = candidate.execute(&self.actions, &relationship_request)?.id;
-            era::resolve_period(&mut candidate, &self.actions, relationship)?;
-            story::tick(&mut candidate, &self.actions, true)?;
+            era::resolve_period(candidate, &self.actions, relationship)?;
+            story::tick(candidate, &self.actions, true)?;
         }
-        self.world = candidate;
+        Ok(())
+    }
+
+    pub fn advance_periods(&mut self, periods: u64) -> Result<(), Box<dyn Error>> {
+        // Where the observer last looked. Everything after it is what they are
+        // about to read, and so what is worth putting into words.
+        let since = self.world.events().len();
+        // The periods pass on the World itself; if any part of them fails,
+        // the World goes back to where it stood.
+        let checkpoint = self.world.checkpoint();
+        let mut world = std::mem::replace(&mut self.world, World::new(WorldState::default()));
+        let outcome = self.advance_on(&mut world, periods);
+        if outcome.is_err() {
+            world.rollback(checkpoint);
+        }
+        self.world = world;
+        outcome?;
         // Once, for the lines an observer is about to read — not once per
         // period. A week-long catch-up resolves as fast as it always did.
         self.narrate_return(since);

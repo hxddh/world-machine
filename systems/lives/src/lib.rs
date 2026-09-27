@@ -2151,6 +2151,48 @@ impl Action for Answers {
     }
 }
 
+/// Lines said long enough ago are forgotten, so the notes stay small.
+struct Forgets(fn(&WorldState) -> Cast);
+
+impl Action for Forgets {
+    fn name(&self) -> &'static str {
+        "lives_forget"
+    }
+
+    fn evaluate(
+        &self,
+        state: &WorldState,
+        _request: &ActionRequest,
+    ) -> Result<EventDraft, ActionError> {
+        let cast = (self.0)(state);
+        let now = period(state, &cast);
+        let notes = state
+            .entity(cast.notes)
+            .ok_or_else(|| ActionError::Invalid("nothing to forget".into()))?;
+        let stale = notes
+            .components
+            .iter()
+            .filter(|(key, value)| {
+                key.starts_with("lives.heard.")
+                    && matches!(value, Value::Integer(at) if now.saturating_sub((*at).max(0) as u64) >= HEARD_PERIODS)
+            })
+            .map(|(key, _)| key.clone())
+            .collect::<Vec<_>>();
+        if stale.is_empty() {
+            return Err(ActionError::Invalid("nothing to forget".into()));
+        }
+        let mut draft = EventDraft::new("lines_forgotten");
+        draft.changes = stale
+            .into_iter()
+            .map(|key| StateChange::RemoveComponent {
+                entity: cast.notes,
+                key,
+            })
+            .collect();
+        Ok(draft)
+    }
+}
+
 /// Registers the System's Actions for a Pack's cast.
 pub fn register_actions(
     registry: &mut ActionRegistry,
@@ -2161,6 +2203,7 @@ pub fn register_actions(
     registry.register(Bonds(cast))?;
     registry.register(Opens(cast))?;
     registry.register(Answers(cast))?;
+    registry.register(Forgets(cast))?;
     Ok(())
 }
 
@@ -2216,6 +2259,11 @@ pub fn tick(
             .arg("a", Value::Entity(a))
             .arg("b", Value::Entity(b));
         if let Ok(event) = world.execute(actions, &request) {
+            events.push(event.id);
+        }
+    }
+    if period(world.state(), cast).is_multiple_of(30) {
+        if let Ok(event) = world.execute(actions, &ActionRequest::new("lives_forget")) {
             events.push(event.id);
         }
     }

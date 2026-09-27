@@ -14,6 +14,15 @@ pub struct World {
     next_event_id: u64,
 }
 
+/// Where a World stood, to go back to with [`World::rollback`].
+#[derive(Clone, Debug)]
+pub struct Checkpoint {
+    state: WorldState,
+    scheduler: Scheduler,
+    events: usize,
+    next_event_id: u64,
+}
+
 #[derive(Debug)]
 pub enum WorldError {
     Action(ActionError),
@@ -203,6 +212,41 @@ impl World {
         self.next_event_id += 1;
         self.events.push(event);
         Ok(self.events.last().expect("event was just appended"))
+    }
+
+    /// A copy to try something out on: the same state, schedule and rules,
+    /// with only the latest `recent` events of its history, so trying costs
+    /// the same however long the World has lived. Rules that read history
+    /// see only those events. A sketch is for looking at what would happen;
+    /// it is never kept, saved or replayed.
+    pub fn sketch(&self, recent: usize) -> Self {
+        let start = self.events.len().saturating_sub(recent);
+        Self {
+            baseline: self.baseline.clone(),
+            state: self.state.clone(),
+            events: self.events[start..].to_vec(),
+            scheduler: self.scheduler.clone(),
+            next_event_id: self.next_event_id,
+        }
+    }
+
+    /// Where the World stands now, to come back to if what follows fails:
+    /// cheaper than a copy, since the history is only cut back.
+    pub fn checkpoint(&self) -> Checkpoint {
+        Checkpoint {
+            state: self.state.clone(),
+            scheduler: self.scheduler.clone(),
+            events: self.events.len(),
+            next_event_id: self.next_event_id,
+        }
+    }
+
+    /// Goes back to a checkpoint, forgetting everything recorded since.
+    pub fn rollback(&mut self, checkpoint: Checkpoint) {
+        self.state = checkpoint.state;
+        self.scheduler = checkpoint.scheduler;
+        self.events.truncate(checkpoint.events);
+        self.next_event_id = checkpoint.next_event_id;
     }
 
     pub fn replay(&self) -> Result<Self, WorldError> {
@@ -590,5 +634,60 @@ mod tests {
         assert_eq!(replayed.state(), world.state());
         assert!(replayed.scheduler().get(pending).is_some());
         assert_eq!(replayed.scheduler().pending().count(), 1);
+    }
+
+    struct Count;
+
+    impl Action for Count {
+        fn name(&self) -> &'static str {
+            "count"
+        }
+
+        fn evaluate(
+            &self,
+            state: &WorldState,
+            _request: &ActionRequest,
+        ) -> Result<EventDraft, ActionError> {
+            let now = match state
+                .entity(EntityId::new(1))
+                .and_then(|entity| entity.component("count"))
+            {
+                Some(Value::Integer(count)) => *count,
+                _ => 0,
+            };
+            let mut draft = EventDraft::new("counted");
+            draft.changes.push(StateChange::SetComponent {
+                entity: EntityId::new(1),
+                key: "count".into(),
+                value: (now + 1).into(),
+            });
+            Ok(draft)
+        }
+    }
+
+    #[test]
+    fn a_checkpoint_takes_a_world_back_and_a_sketch_keeps_its_state() {
+        let mut state = WorldState::default();
+        state
+            .seed_entity(Entity::new(EntityId::new(1), "thing").with_component("count", 0_i64))
+            .unwrap();
+        let mut registry = ActionRegistry::new();
+        registry.register(Count).unwrap();
+        let mut world = World::new(state);
+        let count = ActionRequest::new("count");
+        world.execute(&registry, &count).unwrap();
+        let before = world.clone();
+
+        let checkpoint = world.checkpoint();
+        world.execute(&registry, &count).unwrap();
+        assert_ne!(world, before);
+        world.rollback(checkpoint);
+        assert_eq!(world, before);
+
+        let mut sketch = world.sketch(0);
+        assert_eq!(sketch.state(), world.state());
+        assert!(sketch.events().is_empty());
+        sketch.execute(&registry, &count).unwrap();
+        assert_eq!(sketch.events()[0].id, EventId::new(2));
     }
 }

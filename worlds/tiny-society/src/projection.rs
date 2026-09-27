@@ -8,10 +8,10 @@ use crate::{
 use society_basic::{CASH, JOB};
 use world_core::{EntityId, Event, RelationId, Value, World};
 use world_projection::{
-    entity_title, inspectors_from_world, timeline_from_world, why_map_from_world, BriefingItem,
-    BriefingItemKind, BriefingProjection, CanvasChange, CanvasItem, CanvasItemKind,
-    CanvasProjection, CollectionItem, CollectionProjection, CommandEffect, EffectChange, MarkShape,
-    ProjectionCapabilities, ProjectionCommand, ProjectionSnapshot, SelectionId, Telling, Tone,
+    entity_title, inspectors_from_world, why_map_from_world, BriefingItem, BriefingItemKind,
+    BriefingProjection, CanvasChange, CanvasItem, CanvasItemKind, CanvasProjection, CollectionItem,
+    CollectionProjection, CommandEffect, EffectChange, MarkShape, ProjectionCapabilities,
+    ProjectionCommand, ProjectionSnapshot, SelectionId, Telling, Tone,
 };
 
 pub(crate) fn snapshot(world: &World) -> ProjectionSnapshot {
@@ -607,7 +607,16 @@ pub(crate) fn narrated_title(world: &World, event: &Event) -> Option<String> {
 /// few more things that happened to somebody, and the everyday round (shifts,
 /// bread, the cost of a day) folded under the moment it happened in.
 fn told_timeline(world: &World) -> world_projection::TimelineProjection {
-    let mut timeline = timeline_from_world(world);
+    // Everyday life is told as it happens, in what people say; History
+    // keeps to what changed, and to today's, which today's words point at.
+    let now = world.world_time();
+    let mut timeline = world_projection::timeline_of(world, |event| {
+        event.world_time == now
+            || !matches!(
+                event.kind.as_str(),
+                "lived" | "life_began" | "lines_forgotten"
+            )
+    });
     world_projection::retell_timeline(&mut timeline, world, |event| telling(world, event));
     timeline
 }
@@ -1384,5 +1393,54 @@ fn capitalized(text: &str) -> String {
     match chars.next() {
         Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
         None => String::new(),
+    }
+}
+
+#[cfg(test)]
+mod probe_parts {
+    use super::*;
+    #[test]
+    #[ignore]
+    fn probe_parts() {
+        let mut society = crate::TinySociety::new().unwrap();
+        society.run_story().unwrap();
+        let mut branch = society.branch();
+        branch.begin_story().unwrap();
+        for _ in 0..365 {
+            let snapshot = snapshot(branch.world());
+            if let Some(c) = snapshot
+                .choices()
+                .find(|c| c.question.is_some() && c.unavailable.is_none())
+            {
+                let _ = branch.invoke_projection_command(&c.id.clone());
+            }
+            branch
+                .invoke_projection_command(crate::story::WAIT_COMMAND)
+                .unwrap();
+        }
+        let world = branch.world();
+        macro_rules! t {
+            ($name:expr, $e:expr) => {{
+                let s = std::time::Instant::now();
+                let r = $e;
+                eprintln!("{:>14}: {:?}", $name, s.elapsed());
+                r
+            }};
+        }
+        let cmds = t!("commands", available_commands(world));
+        t!("talks", crate::talk::talks(world, &cmds));
+        t!("briefing", society_briefing(world, None));
+        t!("timeline", told_timeline(world));
+        t!("canvas", canvas_items(world));
+        t!("inspectors", inspectors_from_world(world));
+        t!("why", why_map_from_world(world));
+        t!("gauges", gauges(world));
+        t!("voices", crate::talk::voices(world));
+        t!("goals", crate::story::goals(world));
+        t!("chapters", crate::story::chapters(world));
+        t!("weather", crate::story::weather(world));
+        let mut s = t!("snapshot", snapshot(world));
+        t!("tell", s.tell_events_as_history_does());
+        eprintln!("events {}", world.events().len());
     }
 }

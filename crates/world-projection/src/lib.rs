@@ -1504,11 +1504,18 @@ pub struct InspectorRow {
 }
 
 pub fn timeline_from_world(world: &World) -> TimelineProjection {
+    timeline_of(world, |_| true)
+}
+
+/// A World's history, told only of the events `worth` keeps: a Pack can
+/// leave out everyday life it tells in other ways.
+pub fn timeline_of(world: &World, worth: impl Fn(&Event) -> bool) -> TimelineProjection {
     TimelineProjection {
         items: world
             .events()
             .iter()
             .rev()
+            .filter(|event| worth(event))
             .map(|event| TimelineItem {
                 id: SelectionId::Event(event.id),
                 world_time: event.world_time,
@@ -1694,6 +1701,9 @@ fn inspector_for_entity(
     }
 }
 
+/// How many of its latest recorded changes an entity's detail panel lists.
+const RECENT_CHANGE_ROWS: usize = 12;
+
 fn recorded_entity_change_rows(
     entity: EntityId,
     world: &World,
@@ -1703,9 +1713,11 @@ fn recorded_entity_change_rows(
         return Vec::new();
     };
 
+    // The latest few: a detail panel is not the whole history.
     event_ids
         .iter()
         .rev()
+        .take(RECENT_CHANGE_ROWS)
         .filter_map(|event_id| world.event(*event_id))
         .map(|event| InspectorRow {
             label: format!(
