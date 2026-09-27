@@ -564,7 +564,7 @@ fn hurt_recently(state: &WorldState, kit: &Kit, who: EntityId) -> bool {
 
 fn how_is(world: &World, kit: &Kit, who: EntityId, other: EntityId, seed: u64) -> String {
     let state = world.state();
-    let x = lives::name(state, other);
+    let x = lives::first_name(state, other);
     if other == who {
         return lives::how_are_you(world, who).unwrap_or_else(|| (kit.place_mood)(world));
     }
@@ -590,7 +590,7 @@ fn how_is(world: &World, kit: &Kit, who: EntityId, other: EntityId, seed: u64) -
         if partner == who {
             return format!("{x}? We're good, thanks for asking.");
         }
-        let p = lives::name(state, partner);
+        let p = lives::first_name(state, partner);
         return if lives::opinion(state, other, partner) > 5 {
             format!("{x}'s happy with {p}.")
         } else {
@@ -643,7 +643,7 @@ pub fn reply(world: &World, kit: &Kit, who: EntityId, heard: Heard) -> Reply {
         line: text,
         asks_for: None,
     };
-    let about_name = heard.about.map(|about| lives::name(state, about));
+    let about_name = heard.about.map(|about| lives::first_name(state, about));
     match heard.intent {
         Intent::Greet => line(greeting(state, who, seed)),
         Intent::HowAreYou => {
@@ -662,7 +662,7 @@ pub fn reply(world: &World, kit: &Kit, who: EntityId, heard: Heard) -> Reply {
             Some(other) => line(lives::thinks_of(world, who, other).unwrap_or_else(|| {
                 format!(
                     "{}? I don't really know them yet.",
-                    lives::name(state, other)
+                    lives::first_name(state, other)
                 )
             })),
             None => line("Who do you mean?".into()),

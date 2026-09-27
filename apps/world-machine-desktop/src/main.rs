@@ -4055,7 +4055,7 @@ mod file_type_tests {
     fn a_world_nothing_has_happened_in_is_not_listed_yet() {
         let mut summary = WorldDocumentSummary {
             id: WorldDocumentId::new("fresh").unwrap(),
-            pack: WorldPackRef::new("world-machine.pocket-universe", "0.23.0"),
+            pack: WorldPackRef::new("world-machine.pocket-universe", "0.24.0"),
             display_title: None,
             display_summary: None,
             display_scenery: None,

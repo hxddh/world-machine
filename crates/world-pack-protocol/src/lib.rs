@@ -2384,6 +2384,50 @@ mod tests {
     }
 
     #[test]
+    fn what_the_player_says_crosses_the_boundary_as_said() {
+        let said = ProjectionIntent::Say {
+            to: SelectionId::Entity(EntityId::new(7)),
+            words: "How's the \"bakery\"? 你好".into(),
+        };
+        let json = serde_json::to_string(&ProjectionIntentWire::from(said.clone())).unwrap();
+        let back: ProjectionIntentWire = serde_json::from_str(&json).unwrap();
+        assert_eq!(ProjectionIntent::from(back), said);
+    }
+
+    #[test]
+    fn drawings_cross_the_boundary_and_one_the_app_cannot_draw_is_dropped() {
+        let person = world_projection::person_base("someone")
+            .with("someone", world_projection::short_hair());
+        let wire = DrawingWire::from(&person);
+        let json = serde_json::to_string(&wire).unwrap();
+        let back = Drawing::from(serde_json::from_str::<DrawingWire>(&json).unwrap());
+        assert_eq!(back, person);
+
+        let mut stray = wire.clone();
+        stray.id = "stray".into();
+        stray.parts[0].shape = DrawShapeWire::Rect {
+            x: 90.0,
+            y: 0.0,
+            w: 1.0,
+            h: 1.0,
+            round: 0.0,
+        };
+        let mut unknown = wire.clone();
+        unknown.parts[0].ink = "sparkle".into();
+        unknown.parts[0].stances = vec!["dancing".into(), "talking".into()];
+        let unknown = Drawing::from(unknown);
+        assert_eq!(unknown.parts[0].ink, Ink::Wall);
+        assert_eq!(unknown.parts[0].stances, vec![Stance::Talking]);
+        assert!(!Drawing::from(stray).is_drawable());
+
+        let old: CanvasItemWire = serde_json::from_str(
+            r#"{"id":{"type":"entity","id":1},"kind":"actor","label":"Ann","detail":"","x":0.1,"y":0.2,"stance":"juggling"}"#,
+        )
+        .unwrap();
+        assert_eq!(CanvasItem::from(old).stance, Some(Stance::Standing));
+    }
+
+    #[test]
     fn moving_on_its_own_is_declared_and_absent_means_it_does_not() {
         let old: ProjectionCapabilitiesWire =
             serde_json::from_str(r#"{"fork":true}"#).expect("an older Pack decodes");

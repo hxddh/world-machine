@@ -227,6 +227,15 @@ pub fn name(state: &WorldState, entity: EntityId) -> String {
         .unwrap_or_else(|| "Someone".into())
 }
 
+/// What someone is called when people talk about them: their first name.
+pub fn first_name(state: &WorldState, entity: EntityId) -> String {
+    let name = name(state, entity);
+    name.split_whitespace()
+        .next()
+        .map(str::to_string)
+        .unwrap_or(name)
+}
+
 /// A small stable number: the same inputs always give the same answer, so
 /// people live the same days on every replay.
 pub fn mix(parts: &[u64]) -> u64 {
@@ -2512,12 +2521,18 @@ pub fn how_are_you(world: &World, person: EntityId) -> Option<String> {
         .unwrap_or(Need::Company);
     let line = if let Some(p) = partner(state, person) {
         if opinion(state, person, p) <= 5 {
-            format!("Honestly? Things with {} aren't good.", name(state, p))
+            format!(
+                "Honestly? Things with {} aren't good.",
+                first_name(state, p)
+            )
         } else {
-            format!("Happy. {} and I are good.", name(state, p))
+            format!("Happy. {} and I are good.", first_name(state, p))
         }
     } else if let Some(foe) = foe {
-        format!("Fine, as long as {} keeps out of my way.", name(state, foe))
+        format!(
+            "Fine, as long as {} keeps out of my way.",
+            first_name(state, foe)
+        )
     } else if lack(state, person, worst) >= 70 {
         match worst {
             Need::Money => "Worried. Things are tight.".into(),
@@ -2526,7 +2541,7 @@ pub fn how_are_you(world: &World, person: EntityId) -> Option<String> {
             Need::Purpose => "Restless. I need something to get my teeth into.".into(),
         }
     } else if let Some(friend) = friend {
-        format!("Good. {} keeps me going.", name(state, friend))
+        format!("Good. {} keeps me going.", first_name(state, friend))
     } else {
         "Getting by.".into()
     };
@@ -2539,7 +2554,7 @@ pub fn thinks_of(world: &World, person: EntityId, other: EntityId) -> Option<Str
     if !enrolled(state, person) || !enrolled(state, other) {
         return None;
     }
-    let other_name = name(state, other);
+    let other_name = first_name(state, other);
     let view = opinion(state, person, other);
     Some(if partner(state, person) == Some(other) {
         format!("{other_name}? I'd be lost without them.")
