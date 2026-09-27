@@ -779,6 +779,8 @@ fn cast_from_document(
                 shape: figure.shape.as_deref().map(mark_shape_from_name),
                 at: figure.at.as_deref().and_then(SelectionId::from_stable_key),
                 look,
+                drawing: None,
+                stance: None,
             })
         })
         .collect()
@@ -1745,6 +1747,8 @@ mod tests {
                         shape: Some(world_projection::MarkShape::Dome),
                         at: None,
                         look: None,
+                        drawing: None,
+                        stance: None,
                     },
                     world_projection::CanvasItem {
                         id: world_projection::SelectionId::from_stable_key("entity-11").unwrap(),
@@ -1763,6 +1767,8 @@ mod tests {
                             carries: Some(world_projection::Carry::Tool),
                             bird: false,
                         }),
+                        drawing: None,
+                        stance: None,
                     },
                 ],
                 ..Default::default()

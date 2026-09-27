@@ -62,6 +62,13 @@ pub(crate) struct Looking {
     /// When the player last said something, so the answer shows over the
     /// person's head for a while.
     pub(crate) said_at: Option<Instant>,
+    /// How close the player has zoomed in with the wheel, and on which
+    /// stage point; 1 is the whole place.
+    pub(crate) zoom: f32,
+    pub(crate) zoom_on: (f32, f32),
+    /// Where the camera looked last frame, to turn the pointer into a
+    /// stage point.
+    pub(crate) camera_now: Option<Camera>,
 }
 
 /// The player's hands: which verb they picked, and what they are about to
@@ -594,6 +601,9 @@ impl ProjectionView {
                     self.look_away(cx);
                 } else if self.looking.drawer {
                     self.toggle_drawer(cx);
+                } else if self.looking.zoom > 1.0 {
+                    self.looking.zoom = 1.0;
+                    cx.notify();
                 }
             }
             _ if self.retelling.is_some() => {
@@ -644,6 +654,35 @@ impl ProjectionView {
                 );
                 (!boxes.is_empty()).then(|| Camera::on(stage, (x0, y0, x1 - x0, y1 - y0)))
             })
+            // Talking to someone, the camera moves in on them.
+            .or_else(|| {
+                let who = self.looking.asking?;
+                let index = self
+                    .snapshot
+                    .canvas
+                    .items
+                    .iter()
+                    .position(|item| item.id == who)?;
+                let (x, y, w, h) = stage.frame_of(index)?;
+                let framed = Camera::on(stage, (x - w, y, w * 3.0, h));
+                Some(Camera::around(
+                    stage,
+                    framed.zoom.min(1.35),
+                    framed.x,
+                    framed.y,
+                ))
+            })
+            // Otherwise wherever the player has zoomed in with the wheel.
+            .or_else(|| {
+                (self.looking.zoom > 1.01).then(|| {
+                    Camera::around(
+                        stage,
+                        self.looking.zoom,
+                        self.looking.zoom_on.0,
+                        self.looking.zoom_on.1,
+                    )
+                })
+            })
             .unwrap_or(whole);
         let current = match (self.looking.camera_from, self.looking.camera_to) {
             (Some(from), Some(to)) => {
@@ -654,9 +693,46 @@ impl ProjectionView {
         if self.looking.camera_to != Some(target) {
             self.looking.camera_from = Some(current);
             self.looking.camera_to = Some(target);
-            self.looking.camera_at = Some(Instant::now());
+            // The wheel follows the hand at once; everything else glides.
+            let wheel = self.looking.asking.is_none() && self.current_beat().is_none();
+            self.looking.camera_at = Some(if wheel {
+                Instant::now() - Duration::from_secs_f32(CAMERA_SECONDS * 0.7)
+            } else {
+                Instant::now()
+            });
         }
+        self.looking.camera_now = Some(current);
         current
+    }
+
+    /// The wheel zooms in on the place around the pointer, and back out.
+    fn on_wheel(
+        &mut self,
+        event: &gpui::ScrollWheelEvent,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        let delta = f32::from(event.delta.pixel_delta(px(16.0)).y);
+        if delta == 0.0 {
+            return;
+        }
+        let (width, height) = self.stage_size(window);
+        let stage = diorama::stage(&self.snapshot, width, height);
+        let camera = self
+            .looking
+            .camera_now
+            .unwrap_or_else(|| Camera::whole(&stage));
+        let pointer = (
+            f32::from(event.position.x),
+            f32::from(event.position.y) - CHROME,
+        );
+        let (x, y) = camera.stage_point(&stage, pointer.0, pointer.1);
+        let zoom = (self.looking.zoom * (1.0 + delta * 0.004)).clamp(1.0, 2.2);
+        if (zoom - self.looking.zoom).abs() > f32::EPSILON {
+            self.looking.zoom = zoom;
+            self.looking.zoom_on = (x, y);
+            cx.notify();
+        }
     }
 
     /// What the scene lights up now, and in what colour.
@@ -888,7 +964,7 @@ impl ProjectionView {
         } else {
             1.0
         };
-        let frame = diorama::frame(
+        let mut frame = diorama::frame(
             &self.snapshot,
             &stage,
             &living,
@@ -898,6 +974,22 @@ impl ProjectionView {
             &self.glows(),
             rising,
         );
+        // Whoever is speaking is drawn talking.
+        if let Some((speaker, ..)) = &line {
+            for person in &mut frame.people {
+                if self
+                    .snapshot
+                    .canvas
+                    .items
+                    .get(person.index)
+                    .map(|item| item.id)
+                    == Some(*speaker)
+                    && person.stance != world_projection::Stance::Walking
+                {
+                    person.stance = world_projection::Stance::Talking;
+                }
+            }
+        }
 
         let mut root =
             div()
@@ -909,6 +1001,11 @@ impl ProjectionView {
                 .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
                     this.on_key(event, window, cx)
                 }))
+                .on_scroll_wheel(
+                    cx.listener(|this, event: &gpui::ScrollWheelEvent, window, cx| {
+                        this.on_wheel(event, window, cx)
+                    }),
+                )
                 .child({
                     let frame = frame.clone();
                     canvas(

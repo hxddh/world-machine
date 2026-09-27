@@ -1406,3 +1406,143 @@ mod tests {
         assert!(shade(colour, 0.5).l > colour.l);
     }
 }
+
+/// The colours a drawing's roles are filled with.
+#[derive(Clone, Copy, Debug)]
+pub struct Inks {
+    pub wall: Hsla,
+    pub roof: Hsla,
+    pub trim: Hsla,
+    pub glass: Hsla,
+    pub clothes: Hsla,
+    pub hair: Hsla,
+    pub skin: Hsla,
+    /// Whether windows are lit, and glow.
+    pub lit: bool,
+}
+
+impl Inks {
+    /// With windows lit, or not.
+    pub fn lit(mut self, lit: bool) -> Self {
+        self.lit = lit;
+        self
+    }
+
+    /// A place's colours.
+    pub fn of_place(palette: &Palette) -> Self {
+        Self {
+            wall: palette.wall,
+            roof: palette.roof,
+            trim: palette.trim,
+            glass: palette.glass,
+            clothes: palette.roof,
+            hair: palette.trim,
+            skin: hex(0xf0c7a2),
+            lit: false,
+        }
+    }
+
+    /// A person's colours; their clothes stand in for walls and roof.
+    pub fn of_person(figure: &Figure) -> Self {
+        Self {
+            wall: figure.clothes,
+            roof: shade(figure.clothes, -0.2),
+            trim: hex(0x3b3f4a),
+            glass: hex(0xdfe8ee),
+            clothes: figure.clothes,
+            hair: figure.hair,
+            skin: figure.skin,
+            lit: false,
+        }
+    }
+
+    fn of(&self, ink: world_projection::Ink) -> Hsla {
+        use world_projection::Ink;
+        match ink {
+            Ink::Colour(colour) => hex(colour),
+            Ink::Wall => self.wall,
+            Ink::Roof => self.roof,
+            Ink::Trim => self.trim,
+            Ink::Glass => self.glass,
+            Ink::Clothes => self.clothes,
+            Ink::Hair => self.hair,
+            Ink::Skin => self.skin,
+            Ink::Shade => gpui::black().opacity(0.18),
+        }
+    }
+}
+
+/// A Pack's drawing, standing with its base centred on (`x`, `base`), `w`
+/// wide and `h` tall, in one stance. `swing` is where a walk is in its
+/// step, from -1 to 1; `bob` lifts it; a negative `facing` turns it round.
+#[allow(clippy::too_many_arguments)]
+pub fn paint_drawing(
+    window: &mut Window,
+    x: f32,
+    base: f32,
+    w: f32,
+    h: f32,
+    drawing: &world_projection::Drawing,
+    inks: &Inks,
+    stance: world_projection::Stance,
+    swing: f32,
+    bob: f32,
+    facing: f32,
+) {
+    use world_projection::DrawShape;
+    let flip = if facing < 0.0 { -1.0 } else { 1.0 };
+    for part in drawing.parts.iter().filter(|part| part.shows_in(stance)) {
+        let step = part.swing * swing;
+        let px = |dx: f32| x + (dx + step) * w * flip;
+        let py = |dy: f32| base - dy * h - bob;
+        let colour = match part.ink {
+            world_projection::Ink::Shade => inks.of(part.ink),
+            ink => shade(inks.of(ink), part.tone),
+        };
+        match &part.shape {
+            DrawShape::Rect {
+                x: rx,
+                y: ry,
+                w: rw,
+                h: rh,
+                round,
+            } => {
+                let left = if flip > 0.0 { px(*rx) } else { px(rx + rw) };
+                // A lit window throws a soft glow around itself.
+                if inks.lit && part.ink == world_projection::Ink::Glass {
+                    let (gw, gh) = (rw * w, rh * h);
+                    rect(
+                        window,
+                        left - gw * 0.35,
+                        py(ry + rh) - gh * 0.35,
+                        gw * 1.7,
+                        gh * 1.7,
+                        gw.min(gh) * 0.6,
+                        colour.opacity(0.22),
+                    );
+                }
+                rect(window, left, py(ry + rh), rw * w, rh * h, round * w, colour);
+            }
+            DrawShape::Ellipse {
+                x: cx,
+                y: cy,
+                rx,
+                ry,
+            } => ellipse(window, px(*cx), py(*cy), rx * w, ry * h, colour),
+            DrawShape::Polygon { points } => {
+                let points = points
+                    .iter()
+                    .map(|(dx, dy)| (px(*dx), py(*dy)))
+                    .collect::<Vec<_>>();
+                polygon(window, &points, colour);
+            }
+            DrawShape::Line { from, to, width } => line(
+                window,
+                (px(from.0), py(from.1)),
+                (px(to.0), py(to.1)),
+                width * w,
+                colour,
+            ),
+        }
+    }
+}

@@ -106,6 +106,7 @@ pub(crate) fn snapshot_since(
         voices: crate::talk::voices(world),
         talks,
         exchanges,
+        drawings: crate::drawings::drawings().to_vec(),
         goals: crate::story::goals(world),
         chapters: crate::story::chapters(world),
         weather: crate::story::weather(world),
@@ -2235,6 +2236,12 @@ fn canvas(world: &World) -> CanvasProjection {
                 }),
                 at: whereabouts(world, entity),
                 look: crate::talk::look(world, *id),
+                drawing: crate::drawings::drawing_of(
+                    world,
+                    *id,
+                    canvas_kind(entity) == CanvasItemKind::Actor,
+                ),
+                stance: crate::drawings::stance_of(world, *id),
             })
         })
         .collect();
@@ -2258,6 +2265,8 @@ fn canvas(world: &World) -> CanvasProjection {
             shape: None,
             at: whereabouts(world, entity),
             look: crate::talk::look(world, id),
+            drawing: crate::drawings::drawing_of(world, id, true),
+            stance: crate::drawings::stance_of(world, id),
         });
     }
     items.extend(crate::story::fixtures(world));

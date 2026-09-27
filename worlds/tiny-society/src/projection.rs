@@ -96,6 +96,7 @@ pub(crate) fn snapshot_since(
         gauges: gauges(world),
         voices: crate::talk::voices(world),
         exchanges: exchanges(world, &commands_on_offer),
+        drawings: crate::drawings::drawings().to_vec(),
         talks,
         goals: crate::story::goals(world),
         chapters: crate::story::chapters(world),
@@ -884,6 +885,8 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                 shape: Some(place_shape(id)),
                 at: None,
                 look: None,
+                drawing: crate::drawings::drawing_of(id, false),
+                stance: None,
             });
         }
     }
@@ -924,6 +927,8 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                     })
                     .map(SelectionId::Entity),
                 look: crate::talk::look(id),
+                drawing: crate::drawings::drawing_of(id, true),
+                stance: crate::drawings::stance_of(world, id, workplace(world, id)),
             });
         }
     }
@@ -952,6 +957,8 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                     .or_else(|| crate::life::work(world.state(), id))
                     .map(SelectionId::Entity),
                 look: crate::talk::look(id),
+                drawing: crate::drawings::drawing_of(id, true),
+                stance: crate::drawings::stance_of(world, id, crate::life::work(world.state(), id)),
             });
         }
     }
@@ -986,6 +993,8 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                     BAKERY
                 })),
                 look: None,
+                drawing: None,
+                stance: None,
             });
         }
     }

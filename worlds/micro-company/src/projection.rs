@@ -35,6 +35,7 @@ pub(crate) fn snapshot(world: &World, since_event_count: Option<usize>) -> Proje
         goals: Vec::new(),
         weather: Default::default(),
         exchanges: Vec::new(),
+        drawings: Vec::new(),
     }
 }
 
@@ -171,6 +172,8 @@ fn canvas(world: &World) -> CanvasProjection {
                     shape: None,
                     at: None,
                     look: None,
+                    drawing: None,
+                    stance: None,
                 })
             })
             .collect(),

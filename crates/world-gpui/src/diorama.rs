@@ -9,15 +9,15 @@
 //! *is* comes from the Pack (`CanvasItem::at`), and a turn that moves them
 //! is walked.
 
-use crate::art::{self, Figure, Palette, Pose};
+use crate::art::{self, Figure, Inks, Palette, Pose};
 use crate::scene::Daylight;
 use gpui::{
     linear_color_stop, linear_gradient, point, px, size, Bounds, Hsla, PathBuilder, Pixels, Window,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use world_projection::{
-    CanvasItem, CanvasItemKind, CanvasLinkTone, MarkShape, ProjectionSnapshot, Scenery,
-    SelectionId, Weather,
+    CanvasItem, CanvasItemKind, CanvasLinkTone, Drawing, MarkShape, ProjectionSnapshot, Scenery,
+    SelectionId, Stance, Weather,
 };
 
 /// The colours of a World that does not say what it looks like: a mild
@@ -458,6 +458,26 @@ impl Camera {
         }
     }
 
+    /// `zoom` times closer around a stage point, kept inside the stage.
+    pub fn around(stage: &Stage, zoom: f32, x: f32, y: f32) -> Self {
+        let zoom = zoom.clamp(1.0, 2.2);
+        let half_w = stage.width / zoom / 2.0;
+        let half_h = stage.height / zoom / 2.0;
+        Self {
+            zoom,
+            x: x.clamp(half_w, stage.width - half_w),
+            y: y.clamp(half_h, stage.height - half_h),
+        }
+    }
+
+    /// The stage point under a screen point.
+    pub fn stage_point(&self, stage: &Stage, x: f32, y: f32) -> (f32, f32) {
+        (
+            (x - stage.width / 2.0) / self.zoom + self.x,
+            (y - stage.height / 2.0) / self.zoom + self.y,
+        )
+    }
+
     pub fn toward(self, target: Camera, t: f32) -> Self {
         let t = ease(t);
         Self {
@@ -488,6 +508,10 @@ pub struct PersonPaint {
     /// A soft light on the ground under them: news, a preview, the one
     /// being asked.
     pub glow: Option<Hsla>,
+    /// Their Pack's drawing of them, if it ships one.
+    pub drawing: Option<Drawing>,
+    /// What they are doing, for their drawing.
+    pub stance: Stance,
 }
 
 #[derive(Clone, Debug)]
@@ -500,6 +524,7 @@ struct BuildingPaint {
     shape: MarkShape,
     palette: Palette,
     glow: Option<Hsla>,
+    drawing: Option<Drawing>,
 }
 
 #[derive(Clone, Debug)]
@@ -512,6 +537,7 @@ struct ThingPaint {
     palette: Palette,
     sway: f32,
     glow: Option<Hsla>,
+    drawing: Option<Drawing>,
 }
 
 /// Everything one frame of the stage draws, worked out before drawing so
@@ -635,6 +661,16 @@ pub fn frame(
                 MarkShape::Dome | MarkShape::Tree => (stage.building_w, stage.building_h * 0.8),
                 _ => (stage.building_w, stage.building_h),
             };
+            // A Pack's own drawing keeps its own proportions, no wider
+            // than a building's place allows.
+            let drawing = snapshot.drawing_of(item).cloned();
+            let (w, h) = match &drawing {
+                Some(drawing) => {
+                    let w = (h * drawing.aspect).min(stage.building_w * 1.5);
+                    (w, w / drawing.aspect)
+                }
+                None => (w, h),
+            };
             BuildingPaint {
                 index: spot.index,
                 x,
@@ -644,6 +680,7 @@ pub fn frame(
                 shape,
                 palette: Palette::of(&item.id.stable_key(), lit),
                 glow: glow_of(item),
+                drawing,
             }
         })
         .collect();
@@ -676,6 +713,7 @@ pub fn frame(
                 palette: Palette::of(&key, lit),
                 sway,
                 glow: glow_of(item),
+                drawing: snapshot.drawing_of(item).cloned(),
             }
         })
         .collect();
@@ -698,6 +736,12 @@ pub fn frame(
                     ..life.pose
                 },
                 glow: glow_of(item),
+                drawing: snapshot.drawing_of(item).cloned(),
+                stance: if life.pose.stride.is_some() {
+                    Stance::Walking
+                } else {
+                    item.stance.unwrap_or_default()
+                },
             }
         })
         .collect::<Vec<_>>();
@@ -807,7 +851,8 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window) {
     }
     let sun_out = matches!(weather, Weather::Clear | Weather::Cloudy);
     // Sun by day, a moon and stars by night.
-    let (sun_x, sun_y) = (ox + width * 0.8, oy + frame.horizon * 0.34);
+    let (sun_fx, sun_fy) = sun_at(frame.daylight);
+    let (sun_x, sun_y) = (ox + width * sun_fx, oy + frame.horizon * sun_fy);
     if night && sun_out {
         let mut seed: u32 = 0x9e37_79b9;
         for _ in 0..60 {
@@ -1047,19 +1092,75 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window) {
             colour.opacity(0.32),
         );
     };
+    // Shadows fall away from the sun: long at dawn and dusk, short at
+    // noon, none at night or under cloud.
+    if sun_out && !night {
+        let long = match frame.daylight {
+            Daylight::Day => 0.22,
+            _ => 0.7,
+        };
+        let shade = gpui::black().opacity(if weather == Weather::Cloudy {
+            0.05
+        } else {
+            0.11
+        });
+        let away = |x: f32| if sun_x > ox + x { -1.0 } else { 1.0 };
+        for building in &frame.buildings {
+            let (x, base) = (ox + building.x, oy + building.base);
+            let reach = away(building.x) * building.h * long;
+            let half = building.w * 0.45;
+            art::polygon(
+                window,
+                &[
+                    (x - half, base),
+                    (x + half, base),
+                    (x + half + reach, base + building.h * 0.07),
+                    (x - half + reach, base + building.h * 0.07),
+                ],
+                shade,
+            );
+        }
+        for person in &frame.people {
+            let reach = away(person.x) * person.height * long * 0.8;
+            art::ellipse(
+                window,
+                ox + person.x + reach * 0.5,
+                oy + person.y + person.height * 0.02,
+                person.height * 0.12 + reach.abs() * 0.5,
+                person.height * 0.04,
+                shade,
+            );
+        }
+    }
+    let lit_windows = matches!(frame.daylight, Daylight::Dusk | Daylight::Night);
     for building in &frame.buildings {
         if let Some(glow) = building.glow {
             pool(window, building.x, building.base, building.w * 0.6, glow);
         }
-        art::paint_building(
-            window,
-            ox + building.x,
-            oy + building.base,
-            building.w,
-            building.h,
-            building.shape,
-            &building.palette,
-        );
+        match &building.drawing {
+            Some(drawing) => art::paint_drawing(
+                window,
+                ox + building.x,
+                oy + building.base,
+                building.w,
+                building.h,
+                drawing,
+                &Inks::of_place(&building.palette).lit(lit_windows),
+                Stance::Standing,
+                0.0,
+                0.0,
+                1.0,
+            ),
+            None => art::paint_building(
+                window,
+                ox + building.x,
+                oy + building.base,
+                building.w,
+                building.h,
+                building.shape,
+                &building.palette,
+            ),
+        }
         // A lit chimney smokes: puffs rising and thinning, bent by the wind.
         if building.shape == MarkShape::House && weather != Weather::Storm {
             let chimney_x = ox + building.x - building.w / 2.0 + building.w * 0.67;
@@ -1081,34 +1182,92 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window) {
         if let Some(glow) = thing.glow {
             pool(window, thing.x, thing.base, thing.w * 0.6, glow);
         }
-        art::paint_thing(
-            window,
-            ox + thing.x,
-            oy + thing.base,
-            thing.w,
-            thing.shape,
-            &thing.palette,
-            thing.sway,
-        );
+        match &thing.drawing {
+            Some(drawing) => art::paint_drawing(
+                window,
+                ox + thing.x,
+                oy + thing.base,
+                thing.w,
+                thing.w / drawing.aspect,
+                drawing,
+                &Inks::of_place(&thing.palette),
+                Stance::Standing,
+                thing.sway * 0.3,
+                0.0,
+                1.0,
+            ),
+            None => art::paint_thing(
+                window,
+                ox + thing.x,
+                oy + thing.base,
+                thing.w,
+                thing.shape,
+                &thing.palette,
+                thing.sway,
+            ),
+        }
     }
     for person in &frame.people {
         if let Some(glow) = person.glow {
             pool(window, person.x, person.y, person.height * 0.7, glow);
         }
-        art::paint_figure(
-            window,
-            ox + person.x,
-            oy + person.y,
-            person.height,
-            &person.figure,
-            person.pose,
-        );
+        match &person.drawing {
+            Some(drawing) => {
+                let swing = person
+                    .pose
+                    .stride
+                    .map(|phase| (phase * std::f32::consts::TAU).sin())
+                    .unwrap_or(0.0);
+                let x = ox + person.x;
+                let y = oy + person.y;
+                art::ellipse(
+                    window,
+                    x,
+                    y,
+                    person.height * 0.22,
+                    person.height * 0.055,
+                    gpui::black().opacity(0.16),
+                );
+                art::paint_drawing(
+                    window,
+                    x,
+                    y,
+                    person.height * drawing.aspect,
+                    person.height,
+                    drawing,
+                    &Inks::of_person(&person.figure),
+                    person.stance,
+                    swing,
+                    person.pose.bob,
+                    person.pose.facing,
+                );
+            }
+            None => art::paint_figure(
+                window,
+                ox + person.x,
+                oy + person.y,
+                person.height,
+                &person.figure,
+                person.pose,
+            ),
+        }
     }
     for (x, y, r, tone) in &frame.bonds {
         art::paint_bond(window, ox + x, oy + y, *r, *tone);
     }
     paint_weather(window, frame, ox, oy, width, height, k);
     let _ = frame.zoom;
+}
+
+/// Where the sun (or the moon) stands for the light of the hour, as
+/// fractions of the stage's width and of the sky's height.
+fn sun_at(daylight: Daylight) -> (f32, f32) {
+    match daylight {
+        Daylight::Dawn => (0.14, 0.78),
+        Daylight::Day => (0.72, 0.3),
+        Daylight::Dusk => (0.88, 0.8),
+        Daylight::Night => (0.8, 0.34),
+    }
 }
 
 /// Rain, snow, dust and fog over the whole scene, and lightning in a storm.
@@ -1281,6 +1440,8 @@ mod tests {
             shape: None,
             at: at.map(entity),
             look: None,
+            drawing: None,
+            stance: None,
         }
     }
 

@@ -1,6 +1,7 @@
 mod actions;
 mod almanac;
 mod behaviors;
+mod drawings;
 mod drift;
 mod fishing;
 mod handwork;

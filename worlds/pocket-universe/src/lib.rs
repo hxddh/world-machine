@@ -1,6 +1,7 @@
 mod almanac;
 #[cfg(test)]
 mod density;
+mod drawings;
 mod drift;
 mod era;
 mod handwork;

@@ -1,4 +1,5 @@
 mod causal;
+mod drawing;
 mod influence;
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -8,6 +9,10 @@ use world_core::{
 };
 
 pub use causal::{why_from_world, why_map_from_world, WhyNode, WhyProjection};
+pub use drawing::{
+    contact_sheet, figure, figure_point, person_base, short_hair, toned, DrawPart, DrawShape,
+    Drawing, Ink, Stance,
+};
 pub use influence::effect_headline;
 
 pub const ENTITY_HISTORY_SECTION: &str = "Recorded entity changes";
@@ -394,6 +399,9 @@ pub struct ProjectionSnapshot {
     /// What the player has said to people today in their own words, and
     /// what they answered, oldest first.
     pub exchanges: Vec<Exchange>,
+    /// The drawings the scene's items are drawn with, when the Pack ships
+    /// its own.
+    pub drawings: Vec<Drawing>,
     /// The standing goals the World is working toward, drawn as outlines
     /// on the horizon that fill in part by part.
     pub goals: Vec<Goal>,
@@ -564,6 +572,13 @@ pub fn engine_words_in(text: &str) -> Vec<&'static str> {
 }
 
 impl ProjectionSnapshot {
+    /// The drawing an item on the scene is drawn with, if the Pack ships
+    /// one for it.
+    pub fn drawing_of(&self, item: &CanvasItem) -> Option<&Drawing> {
+        let id = item.drawing.as_deref()?;
+        self.drawings.iter().find(|drawing| drawing.id == id)
+    }
+
     /// Title every event the way History tells it, everywhere a player can
     /// meet it: its detail panel and the "why" chains that pass through it
     /// say "The colony opened a new water-recovery loop", not "Universe
@@ -1428,6 +1443,12 @@ pub struct CanvasItem {
     pub at: Option<SelectionId>,
     /// How a person looks. `None` draws them from who they are.
     pub look: Option<Look>,
+    /// Which of the snapshot's drawings it is drawn with; `None` draws the
+    /// app's own shape for it.
+    pub drawing: Option<String>,
+    /// What a person is doing, as far as their drawing goes; the app draws
+    /// them walking while they walk and talking while they speak.
+    pub stance: Option<Stance>,
 }
 
 /// One value that moved since the last visit.

@@ -11,6 +11,7 @@ use world_projection::{
     ProjectionCapabilities, ProjectionCommand, ProjectionIntent, ProjectionSnapshot, Scenery,
     SelectionId, TimelineItem, TimelineProjection, Tone, WhyNode, WhyProjection,
 };
+use world_projection::{DrawPart, DrawShape, Drawing, Ink, Stance};
 
 pub const PACK_MANIFEST_FORMAT: &str = "world-machine-pack";
 pub const PACK_MANIFEST_VERSION: u32 = 1;
@@ -376,6 +377,146 @@ pub struct ProjectionSnapshotWire {
     /// Optional both ways: the weather over the scene; clear if absent.
     #[serde(default, skip_serializing_if = "is_clear")]
     pub weather: WeatherWire,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub drawings: Vec<DrawingWire>,
+}
+
+/// The most drawings one snapshot carries.
+pub const MOST_DRAWINGS: usize = 64;
+
+/// A drawing a Pack ships, as it crosses the boundary.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct DrawingWire {
+    pub id: String,
+    pub aspect: f32,
+    pub parts: Vec<DrawPartWire>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct DrawPartWire {
+    pub shape: DrawShapeWire,
+    /// A role (`wall`, `clothes`, …) or a colour (`#rrggbb`); anything else
+    /// is drawn in the walls' colour.
+    pub ink: String,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub tone: f32,
+    /// Stances this build does not know are left out of the list.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stances: Vec<String>,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub swing: f32,
+}
+
+fn is_zero(value: &f32) -> bool {
+    *value == 0.0
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum DrawShapeWire {
+    Rect {
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        #[serde(default, skip_serializing_if = "is_zero")]
+        round: f32,
+    },
+    Ellipse {
+        x: f32,
+        y: f32,
+        rx: f32,
+        ry: f32,
+    },
+    Polygon {
+        points: Vec<(f32, f32)>,
+    },
+    Line {
+        from: (f32, f32),
+        to: (f32, f32),
+        width: f32,
+    },
+}
+
+impl From<&Drawing> for DrawingWire {
+    fn from(drawing: &Drawing) -> Self {
+        Self {
+            id: drawing.id.clone(),
+            aspect: drawing.aspect,
+            parts: drawing
+                .parts
+                .iter()
+                .map(|part| DrawPartWire {
+                    shape: match &part.shape {
+                        DrawShape::Rect { x, y, w, h, round } => DrawShapeWire::Rect {
+                            x: *x,
+                            y: *y,
+                            w: *w,
+                            h: *h,
+                            round: *round,
+                        },
+                        DrawShape::Ellipse { x, y, rx, ry } => DrawShapeWire::Ellipse {
+                            x: *x,
+                            y: *y,
+                            rx: *rx,
+                            ry: *ry,
+                        },
+                        DrawShape::Polygon { points } => DrawShapeWire::Polygon {
+                            points: points.clone(),
+                        },
+                        DrawShape::Line { from, to, width } => DrawShapeWire::Line {
+                            from: *from,
+                            to: *to,
+                            width: *width,
+                        },
+                    },
+                    ink: part.ink.id(),
+                    tone: part.tone,
+                    stances: part
+                        .stances
+                        .iter()
+                        .map(|stance| stance.id().to_string())
+                        .collect(),
+                    swing: part.swing,
+                })
+                .collect(),
+        }
+    }
+}
+
+impl From<DrawingWire> for Drawing {
+    fn from(drawing: DrawingWire) -> Self {
+        Self {
+            id: drawing.id,
+            aspect: drawing.aspect,
+            parts: drawing
+                .parts
+                .into_iter()
+                .map(|part| DrawPart {
+                    shape: match part.shape {
+                        DrawShapeWire::Rect { x, y, w, h, round } => {
+                            DrawShape::Rect { x, y, w, h, round }
+                        }
+                        DrawShapeWire::Ellipse { x, y, rx, ry } => {
+                            DrawShape::Ellipse { x, y, rx, ry }
+                        }
+                        DrawShapeWire::Polygon { points } => DrawShape::Polygon { points },
+                        DrawShapeWire::Line { from, to, width } => {
+                            DrawShape::Line { from, to, width }
+                        }
+                    },
+                    ink: Ink::from_id(&part.ink).unwrap_or(Ink::Wall),
+                    tone: part.tone,
+                    stances: part
+                        .stances
+                        .iter()
+                        .filter_map(|stance| Stance::from_id(stance))
+                        .collect(),
+                    swing: part.swing,
+                })
+                .collect(),
+        }
+    }
 }
 
 /// The weather over a World's scene. A Pack's word this build does not
@@ -787,6 +928,7 @@ impl From<&ProjectionSnapshot> for ProjectionSnapshotWire {
                 })
                 .collect(),
             weather: snapshot.weather.into(),
+            drawings: snapshot.drawings.iter().map(Into::into).collect(),
         }
     }
 }
@@ -919,6 +1061,15 @@ impl TryFrom<ProjectionSnapshotWire> for ProjectionSnapshot {
                 })
                 .collect(),
             weather: snapshot.weather.into(),
+            // A drawing the app could not draw is no drawing: its items
+            // are drawn with the app's own shapes.
+            drawings: snapshot
+                .drawings
+                .into_iter()
+                .map(Drawing::from)
+                .filter(Drawing::is_drawable)
+                .take(MOST_DRAWINGS)
+                .collect(),
         })
     }
 }
@@ -1616,6 +1767,11 @@ pub struct CanvasItemWire {
     pub at: Option<SelectionIdWire>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub look: Option<LookWire>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub drawing: Option<String>,
+    /// A stance this build does not know is drawn standing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stance: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -1649,6 +1805,8 @@ impl From<&CanvasItem> for CanvasItemWire {
             shape: item.shape.map(Into::into),
             at: item.at.map(Into::into),
             look: item.look.map(Into::into),
+            drawing: item.drawing.clone(),
+            stance: item.stance.map(|stance| stance.id().to_string()),
         }
     }
 }
@@ -1675,6 +1833,10 @@ impl From<CanvasItemWire> for CanvasItem {
             shape: item.shape.map(Into::into),
             at: item.at.map(Into::into),
             look: item.look.map(Into::into),
+            drawing: item.drawing.filter(|drawing| !drawing.trim().is_empty()),
+            stance: item
+                .stance
+                .map(|stance| Stance::from_id(&stance).unwrap_or_default()),
         }
     }
 }
@@ -2028,6 +2190,8 @@ mod tests {
                     shape: None,
                     at: None,
                     look: None,
+                    drawing: None,
+                    stance: None,
                 }],
                 links: vec![CanvasLink {
                     from: entity,
@@ -2077,6 +2241,7 @@ mod tests {
             goals: Vec::new(),
             weather: Default::default(),
             exchanges: Vec::new(),
+            drawings: Vec::new(),
         }
     }
 
