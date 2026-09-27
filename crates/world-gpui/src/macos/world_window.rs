@@ -27,6 +27,8 @@ const BEAT_SECONDS: f32 = 5.2;
 const ANSWER_SECONDS: f32 = 9.0;
 /// How long the camera takes to move.
 const CAMERA_SECONDS: f32 = 0.9;
+/// How many of today's exchanges with someone their card shows.
+const CONVERSATION_SHOWN: usize = 3;
 /// How long a gauge takes to slide to where a turn left it.
 const GAUGE_SECONDS: f32 = 0.9;
 /// How long something new takes to rise.
@@ -494,9 +496,8 @@ impl ProjectionView {
             self.looking.said_at = None;
         }
         if self.looking.say.is_none() && self.snapshot.capabilities.talk {
-            self.looking.say = Some(cx.new(|cx| {
-                crate::text_input::TextInput::new("Say something in your own words…", cx)
-            }));
+            self.looking.say =
+                Some(cx.new(|cx| crate::text_input::TextInput::new("Say something…", cx)));
         }
         self.looking.asking = Some(who);
         self.looking.answered = None;
@@ -1836,7 +1837,14 @@ impl ProjectionView {
         } else {
             (x - 40.0 - WIDTH).max(12.0)
         };
-        let top = (head + 8.0).clamp(64.0, (stage.height - 360.0).max(64.0));
+        // A conversation makes the card taller; it rises to stay on screen.
+        let talked = self
+            .snapshot
+            .exchanges_with(who)
+            .count()
+            .min(CONVERSATION_SHOWN) as f32;
+        let tall = 360.0 + talked * 96.0;
+        let top = (head + 8.0).clamp(64.0, (stage.height - tall).max(64.0));
         div()
             .absolute()
             .left(px(left))
@@ -1847,7 +1855,7 @@ impl ProjectionView {
     /// What the player and someone said to each other today, latest last:
     /// the player's words small and to the right, the answer in quotes.
     fn render_conversation(&self, who: SelectionId, cx: &mut Context<Self>) -> Div {
-        const SHOWN: usize = 3;
+        const SHOWN: usize = CONVERSATION_SHOWN;
         let exchanges = self.snapshot.exchanges_with(who).collect::<Vec<_>>();
         let mut conversation = div().flex().flex_col().gap_1();
         let latest = exchanges.len().saturating_sub(1);
