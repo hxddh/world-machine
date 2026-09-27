@@ -1034,10 +1034,12 @@ impl ProjectionView {
                 .as_ref()
                 .map(|(stage, snapshot, progress)| (stage, *snapshot, *progress)),
         );
-        if let Some((who, at)) = self.looking.poked {
-            let poked = [(who, at.elapsed().as_secs_f32())].into_iter().collect();
-            diorama::wave(&mut living, &stage, &self.snapshot, &poked);
-        }
+        let poked = self
+            .looking
+            .poked
+            .map(|(who, at)| [(who, at.elapsed().as_secs_f32())].into_iter().collect())
+            .unwrap_or_default();
+        diorama::wave(&mut living, &stage, &self.snapshot, &poked);
         let grew = self
             .before_turn
             .as_ref()
@@ -1057,6 +1059,7 @@ impl ProjectionView {
             &self.glows(),
             rising,
         );
+        frame.bounce(&self.snapshot, &poked);
         // Whoever is speaking is drawn talking.
         if let Some((speaker, ..)) = &line {
             for person in &mut frame.people {
@@ -1145,6 +1148,7 @@ impl ProjectionView {
                         if this.place_at(selection, cx) {
                             return;
                         }
+                        this.looking.poked = Some((selection, Instant::now()));
                         this.select(selection, cx);
                         this.looking.drawer = true;
                     })),
