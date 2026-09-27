@@ -3,6 +3,7 @@ mod density;
 mod drift;
 mod era;
 mod legacy;
+mod life;
 pub mod narrator;
 mod pressure;
 mod projection;
@@ -350,6 +351,13 @@ where
             return Ok(self
                 .world
                 .execute(&self.actions, &storylets::choose_request(storylet, choice))?
+                .id);
+        }
+
+        if let Some((situation, answer)) = life::parse_command(command_id) {
+            return Ok(self
+                .world
+                .execute(&self.actions, &lives::answer_request(situation, answer))?
                 .id);
         }
 

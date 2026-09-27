@@ -76,6 +76,21 @@ pub(crate) fn look(world: &World, id: EntityId) -> Option<Look> {
         ("mars-colony", crate::story::NEWCOMER) => look(0x6a7f3a, 0x1a1414, 0x8d5a3b, Carry::Tool),
         ("1980s-town", crate::story::NEWCOMER) => look(0xc8553d, 0x3a2418, 0xe0b18a, Carry::Mug),
         ("penguin-civilization", crate::story::NEWCOMER) => bird(0xe0a33a, None),
+        // Anyone else who came to stay, in colours of their own.
+        (seed, id) if world.state().entity(id).is_some() => {
+            const COLOURS: [u32; 6] = [0x5b7fa6, 0xb5654a, 0x6a8f4e, 0x9c6fb0, 0xd49a3a, 0x4a8f8f];
+            let n = id.0 as usize;
+            if seed == "penguin-civilization" {
+                bird(COLOURS[n % COLOURS.len()], None)
+            } else {
+                look(
+                    COLOURS[n % COLOURS.len()],
+                    [0x2a1d14, 0x7a4a26, 0xc9a45a][n / 3 % 3],
+                    [0xf0c7a2, 0xd9a27a, 0xa86b45, 0x7a4a2e][n / 5 % 4],
+                    Carry::Satchel,
+                )
+            }
+        }
         _ => return None,
     })
 }
@@ -91,6 +106,17 @@ fn said(world: &World, event: &Event) -> Option<(EntityId, String)> {
     let anchor = title(world, SLOT_A);
     let vehicle = title(world, SLOT_D);
     let doer = event.actor.filter(|id| [SLOT_B, SLOT_E].contains(id));
+    // Once people live their own lives, what they did with the day is what
+    // they talk about.
+    let living = lives::enrolled(world.state(), SLOT_B);
+    if living
+        && matches!(
+            event.kind.as_str(),
+            "agent_cared_for_world" | "agent_explored_world" | "universe_grew"
+        )
+    {
+        return None;
+    }
     let (speaker, line) = match event.kind.as_str() {
         "universe_seeded" => (SLOT_B, "Right. Let's make this place a home.".to_string()),
         "agent_cared_for_world" | "agent_explored_world" => {
@@ -163,7 +189,15 @@ fn said(world: &World, event: &Event) -> Option<(EntityId, String)> {
             ][(event.world_time / crate::BACKGROUND_PERIOD % 5) as usize]
                 .into(),
         ),
-        "pressure_rising" => (SLOT_B, format!("Something's wrong with {anchor}.")),
+        "pressure_rising" => (
+            SLOT_B,
+            match event.world_time / crate::BACKGROUND_PERIOD % 4 {
+                0 => format!("Something's wrong with {anchor}."),
+                1 => format!("{anchor} doesn't sound right."),
+                2 => format!("I don't like the look of {anchor}."),
+                _ => format!("{anchor}'s acting up again."),
+            },
+        ),
         "pressure_peaked" => (SLOT_B, format!("{anchor} can't take much more!")),
         "pressure_held" => (SLOT_B, "We held it. We actually held it!".into()),
         "pressure_reached" => (SLOT_E, "I found a way through.".into()),
@@ -171,7 +205,16 @@ fn said(world: &World, event: &Event) -> Option<(EntityId, String)> {
         "anchor_recovered" => (SLOT_B, format!("{anchor} is ours again.")),
         "world_posture_chosen" => (doer.unwrap_or(SLOT_E), "Then that's the way we go.".into()),
         "world_legacy_formed" => (SLOT_B, "This is how they'll remember us.".into()),
-        "era_began" => (SLOT_E, "It feels like a new chapter.".into()),
+        "era_began" => (
+            SLOT_E,
+            [
+                "It feels like a new chapter.",
+                "Something's changed. Can you feel it?",
+                "New times, then.",
+                "It's a different place than it was.",
+            ][(event.world_time / crate::BACKGROUND_PERIOD % 4) as usize]
+                .into(),
+        ),
         _ => return None,
     };
     world.state().entity(speaker)?;
@@ -258,6 +301,8 @@ pub(crate) fn talks(world: &World, commands: &[ProjectionCommand]) -> Vec<Talk> 
         let (granted, grudges) = crate::story::kindness(world, who);
         let how = if troubled {
             format!("Worried. {anchor} needs us.")
+        } else if let Some(how) = lives::how_are_you(world, who) {
+            how
         } else if grudges > granted {
             "Sore. Nobody listens when I ask for anything.".into()
         } else if granted > grudges {
@@ -298,6 +343,30 @@ pub(crate) fn talks(world: &World, commands: &[ProjectionCommand]) -> Vec<Talk> 
             answer: need,
             asks_for,
         });
+    }
+    // Whoever else lives here: how they are, and what they make of the
+    // keeper.
+    for who in crate::life::people(world) {
+        if who == SLOT_B || who == SLOT_E {
+            continue;
+        }
+        let person = SelectionId::Entity(who);
+        if let Some(how) = lives::how_are_you(world, who) {
+            talks.push(Talk {
+                who: person,
+                question: "How are you?".into(),
+                answer: how,
+                asks_for: None,
+            });
+        }
+        if let Some(about) = lives::thinks_of(world, who, SLOT_B) {
+            talks.push(Talk {
+                who: person,
+                question: format!("What do you think of {}?", first_name(world, SLOT_B)),
+                answer: about,
+                asks_for: None,
+            });
+        }
     }
     talks
 }

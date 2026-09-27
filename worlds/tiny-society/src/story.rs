@@ -1370,7 +1370,7 @@ pub(crate) fn register_actions(
     actions: &mut ActionRegistry,
 ) -> Result<(), world_core::ActionError> {
     storylets::register_actions(actions, deck)?;
-    lives::register_actions(actions, crate::life::cast)?;
+    lives::register_actions(actions, |_| crate::life::cast())?;
     actions.register(SpiritsSettle)
 }
 

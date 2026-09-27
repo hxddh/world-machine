@@ -1918,6 +1918,8 @@ pub(crate) fn is_routine(kind: &str) -> bool {
             | "legacy_reinforced"
             | "successor_waited"
             | "story_began"
+            | "lived"
+            | "life_began"
     )
 }
 
@@ -2172,6 +2174,28 @@ fn canvas(world: &World) -> CanvasProjection {
             })
         })
         .collect();
+    // Strangers who came to stay.
+    let cast = crate::life::cast(world.state());
+    for (index, id) in lives::arrivals(world.state(), &cast)
+        .into_iter()
+        .enumerate()
+    {
+        let Some(entity) = world.state().entity(id) else {
+            continue;
+        };
+        items.push(CanvasItem {
+            id: SelectionId::Entity(id),
+            kind: CanvasItemKind::Actor,
+            label: entity_title(entity),
+            detail: canvas_detail(world, entity),
+            x: 0.2 + 0.12 * index as f32,
+            y: 0.55 + 0.08 * (index % 2) as f32,
+            changes: Vec::new(),
+            shape: None,
+            at: whereabouts(world, entity),
+            look: crate::talk::look(world, id),
+        });
+    }
     items.extend(crate::story::fixtures(world));
     CanvasProjection {
         items,
@@ -2505,6 +2529,10 @@ fn canvas_kind(entity: &Entity) -> CanvasItemKind {
 fn whereabouts(world: &World, entity: &Entity) -> Option<SelectionId> {
     if canvas_kind(entity) != CanvasItemKind::Actor {
         return None;
+    }
+    // Wherever their day took them, or an answer sent them.
+    if let Some(place) = lives::at(world.state(), entity.id) {
+        return Some(SelectionId::Entity(place));
     }
     // Someone who came to stay lives where they were taken in.
     if let Some(Value::Entity(place)) = entity.component("location") {

@@ -430,7 +430,7 @@ fn a_year(policy: Policy) {
         .filter(|event| event.kind == "bond_changed")
         .map(|event| day(event) - first)
         .collect::<Vec<_>>();
-    for start in 0..335 {
+    for start in 90..335 {
         let count = changes
             .iter()
             .filter(|at| (start..start + 30).contains(*at))

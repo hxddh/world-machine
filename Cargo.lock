@@ -3875,6 +3875,7 @@ dependencies = [
 name = "pocket-universe"
 version = "0.22.0"
 dependencies = [
+ "lives",
  "storylets",
  "world-agent",
  "world-compare",

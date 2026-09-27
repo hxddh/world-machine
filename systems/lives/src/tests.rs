@@ -107,9 +107,11 @@ fn cast() -> Cast {
         period: 10,
         unit: "day",
         settlement: "village",
+        short_of: "money",
         people,
         stays: |id| id.0 <= 2,
         traits: |_| None,
+        kept: |_, _| false,
         work,
         home,
         gathering: PUB,
@@ -173,7 +175,7 @@ fn world() -> (World, ActionRegistry) {
         .seed_entity(Entity::new(FUND, "fund").with_component("cash", 1_000_i64))
         .unwrap();
     let mut registry = ActionRegistry::new();
-    register_actions(&mut registry, cast).unwrap();
+    register_actions(&mut registry, |_| cast()).unwrap();
     (World::new(state), registry)
 }
 
@@ -192,7 +194,11 @@ fn play(periods: u64, answering: bool) -> (World, Vec<(u64, String)>) {
         pass(&mut world, &registry);
         if answering {
             for situation in situations(&world, &cast()) {
-                if let Some(answer) = situation.answers.iter().find(|a| a.unavailable.is_none()) {
+                // Strangers are welcomed; anything else gets its first answer.
+                let welcome = situation.answers.iter().find(|a| a.id == "welcome");
+                if let Some(answer) =
+                    welcome.or_else(|| situation.answers.iter().find(|a| a.unavailable.is_none()))
+                {
                     world
                         .execute(&registry, &answer_request(&situation.key, answer.id))
                         .unwrap();
@@ -286,34 +292,4 @@ fn unanswered_situations_run_out() {
         .iter()
         .any(|event| event.kind == "situation_lapsed"));
     assert!(open(world.state(), &cast()).len() <= cast().most_open);
-}
-
-#[test]
-#[ignore]
-fn show_what_comes_up() {
-    let (world, came_up) = play(240, true);
-    let mut kinds = BTreeMap::<String, usize>::new();
-    for (_, key) in &came_up {
-        *kinds
-            .entry(key.split('.').next().unwrap().to_string())
-            .or_default() += 1;
-    }
-    eprintln!("{kinds:?} total {}", came_up.len());
-    let bonds = world
-        .events()
-        .iter()
-        .filter(|e| e.kind == "bond_changed")
-        .count();
-    eprintln!("bonds {bonds}");
-    for p in PEOPLE {
-        let id = EntityId::new(p);
-        eprintln!(
-            "{p}: lacks {:?} regard {:?}",
-            Need::ALL.map(|n| lack(world.state(), id, n)),
-            integer(world.state(), id, REGARD)
-        );
-    }
-    for e in world.events().iter().filter(|e| e.kind == "lived").take(12) {
-        eprintln!("{} | {}", told(e).unwrap(), said(e).unwrap().1);
-    }
 }
