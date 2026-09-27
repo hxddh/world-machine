@@ -1772,6 +1772,17 @@ pub struct CanvasItemWire {
     /// A stance this build does not know is drawn standing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stance: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub standing: Option<StandingWire>,
+}
+
+/// The longest few words a standing is told in.
+pub const MOST_STANDING_WORDS: usize = 60;
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct StandingWire {
+    pub level: i8,
+    pub words: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -1807,6 +1818,10 @@ impl From<&CanvasItem> for CanvasItemWire {
             look: item.look.map(Into::into),
             drawing: item.drawing.clone(),
             stance: item.stance.map(|stance| stance.id().to_string()),
+            standing: item.standing.as_ref().map(|standing| StandingWire {
+                level: standing.level,
+                words: standing.words.clone(),
+            }),
         }
     }
 }
@@ -1837,6 +1852,19 @@ impl From<CanvasItemWire> for CanvasItem {
             stance: item
                 .stance
                 .map(|stance| Stance::from_id(&stance).unwrap_or_default()),
+            // A standing is only ever a mark and a few plain words.
+            standing: item
+                .standing
+                .filter(|standing| {
+                    let words = standing.words.trim();
+                    !words.is_empty()
+                        && words.chars().count() <= MOST_STANDING_WORDS
+                        && !words.chars().any(char::is_control)
+                })
+                .map(|standing| world_projection::Standing {
+                    level: standing.level.clamp(-2, 2),
+                    words: standing.words.trim().to_string(),
+                }),
         }
     }
 }
@@ -2192,6 +2220,7 @@ mod tests {
                     look: None,
                     drawing: None,
                     stance: None,
+                    standing: None,
                 }],
                 links: vec![CanvasLink {
                     from: entity,

@@ -1849,6 +1849,16 @@ impl ProjectionView {
                         cx.listener(|this, _, _, cx| this.look_away(cx)),
                     )),
             );
+        if let Some(standing) = self
+            .snapshot
+            .canvas
+            .items
+            .iter()
+            .find(|item| item.id == who)
+            .and_then(|item| item.standing.as_ref())
+        {
+            card = card.child(standing_row(standing));
+        }
         let answered = self.looking.answered.map(|(index, _)| index);
         for (index, talk) in self
             .snapshot
@@ -2244,4 +2254,36 @@ fn bottom_card(card: impl IntoElement, width: f32) -> Div {
         .flex()
         .justify_center()
         .child(div().w(px(CARD_WIDTH.min(width - 32.0))).child(card))
+}
+
+/// How someone stands with the player: five small marks, as many filled as
+/// they are warm towards them, and the words for it.
+fn standing_row(standing: &world_projection::Standing) -> Div {
+    let filled = (standing.level.clamp(-2, 2) + 3) as usize;
+    let tone = match standing.level {
+        1.. => tokens::SUCCESS,
+        0 => tokens::ACCENT,
+        _ => tokens::DANGER,
+    };
+    let mut marks = div().flex().items_center().gap(px(3.0));
+    for index in 0..5 {
+        marks = marks.child(
+            div()
+                .w(px(6.0))
+                .h(px(6.0))
+                .rounded_full()
+                .bg(color(if index < filled { tone } else { tokens::BORDER })),
+        );
+    }
+    div()
+        .flex()
+        .items_center()
+        .gap_2()
+        .child(marks)
+        .child(
+            div()
+                .text_xs()
+                .text_color(color(tokens::TEXT_SECONDARY))
+                .child(standing.words.clone()),
+        )
 }

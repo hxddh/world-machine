@@ -53,11 +53,33 @@ pub enum Intent {
     /// Advice to make up with someone.
     Reconcile,
     Farewell,
+    /// How their day has been, what they have been up to.
+    Day,
+    /// Who they are: tell me about yourself.
+    AboutYou,
+    Family,
+    /// What is troubling them: are you lonely, you look tired.
+    Worry,
+    Weather,
+    /// What is coming up on the calendar.
+    Coming,
+    /// Something the player brought them.
+    Gift,
+    /// Who they are close to, and who they are not.
+    Friends,
+    /// What is wrong between them and someone else.
+    Quarrel,
+    /// To go for a drink, a walk, a meal together.
+    Invite,
+    /// Just keeping the conversation going: ok, I see, haha.
+    Ack,
+    /// What they think of the player.
+    Standing,
     Unclear,
 }
 
 impl Intent {
-    pub const ALL: [Intent; 16] = [
+    pub const ALL: [Intent; 28] = [
         Intent::Greet,
         Intent::HowAreYou,
         Intent::HowIs,
@@ -73,6 +95,18 @@ impl Intent {
         Intent::Rude,
         Intent::Reconcile,
         Intent::Farewell,
+        Intent::Day,
+        Intent::AboutYou,
+        Intent::Family,
+        Intent::Worry,
+        Intent::Weather,
+        Intent::Coming,
+        Intent::Gift,
+        Intent::Friends,
+        Intent::Quarrel,
+        Intent::Invite,
+        Intent::Ack,
+        Intent::Standing,
         Intent::Unclear,
     ];
 
@@ -93,6 +127,18 @@ impl Intent {
             Intent::Rude => "rude",
             Intent::Reconcile => "reconcile",
             Intent::Farewell => "farewell",
+            Intent::Day => "day",
+            Intent::AboutYou => "about_you",
+            Intent::Family => "family",
+            Intent::Worry => "worry",
+            Intent::Weather => "weather",
+            Intent::Coming => "coming",
+            Intent::Gift => "gift",
+            Intent::Friends => "friends",
+            Intent::Quarrel => "quarrel",
+            Intent::Invite => "invite",
+            Intent::Ack => "ack",
+            Intent::Standing => "standing",
             Intent::Unclear => "unclear",
         }
     }
@@ -103,7 +149,10 @@ impl Intent {
 
     /// Whether it is about somebody else, who must then be named.
     pub fn about_someone(self) -> bool {
-        matches!(self, Intent::HowIs | Intent::ThinkOf | Intent::Reconcile)
+        matches!(
+            self,
+            Intent::HowIs | Intent::ThinkOf | Intent::Reconcile | Intent::Quarrel
+        )
     }
 }
 
@@ -139,6 +188,15 @@ pub struct Kit {
     /// What is coming up soon on the place's calendar, in a few words:
     /// "Lantern Night in 3 days".
     pub coming_up: fn(&World) -> Option<String>,
+    /// The other names someone or somewhere goes by, given the name they
+    /// are known by: a name in Chinese, a nickname, how else a place is
+    /// called ("harbour" for Harbor).
+    pub aliases: fn(&str) -> Vec<String>,
+    /// What the sky is doing, in anybody's words: "Grey and wet."
+    pub weather: fn(&World) -> String,
+    /// The names of the days on the place's calendar, so a player can ask
+    /// about them.
+    pub occasions: fn(&WorldState) -> Vec<String>,
 }
 
 const TALKED: &str = "conversation.talked";
@@ -204,6 +262,13 @@ fn any(text: &str, phrases: &[&str]) -> bool {
 }
 
 const RUDE: &[&str] = &[
+    "drop dead",
+    "disgust",
+    "a joke",
+    "out of my face",
+    "get out",
+    "leave me alone",
+    "boring",
     "stupid",
     "idiot",
     "hate you",
@@ -219,19 +284,28 @@ const RUDE: &[&str] = &[
     "pathetic",
     "dumb",
     "you suck",
+    "annoying",
+    "nobody likes you",
+    "piss off",
     "笨",
     "蠢",
     "讨厌你",
     "滚",
     "闭嘴",
     "没用",
+    "烦死",
+    "烦人",
 ];
 const SORRY: &[&str] = &[
+    "i was wrong",
+    "shouldn't have",
+    "my mistake",
     "sorry",
     "apologise",
     "apologize",
     "apologies",
     "my fault",
+    "my bad",
     "forgive me",
     "didn't mean",
     "didnt mean",
@@ -240,6 +314,17 @@ const SORRY: &[&str] = &[
     "不好意思",
 ];
 const COMFORT: &[&str] = &[
+    "there there",
+    "doing your best",
+    "trying your best",
+    "not your fault",
+    "be alright",
+    "be okay",
+    "be ok",
+    "be fine",
+    "get through",
+    "don't be",
+    "dont be",
     "cheer up",
     "don't worry",
     "dont worry",
@@ -252,37 +337,95 @@ const COMFORT: &[&str] = &[
     "here for you",
     "you'll be fine",
     "you will be fine",
+    "get better",
     "chin up",
     "you're not alone",
     "别担心",
     "加油",
     "会好的",
+    "会好起来",
     "别难过",
 ];
 const RECONCILE: &[&str] = &[
+    "bury the hatchet",
+    "hatchet",
     "make up",
     "make peace",
+    "make it up",
     "patch things",
     "patch it up",
     "forgive",
     "talk to",
+    "should talk",
     "sort it out",
+    "say sorry to",
     "apologise to",
     "apologize to",
     "reconcile",
     "和好",
     "原谅",
+    "道歉",
+    "道个歉",
+];
+const QUARREL: &[&str] = &[
+    "avoiding",
+    "avoid",
+    "went wrong",
+    "wrong with",
+    "happen with",
+    "happened with",
+    "between you",
+    "fighting",
+    "arguing",
+    "quarrel",
+    "not speaking",
+    "not talking",
+    "angry",
+    "mad at",
+    "upset with",
+    "cross with",
+    "fight",
+    "fought",
+    "fell out",
+    "falling out",
+    "argue",
+    "argued",
+    "argument",
+    "problem with",
+    "happened between",
+    "don't you like",
+    "dont you like",
+    "吵架",
+    "生气",
+    "的气",
+    "矛盾",
+    "不喜欢",
 ];
 const THANK: &[&str] = &[
+    "owe you",
+    "kind of you",
+    "ta",
     "thank",
     "thanks",
     "thank you",
     "cheers",
+    "appreciate",
+    "appreciated",
     "谢谢",
     "多谢",
     "感谢",
 ];
 const COMPLIMENT: &[&str] = &[
+    "brilliantly",
+    "done well",
+    "you've done",
+    "a star",
+    "a gem",
+    "treasure",
+    "an angel",
+    "a legend",
+    "great",
+    "太好",
     "well done",
     "good job",
     "great job",
@@ -293,8 +436,15 @@ const COMPLIMENT: &[&str] = &[
     "brilliant",
     "proud of you",
     "love your",
+    "love the",
+    "i like your",
+    "i like you",
+    "love you",
     "you're great",
     "you are great",
+    "so kind",
+    "very kind",
+    "you're kind",
     "nice",
     "fantastic",
     "the best",
@@ -303,8 +453,11 @@ const COMPLIMENT: &[&str] = &[
     "好看",
     "漂亮",
     "了不起",
+    "真好",
 ];
 const OPINION: &[&str] = &[
+    "make of",
+    "reckon",
     "think of",
     "think about",
     "feel about",
@@ -322,11 +475,296 @@ const HOW_IS: &[&str] = &[
     "doing",
     "how are",
     "is ok",
+    "ok",
+    "okay",
     "alright",
+    "seen",
+    "up to",
+    "up with",
     "怎么样",
     "还好",
+    "最近",
+];
+const STANDING: &[&str] = &[
+    "your trust",
+    "glad i'm",
+    "do i",
+    "make of me",
+    "i'm doing",
+    "im doing",
+    "am i",
+    "think i'm",
+    "of me",
+    "think of me",
+    "think about me",
+    "feel about me",
+    "like me",
+    "we friends",
+    "trust me",
+    "how am i doing",
+    "am i doing",
+    "mad at me",
+    "angry with me",
+    "觉得我",
+    "喜欢我",
+    "信任我",
+];
+const GIFT: &[&str] = &[
+    "this for you",
+    "brought you",
+    "got you",
+    "made you",
+    "this is for you",
+    "these are for you",
+    "something for you",
+    "present",
+    "gift",
+    "flowers",
+    "here you go",
+    "have this",
+    "送你",
+    "礼物",
+    "给你",
+];
+const WORRY: &[&str] = &[
+    "sleep",
+    "look well",
+    "don't look",
+    "unwell",
+    "worn out",
+    "exhausted",
+    "the matter",
+    "matter with",
+    "worrying",
+    "tired",
+    "lonely",
+    "worried",
+    "worry",
+    "worries",
+    "bother",
+    "bothering",
+    "wrong",
+    "sad",
+    "seem down",
+    "feeling down",
+    "look down",
+    "upset",
+    "stressed",
+    "scared",
+    "afraid",
+    "are you happy",
+    "happy here",
+    "unhappy",
+    "troubled",
+    "累",
+    "孤单",
+    "孤独",
+    "担心",
+    "烦心",
+    "难过",
+    "开心吗",
+    "不开心",
+];
+const FRIENDS: &[&str] = &[
+    "on your nerves",
+    "annoys you",
+    "who annoys",
+    "can't stand",
+    "cant stand",
+    "anyone here",
+    "best friend",
+    "friends",
+    "friend",
+    "who do you like",
+    "who don't you",
+    "who dont you",
+    "who do you trust",
+    "closest",
+    "enemies",
+    "enemy",
+    "who do you hate",
+    "who do you dislike",
+    "朋友",
+    "和谁",
+    "讨厌谁",
+];
+const FAMILY: &[&str] = &[
+    "at home",
+    "waiting for you",
+    "someone special",
+    "special someone",
+    "family",
+    "married",
+    "wife",
+    "husband",
+    "partner",
+    "kids",
+    "children",
+    "child",
+    "son",
+    "daughter",
+    "parents",
+    "mother",
+    "father",
+    "mum",
+    "mom",
+    "dad",
+    "brother",
+    "sister",
+    "seeing anyone",
+    "single",
+    "girlfriend",
+    "boyfriend",
+    "家人",
+    "结婚",
+    "孩子",
+    "对象",
+    "父母",
+    "家里",
+];
+const ABOUT_YOU: &[&str] = &[
+    "makes you tick",
+    "grow up",
+    "grew up",
+    "your story",
+    "what are you like",
+    "about yourself",
+    "about you",
+    "who are you",
+    "your name",
+    "like doing",
+    "for fun",
+    "hobbies",
+    "hobby",
+    "where are you from",
+    "how old",
+    "free time",
+    "介绍一下",
+    "你自己",
+    "你是谁",
+    "喜欢做什么",
+    "爱好",
+];
+const INVITE: &[&str] = &[
+    "请你",
+    "咖啡",
+    "drink",
+    "walk",
+    "lunch",
+    "dinner",
+    "coffee",
+    "tea",
+    "join me",
+    "come with me",
+    "with me",
+    "hang out",
+    "wanna",
+    "want to go",
+    "shall we",
+    "let's",
+    "lets",
+    "fancy a",
+    "一起",
+    "喝一杯",
+    "散步",
+    "吃饭",
+];
+const DAY: &[&str] = &[
+    "happen today",
+    "exciting",
+    "on with you",
+    "在做什么",
+    "get up to",
+    "got up to",
+    "today been",
+    "day been",
+    "your day",
+    "had a good",
+    "had a nice",
+    "did you have",
+    "been up to",
+    "you up to",
+    "did you do",
+    "what are you doing",
+    "been doing",
+    "fun today",
+    "been busy",
+    "过得",
+    "忙什么",
+    "干什么",
+    "做什么了",
+];
+const PARTING: &[&str] = &["have a nice day", "have a good day", "have a lovely day"];
+const WEATHER: &[&str] = &[
+    "clear up",
+    "brighten",
+    "chilly",
+    "freezing",
+    "nippy",
+    "lovely day",
+    "nice day",
+    "beautiful day",
+    "grey",
+    "gloomy",
+    "weather",
+    "rain",
+    "raining",
+    "rainy",
+    "sunny",
+    "sunshine",
+    "sun",
+    "cold",
+    "hot",
+    "windy",
+    "wind",
+    "storm",
+    "snow",
+    "snowing",
+    "fog",
+    "foggy",
+    "dust",
+    "天气",
+    "下雨",
+    "冷",
+    "热",
+    "刮风",
+];
+const COMING: &[&str] = &[
+    "anything coming",
+    "special coming",
+    "big event",
+    "event",
+    "party",
+    "coming up",
+    "this week",
+    "plans",
+    "festival",
+    "holiday",
+    "celebration",
+    "what's on",
+    "whats on",
+    "anything on",
+    "next",
+    "looking forward",
+    "节日",
+    "活动",
+    "计划",
 ];
 const HOW_ARE_YOU: &[&str] = &[
+    "keeping alright",
+    "keeping ok",
+    "you keeping",
+    "how's everything",
+    "how is everything",
+    "you well",
+    "are you well",
+    "keeping well",
+    "you been",
+    "ok with you",
+    "everything ok",
+    "all good",
+    "how are we",
+    "今天好吗",
     "how are you",
     "how are things",
     "how r u",
@@ -336,11 +774,13 @@ const HOW_ARE_YOU: &[&str] = &[
     "hows it going",
     "how is it going",
     "how's life",
+    "how do you feel",
     "you ok",
     "you okay",
     "you alright",
     "are you ok",
     "are you okay",
+    "doing ok",
     "feeling",
     "how have you been",
     "what's up",
@@ -351,16 +791,30 @@ const HOW_ARE_YOU: &[&str] = &[
     "最近",
 ];
 const NEED: &[&str] = &[
+    "i could do",
+    "something i can",
+    "short of",
+    "get you anything",
+    "anything you",
     "need",
     "help",
     "anything i can",
     "can i do",
     "what can i",
     "want",
+    "money",
     "需要",
     "帮",
 ];
 const NEWS: &[&str] = &[
+    "any word",
+    "word from",
+    "around town",
+    "the word",
+    "word is",
+    "latest",
+    "something interesting",
+    "anything interesting",
     "news",
     "what's new",
     "whats new",
@@ -375,7 +829,18 @@ const NEWS: &[&str] = &[
     "消息",
 ];
 const WORK: &[&str] = &[
-    "work", "job", "shift", "busy", "working", "today", "工作", "忙",
+    "work",
+    "job",
+    "shift",
+    "busy",
+    "working",
+    "business",
+    "trade",
+    "what do you do",
+    "for a living",
+    "工作",
+    "生意",
+    "忙",
 ];
 const GREET: &[&str] = &[
     "hi",
@@ -392,8 +857,20 @@ const GREET: &[&str] = &[
     "你好",
     "嗨",
     "早",
+    "早上好",
+    "晚上好",
 ];
 const FAREWELL: &[&str] = &[
+    "off i go",
+    "i'm off",
+    "leave you to",
+    "leave you be",
+    "走了",
+    "我先走",
+    "be off",
+    "better go",
+    "must go",
+    "night night",
     "bye",
     "goodbye",
     "see you",
@@ -402,34 +879,91 @@ const FAREWELL: &[&str] = &[
     "good night",
     "goodnight",
     "farewell",
+    "have to go",
+    "got to go",
+    "gotta go",
+    "take care",
     "再见",
     "拜拜",
+    "回头见",
+];
+const ACK: &[&str] = &[
+    "alright then",
+    "mm",
+    "true",
+    "exactly",
+    "indeed",
+    "fair enough",
+    "i know",
+    "interesting",
+    "ok",
+    "okay",
+    "yeah",
+    "yes",
+    "yep",
+    "no",
+    "nope",
+    "sure",
+    "i see",
+    "haha",
+    "lol",
+    "cool",
+    "right",
+    "hmm",
+    "hm",
+    "ah",
+    "oh",
+    "fine",
+    "好的",
+    "嗯",
+    "哈哈",
+    "是的",
+    "好吧",
 ];
 
-/// Whom, among `candidates`, the words name: by full name, or by first name
-/// for people and last word for places ("the bakery").
+/// Every name someone or somewhere is called by, as normalized words:
+/// their whole name, their first name (or a place's last word, "the
+/// bakery"), and any other name the World gives them.
+fn names_of(state: &WorldState, kit: &Kit, id: EntityId, by_last: bool) -> Vec<String> {
+    let known = lives::name(state, id);
+    let full = normal(&known).trim().to_string();
+    if full.is_empty() || full == "someone" {
+        return Vec::new();
+    }
+    let short = if by_last {
+        full.rsplit(' ').next()
+    } else {
+        full.split(' ').next()
+    }
+    .unwrap_or(&full)
+    .to_string();
+    let mut names = vec![full.clone()];
+    if short != full && short.chars().count() >= 3 {
+        names.push(short);
+    }
+    for alias in (kit.aliases)(&known) {
+        let alias = normal(&alias).trim().to_string();
+        if !alias.is_empty() && !names.contains(&alias) {
+            names.push(alias);
+        }
+    }
+    names
+}
+
+/// Whom, among `candidates`, the words name.
 fn named(
     state: &WorldState,
+    kit: &Kit,
     text: &str,
     candidates: &[EntityId],
     by_last: bool,
 ) -> Option<EntityId> {
     candidates.iter().copied().find(|id| {
-        let full = normal(&lives::name(state, *id));
-        let full = full.trim();
-        if full.is_empty() || full == "someone" {
-            return false;
-        }
-        let first = if by_last {
-            full.rsplit(' ').next()
-        } else {
-            full.split(' ').next()
-        }
-        .unwrap_or(full);
-        // Written without spaces, a name runs straight into the words
-        // around it.
-        let found = |name: &str| has(text, name) || (!text.is_ascii() && text.contains(name));
-        found(full) || (first.chars().count() >= 3 && found(first))
+        names_of(state, kit, *id, by_last).iter().any(|name| {
+            // Written without spaces, a name runs straight into the words
+            // around it.
+            has(text, name) || (!text.is_ascii() && text.contains(name.as_str()))
+        })
     })
 }
 
@@ -440,58 +974,77 @@ pub fn hear(state: &WorldState, kit: &Kit, who: EntityId, words: &str) -> Heard 
         .into_iter()
         .filter(|person| *person != who)
         .collect::<Vec<_>>();
-    let person = named(state, &text, &others, false);
-    let place = named(state, &text, &(kit.places)(state), true);
+    let person = named(state, kit, &text, &others, false);
+    let place = named(state, kit, &text, &(kit.places)(state), true);
+    let occasion = (kit.occasions)(state).iter().any(|name| {
+        let name = normal(name);
+        let name = name.trim();
+        has(&text, name.strip_prefix("the ").unwrap_or(name))
+    });
     let heard = |intent, about| Heard { intent, about };
-    if any(&text, RUDE) {
+    let is = |phrases: &[&str]| any(&text, phrases);
+    if is(RUDE) {
         return heard(Intent::Rude, None);
     }
     if let Some(person) = person {
-        if any(&text, RECONCILE) {
-            return heard(Intent::Reconcile, Some(person));
-        }
-    }
-    if any(&text, COMFORT) {
-        return heard(Intent::Comfort, None);
-    }
-    if any(&text, SORRY) {
-        return heard(Intent::Apologize, None);
-    }
-    if any(&text, THANK) {
-        return heard(Intent::Thank, None);
-    }
-    if let Some(person) = person {
-        if any(&text, OPINION) {
-            return heard(Intent::ThinkOf, Some(person));
-        }
-        if any(&text, HOW_IS) {
-            return heard(Intent::HowIs, Some(person));
+        for (phrases, intent) in [
+            (RECONCILE, Intent::Reconcile),
+            (QUARREL, Intent::Quarrel),
+            (OPINION, Intent::ThinkOf),
+            (HOW_IS, Intent::HowIs),
+        ] {
+            if is(phrases) {
+                return heard(intent, Some(person));
+            }
         }
         return heard(Intent::ThinkOf, Some(person));
     }
-    if any(&text, COMPLIMENT) {
-        return heard(Intent::Compliment, None);
+    if occasion && !is(GIFT) {
+        return heard(Intent::Coming, None);
+    }
+    // In the order that settles words holding more than one of them:
+    // "don't worry" is comfort before it is a worry, "nice weather" is
+    // about the weather before it is a compliment.
+    for (phrases, intent) in [
+        (STANDING, Intent::Standing),
+        (COMFORT, Intent::Comfort),
+        (GIFT, Intent::Gift),
+        (SORRY, Intent::Apologize),
+        (THANK, Intent::Thank),
+        (WORRY, Intent::Worry),
+        (FRIENDS, Intent::Friends),
+        (FAMILY, Intent::Family),
+        (ABOUT_YOU, Intent::AboutYou),
+        (DAY, Intent::Day),
+        (PARTING, Intent::Farewell),
+        (WEATHER, Intent::Weather),
+        (COMPLIMENT, Intent::Compliment),
+        (INVITE, Intent::Invite),
+    ] {
+        if is(phrases) {
+            return heard(intent, None);
+        }
     }
     if let Some(place) = place {
         return heard(Intent::Place, Some(place));
     }
-    if any(&text, HOW_ARE_YOU) {
+    for (phrases, intent) in [
+        (COMING, Intent::Coming),
+        (NEWS, Intent::News),
+        (WORK, Intent::Work),
+        (NEED, Intent::Need),
+        (HOW_ARE_YOU, Intent::HowAreYou),
+        (FAREWELL, Intent::Farewell),
+        (GREET, Intent::Greet),
+        (ACK, Intent::Ack),
+    ] {
+        if is(phrases) {
+            return heard(intent, None);
+        }
+    }
+    // Asked how anything is, they say how they are.
+    if text.starts_with(" how ") || text.starts_with(" how's ") {
         return heard(Intent::HowAreYou, None);
-    }
-    if any(&text, NEED) {
-        return heard(Intent::Need, None);
-    }
-    if any(&text, NEWS) {
-        return heard(Intent::News, None);
-    }
-    if any(&text, WORK) {
-        return heard(Intent::Work, None);
-    }
-    if any(&text, FAREWELL) {
-        return heard(Intent::Farewell, None);
-    }
-    if any(&text, GREET) {
-        return heard(Intent::Greet, None);
     }
     heard(Intent::Unclear, None)
 }
@@ -633,6 +1186,406 @@ fn greeting(state: &WorldState, who: EntityId, seed: u64) -> String {
     pick(lines, seed).into()
 }
 
+const INVITED: &str = "conversation.invited";
+/// How far back someone remembers what the player said, in periods.
+const MEMORY_PERIODS: i64 = 30;
+
+/// When something happened, as someone would say it.
+fn when(kit: &Kit, periods: i64) -> String {
+    match periods {
+        ..=0 => "earlier".into(),
+        1 if kit.unit == "day" => "yesterday".into(),
+        1 => format!("last {}", kit.unit),
+        2..=6 => "the other day".into(),
+        7..=13 => "last week".into(),
+        _ => "a while back".into(),
+    }
+}
+
+/// The player's earlier exchanges with someone, latest first, back as far
+/// as they remember.
+fn remembered<'a>(world: &'a World, kit: &Kit, who: EntityId) -> Vec<&'a Event> {
+    let index = world.history_index();
+    let period = kit.period.max(1);
+    let since = world
+        .world_time()
+        .saturating_sub(period.saturating_mul(MEMORY_PERIODS as u64));
+    index
+        .changes_of(who)
+        .iter()
+        .rev()
+        .filter_map(|id| world.event(*id))
+        .take_while(|event| event.world_time >= since)
+        .filter(|event| is_talk(event) && event.targets.first() == Some(&who))
+        .collect()
+}
+
+fn payload_text<'a>(event: &'a Event, key: &str) -> Option<&'a str> {
+    match event.payload.get(key) {
+        Some(Value::Text(text)) => Some(text.as_str()),
+        _ => None,
+    }
+}
+
+/// What someone was given, from the words it came with.
+fn gift_of(words: &str) -> &'static str {
+    let text = normal(words);
+    [
+        ("flower", "the flowers"),
+        ("cake", "the cake"),
+        ("bread", "the bread"),
+        ("book", "the book"),
+        ("fish", "the fish"),
+        ("wine", "the wine"),
+        ("tea", "the tea"),
+        ("花", "the flowers"),
+    ]
+    .into_iter()
+    .find(|(word, _)| text.contains(word))
+    .map(|(_, gift)| gift)
+    .unwrap_or("the present")
+}
+
+/// What was done together, from the words it came with.
+fn outing_of(words: &str) -> &'static str {
+    let text = normal(words);
+    [
+        ("drink", "that drink"),
+        ("walk", "our walk"),
+        ("lunch", "lunch"),
+        ("dinner", "dinner"),
+        ("coffee", "that coffee"),
+        ("tea", "that cup of tea"),
+        ("散步", "our walk"),
+        ("喝", "that drink"),
+    ]
+    .into_iter()
+    .find(|(word, _)| has(&text, word) || (!word.is_ascii() && text.contains(word)))
+    .map(|(_, outing)| outing)
+    .unwrap_or("our time together")
+}
+
+/// Something the player said before that someone brings up again: the
+/// latest of what they remember that is worth mentioning, from before
+/// today.
+pub fn recollection(world: &World, kit: &Kit, who: EntityId) -> Option<String> {
+    let state = world.state();
+    let now = period(state, kit);
+    remembered(world, kit, who).into_iter().find_map(|event| {
+        let then = (event.world_time / kit.period.max(1)) as i64;
+        if then >= now {
+            return None;
+        }
+        let ago = when(kit, now - then);
+        let about = match event.payload.get("about") {
+            Some(Value::Entity(about)) => Some(*about),
+            _ => None,
+        };
+        let words = payload_text(event, "words").unwrap_or_default();
+        match Intent::from_id(payload_text(event, "intent")?)? {
+            Intent::Rude if hurt_recently(state, kit, who) => {
+                Some(format!("I haven't forgotten what you said {ago}."))
+            }
+            Intent::Gift => Some(format!("Thank you again for {} {ago}.", gift_of(words))),
+            Intent::Comfort => Some(format!("What you said {ago} helped. Thank you.")),
+            Intent::Invite if payload_text(event, "accepted").is_some() => {
+                Some(format!("I enjoyed {} {ago}.", outing_of(words)))
+            }
+            Intent::Reconcile => {
+                let other = about?;
+                let x = lives::first_name(state, other);
+                Some(if lives::opinion(state, who, other) > -20 {
+                    format!("I did talk to {x}, like you said. We're better for it.")
+                } else {
+                    format!("I tried with {x}, like you said {ago}. It's slow going.")
+                })
+            }
+            Intent::HowIs | Intent::Quarrel => {
+                let other = about?;
+                let x = lives::first_name(state, other);
+                Some(format!(
+                    "You asked after {x} {ago}. {}",
+                    how_is(world, kit, who, other, lives::mix(&[who.0, now as u64]))
+                ))
+            }
+            Intent::Compliment => Some(format!("What you said {ago} was kind. It stayed with me.")),
+            _ => None,
+        }
+    })
+}
+
+/// How someone stands with the player: a mark from -2 to 2 and a few words
+/// a screen can show beside them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Standing {
+    pub level: i8,
+    pub words: String,
+}
+
+/// How someone stands with the player, from how they feel about the
+/// player's hand in the place and whether they were hurt lately.
+pub fn standing(state: &WorldState, kit: &Kit, who: EntityId) -> Standing {
+    let regard = lives::regard(state, who);
+    let (level, words) = if hurt_recently(state, kit, who) {
+        (-1_i8.min(regard_level(regard)), "Hurt by what you said")
+    } else {
+        match regard_level(regard) {
+            2 => (2, "Thinks the world of you"),
+            1 => (1, "Likes you"),
+            0 => (0, "Getting to know you"),
+            -1 => (-1, "Wary of you"),
+            _ => (-2, "Doesn't trust you"),
+        }
+    };
+    Standing {
+        level,
+        words: words.into(),
+    }
+}
+
+fn regard_level(regard: i64) -> i8 {
+    match regard {
+        50.. => 2,
+        20..=49 => 1,
+        -19..=19 => 0,
+        -49..=-20 => -1,
+        _ => -2,
+    }
+}
+
+/// Whether someone would go for a drink or a walk with the player now.
+fn accepts_invite(state: &WorldState, kit: &Kit, who: EntityId) -> bool {
+    !hurt_recently(state, kit, who)
+        && lives::regard(state, who) > -20
+        && lives::lack(state, who, Need::Rest) < 70
+}
+
+/// The last change between two people, as the later of them would tell it:
+/// what kind of change it was, the line its first person said, and when.
+fn last_bond<'a>(world: &'a World, who: EntityId, other: EntityId) -> Option<&'a Event> {
+    let index = world.history_index();
+    index
+        .changes_of(who)
+        .iter()
+        .rev()
+        .filter_map(|id| world.event(*id))
+        .find(|event| {
+            event.kind == "bond_changed"
+                && ((event.actor == Some(who) && event.targets.first() == Some(&other))
+                    || (event.actor == Some(other) && event.targets.first() == Some(&who)))
+        })
+}
+
+/// What last changed between two people, told by one of them, if it
+/// changed within what they remember.
+fn between(world: &World, kit: &Kit, who: EntityId, other: EntityId) -> Option<String> {
+    let state = world.state();
+    let bond = last_bond(world, who, other)?;
+    let ago = period(state, kit) - (bond.world_time / kit.period.max(1)) as i64;
+    if ago > MEMORY_PERIODS {
+        return None;
+    }
+    let when = when(kit, ago);
+    Some(match payload_text(bond, "bond")? {
+        "made_up" => format!("We made it up {when}."),
+        "fell_out" => format!("We fell out {when}."),
+        "became_friends" => "We've grown close lately.".into(),
+        "drifted" => "We've drifted, though.".into(),
+        _ => return None,
+    })
+}
+
+fn quarrel(world: &World, kit: &Kit, who: EntityId, other: EntityId, seed: u64) -> String {
+    let state = world.state();
+    let x = lives::first_name(state, other);
+    let view = lives::opinion(state, who, other);
+    let bond = last_bond(world, who, other);
+    let kind = bond.and_then(|event| payload_text(event, "bond"));
+    let ago = bond
+        .map(|event| {
+            when(
+                kit,
+                period(state, kit) - (event.world_time / kit.period.max(1)) as i64,
+            )
+        })
+        .unwrap_or_default();
+    if view > -20 {
+        return match kind {
+            Some("made_up") => format!("Angry? Not any more. {x} and I made it up {ago}."),
+            _ => pick(
+                &[
+                    "Angry at {x}? No, we're fine.",
+                    "Me and {x}? There's nothing wrong there.",
+                ],
+                seed,
+            )
+            .replace("{x}", &x),
+        };
+    }
+    let own = bond
+        .filter(|event| event.actor == Some(who))
+        .and_then(|event| payload_text(event, "said"));
+    match (kind, own) {
+        (Some("fell_out"), Some(said)) => format!("We fell out {ago}. {said}"),
+        (Some("fell_out"), None) => format!("{x} and I fell out {ago}. I'd rather not go over it."),
+        (Some("drifted"), _) => format!("We just drifted, {x} and I. It happens."),
+        _ => pick(
+            &[
+                "{x} knows what they did.",
+                "It's between me and {x}.",
+                "Ask {x}. I've said all I'm going to.",
+            ],
+            seed,
+        )
+        .replace("{x}", &x),
+    }
+}
+
+fn friends(world: &World, kit: &Kit, who: EntityId, seed: u64) -> String {
+    let state = world.state();
+    let others = (kit.people)(state)
+        .into_iter()
+        .filter(|person| *person != who && !lives::gone(state, *person))
+        .collect::<Vec<_>>();
+    let best = others
+        .iter()
+        .copied()
+        .filter(|other| lives::opinion(state, who, *other) >= 20)
+        .max_by_key(|other| lives::opinion(state, who, *other));
+    let worst = others
+        .iter()
+        .copied()
+        .filter(|other| lives::opinion(state, who, *other) <= -20)
+        .min_by_key(|other| lives::opinion(state, who, *other));
+    let name = |id: EntityId| lives::first_name(state, id);
+    match (best, worst) {
+        (Some(best), Some(worst)) => format!(
+            "{}'s my closest. {} and I don't get on.",
+            name(best),
+            name(worst)
+        ),
+        (Some(best), None) => pick(
+            &["{b}, without a doubt.", "I'd trust {b} with anything."],
+            seed,
+        )
+        .replace("{b}", &name(best)),
+        (None, Some(worst)) => format!(
+            "Not many, if I'm honest. And {} I could do without.",
+            name(worst)
+        ),
+        (None, None) => "I get on with most people. Nobody close, though.".into(),
+    }
+}
+
+const TRAIT_WORDS: &[(&str, &str)] = &[
+    ("warm", "warm"),
+    ("prickly", "prickly"),
+    ("proud", "proud"),
+    ("shy", "shy"),
+    ("sociable", "a talker"),
+    ("restless", "restless"),
+    ("steady", "steady"),
+    ("generous", "generous"),
+    ("thrifty", "careful with money"),
+    ("dreamy", "a dreamer"),
+];
+
+fn about_you(world: &World, kit: &Kit, who: EntityId) -> String {
+    let state = world.state();
+    let described = lives::traits(state, who)
+        .iter()
+        .filter_map(|word| {
+            TRAIT_WORDS
+                .iter()
+                .find(|(id, _)| id == word)
+                .map(|(_, said)| *said)
+        })
+        .collect::<Vec<_>>();
+    let mut line = format!("I'm {}.", lives::first_name(state, who));
+    match described.as_slice() {
+        [] => {}
+        [one] => line.push_str(&format!(" {}, people say.", capitalized(one))),
+        [first, second, ..] => line.push_str(&format!(
+            " {} and {second}, people say.",
+            capitalized(first)
+        )),
+    }
+    if let Some(work) = (kit.work_line)(world, who) {
+        line.push_str(&format!(" {work}"));
+    }
+    line
+}
+
+fn capitalized(text: &str) -> String {
+    let mut chars = text.chars();
+    chars
+        .next()
+        .map(|first| first.to_uppercase().chain(chars).collect())
+        .unwrap_or_default()
+}
+
+fn family(world: &World, kit: &Kit, who: EntityId, seed: u64) -> String {
+    let state = world.state();
+    match lives::partner(state, who) {
+        Some(loved) if lives::opinion(state, who, loved) > 5 => pick(
+            &[
+                "There's {p}. That's family enough for me.",
+                "{p} and me. I wouldn't change it.",
+            ],
+            seed,
+        )
+        .replace("{p}", &lives::first_name(state, loved)),
+        Some(loved) => format!(
+            "There's {}. We're having a hard time.",
+            lives::first_name(state, loved)
+        ),
+        None => pick(
+            &[
+                "No one of my own. {s} is family enough.",
+                "Just me. Everyone in {s} looks out for each other, though.",
+            ],
+            seed,
+        )
+        .replace("{s}", kit.settlement),
+    }
+}
+
+fn worry(world: &World, kit: &Kit, who: EntityId) -> String {
+    let state = world.state();
+    if hurt_recently(state, kit, who) {
+        return "You, a bit, after what you said.".into();
+    }
+    let (need, lack) = worst_need(state, who);
+    if lack >= 60 {
+        return match need {
+            Need::Money => "Money. There's never enough of it.",
+            Need::Rest => "I'm just so tired. I can't seem to catch up.",
+            Need::Company => "Being on my own so much. The evenings are long.",
+            Need::Purpose => "Having nothing to do with myself. It gnaws at me.",
+        }
+        .into();
+    }
+    let foe = (kit.people)(state)
+        .into_iter()
+        .filter(|other| *other != who && lives::opinion(state, who, *other) <= -30)
+        .min_by_key(|other| lives::opinion(state, who, *other));
+    match foe {
+        Some(foe) => format!(
+            "Only {}. The rest I can manage.",
+            lives::first_name(state, foe)
+        ),
+        None => "Not much, honestly. I'm alright.".into(),
+    }
+}
+
+/// Whether two lines mention the same one of these people.
+fn same_person(state: &WorldState, people: &[EntityId], a: &str, b: &str) -> bool {
+    people.iter().any(|person| {
+        let name = lives::first_name(state, *person);
+        name.chars().count() >= 2 && a.contains(&name) && b.contains(&name)
+    })
+}
+
 /// How someone answers what was heard, in their own voice, from how their
 /// life stands now.
 pub fn reply(world: &World, kit: &Kit, who: EntityId, heard: Heard) -> Reply {
@@ -644,27 +1597,129 @@ pub fn reply(world: &World, kit: &Kit, who: EntityId, heard: Heard) -> Reply {
         asks_for: None,
     };
     let about_name = heard.about.map(|about| lives::first_name(state, about));
-    match heard.intent {
+    let mut answer = match heard.intent {
         Intent::Greet => line(greeting(state, who, seed)),
         Intent::HowAreYou => {
-            let base = lives::how_are_you(world, who).unwrap_or_else(|| (kit.place_mood)(world));
+            let base =
+                lives::how_are_you_on(world, who, seed).unwrap_or_else(|| (kit.place_mood)(world));
+            let people = (kit.people)(state);
             match lives::said_today(world, who) {
-                Some(today) if today != base => line(format!("{base} {today}")),
+                Some(today) if today != base && !same_person(state, &people, &base, &today) => {
+                    line(format!("{base} {today}"))
+                }
                 _ => line(base),
             }
         }
+        Intent::Day => line(match lives::said_today(world, who) {
+            Some(today) => format!(
+                "{}{today}",
+                pick(&["Not bad. ", "Oh, you know. ", "Busy enough. "], seed)
+            ),
+            None => (kit.work_line)(world, who)
+                .map(|work| format!("The usual. {work}"))
+                .unwrap_or_else(|| format!("Quiet. Nothing much to tell, this {}.", kit.unit)),
+        }),
+        Intent::AboutYou => line(about_you(world, kit, who)),
+        Intent::Family => line(family(world, kit, who, seed)),
+        Intent::Worry => line(worry(world, kit, who)),
+        Intent::Weather => line({
+            let sky = (kit.weather)(world);
+            match trait_.as_str() {
+                "dreamy" => format!("{sky} I like it, though."),
+                "prickly" => format!("{sky} As if it could be anything else here."),
+                _ => sky,
+            }
+        }),
+        Intent::Coming => line(match (kit.coming_up)(world) {
+            Some(coming) => format!(
+                "{}{}",
+                capitalized(&coming),
+                match trait_.as_str() {
+                    "shy" => ". I might go, if it's not too crowded.",
+                    "sociable" | "warm" => ". I wouldn't miss it!",
+                    "prickly" => ". I suppose I'll show my face.",
+                    _ => ". I'll be there.",
+                }
+            ),
+            None => "Nothing for a while. Just the usual.".into(),
+        }),
+        Intent::Gift => line(
+            if lives::regard(state, who) < -20 {
+                "Hm. I'll take it. It doesn't change anything."
+            } else {
+                match trait_.as_str() {
+                    "shy" => "For me? Oh. Thank you.",
+                    "proud" => "You shouldn't have. But I'm glad you did.",
+                    "prickly" => "What's this for? ...Thank you.",
+                    "thrifty" => "You spent money on me? Thank you.",
+                    _ => pick(
+                        &[
+                            "For me? You shouldn't have!",
+                            "Oh, that's lovely. Thank you.",
+                        ],
+                        seed,
+                    ),
+                }
+            }
+            .into(),
+        ),
+        Intent::Friends => line(friends(world, kit, who, seed)),
+        Intent::Quarrel => match heard.about {
+            Some(other) => line(quarrel(world, kit, who, other, seed)),
+            None => line("With who?".into()),
+        },
+        Intent::Invite => line(if accepts_invite(state, kit, who) {
+            match trait_.as_str() {
+                "shy" => "Oh! Alright. Yes, I'd like that.",
+                "restless" => "Yes! Anything to get out.",
+                "thrifty" => "Go on, then. If you're buying.",
+                "prickly" => "Fine. Just the one.",
+                _ => pick(&["I'd love that.", "Go on, then. Why not?"], seed),
+            }
+            .to_string()
+        } else if lives::lack(state, who, Need::Rest) >= 70 {
+            "Another time. I'm dead on my feet.".into()
+        } else {
+            "I'd rather not.".into()
+        }),
+        Intent::Ack => line(
+            match trait_.as_str() {
+                "prickly" => "Mm.",
+                "sociable" => pick(&["Anyway! Where was I?", "So there we are."], seed),
+                "shy" => "Mm-hm.",
+                _ => pick(&["Right.", "Mm.", "So there we are."], seed),
+            }
+            .into(),
+        ),
+        Intent::Standing => line({
+            let standing = standing(state, kit, who);
+            match standing.level {
+                2 => "You? You're one of us now.".into(),
+                1 => "I like you. You've done right by us.".to_string(),
+                0 => "You're alright. I'm still getting to know you.".into(),
+                -1 if hurt_recently(state, kit, who) => "Not after what you said.".into(),
+                -1 => "Honestly? You've let me down.".into(),
+                _ => "I don't trust you.".into(),
+            }
+        }),
         Intent::HowIs => match heard.about {
             Some(other) => line(how_is(world, kit, who, other, seed)),
             None => line("Who do you mean?".into()),
         },
         Intent::ThinkOf => match heard.about {
             Some(other) if lives::gone(state, other) => line(how_is(world, kit, who, other, seed)),
-            Some(other) => line(lives::thinks_of(world, who, other).unwrap_or_else(|| {
-                format!(
-                    "{}? I don't really know them yet.",
-                    lives::first_name(state, other)
-                )
-            })),
+            Some(other) => line({
+                let view = lives::thinks_of(world, who, other).unwrap_or_else(|| {
+                    format!(
+                        "{}? I don't really know them yet.",
+                        lives::first_name(state, other)
+                    )
+                });
+                match between(world, kit, who, other) {
+                    Some(history) => format!("{view} {history}"),
+                    None => view,
+                }
+            }),
             None => line("Who do you mean?".into()),
         },
         Intent::News => {
@@ -795,7 +1850,7 @@ pub fn reply(world: &World, kit: &Kit, who: EntityId, heard: Heard) -> Reply {
             .into(),
         ),
         Intent::Unclear => line(format!(
-            "{} Ask me how I am, or about someone here.",
+            "{} Ask me how I am, about my day, or about someone here.",
             pick(
                 &[
                     "Sorry, I didn't follow.",
@@ -805,7 +1860,22 @@ pub fn reply(world: &World, kit: &Kit, who: EntityId, heard: Heard) -> Reply {
                 seed
             )
         )),
+    };
+    // Seeing the player for the first time today, people bring up what
+    // was said before.
+    if spoken_today(world, who) == 0
+        && matches!(
+            heard.intent,
+            Intent::Greet | Intent::HowAreYou | Intent::Day
+        )
+    {
+        if let Some(recalled) = recollection(world, kit, who) {
+            if answer.line.chars().count() + recalled.chars().count() < MOST_REPLY {
+                answer.line = format!("{} {recalled}", answer.line);
+            }
+        }
     }
+    answer
 }
 
 /// The Action that records an exchange: the player's words, what they were
@@ -941,9 +2011,21 @@ impl Action for Says {
             company -= 5;
         }
         match intent {
-            Intent::Compliment | Intent::Thank if !warmed_today => {
-                regard += if intent == Intent::Compliment { 3 } else { 2 };
+            Intent::Compliment | Intent::Thank | Intent::Gift if !warmed_today => {
+                regard += match intent {
+                    Intent::Gift => 4,
+                    Intent::Compliment => 3,
+                    _ => 2,
+                };
                 changes.push(set(WARMED, now.into()));
+            }
+            Intent::Invite
+                if accepts_invite(state, &kit, who)
+                    && integer(state, who, INVITED) != Some(now) =>
+            {
+                company -= 10;
+                regard += 1;
+                changes.push(set(INVITED, now.into()));
             }
             Intent::Comfort if !warmed_today => {
                 let (_, lack) = worst_need(state, who);
@@ -996,6 +2078,9 @@ impl Action for Says {
         }
         if let Some(asks_for) = asks_for {
             draft.payload.insert("asks_for".into(), asks_for.into());
+        }
+        if intent == Intent::Invite && accepts_invite(state, &kit, who) {
+            draft.payload.insert("accepted".into(), "yes".into());
         }
         draft.changes = changes;
         Ok(draft)
@@ -1054,6 +2139,8 @@ pub fn exchanges_today(world: &World) -> Vec<Exchange> {
     exchanges.reverse();
     exchanges
 }
+
+pub mod corpus;
 
 #[cfg(test)]
 mod tests;
@@ -1146,6 +2233,19 @@ pub fn hearing(world: &World, kit: &Kit, who: EntityId, words: &str, answer: &st
     }
     let (need, _) = (kit.need_line)(world, who);
     facts.push(format!("What you need: {need}"));
+    if let Some(recalled) = recollection(world, kit, who) {
+        facts.push(format!(
+            "Something the player said before that you remember: {recalled}"
+        ));
+    }
+    facts.push(format!(
+        "How you feel about the player: {}",
+        standing(state, kit, who).words
+    ));
+    facts.push(format!("The weather: {}", (kit.weather)(world)));
+    if lives::lack(state, who, Need::Rest) >= 70 {
+        facts.push("You are too tired to go anywhere.".into());
+    }
     facts.push(if hurt_recently(state, kit, who) {
         "The player was unkind to you lately.".into()
     } else {

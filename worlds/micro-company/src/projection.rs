@@ -174,6 +174,7 @@ fn canvas(world: &World) -> CanvasProjection {
                     look: None,
                     drawing: None,
                     stance: None,
+                    standing: None,
                 })
             })
             .collect(),

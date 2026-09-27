@@ -2242,6 +2242,7 @@ fn canvas(world: &World) -> CanvasProjection {
                     canvas_kind(entity) == CanvasItemKind::Actor,
                 ),
                 stance: crate::drawings::stance_of(world, *id),
+                standing: crate::speech::standing_of(world, *id),
             })
         })
         .collect();
@@ -2267,6 +2268,7 @@ fn canvas(world: &World) -> CanvasProjection {
             look: crate::talk::look(world, id),
             drawing: crate::drawings::drawing_of(world, id, true),
             stance: crate::drawings::stance_of(world, id),
+            standing: crate::speech::standing_of(world, id),
         });
     }
     items.extend(crate::story::fixtures(world));

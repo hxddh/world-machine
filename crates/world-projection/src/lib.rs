@@ -1449,6 +1449,17 @@ pub struct CanvasItem {
     /// What a person is doing, as far as their drawing goes; the app draws
     /// them walking while they walk and talking while they speak.
     pub stance: Option<Stance>,
+    /// How a person stands with the player, for a World the player can
+    /// talk in.
+    pub standing: Option<Standing>,
+}
+
+/// How someone stands with the player: a mark from -2 (does not trust
+/// them) to 2 (thinks the world of them), and a few words for it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Standing {
+    pub level: i8,
+    pub words: String,
 }
 
 /// One value that moved since the last visit.

@@ -781,6 +781,7 @@ fn cast_from_document(
                 look,
                 drawing: None,
                 stance: None,
+                standing: None,
             })
         })
         .collect()
@@ -1749,6 +1750,7 @@ mod tests {
                         look: None,
                         drawing: None,
                         stance: None,
+                        standing: None,
                     },
                     world_projection::CanvasItem {
                         id: world_projection::SelectionId::from_stable_key("entity-11").unwrap(),
@@ -1769,6 +1771,7 @@ mod tests {
                         }),
                         drawing: None,
                         stance: None,
+                        standing: None,
                     },
                 ],
                 ..Default::default()

@@ -1442,6 +1442,7 @@ mod tests {
             look: None,
             drawing: None,
             stance: None,
+            standing: None,
         }
     }
 
