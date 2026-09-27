@@ -3680,7 +3680,7 @@ fn threads() -> Vec<Spec> {
 
 /// How a fixture is drawn here: the second home and the beacon take the
 /// place's own shapes.
-fn fixture_shape(world: &World, shape: &str) -> world_projection::MarkShape {
+pub(crate) fn fixture_shape(world: &World, shape: &str) -> world_projection::MarkShape {
     use world_projection::MarkShape;
     match (shape, seed_id(world)) {
         ("second", "mars-colony") => MarkShape::Dome,

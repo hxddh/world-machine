@@ -476,7 +476,27 @@ pub struct ProjectionSnapshotWire {
     pub drawings: Vec<DrawingWire>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub keepsakes: Vec<KeepsakeWire>,
+    /// Optional both ways: the book of everything to find. An older Pack
+    /// sends none, and the drawer shows no book.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub book: Vec<BookEntryWire>,
 }
+
+/// One entry in a World's book, as it crosses the boundary.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct BookEntryWire {
+    pub shelf: String,
+    pub name: String,
+    #[serde(default)]
+    pub found: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shape: Option<MarkShapeWire>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub hint: String,
+}
+
+/// The most entries one book carries.
+pub const MOST_BOOK_ENTRIES: usize = 400;
 
 /// Something someone gave the player to keep.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -1063,6 +1083,17 @@ impl From<&ProjectionSnapshot> for ProjectionSnapshotWire {
                     moment: keepsake.moment.into(),
                 })
                 .collect(),
+            book: snapshot
+                .book
+                .iter()
+                .map(|entry| BookEntryWire {
+                    shelf: entry.shelf.clone(),
+                    name: entry.name.clone(),
+                    found: entry.found,
+                    shape: entry.shape.map(Into::into),
+                    hint: entry.hint.clone(),
+                })
+                .collect(),
         }
     }
 }
@@ -1213,6 +1244,20 @@ impl TryFrom<ProjectionSnapshotWire> for ProjectionSnapshot {
                     what: keepsake.what,
                     note: keepsake.note,
                     moment: keepsake.moment.into(),
+                })
+                .collect(),
+            // A book no longer than the app keeps, of entries with names.
+            book: snapshot
+                .book
+                .into_iter()
+                .filter(|entry| !entry.name.trim().is_empty() && !entry.shelf.trim().is_empty())
+                .take(MOST_BOOK_ENTRIES)
+                .map(|entry| world_projection::BookEntry {
+                    shelf: entry.shelf,
+                    name: entry.name,
+                    found: entry.found,
+                    shape: entry.shape.map(Into::into),
+                    hint: entry.hint,
                 })
                 .collect(),
         })
@@ -2470,6 +2515,7 @@ mod tests {
             exchanges: Vec::new(),
             drawings: Vec::new(),
             keepsakes: Vec::new(),
+            book: Vec::new(),
         }
     }
 

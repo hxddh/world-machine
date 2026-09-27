@@ -437,6 +437,14 @@ fn a_week_away_lapses_at_most_three_questions() {
 fn a_year(seed: &str, policy: Policy) {
     let played = play(seed, policy, 365);
     let world = played.universe.world();
+    if matches!(policy, Policy::Generous) {
+        let unfinished = crate::story::goals(world)
+            .iter()
+            .filter(|goal| !goal.finished())
+            .map(|goal| format!("{} {} of {}", goal.label, goal.done, goal.parts))
+            .collect::<Vec<_>>();
+        assert!(unfinished.is_empty(), "{seed}: {unfinished:?}");
+    }
 
     // A festival told in its second year is told against its first.
     let mut told = std::collections::BTreeMap::<String, Vec<String>>::new();
@@ -1117,4 +1125,27 @@ fn every_card_fits_in_two_lines_in_every_place() {
         }
     }
     assert!(long.is_empty(), "longer than two lines: {long:#?}");
+}
+
+/// The goals on the horizon can be finished: a player who says yes builds
+/// every one within a year, in every place. Three years of play, so run
+/// by hand; Mars is checked on every run by its year-long test.
+#[test]
+#[ignore]
+fn a_careful_player_finishes_every_goal_in_a_year() {
+    for seed in [
+        MARS,
+        crate::SEED_1980S_TOWN_COMMAND,
+        crate::SEED_PENGUIN_CIVILIZATION_COMMAND,
+    ] {
+        let played = play(seed, Policy::Generous, 365);
+        let goals = crate::story::goals(played.universe.world());
+        assert!(!goals.is_empty(), "{seed}");
+        let unfinished = goals
+            .iter()
+            .filter(|goal| !goal.finished())
+            .map(|goal| format!("{} {} of {}", goal.label, goal.done, goal.parts))
+            .collect::<Vec<_>>();
+        assert!(unfinished.is_empty(), "{seed}: {unfinished:?}");
+    }
 }

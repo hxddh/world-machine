@@ -111,6 +111,7 @@ pub(crate) fn snapshot_since(
         chapters: crate::story::chapters(world),
         weather: crate::story::weather(world),
         keepsakes: crate::life::keepsakes(world),
+        book: crate::book::book(world),
     };
     snapshot.tell_events_as_history_does();
     snapshot
@@ -2225,6 +2226,7 @@ fn place_shape(world: &World, id: EntityId) -> Option<world_projection::MarkShap
 }
 
 fn canvas(world: &World) -> CanvasProjection {
+    let askers = crate::speech::askers(world);
     // Every seed casts the same five roles in the same slots: the anchor
     // everything depends on, a second place, the two people whose
     // relationship is the story, and the thing that lets them range out.
@@ -2266,7 +2268,7 @@ fn canvas(world: &World) -> CanvasProjection {
                 ),
                 stance: crate::drawings::stance_of(world, *id),
                 standing: crate::speech::standing_of(world, *id),
-                mood: crate::speech::mood_of(world, *id),
+                mood: crate::speech::mood_of(world, *id, &askers),
                 spot: None,
             })
         })
@@ -2294,7 +2296,7 @@ fn canvas(world: &World) -> CanvasProjection {
             drawing: crate::drawings::drawing_of(world, id, true),
             stance: crate::drawings::stance_of(world, id),
             standing: crate::speech::standing_of(world, id),
-            mood: crate::speech::mood_of(world, id),
+            mood: crate::speech::mood_of(world, id, &askers),
             spot: None,
         });
     }

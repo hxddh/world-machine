@@ -102,6 +102,7 @@ pub(crate) fn snapshot_since(
         chapters: crate::story::chapters(world),
         weather: crate::story::weather(world),
         keepsakes: crate::life::keepsakes(world),
+        book: crate::book::book(world),
     };
     snapshot.tell_events_as_history_does();
     snapshot
@@ -872,6 +873,7 @@ fn place_shape(id: EntityId) -> MarkShape {
 }
 
 fn canvas_items(world: &World) -> Vec<CanvasItem> {
+    let askers = crate::speech::askers(world);
     let mut items = Vec::new();
 
     for (id, x, y) in [
@@ -951,7 +953,7 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                 drawing: crate::drawings::drawing_of(id, true),
                 stance: crate::drawings::stance_of(world, id, workplace(world, id)),
                 standing: crate::speech::standing_of(world, id),
-                mood: crate::speech::mood_of(world, id),
+                mood: crate::speech::mood_of(world, id, &askers),
                 spot: None,
             });
         }
@@ -984,7 +986,7 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                 drawing: crate::drawings::drawing_of(id, true),
                 stance: crate::drawings::stance_of(world, id, crate::life::work(world.state(), id)),
                 standing: crate::speech::standing_of(world, id),
-                mood: crate::speech::mood_of(world, id),
+                mood: crate::speech::mood_of(world, id, &askers),
                 spot: None,
             });
         }
@@ -1515,6 +1517,7 @@ mod probe_parts {
         t!("goals", crate::story::goals(world));
         t!("chapters", crate::story::chapters(world));
         t!("weather", crate::story::weather(world));
+        t!("book", crate::book::book(world));
         let mut s = t!("snapshot", snapshot(world));
         t!("tell", s.tell_events_as_history_does());
         eprintln!("events {}", world.events().len());

@@ -165,20 +165,32 @@ pub(crate) fn say(
     conversation::say_with(world, &kit(world.state()), who, words, listener)
 }
 
+/// Everyone asking the player something now.
+pub(crate) fn askers(world: &World) -> std::collections::BTreeSet<EntityId> {
+    crate::story::commands(world)
+        .iter()
+        .filter(|command| command.question.is_some())
+        .filter_map(|command| match command.asker {
+            Some(world_projection::SelectionId::Entity(who)) => Some(who),
+            _ => None,
+        })
+        .collect()
+}
+
 /// How someone feels, for their face: thinking while they are asking the
 /// player something, cross while hurt by what the player said, else how
 /// their life is going.
-pub(crate) fn mood_of(world: &World, who: EntityId) -> Option<world_projection::Mood> {
+pub(crate) fn mood_of(
+    world: &World,
+    who: EntityId,
+    askers: &std::collections::BTreeSet<EntityId>,
+) -> Option<world_projection::Mood> {
     use world_projection::Mood;
     let state = world.state();
     if !lives::enrolled(state, who) {
         return None;
     }
-    let asking = crate::story::commands(world).iter().any(|command| {
-        command.question.is_some()
-            && command.asker == Some(world_projection::SelectionId::Entity(who))
-    });
-    if asking {
+    if askers.contains(&who) {
         return Some(Mood::Thinking);
     }
     if standing_of(world, who).is_some_and(|standing| standing.level < 0) {

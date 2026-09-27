@@ -748,7 +748,7 @@ impl Action for Undoes {
 struct Enjoys(fn(&WorldState) -> Kit);
 
 /// What a garden gives, by the shape it grew into.
-const PRODUCE: [&str; 4] = [
+pub const PRODUCE: [&str; 4] = [
     "a basket of what the garden grew",
     "a jar of honey from the flowers",
     "a bunch of fresh herbs",
@@ -942,6 +942,25 @@ pub fn latest_made_since(world: &World, since: u64) -> Option<String> {
             )
         })
         .find_map(told)
+}
+
+/// Every kind of thing the player has ever made, put up or planted, by id,
+/// whether or not it still stands.
+pub fn ever_made(world: &World) -> std::collections::BTreeSet<String> {
+    world
+        .events()
+        .iter()
+        .filter(|event| {
+            matches!(
+                event.kind.as_str(),
+                "built_by_hand" | "decorated_by_hand" | "planted_by_hand"
+            )
+        })
+        .filter_map(|event| match event.payload.get("deed") {
+            Some(Value::Text(deed)) => parse(deed).map(|(_, what, _, _)| what.to_string()),
+            _ => None,
+        })
+        .collect()
 }
 
 /// What the player made that stands at a place now, by name: "Bench".

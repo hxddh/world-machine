@@ -2239,6 +2239,55 @@ impl ProjectionView {
         Some(kept)
     }
 
+    /// The book of everything to find: a shelf each for keepsakes, people,
+    /// things made and festival days, what has been found drawn in colour
+    /// and what is still to come as a silhouette with a hint.
+    pub(crate) fn render_book(&self) -> Option<Div> {
+        let book = &self.snapshot.book;
+        if book.is_empty() {
+            return None;
+        }
+        let found = book.iter().filter(|entry| entry.found).count();
+        let mut section = div()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .child(ui::section_label(format!(
+                "Book · {found} of {}",
+                book.len()
+            )));
+        let mut shelves = Vec::<&str>::new();
+        for entry in book {
+            if !shelves.contains(&entry.shelf.as_str()) {
+                shelves.push(&entry.shelf);
+            }
+        }
+        for shelf in shelves {
+            let entries = book
+                .iter()
+                .filter(|entry| entry.shelf == shelf)
+                .collect::<Vec<_>>();
+            let found = entries.iter().filter(|entry| entry.found).count();
+            let mut grid = div().flex().flex_wrap().gap_2();
+            for entry in entries {
+                grid = grid.child(book_tile(entry));
+            }
+            section = section.child(
+                div()
+                    .px_3()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .child(ui::caption(format!(
+                        "{shelf} · {found} of {}",
+                        shelf_len(book, shelf)
+                    )))
+                    .child(grid),
+            );
+        }
+        Some(section)
+    }
+
     /// What someone can be asked, beside them: their questions, and once
     /// one is asked, their answer, and what they ask for if they do.
     fn render_asking(
@@ -2521,6 +2570,7 @@ impl ProjectionView {
         for part in [
             self.render_chapters(),
             self.render_keepsakes(),
+            self.render_book(),
             self.render_closer_look(cx),
             self.render_story(cx),
             self.render_standing(cx),
@@ -2802,4 +2852,96 @@ fn save_photo(bounds: gpui::Bounds<gpui::Pixels>, title: &str) -> bool {
         .status()
         .is_ok_and(|status| status.success())
         && path.is_file()
+}
+
+fn shelf_len(book: &[world_projection::BookEntry], shelf: &str) -> usize {
+    book.iter().filter(|entry| entry.shelf == shelf).count()
+}
+
+/// One entry of the book: drawn in colour with its name once found, a
+/// silhouette with a hint until then.
+fn book_tile(entry: &world_projection::BookEntry) -> Div {
+    let found = entry.found;
+    let shape = entry.shape;
+    let key = entry.name.clone();
+    let icon = canvas(
+        |_, _, _| (),
+        move |bounds, _, window, _| {
+            let x = f32::from(bounds.origin.x) + f32::from(bounds.size.width) / 2.0;
+            let base = f32::from(bounds.origin.y) + f32::from(bounds.size.height) - 2.0;
+            let w = f32::from(bounds.size.width) * 0.62;
+            let shadow: Hsla = gpui::black().opacity(0.28);
+            match (shape, found) {
+                (Some(shape), true) => {
+                    art::paint_building(
+                        window,
+                        x,
+                        base,
+                        w,
+                        w * 0.8,
+                        shape,
+                        &art::Palette::of(&key, false),
+                    );
+                }
+                (Some(shape), false) => {
+                    crate::ui::paint_mark(
+                        window,
+                        gpui::Bounds::new(
+                            gpui::point(px(x - w / 2.0), px(base - w * 0.8)),
+                            gpui::size(px(w), px(w * 0.8)),
+                        ),
+                        shape,
+                        shadow,
+                        shadow,
+                    );
+                }
+                (None, _) => {
+                    // Someone: a head and shoulders.
+                    let colour: Hsla = if found { art::hex(0x7a8fb0) } else { shadow };
+                    let r = w * 0.2;
+                    art::circle(window, x, base - w * 0.62, r, colour);
+                    art::rect(
+                        window,
+                        x - w * 0.3,
+                        base - w * 0.38,
+                        w * 0.6,
+                        w * 0.38,
+                        w * 0.2,
+                        colour,
+                    );
+                }
+            }
+        },
+    )
+    .w(px(64.0))
+    .h(px(48.0));
+    div()
+        .w(px(88.0))
+        .p_1()
+        .rounded_md()
+        .bg(color(if found {
+            tokens::SURFACE
+        } else {
+            tokens::SIDEBAR
+        }))
+        .flex()
+        .flex_col()
+        .items_center()
+        .gap_1()
+        .child(icon)
+        .child(
+            div()
+                .text_xs()
+                .text_center()
+                .text_color(color(if found {
+                    tokens::TEXT
+                } else {
+                    tokens::TEXT_TERTIARY
+                }))
+                .child(if found {
+                    capitalized(&entry.name)
+                } else {
+                    entry.hint.clone()
+                }),
+        )
 }

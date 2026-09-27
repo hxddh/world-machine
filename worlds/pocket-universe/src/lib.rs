@@ -1,4 +1,5 @@
 mod almanac;
+mod book;
 #[cfg(test)]
 mod density;
 mod drawings;

@@ -429,6 +429,23 @@ pub struct ProjectionSnapshot {
     /// What people have given the player to keep, oldest first: the
     /// drawer's keepsakes.
     pub keepsakes: Vec<Keepsake>,
+    /// Everything there is to find in this World, found or not: the book
+    /// the drawer keeps, with a silhouette for what is still to come.
+    pub book: Vec<BookEntry>,
+}
+
+/// One entry in a World's book of everything to find: a keepsake, a person
+/// met, something made, a festival day.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BookEntry {
+    /// Which shelf it sits on: "Keepsakes", "People", "Made", "Days".
+    pub shelf: String,
+    pub name: String,
+    pub found: bool,
+    /// How it is drawn, found or as a silhouette.
+    pub shape: Option<MarkShape>,
+    /// A word on how it might be found, for what is still to come.
+    pub hint: String,
 }
 
 /// Something someone gave the player to keep, in the Pack's words: who

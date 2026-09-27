@@ -7,7 +7,7 @@
 //! ordinary Events, so replaying the town never runs it again.
 
 use crate::model::{CONDITION, MAINLAND_MARKET, OPERATING_STATUS};
-use crate::{BAKERY, EMMA, EVAN, JONAS, JONAS_BOAT, LEO, MARA, MIA, NOAH, SOFIA};
+use crate::{BAKERY, EMMA, EVAN, HARBOR, JONAS, JONAS_BOAT, LEO, MARA, MIA, NOAH, SOFIA};
 use society_basic::{CASH, JOB};
 use std::sync::OnceLock;
 use storylets::{Choice, Condition, Deck, Ease, Effect, Goal, Outcome, Pinned, Reading, Storylet};
@@ -457,13 +457,13 @@ fn wants() -> Vec<Spec> {
                 yes(
                     "buy",
                     "Buy the timber",
-                    "Noah pays 70 for mainland timber. The pier grows a section.",
-                    vec![has(NOAH, 70)],
+                    "The harbour fund pays 70 for timber. The pier grows a section.",
+                    vec![has(HARBOR, 70)],
                     said(
                         "pier_section_built",
                         "Evan built a section of the new pier",
                         "Another length of pier, straight and true.",
-                        spend(NOAH, 70)
+                        spend(HARBOR, 70)
                             .into_iter()
                             .chain([Effect::Advance("pier"), mood(1)]),
                     )
@@ -576,13 +576,13 @@ fn wants() -> Vec<Spec> {
                 yes(
                     "fund",
                     "Fund the lamp",
-                    "Noah pays 90 for brass and oil. The lamp is a step nearer lit.",
-                    vec![has(NOAH, 90)],
+                    "The harbour fund pays 90 for brass and oil. The lamp is a step nearer lit.",
+                    vec![has(HARBOR, 90)],
                     said(
                         "lamp_work_done",
                         "Work went on at the lamp on the point",
                         "One step closer to a light on the point.",
-                        spend(NOAH, 90)
+                        spend(HARBOR, 90)
                             .into_iter()
                             .chain([Effect::Advance("lamp"), mood(1)]),
                     )
@@ -860,13 +860,13 @@ fn incidents() -> Vec<Spec> {
                 yes(
                     "drive",
                     "Drive the piles",
-                    "Noah pays 50, and 20 of it is Evan's wage.",
-                    vec![has(NOAH, 50)],
+                    "The harbour fund pays 50, and 20 of it is Evan's wage.",
+                    vec![has(HARBOR, 50)],
                     said(
                         "pier_piles_driven",
                         "The new pier's piles were driven",
                         "She'll stand a hundred years.",
-                        [pay(NOAH, EVAN, 20), spend(NOAH, 30)]
+                        [pay(HARBOR, EVAN, 20), spend(HARBOR, 30)]
                             .into_iter()
                             .flatten()
                             .chain([Effect::Advance("pier")]),
@@ -902,13 +902,15 @@ fn incidents() -> Vec<Spec> {
                 yes(
                     "fetch",
                     "Ship it over",
-                    "Noah pays 40 for the crossing.",
-                    vec![has(NOAH, 40)],
+                    "The harbour fund pays 40 for the crossing.",
+                    vec![has(HARBOR, 40)],
                     said(
                         "lamp_glass_fetched",
                         "The lamp's glass came over from the mainland",
                         "Careful with that!",
-                        spend(NOAH, 40).into_iter().chain([Effect::Advance("lamp")]),
+                        spend(HARBOR, 40)
+                            .into_iter()
+                            .chain([Effect::Advance("lamp")]),
                     ),
                 ),
                 other(

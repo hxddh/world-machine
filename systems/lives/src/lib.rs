@@ -3040,6 +3040,79 @@ pub fn keepsakes(world: &World) -> Vec<Keepsake> {
         .collect()
 }
 
+/// Every keepsake someone living here now could give the player, in the
+/// World's words, each with a word on how it comes: the welcome, what is
+/// left while the player is away, and each person's own.
+pub fn possible_keepsakes(world: &World, cast: &Cast) -> Vec<(String, String)> {
+    let state = world.state();
+    let words = [
+        ("gathering", name(state, cast.gathering)),
+        ("settlement", cast.settlement.to_string()),
+        ("unit", cast.unit.to_string()),
+    ];
+    let mut all = Vec::new();
+    for what in WELCOME {
+        all.push((
+            fill_owned(what, &words),
+            "Given for your first work here".to_string(),
+        ));
+    }
+    for what in LEFT_FOR_YOU {
+        all.push((
+            fill_owned(what, &words),
+            "Left for you while you were away".to_string(),
+        ));
+    }
+    for person in (cast.people)(world) {
+        let what = fill_owned(
+            keepsake_of((cast.voice)(person), (cast.traits)(person)),
+            &words,
+        );
+        all.push((
+            what,
+            format!("From {}, once you are close", first_name(state, person)),
+        ));
+    }
+    let mut seen = BTreeSet::new();
+    all.retain(|(what, _)| seen.insert(what.clone()));
+    all
+}
+
+/// Everyone the player could meet: who lives here now, then strangers who
+/// might yet come to stay, by name, with the person when they are here.
+pub fn people_to_meet(world: &World, cast: &Cast) -> Vec<(String, Option<EntityId>)> {
+    let state = world.state();
+    let mut all = (cast.people)(world)
+        .into_iter()
+        .map(|person| (first_name(state, person), Some(person)))
+        .collect::<Vec<_>>();
+    if let Some(visitors) = cast.visitors {
+        for stranger in visitors.names {
+            if !all.iter().any(|(name, _)| name == stranger) {
+                all.push(((*stranger).to_string(), None));
+            }
+        }
+    }
+    all
+}
+
+/// Everyone the player has met: who came over, asked the player
+/// something, said what they made of something, left them something, or
+/// was spoken to. One pass over the World's history.
+pub fn met(world: &World) -> BTreeSet<EntityId> {
+    let mut met = BTreeSet::new();
+    for event in world.events() {
+        match event.kind.as_str() {
+            "greeted" | "warmed" | "reacted" | "situation_came_up" | "keepsake_left" => {
+                met.extend(event.actor);
+            }
+            "spoken" => met.extend(event.targets.first().copied()),
+            _ => {}
+        }
+    }
+    met
+}
+
 /// Lines said long enough ago are forgotten, so the notes stay small.
 struct Forgets(fn(&WorldState) -> Cast);
 

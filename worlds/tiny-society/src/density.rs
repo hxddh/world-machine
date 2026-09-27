@@ -437,6 +437,22 @@ fn a_year(policy: Policy) {
     let played = play(policy, 365);
     let world = played.branch.world();
 
+    // The goals on the horizon can be finished: a player who says yes to
+    // what the harbour can afford builds the pier and lights the lamp.
+    if matches!(policy, Policy::Generous) {
+        let goals = crate::story::goals(world);
+        assert_eq!(goals.len(), 2);
+        for goal in goals {
+            assert!(
+                goal.finished(),
+                "{} is {} of {} after a year",
+                goal.label,
+                goal.done,
+                goal.parts
+            );
+        }
+    }
+
     // A festival told in its second year is told against its first.
     let mut told = std::collections::BTreeMap::<String, Vec<String>>::new();
     for event in world
@@ -584,7 +600,14 @@ fn a_year(policy: Policy) {
                 })
                 .map(|event| day(event) as i64 - first as i64 - 1 - could as i64)
                 .find(|waited| *waited >= 0)
-                .unwrap_or(365);
+                // Never raised: it waited as long as it could still come
+                // up; a goal finished first ends the wait.
+                .unwrap_or_else(|| {
+                    played.could[could..]
+                        .iter()
+                        .filter(|ids| ids.contains(&storylet.id))
+                        .count() as i64
+                });
             assert!(
                 waited <= 60,
                 "{policy:?}: {} waited {waited} days to come up",

@@ -525,6 +525,19 @@ fn mixing(state: &WorldState, people: &[EntityId], turnout: Turnout) -> Vec<Stat
 }
 
 /// Whether an Event is one of the year's days.
+/// The festivals that have been held at least once, by id.
+pub fn held(world: &world_core::World) -> std::collections::BTreeSet<String> {
+    world
+        .events()
+        .iter()
+        .filter(|event| event.kind == "festival_held")
+        .filter_map(|event| match event.payload.get("festival") {
+            Some(Value::Text(id)) => Some(id.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
 pub fn is_calendar(event: &Event) -> bool {
     matches!(event.kind.as_str(), "festival_nears" | "festival_held")
 }
