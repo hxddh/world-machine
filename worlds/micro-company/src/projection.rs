@@ -32,6 +32,7 @@ pub(crate) fn snapshot(world: &World, since_event_count: Option<usize>) -> Proje
         voices: Vec::new(),
         chapters: Vec::new(),
         goals: Vec::new(),
+        weather: Default::default(),
     }
 }
 

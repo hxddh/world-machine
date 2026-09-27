@@ -3887,3 +3887,36 @@ pub(crate) fn from_the_calendar(id: &str) -> bool {
             .any(|condition| matches!(condition, Condition::Every { .. }))
     })
 }
+
+/// The weather over the harbour, from how the World stands: a gale while a
+/// storm is on, snow and grey skies in winter, rain and fog in the
+/// changeable seasons, as the day's own number falls.
+pub(crate) fn weather(world: &World) -> world_projection::Weather {
+    use world_projection::Weather;
+    let deck = deck();
+    let stormy = storylets::open(world.state(), &deck)
+        .iter()
+        .any(|storylet| matches!(storylet.id, "storm_warning" | "great_storm"));
+    let day = world.world_time() / crate::persistence::WORLD_DAY_TICKS;
+    let recent_storm = world.events().iter().rev().take(80).any(|event| {
+        event.kind == "storm_started"
+            && event.world_time / crate::persistence::WORLD_DAY_TICKS + 1 >= day
+    });
+    if stormy || recent_storm {
+        return Weather::Storm;
+    }
+    let roll = storylets::mix(&[day, 17]) % 10;
+    match (season(world), roll) {
+        (3, 0..=3) => Weather::Snow,
+        (3, 4..=6) => Weather::Cloudy,
+        (2, 0..=2) => Weather::Rain,
+        (2, 3..=4) => Weather::Fog,
+        (2, 5..=6) => Weather::Cloudy,
+        (0, 0..=1) => Weather::Rain,
+        (0, 2) => Weather::Fog,
+        (0, 3..=4) => Weather::Cloudy,
+        (1, 0) => Weather::Rain,
+        (1, 1..=2) => Weather::Cloudy,
+        _ => Weather::Clear,
+    }
+}

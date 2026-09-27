@@ -209,6 +209,21 @@ pub struct Question {
     pub prompt: String,
 }
 
+/// The weather over a World's scene.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum Weather {
+    #[default]
+    Clear,
+    Cloudy,
+    Rain,
+    /// Wind, driving rain and lightning.
+    Storm,
+    Snow,
+    Fog,
+    /// A dust storm, on Mars.
+    Dust,
+}
+
 /// Something a World keeps score of, always on screen: trust between two
 /// people, how safe the colony is, how many people have work.
 #[derive(Clone, Debug, PartialEq)]
@@ -371,6 +386,9 @@ pub struct ProjectionSnapshot {
     pub goals: Vec<Goal>,
     /// The chapters of the World's story that have ended, oldest first.
     pub chapters: Vec<Chapter>,
+    /// The weather the World's state says it has: rain in a storm, snow
+    /// in winter, dust on Mars. Clear unless a Pack says otherwise.
+    pub weather: Weather,
 }
 
 /// Something the World is working toward and can be seen to build: "Rebuild

@@ -87,6 +87,7 @@ pub(crate) fn snapshot_since(
         talks,
         goals: crate::story::goals(world),
         chapters: crate::story::chapters(world),
+        weather: crate::story::weather(world),
     };
     snapshot.tell_events_as_history_does();
     snapshot

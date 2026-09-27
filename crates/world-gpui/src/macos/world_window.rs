@@ -53,6 +53,27 @@ pub(crate) struct Looking {
     pub(crate) ticking: bool,
     /// The last chapter whose ending card the player has turned past.
     pub(crate) chapter_read: Option<u32>,
+    /// What the player is doing with their own hands, if anything.
+    pub(crate) hands: Option<Hands>,
+}
+
+/// The player's hands: which verb they picked, and what they are about to
+/// put, give or invite, if they have picked it. While both are set, the
+/// scene lights up where it can go.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct Hands {
+    pub(crate) verb: Option<String>,
+    /// What they are placing, or `*` for anyone at all (a gift, an
+    /// invitation).
+    pub(crate) thing: Option<String>,
+}
+
+/// The verbs the player's hands can do, in the order they are offered.
+const VERBS: [&str; 6] = ["Build", "Decorate", "Plant", "Move", "Give", "Invite"];
+
+/// Verbs done to someone rather than somewhere.
+fn to_someone(verb: &str) -> bool {
+    matches!(verb, "Give" | "Invite")
 }
 
 /// The chapter that has just ended, if the player has not turned past its
@@ -475,7 +496,10 @@ impl ProjectionView {
         match key {
             "i" if command => self.toggle_drawer(cx),
             "escape" => {
-                if self.looking.asking.is_some() {
+                if self.looking.hands.is_some() {
+                    self.looking.hands = None;
+                    cx.notify();
+                } else if self.looking.asking.is_some() {
                     self.look_away(cx);
                 } else if self.looking.drawer {
                     self.toggle_drawer(cx);
@@ -547,6 +571,14 @@ impl ProjectionView {
     /// What the scene lights up now, and in what colour.
     fn glows(&self) -> Glows {
         let mut glows = Glows::new();
+        // Where the player's hands can put what they picked.
+        if let Some(targets) = self.hand_targets() {
+            let colour: Hsla = color(tokens::ACCENT).into();
+            for target in targets {
+                glows.insert(target, colour);
+            }
+            return glows;
+        }
         if let Some(beat) = self.current_beat() {
             let colour: Hsla = color(scene::tone_token(beat.tone)).into();
             for target in beat_targets(&self.snapshot, beat) {
@@ -570,6 +602,71 @@ impl ProjectionView {
             }
         }
         glows
+    }
+
+    /// While the player is placing something, everywhere it can go.
+    fn hand_targets(&self) -> Option<Vec<SelectionId>> {
+        let hands = self.looking.hands.as_ref()?;
+        let (verb, thing) = (hands.verb.as_deref()?, hands.thing.as_deref()?);
+        Some(
+            self.snapshot
+                .deeds()
+                .filter(|(_, command, hand)| {
+                    command.unavailable.is_none()
+                        && hand.verb == verb
+                        && (thing == "*" || hand.thing == thing)
+                })
+                .filter_map(|(_, _, hand)| hand.at)
+                .collect(),
+        )
+    }
+
+    /// The deed that puts what the player picked at `target`, if there is
+    /// one.
+    fn deed_at(&self, target: SelectionId) -> Option<String> {
+        let hands = self.looking.hands.as_ref()?;
+        let (verb, thing) = (hands.verb.as_deref()?, hands.thing.as_deref()?);
+        self.snapshot
+            .deeds()
+            .find(|(_, command, hand)| {
+                command.unavailable.is_none()
+                    && hand.verb == verb
+                    && (thing == "*" || hand.thing == thing)
+                    && hand.at == Some(target)
+            })
+            .map(|(_, command, _)| command.id.clone())
+    }
+
+    /// Clicking something on the scene while placing does the deed there,
+    /// and puts the player's hands away.
+    fn place_at(&mut self, target: SelectionId, cx: &mut Context<Self>) -> bool {
+        let Some(deed) = self.deed_at(target) else {
+            return false;
+        };
+        self.looking.hands = None;
+        self.invoke_command(deed, cx);
+        true
+    }
+
+    fn toggle_hands(&mut self, cx: &mut Context<Self>) {
+        self.looking.hands = match self.looking.hands {
+            Some(_) => None,
+            None => {
+                let verb = VERBS
+                    .into_iter()
+                    .find(|verb| self.snapshot.deeds().any(|(_, _, hand)| hand.verb == *verb))
+                    .map(str::to_string);
+                Some(Hands {
+                    thing: verb
+                        .as_deref()
+                        .filter(|verb| to_someone(verb))
+                        .map(|_| "*".into()),
+                    verb,
+                })
+            }
+        };
+        self.looking.asking = None;
+        cx.notify();
     }
 
     fn card_command(&self) -> Option<&ProjectionCommand> {
@@ -760,6 +857,9 @@ impl ProjectionView {
                     }))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         cx.stop_propagation();
+                        if this.place_at(selection, cx) {
+                            return;
+                        }
                         this.select(selection, cx);
                         this.looking.drawer = true;
                     })),
@@ -800,6 +900,9 @@ impl ProjectionView {
                     }))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         cx.stop_propagation();
+                        if this.place_at(selection, cx) {
+                            return;
+                        }
                         this.ask(selection, cx);
                     })),
             );
@@ -866,6 +969,9 @@ impl ProjectionView {
         {
             root = root.child(self.render_asking(who, x, y, &stage, cx));
         }
+        if let Some(hands) = self.render_hands(cx) {
+            root = root.child(hands);
+        }
         if self.looking.drawer {
             root = root.child(self.render_drawer(cx));
         }
@@ -918,6 +1024,23 @@ impl ProjectionView {
                     .child(self.snapshot.moment_label(self.snapshot.world_time)),
             );
         }
+        // The player's own hands: build, plant, give, invite.
+        let has_deeds = self.controller.is_some()
+            && self.retelling.is_none()
+            && !is_beginning(&self.snapshot)
+            && self.snapshot.deeds().next().is_some();
+        if has_deeds {
+            let open = self.looking.hands.is_some();
+            right = right.child(
+                pill()
+                    .id("hands-handle")
+                    .cursor_pointer()
+                    .when(open, |pill| pill.bg(color(tokens::ACCENT)))
+                    .hover(|style| style.bg(color(tokens::SURFACE)))
+                    .child(plus_glyph(open).size(px(16.0)))
+                    .on_click(cx.listener(|this, _, _, cx| this.toggle_hands(cx))),
+            );
+        }
         right = right.child(
             pill()
                 .id("drawer-handle")
@@ -938,6 +1061,161 @@ impl ProjectionView {
             .gap_4()
             .child(gauges)
             .child(right)
+    }
+
+    /// The player's hands, open: the verbs, and for the one picked what can
+    /// be made, then where it goes or who it is for.
+    fn render_hands(&self, cx: &mut Context<Self>) -> Option<Div> {
+        let hands = self.looking.hands.clone()?;
+        let verbs = VERBS
+            .into_iter()
+            .filter(|verb| self.snapshot.deeds().any(|(_, _, hand)| hand.verb == *verb))
+            .collect::<Vec<_>>();
+        let mut tabs = div().flex().flex_wrap().gap_1();
+        for verb in verbs {
+            let chosen = hands.verb.as_deref() == Some(verb);
+            tabs = tabs.child(
+                div()
+                    .id(SharedString::from(format!("hands-verb-{verb}")))
+                    .px_2()
+                    .py(px(3.0))
+                    .rounded_full()
+                    .text_sm()
+                    .cursor_pointer()
+                    .when(chosen, |tab| {
+                        tab.bg(color(tokens::ACCENT))
+                            .text_color(color(tokens::SURFACE))
+                    })
+                    .when(!chosen, |tab| {
+                        tab.text_color(color(tokens::TEXT_SECONDARY))
+                            .hover(|style| style.bg(color(tokens::ROW_SELECTED)))
+                    })
+                    .child(verb)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.looking.hands = Some(Hands {
+                            verb: Some(verb.to_string()),
+                            thing: to_someone(verb).then(|| "*".to_string()),
+                        });
+                        cx.notify();
+                    })),
+            );
+        }
+        let mut body = div().flex().flex_col().gap_1();
+        match (hands.verb.as_deref(), hands.thing.as_deref()) {
+            (Some(verb), Some(thing)) => {
+                let hint = match (verb, thing) {
+                    ("Give", "*") => "Choose who to give a present to.".to_string(),
+                    (_, "*") => "Choose who to invite out.".to_string(),
+                    ("Move", _) => format!("Choose where the {} goes now.", thing.to_lowercase()),
+                    _ => format!("Choose where the {} goes.", thing.to_lowercase()),
+                };
+                body = body.child(div().text_sm().text_color(color(tokens::TEXT)).child(hint));
+                if self
+                    .hand_targets()
+                    .is_some_and(|targets| targets.is_empty())
+                {
+                    if let Some(reason) = self
+                        .snapshot
+                        .deeds()
+                        .find(|(_, _, hand)| {
+                            hand.verb == verb && (thing == "*" || hand.thing == thing)
+                        })
+                        .and_then(|(_, command, _)| command.unavailable.clone())
+                    {
+                        body = body.child(ui::caption(reason));
+                    }
+                }
+                if !to_someone(verb) {
+                    let verb = verb.to_string();
+                    body = body.child(
+                        div()
+                            .id("hands-back")
+                            .text_sm()
+                            .text_color(color(tokens::ACCENT_TEXT))
+                            .cursor_pointer()
+                            .child("Something else")
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.looking.hands = Some(Hands {
+                                    verb: Some(verb.clone()),
+                                    thing: None,
+                                });
+                                cx.notify();
+                            })),
+                    );
+                }
+            }
+            (Some(verb), None) => {
+                let mut seen = Vec::<String>::new();
+                for (_, command, hand) in self
+                    .snapshot
+                    .deeds()
+                    .filter(|(_, _, hand)| hand.verb == verb)
+                {
+                    if seen.contains(&hand.thing) {
+                        continue;
+                    }
+                    seen.push(hand.thing.clone());
+                    let possible = self.snapshot.deeds().any(|(_, command, other)| {
+                        other.verb == verb
+                            && other.thing == hand.thing
+                            && command.unavailable.is_none()
+                    });
+                    let label = match &hand.cost {
+                        Some(cost) => format!("{} · {cost}", hand.thing),
+                        None => hand.thing.clone(),
+                    };
+                    let (verb, thing) = (verb.to_string(), hand.thing.clone());
+                    let mut row = div()
+                        .id(SharedString::from(format!("hands-thing-{}", command.id)))
+                        .px_2()
+                        .py(px(5.0))
+                        .rounded_md()
+                        .text_sm()
+                        .flex()
+                        .justify_between()
+                        .child(label);
+                    row = if possible {
+                        row.text_color(color(tokens::TEXT))
+                            .cursor_pointer()
+                            .hover(|style| style.bg(color(tokens::ROW_SELECTED)))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.looking.hands = Some(Hands {
+                                    verb: Some(verb.clone()),
+                                    thing: Some(thing.clone()),
+                                });
+                                cx.notify();
+                            }))
+                    } else {
+                        row.text_color(color(tokens::TEXT_TERTIARY))
+                    };
+                    body = body.child(row);
+                    if !possible {
+                        if let Some(reason) = &command.unavailable {
+                            body = body.child(ui::caption(reason.clone()));
+                            break;
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+        Some(
+            div()
+                .absolute()
+                .top(px(64.0))
+                .right(px(16.0))
+                .w(px(260.0))
+                .child(
+                    ui::card()
+                        .p_3()
+                        .flex()
+                        .flex_col()
+                        .gap_2()
+                        .shadow_md()
+                        .child(tabs)
+                        .child(body),
+                ),
+        )
     }
 
     /// Your turn: one card, whoever asks it large, one line, and the ways
@@ -1572,6 +1850,26 @@ fn hud_gauge(gauge: &world_projection::Gauge, shown: f32, by: Option<i32>) -> Di
         );
     }
     pill
+}
+
+/// The hands' handle: a plus, pale on the accent while open.
+fn plus_glyph(open: bool) -> gpui::Canvas<()> {
+    canvas(
+        |_, _, _| (),
+        move |bounds, _, window, _| {
+            let ink: Hsla = if open {
+                color(tokens::SURFACE).into()
+            } else {
+                color(tokens::TEXT_SECONDARY).into()
+            };
+            let x = f32::from(bounds.origin.x);
+            let y = f32::from(bounds.origin.y);
+            let w = f32::from(bounds.size.width);
+            let h = f32::from(bounds.size.height);
+            art::rect(window, x + w / 2.0 - 1.0, y + 2.0, 2.0, h - 4.0, 1.0, ink);
+            art::rect(window, x + 2.0, y + h / 2.0 - 1.0, w - 4.0, 2.0, 1.0, ink);
+        },
+    )
 }
 
 /// The drawer's handle: three short lines.

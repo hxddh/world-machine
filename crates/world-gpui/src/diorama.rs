@@ -16,7 +16,8 @@ use gpui::{
 };
 use std::collections::{BTreeMap, BTreeSet};
 use world_projection::{
-    CanvasItem, CanvasItemKind, CanvasLinkTone, MarkShape, ProjectionSnapshot, Scenery, SelectionId,
+    CanvasItem, CanvasItemKind, CanvasLinkTone, MarkShape, ProjectionSnapshot, Scenery,
+    SelectionId, Weather,
 };
 
 /// The colours of a World that does not say what it looks like: a mild
@@ -533,6 +534,7 @@ pub struct Frame {
     things: Vec<ThingPaint>,
     pub people: Vec<PersonPaint>,
     bonds: Vec<(f32, f32, f32, CanvasLinkTone)>,
+    weather: Weather,
 }
 
 impl Frame {
@@ -745,6 +747,7 @@ pub fn frame(
         things,
         people,
         bonds,
+        weather: snapshot.weather,
     }
 }
 
@@ -787,9 +790,25 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window) {
             ),
         ));
     }
+    // The weather lays its own light over the sky: grey under rain, slate
+    // in a storm, pale before snow, rust in a dust storm.
+    let weather = frame.weather;
+    let overcast = match weather {
+        Weather::Clear => None,
+        Weather::Cloudy => Some((0x9aa4ad, 0.22)),
+        Weather::Rain => Some((0x6f7a86, 0.42)),
+        Weather::Storm => Some((0x2f3844, 0.62)),
+        Weather::Snow => Some((0xe8edf2, 0.35)),
+        Weather::Fog => Some((0xd8dde0, 0.4)),
+        Weather::Dust => Some((0xb8643a, 0.45)),
+    };
+    if let Some((tint, alpha)) = overcast {
+        window.paint_quad(gpui::fill(bounds, art::hex(tint).opacity(alpha)));
+    }
+    let sun_out = matches!(weather, Weather::Clear | Weather::Cloudy);
     // Sun by day, a moon and stars by night.
     let (sun_x, sun_y) = (ox + width * 0.8, oy + frame.horizon * 0.34);
-    if night {
+    if night && sun_out {
         let mut seed: u32 = 0x9e37_79b9;
         for _ in 0..60 {
             seed ^= seed << 13;
@@ -814,26 +833,56 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window) {
             20.0 * k,
             art::hex(0x0e1436).opacity(0.9),
         );
-    } else {
+    } else if sun_out {
         let sun = art::hex(scenery.sun);
-        art::circle(window, sun_x, sun_y, 58.0 * k, sun.opacity(0.18));
-        art::circle(window, sun_x, sun_y, 36.0 * k, sun);
+        let dim = if weather == Weather::Cloudy {
+            0.55
+        } else {
+            1.0
+        };
+        art::circle(window, sun_x, sun_y, 58.0 * k, sun.opacity(0.18 * dim));
+        art::circle(window, sun_x, sun_y, 36.0 * k, sun.opacity(dim));
     }
-    // Clouds drifting across, slowly, each at its own pace.
-    let cloud = if night {
-        gpui::white().opacity(0.08)
-    } else {
-        gpui::white().opacity(0.72)
+    // Clouds drifting across, slowly, each at its own pace; more of them,
+    // and greyer, the worse the weather.
+    let (clouds, cloud) = match (night, weather) {
+        (true, _) => (4, gpui::white().opacity(0.08)),
+        (false, Weather::Clear) => (4, gpui::white().opacity(0.72)),
+        (false, Weather::Cloudy) => (7, art::hex(0xe4e8ec).opacity(0.85)),
+        (false, Weather::Rain | Weather::Snow) => (8, art::hex(0xc4cad0).opacity(0.9)),
+        (false, Weather::Storm) => (9, art::hex(0x5a6470).opacity(0.95)),
+        (false, Weather::Fog) => (6, gpui::white().opacity(0.6)),
+        (false, Weather::Dust) => (6, art::hex(0xd99a6c).opacity(0.7)),
     };
-    for index in 0..4 {
+    for index in 0..clouds {
         let speed = 4.0 + index as f32 * 1.7;
         let span = width + 320.0;
         let x = ox + ((index as f32 * 331.0 + t * speed) % span) - 160.0;
-        let y = oy + frame.horizon * (0.16 + 0.14 * index as f32);
-        let s = (1.0 - index as f32 * 0.12) * k;
+        let y = oy + frame.horizon * (0.12 + 0.11 * (index % 5) as f32);
+        let s = (1.0 - (index % 5) as f32 * 0.12) * k;
         art::ellipse(window, x, y, 46.0 * s, 16.0 * s, cloud);
         art::ellipse(window, x + 30.0 * s, y - 8.0 * s, 32.0 * s, 16.0 * s, cloud);
         art::ellipse(window, x - 28.0 * s, y + 2.0 * s, 26.0 * s, 11.0 * s, cloud);
+    }
+
+    // Gulls wheeling over on a fair day.
+    if !night && sun_out {
+        for gull in 0..3 {
+            let span = width + 200.0;
+            let x = ox + ((gull as f32 * 417.0 + t * (18.0 + gull as f32 * 5.0)) % span) - 100.0;
+            let y = oy
+                + frame.horizon * (0.3 + 0.08 * gull as f32)
+                + (t * 1.7 + gull as f32).sin() * 6.0;
+            let flap = 3.0 + 2.0 * (t * 6.0 + gull as f32 * 2.0).sin();
+            let ink = art::hex(0x3c4048).opacity(0.7);
+            let mut wings = PathBuilder::stroke(px(1.6));
+            wings.move_to(point(px(x - 7.0 * k), px(y - flap * k)));
+            wings.line_to(point(px(x), px(y)));
+            wings.line_to(point(px(x + 7.0 * k), px(y - flap * k)));
+            if let Ok(path) = wings.build() {
+                window.paint_path(path, ink);
+            }
+        }
     }
 
     // The far ridge, the ground, and the foreground.
@@ -966,6 +1015,18 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window) {
         }
     }
 
+    // Under bad weather the land darkens too, and snow lies pale on it.
+    let ground_tint = match weather {
+        Weather::Rain => Some((0x3c4652, 0.14)),
+        Weather::Storm => Some((0x1f2630, 0.3)),
+        Weather::Snow => Some((0xf4f7fa, 0.28)),
+        Weather::Dust => Some((0xa0502a, 0.12)),
+        _ => None,
+    };
+    if let Some((tint, alpha)) = ground_tint {
+        window.paint_quad(gpui::fill(bounds, art::hex(tint).opacity(alpha)));
+    }
+
     // Glows on the ground under whatever is lit up.
     let pool = |window: &mut Window, x: f32, y: f32, r: f32, colour: Hsla| {
         let breathe = 0.85 + 0.15 * (t * 2.4).sin();
@@ -999,6 +1060,22 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window) {
             building.shape,
             &building.palette,
         );
+        // A lit chimney smokes: puffs rising and thinning, bent by the wind.
+        if building.shape == MarkShape::House && weather != Weather::Storm {
+            let chimney_x = ox + building.x - building.w / 2.0 + building.w * 0.67;
+            let chimney_y = oy + building.base - building.h + building.h * 0.12;
+            for puff in 0..4 {
+                let age = (t * 0.35 + puff as f32 * 0.25 + building.index as f32 * 0.37) % 1.0;
+                let wind = if weather == Weather::Rain { 26.0 } else { 12.0 };
+                art::circle(
+                    window,
+                    chimney_x + age * wind,
+                    chimney_y - age * building.h * 0.5,
+                    building.w * (0.03 + age * 0.05),
+                    art::hex(0xd8d8d8).opacity(0.5 * (1.0 - age)),
+                );
+            }
+        }
     }
     for thing in &frame.things {
         if let Some(glow) = thing.glow {
@@ -1030,7 +1107,109 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window) {
     for (x, y, r, tone) in &frame.bonds {
         art::paint_bond(window, ox + x, oy + y, *r, *tone);
     }
+    paint_weather(window, frame, ox, oy, width, height, k);
     let _ = frame.zoom;
+}
+
+/// Rain, snow, dust and fog over the whole scene, and lightning in a storm.
+fn paint_weather(
+    window: &mut Window,
+    frame: &Frame,
+    ox: f32,
+    oy: f32,
+    width: f32,
+    height: f32,
+    k: f32,
+) {
+    let t = frame.seconds;
+    // Each drop or flake has its own place in a repeating fall.
+    let fall = |index: u32, speed: f32, drift: f32| {
+        let mut seed = index.wrapping_mul(0x9e37_79b9) ^ 0x85eb_ca6b;
+        seed ^= seed >> 15;
+        let x0 = (seed % 1000) as f32 / 1000.0;
+        let phase = ((seed / 1000) % 1000) as f32 / 1000.0;
+        let y = ((phase + t * speed / height.max(1.0)) % 1.0) * (height + 40.0) - 20.0;
+        let x = (x0 * (width + 120.0) + y * drift) % (width + 120.0) - 60.0;
+        (ox + x, oy + y)
+    };
+    match frame.weather {
+        Weather::Rain | Weather::Storm => {
+            let storm = frame.weather == Weather::Storm;
+            let (count, speed, slant) = if storm {
+                (220, 900.0, 0.35)
+            } else {
+                (120, 620.0, 0.12)
+            };
+            let ink = art::hex(0xdfe7ef).opacity(if storm { 0.55 } else { 0.45 });
+            for index in 0..count {
+                let (x, y) = fall(index, speed, slant);
+                let len = (12.0 + (index % 5) as f32 * 2.0) * k;
+                let mut streak = PathBuilder::stroke(px(1.0));
+                streak.move_to(point(px(x), px(y)));
+                streak.line_to(point(px(x + len * slant), px(y + len)));
+                if let Ok(path) = streak.build() {
+                    window.paint_path(path, ink);
+                }
+            }
+            // Now and then the sky lights up.
+            if storm {
+                let beat = t % 7.3;
+                if beat < 0.12 || (0.2..0.26).contains(&beat) {
+                    window.paint_quad(gpui::fill(
+                        Bounds::new(point(px(ox), px(oy)), size(px(width), px(height))),
+                        gpui::white().opacity(0.35),
+                    ));
+                }
+            }
+        }
+        Weather::Snow => {
+            for index in 0..110 {
+                let (x, y) = fall(index, 45.0 + (index % 7) as f32 * 6.0, 0.05);
+                let sway = (t * 0.9 + index as f32).sin() * 6.0;
+                art::circle(
+                    window,
+                    x + sway,
+                    y,
+                    (1.4 + (index % 3) as f32 * 0.7) * k,
+                    gpui::white().opacity(0.85),
+                );
+            }
+        }
+        Weather::Dust => {
+            for index in 0..140_u32 {
+                let mut seed = index.wrapping_mul(0x2545_f491) ^ 0x68e3_1da4;
+                seed ^= seed >> 13;
+                let y = oy + ((seed % 1000) as f32 / 1000.0) * height;
+                let x = ox
+                    + ((((seed / 1000) % 1000) as f32 / 1000.0) * (width + 80.0)
+                        + t * (60.0 + (index % 9) as f32 * 12.0))
+                        % (width + 80.0)
+                    - 40.0;
+                art::circle(window, x, y, 1.2 * k, art::hex(0xe0a070).opacity(0.55));
+            }
+            window.paint_quad(gpui::fill(
+                Bounds::new(
+                    point(px(ox), px(oy + frame.horizon)),
+                    size(px(width), px(height - frame.horizon)),
+                ),
+                art::hex(0xc07040).opacity(0.18),
+            ));
+        }
+        Weather::Fog => {
+            for band in 0..4 {
+                let y = oy + frame.horizon + band as f32 * (height - frame.horizon) / 4.5;
+                let drift = (t * (4.0 + band as f32)) % 60.0;
+                window.paint_quad(gpui::fill(
+                    Bounds::new(
+                        point(px(ox - 60.0 + drift), px(y)),
+                        size(px(width + 120.0), px((height - frame.horizon) / 5.0)),
+                    ),
+                    gpui::white().opacity(0.22),
+                ));
+            }
+        }
+        Weather::Clear | Weather::Cloudy => {}
+    }
 }
 
 /// A World's cover: its landscape, what it has built, and its people and

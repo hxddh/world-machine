@@ -3609,3 +3609,42 @@ pub(crate) fn from_the_calendar(id: &str) -> bool {
             .any(|condition| matches!(condition, Condition::Every { .. }))
     })
 }
+
+/// The weather over each place, from how the World stands: dust storms on
+/// Mars and blizzards on the ice while the weather or the long dark is
+/// upon them, rain and snow on Maple Street by the season, as the period's
+/// own number falls.
+pub(crate) fn weather(world: &World) -> world_projection::Weather {
+    use world_projection::Weather;
+    let deck = deck();
+    let open = storylets::open(world.state(), &deck);
+    let rough = open
+        .iter()
+        .any(|storylet| matches!(storylet.id, "weather" | "long_dark"));
+    let period = world.world_time() / crate::BACKGROUND_PERIOD;
+    let roll = storylets::mix(&[period, 23]) % 10;
+    let season = season(world);
+    match seed_id(world) {
+        "mars-colony" => match (rough, roll) {
+            (true, _) | (false, 0) => Weather::Dust,
+            (false, 1) if season == 3 => Weather::Cloudy,
+            _ => Weather::Clear,
+        },
+        "penguin-civilization" => match (rough, season, roll) {
+            (true, _, _) => Weather::Storm,
+            (false, 3, 0..=5) | (false, 2, 0..=2) | (false, _, 0) => Weather::Snow,
+            (false, _, 1..=2) => Weather::Fog,
+            (false, _, 3) => Weather::Cloudy,
+            _ => Weather::Clear,
+        },
+        "1980s-town" => match (rough, season, roll) {
+            (true, _, _) => Weather::Storm,
+            (false, 3, 0..=3) => Weather::Snow,
+            (false, 2 | 0, 0..=2) | (false, 1, 0) => Weather::Rain,
+            (false, _, 4) | (false, 0..=2, 3) => Weather::Cloudy,
+            (false, 2, 5) => Weather::Fog,
+            _ => Weather::Clear,
+        },
+        _ => Weather::Clear,
+    }
+}

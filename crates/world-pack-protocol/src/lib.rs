@@ -362,6 +362,59 @@ pub struct ProjectionSnapshotWire {
     pub goals: Vec<GoalWire>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub chapters: Vec<ChapterWire>,
+    /// Optional both ways: the weather over the scene; clear if absent.
+    #[serde(default, skip_serializing_if = "is_clear")]
+    pub weather: WeatherWire,
+}
+
+/// The weather over a World's scene. A Pack's word this build does not
+/// know reads as clear.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WeatherWire {
+    #[default]
+    Clear,
+    Cloudy,
+    Rain,
+    Storm,
+    Snow,
+    Fog,
+    Dust,
+    #[serde(other)]
+    Unknown,
+}
+
+fn is_clear(weather: &WeatherWire) -> bool {
+    matches!(weather, WeatherWire::Clear | WeatherWire::Unknown)
+}
+
+impl From<world_projection::Weather> for WeatherWire {
+    fn from(weather: world_projection::Weather) -> Self {
+        use world_projection::Weather;
+        match weather {
+            Weather::Clear => Self::Clear,
+            Weather::Cloudy => Self::Cloudy,
+            Weather::Rain => Self::Rain,
+            Weather::Storm => Self::Storm,
+            Weather::Snow => Self::Snow,
+            Weather::Fog => Self::Fog,
+            Weather::Dust => Self::Dust,
+        }
+    }
+}
+
+impl From<WeatherWire> for world_projection::Weather {
+    fn from(weather: WeatherWire) -> Self {
+        match weather {
+            WeatherWire::Clear | WeatherWire::Unknown => Self::Clear,
+            WeatherWire::Cloudy => Self::Cloudy,
+            WeatherWire::Rain => Self::Rain,
+            WeatherWire::Storm => Self::Storm,
+            WeatherWire::Snow => Self::Snow,
+            WeatherWire::Fog => Self::Fog,
+            WeatherWire::Dust => Self::Dust,
+        }
+    }
 }
 
 /// A standing goal, drawn as an outline until its parts are built.
@@ -690,6 +743,7 @@ impl From<&ProjectionSnapshot> for ProjectionSnapshotWire {
                     moment: chapter.moment.map(Into::into),
                 })
                 .collect(),
+            weather: snapshot.weather.into(),
         }
     }
 }
@@ -805,6 +859,7 @@ impl TryFrom<ProjectionSnapshotWire> for ProjectionSnapshot {
                     moment: chapter.moment.map(Into::into),
                 })
                 .collect(),
+            weather: snapshot.weather.into(),
         })
     }
 }
@@ -1956,6 +2011,7 @@ mod tests {
             voices: Vec::new(),
             chapters: Vec::new(),
             goals: Vec::new(),
+            weather: Default::default(),
         }
     }
 

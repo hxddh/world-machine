@@ -541,3 +541,34 @@ fn your_hands_shape_the_harbour() {
     let replayed = branch.world().replay().unwrap();
     assert_eq!(replayed.state(), branch.world().state());
 }
+
+/// The scene shows the weather the World's state says it has: a gale
+/// whenever a storm is on, snow only in winter, and something other than
+/// sunshine often enough to notice.
+#[test]
+fn the_weather_follows_the_world() {
+    use world_projection::Weather;
+    let mut society = TinySociety::new().unwrap();
+    society.run_story().unwrap();
+    let mut branch = society.branch();
+    branch.begin_story().unwrap();
+    let mut seen = std::collections::BTreeSet::new();
+    for _ in 0..80 {
+        let world = branch.world();
+        let weather = projection::snapshot(world).weather;
+        let storm_on = storylets::open(world.state(), &story::deck())
+            .iter()
+            .any(|storylet| matches!(storylet.id, "storm_warning" | "great_storm"));
+        if storm_on {
+            assert_eq!(weather, Weather::Storm);
+        }
+        if weather == Weather::Snow {
+            assert_eq!(story::season(world), 3, "snow outside winter");
+        }
+        seen.insert(format!("{weather:?}"));
+        branch
+            .invoke_projection_command(story::WAIT_COMMAND)
+            .unwrap();
+    }
+    assert!(seen.len() >= 4, "{seen:?}");
+}
