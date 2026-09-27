@@ -1190,6 +1190,10 @@ pub fn say_with(
             lives::name(state, who)
         ));
     }
+    // Words that could never be recorded are not sent anywhere.
+    if !plain(words.trim(), MOST_WORDS) {
+        return Err(format!("Say something of at most {MOST_WORDS} characters"));
+    }
     let heard = hear(state, kit, who, words);
     let own = reply(world, kit, who, heard);
     let Some(listened) = listener.listen(&hearing(world, kit, who, words, &own.line)) else {
@@ -1217,11 +1221,13 @@ pub fn say_with(
     if (intent.about_someone() && about.is_none()) || (intent == Intent::Place && about.is_none()) {
         return Ok(request(who, words, heard, &own));
     }
-    let heard = Heard { intent, about };
     let answer = listened.answer.trim();
+    // A proposal is taken whole or not at all: an unusable answer means
+    // the meaning it came with is not trusted either.
     if !plain(answer, MOST_REPLY) {
-        return Ok(request(who, words, heard, &reply(world, kit, who, heard)));
+        return Ok(request(who, words, heard, &own));
     }
+    let heard = Heard { intent, about };
     // A need still asks for what is really on offer.
     let asks_for = (intent == Intent::Need)
         .then(|| (kit.need_line)(world, who).1)

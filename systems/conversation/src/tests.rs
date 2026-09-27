@@ -303,3 +303,30 @@ fn a_prompt_marks_the_worlds_words_as_data_and_a_reply_is_read_back() {
     );
     assert_eq!(parse("I won't do that."), None);
 }
+
+#[test]
+fn an_unusable_proposal_changes_nothing_and_long_words_never_reach_a_listener() {
+    let (mut world, actions) = world();
+    let kit = kit(world.state());
+    let mut rude = Scripted(Some(Listened {
+        meaning: "rude".into(),
+        about: None,
+        answer: "x".repeat(MOST_REPLY + 1),
+    }));
+    let request = say_with(&world, &kit, MARA, "hello", &mut rude).unwrap();
+    world.execute(&actions, &request).unwrap();
+    assert_eq!(regard(&world, MARA), 10);
+    assert_eq!(
+        world.events()[0].payload.get("intent"),
+        Some(&Value::Text("greet".into()))
+    );
+
+    struct NeverAsked;
+    impl Listener for NeverAsked {
+        fn listen(&mut self, _: &Hearing) -> Option<Listened> {
+            panic!("words that cannot be recorded were sent to a listener");
+        }
+    }
+    let long = "a".repeat(MOST_WORDS + 1);
+    assert!(say_with(&world, &kit, MARA, &long, &mut NeverAsked).is_err());
+}
