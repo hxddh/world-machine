@@ -89,3 +89,36 @@ As always, every concept is built in both Pocket Universe and Tiny Society befor
 - A screenshot pair of two branches split at day 10, a season later, that a stranger can tell apart and explain without reading anything.
 - A timed turn on a year-old World on a real Mac.
 - The two-week diary on a real Mac, now with two questions each day: did something happen that I did not expect, and did I change the place with my own hands? The target is 10 of 14 days for each.
+
+## Progress
+
+`v0.12.0` ships items 1, 2 and 4, and the weather and life part of item 3. Item 5 (a year with a shape) and the rest of item 3 (Pack-shipped drawings, a zooming camera) move to v0.13 with talking to people, as decided when the work began. Item 6 still waits on the five secrets.
+
+| The bar, played 365 periods | Tiny Society | Pocket Universe |
+| --- | --- | --- |
+| Never-seen situations in each 30 periods, months 4 to 12 | 8 or more every month; about 10 saying yes or left alone, about 25 saying no | 8 or more every month; about 10 on Mars saying yes and Icebridge left alone, about 25 on Maple Street saying no |
+| Most any everyday line is said in 30 periods | 3 | 3 |
+| Changes in how two people stand, in any 30 periods from month 4 | 3 or more | 3 or more |
+| Chapter titles reused in a year | none | none |
+| Everyone living there does something with each period | yes | yes |
+| Things to do besides answering | 6: build, decorate, plant, move, give, invite | 6 |
+| After a month of building, what stands that the player put there | a third or more | a third or more |
+| Branches split at day 10 by one answer, then played 90 days the same way | a third or more of their situations differ, and the scene differs | the same, on Mars |
+| A turn with its previews on a 365-period World, release build | 37 ms | 33 ms |
+| A snapshot on the same World | 21 ms | 20 ms |
+
+These are checked by `a_year_*`, `your_hands_shape_*`, `branches_become_*` and `the_weather_follows_the_world` in each Pack, next to the story-density and consequence tests, which still hold. The snapshot misses its 10 ms target by about half: history is still told in full, and turning that into an index is left for later. The turn, which is what a player waits for, is inside its 50.
+
+- **The storm as a storm.** When the harbour's great storm is on, the sky and land darken and the rain drives in; winter brings snow that lies, autumn rain and fog, Mars its dust storms, Icebridge its blizzards. All of it follows from the World's state.
+
+  ![The storm](review/v12-storm.png)
+
+- **Your hands.** The plus beside the drawer handle opens what the World lets you do: build, decorate, plant, move, give, invite, each with its cost. Picking a bench lights up where it can go.
+
+  ![Choosing where the bench goes](review/v12-hands.png)
+
+- **Where you put it.** Clicking a place builds it there, recorded like any other change, and the day does not pass.
+
+  ![The bench by the houses](review/v12-bench.png)
+
+Still to check by hand: the pair of branches a stranger can tell apart, a timed turn on a year-old World on a real Mac, and the two-week diary.
