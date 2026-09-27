@@ -594,3 +594,26 @@ fn branches_become_different_colonies() {
     );
     assert_ne!(scene(left.world()), scene(right.world()));
 }
+
+/// Times a year-old World's snapshot and turn; run in a release build with
+/// `--ignored --nocapture`.
+#[test]
+#[ignore]
+fn time_a_year_old_world() {
+    let played = play(MARS, Policy::Generous, 365);
+    let world = played.universe.world();
+    world.history_index();
+    for _ in 0..3 {
+        let started = std::time::Instant::now();
+        let snapshot = projection::snapshot(world);
+        eprintln!(
+            "snapshot {:?} ({} events, {} history items)",
+            started.elapsed(),
+            world.events().len(),
+            snapshot.timeline.items.len()
+        );
+    }
+    let started = std::time::Instant::now();
+    played.universe.projection_snapshot();
+    eprintln!("session snapshot {:?}", started.elapsed());
+}

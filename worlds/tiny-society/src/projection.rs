@@ -1427,10 +1427,12 @@ mod probe_parts {
                 r
             }};
         }
+        t!("index", world.history_index());
         let cmds = t!("commands", available_commands(world));
         t!("talks", crate::talk::talks(world, &cmds));
         t!("briefing", society_briefing(world, None));
         t!("timeline", told_timeline(world));
+
         t!("canvas", canvas_items(world));
         t!("inspectors", inspectors_from_world(world));
         t!("why", why_map_from_world(world));

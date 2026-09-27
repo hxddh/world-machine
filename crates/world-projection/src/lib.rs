@@ -3,7 +3,8 @@ mod influence;
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use world_core::{
-    Entity, EntityId, Event, EventId, Relation, RelationId, StateChange, Value, World,
+    Entity, EntityId, Event, EventId, HistoryIndex, RelationId, RelationRecord, StateChange, Value,
+    World,
 };
 
 pub use causal::{why_from_world, why_map_from_world, WhyNode, WhyProjection};
@@ -1507,12 +1508,18 @@ pub fn timeline_from_world(world: &World) -> TimelineProjection {
     timeline_of(world, |_| true)
 }
 
-/// A World's history, told only of the events `worth` keeps: a Pack can
-/// leave out everyday life it tells in other ways.
+/// How many of a World's latest events [`timeline_of`] tells: History
+/// shows the latest moments and counts a few more, and a chapter book tells
+/// the rest, so a year-old World's history costs no more than a month's.
+pub const TIMELINE_EVENTS: usize = 1200;
+
+/// A World's recent history, told only of the events `worth` keeps: a Pack
+/// can leave out everyday life it tells in other ways. It covers the latest
+/// [`TIMELINE_EVENTS`] events; older ones stay in the file.
 pub fn timeline_of(world: &World, worth: impl Fn(&Event) -> bool) -> TimelineProjection {
+    let events = world.events();
     TimelineProjection {
-        items: world
-            .events()
+        items: events[events.len().saturating_sub(TIMELINE_EVENTS)..]
             .iter()
             .rev()
             .filter(|event| worth(event))
@@ -1545,16 +1552,11 @@ pub fn retell_timeline(
     world: &World,
     tell: impl Fn(&Event) -> Telling,
 ) {
-    let events = world
-        .events()
-        .iter()
-        .map(|event| (event.id, event))
-        .collect::<BTreeMap<_, _>>();
     for item in &mut timeline.items {
         let SelectionId::Event(id) = item.id else {
             continue;
         };
-        let Some(event) = events.get(&id) else {
+        let Some(event) = world.event(id) else {
             continue;
         };
         match tell(event) {
@@ -1572,16 +1574,15 @@ pub fn retell_timeline(
 }
 
 pub fn inspectors_from_world(world: &World) -> BTreeMap<SelectionId, InspectorProjection> {
-    let recorded_change_events = recorded_entity_change_events(world);
-    let recorded_relations = recorded_relation_incarnations(world);
+    let index = world.history_index();
     let mut inspectors = BTreeMap::new();
     for entity in world.state().entities() {
         inspectors.insert(
             SelectionId::Entity(entity.id),
-            inspector_for_entity(entity, world, &recorded_change_events),
+            inspector_for_entity(entity, world, &index),
         );
     }
-    for recorded in recorded_relations.values() {
+    for recorded in index.relations() {
         inspectors.insert(
             SelectionId::Relation(recorded.relation.id),
             inspector_for_relation(recorded, world),
@@ -1641,7 +1642,7 @@ pub fn value_text(value: &Value, world: &World) -> String {
 fn inspector_for_entity(
     entity: &Entity,
     world: &World,
-    recorded_change_events: &BTreeMap<EntityId, Vec<EventId>>,
+    index: &HistoryIndex,
 ) -> InspectorProjection {
     let components = entity
         .components
@@ -1674,7 +1675,7 @@ fn inspector_for_entity(
             }
         })
         .collect::<Vec<_>>();
-    let recorded_changes = recorded_entity_change_rows(entity.id, world, recorded_change_events);
+    let recorded_changes = recorded_entity_change_rows(entity.id, world, index);
 
     let mut sections = vec![InspectorSection {
         title: "State".into(),
@@ -1707,11 +1708,9 @@ const RECENT_CHANGE_ROWS: usize = 12;
 fn recorded_entity_change_rows(
     entity: EntityId,
     world: &World,
-    recorded_change_events: &BTreeMap<EntityId, Vec<EventId>>,
+    index: &HistoryIndex,
 ) -> Vec<InspectorRow> {
-    let Some(event_ids) = recorded_change_events.get(&entity) else {
-        return Vec::new();
-    };
+    let event_ids = index.changes_of(entity);
 
     // The latest few: a detail panel is not the whole history.
     event_ids
@@ -1730,174 +1729,7 @@ fn recorded_entity_change_rows(
         .collect()
 }
 
-fn recorded_entity_change_events(world: &World) -> BTreeMap<EntityId, Vec<EventId>> {
-    let mut relation_endpoints = world
-        .baseline_state()
-        .relations()
-        .map(|relation| (relation.id, (relation.from, relation.to)))
-        .collect::<BTreeMap<RelationId, (EntityId, EntityId)>>();
-    let mut events_by_entity = BTreeMap::<EntityId, Vec<EventId>>::new();
-
-    for event in world.events() {
-        let mut affected = BTreeSet::new();
-        for change in &event.changes {
-            match change {
-                StateChange::CreateEntity(entity) => {
-                    events_by_entity.remove(&entity.id);
-                    affected.insert(entity.id);
-                }
-                StateChange::RemoveEntity(entity) => {
-                    affected.insert(*entity);
-                    for (from, to) in relation_endpoints.values().copied() {
-                        if from == *entity {
-                            affected.insert(to);
-                        }
-                        if to == *entity {
-                            affected.insert(from);
-                        }
-                    }
-                    relation_endpoints.retain(|_, (from, to)| *from != *entity && *to != *entity);
-                }
-                StateChange::SetComponent { entity, .. }
-                | StateChange::RemoveComponent { entity, .. } => {
-                    affected.insert(*entity);
-                }
-                StateChange::CreateRelation(relation) => {
-                    affected.insert(relation.from);
-                    affected.insert(relation.to);
-                    relation_endpoints.insert(relation.id, (relation.from, relation.to));
-                }
-                StateChange::RemoveRelation(relation) => {
-                    if let Some((from, to)) = relation_endpoints.remove(relation) {
-                        affected.insert(from);
-                        affected.insert(to);
-                    }
-                }
-                StateChange::SetRelationProperty { relation, .. }
-                | StateChange::RemoveRelationProperty { relation, .. } => {
-                    if let Some((from, to)) = relation_endpoints.get(relation).copied() {
-                        affected.insert(from);
-                        affected.insert(to);
-                    }
-                }
-            }
-        }
-
-        for entity in affected {
-            events_by_entity.entry(entity).or_default().push(event.id);
-        }
-    }
-
-    events_by_entity
-}
-#[derive(Clone, Debug)]
-struct RecordedRelationIncarnation {
-    relation: Relation,
-    active: bool,
-    event_ids: Vec<EventId>,
-}
-
-fn recorded_relation_incarnations(
-    world: &World,
-) -> BTreeMap<RelationId, RecordedRelationIncarnation> {
-    let mut relations = world
-        .baseline_state()
-        .relations()
-        .map(|relation| {
-            (
-                relation.id,
-                RecordedRelationIncarnation {
-                    relation: relation.clone(),
-                    active: true,
-                    event_ids: Vec::new(),
-                },
-            )
-        })
-        .collect::<BTreeMap<_, _>>();
-
-    for event in world.events() {
-        let mut affected = BTreeSet::new();
-        for change in &event.changes {
-            match change {
-                StateChange::CreateRelation(relation) => {
-                    relations.insert(
-                        relation.id,
-                        RecordedRelationIncarnation {
-                            relation: relation.clone(),
-                            active: true,
-                            event_ids: Vec::new(),
-                        },
-                    );
-                    affected.insert(relation.id);
-                }
-                StateChange::RemoveRelation(relation) => {
-                    if let Some(recorded) = relations.get_mut(relation) {
-                        if recorded.active {
-                            recorded.active = false;
-                            affected.insert(*relation);
-                        }
-                    }
-                }
-                StateChange::SetRelationProperty {
-                    relation,
-                    key,
-                    value,
-                } => {
-                    if let Some(recorded) = relations.get_mut(relation) {
-                        if recorded.active {
-                            recorded
-                                .relation
-                                .properties
-                                .insert(key.clone(), value.clone());
-                            affected.insert(*relation);
-                        }
-                    }
-                }
-                StateChange::RemoveRelationProperty { relation, key } => {
-                    if let Some(recorded) = relations.get_mut(relation) {
-                        if recorded.active {
-                            recorded.relation.properties.remove(key);
-                            affected.insert(*relation);
-                        }
-                    }
-                }
-                StateChange::RemoveEntity(entity) => {
-                    let removed = relations
-                        .iter()
-                        .filter_map(|(relation, recorded)| {
-                            (recorded.active
-                                && (recorded.relation.from == *entity
-                                    || recorded.relation.to == *entity))
-                                .then_some(*relation)
-                        })
-                        .collect::<Vec<_>>();
-                    for relation in removed {
-                        if let Some(recorded) = relations.get_mut(&relation) {
-                            recorded.active = false;
-                            affected.insert(relation);
-                        }
-                    }
-                }
-                StateChange::CreateEntity(_)
-                | StateChange::SetComponent { .. }
-                | StateChange::RemoveComponent { .. } => {}
-            }
-        }
-
-        for relation in affected {
-            if let Some(recorded) = relations.get_mut(&relation) {
-                recorded.event_ids.push(event.id);
-            }
-        }
-    }
-
-    relations
-}
-
-fn inspector_for_relation(
-    recorded: &RecordedRelationIncarnation,
-    world: &World,
-) -> InspectorProjection {
+fn inspector_for_relation(recorded: &RelationRecord, world: &World) -> InspectorProjection {
     let relation = &recorded.relation;
     let relation_rows = vec![
         InspectorRow {
@@ -1988,10 +1820,7 @@ fn relation_endpoint_text(entity: EntityId, world: &World) -> String {
         .unwrap_or_else(|| "Someone no longer here".into())
 }
 
-fn recorded_relation_change_rows(
-    recorded: &RecordedRelationIncarnation,
-    world: &World,
-) -> Vec<InspectorRow> {
+fn recorded_relation_change_rows(recorded: &RelationRecord, world: &World) -> Vec<InspectorRow> {
     recorded
         .event_ids
         .iter()
