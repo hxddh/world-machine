@@ -192,3 +192,21 @@ fn what_you_made_can_be_moved_and_people_can_be_given_to_and_invited() {
         .filter_map(told)
         .all(|told| !told.contains('{')));
 }
+
+#[test]
+fn only_someone_living_here_can_be_given_to_or_invited() {
+    let (mut world, registry) = world(100);
+    for verb in ["give", "invite"] {
+        for at in [SQUARE, FUND, EntityId::new(999)] {
+            let key = format!("{verb}.someone.{}", at.0);
+            assert!(
+                world.execute(&registry, &do_request(&key)).is_err(),
+                "{key} should be refused"
+            );
+        }
+    }
+    assert_eq!(
+        world.state().entity(SQUARE).unwrap().component("glad"),
+        None
+    );
+}

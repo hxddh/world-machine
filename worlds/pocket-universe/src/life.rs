@@ -733,7 +733,11 @@ fn visitor(_: &str, job: &str) -> Vec<(String, Value)> {
 /// Everyone living in the World now: the pair, whoever came to stay, less
 /// anyone who has left.
 pub(crate) fn people(world: &World) -> Vec<EntityId> {
-    let state = world.state();
+    people_in(world.state())
+}
+
+/// Everyone living there now, read straight from the state.
+pub(crate) fn people_in(state: &WorldState) -> Vec<EntityId> {
     let cast = cast(state);
     [SLOT_B, SLOT_E, NEWCOMER]
         .into_iter()

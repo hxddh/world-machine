@@ -315,7 +315,7 @@ pub(crate) fn kit(state: &WorldState) -> Kit {
             _ => MARS,
         },
         places,
-        people: crate::life::people,
+        people: crate::life::people_in,
         purse: None,
         gift_cost: 0,
         gift,

@@ -111,7 +111,7 @@ pub struct Kit {
     /// Where things can be put: the World's places, in a fixed order.
     pub places: fn(&WorldState) -> Vec<EntityId>,
     /// Who can be given something or invited: everyone living there now.
-    pub people: fn(&World) -> Vec<EntityId>,
+    pub people: fn(&WorldState) -> Vec<EntityId>,
     pub purse: Option<Purse>,
     /// What a gift costs.
     pub gift_cost: i64,
@@ -264,7 +264,7 @@ pub fn deeds(world: &World, kit: &Kit) -> Vec<Deed> {
             });
         }
     }
-    for person in (kit.people)(world) {
+    for person in (kit.people)(world.state()) {
         let who = name(state, person);
         deeds.push(Deed {
             key: format!("give.gift.{person}"),
@@ -403,6 +403,9 @@ impl Action for Does {
                 )
             }
             Verb::Give => {
+                if !(kit.people)(state).contains(&at) {
+                    return Err(ActionError::Invalid("only someone living here".into()));
+                }
                 changes.extend((kit.gift)(state, at));
                 (
                     "gift_given",
@@ -412,6 +415,9 @@ impl Action for Does {
                 )
             }
             Verb::Invite => {
+                if !(kit.people)(state).contains(&at) {
+                    return Err(ActionError::Invalid("only someone living here".into()));
+                }
                 changes.extend((kit.invite)(state, at));
                 (
                     "invited_out",

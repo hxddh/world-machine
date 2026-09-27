@@ -142,7 +142,7 @@ pub(crate) fn kit(_: &WorldState) -> Kit {
         period: crate::persistence::WORLD_DAY_TICKS,
         things: THINGS,
         places,
-        people: crate::story::people,
+        people: crate::story::people_in,
         purse: Some(Purse {
             entity: HARBOR,
             key: CASH,

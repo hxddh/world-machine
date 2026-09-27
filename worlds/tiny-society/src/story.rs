@@ -3810,20 +3810,28 @@ fn threads() -> Vec<Spec> {
 /// asking a question of their own (Evan home from the mainland) is here
 /// while it is open.
 pub(crate) fn people(world: &World) -> Vec<EntityId> {
+    people_in(world.state())
+}
+
+/// Everyone living in the harbour now, read straight from its state.
+pub(crate) fn people_in(state: &world_core::WorldState) -> Vec<EntityId> {
     let deck = deck();
-    let asking = storylets::open(world.state(), &deck)
+    let asking = storylets::open(state, &deck)
         .into_iter()
         .map(|storylet| storylet.asker)
         .collect::<Vec<_>>();
-    let arrivals = lives::arrivals(world.state(), &crate::life::cast());
+    let arrivals = lives::arrivals(state, &crate::life::cast());
     crate::talk::RESIDENTS
         .into_iter()
         .chain([ADA, IVO])
         .chain(arrivals)
         .filter(|id| {
-            world.state().entity(*id).is_some()
-                && !lives::gone(world.state(), *id)
-                && (text(world, *id, AWAY).is_none() || asking.contains(id))
+            state.entity(*id).is_some()
+                && !lives::gone(state, *id)
+                && (!matches!(
+                    state.entity(*id).and_then(|entity| entity.component(AWAY)),
+                    Some(Value::Text(_))
+                ) || asking.contains(id))
         })
         .collect()
 }

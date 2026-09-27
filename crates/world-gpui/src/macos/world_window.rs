@@ -76,6 +76,15 @@ fn to_someone(verb: &str) -> bool {
     matches!(verb, "Give" | "Invite")
 }
 
+/// What a row in the hands picker stands for: the kind of thing for what
+/// is made, and the very fixture for a move, so two benches stay two.
+fn which(command: &world_projection::ProjectionCommand, hand: &world_projection::Hand) -> String {
+    match (hand.verb.as_str(), command.id.rsplit_once('.')) {
+        ("Move", Some((fixture, _place))) => fixture.to_string(),
+        _ => hand.thing.clone(),
+    }
+}
+
 /// The chapter that has just ended, if the player has not turned past its
 /// card yet: one that closed within the last period.
 pub(crate) fn chapter_just_ended(
@@ -614,7 +623,7 @@ impl ProjectionView {
                 .filter(|(_, command, hand)| {
                     command.unavailable.is_none()
                         && hand.verb == verb
-                        && (thing == "*" || hand.thing == thing)
+                        && (thing == "*" || which(command, hand) == thing)
                 })
                 .filter_map(|(_, _, hand)| hand.at)
                 .collect(),
@@ -631,7 +640,7 @@ impl ProjectionView {
             .find(|(_, command, hand)| {
                 command.unavailable.is_none()
                     && hand.verb == verb
-                    && (thing == "*" || hand.thing == thing)
+                    && (thing == "*" || which(command, hand) == thing)
                     && hand.at == Some(target)
             })
             .map(|(_, command, _)| command.id.clone())
@@ -1103,11 +1112,17 @@ impl ProjectionView {
         let mut body = div().flex().flex_col().gap_1();
         match (hands.verb.as_deref(), hands.thing.as_deref()) {
             (Some(verb), Some(thing)) => {
+                let named = self
+                    .snapshot
+                    .deeds()
+                    .find(|(_, command, hand)| hand.verb == verb && which(command, hand) == thing)
+                    .map(|(_, _, hand)| hand.thing.clone())
+                    .unwrap_or_else(|| thing.to_string());
                 let hint = match (verb, thing) {
                     ("Give", "*") => "Choose who to give a present to.".to_string(),
                     (_, "*") => "Choose who to invite out.".to_string(),
-                    ("Move", _) => format!("Choose where the {} goes now.", thing.to_lowercase()),
-                    _ => format!("Choose where the {} goes.", thing.to_lowercase()),
+                    ("Move", _) => format!("Choose where the {} goes now.", named.to_lowercase()),
+                    _ => format!("Choose where the {} goes.", named.to_lowercase()),
                 };
                 body = body.child(div().text_sm().text_color(color(tokens::TEXT)).child(hint));
                 if self
@@ -1117,8 +1132,8 @@ impl ProjectionView {
                     if let Some(reason) = self
                         .snapshot
                         .deeds()
-                        .find(|(_, _, hand)| {
-                            hand.verb == verb && (thing == "*" || hand.thing == thing)
+                        .find(|(_, command, hand)| {
+                            hand.verb == verb && (thing == "*" || which(command, hand) == thing)
                         })
                         .and_then(|(_, command, _)| command.unavailable.clone())
                     {
@@ -1151,20 +1166,38 @@ impl ProjectionView {
                     .deeds()
                     .filter(|(_, _, hand)| hand.verb == verb)
                 {
-                    if seen.contains(&hand.thing) {
+                    let key = which(command, hand);
+                    if seen.contains(&key) {
                         continue;
                     }
-                    seen.push(hand.thing.clone());
-                    let possible = self.snapshot.deeds().any(|(_, command, other)| {
+                    seen.push(key.clone());
+                    let possible = self.snapshot.deeds().any(|(_, other_command, other)| {
                         other.verb == verb
-                            && other.thing == hand.thing
-                            && command.unavailable.is_none()
+                            && which(other_command, other) == key
+                            && other_command.unavailable.is_none()
                     });
-                    let label = match &hand.cost {
-                        Some(cost) => format!("{} · {cost}", hand.thing),
-                        None => hand.thing.clone(),
+                    // Two benches the player made are two rows: the second
+                    // one is told apart by a number.
+                    let same_name = self
+                        .snapshot
+                        .deeds()
+                        .filter(|(_, _, other)| other.verb == verb && other.thing == hand.thing)
+                        .map(|(_, other_command, other)| which(other_command, other))
+                        .fold(Vec::<String>::new(), |mut keys, other| {
+                            if !keys.contains(&other) {
+                                keys.push(other);
+                            }
+                            keys
+                        });
+                    let thing_name = match same_name.iter().position(|other| *other == key) {
+                        Some(index) if index > 0 => format!("{} {}", hand.thing, index + 1),
+                        _ => hand.thing.clone(),
                     };
-                    let (verb, thing) = (verb.to_string(), hand.thing.clone());
+                    let label = match &hand.cost {
+                        Some(cost) => format!("{thing_name} · {cost}"),
+                        None => thing_name,
+                    };
+                    let (verb, thing) = (verb.to_string(), key);
                     let mut row = div()
                         .id(SharedString::from(format!("hands-thing-{}", command.id)))
                         .px_2()

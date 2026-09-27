@@ -16,6 +16,8 @@ pub fn available_choices(session: &DurableWorldSession) -> Vec<StrategyChoice> {
         .snapshot()
         .commands
         .into_iter()
+        // Deeds with the player's own hands are not choices to compare.
+        .filter(|command| command.hand.is_none())
         .map(|command| StrategyChoice {
             id: command.id,
             title: command.title,
