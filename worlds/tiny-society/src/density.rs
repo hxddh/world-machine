@@ -756,3 +756,63 @@ fn a_harbour_year_has_a_shape() {
         planted.world().state()
     );
 }
+
+/// Prints what a year holds, for the v0.14 review.
+#[test]
+#[ignore]
+fn measure_a_year() {
+    for policy in [Policy::Generous, Policy::Absent] {
+        let played = play(policy, 365);
+        let world = played.branch.world();
+        let deck = story::deck();
+        println!(
+            "== {policy:?}: deck {} storylets, {} goals",
+            deck.storylets.len(),
+            deck.goals.len()
+        );
+        let mut asked = std::collections::BTreeMap::<String, usize>::new();
+        let mut kinds = std::collections::BTreeMap::<String, usize>::new();
+        for event in world.events() {
+            *kinds.entry(event.kind.clone()).or_default() += 1;
+            if event.kind == "situation_arose" {
+                if let Some(world_core::Value::Text(id)) = event.payload.get("storylet") {
+                    *asked.entry(id.clone()).or_default() += 1;
+                }
+            }
+        }
+        let mut counts = asked.values().copied().collect::<Vec<_>>();
+        counts.sort();
+        let total: usize = counts.iter().sum();
+        println!(
+            "questions raised {total}, distinct {}, never raised {}, median {}, max {} ({:?})",
+            counts.len(),
+            deck.storylets.len() - counts.len(),
+            counts[counts.len() / 2],
+            counts.last().unwrap(),
+            asked.iter().max_by_key(|(_, c)| **c).unwrap().0
+        );
+        println!(
+            "raised >= 6 times: {}",
+            counts.iter().filter(|c| **c >= 6).count()
+        );
+        let snapshot = projection::snapshot(world);
+        println!(
+            "people now {}, chapters {}, answered {}, answers that changed the scene {}",
+            story::people(world).len(),
+            snapshot.chapters.len(),
+            played.answered,
+            played.answers_seen
+        );
+        println!(
+            "deeds on offer: {:?}",
+            snapshot
+                .commands
+                .iter()
+                .filter_map(|c| c.hand.as_ref().map(|h| h.verb.clone()))
+                .collect::<std::collections::BTreeSet<_>>()
+        );
+        for (kind, count) in &kinds {
+            println!("  {kind}: {count}");
+        }
+    }
+}
