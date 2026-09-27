@@ -62,11 +62,39 @@ pub(crate) fn drawing_of(id: EntityId, person: bool) -> Option<String> {
             NOAH => "noah",
             EVAN => "evan",
             SOFIA => "sofia",
-            _ if person => PERSON,
+            _ if person => return Some(folk(id)),
             _ => return None,
         }
         .into(),
     )
+}
+
+/// The name of the drawing someone without a drawing of their own is
+/// drawn with.
+fn folk(id: EntityId) -> String {
+    format!("{PERSON}-{}", id.0)
+}
+
+/// Which of the generated looks someone gets, by the order they joined:
+/// nobody shares a silhouette until more people have lived here than there
+/// are looks.
+pub(crate) fn variant_of(world: &World, id: EntityId) -> u32 {
+    let rank = lives::joined_rank(world.state(), id).unwrap_or(id.0 as usize) as u32;
+    // Spread through the looks, so neighbours in joining differ a lot.
+    (rank.wrapping_mul(7)) % world_projection::SILHOUETTES
+}
+
+/// Every drawing the harbour draws now: its own, and a look of their own
+/// for everyone living here without one.
+pub(crate) fn drawings_for(world: &World) -> Vec<Drawing> {
+    let mut all = drawings().to_vec();
+    let base = person_base(PERSON);
+    for id in crate::story::people(world) {
+        if let Some(name) = drawing_of(id, true).filter(|name| name.starts_with(PERSON)) {
+            all.push(world_projection::person(name, variant_of(world, id), &base));
+        }
+    }
+    all
 }
 
 /// Which drawing what goes up for a festival is drawn with.

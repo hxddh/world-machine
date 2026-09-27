@@ -1816,6 +1816,7 @@ mod tests {
             drawing: None,
             stance: None,
             standing: None,
+            mood: None,
         }
     }
 

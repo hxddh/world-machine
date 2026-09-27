@@ -954,3 +954,28 @@ fn measure_a_year() {
         }
     }
 }
+
+/// The v0.16 bar: everyone on the scene has an outline of their own, and
+/// the drawings a snapshot carries stay within what the app takes.
+#[test]
+fn everyone_on_the_scene_has_an_outline_of_their_own() {
+    let played = play(Policy::Generous, 120);
+    let snapshot = projection::snapshot(played.branch.world());
+    assert!(snapshot.drawings.len() <= 64, "{}", snapshot.drawings.len());
+    let people = snapshot
+        .canvas
+        .items
+        .iter()
+        .filter(|item| item.kind == world_projection::CanvasItemKind::Actor)
+        .collect::<Vec<_>>();
+    assert!(people.len() >= 10, "{} people", people.len());
+    let mut outlines = std::collections::BTreeMap::new();
+    for item in people {
+        let drawing = snapshot.drawing_of(item).expect("a drawing of their own");
+        assert!(drawing.is_drawable(), "{}", drawing.id);
+        assert!(item.mood.is_some(), "{} has no mood", item.label);
+        if let Some(other) = outlines.insert(drawing.silhouette(), item.label.clone()) {
+            panic!("{} and {other} share an outline", item.label);
+        }
+    }
+}

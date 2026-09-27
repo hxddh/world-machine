@@ -3725,6 +3725,7 @@ pub(crate) fn fixtures(world: &World) -> Vec<world_projection::CanvasItem> {
                 drawing: crate::drawings::fixture_drawing(world, &text("shape")),
                 stance: None,
                 standing: None,
+                mood: None,
             }
         })
         .collect()

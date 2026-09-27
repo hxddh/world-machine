@@ -332,6 +332,56 @@ fn ease(t: f32) -> f32 {
 pub struct Living {
     pub x: f32,
     pub pose: Pose,
+    /// What they do with an idle moment, or how they answer a click, over
+    /// whatever their Pack says they are doing.
+    pub stance: Option<Stance>,
+}
+
+/// How long a wave lasts after someone is clicked on, in seconds.
+pub const WAVE_SECONDS: f32 = 1.2;
+
+/// What someone does with an idle moment `seconds` in: most of the time
+/// nothing much, and now and then, on a cycle of their own, one of the
+/// idle things people do. At night they only sit or look about.
+fn idle(seed: u32, seconds: f32, daylight: Daylight) -> Option<Stance> {
+    let period = 16.0 + (seed % 9) as f32;
+    let shifted = seconds + (seed % 997) as f32 * 0.53;
+    let phase = (shifted % period) / period;
+    if !(0.55..0.82).contains(&phase) {
+        return None;
+    }
+    let turn = (shifted / period) as u32 + seed;
+    let choices: &[Stance] = if daylight == Daylight::Night {
+        &[Stance::Sitting, Stance::LookingAround]
+    } else {
+        &Stance::IDLE
+    };
+    Some(choices[(turn as usize) % choices.len()])
+}
+
+/// Everyone clicked on in the last [`WAVE_SECONDS`] waves and hops, from
+/// how long ago each was clicked. `figure_h` sizes the hop.
+pub fn wave(
+    living: &mut [Living],
+    stage: &Stage,
+    snapshot: &ProjectionSnapshot,
+    poked: &BTreeMap<SelectionId, f32>,
+) {
+    for (life, spot) in living.iter_mut().zip(&stage.people) {
+        let Some(item) = snapshot.canvas.items.get(spot.index) else {
+            continue;
+        };
+        let Some(ago) = poked.get(&item.id) else {
+            continue;
+        };
+        if (0.0..WAVE_SECONDS).contains(ago) && life.pose.stride.is_none() {
+            let t = ago / WAVE_SECONDS;
+            // A quick hop up that settles: up fast, down with a little give.
+            let hop = (t * std::f32::consts::PI).sin() * (1.0 - t).max(0.0);
+            life.pose.bob += hop * stage.figure_h * 0.18;
+            life.stance = Some(Stance::Waving);
+        }
+    }
 }
 
 /// Where each person is this frame, `seconds` into looking at the World.
@@ -378,6 +428,7 @@ pub fn living(
                                     bob: 0.0,
                                     facing: (home - old.x).signum(),
                                 },
+                                stance: None,
                             };
                         }
                     }
@@ -389,6 +440,11 @@ pub fn living(
                     stride: None,
                     bob: breathe,
                     facing: ((seconds * 0.11 + (seed % 7) as f32).sin() * 1.4).clamp(-1.0, 1.0),
+                },
+                stance: if pinned.contains(&item.id) {
+                    None
+                } else {
+                    idle(seed, seconds, daylight)
                 },
             };
             if pinned.contains(&item.id) || daylight == Daylight::Night || stops.len() < 2 {
@@ -413,10 +469,15 @@ pub fn living(
                     bob: 0.0,
                     facing: (to - from).signum(),
                 },
+                stance: None,
             };
             match phase {
                 p if (0.60..0.68).contains(&p) => walk(home, away, (p - 0.60) / 0.08),
-                p if (0.68..0.80).contains(&p) => Living { x: away, ..still },
+                p if (0.68..0.80).contains(&p) => Living {
+                    x: away,
+                    stance: Some(Stance::LookingAround),
+                    ..still
+                },
                 p if (0.80..0.88).contains(&p) => walk(away, home, (p - 0.80) / 0.08),
                 _ => still,
             }
@@ -512,6 +573,8 @@ pub struct PersonPaint {
     pub drawing: Option<Drawing>,
     /// What they are doing, for their drawing.
     pub stance: Stance,
+    /// How they feel, for their face.
+    pub mood: world_projection::Mood,
 }
 
 #[derive(Clone, Debug)]
@@ -737,11 +800,17 @@ pub fn frame(
                 },
                 glow: glow_of(item),
                 drawing: snapshot.drawing_of(item).cloned(),
-                stance: if life.pose.stride.is_some() {
-                    Stance::Walking
-                } else {
-                    item.stance.unwrap_or_default()
+                // Walking beats everything; a wave beats what the Pack says;
+                // what the Pack says (talking, celebrating, working) beats an
+                // idle moment.
+                stance: match (life.pose.stride, life.stance, item.stance) {
+                    (Some(_), _, _) => Stance::Walking,
+                    (None, Some(Stance::Waving), _) => Stance::Waving,
+                    (None, _, Some(pack)) if pack != Stance::Standing => pack,
+                    (None, Some(idle), _) => idle,
+                    _ => Stance::Standing,
                 },
+                mood: item.mood.unwrap_or_default(),
             }
         })
         .collect::<Vec<_>>();
@@ -1147,6 +1216,7 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window) {
                 drawing,
                 &Inks::of_place(&building.palette).lit(lit_windows),
                 Stance::Standing,
+                world_projection::Mood::Content,
                 0.0,
                 0.0,
                 1.0,
@@ -1192,6 +1262,7 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window) {
                 drawing,
                 &Inks::of_place(&thing.palette),
                 Stance::Standing,
+                world_projection::Mood::Content,
                 thing.sway * 0.3,
                 0.0,
                 1.0,
@@ -1237,6 +1308,7 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window) {
                     drawing,
                     &Inks::of_person(&person.figure),
                     person.stance,
+                    person.mood,
                     swing,
                     person.pose.bob,
                     person.pose.facing,
@@ -1445,6 +1517,7 @@ mod tests {
             drawing: None,
             stance: None,
             standing: None,
+            mood: None,
         }
     }
 

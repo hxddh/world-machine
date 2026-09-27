@@ -824,6 +824,7 @@ fn cast_from_document(
                 drawing: figure.drawing.clone(),
                 stance: None,
                 standing: None,
+                mood: None,
             })
         })
         .collect()
@@ -1794,6 +1795,7 @@ mod tests {
                         drawing: None,
                         stance: None,
                         standing: None,
+                        mood: None,
                     },
                     world_projection::CanvasItem {
                         id: world_projection::SelectionId::from_stable_key("entity-11").unwrap(),
@@ -1815,6 +1817,7 @@ mod tests {
                         drawing: None,
                         stance: None,
                         standing: None,
+                        mood: None,
                     },
                 ],
                 ..Default::default()

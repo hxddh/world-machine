@@ -176,6 +176,7 @@ fn canvas(world: &World) -> CanvasProjection {
                     drawing: None,
                     stance: None,
                     standing: None,
+                    mood: None,
                 })
             })
             .collect(),

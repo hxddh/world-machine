@@ -1485,16 +1485,18 @@ pub fn paint_drawing(
     drawing: &world_projection::Drawing,
     inks: &Inks,
     stance: world_projection::Stance,
+    mood: world_projection::Mood,
     swing: f32,
     bob: f32,
     facing: f32,
 ) {
     use world_projection::DrawShape;
     let flip = if facing < 0.0 { -1.0 } else { 1.0 };
-    for part in drawing.parts.iter().filter(|part| part.shows_in(stance)) {
+    let drop = world_projection::drop_of(stance) * h;
+    for part in drawing.parts.iter().filter(|part| part.shows(stance, mood)) {
         let step = part.swing * swing;
         let px = |dx: f32| x + (dx + step) * w * flip;
-        let py = |dy: f32| base - dy * h - bob;
+        let py = |dy: f32| base - dy * h - bob + drop;
         let colour = match part.ink {
             world_projection::Ink::Shade => inks.of(part.ink),
             ink => shade(inks.of(ink), part.tone),

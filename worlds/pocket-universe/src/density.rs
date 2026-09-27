@@ -954,3 +954,32 @@ fn someone_sees_what_you_made_and_remembers_it_in_every_place() {
         );
     }
 }
+
+/// The v0.16 bar: everyone on the scene has an outline of their own, in
+/// every place, and the drawings a snapshot carries stay within what the
+/// app takes.
+#[test]
+fn everyone_on_the_scene_has_an_outline_of_their_own_in_every_place() {
+    for seed in SEEDS {
+        let played = play(seed, Policy::Generous, 120);
+        let snapshot = projection::snapshot(played.universe.world());
+        assert!(snapshot.drawings.len() <= 64, "{seed}: {}", snapshot.drawings.len());
+        let people = snapshot
+            .canvas
+            .items
+            .iter()
+            .filter(|item| item.kind == world_projection::CanvasItemKind::Actor)
+            .collect::<Vec<_>>();
+        assert!(people.len() >= 4, "{seed}: {} people", people.len());
+        let mut outlines = std::collections::BTreeMap::new();
+        for item in people {
+            let drawing = snapshot
+                .drawing_of(item)
+                .unwrap_or_else(|| panic!("{seed}: {} has no drawing", item.label));
+            assert!(drawing.is_drawable(), "{seed}: {}", drawing.id);
+            if let Some(other) = outlines.insert(drawing.silhouette(), item.label.clone()) {
+                panic!("{seed}: {} and {other} share an outline", item.label);
+            }
+        }
+    }
+}

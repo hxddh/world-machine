@@ -96,7 +96,7 @@ pub(crate) fn snapshot_since(
         gauges: gauges(world),
         voices: crate::talk::voices(world),
         exchanges: exchanges(world, &commands_on_offer),
-        drawings: crate::drawings::drawings().to_vec(),
+        drawings: crate::drawings::drawings_for(world),
         talks,
         goals: crate::story::goals(world),
         chapters: crate::story::chapters(world),
@@ -906,6 +906,7 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                 drawing: crate::drawings::drawing_of(id, false),
                 stance: None,
                 standing: None,
+                mood: None,
             });
         }
     }
@@ -949,6 +950,7 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                 drawing: crate::drawings::drawing_of(id, true),
                 stance: crate::drawings::stance_of(world, id, workplace(world, id)),
                 standing: crate::speech::standing_of(world, id),
+                mood: crate::speech::mood_of(world, id),
             });
         }
     }
@@ -980,6 +982,7 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                 drawing: crate::drawings::drawing_of(id, true),
                 stance: crate::drawings::stance_of(world, id, crate::life::work(world.state(), id)),
                 standing: crate::speech::standing_of(world, id),
+                mood: crate::speech::mood_of(world, id),
             });
         }
     }
@@ -1017,6 +1020,7 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                 drawing: None,
                 stance: None,
                 standing: None,
+                mood: None,
             });
         }
     }

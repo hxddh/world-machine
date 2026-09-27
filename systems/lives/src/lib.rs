@@ -2993,6 +2993,39 @@ pub fn news_since(world: &World, since: u64) -> Vec<String> {
         .collect()
 }
 
+/// Where someone stands in the order people first joined the place's
+/// life, from 0: the same for as long as the World lasts, since whoever
+/// joins later is always numbered after everyone before.
+pub fn joined_rank(state: &WorldState, person: EntityId) -> Option<usize> {
+    let mut joined = state
+        .entities()
+        .filter(|entity| entity.component(TRAITS_KEY).is_some())
+        .map(|entity| entity.id)
+        .collect::<Vec<_>>();
+    joined.sort();
+    joined.iter().position(|id| *id == person)
+}
+
+/// How someone feels on the whole, for their face: `"cross"` with a
+/// grudge against the player, `"sad"` when badly short of something,
+/// `"happy"` when nothing much is lacking, else `"content"`.
+pub fn mood(state: &WorldState, person: EntityId) -> &'static str {
+    let worst = Need::ALL
+        .iter()
+        .map(|need| lack(state, person, *need))
+        .max()
+        .unwrap_or(0);
+    if regard(state, person) <= GRUDGE {
+        "cross"
+    } else if worst >= 70 {
+        "sad"
+    } else if worst <= 35 {
+        "happy"
+    } else {
+        "content"
+    }
+}
+
 /// How someone feels about the place and the player's hand in it, from
 /// -100 to 100.
 pub fn regard(state: &WorldState, person: EntityId) -> i64 {

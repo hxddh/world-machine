@@ -19,7 +19,9 @@ const CHROME: f32 = 52.0;
 const CARD_WIDTH: f32 = 560.0;
 const DRAWER_WIDTH: f32 = 360.0;
 /// How often a living World redraws while its window is in front.
-const FRAME: Duration = Duration::from_millis(40);
+/// How often a window behind others checks whether it has come to the
+/// front again. In front, it draws at the display's own rate.
+const FRAME: Duration = Duration::from_millis(250);
 /// How long each thing someone says stays over them, and how long a beat
 /// of a return plays before the next.
 const LINE_SECONDS: f32 = 4.6;
@@ -72,6 +74,8 @@ pub(crate) struct Looking {
     /// Where the camera looked last frame, to turn the pointer into a
     /// stage point.
     pub(crate) camera_now: Option<Camera>,
+    /// Who the player last clicked on, and when: they wave.
+    pub(crate) poked: Option<(SelectionId, Instant)>,
 }
 
 /// The player's hands: which verb they picked, and what they are about to
@@ -531,6 +535,7 @@ impl ProjectionView {
         }
         self.looking.asking = Some(who);
         self.looking.answered = None;
+        self.looking.poked = Some((who, Instant::now()));
         self.selected = Some(who);
         cx.notify();
     }
@@ -921,6 +926,12 @@ impl ProjectionView {
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
         self.keep_living(window, cx);
+        // In front, the World is drawn at the display's own rate (60 or
+        // 120 times a second); with Reduce Motion on, a few times a second
+        // is enough for what still moves.
+        if window.is_window_active() && !cx.reduce_motion() {
+            window.request_animation_frame();
+        }
         let focus = self
             .looking
             .focus
@@ -1013,7 +1024,7 @@ impl ProjectionView {
                 since(self.looking.turn_at) / diorama::WALK_SECONDS,
             )
         });
-        let living = diorama::living(
+        let mut living = diorama::living(
             &stage,
             &self.snapshot,
             seconds,
@@ -1023,6 +1034,10 @@ impl ProjectionView {
                 .as_ref()
                 .map(|(stage, snapshot, progress)| (stage, *snapshot, *progress)),
         );
+        if let Some((who, at)) = self.looking.poked {
+            let poked = [(who, at.elapsed().as_secs_f32())].into_iter().collect();
+            diorama::wave(&mut living, &stage, &self.snapshot, &poked);
+        }
         let grew = self
             .before_turn
             .as_ref()

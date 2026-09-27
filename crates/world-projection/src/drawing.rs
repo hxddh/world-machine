@@ -21,15 +21,35 @@ pub enum Stance {
     Working,
     Talking,
     Celebrating,
+    /// Idle: a hand to the brow, looking out over the place.
+    LookingAround,
+    /// Idle: arms up and out, a yawn.
+    Stretching,
+    /// Idle: sitting down, on a bench or the ground.
+    Sitting,
+    /// A hand raised in greeting: when the player clicks on them.
+    Waving,
 }
 
 impl Stance {
-    pub const ALL: [Stance; 5] = [
+    pub const ALL: [Stance; 9] = [
         Stance::Standing,
         Stance::Walking,
         Stance::Working,
         Stance::Talking,
         Stance::Celebrating,
+        Stance::LookingAround,
+        Stance::Stretching,
+        Stance::Sitting,
+        Stance::Waving,
+    ];
+
+    /// What someone does with an idle moment, in turn.
+    pub const IDLE: [Stance; 4] = [
+        Stance::LookingAround,
+        Stance::Stretching,
+        Stance::Sitting,
+        Stance::Working,
     ];
 
     pub fn id(self) -> &'static str {
@@ -39,11 +59,50 @@ impl Stance {
             Stance::Working => "working",
             Stance::Talking => "talking",
             Stance::Celebrating => "celebrating",
+            Stance::LookingAround => "looking_around",
+            Stance::Stretching => "stretching",
+            Stance::Sitting => "sitting",
+            Stance::Waving => "waving",
         }
     }
 
     pub fn from_id(id: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|stance| stance.id() == id)
+    }
+}
+
+/// How someone feels, as far as their face goes.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub enum Mood {
+    #[default]
+    Content,
+    Happy,
+    Sad,
+    Cross,
+    Thinking,
+}
+
+impl Mood {
+    pub const ALL: [Mood; 5] = [
+        Mood::Content,
+        Mood::Happy,
+        Mood::Sad,
+        Mood::Cross,
+        Mood::Thinking,
+    ];
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Mood::Content => "content",
+            Mood::Happy => "happy",
+            Mood::Sad => "sad",
+            Mood::Cross => "cross",
+            Mood::Thinking => "thinking",
+        }
+    }
+
+    pub fn from_id(id: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|mood| mood.id() == id)
     }
 }
 
@@ -131,6 +190,8 @@ pub struct DrawPart {
     pub tone: f32,
     /// The stances it shows in; every stance when empty.
     pub stances: Vec<Stance>,
+    /// The moods it shows in; every mood when empty.
+    pub moods: Vec<Mood>,
     /// How far it swings sideways with each step of a walk, in widths.
     pub swing: f32,
 }
@@ -142,6 +203,7 @@ impl DrawPart {
             ink,
             tone: 0.0,
             stances: Vec::new(),
+            moods: Vec::new(),
             swing: 0.0,
         }
     }
@@ -195,6 +257,12 @@ impl DrawPart {
         self
     }
 
+    /// Shows only in these moods.
+    pub fn feeling(mut self, moods: &[Mood]) -> Self {
+        self.moods = moods.to_vec();
+        self
+    }
+
     pub fn swing(mut self, swing: f32) -> Self {
         self.swing = swing;
         self
@@ -203,6 +271,11 @@ impl DrawPart {
     /// Whether it shows in a stance.
     pub fn shows_in(&self, stance: Stance) -> bool {
         self.stances.is_empty() || self.stances.contains(&stance)
+    }
+
+    /// Whether it shows in a stance and a mood.
+    pub fn shows(&self, stance: Stance, mood: Mood) -> bool {
+        self.shows_in(stance) && (self.moods.is_empty() || self.moods.contains(&mood))
     }
 }
 
@@ -234,6 +307,52 @@ impl Drawing {
             aspect: self.aspect,
             parts,
         }
+    }
+
+    /// Its outline standing still and content: the shapes it shows, placed
+    /// and sized to a hundredth, whatever colour they are. Two drawings
+    /// with the same silhouette read as the same shape against the sky.
+    pub fn silhouette(&self) -> Vec<String> {
+        let q = |v: f32| (v * 100.0).round() as i32;
+        let mut shapes = self
+            .parts
+            .iter()
+            .filter(|part| part.shows(Stance::Standing, Mood::Content))
+            .map(|part| match &part.shape {
+                DrawShape::Rect { x, y, w, h, .. } => {
+                    format!("r{},{},{},{}", q(*x), q(*y), q(*w), q(*h))
+                }
+                DrawShape::Ellipse { x, y, rx, ry } => {
+                    format!("e{},{},{},{}", q(*x), q(*y), q(*rx), q(*ry))
+                }
+                DrawShape::Polygon { points } => points
+                    .iter()
+                    .map(|(x, y)| format!("{},{}", q(*x), q(*y)))
+                    .collect::<Vec<_>>()
+                    .join(";"),
+                DrawShape::Line { from, to, width } => format!(
+                    "l{},{},{},{},{}",
+                    q(from.0),
+                    q(from.1),
+                    q(to.0),
+                    q(to.1),
+                    q(*width)
+                ),
+            })
+            .collect::<Vec<_>>();
+        shapes.sort();
+        shapes.dedup();
+        shapes
+    }
+
+    /// The parts it shows in a mood, standing: its face in that mood.
+    pub fn face(&self, mood: Mood) -> Vec<usize> {
+        self.parts
+            .iter()
+            .enumerate()
+            .filter(|(_, part)| part.shows(Stance::Standing, mood))
+            .map(|(index, _)| index)
+            .collect()
     }
 
     /// The most parts a drawing may have.
@@ -273,13 +392,25 @@ impl Drawing {
     /// the roles filled in by `inks`: for looking at a Pack's drawings
     /// outside the app.
     pub fn to_svg(&self, stance: Stance, height: f32, inks: &dyn Fn(Ink) -> u32) -> String {
+        self.to_svg_feeling(stance, Mood::Content, height, inks)
+    }
+
+    /// The drawing as a picture in one stance and one mood.
+    pub fn to_svg_feeling(
+        &self,
+        stance: Stance,
+        mood: Mood,
+        height: f32,
+        inks: &dyn Fn(Ink) -> u32,
+    ) -> String {
         let h = height;
         let w = height * self.aspect;
-        let at = |x: f32, y: f32| (w * (x + 0.5), h * (1.0 - y));
+        let drop = drop_of(stance);
+        let at = |x: f32, y: f32| (w * (x + 0.5), h * (1.0 - y + drop));
         let mut svg = format!(
             r#"<svg xmlns="http://www.w3.org/2000/svg" width="{w:.0}" height="{h:.0}" viewBox="0 0 {w:.1} {h:.1}">"#
         );
-        for part in self.parts.iter().filter(|part| part.shows_in(stance)) {
+        for part in self.parts.iter().filter(|part| part.shows(stance, mood)) {
             let colour = toned(inks(part.ink), part.tone);
             let fill = format!("#{colour:06x}");
             let opacity = if part.ink == Ink::Shade { 0.25 } else { 1.0 };
@@ -396,7 +527,20 @@ pub mod figure {
 /// and whatever marks them out over it with [`Drawing::with`].
 pub fn person_base(id: impl Into<String>) -> Drawing {
     use figure::{ellipse, line, polygon, rect};
-    use Stance::{Celebrating, Standing, Talking, Walking, Working};
+    use Stance::{
+        Celebrating, LookingAround, Sitting, Standing, Stretching, Talking, Walking, Waving,
+        Working,
+    };
+    let upright = [
+        Standing,
+        Walking,
+        Working,
+        Talking,
+        Celebrating,
+        LookingAround,
+        Stretching,
+        Waving,
+    ];
     let trousers = Ink::Colour(0x3b3f4a);
     let shoes = Ink::Colour(0x2a2522);
     let mut parts = Vec::new();
@@ -405,12 +549,14 @@ pub fn person_base(id: impl Into<String>) -> Drawing {
         parts.push(
             rect(side * 0.75 - 0.5, 0.3, 1.0, 3.0, trousers)
                 .round(0.08)
-                .swing(swing),
+                .swing(swing)
+                .only(&upright),
         );
         parts.push(
             rect(side * 0.75 - 0.65, 0.0, 1.3, 0.5, shoes)
                 .round(0.06)
-                .swing(swing),
+                .swing(swing)
+                .only(&upright),
         );
     }
     // Arms behind the coat: down at the sides, swinging with a walk.
@@ -419,25 +565,35 @@ pub fn person_base(id: impl Into<String>) -> Drawing {
     for (side, swing) in [(-1.0_f32, -0.1_f32), (1.0, 0.1)] {
         parts.push(
             sleeve((side * 1.6, 6.0), (side * 1.9, 3.6))
-                .only(&[Standing, Walking])
+                .only(&[Standing, Walking, Sitting])
                 .swing(swing),
         );
         parts.push(
             hand(side * 1.95, 3.35)
-                .only(&[Standing, Walking])
+                .only(&[Standing, Walking, Sitting])
                 .swing(swing),
         );
     }
     // Talking: one hand down, the other raised as they make their point.
-    parts.push(sleeve((-1.6, 6.0), (-1.9, 3.6)).only(&[Talking]));
-    parts.push(hand(-1.95, 3.35).only(&[Talking]));
+    parts.push(sleeve((-1.6, 6.0), (-1.9, 3.6)).only(&[Talking, LookingAround, Waving]));
+    parts.push(hand(-1.95, 3.35).only(&[Talking, LookingAround, Waving]));
     parts.push(sleeve((1.6, 6.0), (2.35, 4.7)).only(&[Talking]));
     parts.push(sleeve((2.35, 4.7), (2.6, 6.5)).only(&[Talking]));
     parts.push(hand(2.65, 6.75).only(&[Talking]));
-    // Celebrating: both arms up.
+    // Looking around: a hand shading the eyes.
+    parts.push(sleeve((1.6, 6.0), (2.3, 6.9)).only(&[LookingAround]));
+    parts.push(sleeve((2.3, 6.9), (1.0, 8.35)).only(&[LookingAround]));
+    // Waving: a hand held high.
+    parts.push(sleeve((1.6, 6.0), (2.6, 7.6)).only(&[Waving]));
+    parts.push(sleeve((2.6, 7.6), (2.9, 9.0)).only(&[Waving]));
+    parts.push(hand(2.95, 9.3).only(&[Waving]));
+    // Celebrating: both arms up; stretching: up and wide.
     for side in [-1.0_f32, 1.0] {
         parts.push(sleeve((side * 1.6, 6.1), (side * 2.6, 8.7)).only(&[Celebrating]));
         parts.push(hand(side * 2.7, 9.0).only(&[Celebrating]));
+        parts.push(sleeve((side * 1.6, 6.1), (side * 3.2, 7.9)).only(&[Stretching]));
+        parts.push(sleeve((side * 3.2, 7.9), (side * 3.0, 9.4)).only(&[Stretching]));
+        parts.push(hand(side * 2.95, 9.7).only(&[Stretching]));
     }
     // The coat, widening a little toward the hem, with rounded shoulders.
     parts.push(polygon(
@@ -446,6 +602,11 @@ pub fn person_base(id: impl Into<String>) -> Drawing {
     ));
     parts.push(rect(-1.45, 5.7, 2.9, 1.0, Ink::Clothes).round(0.12));
     parts.push(rect(-0.35, 6.4, 0.7, 0.5, Ink::Skin));
+    // Sitting: the whole figure is drawn lower (see [`drop_of`]), so these
+    // legs run forward from the hem and down to the lowered ground.
+    parts.push(rect(-0.6, 2.75, 3.0, 0.9, trousers).round(0.1).only(&[Sitting]));
+    parts.push(rect(1.55, 2.55, 0.9, 1.0, trousers).round(0.08).only(&[Sitting]));
+    parts.push(rect(1.45, 2.4, 1.5, 0.42, shoes).round(0.06).only(&[Sitting]));
     // Working: both hands forward at the chest, holding what they work on.
     for side in [-1.0_f32, 1.0] {
         parts.push(sleeve((side * 1.5, 6.0), (side * 0.8, 4.5)).only(&[Working]));
@@ -453,14 +614,94 @@ pub fn person_base(id: impl Into<String>) -> Drawing {
     }
     // Head, eyes, and a mouth that opens to speak or cheer.
     parts.push(ellipse(0.0, 8.0, 1.55, 1.55, Ink::Skin));
-    for side in [-1.0_f32, 1.0] {
-        parts.push(ellipse(side * 0.55, 8.1, 0.17, 0.17, Ink::Colour(0x2a2522)));
-    }
-    parts.push(ellipse(0.0, 7.35, 0.32, 0.2, Ink::Colour(0x7a3a2a)).only(&[Talking, Celebrating]));
-    parts.push(
-        ellipse(0.0, 7.4, 0.35, 0.07, Ink::Colour(0x7a3a2a)).only(&[Standing, Walking, Working]),
-    );
+    parts.extend(face());
+    parts.push(hand(1.0, 8.55).only(&[LookingAround]));
     Drawing::new(id, FIGURE_WIDTH / 10.0, parts)
+}
+
+/// A face that shows how someone feels: eyes (shut in a stretch), brows
+/// that frown, lift or slant, and a mouth that smiles, droops, sets, or
+/// opens to speak, cheer or yawn.
+fn face() -> Vec<DrawPart> {
+    use figure::{ellipse, line, polygon};
+    use Mood::{Content, Cross, Happy, Sad, Thinking};
+    use Stance::{
+        Celebrating, LookingAround, Sitting, Standing, Stretching, Talking, Walking, Waving,
+        Working,
+    };
+    let dark = Ink::Colour(0x2a2522);
+    let lips = Ink::Colour(0x7a3a2a);
+    let open = [Talking, Celebrating];
+    let quiet = [Standing, Walking, Working, LookingAround, Sitting, Waving];
+    let mut parts = Vec::new();
+    for side in [-1.0_f32, 1.0] {
+        parts.push(
+            ellipse(side * 0.55, 8.1, 0.17, 0.17, dark).only(&[
+                Standing,
+                Walking,
+                Working,
+                Talking,
+                Celebrating,
+                LookingAround,
+                Sitting,
+                Waving,
+            ]),
+        );
+        // Eyes shut in a stretch and a big smile.
+        parts.push(
+            line(
+                (side * 0.55 - 0.22, 8.1),
+                (side * 0.55 + 0.22, 8.1),
+                0.12,
+                dark,
+            )
+            .only(&[Stretching]),
+        );
+    }
+    // Brows: slanted down to the middle when cross, up in the middle when
+    // sad, one raised when thinking.
+    let brow = |from: (f32, f32), to: (f32, f32)| line(from, to, 0.16, Ink::Hair).tone(-0.2);
+    parts.push(brow((-0.9, 8.78), (-0.3, 8.52)).feeling(&[Cross]));
+    parts.push(brow((0.3, 8.52), (0.9, 8.78)).feeling(&[Cross]));
+    parts.push(brow((-0.9, 8.5), (-0.3, 8.72)).feeling(&[Sad]));
+    parts.push(brow((0.3, 8.72), (0.9, 8.5)).feeling(&[Sad]));
+    parts.push(brow((0.3, 8.72), (0.9, 8.86)).feeling(&[Thinking]));
+    // Mouths.
+    parts.push(ellipse(0.0, 7.35, 0.32, 0.2, lips).only(&open));
+    parts.push(ellipse(0.0, 7.3, 0.36, 0.34, lips).only(&[Stretching]));
+    parts.push(
+        ellipse(0.0, 7.4, 0.35, 0.07, lips)
+            .only(&quiet)
+            .feeling(&[Content]),
+    );
+    parts.push(
+        polygon(&[(-0.5, 7.5), (0.5, 7.5), (0.28, 7.2), (-0.28, 7.2)], lips)
+            .only(&quiet)
+            .feeling(&[Happy]),
+    );
+    parts.push(
+        polygon(&[(-0.28, 7.45), (0.28, 7.45), (0.46, 7.2), (-0.46, 7.2)], lips)
+            .only(&quiet)
+            .feeling(&[Sad]),
+    );
+    parts.push(
+        line((-0.38, 7.35), (0.38, 7.35), 0.14, lips)
+            .only(&quiet)
+            .feeling(&[Cross]),
+    );
+    parts.push(
+        ellipse(0.35, 7.38, 0.14, 0.1, lips)
+            .only(&quiet)
+            .feeling(&[Thinking]),
+    );
+    // A glow in the cheeks when happy.
+    for side in [-1.0_f32, 1.0] {
+        parts.push(
+            ellipse(side * 0.95, 7.65, 0.3, 0.14, Ink::Colour(0xe89a8a))
+                .feeling(&[Happy]),
+        );
+    }
+    parts
 }
 
 /// Short hair, for a person drawn over [`person_base`].
@@ -471,6 +712,114 @@ pub fn short_hair() -> Vec<DrawPart> {
         rect(-1.6, 7.9, 0.5, 1.2, Ink::Hair).round(0.1),
         rect(1.1, 7.9, 0.5, 1.2, Ink::Hair).round(0.1),
     ]
+}
+
+/// How many different silhouettes [`person`] draws: every hairstyle
+/// under every hat, slight or broad.
+pub const SILHOUETTES: u32 = 6 * 4 * 2;
+
+/// Someone of their own, for anyone a Pack has not drawn by hand: one of
+/// six hairstyles, under one of four hats (or none), slight or broad, and
+/// maybe glasses, a beard or a scarf. Two different `variant`s below
+/// [`SILHOUETTES`] never share a silhouette, so a Pack that numbers its
+/// people gives each an outline of their own.
+pub fn person(id: impl Into<String>, variant: u32, base: &Drawing) -> Drawing {
+    use figure::{ellipse, line, polygon, rect};
+    let hair_style = variant % 6;
+    let hat = (variant / 6) % 4;
+    let broad = (variant / 24) % 2 == 1;
+    let extra = crate::drawing::mix(variant);
+    let mut parts = Vec::new();
+    if broad {
+        parts.push(polygon(
+            &[(-1.7, 6.3), (1.7, 6.3), (2.1, 3.0), (-2.1, 3.0)],
+            Ink::Clothes,
+        ));
+        parts.push(rect(-1.7, 5.6, 3.4, 1.1, Ink::Clothes).round(0.14));
+    }
+    match hair_style {
+        0 => parts.extend(short_hair()),
+        1 => {
+            // Long, past the shoulders.
+            parts.push(ellipse(0.0, 9.05, 1.7, 0.8, Ink::Hair));
+            parts.push(rect(-1.8, 6.2, 0.65, 2.9, Ink::Hair).round(0.12));
+            parts.push(rect(1.15, 6.2, 0.65, 2.9, Ink::Hair).round(0.12));
+        }
+        2 => {
+            // A bun on top.
+            parts.extend(short_hair());
+            parts.push(ellipse(0.0, 10.05, 0.72, 0.62, Ink::Hair));
+        }
+        3 => {
+            // Curls all round.
+            for (x, y) in [(-1.3, 8.6), (-0.7, 9.35), (0.0, 9.55), (0.7, 9.35), (1.3, 8.6)] {
+                parts.push(ellipse(x, y, 0.62, 0.58, Ink::Hair));
+            }
+        }
+        4 => {
+            // Cropped close.
+            parts.push(ellipse(0.0, 9.15, 1.35, 0.42, Ink::Hair));
+        }
+        _ => {
+            // A ponytail behind.
+            parts.extend(short_hair());
+            parts.push(ellipse(-1.9, 8.1, 0.5, 1.15, Ink::Hair));
+        }
+    }
+    let hat_colour = Ink::Colour(HATS[(extra % HATS.len() as u32) as usize]);
+    match hat {
+        1 => {
+            // A cap with a peak.
+            parts.push(ellipse(0.0, 9.25, 1.6, 0.75, hat_colour));
+            parts.push(rect(0.3, 8.95, 1.9, 0.32, hat_colour).round(0.1).tone(-0.15));
+        }
+        2 => {
+            // A woolly hat.
+            parts.push(ellipse(0.0, 9.5, 1.55, 1.05, hat_colour));
+            parts.push(rect(-1.65, 8.75, 3.3, 0.55, hat_colour).round(0.12).tone(-0.2));
+            parts.push(ellipse(0.0, 10.55, 0.35, 0.32, hat_colour).tone(0.3));
+        }
+        3 => {
+            // A wide brim against the sun.
+            parts.push(ellipse(0.0, 9.2, 2.7, 0.35, hat_colour));
+            parts.push(ellipse(0.0, 9.55, 1.4, 0.75, hat_colour).tone(-0.1));
+        }
+        _ => {}
+    }
+    let dark = Ink::Colour(0x2a2522);
+    match (extra / 7) % 4 {
+        1 => {
+            // Glasses.
+            for side in [-1.0_f32, 1.0] {
+                parts.push(ellipse(side * 0.55, 8.1, 0.36, 0.3, Ink::Colour(0xdfe8ee)).tone(0.2));
+            }
+            parts.push(line((-0.2, 8.15), (0.2, 8.15), 0.1, dark));
+        }
+        2 => parts.push(ellipse(0.0, 7.0, 1.0, 0.6, Ink::Hair)),
+        3 => parts.push(rect(-1.3, 6.2, 2.6, 0.55, hat_colour).round(0.2).tone(0.1)),
+        _ => {}
+    }
+    base.with(id, parts)
+}
+
+/// The colours hats and scarves come in.
+const HATS: [u32; 6] = [0xb8433a, 0x2f5d8a, 0xd9a441, 0x3c7a55, 0x6e4a8a, 0x8a6a4a];
+
+/// A small stable number for mixing, the same every run.
+pub(crate) fn mix(value: u32) -> u32 {
+    let mut x = value.wrapping_mul(0x9e37_79b9).wrapping_add(0x7f4a_7c15);
+    x ^= x >> 15;
+    x = x.wrapping_mul(0x85eb_ca6b);
+    x ^ (x >> 13)
+}
+
+/// How much lower a stance draws the whole figure, in heights: sitting
+/// drops the hips to a seat.
+pub fn drop_of(stance: Stance) -> f32 {
+    match stance {
+        Stance::Sitting => 0.24,
+        _ => 0.0,
+    }
 }
 
 /// Every drawing in every stance it changes in, side by side on a light
@@ -515,6 +864,70 @@ pub fn contact_sheet(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn generated_people_have_outlines_and_faces_of_their_own() {
+        let base = person_base("base");
+        let outlines = (0..SILHOUETTES)
+            .map(|variant| person(format!("p{variant}"), variant, &base).silhouette())
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(outlines.len(), SILHOUETTES as usize);
+        let someone = person("p", 5, &base);
+        let faces = Mood::ALL
+            .iter()
+            .map(|mood| someone.face(*mood))
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(faces.len(), Mood::ALL.len(), "every mood shows");
+        for stance in Stance::ALL {
+            assert!(someone.parts.iter().any(|part| !part.stances.is_empty()
+                && part.stances.contains(&stance)
+                || part.stances.is_empty()));
+        }
+        assert!(someone.is_drawable());
+    }
+
+    /// Writes every stance and mood of a few generated people to
+    /// `WORLD_MACHINE_SHEET`, for looking over by eye.
+    #[test]
+    #[ignore]
+    fn write_people_sheet() {
+        let base = person_base("base");
+        let colours = [0x3f6fb0_u32, 0xc8553d, 0x3c9a8f, 0xe8b33c, 0x7b4bb3, 0x5b8c3a];
+        let hairs = [0x2b1d14_u32, 0x8a4b2a, 0xd8b25a, 0x1a1414, 0x9a9a9a, 0x5a3b22];
+        let mut body = String::new();
+        let (h, gap) = (160.0_f32, 30.0_f32);
+        let mut y = gap;
+        for row in 0..6u32 {
+            let drawing = person(format!("p{row}"), row * 7 + 3, &base);
+            let inks = |ink: Ink| match ink {
+                Ink::Clothes | Ink::Wall => colours[row as usize],
+                Ink::Hair => hairs[row as usize],
+                Ink::Skin => 0xe0b18a,
+                Ink::Colour(c) => c,
+                _ => 0x888888,
+            };
+            let mut x = gap;
+            let cells = Stance::ALL
+                .iter()
+                .map(|stance| (*stance, Mood::Content))
+                .chain(Mood::ALL.iter().skip(1).map(|mood| (Stance::Standing, *mood)));
+            for (stance, mood) in cells {
+                let svg = drawing.to_svg_feeling(stance, mood, h, &inks);
+                let inner = svg
+                    .split_once('>')
+                    .map(|(_, rest)| rest.trim_end_matches("</svg>"))
+                    .unwrap_or_default();
+                body.push_str(&format!(r#"<g transform="translate({x:.1},{y:.1})">{inner}</g>"#));
+                x += h * 0.75;
+            }
+            y += h + gap;
+        }
+        let svg = format!(
+            r##"<svg xmlns="http://www.w3.org/2000/svg" width="{:.0}" height="{y:.0}"><rect width="100%" height="100%" fill="#e9efe6"/>{body}</svg>"##,
+            gap + 13.0 * h * 0.75
+        );
+        std::fs::write(std::env::var("WORLD_MACHINE_SHEET").unwrap(), svg).unwrap();
+    }
 
     pub(crate) fn inks(ink: Ink) -> u32 {
         match ink {

@@ -10,8 +10,8 @@ use world_core::{
 
 pub use causal::{why_from_world, why_map_from_world, WhyNode, WhyProjection};
 pub use drawing::{
-    contact_sheet, figure, figure_point, person_base, short_hair, toned, DrawPart, DrawShape,
-    Drawing, Ink, Stance,
+    contact_sheet, drop_of, figure, figure_point, person, person_base, short_hair, toned,
+    DrawPart, DrawShape, Drawing, Ink, Mood, Stance, SILHOUETTES,
 };
 pub use influence::effect_headline;
 
@@ -1486,6 +1486,8 @@ pub struct CanvasItem {
     /// How a person stands with the player, for a World the player can
     /// talk in.
     pub standing: Option<Standing>,
+    /// How a person feels, for their face.
+    pub mood: Option<Mood>,
 }
 
 /// How someone stands with the player: a mark from -2 (does not trust

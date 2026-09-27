@@ -510,6 +510,9 @@ pub struct DrawPartWire {
     /// Stances this build does not know are left out of the list.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub stances: Vec<String>,
+    /// Moods this build does not know are left out of the list.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub moods: Vec<String>,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub swing: f32,
 }
@@ -584,6 +587,7 @@ impl From<&Drawing> for DrawingWire {
                         .iter()
                         .map(|stance| stance.id().to_string())
                         .collect(),
+                    moods: part.moods.iter().map(|mood| mood.id().to_string()).collect(),
                     swing: part.swing,
                 })
                 .collect(),
@@ -618,6 +622,11 @@ impl From<DrawingWire> for Drawing {
                         .stances
                         .iter()
                         .filter_map(|stance| Stance::from_id(stance))
+                        .collect(),
+                    moods: part
+                        .moods
+                        .iter()
+                        .filter_map(|mood| world_projection::Mood::from_id(mood))
                         .collect(),
                     swing: part.swing,
                 })
@@ -1906,6 +1915,9 @@ pub struct CanvasItemWire {
     pub stance: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub standing: Option<StandingWire>,
+    /// A mood this build does not know is drawn content.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mood: Option<String>,
 }
 
 /// The longest few words a standing is told in.
@@ -1954,6 +1966,7 @@ impl From<&CanvasItem> for CanvasItemWire {
                 level: standing.level,
                 words: standing.words.clone(),
             }),
+            mood: item.mood.map(|mood| mood.id().to_string()),
         }
     }
 }
@@ -1997,6 +2010,9 @@ impl From<CanvasItemWire> for CanvasItem {
                     level: standing.level.clamp(-2, 2),
                     words: standing.words.trim().to_string(),
                 }),
+            mood: item
+                .mood
+                .map(|mood| world_projection::Mood::from_id(&mood).unwrap_or_default()),
         }
     }
 }
@@ -2364,6 +2380,7 @@ mod tests {
                     drawing: None,
                     stance: None,
                     standing: None,
+                    mood: None,
                 }],
                 links: vec![CanvasLink {
                     from: entity,
