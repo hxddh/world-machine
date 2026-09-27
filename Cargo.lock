@@ -2269,6 +2269,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "hands"
+version = "0.1.0"
+dependencies = [
+ "world-core",
+]
+
+[[package]]
 name = "harfrust"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2883,6 +2890,13 @@ name = "litrs"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
+
+[[package]]
+name = "lives"
+version = "0.1.0"
+dependencies = [
+ "world-core",
+]
 
 [[package]]
 name = "lock_api"
@@ -3866,8 +3880,10 @@ dependencies = [
 
 [[package]]
 name = "pocket-universe"
-version = "0.22.0"
+version = "0.23.0"
 dependencies = [
+ "hands",
+ "lives",
  "storylets",
  "world-agent",
  "world-compare",
@@ -3882,7 +3898,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-universe-pack"
-version = "0.22.0"
+version = "0.23.0"
 dependencies = [
  "pocket-universe",
  "serde_json",
@@ -5385,8 +5401,10 @@ dependencies = [
 
 [[package]]
 name = "tiny-society"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
+ "hands",
+ "lives",
  "serde_json",
  "society-basic",
  "storylets",
@@ -5412,7 +5430,7 @@ dependencies = [
 
 [[package]]
 name = "tiny-society-pack"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "tiny-society",
  "world-host",
@@ -6798,7 +6816,7 @@ dependencies = [
 
 [[package]]
 name = "world-machine-desktop"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "gpui",
  "gpui_platform",

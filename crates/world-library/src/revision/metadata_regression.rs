@@ -55,6 +55,7 @@ impl WorldSession for MockSession {
                 moves: Vec::new(),
                 question: None,
                 unavailable: None,
+                hand: None,
             }],
             ..ProjectionSnapshot::default()
         }

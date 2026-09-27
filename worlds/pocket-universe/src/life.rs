@@ -1,0 +1,1006 @@
+//! The people of each pocket universe living their own lives: what they do
+//! with a sol on Mars, a night on Maple Street or an aurora on Icebridge,
+//! who they get on with, and who might come to stay. The mechanics are the
+//! `lives` System's; the words are each place's own.
+
+use crate::story::NEWCOMER;
+use crate::{seed_id, SLOT_A, SLOT_B, SLOT_C, SLOT_D, SLOT_E, UNIVERSE};
+use lives::{Activity, At, Cast, Need, Visitors, With};
+use world_core::{EntityId, Value, World, WorldState};
+
+/// The entity each World's lives are kept on.
+pub(crate) const LIVES: EntityId = EntityId::new(38);
+
+/// The first id a stranger who comes to stay takes.
+pub(crate) const FIRST_VISITOR: u64 = 40;
+
+const MARS: &[Activity] = &[
+    Activity {
+        id: "maintenance",
+        need: Need::Money,
+        with: With::Workmate,
+        at: At::Work,
+        told: "{name} spent the sol on maintenance at {place} with {other}",
+        said: &[
+            "Scrubbers cleaned, filters swapped. {other} did the dull half.",
+            "{other} and I traced a leak for three hours.",
+            "Maintenance at {place}. {other} hummed the whole time.",
+            "Recalibrated the sensors with {other}. Twice.",
+        ],
+        gives: &[],
+    },
+    Activity {
+        id: "survey",
+        need: Need::Money,
+        with: With::Alone,
+        at: At::Work,
+        told: "{name} ran a survey from {place}",
+        said: &[
+            "Mapped another ridge from {place}.",
+            "Logged forty rock samples. Forty!",
+            "Survey done. The dust got in everything.",
+            "Charted the crater rim. Beautiful, in a dead sort of way.",
+            "Found a vein of ice under the ridge. {friend} owes me a drink.",
+        ],
+        gives: &[],
+    },
+    Activity {
+        id: "repairs",
+        need: Need::Money,
+        with: With::Anyone,
+        at: At::Work,
+        told: "{name} fixed {other}'s kit",
+        said: &[
+            "Fixed {other}'s suit seal. It was held on with tape.",
+            "{other} brought me a broken drill. It's a drill again now.",
+            "Rewired {other}'s helmet lamp. Let there be light.",
+            "Patched the rover seat for {other}. Again.",
+        ],
+        gives: &[],
+    },
+    Activity {
+        id: "harvest",
+        need: Need::Money,
+        with: With::Anyone,
+        at: At::Quiet,
+        told: "{name} harvested wheat in {place} with {other}",
+        said: &[
+            "Harvested dwarf wheat with {other}. Bread next sol!",
+            "{other} and I picked the beans. Mostly I ate them.",
+            "Pollinated the tomatoes with {other}. With a paintbrush.",
+            "{other} and I counted the new shoots. Ninety-two.",
+        ],
+        gives: &[],
+    },
+    Activity {
+        id: "bunk",
+        need: Need::Rest,
+        with: With::Alone,
+        at: At::Home,
+        told: "{name} slept a full shift",
+        said: &[
+            "Slept a full shift. First in ages.",
+            "Dreamed of rain. Real rain.",
+            "Slept through the dust alarm. Oops.",
+            "{friend} let me sleep in. Hero.",
+        ],
+        gives: &[],
+    },
+    Activity {
+        id: "dome_view",
+        need: Need::Rest,
+        with: With::Alone,
+        at: At::Quiet,
+        told: "{name} watched the sunset from {place}",
+        said: &[
+            "Blue sunset from {place}. Never gets old.",
+            "Sat among the plants in {place}. It smells like Earth.",
+            "Watched Phobos cross the sky.",
+            "{friend} says I stare at the horizon too much.",
+        ],
+        gives: &[],
+    },
+    Activity {
+        id: "records",
+        need: Need::Rest,
+        with: With::Friend,
+        at: At::Gathering,
+        told: "{name} listened to old records with {other}",
+        said: &[
+            "{other} played me songs from home.",
+            "Old records with {other}. We sang. Badly.",
+            "{other} found a record I hadn't heard. Rare, out here.",
+            "Lay back and let {other} pick the music.",
+        ],
+        gives: &[],
+    },
+    Activity {
+        id: "supper",
+        need: Need::Company,
+        with: With::Friend,
+        at: At::Gathering,
+        told: "{name} shared supper with {other} at {place}",
+        said: &[
+            "Supper with {other}. Rehydrated stew, fine company.",
+            "{other} made pancakes. On Mars! Pancakes!",
+            "Ate with {other} and talked about the sea.",
+            "Burnt the stew. {other} ate it anyway. Hero.",
+        ],
+        gives: &[],
+    },
+    Activity {
+        id: "chess",
+        need: Need::Company,
+        with: With::Anyone,
+        at: At::Gathering,
+        told: "{name} played chess with {other}",
+        said: &[
+            "{other} cheats at chess. Even on Mars.",
+            "Beat {other} at chess. Finally.",
+            "{other} taught me a card game from home.",
+            "{other} took my queen in four moves. Humiliating.",
+        ],
+        gives: &[],
+    },
+    Activity {
+        id: "message_home",
+        need: Need::Company,
+        with: With::Alone,
+        at: At::Quiet,
+        told: "{name} sent a message home",
+        said: &[
+            "Sent a message home. Twenty minutes each way.",
+            "Heard back from Earth. Everyone's well.",
+            "Recorded a message for my sister. Kept it cheerful.",
+            "Told Earth all about {friend}. They're jealous.",
+        ],
+        gives: &[],
+    },
+    Activity {
+        id: "rim_walk",
+        need: Need::Company,
+        with: With::Friend,
+        at: At::Work,
+        told: "{name} walked the crater rim with {other}",
+        said: &[
+            "Walked the crater rim with {other}. Suits on, still lovely.",
+            "{other} and I raced to the ridge. I lost.",
+            "{other} spotted a dust devil. We watched it dance.",
+            "Out on the rim with {other}. Earth is a blue dot from here.",
+        ],
+        gives: &[],
+    },
+    Activity {
+        id: "teach",
+        need: Need::Purpose,
+        with: With::Anyone,
+        at: At::Gathering,
+        told: "{name} taught {other} something new",
+        said: &[
+            "Taught {other} to solder. Only one burn.",
+            "{other} knows the constellations now. From Mars they look odd.",
+            "Showed {other} how the air recycler works.",
+            "{other} asked a hundred questions. Good ones.",
+        ],
+        gives: &[],
+    },
+    Activity {
+        id: "experiment",
+        need: Need::Purpose,
+        with: With::Alone,
+        at: At::Quiet,
+        told: "{name} ran an experiment in {place}",
+        said: &[
+            "Grew a tomato in Martian soil. Tiny, but a tomato.",
+            "My experiment worked. Mostly.",
+            "Tested a new water filter. {friend} tasted it. Brave.",
+            "The algae tank turned purple. Science!",
+            "Measured the soil again. Still Martian.",
+        ],
+        gives: &[],
+    },
+    Activity {
+        id: "log",
+        need: Need::Purpose,
+        with: With::Alone,
+        at: At::Home,
+        told: "{name} wrote up the colony log",
+        said: &[
+            "Wrote up the log. Future Martians, hello.",
+            "Drew a map of everything we've found.",
+            "Wrote a poem about dust. It's not good.",
+            "Filed the sol report. Nothing blew up.",
+            "Updated the map of the caves.",
+        ],
+        gives: &[],
+    },
+    Activity {
+        id: "telescope",
+        need: Need::Purpose,
+        with: With::Friend,
+        at: At::Work,
+        told: "{name} worked on a telescope with {other}",
+        said: &[
+            "{other} and I are building a telescope.",
+            "Designing a greenhouse extension with {other}.",
+            "{other} and I aligned the mirror. Nearly.",
+            "Sketched plans with {other} till the lights dimmed.",
+        ],
+        gives: &[],
+    },
+];
+
+const TOWN: &[Activity] = &[
+    Activity {
+        id: "shift",
+        need: Need::Money,
+        with: With::Workmate,
+        at: At::Work,
+        told: "{name} worked a shift at {place} with {other}",
+        said: &[
+            "Shift at {place}. {other} spilled a milkshake on the till.",
+            "{other} and I restocked everything at {place}.",
+            "Busy night at {place}. {other} ran the jukebox all night.",
+            "Worked with {other}. We got the ice machine going.",
+        ],
+        gives: &[],
+    },
+    Activity {
+        id: "paper_round",
+        need: Need::Money,
+        with: With::Alone,
+        at: At::Work,
+        told: "{name} did an early paper round",
+        said: &[
+            "Paper round done before six. Freezing.",
+            "A dog chased me down Elm Street. Again.",
+            "Delivered two hundred papers. My arms!",
+            "Tips from Mrs Kowalski. A whole dollar.",
+            "Threw a paper on the Hendersons' roof. Oops.",
+            "Paper round in the rain. Every paper soaked.",
+            "Saw {friend}'s light on at five. Night owl.",
+        ],
+        gives: &[],
+    },
+    Activity {
+        id: "lawns",
+        need: Need::Money,
+        with: With::Anyone,
+        at: At::Work,
+        told: "{name} mowed {other}'s lawn for cash",
+        said: &[
+            "Mowed {other}'s lawn. Five bucks.",
+            "Washed {other}'s car. Found a quarter in the seat.",
+            "Painted {other}'s fence. And my shoes.",
+            "{other} paid me in pie. Worth it.",
+        ],
+        gives: &[],
+    },
+    Activity {
+        id: "yard_sale",
+        need: Need::Money,
+        with: With::Anyone,
+        at: At::Gathering,
+        told: "{name} ran a yard sale with {other}",
+        said: &[
+            "Sold my old records. {other} bought the Springsteen.",
+            "Yard sale with {other}. Made eleven dollars.",
+            "{other} haggled me down on my own skateboard.",
+            "Sold {other} a lava lamp. It works, mostly.",
+        ],
+        gives: &[],
+    },
+    Activity {
+        id: "sleep_in",
+        need: Need::Rest,
+        with: With::Alone,
+        at: At::Home,
+        told: "{name} slept till noon",
+        said: &[
+            "Slept till noon. Mom wasn't impressed.",
+            "Didn't get up till the soaps came on.",
+            "Lay in bed with the radio on.",
+            "{friend} called. I pretended I was out.",
+        ],
+        gives: &[],
+    },
+    Activity {
+        id: "tv",
+        need: Need::Rest,
+        with: With::Alone,
+        at: At::Home,
+        told: "{name} watched TV all evening",
+        said: &[
+            "Watched reruns all night. Bliss.",
+            "Taped the Top 40 off the radio.",
+            "Fell asleep in front of the late movie.",
+            "Caught the end of the ball game. We lost.",
+            "Watched a scary movie with the lights off. Regret.",
+            "MTV all evening. My brain is neon.",
+        ],
+        gives: &[],
+    },
+    Activity {
+        id: "drive",
+        need: Need::Rest,
+        with: With::Friend,
+        at: At::Quiet,
+        told: "{name} drove around town with {other}",
+        said: &[
+            "Drove around with {other} and the windows down.",
+            "{other} and I drove out to the lake.",
+            "{other} drove. I did the tape deck.",
+            "Parked by the water tower with {other} and talked.",
+        ],
+        gives: &[],
+    },
+    Activity {
+        id: "arcade",
+        need: Need::Company,
+        with: With::Friend,
+        at: At::Gathering,
+        told: "{name} played Pac-Man with {other} at {place}",
+        said: &[
+            "{other} beat my high score. I'm devastated.",
+            "Two-player with {other} till closing.",
+            "{other} spent all their quarters on Galaga.",
+            "{other} and I beat the last level of Donkey Kong!",
+        ],
+        gives: &[],
+    },
+    Activity {
+        id: "diner",
+        need: Need::Company,
+        with: With::Anyone,
+        at: At::Gathering,
+        told: "{name} got fries with {other}",
+        said: &[
+            "Fries and shakes with {other}.",
+            "{other} and I split a banana split.",
+            "{other} dared me to eat the Big Burger. I lost.",
+            "Coffee with {other} till the waitress glared.",
+        ],
+        gives: &[],
+    },
+    Activity {
+        id: "phone",
+        need: Need::Company,
+        with: With::Alone,
+        at: At::Home,
+        told: "{name} was on the phone all night",
+        said: &[
+            "On the phone for two hours. The cord's stretched.",
+            "My sister called long-distance. Mom timed it.",
+            "Called {friend}. We talked about nothing for an hour.",
+            "Called the radio station. They played my song!",
+        ],
+        gives: &[],
+    },
+    Activity {
+        id: "rink",
+        need: Need::Company,
+        with: With::Anyone,
+        at: At::Gathering,
+        told: "{name} went roller skating with {other}",
+        said: &[
+            "Roller rink with {other}. I fell over twice.",
+            "{other} can moonwalk. Who knew?",
+            "{other} held my hand on the rink. For balance.",
+            "Couples skate with {other}. Don't tell anyone.",
+        ],
+        gives: &[],
+    },
+    Activity {
+        id: "radio_show",
+        need: Need::Purpose,
+        with: With::Anyone,
+        at: At::Quiet,
+        told: "{name} helped {other} run a show at {place}",
+        said: &[
+            "Helped {other} run the late show at {place}.",
+            "{other} let me pick the records on air!",
+            "{other} and I took phone-in requests till two.",
+            "Read the weather on air with {other}. Rain, again.",
+        ],
+        gives: &[],
+    },
+    Activity {
+        id: "band",
+        need: Need::Purpose,
+        with: With::Friend,
+        at: At::Gathering,
+        told: "{name} practised with {other}'s garage band",
+        said: &[
+            "Band practice with {other}. The neighbours complained.",
+            "{other} and I wrote a song. It's got four chords.",
+            "{other} broke a string. The show went on.",
+            "Garage band with {other}. The dog howled along.",
+        ],
+        gives: &[],
+    },
+    Activity {
+        id: "study",
+        need: Need::Purpose,
+        with: With::Alone,
+        at: At::Home,
+        told: "{name} studied for exams",
+        said: &[
+            "Studied all evening. Brain full.",
+            "Flashcards till midnight.",
+            "{friend} quizzed me on history. I know the Magna Carta now.",
+            "Wrote an essay on Moby Dick. Never again.",
+            "Fell asleep on my maths book.",
+        ],
+        gives: &[],
+    },
+    Activity {
+        id: "old_car",
+        need: Need::Purpose,
+        with: With::Anyone,
+        at: At::Work,
+        told: "{name} fixed up an old car with {other}",
+        said: &[
+            "Got {other}'s old Chevy running. Sort of.",
+            "Oil to the elbows. {other} says it's a good look.",
+            "{other} and I put new tyres on the old Ford.",
+            "The car started! {other} cheered.",
+        ],
+        gives: &[],
+    },
+];
+
+const ICE: &[Activity] = &[
+    Activity {
+        id: "fishing",
+        need: Need::Money,
+        with: With::Workmate,
+        at: At::Work,
+        told: "{name} went fishing with {other}",
+        said: &[
+            "Caught three herring. {other} caught one. Ha.",
+            "Fishing with {other}. Cold. Wet. Wonderful.",
+            "{other} and I filled the basket by noon.",
+            "A seal chased us off the good spot. {other} was brave.",
+        ],
+        gives: &[],
+    },
+    Activity {
+        id: "bridge_work",
+        need: Need::Money,
+        with: With::Alone,
+        at: At::Work,
+        told: "{name} mended the bridge",
+        said: &[
+            "Patched the bridge. Two new spans of ice.",
+            "Mended a crack in the bridge. Nobody fell in.",
+            "Carved new steps in the ice.",
+            "Swept snow off the bridge all morning.",
+            "{friend} held the ice while I carved. Teamwork.",
+        ],
+        gives: &[],
+    },
+    Activity {
+        id: "sort_fish",
+        need: Need::Money,
+        with: With::Anyone,
+        at: At::Quiet,
+        told: "{name} sorted fish at {place} with {other}",
+        said: &[
+            "Sorted the fish with {other}. Herring left, cod right.",
+            "{other} and I counted the fish store. Twice.",
+            "{other} ate one while we counted. I saw.",
+            "Found a starfish in the fish pile. Put it back.",
+        ],
+        gives: &[],
+    },
+    Activity {
+        id: "trade",
+        need: Need::Money,
+        with: With::Anyone,
+        at: At::Gathering,
+        told: "{name} swapped stones with {other}",
+        said: &[
+            "Swapped a smooth stone with {other}. Good trade.",
+            "{other} gave me a shiny pebble for two fish.",
+            "{other} drives a hard bargain for a pebble.",
+            "Traded {other} a feather for a smooth stone.",
+        ],
+        gives: &[],
+    },
+    Activity {
+        id: "snowdrift",
+        need: Need::Rest,
+        with: With::Alone,
+        at: At::Home,
+        told: "{name} napped in a snowdrift",
+        said: &[
+            "Napped in a snowdrift. Perfect.",
+            "Slept standing up. A skill.",
+            "Dreamed of krill. Endless krill.",
+            "{friend} kept watch while I slept.",
+        ],
+        gives: &[],
+    },
+    Activity {
+        id: "huddle",
+        need: Need::Rest,
+        with: With::Friend,
+        at: At::Gathering,
+        told: "{name} huddled with {other} out of the wind",
+        said: &[
+            "Huddled with {other}. Warm at last.",
+            "{other} and I stood in the middle of the huddle. Cosy.",
+            "Warmest spot in the huddle, next to {other}.",
+            "{other} told jokes in the huddle. Terrible ones.",
+        ],
+        gives: &[],
+    },
+    Activity {
+        id: "aurora",
+        need: Need::Rest,
+        with: With::Alone,
+        at: At::Quiet,
+        told: "{name} watched the aurora",
+        said: &[
+            "Watched the aurora dance. Green and pink.",
+            "The sky was on fire with lights.",
+            "Counted the stars till I lost count.",
+            "The aurora went purple tonight. Never seen that.",
+            "Lay on the ice and watched the lights.",
+        ],
+        gives: &[],
+    },
+    Activity {
+        id: "slide",
+        need: Need::Company,
+        with: With::Friend,
+        at: At::Gathering,
+        told: "{name} went belly-sliding with {other}",
+        said: &[
+            "Belly-slid down the big slope with {other}!",
+            "{other} slid further than me. Rematch tomorrow.",
+            "{other} and I slid right into a snowbank.",
+            "{other} and I made a new slide. Very fast.",
+        ],
+        gives: &[],
+    },
+    Activity {
+        id: "song",
+        need: Need::Company,
+        with: With::Anyone,
+        at: At::Gathering,
+        told: "{name} sang with {other}",
+        said: &[
+            "Sang the old songs with {other}.",
+            "{other} knows every verse of the fish song.",
+            "{other} and I made up a new verse.",
+            "Sang to the moon with {other}.",
+        ],
+        gives: &[],
+    },
+    Activity {
+        id: "preen",
+        need: Need::Company,
+        with: With::Friend,
+        at: At::Home,
+        told: "{name} preened {other}'s feathers",
+        said: &[
+            "Helped {other} with their feathers.",
+            "{other} said my feathers look splendid.",
+            "{other} found a fish scale in my feathers. Embarrassing.",
+            "Preened {other}. They preened me back.",
+        ],
+        gives: &[],
+    },
+    Activity {
+        id: "gossip",
+        need: Need::Company,
+        with: With::Anyone,
+        at: At::Quiet,
+        told: "{name} gossiped with {other} by {place}",
+        said: &[
+            "{other} told me all the colony news.",
+            "Chatted with {other} till the tide turned.",
+            "{other} heard the seal is back. Oh dear.",
+            "{other} and I agreed the council talks too much.",
+        ],
+        gives: &[],
+    },
+    Activity {
+        id: "diving",
+        need: Need::Purpose,
+        with: With::Anyone,
+        at: At::Quiet,
+        told: "{name} taught {other} to dive",
+        said: &[
+            "Taught {other} to dive. Splash!",
+            "{other} can catch fish by themselves now.",
+            "{other} dove deeper than ever today.",
+            "Swam under the bridge with {other}.",
+        ],
+        gives: &[],
+    },
+    Activity {
+        id: "nest",
+        need: Need::Purpose,
+        with: With::Alone,
+        at: At::Home,
+        told: "{name} built a stone nest",
+        said: &[
+            "Built the finest stone nest on the ice.",
+            "Found the perfect pebble. Perfect.",
+            "{friend} admired my nest. As they should.",
+        ],
+        gives: &[],
+    },
+    Activity {
+        id: "tales",
+        need: Need::Purpose,
+        with: With::Friend,
+        at: At::Gathering,
+        told: "{name} told the old tales with {other}",
+        said: &[
+            "{other} and I told the little ones about the old colony.",
+            "Told the tale of the great storm with {other}.",
+            "{other} told the one about the whale. Everyone gasped.",
+            "The little ones fell asleep before {other} finished.",
+        ],
+        gives: &[],
+    },
+    Activity {
+        id: "council",
+        need: Need::Purpose,
+        with: With::Anyone,
+        at: At::Work,
+        told: "{name} spoke up at the council with {other}",
+        said: &[
+            "Spoke at the council with {other}. They listened!",
+            "{other} and I proposed a new fishing ground.",
+            "{other} and I won the vote about the new hole.",
+            "The council took my idea! {other} backed me.",
+        ],
+        gives: &[],
+    },
+];
+
+fn traits(person: EntityId) -> Option<[&'static str; 2]> {
+    Some(match person {
+        SLOT_B => ["steady", "warm"],
+        SLOT_E => ["restless", "sociable"],
+        NEWCOMER => ["shy", "dreamy"],
+        _ => return None,
+    })
+}
+
+/// How the place feels: how the pair get on, trust against tension.
+fn mood(state: &WorldState) -> i64 {
+    let value = |key: &str| match state
+        .entity(crate::RELATIONSHIP)
+        .and_then(|relationship| relationship.component(key))
+    {
+        Some(Value::Integer(value)) => *value,
+        _ => 0,
+    };
+    value("trust") - value("tension")
+}
+
+/// The pair's standing with each other is Pocket Universe's own story.
+fn kept(a: EntityId, b: EntityId) -> bool {
+    (a == SLOT_B && b == SLOT_E) || (a == SLOT_E && b == SLOT_B)
+}
+
+fn stays(person: EntityId) -> bool {
+    person == SLOT_B || person == SLOT_E
+}
+
+/// Where someone works: the keeper at home, the explorer at what lets them
+/// range out, anyone else where they were taken in.
+pub(crate) fn work(state: &WorldState, person: EntityId) -> Option<EntityId> {
+    let seed = match state
+        .entity(UNIVERSE)
+        .and_then(|u| u.component(crate::SEED))
+    {
+        Some(Value::Text(seed)) => seed.as_str(),
+        _ => "",
+    };
+    match person {
+        SLOT_B => Some(SLOT_A),
+        SLOT_E if seed == "mars-colony" => Some(SLOT_D),
+        SLOT_E => Some(SLOT_C),
+        _ => match state.entity(person)?.component("works_at") {
+            Some(Value::Entity(place)) => Some(*place),
+            _ => match state.entity(person)?.component("location")? {
+                Value::Entity(place) => Some(*place),
+                _ => None,
+            },
+        },
+    }
+}
+
+fn home(_: &WorldState, _: EntityId) -> Option<EntityId> {
+    None
+}
+
+fn visitor(_: &str, job: &str) -> Vec<(String, Value)> {
+    vec![
+        ("role".into(), Value::from(job)),
+        ("location".into(), Value::Entity(SLOT_A)),
+        ("works_at".into(), Value::Entity(SLOT_C)),
+        ("newcomer".into(), Value::from(true)),
+    ]
+}
+
+/// Everyone living in the World now: the pair, whoever came to stay, less
+/// anyone who has left.
+pub(crate) fn people(world: &World) -> Vec<EntityId> {
+    people_in(world.state())
+}
+
+/// Everyone living there now, read straight from the state.
+pub(crate) fn people_in(state: &WorldState) -> Vec<EntityId> {
+    let cast = cast(state);
+    [SLOT_B, SLOT_E, NEWCOMER]
+        .into_iter()
+        .chain(lives::arrivals(state, &cast))
+        .filter(|id| state.entity(*id).is_some() && !lives::gone(state, *id))
+        .collect()
+}
+
+pub(crate) fn cast(state: &WorldState) -> Cast {
+    let seed = match state
+        .entity(UNIVERSE)
+        .and_then(|u| u.component(crate::SEED))
+    {
+        Some(Value::Text(seed)) => seed.clone(),
+        _ => String::new(),
+    };
+    let (activities, topics, outings, unit, settlement, short_of, visitors): (
+        &'static [Activity],
+        &'static [&'static str],
+        &'static [&'static str],
+        &'static str,
+        &'static str,
+        &'static str,
+        Visitors,
+    ) = match seed.as_str() {
+        "1980s-town" => (
+            TOWN,
+            &[
+                "a borrowed cassette",
+                "the high score",
+                "who called who",
+                "the prom",
+                "a dent in the car",
+                "the last slice of pizza",
+                "gossip at the diner",
+                "a mixtape",
+                "the curfew",
+                "the band's name",
+                "a lost bet",
+                "money for gas",
+                "a party nobody mentioned",
+                "the radio playlist",
+                "a broken Walkman",
+                "the school dance",
+            ],
+            &[
+                "the drive-in",
+                "the roller rink",
+                "the lake on Saturday",
+                "the school dance",
+                "the arcade after hours",
+                "a movie at the Rialto",
+            ],
+            "week",
+            "street",
+            "money",
+            Visitors {
+                first: FIRST_VISITOR,
+                room: 200,
+                names: &[
+                    "Donna", "Ricky", "Tanya", "Walt", "Keisha", "Eddie", "Joanie", "Mikey",
+                    "Carla", "Dwayne",
+                ],
+                trades: &[
+                    ("mechanic", "mechanic"),
+                    ("diner cook", "diner cook"),
+                    ("guitarist", "guitarist"),
+                    ("substitute teacher", "substitute teacher"),
+                    ("paper-route kid", "paper-route kid"),
+                ],
+                origins: &[
+                    "Ohio",
+                    "the next town over",
+                    "the city",
+                    "a band on tour",
+                    "the army base",
+                ],
+                way_out: "the Greyhound",
+                components: visitor,
+                kind: "person",
+            },
+        ),
+        "penguin-civilization" => (
+            ICE,
+            &[
+                "the best fishing hole",
+                "a stolen pebble",
+                "whose turn to keep watch",
+                "a squawk at the council",
+                "the last herring",
+                "a snowball",
+                "the huddle order",
+                "a nest too close",
+                "the slide rules",
+                "a cold shoulder",
+                "the fish count",
+                "who saw the seal first",
+                "a broken bridge span",
+                "the aurora vote",
+                "a lost feather",
+                "the song verses",
+            ],
+            &[
+                "watch the aurora",
+                "slide down the big slope",
+                "fish at the far hole",
+                "walk to the edge of the floe",
+                "swim under the ice",
+                "sit on the tallest berg",
+            ],
+            "moon",
+            "colony",
+            "fish",
+            Visitors {
+                first: FIRST_VISITOR,
+                room: 200,
+                names: &[
+                    "Pip", "Olo", "Nessa", "Brr", "Kiki", "Umi", "Flo", "Wob", "Tiki", "Snow",
+                ],
+                trades: &[
+                    ("fisher", "fisher"),
+                    ("ice carver", "ice carver"),
+                    ("storyteller", "storyteller"),
+                    ("lantern tender", "lantern tender"),
+                    ("scout", "scout"),
+                ],
+                origins: &[
+                    "the far floe",
+                    "the south shelf",
+                    "a drifting berg",
+                    "the whale road",
+                    "the old colony",
+                ],
+                way_out: "the next ice floe",
+                components: visitor,
+                kind: "penguin",
+            },
+        ),
+        _ => (
+            MARS,
+            &[
+                "the water ration",
+                "who left the airlock open",
+                "the rover schedule",
+                "the last of the coffee",
+                "a missed check-in",
+                "music in the common room",
+                "the night watch",
+                "a broken promise",
+                "the greenhouse temperature",
+                "a joke that went too far",
+                "the message to Earth",
+                "dust in the quarters",
+                "a borrowed tool",
+                "the chore rota",
+                "the last chocolate bar",
+                "the rover's mileage",
+            ],
+            &[
+                "watch the sunset from the ridge",
+                "a walk to the crater rim",
+                "supper under the dome",
+                "stargaze from the rover roof",
+                "see the dust devils dance",
+                "a picnic in the greenhouse",
+            ],
+            "sol",
+            "colony",
+            "supplies",
+            Visitors {
+                first: FIRST_VISITOR,
+                room: 200,
+                names: &[
+                    "Yusuf Adeyemi",
+                    "Sasha Petrov",
+                    "Lin Mei",
+                    "Oskar Holm",
+                    "Priya Raman",
+                    "Dmitri Sokol",
+                    "Amara Obi",
+                    "Freya Lund",
+                ],
+                trades: &[
+                    ("geologist", "geologist"),
+                    ("medic", "medic"),
+                    ("engineer", "engineer"),
+                    ("botanist", "botanist"),
+                    ("pilot", "pilot"),
+                ],
+                origins: &[
+                    "the orbital station",
+                    "Phobos",
+                    "the Tharsis outpost",
+                    "the last supply ship",
+                    "Earth",
+                ],
+                way_out: "the supply shuttle",
+                components: visitor,
+                kind: "person",
+            },
+        ),
+    };
+    Cast {
+        notes: LIVES,
+        period: crate::BACKGROUND_PERIOD,
+        unit,
+        settlement,
+        short_of,
+        people,
+        stays,
+        traits,
+        kept,
+        mood,
+        work,
+        home,
+        gathering: SLOT_A,
+        quiet: SLOT_C,
+        host: SLOT_B,
+        activities,
+        topics,
+        outings,
+        fund: None,
+        visitors: Some(visitors),
+        most_people: 8,
+        most_open: 1,
+    }
+}
+
+const LIFE_COMMAND: &str = "pocket-universe.life.";
+
+/// The situation and answer a command gives, if it is one of these.
+pub(crate) fn parse_command(command_id: &str) -> Option<(&str, &str)> {
+    command_id.strip_prefix(LIFE_COMMAND)?.rsplit_once('.')
+}
+
+/// A card for each answer to each situation open now.
+pub(crate) fn commands(world: &World) -> Vec<world_projection::ProjectionCommand> {
+    if seed_id(world) == "unseeded" {
+        return Vec::new();
+    }
+    let cast = cast(world.state());
+    lives::situations(world, &cast)
+        .into_iter()
+        .flat_map(|situation| {
+            let question = world_projection::Question {
+                id: format!("life.{}", situation.key),
+                prompt: situation.prompt.clone(),
+            };
+            situation
+                .answers
+                .into_iter()
+                .map(move |answer| world_projection::ProjectionCommand {
+                    id: format!("{LIFE_COMMAND}{}.{}", situation.key, answer.id),
+                    title: answer.title,
+                    detail: situation.told.clone(),
+                    effects: Vec::new(),
+                    scenery: None,
+                    asker: Some(world_projection::SelectionId::Entity(situation.asker)),
+                    moves: Vec::new(),
+                    question: Some(question.clone()),
+                    unavailable: answer.unavailable,
+                    hand: None,
+                })
+        })
+        .collect()
+}

@@ -362,6 +362,59 @@ pub struct ProjectionSnapshotWire {
     pub goals: Vec<GoalWire>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub chapters: Vec<ChapterWire>,
+    /// Optional both ways: the weather over the scene; clear if absent.
+    #[serde(default, skip_serializing_if = "is_clear")]
+    pub weather: WeatherWire,
+}
+
+/// The weather over a World's scene. A Pack's word this build does not
+/// know reads as clear.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WeatherWire {
+    #[default]
+    Clear,
+    Cloudy,
+    Rain,
+    Storm,
+    Snow,
+    Fog,
+    Dust,
+    #[serde(other)]
+    Unknown,
+}
+
+fn is_clear(weather: &WeatherWire) -> bool {
+    matches!(weather, WeatherWire::Clear | WeatherWire::Unknown)
+}
+
+impl From<world_projection::Weather> for WeatherWire {
+    fn from(weather: world_projection::Weather) -> Self {
+        use world_projection::Weather;
+        match weather {
+            Weather::Clear => Self::Clear,
+            Weather::Cloudy => Self::Cloudy,
+            Weather::Rain => Self::Rain,
+            Weather::Storm => Self::Storm,
+            Weather::Snow => Self::Snow,
+            Weather::Fog => Self::Fog,
+            Weather::Dust => Self::Dust,
+        }
+    }
+}
+
+impl From<WeatherWire> for world_projection::Weather {
+    fn from(weather: WeatherWire) -> Self {
+        match weather {
+            WeatherWire::Clear | WeatherWire::Unknown => Self::Clear,
+            WeatherWire::Cloudy => Self::Cloudy,
+            WeatherWire::Rain => Self::Rain,
+            WeatherWire::Storm => Self::Storm,
+            WeatherWire::Snow => Self::Snow,
+            WeatherWire::Fog => Self::Fog,
+            WeatherWire::Dust => Self::Dust,
+        }
+    }
 }
 
 /// A standing goal, drawn as an outline until its parts are built.
@@ -690,6 +743,7 @@ impl From<&ProjectionSnapshot> for ProjectionSnapshotWire {
                     moment: chapter.moment.map(Into::into),
                 })
                 .collect(),
+            weather: snapshot.weather.into(),
         }
     }
 }
@@ -805,6 +859,7 @@ impl TryFrom<ProjectionSnapshotWire> for ProjectionSnapshot {
                     moment: chapter.moment.map(Into::into),
                 })
                 .collect(),
+            weather: snapshot.weather.into(),
         })
     }
 }
@@ -855,6 +910,20 @@ pub struct ProjectionCommandWire {
     /// Optional both ways: why this cannot be chosen now.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unavailable: Option<String>,
+    /// Optional both ways: something done with the player's own hands.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hand: Option<HandWire>,
+}
+
+/// Something the player does in the place with their own hands.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct HandWire {
+    pub verb: String,
+    pub thing: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at: Option<SelectionIdWire>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost: Option<String>,
 }
 
 /// A question several choices answer.
@@ -966,6 +1035,12 @@ impl From<&ProjectionCommand> for ProjectionCommandWire {
                 prompt: question.prompt.clone(),
             }),
             unavailable: command.unavailable.clone(),
+            hand: command.hand.as_ref().map(|hand| HandWire {
+                verb: hand.verb.clone(),
+                thing: hand.thing.clone(),
+                at: hand.at.map(Into::into),
+                cost: hand.cost.clone(),
+            }),
         }
     }
 }
@@ -992,6 +1067,16 @@ impl From<ProjectionCommandWire> for ProjectionCommand {
                 }),
             // An empty reason still means it cannot be chosen.
             unavailable: command.unavailable.map(|reason| reason.trim().to_string()),
+            // A deed with no verb is no deed: the choice stands on its own.
+            hand: command
+                .hand
+                .filter(|hand| !hand.verb.trim().is_empty())
+                .map(|hand| world_projection::Hand {
+                    verb: hand.verb,
+                    thing: hand.thing,
+                    at: hand.at.map(Into::into),
+                    cost: hand.cost,
+                }),
             moves: command
                 .moves
                 .into_iter()
@@ -1261,6 +1346,8 @@ pub enum MarkShapeWire {
     Flag,
     Lantern,
     Tent,
+    Bench,
+    Sprouts,
     #[serde(other)]
     Unknown,
 }
@@ -1285,6 +1372,8 @@ impl From<MarkShape> for MarkShapeWire {
             MarkShape::Flag => Self::Flag,
             MarkShape::Lantern => Self::Lantern,
             MarkShape::Tent => Self::Tent,
+            MarkShape::Bench => Self::Bench,
+            MarkShape::Sprouts => Self::Sprouts,
         }
     }
 }
@@ -1309,6 +1398,8 @@ impl From<MarkShapeWire> for MarkShape {
             MarkShapeWire::Flag => Self::Flag,
             MarkShapeWire::Lantern => Self::Lantern,
             MarkShapeWire::Tent => Self::Tent,
+            MarkShapeWire::Bench => Self::Bench,
+            MarkShapeWire::Sprouts => Self::Sprouts,
         }
     }
 }
@@ -1841,6 +1932,7 @@ mod tests {
                 moves: Vec::new(),
                 question: None,
                 unavailable: None,
+                hand: None,
             }],
             collection: CollectionProjection {
                 title: "Entities".into(),
@@ -1919,6 +2011,7 @@ mod tests {
             voices: Vec::new(),
             chapters: Vec::new(),
             goals: Vec::new(),
+            weather: Default::default(),
         }
     }
 

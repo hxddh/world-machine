@@ -16,11 +16,11 @@ use crate::{
 use std::collections::BTreeMap;
 use world_core::{Entity, EntityId, Event, StateChange, Value, World};
 use world_projection::{
-    entity_title, inspectors_from_world, timeline_from_world, value_text, why_map_from_world,
-    BriefingItem, BriefingItemKind, BriefingProjection, CanvasChange, CanvasItem, CanvasItemKind,
-    CanvasLink, CanvasLinkTone, CanvasProjection, CollectionItem, CollectionProjection,
-    CommandEffect, EffectChange, InspectorProjection, InspectorRow, InspectorSection,
-    ProjectionCapabilities, ProjectionCommand, ProjectionSnapshot, SelectionId, Tone,
+    entity_title, inspectors_from_world, value_text, why_map_from_world, BriefingItem,
+    BriefingItemKind, BriefingProjection, CanvasChange, CanvasItem, CanvasItemKind, CanvasLink,
+    CanvasLinkTone, CanvasProjection, CollectionItem, CollectionProjection, CommandEffect,
+    EffectChange, InspectorProjection, InspectorRow, InspectorSection, ProjectionCapabilities,
+    ProjectionCommand, ProjectionSnapshot, SelectionId, Tone,
 };
 
 pub(crate) fn snapshot(world: &World) -> ProjectionSnapshot {
@@ -78,6 +78,7 @@ pub(crate) fn snapshot_since(
         talks,
         goals: crate::story::goals(world),
         chapters: crate::story::chapters(world),
+        weather: crate::story::weather(world),
     };
     snapshot.tell_events_as_history_does();
     snapshot
@@ -316,6 +317,7 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
                 moves: Vec::new(),
                 question: None,
                 unavailable: None,
+                hand: None,
             },
             ProjectionCommand {
                 id: SEED_1980S_TOWN_COMMAND.into(),
@@ -328,6 +330,7 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
                 moves: Vec::new(),
                 question: None,
                 unavailable: None,
+                hand: None,
             },
             ProjectionCommand {
                 id: SEED_PENGUIN_CIVILIZATION_COMMAND.into(),
@@ -340,6 +343,7 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
                 moves: Vec::new(),
                 question: None,
                 unavailable: None,
+                hand: None,
             },
         ];
     }
@@ -385,6 +389,7 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
         moves: Vec::new(),
         question: None,
         unavailable: None,
+        hand: None,
     }];
 
     if relationship_choice_available {
@@ -392,13 +397,13 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             id: SHARED_PROJECT_COMMAND.into(),
             title: "Give them a shared project".into(),
             detail: String::from("Give them something neither can finish alone. From here on they lean toward trusting each other."), effects: Vec::new(),
-            scenery: None, asker: None, moves: Vec::new(), question: None, unavailable: None,
+            scenery: None, asker: None, moves: Vec::new(), question: None, unavailable: None, hand: None,
 });
         commands.push(ProjectionCommand {
             id: RIVALRY_COMMAND.into(),
             title: "Let rivalry sharpen them".into(),
             detail: String::from("Keep them apart and let competition sharpen how they deal with each other from now on."), effects: Vec::new(),
-            scenery: None, asker: None, moves: Vec::new(), question: None, unavailable: None,
+            scenery: None, asker: None, moves: Vec::new(), question: None, unavailable: None, hand: None,
 });
     }
     if intervention_choice_available {
@@ -414,6 +419,7 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             moves: Vec::new(),
             question: None,
             unavailable: None,
+            hand: None,
         });
         commands.push(ProjectionCommand {
             id: CAREFUL_PATH_COMMAND.into(),
@@ -425,6 +431,7 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             moves: Vec::new(),
             question: None,
             unavailable: None,
+            hand: None,
         });
     }
     if posture_choice_available {
@@ -440,6 +447,7 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             moves: Vec::new(),
             question: None,
             unavailable: None,
+            hand: None,
         });
         commands.push(ProjectionCommand {
             id: ROOTED_POSTURE_COMMAND.into(),
@@ -451,6 +459,7 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             moves: Vec::new(),
             question: None,
             unavailable: None,
+            hand: None,
         });
     }
     let copy = pressure::copy_for_state(world.state());
@@ -465,6 +474,7 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             moves: Vec::new(),
             question: None,
             unavailable: None,
+            hand: None,
         });
         commands.push(ProjectionCommand {
             id: REACH_PRESSURE_COMMAND.into(),
@@ -476,6 +486,7 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             moves: Vec::new(),
             question: None,
             unavailable: None,
+            hand: None,
         });
     } else if pressure_stage == "lost" {
         commands.push(ProjectionCommand {
@@ -488,6 +499,7 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             moves: Vec::new(),
             question: None,
             unavailable: None,
+            hand: None,
         });
     }
     let succession_stage = succession::succession_id_from_state(world.state());
@@ -503,6 +515,7 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             moves: Vec::new(),
             question: None,
             unavailable: None,
+            hand: None,
         });
         commands.push(ProjectionCommand {
             id: RELEASE_LEGACY_COMMAND.into(),
@@ -514,9 +527,13 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
             moves: Vec::new(),
             question: None,
             unavailable: None,
+            hand: None,
         });
     }
     commands.extend(crate::story::commands(world));
+    // What the player can do with their own hands comes after every card;
+    // a screen offers it apart from them.
+    commands.extend(crate::handwork::commands(world));
     commands
 }
 
@@ -1873,7 +1890,16 @@ fn legacy_return_context(world: &World, legacy: &str) -> String {
 /// the small shifts between two people, a legacy renewing itself) folds
 /// under the moment it happened in.
 fn told_timeline(world: &World) -> world_projection::TimelineProjection {
-    let mut timeline = timeline_from_world(world);
+    // Everyday life is told as it happens, in what people say; History
+    // keeps to what changed, and to today's, which today's words point at.
+    let now = world.world_time();
+    let mut timeline = world_projection::timeline_of(world, |event| {
+        event.world_time == now
+            || !matches!(
+                event.kind.as_str(),
+                "lived" | "life_began" | "lines_forgotten"
+            )
+    });
     world_projection::retell_timeline(&mut timeline, world, |event| {
         let summary =
             ["summary", "change"]
@@ -1918,6 +1944,9 @@ pub(crate) fn is_routine(kind: &str) -> bool {
             | "legacy_reinforced"
             | "successor_waited"
             | "story_began"
+            | "lived"
+            | "life_began"
+            | "lines_forgotten"
     )
 }
 
@@ -2172,6 +2201,28 @@ fn canvas(world: &World) -> CanvasProjection {
             })
         })
         .collect();
+    // Strangers who came to stay.
+    let cast = crate::life::cast(world.state());
+    for (index, id) in lives::arrivals(world.state(), &cast)
+        .into_iter()
+        .enumerate()
+    {
+        let Some(entity) = world.state().entity(id) else {
+            continue;
+        };
+        items.push(CanvasItem {
+            id: SelectionId::Entity(id),
+            kind: CanvasItemKind::Actor,
+            label: entity_title(entity),
+            detail: canvas_detail(world, entity),
+            x: 0.2 + 0.12 * index as f32,
+            y: 0.55 + 0.08 * (index % 2) as f32,
+            changes: Vec::new(),
+            shape: None,
+            at: whereabouts(world, entity),
+            look: crate::talk::look(world, id),
+        });
+    }
     items.extend(crate::story::fixtures(world));
     CanvasProjection {
         items,
@@ -2505,6 +2556,10 @@ fn canvas_kind(entity: &Entity) -> CanvasItemKind {
 fn whereabouts(world: &World, entity: &Entity) -> Option<SelectionId> {
     if canvas_kind(entity) != CanvasItemKind::Actor {
         return None;
+    }
+    // Wherever their day took them, or an answer sent them.
+    if let Some(place) = lives::at(world.state(), entity.id) {
+        return Some(SelectionId::Entity(place));
     }
     // Someone who came to stay lives where they were taken in.
     if let Some(Value::Entity(place)) = entity.component("location") {

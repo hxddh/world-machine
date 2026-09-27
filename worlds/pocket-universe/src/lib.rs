@@ -2,7 +2,9 @@
 mod density;
 mod drift;
 mod era;
+mod handwork;
 mod legacy;
+mod life;
 pub mod narrator;
 mod pressure;
 mod projection;
@@ -25,7 +27,7 @@ use world_persistence::{PersistenceError, WorldArchive, WorldPackRef};
 use world_projection::{ProjectionIntent, ProjectionSnapshot};
 
 pub const POCKET_UNIVERSE_PACK_ID: &str = "world-machine.pocket-universe";
-pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.22.0";
+pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.23.0";
 
 pub const SEED_MARS_COLONY_COMMAND: &str = "pocket-universe.seed-mars-colony";
 pub const SEED_1980S_TOWN_COMMAND: &str = "pocket-universe.seed-1980s-town";
@@ -42,6 +44,11 @@ pub const REACH_PRESSURE_COMMAND: &str = "pocket-universe.pressure-reach";
 pub const RECOVER_ANCHOR_COMMAND: &str = "pocket-universe.pressure-recover";
 pub const ENTRUST_LEGACY_COMMAND: &str = "pocket-universe.succession-entrust";
 pub const RELEASE_LEGACY_COMMAND: &str = "pocket-universe.succession-release";
+
+/// How many of the latest events each of the pair is shown when deciding
+/// what to do: enough for any mind to know what just happened, and the same
+/// however long the World has lived.
+const RECENTLY_SEEN: usize = 64;
 
 pub(crate) const UNIVERSE: EntityId = EntityId::new(1);
 pub(crate) const SLOT_A: EntityId = EntityId::new(10);
@@ -267,6 +274,10 @@ where
             return snapshot;
         }
         for command in &mut snapshot.commands {
+            // A deed of the player's own hands is not a choice to weigh.
+            if command.hand.is_some() {
+                continue;
+            }
             let asks_the_minds = command.id == NUDGE_COMMAND;
             if asks_the_minds && self.mind_profile != DETERMINISTIC_MIND_PROFILE {
                 continue;
@@ -275,7 +286,7 @@ where
                 continue;
             };
             let mut copy = PocketUniverse {
-                world: self.world.clone(),
+                world: self.world.sketch(world_projection::RECENT_EVENTS),
                 actions,
                 mind: PocketMind,
                 mind_profile: DETERMINISTIC_MIND_PROFILE.into(),
@@ -289,54 +300,69 @@ where
         snapshot
     }
 
+    /// One period passing on `candidate`, as a turn: the World grows, each
+    /// of the pair takes a turn, their relationship moves, and the
+    /// storyteller and people's lives move on.
+    fn pass_period_on(&mut self, candidate: &mut World) -> Result<EventId, Box<dyn Error>> {
+        // A turn is a period passing: "let the first sol unfold" moves
+        // the clock by one sol, the same as a sol passing while nobody
+        // watches, so History can tell one day from the next.
+        let target = candidate
+            .world_time()
+            .checked_add(BACKGROUND_PERIOD)
+            .ok_or_else(|| std::io::Error::other("Pocket Universe time overflow"))?;
+        candidate.schedule_at(target, growth_request(candidate))?;
+        let growth = candidate
+            .advance_to(&self.actions, target)?
+            .last()
+            .copied()
+            .ok_or_else(|| std::io::Error::other("Pocket Universe growth did not run"))?;
+        let primary_causes = agent_turn_causes(candidate, SLOT_B, growth);
+        let primary_outcome = Self::run_agent_turn_on(
+            &mut self.mind,
+            candidate,
+            &self.actions,
+            &self.mind_profile,
+            SLOT_B,
+            &primary_causes,
+        )?;
+        let secondary_causes = agent_turn_causes(candidate, SLOT_E, primary_outcome);
+        let secondary_outcome = Self::run_agent_turn_on(
+            &mut self.mind,
+            candidate,
+            &self.actions,
+            &self.mind_profile,
+            SLOT_E,
+            &secondary_causes,
+        )?;
+        let relationship_request = with_causes(
+            ActionRequest::new("update_relationship")
+                .caused_by(primary_outcome)
+                .caused_by(secondary_outcome),
+            relationship_context_causes(candidate),
+        );
+        let relationship = candidate.execute(&self.actions, &relationship_request)?.id;
+        let returned = era::resolve_period(candidate, &self.actions, relationship)?;
+        story::tick(candidate, &self.actions, false)?;
+        Ok(returned)
+    }
+
     pub fn invoke_projection_command(
         &mut self,
         command_id: &str,
     ) -> Result<EventId, Box<dyn Error>> {
         if command_id == NUDGE_COMMAND {
             let since = self.world.events().len();
-            let mut candidate = self.world.clone();
-            // A turn is a period passing: "let the first sol unfold" moves
-            // the clock by one sol, the same as a sol passing while nobody
-            // watches, so History can tell one day from the next.
-            let target = candidate
-                .world_time()
-                .checked_add(BACKGROUND_PERIOD)
-                .ok_or_else(|| std::io::Error::other("Pocket Universe time overflow"))?;
-            candidate.schedule_at(target, growth_request(&candidate))?;
-            let growth = candidate
-                .advance_to(&self.actions, target)?
-                .last()
-                .copied()
-                .ok_or_else(|| std::io::Error::other("Pocket Universe growth did not run"))?;
-            let primary_causes = agent_turn_causes(&candidate, SLOT_B, growth);
-            let primary_outcome = Self::run_agent_turn_on(
-                &mut self.mind,
-                &mut candidate,
-                &self.actions,
-                &self.mind_profile,
-                SLOT_B,
-                &primary_causes,
-            )?;
-            let secondary_causes = agent_turn_causes(&candidate, SLOT_E, primary_outcome);
-            let secondary_outcome = Self::run_agent_turn_on(
-                &mut self.mind,
-                &mut candidate,
-                &self.actions,
-                &self.mind_profile,
-                SLOT_E,
-                &secondary_causes,
-            )?;
-            let relationship_request = with_causes(
-                ActionRequest::new("update_relationship")
-                    .caused_by(primary_outcome)
-                    .caused_by(secondary_outcome),
-                relationship_context_causes(&candidate),
-            );
-            let relationship = candidate.execute(&self.actions, &relationship_request)?.id;
-            let returned = era::resolve_period(&mut candidate, &self.actions, relationship)?;
-            story::tick(&mut candidate, &self.actions, false)?;
-            self.world = candidate;
+            // The period passes on the World itself; if any part of it
+            // fails, the World goes back to where it stood.
+            let checkpoint = self.world.checkpoint();
+            let mut world = std::mem::replace(&mut self.world, World::new(WorldState::default()));
+            let outcome = self.pass_period_on(&mut world);
+            if outcome.is_err() {
+                world.rollback(checkpoint);
+            }
+            self.world = world;
+            let returned = outcome?;
             self.narrate_return(since);
             return Ok(returned);
         }
@@ -345,6 +371,20 @@ where
             return Ok(self
                 .world
                 .execute(&self.actions, &storylets::choose_request(storylet, choice))?
+                .id);
+        }
+
+        if let Some(deed) = handwork::parse_command(command_id) {
+            return Ok(self
+                .world
+                .execute(&self.actions, &hands::do_request(deed))?
+                .id);
+        }
+
+        if let Some((situation, answer)) = life::parse_command(command_id) {
+            return Ok(self
+                .world
+                .execute(&self.actions, &lives::answer_request(situation, answer))?
                 .id);
         }
 
@@ -381,40 +421,37 @@ where
         Ok(event)
     }
 
-    pub fn advance_periods(&mut self, periods: u64) -> Result<(), Box<dyn Error>> {
-        // Where the observer last looked. Everything after it is what they are
-        // about to read, and so what is worth putting into words.
-        let since = self.world.events().len();
-        let mut candidate = self.world.clone();
+    /// `periods` passing on `candidate` while nobody watches.
+    fn advance_on(&mut self, candidate: &mut World, periods: u64) -> Result<(), Box<dyn Error>> {
         for _ in 0..periods {
             let target = candidate
                 .world_time()
                 .checked_add(BACKGROUND_PERIOD)
                 .ok_or_else(|| std::io::Error::other("Pocket Universe time overflow"))?;
-            if seed_id(&candidate) == UNSEEDED {
+            if seed_id(candidate) == UNSEEDED {
                 candidate.advance_to(&self.actions, target)?;
                 continue;
             }
 
-            let growth_request = growth_request(&candidate);
+            let growth_request = growth_request(candidate);
             candidate.schedule_at(target, growth_request)?;
             let executed = candidate.advance_to(&self.actions, target)?;
             let growth = executed.last().copied().ok_or_else(|| {
                 std::io::Error::other("scheduled Pocket Universe growth did not run")
             })?;
-            let primary_causes = agent_turn_causes(&candidate, SLOT_B, growth);
+            let primary_causes = agent_turn_causes(candidate, SLOT_B, growth);
             let primary_outcome = Self::run_agent_turn_on(
                 &mut self.mind,
-                &mut candidate,
+                candidate,
                 &self.actions,
                 &self.mind_profile,
                 SLOT_B,
                 &primary_causes,
             )?;
-            let secondary_causes = agent_turn_causes(&candidate, SLOT_E, primary_outcome);
+            let secondary_causes = agent_turn_causes(candidate, SLOT_E, primary_outcome);
             let secondary_outcome = Self::run_agent_turn_on(
                 &mut self.mind,
-                &mut candidate,
+                candidate,
                 &self.actions,
                 &self.mind_profile,
                 SLOT_E,
@@ -424,13 +461,29 @@ where
                 ActionRequest::new("update_relationship")
                     .caused_by(primary_outcome)
                     .caused_by(secondary_outcome),
-                relationship_context_causes(&candidate),
+                relationship_context_causes(candidate),
             );
             let relationship = candidate.execute(&self.actions, &relationship_request)?.id;
-            era::resolve_period(&mut candidate, &self.actions, relationship)?;
-            story::tick(&mut candidate, &self.actions, true)?;
+            era::resolve_period(candidate, &self.actions, relationship)?;
+            story::tick(candidate, &self.actions, true)?;
         }
-        self.world = candidate;
+        Ok(())
+    }
+
+    pub fn advance_periods(&mut self, periods: u64) -> Result<(), Box<dyn Error>> {
+        // Where the observer last looked. Everything after it is what they are
+        // about to read, and so what is worth putting into words.
+        let since = self.world.events().len();
+        // The periods pass on the World itself; if any part of them fails,
+        // the World goes back to where it stood.
+        let checkpoint = self.world.checkpoint();
+        let mut world = std::mem::replace(&mut self.world, World::new(WorldState::default()));
+        let outcome = self.advance_on(&mut world, periods);
+        if outcome.is_err() {
+            world.rollback(checkpoint);
+        }
+        self.world = world;
+        outcome?;
         // Once, for the lines an observer is about to read — not once per
         // period. A week-long catch-up resolves as fast as it always did.
         self.narrate_return(since);
@@ -457,7 +510,8 @@ where
         ];
         let execution = AgentExecutor::decide_and_execute(
             mind,
-            &ScopedPerception::new([UNIVERSE, SLOT_A, SLOT_B, SLOT_E, RELATIONSHIP]),
+            &ScopedPerception::new([UNIVERSE, SLOT_A, SLOT_B, SLOT_E, RELATIONSHIP])
+                .with_recent_events(RECENTLY_SEEN),
             world,
             registry,
             actor,
@@ -2191,9 +2245,14 @@ mod tests {
                 if turn % 4 == 3 {
                     snapshot = session.advance_background(3).unwrap();
                 } else {
-                    let Some(command) = snapshot
+                    // Whatever can be done now, every choice and deed in turn.
+                    let offered = snapshot
                         .commands
-                        .get(turn % snapshot.commands.len().max(1))
+                        .iter()
+                        .filter(|command| command.unavailable.is_none())
+                        .collect::<Vec<_>>();
+                    let Some(command) = offered
+                        .get(turn % offered.len().max(1))
                         .map(|command| command.id.clone())
                     else {
                         break;
@@ -2232,9 +2291,14 @@ mod tests {
                     words <= world_gpui::RESTING_WORD_LIMIT,
                     "{seed} turn {turn}: {words} words at rest"
                 );
-                let Some(command) = snapshot
+                // Whatever can be done now, every choice and deed in turn.
+                let offered = snapshot
                     .commands
-                    .get(turn % snapshot.commands.len().max(1))
+                    .iter()
+                    .filter(|command| command.unavailable.is_none())
+                    .collect::<Vec<_>>();
+                let Some(command) = offered
+                    .get(turn % offered.len().max(1))
                     .map(|command| command.id.clone())
                 else {
                     break;
@@ -2298,9 +2362,14 @@ mod tests {
                     .filter(|item| item.kind == world_projection::CanvasItemKind::Actor)
                     .collect::<Vec<_>>();
                 assert!(people.iter().all(|person| person.look.is_some()));
-                let Some(command) = snapshot
+                // Whatever can be done now, every choice and deed in turn.
+                let offered = snapshot
                     .commands
-                    .get(turn % snapshot.commands.len().max(1))
+                    .iter()
+                    .filter(|command| command.unavailable.is_none())
+                    .collect::<Vec<_>>();
+                let Some(command) = offered
+                    .get(turn % offered.len().max(1))
                     .map(|command| command.id.clone())
                 else {
                     break;

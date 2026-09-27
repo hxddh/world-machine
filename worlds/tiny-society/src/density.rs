@@ -94,7 +94,11 @@ fn play(policy: Policy, days: usize) -> Played {
         let choices = snapshot
             .commands
             .iter()
-            .filter(|command| command.id != story::WAIT_COMMAND && command.unavailable.is_none())
+            .filter(|command| {
+                command.id != story::WAIT_COMMAND
+                    && command.unavailable.is_none()
+                    && command.hand.is_none()
+            })
             .map(|command| command.id.clone())
             .collect::<Vec<_>>();
         played.days_with_a_choice.push(!choices.is_empty());
@@ -379,4 +383,256 @@ fn a_week_away_lapses_at_most_three_questions() {
         .filter(|event| event.payload.contains_key("lapsed"))
         .count();
     assert!(lapsed <= 3, "{lapsed} questions lapsed in a week away");
+}
+
+/// The v0.12 bar: a year in the harbour never runs out. Played 365 days,
+/// new situations keep coming every month, nobody repeats themselves,
+/// people's standing with each other keeps changing, every chapter has a
+/// title of its own, and everyone lives every day without being asked.
+fn a_year(policy: Policy) {
+    let played = play(policy, 365);
+    let world = played.branch.world();
+    let day = |event: &world_core::Event| event.world_time / crate::persistence::WORLD_DAY_TICKS;
+    let first = world.events().first().map(day).unwrap_or(0);
+
+    let mut seen = std::collections::BTreeSet::new();
+    let mut fresh = vec![0; 13];
+    for event in world.events() {
+        let key = match event.kind.as_str() {
+            "situation_arose" => event.payload.get("storylet"),
+            "situation_came_up" => event.payload.get("situation"),
+            _ => None,
+        };
+        if let Some(world_core::Value::Text(key)) = key {
+            let month = ((day(event) - first) / 30).min(12) as usize;
+            if seen.insert(key.clone()) {
+                fresh[month] += 1;
+            }
+        }
+    }
+    assert!(
+        fresh[3..12].iter().all(|count| *count >= 8),
+        "{policy:?}: never-seen situations by month {fresh:?}"
+    );
+
+    for window in played.lines.windows(30) {
+        let mut counts = std::collections::BTreeMap::<&str, usize>::new();
+        for line in window.iter().flatten() {
+            *counts.entry(line).or_default() += 1;
+        }
+        if let Some((line, count)) = counts.into_iter().max_by_key(|(_, count)| *count) {
+            assert!(
+                count <= 3,
+                "{policy:?}: {line:?} said {count} times in 30 days"
+            );
+        }
+    }
+
+    let changes = world
+        .events()
+        .iter()
+        .filter(|event| event.kind == "bond_changed")
+        .map(|event| day(event) - first)
+        .collect::<Vec<_>>();
+    for start in 90..335 {
+        let count = changes
+            .iter()
+            .filter(|at| (start..start + 30).contains(*at))
+            .count();
+        assert!(
+            count >= 3,
+            "{policy:?}: only {count} changes between people in days {start}-{}",
+            start + 30
+        );
+    }
+
+    let titles = projection::snapshot(world)
+        .chapters
+        .into_iter()
+        .map(|chapter| chapter.title)
+        .collect::<Vec<_>>();
+    let unique = titles.iter().collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(unique.len(), titles.len(), "{policy:?}: {titles:?}");
+
+    // Everyone living here does something with every day of their own.
+    let mut lived = 0;
+    let mut owed = 0;
+    for today in first + 1..first + 365 {
+        let people = world
+            .events()
+            .iter()
+            .filter(|event| event.kind == "lived" && day(event) == today)
+            .filter_map(|event| event.actor)
+            .collect::<std::collections::BTreeSet<_>>();
+        lived += people.len();
+        owed += crate::story::people(world).len().min(people.len().max(7));
+    }
+    assert!(
+        lived * 100 >= owed * 95,
+        "{policy:?}: {lived} of {owed} days lived"
+    );
+
+    let replayed = world.replay().unwrap();
+    assert_eq!(replayed.state(), world.state());
+}
+
+#[test]
+fn a_year_of_saying_yes_never_runs_out() {
+    a_year(Policy::Generous);
+}
+
+#[test]
+fn a_year_of_saying_no_never_runs_out() {
+    a_year(Policy::Contrary);
+}
+
+#[test]
+fn a_year_left_alone_never_runs_out() {
+    a_year(Policy::Absent);
+}
+
+/// The v0.12 bar for the player's own hands: there are at least five
+/// things to do besides answering, and after a month of building, planting
+/// and decorating where they choose, at least a third of what stands in
+/// the harbour was put there by the player.
+#[test]
+fn your_hands_shape_the_harbour() {
+    let mut society = TinySociety::new().unwrap();
+    society.run_story().unwrap();
+    let mut branch = society.branch();
+    branch.begin_story().unwrap();
+    let verbs = branch
+        .projection_snapshot()
+        .deeds()
+        .map(|(_, _, hand)| hand.verb.clone())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert!(verbs.len() >= 5, "{verbs:?}");
+    for day in 0..30 {
+        let snapshot = branch.projection_snapshot();
+        // One deed a day, turning through what can be made and where.
+        let deeds = snapshot
+            .deeds()
+            .filter(|(_, command, hand)| {
+                command.unavailable.is_none()
+                    && ["Build", "Plant", "Decorate"].contains(&hand.verb.as_str())
+            })
+            .map(|(_, command, _)| command.id.clone())
+            .collect::<Vec<_>>();
+        if let Some(deed) = deeds.get(day * 7 % deeds.len().max(1)) {
+            branch.invoke_projection_command(deed).unwrap();
+        }
+        if let Some(answer) = snapshot
+            .choices()
+            .find(|command| command.question.is_some() && command.unavailable.is_none())
+        {
+            let _ = branch.invoke_projection_command(&answer.id.clone());
+        }
+        branch
+            .invoke_projection_command(story::WAIT_COMMAND)
+            .unwrap();
+    }
+    let state = branch.world().state();
+    let standing = storylets::fixtures(state).len();
+    let made = hands::made(state).len();
+    assert!(
+        made * 3 >= standing && made > 0,
+        "{made} of {standing} things standing were the player's"
+    );
+    let replayed = branch.world().replay().unwrap();
+    assert_eq!(replayed.state(), branch.world().state());
+}
+
+/// The scene shows the weather the World's state says it has: a gale
+/// whenever a storm is on, snow only in winter, and something other than
+/// sunshine often enough to notice.
+#[test]
+fn the_weather_follows_the_world() {
+    use world_projection::Weather;
+    let mut society = TinySociety::new().unwrap();
+    society.run_story().unwrap();
+    let mut branch = society.branch();
+    branch.begin_story().unwrap();
+    let mut seen = std::collections::BTreeSet::new();
+    for _ in 0..80 {
+        let world = branch.world();
+        let weather = projection::snapshot(world).weather;
+        let storm_on = storylets::open(world.state(), &story::deck())
+            .iter()
+            .any(|storylet| matches!(storylet.id, "storm_warning" | "great_storm"));
+        if storm_on {
+            assert_eq!(weather, Weather::Storm);
+        }
+        if weather == Weather::Snow {
+            assert_eq!(story::season(world), 3, "snow outside winter");
+        }
+        seen.insert(format!("{weather:?}"));
+        branch
+            .invoke_projection_command(story::WAIT_COMMAND)
+            .unwrap();
+    }
+    assert!(seen.len() >= 4, "{seen:?}");
+}
+
+/// The v0.12 bar for branches: two branches split at day 10 by one
+/// different answer, then played 90 days the same way, end up different
+/// towns: at least a third of the situations their people met differ, and
+/// so does what stands in the place.
+#[test]
+fn branches_become_different_towns() {
+    let mut society = TinySociety::new().unwrap();
+    society.run_story().unwrap();
+    let mut branch = society.branch();
+    branch.begin_story().unwrap();
+    let answer_first = |branch: &mut TinySocietyBranch, last: bool| {
+        let snapshot = branch.projection_snapshot();
+        let answers = snapshot
+            .choices()
+            .filter(|command| command.question.is_some() && command.unavailable.is_none())
+            .map(|command| command.id.clone())
+            .collect::<Vec<_>>();
+        let pick = if last {
+            answers.last()
+        } else {
+            answers.first()
+        };
+        if let Some(answer) = pick {
+            branch.invoke_projection_command(answer).unwrap();
+        }
+        branch
+            .invoke_projection_command(story::WAIT_COMMAND)
+            .unwrap();
+    };
+    for _ in 0..10 {
+        answer_first(&mut branch, false);
+    }
+    let split = branch.world().events().len();
+    let (mut left, mut right) = (branch.clone(), branch);
+    answer_first(&mut left, false);
+    answer_first(&mut right, true);
+    for _ in 0..90 {
+        answer_first(&mut left, false);
+        answer_first(&mut right, false);
+    }
+    let met = |branch: &TinySocietyBranch| {
+        branch.world().events()[split..]
+            .iter()
+            .filter_map(|event| match event.kind.as_str() {
+                "situation_arose" => event.payload.get("storylet"),
+                "situation_came_up" => event.payload.get("situation"),
+                _ => None,
+            })
+            .filter_map(|key| match key {
+                world_core::Value::Text(key) => Some(key.clone()),
+                _ => None,
+            })
+            .collect::<std::collections::BTreeSet<_>>()
+    };
+    let (a, b) = (met(&left), met(&right));
+    let differ = a.symmetric_difference(&b).count();
+    let all = a.union(&b).count();
+    assert!(
+        differ * 3 >= all,
+        "only {differ} of {all} situations differ between the branches"
+    );
+    assert_ne!(scene(left.world()), scene(right.world()));
 }

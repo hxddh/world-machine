@@ -26,7 +26,7 @@ fn return_compass_names_every_current_relationship_action() -> Result<(), Box<dy
         snapshot
             .commands
             .iter()
-            .filter(|command| !command.id.starts_with("pocket-universe.story."))
+            .filter(|command| shaping(command))
             .count(),
         3,
         "nudge plus the two relationship choices"
@@ -97,7 +97,7 @@ fn return_compass_surfaces_all_simultaneously_open_shaping_choices() -> Result<(
         snapshot
             .commands
             .iter()
-            .filter(|command| !command.id.starts_with("pocket-universe.story."))
+            .filter(|command| shaping(command))
             .count(),
         5,
         "one nudge plus two relationship and two intervention choices should be open"
@@ -245,7 +245,7 @@ fn return_compass_explains_how_to_continue_a_living_legacy() -> Result<(), Box<d
         snapshot
             .commands
             .iter()
-            .filter(|command| !command.id.starts_with("pocket-universe.story."))
+            .filter(|command| shaping(command))
             .count(),
         1,
         "a mature legacy has one continuation command"
@@ -273,4 +273,12 @@ fn return_compass_explains_how_to_continue_a_living_legacy() -> Result<(), Box<d
     );
 
     Ok(())
+}
+
+/// The World's own shaping choices: not the storyteller's cards, not what
+/// people's lives bring up, not the player's hands.
+fn shaping(command: &world_projection::ProjectionCommand) -> bool {
+    !command.id.starts_with("pocket-universe.story.")
+        && !command.id.starts_with("pocket-universe.life.")
+        && command.hand.is_none()
 }

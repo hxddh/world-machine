@@ -990,6 +990,7 @@ mod tests {
                 moves: Vec::new(),
                 question: None,
                 unavailable: None,
+                hand: None,
             }],
         );
 
@@ -1299,6 +1300,7 @@ mod tests {
                 moves: Vec::new(),
                 question: None,
                 unavailable: None,
+                hand: None,
             }],
         );
         let right = snapshot(
@@ -1315,6 +1317,7 @@ mod tests {
                 moves: Vec::new(),
                 question: None,
                 unavailable: None,
+                hand: None,
             }],
         );
 

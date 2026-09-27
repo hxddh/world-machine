@@ -8,10 +8,10 @@ use crate::{
 use society_basic::{CASH, JOB};
 use world_core::{EntityId, Event, RelationId, Value, World};
 use world_projection::{
-    entity_title, inspectors_from_world, timeline_from_world, why_map_from_world, BriefingItem,
-    BriefingItemKind, BriefingProjection, CanvasChange, CanvasItem, CanvasItemKind,
-    CanvasProjection, CollectionItem, CollectionProjection, CommandEffect, EffectChange, MarkShape,
-    ProjectionCapabilities, ProjectionCommand, ProjectionSnapshot, SelectionId, Telling, Tone,
+    entity_title, inspectors_from_world, why_map_from_world, BriefingItem, BriefingItemKind,
+    BriefingProjection, CanvasChange, CanvasItem, CanvasItemKind, CanvasProjection, CollectionItem,
+    CollectionProjection, CommandEffect, EffectChange, MarkShape, ProjectionCapabilities,
+    ProjectionCommand, ProjectionSnapshot, SelectionId, Telling, Tone,
 };
 
 pub(crate) fn snapshot(world: &World) -> ProjectionSnapshot {
@@ -87,6 +87,7 @@ pub(crate) fn snapshot_since(
         talks,
         goals: crate::story::goals(world),
         chapters: crate::story::chapters(world),
+        weather: crate::story::weather(world),
     };
     snapshot.tell_events_as_history_does();
     snapshot
@@ -259,6 +260,7 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
             moves: Vec::new(),
             question: None,
             unavailable: None,
+            hand: None,
         });
     }
 
@@ -274,7 +276,7 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 "Invest {} of Mara's cash to reopen Harbor Bakery. Mara returns to work; former workers are not automatically rehired.",
                 crate::BAKERY_REOPEN_INVESTMENT
             ), effects: Vec::new(),
-            scenery: None, asker: None, moves: Vec::new(), question: None, unavailable: None,
+            scenery: None, asker: None, moves: Vec::new(), question: None, unavailable: None, hand: None,
 });
     }
 
@@ -288,7 +290,7 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 "Invest {} of Mara's cash and reopen Harbor Bakery without a fixed daily Bakery wage. Lower overhead can survive weak demand, but Mara gives up predictable pay.",
                 crate::recovery::LEAN_REOPEN_INVESTMENT
             ), effects: Vec::new(),
-            scenery: None, asker: None, moves: Vec::new(), question: None, unavailable: None,
+            scenery: None, asker: None, moves: Vec::new(), question: None, unavailable: None, hand: None,
 });
     }
 
@@ -300,7 +302,7 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 "Leo pays Evan {} to repair Sea Finch. Jonas returns to Harbor fishing once the boat is sound. Leo's backing does not stand indefinitely.",
                 crate::social::SEA_FINCH_REPAIR_COST
             ), effects: Vec::new(),
-            scenery: None, asker: None, moves: Vec::new(), question: None, unavailable: None,
+            scenery: None, asker: None, moves: Vec::new(), question: None, unavailable: None, hand: None,
 });
     }
 
@@ -313,7 +315,7 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 crate::drift::SEA_FINCH_SCRAP_VALUE,
                 crate::social::SEA_FINCH_REPAIR_COST
             ), effects: Vec::new(),
-            scenery: None, asker: None, moves: Vec::new(), question: None, unavailable: None,
+            scenery: None, asker: None, moves: Vec::new(), question: None, unavailable: None, hand: None,
 });
     }
 
@@ -325,7 +327,7 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 "Jonas works the counter for {} a day. It is a second wage against the same island trade, and the bakery has to carry it.",
                 crate::livelihood::COUNTER_WAGE
             ), effects: Vec::new(),
-            scenery: None, asker: None, moves: Vec::new(), question: None, unavailable: None,
+            scenery: None, asker: None, moves: Vec::new(), question: None, unavailable: None, hand: None,
 });
     }
 
@@ -343,7 +345,11 @@ fn available_commands(world: &World) -> Vec<ProjectionCommand> {
         moves: Vec::new(),
         question: None,
         unavailable: None,
+        hand: None,
     });
+    // What the player can do with their own hands comes after every
+    // card; a screen offers it apart from them.
+    commands.extend(crate::handwork::commands(world));
     commands
 }
 
@@ -403,7 +409,14 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
         .rev()
         .filter_map(|event| {
             let title = narrated_title(world, event)?;
-            if !told.insert(event.kind.clone()) {
+            // People's lives are told one line each; the town's machinery
+            // one line a kind.
+            let told_as = if lives::is_news(event) {
+                title.clone()
+            } else {
+                event.kind.clone()
+            };
+            if !told.insert(told_as) {
                 return None;
             }
             Some((
@@ -594,7 +607,16 @@ pub(crate) fn narrated_title(world: &World, event: &Event) -> Option<String> {
 /// few more things that happened to somebody, and the everyday round (shifts,
 /// bread, the cost of a day) folded under the moment it happened in.
 fn told_timeline(world: &World) -> world_projection::TimelineProjection {
-    let mut timeline = timeline_from_world(world);
+    // Everyday life is told as it happens, in what people say; History
+    // keeps to what changed, and to today's, which today's words point at.
+    let now = world.world_time();
+    let mut timeline = world_projection::timeline_of(world, |event| {
+        event.world_time == now
+            || !matches!(
+                event.kind.as_str(),
+                "lived" | "life_began" | "lines_forgotten"
+            )
+    });
     world_projection::retell_timeline(&mut timeline, world, |event| telling(world, event));
     timeline
 }
@@ -859,11 +881,40 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                 y,
                 changes: Vec::new(),
                 shape: None,
-                at: workplace(world, id)
+                at: lives::at(world.state(), id)
+                    .or_else(|| workplace(world, id))
                     .or_else(|| match entity.component("location") {
                         Some(Value::Entity(place)) => Some(*place),
                         _ => None,
                     })
+                    .map(SelectionId::Entity),
+                look: crate::talk::look(id),
+            });
+        }
+    }
+
+    // Strangers who came to stay, where they spend their days.
+    for (index, id) in lives::arrivals(world.state(), &crate::life::cast())
+        .into_iter()
+        .enumerate()
+    {
+        if !living.contains(&id) {
+            continue;
+        }
+        if let Some(entity) = world.state().entity(id) {
+            items.push(CanvasItem {
+                id: SelectionId::Entity(id),
+                kind: CanvasItemKind::Actor,
+                label: entity_title(entity),
+                detail: component_text(world, id, JOB)
+                    .map(|job| job.replace('_', " "))
+                    .unwrap_or_else(|| "Resident".into()),
+                x: 0.15 + 0.07 * (index % 10) as f32,
+                y: 0.4 + 0.05 * (index % 3) as f32,
+                changes: Vec::new(),
+                shape: None,
+                at: lives::at(world.state(), id)
+                    .or_else(|| crate::life::work(world.state(), id))
                     .map(SelectionId::Entity),
                 look: crate::talk::look(id),
             });
@@ -1342,5 +1393,54 @@ fn capitalized(text: &str) -> String {
     match chars.next() {
         Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
         None => String::new(),
+    }
+}
+
+#[cfg(test)]
+mod probe_parts {
+    use super::*;
+    #[test]
+    #[ignore]
+    fn probe_parts() {
+        let mut society = crate::TinySociety::new().unwrap();
+        society.run_story().unwrap();
+        let mut branch = society.branch();
+        branch.begin_story().unwrap();
+        for _ in 0..365 {
+            let snapshot = snapshot(branch.world());
+            if let Some(c) = snapshot
+                .choices()
+                .find(|c| c.question.is_some() && c.unavailable.is_none())
+            {
+                let _ = branch.invoke_projection_command(&c.id.clone());
+            }
+            branch
+                .invoke_projection_command(crate::story::WAIT_COMMAND)
+                .unwrap();
+        }
+        let world = branch.world();
+        macro_rules! t {
+            ($name:expr, $e:expr) => {{
+                let s = std::time::Instant::now();
+                let r = $e;
+                eprintln!("{:>14}: {:?}", $name, s.elapsed());
+                r
+            }};
+        }
+        let cmds = t!("commands", available_commands(world));
+        t!("talks", crate::talk::talks(world, &cmds));
+        t!("briefing", society_briefing(world, None));
+        t!("timeline", told_timeline(world));
+        t!("canvas", canvas_items(world));
+        t!("inspectors", inspectors_from_world(world));
+        t!("why", why_map_from_world(world));
+        t!("gauges", gauges(world));
+        t!("voices", crate::talk::voices(world));
+        t!("goals", crate::story::goals(world));
+        t!("chapters", crate::story::chapters(world));
+        t!("weather", crate::story::weather(world));
+        let mut s = t!("snapshot", snapshot(world));
+        t!("tell", s.tell_events_as_history_does());
+        eprintln!("events {}", world.events().len());
     }
 }

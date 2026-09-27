@@ -181,6 +181,23 @@ pub struct ProjectionCommand {
     /// is shown only so the player can see what the choice would have
     /// been. A screen shows it greyed and does not offer it.
     pub unavailable: Option<String>,
+    /// Something the player does with their own hands rather than an
+    /// answer to anything: build a bench by the quay, give Mara a present.
+    /// A screen offers these as things to do in the place, not as cards.
+    pub hand: Option<Hand>,
+}
+
+/// Something the player does in the place with their own hands.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Hand {
+    /// What they do, as the player reads it: "Build", "Give".
+    pub verb: String,
+    /// What they do it with: "Bench", or who it is for.
+    pub thing: String,
+    /// Where it is done, or to whom: a place or a person on the scene.
+    pub at: Option<SelectionId>,
+    /// What it costs, in words, if anything.
+    pub cost: Option<String>,
 }
 
 /// A question someone puts to the player, which several choices answer.
@@ -190,6 +207,21 @@ pub struct Question {
     pub id: String,
     /// What is asked, in the asker's words.
     pub prompt: String,
+}
+
+/// The weather over a World's scene.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum Weather {
+    #[default]
+    Clear,
+    Cloudy,
+    Rain,
+    /// Wind, driving rain and lightning.
+    Storm,
+    Snow,
+    Fog,
+    /// A dust storm, on Mars.
+    Dust,
 }
 
 /// Something a World keeps score of, always on screen: trust between two
@@ -354,6 +386,9 @@ pub struct ProjectionSnapshot {
     pub goals: Vec<Goal>,
     /// The chapters of the World's story that have ended, oldest first.
     pub chapters: Vec<Chapter>,
+    /// The weather the World's state says it has: rain in a storm, snow
+    /// in winter, dust on Mars. Clear unless a Pack says otherwise.
+    pub weather: Weather,
 }
 
 /// Something the World is working toward and can be seen to build: "Rebuild
@@ -558,6 +593,10 @@ impl ProjectionSnapshot {
         let mut cards: Vec<Vec<usize>> = Vec::new();
         let mut seen = BTreeMap::<&str, usize>::new();
         for (index, command) in self.commands.iter().enumerate() {
+            // What the player does with their own hands is not a card.
+            if command.hand.is_some() {
+                continue;
+            }
             match &command.question {
                 Some(question) => match seen.get(question.id.as_str()) {
                     Some(card) => cards[*card].push(index),
@@ -570,6 +609,22 @@ impl ProjectionSnapshot {
             }
         }
         cards
+    }
+
+    /// The choices on offer that are not deeds of the player's own hands:
+    /// what cards and comparisons are made of.
+    pub fn choices(&self) -> impl Iterator<Item = &ProjectionCommand> {
+        self.commands
+            .iter()
+            .filter(|command| command.hand.is_none())
+    }
+
+    /// What the player could do with their own hands now.
+    pub fn deeds(&self) -> impl Iterator<Item = (usize, &ProjectionCommand, &Hand)> {
+        self.commands
+            .iter()
+            .enumerate()
+            .filter_map(|(index, command)| Some((index, command, command.hand.as_ref()?)))
     }
 
     pub fn visible_text(&self) -> Vec<&str> {
@@ -1276,6 +1331,10 @@ pub enum MarkShape {
     Lantern,
     /// A tent.
     Tent,
+    /// A wooden bench.
+    Bench,
+    /// Seedlings just up out of the ground.
+    Sprouts,
 }
 
 /// How a connection reads: warm, strained, or neither.
@@ -1445,11 +1504,18 @@ pub struct InspectorRow {
 }
 
 pub fn timeline_from_world(world: &World) -> TimelineProjection {
+    timeline_of(world, |_| true)
+}
+
+/// A World's history, told only of the events `worth` keeps: a Pack can
+/// leave out everyday life it tells in other ways.
+pub fn timeline_of(world: &World, worth: impl Fn(&Event) -> bool) -> TimelineProjection {
     TimelineProjection {
         items: world
             .events()
             .iter()
             .rev()
+            .filter(|event| worth(event))
             .map(|event| TimelineItem {
                 id: SelectionId::Event(event.id),
                 world_time: event.world_time,
@@ -1521,13 +1587,24 @@ pub fn inspectors_from_world(world: &World) -> BTreeMap<SelectionId, InspectorPr
             inspector_for_relation(recorded, world),
         );
     }
-    for event in world.events() {
+    for event in recent_events(world) {
         inspectors.insert(
             SelectionId::Event(event.id),
             inspector_for_event(event, world),
         );
     }
     inspectors
+}
+
+/// How many of a World's latest events a snapshot describes in full, with
+/// a detail panel and a chain of causes each. Older ones stay in its
+/// history; a long-lived World's snapshot costs no more than a young one's.
+pub const RECENT_EVENTS: usize = 400;
+
+/// A World's latest [`RECENT_EVENTS`] events.
+pub fn recent_events(world: &World) -> &[Event] {
+    let events = world.events();
+    &events[events.len().saturating_sub(RECENT_EVENTS)..]
 }
 
 pub fn entity_title(entity: &Entity) -> String {
@@ -1624,6 +1701,9 @@ fn inspector_for_entity(
     }
 }
 
+/// How many of its latest recorded changes an entity's detail panel lists.
+const RECENT_CHANGE_ROWS: usize = 12;
+
 fn recorded_entity_change_rows(
     entity: EntityId,
     world: &World,
@@ -1633,9 +1713,11 @@ fn recorded_entity_change_rows(
         return Vec::new();
     };
 
+    // The latest few: a detail panel is not the whole history.
     event_ids
         .iter()
         .rev()
+        .take(RECENT_CHANGE_ROWS)
         .filter_map(|event_id| world.event(*event_id))
         .map(|event| InspectorRow {
             label: format!(
@@ -2415,6 +2497,7 @@ mod tests {
                 moves: Vec::new(),
                 question: None,
                 unavailable: None,
+                hand: None,
             }],
             ..ProjectionSnapshot::default()
         };

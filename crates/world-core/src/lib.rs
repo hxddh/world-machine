@@ -21,4 +21,4 @@ pub use relation::Relation;
 pub use schedule::{ScheduledAction, Scheduler};
 pub use state::{WorldState, WorldStateError};
 pub use value::Value;
-pub use world::{World, WorldError};
+pub use world::{Checkpoint, World, WorldError};

@@ -1,6 +1,6 @@
 # Known issues
 
-Current as of `v0.11.0` in the [changelog](../CHANGELOG.md). Report anything else with **Help → Report a Problem…** in the app.
+Current as of `v0.12.0` in the [changelog](../CHANGELOG.md). Report anything else with **Help → Report a Problem…** in the app.
 
 ## Installation
 
@@ -10,7 +10,7 @@ Current as of `v0.11.0` in the [changelog](../CHANGELOG.md). Report anything els
 
 ## Using Worlds
 
-- **A Pack version change closes older Worlds.** A `.world` file records the exact World Pack version it was created with, and the app ships one version of each included Pack. When a Pack's rules change its version moves, and Worlds pinned to the older version report that they need a Pack this build does not have. Each release's section of the [changelog](../CHANGELOG.md) says which Packs moved; in `v0.11.0` Tiny Society moved to `0.5.0` and Pocket Universe to `0.22.0`, in `v0.10.0` Tiny Society moved to `0.4.0` and Pocket Universe to `0.21.0`, `v0.9.0` and `v0.8.0` moved none, and in `v0.7.0` Pocket Universe moved to `0.20.0`. Export a World you want to keep before updating; nothing is deleted, and the file still holds its whole history.
+- **A Pack version change closes older Worlds.** A `.world` file records the exact World Pack version it was created with, and the app ships one version of each included Pack. When a Pack's rules change its version moves, and Worlds pinned to the older version report that they need a Pack this build does not have. Each release's section of the [changelog](../CHANGELOG.md) says which Packs moved; in `v0.12.0` Tiny Society moved to `0.6.0` and Pocket Universe to `0.23.0`, in `v0.11.0` Tiny Society moved to `0.5.0` and Pocket Universe to `0.22.0`, in `v0.10.0` Tiny Society moved to `0.4.0` and Pocket Universe to `0.21.0`, `v0.9.0` and `v0.8.0` moved none, and in `v0.7.0` Pocket Universe moved to `0.20.0`. Export a World you want to keep before updating; nothing is deleted, and the file still holds its whole history.
 
 - **Renaming or removing a World that is open in a window.** Both write the World's file, so the open window is a step behind: after a rename choose **World → Reload** in that window, and after a removal close the window rather than saving from it, or the save writes the World back into the Library.
 - **Removed Worlds are not deleted.** **Remove** moves the file into a `Removed` folder inside `~/Library/Application Support/World Machine/Worlds`. Emptying that folder is a Finder step; the app never deletes World files.
@@ -18,8 +18,12 @@ Current as of `v0.11.0` in the [changelog](../CHANGELOG.md). Report anything els
 - **Background time is bounded.** A World advances at most seven periods per return, however long you were away; the return briefing says how many.
 - **Sound is unheard.** Settings → Sound plays a quiet loop made from a World's landscape, and small ticks and bells as cards turn and turns pass, through macOS's own player. They are tested as sound data, but have not been listened to on a Mac.
 - **What people say is the Pack's own words.** World voice narrates returns, but does not reword the lines people say in speech bubbles or their answers when asked.
-- **A long absence brings its own story.** While you are away wants wait for you, but what cannot wait (a storm, market day, a chapter's climax) happens without you and can close a chapter. Its pacing has only been tried in tests, not over two weeks on a real Mac.
+- **A long absence brings its own story.** While you are away wants wait for you and people live their own lives, but what cannot wait (a storm, market day, a chapter's climax) happens without you and can close a chapter. Its pacing has only been tried in tests, not over two weeks on a real Mac.
 - **Pocket Universe gives one reason for every answer it cannot take:** "Not possible right now". Tiny Society names what is short ("Noah hasn't 60 to spare").
+- **History leaves out earlier everyday life.** What people did each day is told as it happens, in what they say; History keeps today's and what changed between people. A detail panel lists someone's twelve latest changes, and the chain of causes and detail panel of an event are there for the latest 400 events. Older events are still in the file and can still be branched from.
+- **A year-old World's snapshot takes about 20 ms** in a release build, twice the 10 ms aimed for; a turn with its previews is inside its 50 ms. Neither has been timed on a real Mac.
+- **The scene is still drawn from shapes.** Weather, smoke and gulls are new, but people and buildings are the same drawings as before; Packs shipping their own drawings, and a camera that zooms, are planned for v0.13.
+- **Your hands allow two deeds a period,** and in Pocket Universe they cost nothing, since its places keep no money.
 - **The calendar repeats by design.** Market day, supply drops and birthdays are left out of the tests that keep other questions to two in 30 periods and count how many follow from an answer.
 - **Only the latest chapter's ending shows as a card,** and only if it closed within the last period; earlier ones are in the drawer's chapter book.
 - **A living World redraws about 25 times a second while its window is in front.** Behind other windows it stops. Its effect on battery life has not been measured on a real Mac.

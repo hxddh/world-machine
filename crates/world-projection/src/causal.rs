@@ -19,21 +19,54 @@ pub struct WhyNode {
     pub caused_by: Vec<EventId>,
 }
 
+/// How many links of a chain a snapshot carries for every event: more than
+/// a player is shown, and few enough that a long-lived World's snapshot
+/// costs the same as a young one's.
+pub const WHY_CHAIN_LIMIT: usize = 12;
+
 pub fn why_from_world(world: &World, event: EventId) -> Option<WhyProjection> {
+    why_up_to(world, event, usize::MAX)
+}
+
+fn why_up_to(world: &World, event: EventId, limit: usize) -> Option<WhyProjection> {
     world.event(event)?;
 
+    // A cut chain keeps the nearest causes: the first `limit` found going
+    // out from the event one step at a time, told in the same order as the
+    // whole chain would be.
+    let kept = (limit != usize::MAX).then(|| nearest_causes(world, event, limit));
     let mut visited = BTreeSet::new();
     let mut nodes = Vec::new();
-    visit(world, event, 0, &mut visited, &mut nodes);
+    visit(world, event, 0, kept.as_ref(), &mut visited, &mut nodes);
 
     Some(WhyProjection { event, nodes })
 }
 
+fn nearest_causes(world: &World, event: EventId, limit: usize) -> BTreeSet<EventId> {
+    let mut kept = BTreeSet::from([event]);
+    let mut frontier = std::collections::VecDeque::from([event]);
+    while let Some(id) = frontier.pop_front() {
+        let Some(event) = world.event(id) else {
+            continue;
+        };
+        for cause in &event.caused_by {
+            if kept.len() >= limit {
+                return kept;
+            }
+            if kept.insert(*cause) {
+                frontier.push_back(*cause);
+            }
+        }
+    }
+    kept
+}
+
+/// The chain of causes of each of the World's latest events, each cut at
+/// [`WHY_CHAIN_LIMIT`] links.
 pub fn why_map_from_world(world: &World) -> BTreeMap<EventId, WhyProjection> {
-    world
-        .events()
+    crate::recent_events(world)
         .iter()
-        .filter_map(|event| why_from_world(world, event.id).map(|why| (event.id, why)))
+        .filter_map(|event| why_up_to(world, event.id, WHY_CHAIN_LIMIT).map(|why| (event.id, why)))
         .collect()
 }
 
@@ -41,10 +74,11 @@ fn visit(
     world: &World,
     event_id: EventId,
     depth: usize,
+    kept: Option<&BTreeSet<EventId>>,
     visited: &mut BTreeSet<EventId>,
     nodes: &mut Vec<WhyNode>,
 ) {
-    if !visited.insert(event_id) {
+    if kept.is_some_and(|kept| !kept.contains(&event_id)) || !visited.insert(event_id) {
         return;
     }
 
@@ -62,7 +96,7 @@ fn visit(
     });
 
     for cause in &event.caused_by {
-        visit(world, *cause, depth + 1, visited, nodes);
+        visit(world, *cause, depth + 1, kept, visited, nodes);
     }
 }
 
@@ -124,5 +158,45 @@ mod tests {
         assert_eq!(why.nodes[1].depth, 1);
         assert_eq!(why.nodes[2].event, EventId::new(1));
         assert_eq!(why.nodes[2].depth, 2);
+    }
+
+    #[test]
+    fn a_long_history_carries_short_chains_for_its_latest_events_only() {
+        let mut state = WorldState::default();
+        state
+            .seed_entity(Entity::new(EntityId::new(1), "workspace"))
+            .unwrap();
+        // Every event caused by the one before it: one long chain.
+        let events = (1..=1_000u64)
+            .map(|id| Event {
+                id: EventId::new(id),
+                kind: "step".into(),
+                world_time: id,
+                actor: Some(EntityId::new(1)),
+                targets: vec![],
+                caused_by: if id > 1 {
+                    vec![EventId::new(id - 1)]
+                } else {
+                    vec![]
+                },
+                payload: BTreeMap::new(),
+                changes: vec![],
+            })
+            .collect::<Vec<_>>();
+        let world = world_core::World::from_history(state, &events).unwrap();
+
+        let map = why_map_from_world(&world);
+        assert_eq!(map.len(), crate::RECENT_EVENTS);
+        assert!(map.contains_key(&EventId::new(1_000)));
+        assert!(!map.contains_key(&EventId::new(1)));
+        assert!(map.values().all(|why| why.nodes.len() <= WHY_CHAIN_LIMIT));
+        // Asked about on its own, an event still tells its whole chain.
+        assert_eq!(
+            why_from_world(&world, EventId::new(1_000))
+                .unwrap()
+                .nodes
+                .len(),
+            1_000
+        );
     }
 }

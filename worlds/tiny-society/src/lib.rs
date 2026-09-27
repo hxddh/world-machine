@@ -2,9 +2,11 @@ mod actions;
 mod behaviors;
 mod drift;
 mod fishing;
+mod handwork;
 mod hardship;
 mod host;
 mod interventions;
+mod life;
 mod livelihood;
 mod local_economy;
 mod model;
@@ -65,8 +67,12 @@ pub struct TinySocietyBranch {
 pub(crate) fn with_previews(world: &World, mut snapshot: ProjectionSnapshot) -> ProjectionSnapshot {
     let before = snapshot.gauges.clone();
     for command in &mut snapshot.commands {
+        // A deed of the player's own hands is not a choice to weigh.
+        if command.hand.is_some() {
+            continue;
+        }
         let mut copy = TinySocietyBranch {
-            world: world.clone(),
+            world: world.sketch(world_projection::RECENT_EVENTS),
         };
         if copy.invoke_projection_command(&command.id).is_ok() {
             command.moves =
@@ -115,6 +121,8 @@ impl TinySocietyBranch {
             TAKE_JONAS_ON_COMMAND => self.take_jonas_on(),
             story::WAIT_COMMAND => self.pass_days(1, false),
             _ if story::parse_command(command_id).is_some() => self.answer(command_id),
+            _ if life::parse_command(command_id).is_some() => self.answer_life(command_id),
+            _ if handwork::parse_command(command_id).is_some() => self.do_deed(command_id),
             _ => Err(
                 std::io::Error::other(format!("unknown projection command: {command_id}")).into(),
             ),
@@ -137,6 +145,25 @@ impl TinySocietyBranch {
         let mut events = vec![event];
         events.extend(run.generated_events);
         Ok(events)
+    }
+
+    fn answer_life(&mut self, command_id: &str) -> Result<Vec<EventId>, Box<dyn Error>> {
+        let (situation, answer) = life::parse_command(command_id)
+            .ok_or_else(|| std::io::Error::other(format!("not a situation: {command_id}")))?;
+        let actions = build_action_registry()?;
+        let event = self
+            .world
+            .execute(&actions, &lives::answer_request(situation, answer))?
+            .id;
+        Ok(vec![event])
+    }
+
+    fn do_deed(&mut self, command_id: &str) -> Result<Vec<EventId>, Box<dyn Error>> {
+        let deed = handwork::parse_command(command_id)
+            .ok_or_else(|| std::io::Error::other(format!("not a deed: {command_id}")))?;
+        let actions = build_action_registry()?;
+        let event = self.world.execute(&actions, &hands::do_request(deed))?.id;
+        Ok(vec![event])
     }
 
     pub fn continue_with_retention(&mut self) -> Result<Vec<EventId>, Box<dyn Error>> {

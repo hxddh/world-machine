@@ -42,6 +42,7 @@ pub(crate) fn snapshot(world: &World) -> ProjectionSnapshot {
         voices: Vec::new(),
         chapters: Vec::new(),
         goals: Vec::new(),
+        weather: Default::default(),
     }
 }
 
@@ -59,6 +60,7 @@ fn commands(world: &World) -> Vec<ProjectionCommand> {
             moves: Vec::new(),
             question: None,
             unavailable: None,
+            hand: None,
         }]
     }
 }

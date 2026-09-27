@@ -392,7 +392,7 @@ fn wants() -> Vec<Spec> {
             said(
                 "lesson_forgotten",
                 "{explorer}'s lesson never happened",
-                "Never mind.",
+                "Never mind. Another time.",
                 bond(-1, 0),
             ),
         ),
@@ -866,7 +866,7 @@ fn calendar() -> Vec<Spec> {
             said(
                 "keeper_birthday_forgotten",
                 "{keeper}'s birthday was forgotten",
-                "Nobody remembered.",
+                "Nobody remembered. Not one.",
                 bond(-1, 1),
             ),
         ),
@@ -902,7 +902,7 @@ fn calendar() -> Vec<Spec> {
             said(
                 "explorer_birthday_forgotten",
                 "{explorer}'s birthday was forgotten",
-                "Nobody remembered.",
+                "Birthday came and went.",
                 bond(-1, 1),
             ),
         ),
@@ -963,7 +963,9 @@ pub(crate) fn deck() -> Deck {
 pub(crate) fn register_actions(
     actions: &mut ActionRegistry,
 ) -> Result<(), world_core::ActionError> {
-    storylets::register_actions(actions, deck)
+    storylets::register_actions(actions, deck)?;
+    lives::register_actions(actions, crate::life::cast)?;
+    hands::register_actions(actions, crate::handwork::kit)
 }
 
 /// The nouns each place fills into the storyteller's words.
@@ -1159,18 +1161,27 @@ fn chapter_ending(world: &World) -> (String, String) {
         } else {
             "A quiet"
         };
-        let title = format!("{feel} {}", SEASONS[season(world)]);
-        if storylets::last_chapter_title(world).is_some_and(|last| last.ends_with(&title[2..])) {
-            format!("Another {}", &title[2..])
-        } else {
-            title
-        }
+        format!("{feel} {}", SEASONS[season(world)])
     });
+    // What changed between people this chapter, and a title no chapter
+    // has had before.
+    let season_name = SEASONS[season(world)];
+    let news = lives::news_since(world, started);
+    let mut candidates = vec![title.clone()];
+    if let Some(first) = news.first() {
+        candidates.push(format!("The {season_name} {}", lowered_start(first)));
+    }
+    let year = world.world_time() / crate::BACKGROUND_PERIOD / YEAR + 1;
+    candidates.push(format!("{title}, {season_name} of year {year}"));
+    let title = storylets::unused_title(world, &candidates);
     let mut summary = if lines.len() > 3 {
         lines.split_off(lines.len() - 3)
     } else {
         lines
     };
+    for line in news.iter().rev().take(2).rev() {
+        summary.push(format!("{line}."));
+    }
     if summary.is_empty() {
         summary.push(if trust >= 7 {
             fill(
@@ -1192,6 +1203,17 @@ fn chapter_ending(world: &World) -> (String, String) {
         }
     }
     (title, summary.join(" "))
+}
+
+/// A sentence as it reads after "The autumn": "The whole colony came"
+/// turns to "the whole colony came".
+fn lowered_start(sentence: &str) -> String {
+    match sentence.split_once(' ') {
+        Some((first, rest)) if matches!(first, "The" | "A" | "An") => {
+            format!("{} {rest}", first.to_lowercase())
+        }
+        _ => sentence.to_string(),
+    }
 }
 
 /// The turning point of each chapter.
@@ -1360,7 +1382,12 @@ pub(crate) fn tick(
         at_end: at_end(world),
         chapter_ending: Box::new(chapter_ending),
     };
-    storylets::tick(world, actions, &deck(), &reading)
+    let cast = crate::life::cast(world.state());
+    let mut events = lives::tick(world, actions, &cast, away)?;
+    let kit = crate::handwork::kit(world.state());
+    events.extend(hands::tick(world, actions, &kit)?);
+    events.extend(storylets::tick(world, actions, &deck(), &reading)?);
+    Ok(events)
 }
 
 fn command_id(storylet: &str, choice: &str) -> String {
@@ -1375,8 +1402,15 @@ fn find(storylet: &str) -> Option<&'static Spec> {
     specs().iter().find(|spec| spec.storylet.id == storylet)
 }
 
-/// A card for every answer that can be given now.
+/// A card for every answer that can be given now: the storyteller's, and
+/// what people's lives have brought up.
 pub(crate) fn commands(world: &World) -> Vec<world_projection::ProjectionCommand> {
+    let mut commands = storylet_commands(world);
+    commands.extend(crate::life::commands(world));
+    commands
+}
+
+fn storylet_commands(world: &World) -> Vec<world_projection::ProjectionCommand> {
     let deck = deck();
     storylets::answers(world.state(), &deck)
         .into_iter()
@@ -1396,6 +1430,7 @@ pub(crate) fn commands(world: &World) -> Vec<world_projection::ProjectionCommand
                     prompt: fill(world, spec.line),
                 }),
                 unavailable: (!unmet.is_empty()).then(|| "Not possible right now".to_string()),
+                hand: None,
             })
         })
         .collect()
@@ -1449,6 +1484,12 @@ pub(crate) fn told(world: &World, event: &Event) -> Option<String> {
             _ => None,
         };
     }
+    if lives::is_news(event) {
+        return lives::told(event);
+    }
+    if hands::is_hands(event) {
+        return hands::told(event);
+    }
     let spec = storylet_of(event)?;
     if event.kind == "situation_arose" {
         return Some(fill(world, spec.told));
@@ -1458,6 +1499,9 @@ pub(crate) fn told(world: &World, event: &Event) -> Option<String> {
 
 /// Who speaks at one of the storyteller's moments, and what they say.
 pub(crate) fn line(world: &World, event: &Event) -> Option<(EntityId, String)> {
+    if lives::is_life(event) {
+        return lives::said(event);
+    }
     let spec = storylet_of(event)?;
     let asker = spec.storylet.asker;
     let other = if asker == SLOT_B { SLOT_E } else { SLOT_B };
@@ -1898,7 +1942,7 @@ fn more() -> Vec<Spec> {
             said(
                 "garden_forgotten",
                 "{keeper} gave up on the garden",
-                "Never mind.",
+                "Oh well. Never mind.",
                 bond(0, 1),
             ),
         ),
@@ -2125,7 +2169,7 @@ fn more() -> Vec<Spec> {
             said(
                 "clean_up_forgotten",
                 "Clean-up day came and went",
-                "Nobody remembered.",
+                "Forgot it myself, nearly.",
                 bond(0, 0),
             ),
         ),
@@ -2357,7 +2401,7 @@ fn threads() -> Vec<Spec> {
             said(
                 "old_times_left",
                 "The old days went unmentioned",
-                "Never mind.",
+                "Never mind. It was only an idea.",
                 bond(0, 0),
             )
             .and([mark("old_times")]),
@@ -2552,7 +2596,7 @@ fn threads() -> Vec<Spec> {
             said(
                 "restless_faded",
                 "{explorer} stopped looking at the horizon",
-                "Never mind.",
+                "Fine. Never mind, then.",
                 bond(0, 1),
             )
             .and([mark("restless_done")]),
@@ -3249,7 +3293,7 @@ fn threads() -> Vec<Spec> {
                     said(
                         "letter_binned",
                         "{explorer} threw the letter away",
-                        "Never mind.",
+                        "Never mind. Forget I asked.",
                         bond(-1, 1),
                     )
                     .and([mark("letter_later")]),
@@ -3401,7 +3445,7 @@ fn threads() -> Vec<Spec> {
             said(
                 "window_box_forgotten",
                 "The window box was forgotten",
-                "Never mind.",
+                "Ah well. Never mind.",
                 bond(0, 1),
             )
             .and([mark("window_box")]),
@@ -3510,6 +3554,9 @@ fn fixture_shape(world: &World, shape: &str) -> world_projection::MarkShape {
         ("flag", _) => MarkShape::Flag,
         ("lantern", _) => MarkShape::Lantern,
         ("tent", _) => MarkShape::Tent,
+        ("bench", _) => MarkShape::Bench,
+        ("sprouts", _) => MarkShape::Sprouts,
+        ("tree", _) => MarkShape::Tree,
         _ => MarkShape::Parcel,
     }
 }
@@ -3561,4 +3608,43 @@ pub(crate) fn from_the_calendar(id: &str) -> bool {
             .iter()
             .any(|condition| matches!(condition, Condition::Every { .. }))
     })
+}
+
+/// The weather over each place, from how the World stands: dust storms on
+/// Mars and blizzards on the ice while the weather or the long dark is
+/// upon them, rain and snow on Maple Street by the season, as the period's
+/// own number falls.
+pub(crate) fn weather(world: &World) -> world_projection::Weather {
+    use world_projection::Weather;
+    let deck = deck();
+    let open = storylets::open(world.state(), &deck);
+    let rough = open
+        .iter()
+        .any(|storylet| matches!(storylet.id, "weather" | "long_dark"));
+    let period = world.world_time() / crate::BACKGROUND_PERIOD;
+    let roll = storylets::mix(&[period, 23]) % 10;
+    let season = season(world);
+    match seed_id(world) {
+        "mars-colony" => match (rough, roll) {
+            (true, _) | (false, 0) => Weather::Dust,
+            (false, 1) if season == 3 => Weather::Cloudy,
+            _ => Weather::Clear,
+        },
+        "penguin-civilization" => match (rough, season, roll) {
+            (true, _, _) => Weather::Storm,
+            (false, 3, 0..=5) | (false, 2, 0..=2) | (false, _, 0) => Weather::Snow,
+            (false, _, 1..=2) => Weather::Fog,
+            (false, _, 3) => Weather::Cloudy,
+            _ => Weather::Clear,
+        },
+        "1980s-town" => match (rough, season, roll) {
+            (true, _, _) => Weather::Storm,
+            (false, 3, 0..=3) => Weather::Snow,
+            (false, 2 | 0, 0..=2) | (false, 1, 0) => Weather::Rain,
+            (false, _, 4) | (false, 0..=2, 3) => Weather::Cloudy,
+            (false, 2, 5) => Weather::Fog,
+            _ => Weather::Clear,
+        },
+        _ => Weather::Clear,
+    }
 }

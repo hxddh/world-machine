@@ -626,7 +626,7 @@ impl Render for WorldDocumentView {
             let snapshot = self.projection.read(cx).snapshot();
             (
                 snapshot.capabilities.fork,
-                snapshot.commands.len() >= 2 && !world_gpui::is_beginning(snapshot),
+                snapshot.choices().count() >= 2 && !world_gpui::is_beginning(snapshot),
             )
         };
         let mut actions = div().flex_shrink_0().flex().items_center().gap_2();
@@ -4053,7 +4053,7 @@ mod file_type_tests {
     fn a_world_nothing_has_happened_in_is_not_listed_yet() {
         let mut summary = WorldDocumentSummary {
             id: WorldDocumentId::new("fresh").unwrap(),
-            pack: WorldPackRef::new("world-machine.pocket-universe", "0.22.0"),
+            pack: WorldPackRef::new("world-machine.pocket-universe", "0.23.0"),
             display_title: None,
             display_summary: None,
             display_scenery: None,
