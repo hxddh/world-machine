@@ -119,6 +119,17 @@ fn since(at: Option<Instant>) -> f32 {
     at.map(|at| at.elapsed().as_secs_f32()).unwrap_or(f32::MAX)
 }
 
+/// The time of year, in the drawer: the season, and what is coming up in
+/// the next few days. At rest the scene's colours say the season.
+fn coming_label(snapshot: &ProjectionSnapshot) -> Option<String> {
+    let calendar = snapshot.calendar.as_ref()?;
+    match (&calendar.season, &calendar.coming) {
+        (Some(season), Some(coming)) => Some(format!("{season} · {coming}")),
+        (Some(season), None) => Some(season.clone()),
+        (None, coming) => coming.clone(),
+    }
+}
+
 /// The words a World window shows at rest, besides the bar above it: the
 /// gauges' names, the moment, the card, one thing somebody says, and the
 /// names of whoever speaks or asks. Counted by a test, which holds the
@@ -1913,7 +1924,13 @@ impl ProjectionView {
                 .flex()
                 .items_center()
                 .justify_between()
-                .child(ui::heading(self.snapshot.title.clone()))
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .child(ui::heading(self.snapshot.title.clone()))
+                        .children(coming_label(&self.snapshot).map(ui::caption)),
+                )
                 .child(arrow_button(
                     "drawer-close",
                     "×",

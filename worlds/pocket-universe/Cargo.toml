@@ -10,6 +10,7 @@ storylets = { path = "../../systems/storylets" }
 lives = { path = "../../systems/lives" }
 hands = { path = "../../systems/hands" }
 conversation = { path = "../../systems/conversation" }
+calendar = { path = "../../systems/calendar" }
 world-agent = { path = "../../crates/world-agent" }
 world-core = { path = "../../crates/world-core" }
 world-host = { path = "../../crates/world-host" }

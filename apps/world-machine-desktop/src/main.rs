@@ -4035,6 +4035,8 @@ mod file_type_tests {
         let sols = world_projection::Calendar {
             unit: "Sol".into(),
             length: 10,
+            season: None,
+            coming: None,
         };
         assert_eq!(
             world_card_meta("Ares Pocket Colony", "Pocket Universe", 50, Some(&sols)),

@@ -596,6 +596,10 @@ pub struct GaugeMoveWire {
 pub struct CalendarWire {
     pub unit: String,
     pub length: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub season: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coming: Option<String>,
 }
 
 /// How a World looks from a distance, as `0xRRGGBB` colours.
@@ -717,6 +721,8 @@ impl From<&ProjectionSnapshot> for ProjectionSnapshotWire {
             calendar: snapshot.calendar.as_ref().map(|calendar| CalendarWire {
                 unit: calendar.unit.clone(),
                 length: calendar.length,
+                season: calendar.season.clone(),
+                coming: calendar.coming.clone(),
             }),
             gauges: snapshot
                 .gauges
@@ -832,6 +838,8 @@ impl TryFrom<ProjectionSnapshotWire> for ProjectionSnapshot {
                 .map(|calendar| world_projection::Calendar {
                     unit: calendar.unit,
                     length: calendar.length,
+                    season: calendar.season.filter(|season| !season.trim().is_empty()),
+                    coming: calendar.coming.filter(|coming| !coming.trim().is_empty()),
                 }),
             gauges: snapshot
                 .gauges

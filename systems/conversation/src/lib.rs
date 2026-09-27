@@ -136,6 +136,9 @@ pub struct Kit {
     pub work_line: fn(&World, EntityId) -> Option<String>,
     /// How the place as a whole is doing, in anybody's words.
     pub place_mood: fn(&World) -> String,
+    /// What is coming up soon on the place's calendar, in a few words:
+    /// "Lantern Night in 3 days".
+    pub coming_up: fn(&World) -> Option<String>,
 }
 
 const TALKED: &str = "conversation.talked";
@@ -670,19 +673,26 @@ pub fn reply(world: &World, kit: &Kit, who: EntityId, heard: Heard) -> Reply {
                 .saturating_sub(kit.period.max(1).saturating_mul(5));
             let news = lives::news_since(world, since);
             let latest = news.iter().rev().take(2).rev().cloned().collect::<Vec<_>>();
+            let coming = (kit.coming_up)(world)
+                .map(|coming| format!(" And {coming}!"))
+                .unwrap_or_default();
             if latest.is_empty() {
                 line(format!(
-                    "Nothing much. It's been a quiet {} or two in {}.",
+                    "Nothing much. It's been a quiet {} or two in {}.{coming}",
                     kit.unit, kit.settlement
                 ))
             } else {
                 line(format!(
-                    "{}{}",
+                    "{}{}{coming}",
                     pick(
                         &["Have you heard? ", "News? Well. ", "You won't believe it. "],
                         seed
                     ),
-                    latest.join(" ")
+                    latest
+                        .iter()
+                        .map(|told| format!("{}.", told.trim_end_matches('.')))
+                        .collect::<Vec<_>>()
+                        .join(" ")
                 ))
             }
         }

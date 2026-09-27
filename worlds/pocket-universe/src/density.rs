@@ -617,3 +617,88 @@ fn time_a_year_old_world() {
     played.universe.projection_snapshot();
     eprintln!("session snapshot {:?}", started.elapsed());
 }
+
+/// Plays `periods` periods of a seed, planting on the first if `plant`,
+/// answering nothing.
+fn a_year_of(seed: &str, periods: usize, plant: bool) -> PocketUniverse {
+    let mut universe = PocketUniverse::new().unwrap();
+    universe.invoke_projection_command(seed).unwrap();
+    if plant {
+        let gardens = projection::snapshot(universe.world())
+            .deeds()
+            .filter(|(_, command, hand)| hand.verb == "Plant" && command.unavailable.is_none())
+            .map(|(_, command, _)| command.id.clone())
+            .take(2)
+            .collect::<Vec<_>>();
+        assert!(!gardens.is_empty(), "{seed}");
+        for garden in gardens {
+            universe.invoke_projection_command(&garden).unwrap();
+        }
+    }
+    for _ in 0..periods {
+        universe.invoke_projection_command(NUDGE_COMMAND).unwrap();
+    }
+    universe
+}
+
+/// Every place's year has a shape: something on its calendar in every
+/// fortnight, festivals in every season, and a harvest that is as good as
+/// what was planted.
+#[test]
+fn every_place_has_a_year_with_a_shape() {
+    for seed in [
+        MARS,
+        crate::SEED_1980S_TOWN_COMMAND,
+        crate::SEED_PENGUIN_CIVILIZATION_COMMAND,
+    ] {
+        let universe = a_year_of(seed, 125, false);
+        let world = universe.world();
+        let period = |event: &world_core::Event| event.world_time / crate::BACKGROUND_PERIOD;
+        let first = world.events().first().map(period).unwrap_or(0);
+        let days = world
+            .events()
+            .iter()
+            .filter(|event| calendar::is_calendar(event))
+            .map(period)
+            .collect::<Vec<_>>();
+        for start in first..first + 110 {
+            assert!(
+                days.iter().any(|day| (start..start + 14).contains(day)),
+                "{seed}: nothing on the calendar in periods {start}-{}",
+                start + 14
+            );
+        }
+        let held = world
+            .events()
+            .iter()
+            .filter(|event| event.kind == "festival_held")
+            .map(|event| period(event) % crate::almanac::YEAR / (crate::almanac::YEAR / 4))
+            .collect::<Vec<_>>();
+        for season in 0..4 {
+            let count = held.iter().filter(|held| **held == season).count();
+            assert!(count >= 3, "{seed}: season {season} has {count} festivals");
+        }
+        let calendar = projection::snapshot(world).calendar.unwrap();
+        assert!(calendar.season.is_some(), "{seed}");
+
+        let harvest = |universe: &PocketUniverse| {
+            universe
+                .world()
+                .events()
+                .iter()
+                .find(|event| {
+                    event.kind == "festival_held"
+                        && matches!(
+                            event.payload.get("festival"),
+                            Some(world_core::Value::Text(festival))
+                                if festival.ends_with("harvest") || festival == "pie_contest"
+                        )
+                })
+                .and_then(calendar::told)
+                .unwrap()
+        };
+        let planted = a_year_of(seed, 75, true);
+        let unplanted = a_year_of(seed, 75, false);
+        assert_ne!(harvest(&planted), harvest(&unplanted), "{seed}");
+    }
+}

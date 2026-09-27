@@ -22,6 +22,10 @@ pub(crate) fn kit(state: &WorldState) -> conversation::Kit {
         need_line,
         work_line,
         place_mood,
+        coming_up: |world| {
+            let almanac = crate::almanac::almanac(world.state());
+            calendar::coming_up(world.state(), &almanac, 7)
+        },
     }
 }
 

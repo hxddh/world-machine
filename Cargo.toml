@@ -38,6 +38,7 @@ members = [
   "systems/lives",
   "systems/hands",
   "systems/conversation",
+  "systems/calendar",
   "worlds/tiny-society",
   "worlds/future-archaeologist",
   "worlds/pocket-universe",

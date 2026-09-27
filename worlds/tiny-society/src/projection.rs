@@ -84,9 +84,14 @@ pub(crate) fn snapshot_since(
             }
             .in_season(crate::story::season(world) as u64),
         ),
-        calendar: Some(world_projection::Calendar {
-            unit: "Day".into(),
-            length: crate::persistence::WORLD_DAY_TICKS,
+        calendar: Some({
+            let almanac = crate::almanac::almanac(world.state());
+            world_projection::Calendar {
+                unit: "Day".into(),
+                length: crate::persistence::WORLD_DAY_TICKS,
+                season: Some(calendar::season_name(world.state(), &almanac).into()),
+                coming: calendar::coming_up(world.state(), &almanac, 7),
+            }
         }),
         gauges: gauges(world),
         voices: crate::talk::voices(world),
@@ -648,6 +653,9 @@ fn exchanges(world: &World, on_offer: &[String]) -> Vec<world_projection::Exchan
 fn telling(world: &World, event: &Event) -> Telling {
     if let Some(told) = conversation::told(event) {
         return Telling::Routine(Some(told));
+    }
+    if event.kind == "festival_nears" {
+        return Telling::Routine(calendar::told(event));
     }
     if let Some(title) = narrated_title(world, event) {
         return Telling::Story(title);

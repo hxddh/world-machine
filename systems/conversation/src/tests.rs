@@ -22,6 +22,7 @@ fn kit(_: &WorldState) -> Kit {
         need_line: |_, _| ("Flour, mostly.".into(), Some("tiny.flour".into())),
         work_line: |_, _| Some("Up at four for the bread.".into()),
         place_mood: |_| "The harbour's quiet.".into(),
+        coming_up: |_| Some("the fair in 3 days".into()),
     }
 }
 

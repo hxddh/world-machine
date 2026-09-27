@@ -507,6 +507,10 @@ pub enum Carry {
 pub struct Calendar {
     pub unit: String,
     pub length: u64,
+    /// What the season is called, if the World has seasons: "Summer".
+    pub season: Option<String>,
+    /// What is coming up soon, in a few words: "Lantern Night in 3 days".
+    pub coming: Option<String>,
 }
 
 /// Words that describe the machinery rather than the World. A player never
@@ -2112,6 +2116,8 @@ mod tests {
         snapshot.calendar = Some(Calendar {
             unit: "Sol".into(),
             length: 10,
+            coming: None,
+            season: None,
         });
         assert_eq!(snapshot.moment_label(0), "The beginning");
         assert_eq!(snapshot.moment_label(10), "Sol 1");

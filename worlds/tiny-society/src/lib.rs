@@ -1,4 +1,5 @@
 mod actions;
+mod almanac;
 mod behaviors;
 mod drift;
 mod fishing;

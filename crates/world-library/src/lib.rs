@@ -926,6 +926,8 @@ fn summary(id: WorldDocumentId, document: &WorldDocument) -> WorldDocumentSummar
             world_projection::Calendar {
                 unit: calendar.unit.clone(),
                 length: calendar.length,
+                coming: None,
+                season: None,
             }
         }),
         display_marks: document
@@ -1722,6 +1724,8 @@ mod tests {
             calendar: Some(world_projection::Calendar {
                 unit: "Sol".into(),
                 length: 10,
+                coming: None,
+                season: None,
             }),
             canvas: world_projection::CanvasProjection {
                 marks: vec![world_projection::CanvasMark {

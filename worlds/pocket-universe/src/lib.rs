@@ -1,3 +1,4 @@
+mod almanac;
 #[cfg(test)]
 mod density;
 mod drift;

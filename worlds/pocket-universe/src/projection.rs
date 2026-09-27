@@ -72,6 +72,7 @@ pub(crate) fn snapshot_since(
         .collect::<Vec<_>>();
     let talks = crate::talk::talks(world, &commands);
     let exchanges = exchanges(world, &commands);
+    let almanac = crate::almanac::almanac(world.state());
     let mut snapshot = ProjectionSnapshot {
         title: if seeded {
             universe_name(world)
@@ -98,6 +99,8 @@ pub(crate) fn snapshot_since(
         calendar: seeded.then(|| world_projection::Calendar {
             unit: seed_time_unit(seed_id(world)).into(),
             length: crate::BACKGROUND_PERIOD,
+            season: Some(calendar::season_name(world.state(), &almanac).into()),
+            coming: calendar::coming_up(world.state(), &almanac, 7),
         }),
         gauges: gauges(world),
         voices: crate::talk::voices(world),
@@ -1942,6 +1945,9 @@ fn told_timeline(world: &World) -> world_projection::TimelineProjection {
         if let Some(told) = conversation::told(event) {
             return world_projection::Telling::Routine(Some(told));
         }
+        if event.kind == "festival_nears" {
+            return world_projection::Telling::Routine(calendar::told(event));
+        }
         if let Some(told) = crate::story::told(world, event) {
             return world_projection::Telling::Story(told);
         }
@@ -2033,8 +2039,9 @@ fn return_digest_priority(kind: &str) -> u8 {
         // The everyday round fills whatever room the story leaves, people's
         // own doings first.
         "agent_cared_for_world" | "agent_explored_world" => 2,
-        // Something coming up is not yet news; how it ended is.
-        "situation_arose" => 3,
+        // Something coming up is not yet news; how it ended is. What the
+        // player said themselves is not news to them.
+        "situation_arose" | "festival_nears" | "spoken" => 3,
         kind if is_routine(kind) => 3,
         _ => 1,
     }
