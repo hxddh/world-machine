@@ -3926,6 +3926,7 @@ dependencies = [
  "world-persistence",
  "world-pi-rpc",
  "world-projection",
+ "world-voice",
 ]
 
 [[package]]
@@ -5458,6 +5459,7 @@ dependencies = [
  "world-pack-protocol",
  "world-pack-server",
  "world-projection",
+ "world-voice",
 ]
 
 [[package]]
@@ -7000,6 +7002,15 @@ dependencies = [
 [[package]]
 name = "world-theme"
 version = "0.1.0"
+
+[[package]]
+name = "world-voice"
+version = "0.1.0"
+dependencies = [
+ "conversation",
+ "serde_json",
+ "world-pi-rpc",
+]
 
 [[package]]
 name = "writeable"

@@ -36,7 +36,9 @@ use world_projection::ProjectionSnapshot;
 #[cfg(test)]
 pub(crate) use world_core::Value;
 
-pub use host::tiny_society_registration;
+pub use host::{
+    tiny_society_registration, tiny_society_registration_with_listener, ListenerFactory,
+};
 pub use model::{
     BAKERY, EMMA, EVAN, HARBOR, JONAS, JONAS_BOAT, LEO, MARA, MIA, NOAH, PUB, SCHOOL, SOFIA,
     WEDDING_ORDER,
@@ -169,7 +171,20 @@ impl TinySocietyBranch {
         who: world_core::EntityId,
         words: &str,
     ) -> Result<Vec<EventId>, Box<dyn Error>> {
-        let request = speech::say(&self.world, who, words).map_err(std::io::Error::other)?;
+        self.say_with(who, words, &mut conversation::OwnEars)
+    }
+
+    /// Says something to someone, heard by a listener of the player's
+    /// choosing, such as a language model; what it hears is only a
+    /// proposal the rules check.
+    pub fn say_with(
+        &mut self,
+        who: world_core::EntityId,
+        words: &str,
+        listener: &mut dyn conversation::Listener,
+    ) -> Result<Vec<EventId>, Box<dyn Error>> {
+        let request =
+            speech::say(&self.world, who, words, listener).map_err(std::io::Error::other)?;
         let actions = build_action_registry()?;
         let event = self.world.execute(&actions, &request)?.id;
         Ok(vec![event])

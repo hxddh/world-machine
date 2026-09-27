@@ -1,6 +1,6 @@
 use pocket_universe::{
     pocket_universe_descriptor, pocket_universe_registration,
-    pocket_universe_registration_with_voice,
+    pocket_universe_registration_with_voices,
 };
 use std::env;
 use std::error::Error;
@@ -112,6 +112,17 @@ impl Selection {
     }
 
     fn registration(self) -> Result<WorldRegistration, Box<dyn Error>> {
+        // Whoever narrates also speaks for the people when the player talks
+        // to them; nothing the model says is more than a proposal.
+        let speaking = match &self.voice {
+            Voice::None => world_voice::Voice::None,
+            Voice::Pi => {
+                world_voice::Voice::Pi(env::var(PI_PROGRAM_ENV).unwrap_or_else(|_| "pi".into()))
+            }
+            Voice::Api(key) => world_voice::Voice::Api(key.clone()),
+        };
+        let ears: pocket_universe::ListenerFactory =
+            Arc::new(move || speaking.listener_or_own_ears());
         let voice: Option<pocket_universe::NarratorFactory> = match self.voice {
             Voice::None => None,
             Voice::Pi => Some(narrator_factory(pi_command())),
@@ -121,19 +132,21 @@ impl Selection {
         };
         Ok(match (self.mind, voice) {
             (Mind::Deterministic, None) => pocket_universe_registration(),
-            (Mind::Deterministic, Some(voice)) => pocket_universe_registration_with_voice(
+            (Mind::Deterministic, Some(voice)) => pocket_universe_registration_with_voices(
                 || pocket_universe::PocketMind,
                 "deterministic",
                 voice,
+                ears,
             )?,
             (Mind::Pi, voice) => {
                 let command = pi_command();
-                pocket_universe_registration_with_voice(
+                pocket_universe_registration_with_voices(
                     move || PiRpcRuntime::new(ProcessPiRpcTransport::new(command.clone())),
                     "pi",
                     voice.unwrap_or_else(|| {
                         Arc::new(|| Box::new(pocket_universe::narrator::NoNarrator))
                     }),
+                    ears,
                 )?
             }
         })

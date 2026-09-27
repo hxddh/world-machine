@@ -1,15 +1,22 @@
 use crate::{tiny_society_pack_ref, TinySociety, TinySocietyBranch, VisitCursor};
+use std::sync::Arc;
 use world_host::{HostError, WorldDescriptor, WorldRegistration, WorldSession};
 use world_persistence::WorldArchive;
 use world_projection::{ProjectionIntent, ProjectionSnapshot, SelectionId};
 
+/// Makes the listener each session hears the player's words with.
+pub type ListenerFactory = Arc<dyn Fn() -> Box<dyn conversation::Listener> + Send + Sync>;
+
 struct TinySocietySession {
     branch: TinySocietyBranch,
     background_cursor: Option<VisitCursor>,
+    listener: Box<dyn conversation::Listener>,
 }
 
 impl TinySocietySession {
-    fn fresh() -> Result<Box<dyn WorldSession>, HostError> {
+    fn fresh(
+        listener: Box<dyn conversation::Listener>,
+    ) -> Result<Box<dyn WorldSession>, HostError> {
         let mut society = TinySociety::new().map_err(HostError::session)?;
         society.run_story().map_err(HostError::session)?;
         let mut branch = society.branch();
@@ -17,14 +24,19 @@ impl TinySocietySession {
         Ok(Box::new(Self {
             branch,
             background_cursor: None,
+            listener,
         }))
     }
 
-    fn open_archive(archive: &WorldArchive) -> Result<Box<dyn WorldSession>, HostError> {
+    fn open_archive(
+        archive: &WorldArchive,
+        listener: Box<dyn conversation::Listener>,
+    ) -> Result<Box<dyn WorldSession>, HostError> {
         let society = TinySociety::resume_archive(archive).map_err(HostError::session)?;
         Ok(Box::new(Self {
             branch: society.branch(),
             background_cursor: None,
+            listener,
         }))
     }
 }
@@ -58,7 +70,9 @@ impl WorldSession for TinySocietySession {
                         "only someone can be spoken to",
                     )));
                 };
-                self.branch.say(who, &words).map_err(HostError::session)?;
+                self.branch
+                    .say_with(who, &words, self.listener.as_mut())
+                    .map_err(HostError::session)?;
             }
         }
         self.background_cursor = None;
@@ -83,6 +97,13 @@ impl WorldSession for TinySocietySession {
 }
 
 pub fn tiny_society_registration() -> WorldRegistration {
+    tiny_society_registration_with_listener(Arc::new(|| Box::new(conversation::OwnEars)))
+}
+
+/// The harbour, its people hearing the player with listeners from
+/// `listener`, such as a language model the player switched on.
+pub fn tiny_society_registration_with_listener(listener: ListenerFactory) -> WorldRegistration {
+    let opening = Arc::clone(&listener);
     WorldRegistration::new(
         WorldDescriptor {
             pack: tiny_society_pack_ref(),
@@ -91,9 +112,9 @@ pub fn tiny_society_registration() -> WorldRegistration {
                 "A small harbour town that keeps living while you are away, where friendships, money and luck become its history."
                     .into(),
         },
-        TinySocietySession::fresh,
+        move || TinySocietySession::fresh(listener()),
     )
-    .with_archive_opener(TinySocietySession::open_archive)
+    .with_archive_opener(move |archive| TinySocietySession::open_archive(archive, opening()))
 }
 
 #[cfg(test)]

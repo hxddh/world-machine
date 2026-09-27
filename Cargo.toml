@@ -33,6 +33,7 @@ members = [
   "crates/world-builtins",
   "crates/world-library",
   "crates/world-observer",
+  "crates/world-voice",
   "systems/society-basic",
   "systems/storylets",
   "systems/lives",

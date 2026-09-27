@@ -353,7 +353,20 @@ where
     /// Says something to someone in the player's own words, and records
     /// what they were heard to mean and what was answered. No time passes.
     pub fn say(&mut self, who: EntityId, words: &str) -> Result<EventId, Box<dyn Error>> {
-        let request = speech::say(&self.world, who, words).map_err(std::io::Error::other)?;
+        self.say_with(who, words, &mut conversation::OwnEars)
+    }
+
+    /// Says something to someone, heard by a listener of the player's
+    /// choosing, such as a language model; what it hears is only a
+    /// proposal the rules check.
+    pub fn say_with(
+        &mut self,
+        who: EntityId,
+        words: &str,
+        listener: &mut dyn conversation::Listener,
+    ) -> Result<EventId, Box<dyn Error>> {
+        let request =
+            speech::say(&self.world, who, words, listener).map_err(std::io::Error::other)?;
         Ok(self.world.execute(&self.actions, &request)?.id)
     }
 
@@ -574,6 +587,8 @@ where
 {
     world: PocketUniverse<R>,
     return_since_event_count: Option<usize>,
+    /// Hears what the player says to people.
+    listener: Box<dyn conversation::Listener>,
 }
 
 impl<R> PocketUniverseSession<R>
@@ -584,6 +599,7 @@ where
         mind: R,
         mind_profile: &str,
         voice: Box<dyn narrator::Narrator>,
+        listener: Box<dyn conversation::Listener>,
     ) -> Result<Box<dyn WorldSession>, HostError> {
         let mut world = PocketUniverse::with_agent_runtime_profile(mind, mind_profile)
             .map_err(HostError::session)?;
@@ -591,6 +607,7 @@ where
         Ok(Box::new(Self {
             world,
             return_since_event_count: None,
+            listener,
         }))
     }
 
@@ -599,6 +616,7 @@ where
         mind: R,
         mind_profile: &str,
         voice: Box<dyn narrator::Narrator>,
+        listener: Box<dyn conversation::Listener>,
     ) -> Result<Box<dyn WorldSession>, HostError> {
         let mut world =
             PocketUniverse::resume_archive_with_agent_runtime_profile(archive, mind, mind_profile)
@@ -607,6 +625,7 @@ where
         Ok(Box::new(Self {
             world,
             return_since_event_count: None,
+            listener,
         }))
     }
 }
@@ -641,7 +660,9 @@ where
                         "only someone can be spoken to",
                     )));
                 };
-                self.world.say(who, &words).map_err(HostError::session)?;
+                self.world
+                    .say_with(who, &words, self.listener.as_mut())
+                    .map_err(HostError::session)?;
             }
         }
         self.return_since_event_count = None;
@@ -699,6 +720,31 @@ where
 /// Builds the narrator each session of this Pack gets.
 pub type NarratorFactory = Arc<dyn Fn() -> Box<dyn narrator::Narrator> + Send + Sync>;
 
+/// Makes the listener each session hears the player's words with.
+pub type ListenerFactory = Arc<dyn Fn() -> Box<dyn conversation::Listener> + Send + Sync>;
+
+/// A Pack whose Worlds speak for their people too: every session hears the
+/// player with a listener from `listener_factory`, such as a language model
+/// the player switched on.
+pub fn pocket_universe_registration_with_voices<R, F>(
+    factory: F,
+    mind_profile: impl Into<String>,
+    narrator_factory: NarratorFactory,
+    listener_factory: ListenerFactory,
+) -> Result<WorldRegistration, std::io::Error>
+where
+    R: AgentRuntime + 'static,
+    F: Fn() -> R + Send + Sync + 'static,
+{
+    let mind_profile = validate_mind_profile(mind_profile.into())?;
+    Ok(registration_with_voices(
+        factory,
+        mind_profile,
+        narrator_factory,
+        listener_factory,
+    ))
+}
+
 /// A Pack whose Worlds have a voice as well as a mind.
 ///
 /// Every World this registration creates or opens is given a narrator from
@@ -745,7 +791,27 @@ where
     R: AgentRuntime + 'static,
     F: Fn() -> R + Send + Sync + 'static,
 {
+    registration_with_voices(
+        factory,
+        mind_profile,
+        narrator_factory,
+        Arc::new(|| Box::new(conversation::OwnEars)),
+    )
+}
+
+fn registration_with_voices<R, F>(
+    factory: F,
+    mind_profile: impl Into<String>,
+    narrator_factory: NarratorFactory,
+    listener_factory: ListenerFactory,
+) -> WorldRegistration
+where
+    R: AgentRuntime + 'static,
+    F: Fn() -> R + Send + Sync + 'static,
+{
     let factory = Arc::new(factory);
+    let create_ears = Arc::clone(&listener_factory);
+    let open_ears = listener_factory;
     let mind_profile = Arc::new(mind_profile.into());
     let create_factory = Arc::clone(&factory);
     let open_factory = Arc::clone(&factory);
@@ -754,7 +820,12 @@ where
     let create_voice = Arc::clone(&narrator_factory);
     let open_voice = Arc::clone(&narrator_factory);
     WorldRegistration::new(pocket_universe_descriptor(), move || {
-        PocketUniverseSession::fresh(create_factory(), create_profile.as_str(), create_voice())
+        PocketUniverseSession::fresh(
+            create_factory(),
+            create_profile.as_str(),
+            create_voice(),
+            create_ears(),
+        )
     })
     .with_archive_opener(move |archive| {
         PocketUniverseSession::open_archive(
@@ -762,6 +833,7 @@ where
             open_factory(),
             open_profile.as_str(),
             open_voice(),
+            open_ears(),
         )
     })
 }

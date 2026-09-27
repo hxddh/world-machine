@@ -90,7 +90,14 @@ fn work_line(world: &World, who: EntityId) -> Option<String> {
     )
 }
 
-/// Hears what the player says to someone and answers, ready to record.
-pub(crate) fn say(world: &World, who: EntityId, words: &str) -> Result<ActionRequest, String> {
-    conversation::say(world, &kit(world.state()), who, words)
+/// Hears what the player says to someone and answers, ready to record: with
+/// the listener's ears if it has something usable to say, the System's own
+/// otherwise.
+pub(crate) fn say(
+    world: &World,
+    who: EntityId,
+    words: &str,
+    listener: &mut dyn conversation::Listener,
+) -> Result<ActionRequest, String> {
+    conversation::say_with(world, &kit(world.state()), who, words, listener)
 }
