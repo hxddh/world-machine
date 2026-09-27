@@ -3020,6 +3020,9 @@ pub fn keepsakes(world: &World) -> Vec<Keepsake> {
             event.kind == "keepsake_left"
                 || (event.kind == "situation_answered"
                     && event.payload.get("kind") == Some(&Value::Text("keepsake".into())))
+                // Anything any System marks as given to keep: what a
+                // garden the player planted grew, say.
+                || event.payload.get("kept") == Some(&Value::Bool(true))
         })
         .filter_map(|event| {
             let text = |key: &str| match event.payload.get(key) {

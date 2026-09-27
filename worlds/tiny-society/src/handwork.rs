@@ -4,7 +4,7 @@
 //! The mechanics are the `hands` System's.
 
 use crate::{BAKERY, HARBOR, PUB, SCHOOL};
-use hands::{Kit, Purse, Thing, Verb};
+use hands::{Effect, Kit, Purse, Thing, Verb};
 use lives::Need;
 use society_basic::CASH;
 use world_core::{EntityId, StateChange, Value, World, WorldState};
@@ -21,6 +21,7 @@ const THINGS: &[Thing] = &[
         cost: 25,
         lasts: None,
         stages: &[],
+        effect: Effect::Rest,
     },
     Thing {
         id: "lamp",
@@ -30,6 +31,7 @@ const THINGS: &[Thing] = &[
         cost: 40,
         lasts: None,
         stages: &[],
+        effect: Effect::Gather,
     },
     Thing {
         id: "stall",
@@ -39,6 +41,7 @@ const THINGS: &[Thing] = &[
         cost: 60,
         lasts: None,
         stages: &[],
+        effect: Effect::None,
     },
     Thing {
         id: "flagpole",
@@ -48,6 +51,7 @@ const THINGS: &[Thing] = &[
         cost: 20,
         lasts: None,
         stages: &[],
+        effect: Effect::None,
     },
     Thing {
         id: "bunting",
@@ -57,6 +61,7 @@ const THINGS: &[Thing] = &[
         cost: 10,
         lasts: Some(6),
         stages: &[],
+        effect: Effect::None,
     },
     Thing {
         id: "lanterns",
@@ -66,6 +71,7 @@ const THINGS: &[Thing] = &[
         cost: 10,
         lasts: Some(4),
         stages: &[],
+        effect: Effect::Gather,
     },
     Thing {
         id: "vegetables",
@@ -79,6 +85,7 @@ const THINGS: &[Thing] = &[
             ("Vegetable patch", "garden"),
             ("Vegetables in flower", "garden"),
         ],
+        effect: Effect::Harvest,
     },
     Thing {
         id: "apple_tree",
@@ -92,6 +99,127 @@ const THINGS: &[Thing] = &[
             ("Young apple tree", "tree"),
             ("Apple tree", "tree"),
         ],
+        effect: Effect::Harvest,
+    },
+    Thing {
+        id: "well",
+        name: "Well",
+        verb: Verb::Build,
+        shape: "well",
+        cost: 30,
+        lasts: None,
+        stages: &[],
+        effect: Effect::Gather,
+    },
+    Thing {
+        id: "swing",
+        name: "Swing",
+        verb: Verb::Build,
+        shape: "swing",
+        cost: 15,
+        lasts: None,
+        stages: &[],
+        effect: Effect::Rest,
+    },
+    Thing {
+        id: "fountain",
+        name: "Fountain",
+        verb: Verb::Build,
+        shape: "fountain",
+        cost: 50,
+        lasts: None,
+        stages: &[],
+        effect: Effect::Gather,
+    },
+    Thing {
+        id: "signpost",
+        name: "Signpost",
+        verb: Verb::Build,
+        shape: "signpost",
+        cost: 10,
+        lasts: None,
+        stages: &[],
+        effect: Effect::None,
+    },
+    Thing {
+        id: "birdhouse",
+        name: "Birdhouse",
+        verb: Verb::Build,
+        shape: "birdhouse",
+        cost: 8,
+        lasts: None,
+        stages: &[],
+        effect: Effect::None,
+    },
+    Thing {
+        id: "statue",
+        name: "Statue of a fisherman",
+        verb: Verb::Build,
+        shape: "statue",
+        cost: 70,
+        lasts: None,
+        stages: &[],
+        effect: Effect::None,
+    },
+    Thing {
+        id: "postbox",
+        name: "Postbox",
+        verb: Verb::Build,
+        shape: "postbox",
+        cost: 20,
+        lasts: None,
+        stages: &[],
+        effect: Effect::None,
+    },
+    Thing {
+        id: "rowboat",
+        name: "Rowing boat",
+        verb: Verb::Build,
+        shape: "boat",
+        cost: 35,
+        lasts: None,
+        stages: &[],
+        effect: Effect::None,
+    },
+    Thing {
+        id: "picnic",
+        name: "Picnic table",
+        verb: Verb::Build,
+        shape: "bench",
+        cost: 20,
+        lasts: None,
+        stages: &[],
+        effect: Effect::Gather,
+    },
+    Thing {
+        id: "flowerboxes",
+        name: "Flower boxes",
+        verb: Verb::Decorate,
+        shape: "planter",
+        cost: 8,
+        lasts: Some(8),
+        stages: &[],
+        effect: Effect::None,
+    },
+    Thing {
+        id: "sunflowers",
+        name: "Sunflowers",
+        verb: Verb::Plant,
+        shape: "garden",
+        cost: 5,
+        lasts: None,
+        stages: &[("Sunflower shoots", "sprouts"), ("Sunflowers", "garden")],
+        effect: Effect::Harvest,
+    },
+    Thing {
+        id: "herbs",
+        name: "Herb garden",
+        verb: Verb::Plant,
+        shape: "garden",
+        cost: 5,
+        lasts: None,
+        stages: &[("Herb seedlings", "sprouts"), ("Herb garden", "garden")],
+        effect: Effect::Harvest,
     },
 ];
 
@@ -134,6 +262,27 @@ pub(crate) fn invite(state: &WorldState, who: EntityId, gathering: EntityId) -> 
     ]
 }
 
+/// What using something the player made does for someone: a rest on a
+/// bench eases tiredness, an evening under a lamp eases loneliness, and
+/// bringing the player what a garden grew warms them to the player.
+fn enjoy(state: &WorldState, who: EntityId, effect: Effect) -> Vec<StateChange> {
+    match effect {
+        Effect::Rest => vec![
+            add(state, who, Need::Rest.key(), -20, 0, 100),
+            add(state, who, lives::REGARD, 1, -100, 100),
+        ],
+        Effect::Gather => vec![
+            add(state, who, Need::Company.key(), -20, 0, 100),
+            add(state, who, lives::REGARD, 1, -100, 100),
+        ],
+        Effect::Harvest => vec![
+            add(state, who, Need::Purpose.key(), -10, 0, 100),
+            add(state, who, lives::REGARD, 3, -100, 100),
+        ],
+        Effect::None => Vec::new(),
+    }
+}
+
 pub(crate) fn kit(_: &WorldState) -> Kit {
     Kit {
         notes: HANDS,
@@ -154,6 +303,7 @@ pub(crate) fn kit(_: &WorldState) -> Kit {
         gathering: PUB,
         growing: 5,
         per_period: 2,
+        enjoy,
         most_standing: 12,
     }
 }
@@ -195,5 +345,112 @@ pub(crate) fn commands(world: &World) -> Vec<world_projection::ProjectionCommand
                 }),
             }
         })
+        .chain(hands::can_undo(world.state(), &kit).map(|title| {
+            world_projection::ProjectionCommand {
+                id: format!("{HAND_COMMAND}{UNDO}"),
+                title,
+                detail: "What it cost comes back".into(),
+                effects: Vec::new(),
+                scenery: None,
+                moves: Vec::new(),
+                asker: None,
+                question: None,
+                unavailable: None,
+                hand: Some(world_projection::Hand {
+                    verb: "Undo".into(),
+                    thing: String::new(),
+                    at: None,
+                    cost: None,
+                }),
+            }
+        }))
         .collect()
+}
+
+/// The deed that takes back the latest thing made or moved.
+pub(crate) const UNDO: &str = "undo";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{story, TinySociety};
+
+    fn opened() -> crate::TinySocietyBranch {
+        let mut society = TinySociety::new().unwrap();
+        society.run_story().unwrap();
+        let mut branch = society.branch();
+        branch.begin_story().unwrap();
+        branch
+    }
+
+    #[test]
+    fn twenty_things_to_make_each_drawn_its_own_way() {
+        assert!(THINGS.len() >= 20, "{}", THINGS.len());
+        let ids = THINGS
+            .iter()
+            .map(|thing| thing.id)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(ids.len(), THINGS.len());
+        for thing in THINGS {
+            for shape in std::iter::once(thing.shape).chain(thing.stages.iter().map(|(_, s)| *s)) {
+                assert_ne!(
+                    story::fixture_shape(shape),
+                    world_projection::MarkShape::Parcel,
+                    "{} is drawn as a parcel",
+                    thing.id
+                );
+            }
+        }
+        let uses = |effect| THINGS.iter().filter(|thing| thing.effect == effect).count();
+        assert!(uses(Effect::Rest) >= 2 && uses(Effect::Gather) >= 3 && uses(Effect::Harvest) >= 3);
+    }
+
+    #[test]
+    fn put_anywhere_taken_back_and_used() {
+        let mut branch = opened();
+        let place = |key: &str| format!("{HAND_COMMAND}build.bench.{}{key}", HARBOR.0);
+        branch.invoke_projection_command(&place("@63")).unwrap();
+        let snapshot = branch.projection_snapshot();
+        let bench = snapshot
+            .canvas
+            .items
+            .iter()
+            .find(|item| item.label.contains("Bench"))
+            .expect("the bench is on the scene");
+        assert_eq!(bench.spot, Some(0.63));
+        let undo = snapshot
+            .commands
+            .iter()
+            .find(|command| {
+                command
+                    .hand
+                    .as_ref()
+                    .is_some_and(|hand| hand.verb == "Undo")
+            })
+            .expect("it can be taken back");
+        assert_eq!(undo.title, "Take back the bench");
+        branch.invoke_projection_command(&undo.id).unwrap();
+        assert!(!branch
+            .projection_snapshot()
+            .canvas
+            .items
+            .iter()
+            .any(|item| item.label.contains("Bench")));
+        // Put up for good, then used: someone rests there and says so.
+        branch.invoke_projection_command(&place("@40")).unwrap();
+        for _ in 0..8 {
+            branch
+                .invoke_projection_command(story::WAIT_COMMAND)
+                .unwrap();
+        }
+        let rested = branch
+            .world()
+            .events()
+            .iter()
+            .find(|event| event.kind == "enjoyed")
+            .expect("someone used the bench");
+        assert!(story::line(rested).is_some(), "and said something");
+        let replayed = branch.world().replay().unwrap();
+        assert_eq!(replayed.state(), branch.world().state());
+    }
 }

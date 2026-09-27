@@ -85,6 +85,32 @@ pub struct Thing {
     /// What a plant is called as it grows, one stage every
     /// [`Kit::growing`] periods, and the shape it is drawn as at each.
     pub stages: &'static [(&'static str, &'static str)],
+    /// What it does for the people who live around it.
+    pub effect: Effect,
+}
+
+/// What something the player made does for the people around it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Effect {
+    /// Nothing but look nice.
+    None,
+    /// Somewhere to sit: someone tired rests there.
+    Rest,
+    /// Somewhere to gather: people meet there of an evening.
+    Gather,
+    /// Something that bears: once grown, someone brings the player some.
+    Harvest,
+}
+
+impl Effect {
+    pub fn id(self) -> &'static str {
+        match self {
+            Effect::None => "none",
+            Effect::Rest => "rest",
+            Effect::Gather => "gather",
+            Effect::Harvest => "harvest",
+        }
+    }
 }
 
 /// Where a World keeps the money its player's hands spend.
@@ -127,7 +153,17 @@ pub struct Kit {
     pub per_period: i64,
     /// How many things the player has made may stand at once.
     pub most_standing: usize,
+    /// What using something the player made does for someone, in the
+    /// Pack's terms: a rest on a bench, an evening under a lamp.
+    pub enjoy: fn(&WorldState, EntityId, Effect) -> Vec<StateChange>,
 }
+
+/// How far along the ground something stands, from 0 (the left edge) to
+/// 100 (the right), when the player put it somewhere of their choosing.
+pub const SPOT: &str = "spot";
+
+/// What the latest deed changed, so it can be taken back the same period.
+const UNDO: &str = "hands.undo";
 
 /// The kind of entity made things are, shared with the storyteller's
 /// fixtures so the scene draws both the same way.
@@ -286,12 +322,31 @@ pub fn deeds(world: &World, kit: &Kit) -> Vec<Deed> {
     deeds
 }
 
-fn parse(key: &str) -> Option<(Verb, &str, EntityId)> {
+/// A deed's key, `verb.what.where`, with `@spot` after it when the player
+/// chose where along the ground it stands.
+fn parse(key: &str) -> Option<(Verb, &str, EntityId, Option<i64>)> {
+    let (key, spot) = match key.split_once('@') {
+        Some((key, spot)) => {
+            let spot = spot
+                .parse::<i64>()
+                .ok()
+                .filter(|spot| (0..=100).contains(spot))?;
+            (key, Some(spot))
+        }
+        None => (key, None),
+    };
     let mut parts = key.splitn(3, '.');
     let verb = Verb::from_id(parts.next()?)?;
     let what = parts.next()?;
     let at = EntityId::new(parts.next()?.parse().ok()?);
-    Some((verb, what, at))
+    Some((verb, what, at, spot))
+}
+
+/// The key that does `deed` with what it makes standing at `spot` along
+/// the ground (0 to 100).
+pub fn at_spot(deed: &str, spot: u8) -> String {
+    let deed = deed.split_once('@').map_or(deed, |(deed, _)| deed);
+    format!("{deed}@{}", spot.min(100))
 }
 
 fn thing<'a>(kit: &'a Kit, id: &str) -> Option<&'a Thing> {
@@ -316,8 +371,11 @@ impl Action for Does {
             Some(Value::Text(key)) => key.as_str(),
             _ => return Err(ActionError::Invalid("missing deed".into())),
         };
-        let (verb, what, at) =
+        let (verb, what, at, spot) =
             parse(key).ok_or_else(|| ActionError::Invalid(format!("no deed {key}")))?;
+        if spot.is_some() && matches!(verb, Verb::Give | Verb::Invite) {
+            return Err(ActionError::Invalid("a person has no spot".into()));
+        }
         if state.entity(at).is_none() {
             return Err(ActionError::Invalid("nowhere to do it".into()));
         }
@@ -351,6 +409,9 @@ impl Action for Does {
                     .with_component("hands.since", now as i64);
                 if let Some(lasts) = thing.lasts {
                     fixture = fixture.with_component("until", (now + lasts) as i64);
+                }
+                if let Some(spot) = spot {
+                    fixture = fixture.with_component(SPOT, spot);
                 }
                 changes.push(StateChange::CreateEntity(fixture));
                 changes.push(StateChange::SetComponent {
@@ -392,6 +453,20 @@ impl Action for Does {
                     key: "at".into(),
                     value: Value::Entity(at),
                 });
+                match spot {
+                    Some(spot) => changes.push(StateChange::SetComponent {
+                        entity: fixture,
+                        key: SPOT.into(),
+                        value: spot.into(),
+                    }),
+                    None if integer(state, fixture, SPOT).is_some() => {
+                        changes.push(StateChange::RemoveComponent {
+                            entity: fixture,
+                            key: SPOT.into(),
+                        });
+                    }
+                    None => {}
+                }
                 (
                     "moved_by_hand",
                     0,
@@ -451,6 +526,34 @@ impl Action for Does {
             entity: kit.notes,
             key: done_key(now),
             value: (done + 1).into(),
+        });
+        // What it would take to take this back, this period: what was
+        // made, or where a moved thing stood before, and what it cost.
+        let undo = match (verb, made_id) {
+            (Verb::Build | Verb::Decorate | Verb::Plant, Some(id)) => {
+                Some(format!("{now}|made|{}|{cost}", id.0))
+            }
+            (Verb::Move, Some(id)) => {
+                let from = match state.entity(id).and_then(|entity| entity.component("at")) {
+                    Some(Value::Entity(from)) => from.0,
+                    _ => at.0,
+                };
+                let from_spot =
+                    integer(state, id, SPOT).map_or("-".into(), |spot| spot.to_string());
+                Some(format!("{now}|moved|{}|0|{from}|{from_spot}", id.0))
+            }
+            _ => None,
+        };
+        changes.push(match undo {
+            Some(undo) => StateChange::SetComponent {
+                entity: kit.notes,
+                key: UNDO.into(),
+                value: undo.into(),
+            },
+            None => StateChange::RemoveComponent {
+                entity: kit.notes,
+                key: UNDO.into(),
+            },
         });
         let mut draft = EventDraft::new(kind);
         draft.targets = made_id.into_iter().chain([at]).collect();
@@ -536,7 +639,219 @@ pub fn register_actions(
 ) -> Result<(), ActionError> {
     registry.register(Does(kit))?;
     registry.register(Grows(kit))?;
+    registry.register(Undoes(kit))?;
+    registry.register(Enjoys(kit))?;
     Ok(())
+}
+
+/// The request that takes back the latest thing made or moved, the same
+/// period.
+pub fn undo_request() -> ActionRequest {
+    ActionRequest::new("hands_undo")
+}
+
+/// What the player could take back now, in words: "Take back the bench".
+pub fn can_undo(state: &WorldState, kit: &Kit) -> Option<String> {
+    let note = text(state, kit.notes, UNDO)?;
+    let mut parts = note.split('|');
+    let when: u64 = parts.next()?.parse().ok()?;
+    let _ = parts.next()?;
+    let id = EntityId::new(parts.next()?.parse().ok()?);
+    (when == period(state, kit) && state.entity(id).is_some())
+        .then(|| format!("Take back the {}", name(state, id).to_lowercase()))
+}
+
+/// The player takes back what they last made or moved, this period: it is
+/// gone again, or back where it was, and what it cost comes back.
+struct Undoes(fn(&WorldState) -> Kit);
+
+impl Action for Undoes {
+    fn name(&self) -> &'static str {
+        "hands_undo"
+    }
+
+    fn evaluate(
+        &self,
+        state: &WorldState,
+        _request: &ActionRequest,
+    ) -> Result<EventDraft, ActionError> {
+        let kit = (self.0)(state);
+        if can_undo(state, &kit).is_none() {
+            return Err(ActionError::Invalid("nothing to take back".into()));
+        }
+        let note = text(state, kit.notes, UNDO).unwrap_or_default().to_string();
+        let parts = note.split('|').collect::<Vec<_>>();
+        let number = |index: usize| parts.get(index).and_then(|part| part.parse::<u64>().ok());
+        let (Some(id), Some(cost)) = (number(2), number(3)) else {
+            return Err(ActionError::Invalid("nothing to take back".into()));
+        };
+        let id = EntityId::new(id);
+        let thing_name = name(state, id).to_lowercase();
+        let now = period(state, &kit);
+        let mut changes = Vec::new();
+        let told = if parts.get(1) == Some(&"made") {
+            changes.push(StateChange::RemoveEntity(id));
+            if let (Some(purse), true) = (kit.purse, cost > 0) {
+                let holds = purse_holds(state, &kit).unwrap_or(0);
+                changes.push(StateChange::SetComponent {
+                    entity: purse.entity,
+                    key: purse.key.into(),
+                    value: (holds + cost as i64).into(),
+                });
+            }
+            format!("You took the {thing_name} down again")
+        } else {
+            let from = number(4).map(EntityId::new);
+            if let Some(from) = from {
+                changes.push(StateChange::SetComponent {
+                    entity: id,
+                    key: "at".into(),
+                    value: Value::Entity(from),
+                });
+            }
+            match number(5) {
+                Some(spot) => changes.push(StateChange::SetComponent {
+                    entity: id,
+                    key: SPOT.into(),
+                    value: (spot as i64).into(),
+                }),
+                None if integer(state, id, SPOT).is_some() => {
+                    changes.push(StateChange::RemoveComponent {
+                        entity: id,
+                        key: SPOT.into(),
+                    })
+                }
+                None => {}
+            }
+            format!("You put the {thing_name} back where it was")
+        };
+        let done = integer(state, kit.notes, &done_key(now)).unwrap_or(0);
+        changes.push(StateChange::SetComponent {
+            entity: kit.notes,
+            key: done_key(now),
+            value: (done - 1).max(0).into(),
+        });
+        changes.push(StateChange::RemoveComponent {
+            entity: kit.notes,
+            key: UNDO.into(),
+        });
+        let mut draft = EventDraft::new("undone_by_hand");
+        draft.targets = vec![id];
+        draft.payload.insert("told".into(), told.into());
+        draft.changes = changes;
+        Ok(draft)
+    }
+}
+
+/// Someone uses something the player made: rests on a bench, meets
+/// friends under a lamp, brings the player what a garden grew.
+struct Enjoys(fn(&WorldState) -> Kit);
+
+/// What a garden gives, by the shape it grew into.
+const PRODUCE: [&str; 4] = [
+    "a basket of what the garden grew",
+    "a jar of honey from the flowers",
+    "a bunch of fresh herbs",
+    "the first fruit of the season",
+];
+
+impl Action for Enjoys {
+    fn name(&self) -> &'static str {
+        "hands_enjoy"
+    }
+
+    fn evaluate(
+        &self,
+        state: &WorldState,
+        request: &ActionRequest,
+    ) -> Result<EventDraft, ActionError> {
+        let kit = (self.0)(state);
+        let entity = |key: &str| match request.args.get(key) {
+            Some(Value::Entity(id)) => Some(*id),
+            _ => None,
+        };
+        let (Some(fixture), Some(who)) = (entity("thing"), entity("who")) else {
+            return Err(ActionError::Invalid("who used what?".into()));
+        };
+        if !made(state).contains(&fixture) || !(kit.people)(state).contains(&who) {
+            return Err(ActionError::Invalid("nothing to use".into()));
+        }
+        let effect = text(state, fixture, "hands.thing")
+            .and_then(|id| thing(&kit, id))
+            .map_or(Effect::None, |thing| thing.effect);
+        let what = name(state, fixture).to_lowercase();
+        let place = match state
+            .entity(fixture)
+            .and_then(|entity| entity.component("at"))
+        {
+            Some(Value::Entity(at)) => name(state, *at),
+            _ => "the ground".into(),
+        };
+        let first = name(state, who)
+            .split_whitespace()
+            .next()
+            .unwrap_or("Someone")
+            .to_string();
+        let other = entity("with").filter(|other| *other != who);
+        let other_name = other.map(|other| {
+            name(state, other)
+                .split_whitespace()
+                .next()
+                .unwrap_or("a friend")
+                .to_string()
+        });
+        let seed = fixture.0.wrapping_mul(31).wrapping_add(period(state, &kit));
+        let mut draft = EventDraft::new("enjoyed");
+        let (told, said) = match effect {
+            Effect::Rest => (
+                format!("{first} rested on the {what} by {place}"),
+                [
+                    "Just what my legs needed.",
+                    "Best seat in the place, this.",
+                    "I could sit here all day.",
+                ][(seed % 3) as usize]
+                    .to_string(),
+            ),
+            Effect::Gather => (
+                match &other_name {
+                    Some(other) => format!("{first} and {other} talked under the {what} till late"),
+                    None => format!("{first} sat a while by the {what} after dark"),
+                },
+                [
+                    "It's nice here of an evening.",
+                    "We lost track of time.",
+                    "The light makes you want to stay.",
+                ][(seed % 3) as usize]
+                    .to_string(),
+            ),
+            Effect::Harvest => {
+                let gift = PRODUCE[(seed % PRODUCE.len() as u64) as usize];
+                draft.payload.insert("keepsake".into(), gift.into());
+                draft.payload.insert("kept".into(), true.into());
+                (
+                    format!("{first} brought you {gift} from the {what} you planted"),
+                    format!("From your {what}. Seemed only fair."),
+                )
+            }
+            Effect::None => return Err(ActionError::Invalid("nothing to use".into())),
+        };
+        let mut changes = (kit.enjoy)(state, who, effect);
+        if let Some(other) = other {
+            changes.extend((kit.enjoy)(state, other, effect));
+        }
+        changes.push(StateChange::SetComponent {
+            entity: fixture,
+            key: "hands.used".into(),
+            value: (period(state, &kit) as i64).into(),
+        });
+        draft.actor = Some(who);
+        draft.targets = std::iter::once(fixture).chain(other).collect();
+        draft.payload.insert("effect".into(), effect.id().into());
+        draft.payload.insert("told".into(), told.into());
+        draft.payload.insert("said".into(), said.into());
+        draft.changes = changes;
+        Ok(draft)
+    }
 }
 
 /// The request that does a deed.
@@ -555,6 +870,58 @@ pub fn tick(
         if due_stage(world.state(), kit, plant).is_some() {
             let request = ActionRequest::new("hands_grow").arg("plant", Value::Entity(plant));
             events.push(world.execute(actions, &request)?.id);
+        }
+    }
+    // What the player made gets used: a bench now and then, a lamp most
+    // evenings, a garden once it has grown and every week or so after.
+    let now = period(world.state(), kit);
+    let people = (kit.people)(world.state());
+    if people.is_empty() {
+        return Ok(events);
+    }
+    for fixture in made(world.state()) {
+        let state = world.state();
+        let Some(effect) = text(state, fixture, "hands.thing")
+            .and_then(|id| thing(kit, id))
+            .map(|thing| thing.effect)
+        else {
+            continue;
+        };
+        let since = integer(state, fixture, "hands.used")
+            .or_else(|| integer(state, fixture, "hands.since"))
+            .unwrap_or(0)
+            .max(0) as u64;
+        let waited = now.saturating_sub(since);
+        let due = match effect {
+            Effect::None => false,
+            Effect::Rest => waited >= 2,
+            Effect::Gather => waited >= 1,
+            // Only once it has grown into its last stage.
+            Effect::Harvest => {
+                waited >= 7
+                    && text(state, fixture, "hands.thing")
+                        .and_then(|id| thing(kit, id))
+                        .and_then(|thing| thing.stages.last())
+                        .is_none_or(|(last, _)| text(state, fixture, "name") == Some(last))
+            }
+        };
+        if !due {
+            continue;
+        }
+        let pick = |salt: u64| {
+            people[((fixture.0 ^ now.wrapping_mul(salt)) % people.len() as u64) as usize]
+        };
+        let who = pick(0x9e37);
+        let mut request = ActionRequest::new("hands_enjoy")
+            .actor(who)
+            .arg("thing", Value::Entity(fixture))
+            .arg("who", Value::Entity(who));
+        let other = pick(0x85eb);
+        if effect == Effect::Gather && other != who {
+            request = request.arg("with", Value::Entity(other));
+        }
+        if let Ok(event) = world.execute(actions, &request) {
+            events.push(event.id);
         }
     }
     Ok(events)
@@ -601,7 +968,20 @@ pub fn is_hands(event: &Event) -> bool {
             | "gift_given"
             | "invited_out"
             | "plant_grew"
+            | "undone_by_hand"
+            | "enjoyed"
     )
+}
+
+/// Who speaks at one of this System's moments, and what they say.
+pub fn said(event: &Event) -> Option<(EntityId, String)> {
+    if !is_hands(event) {
+        return None;
+    }
+    match event.payload.get("said") {
+        Some(Value::Text(said)) if !said.is_empty() => Some((event.actor?, said.clone())),
+        _ => None,
+    }
 }
 
 /// How one of this System's moments is told.

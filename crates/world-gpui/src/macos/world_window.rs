@@ -84,6 +84,10 @@ pub(crate) struct Looking {
     /// was handed over while they watched.
     pub(crate) keepsakes_seen: Option<usize>,
     pub(crate) gift_at: Option<Instant>,
+    /// A photograph being taken (everything but the scene hidden), and
+    /// when the last was saved.
+    pub(crate) photographing: bool,
+    pub(crate) photo_saved: Option<Instant>,
 }
 
 /// The player's hands: which verb they picked, and what they are about to
@@ -737,6 +741,7 @@ impl ProjectionView {
         }
         match key {
             "i" if command => self.toggle_drawer(cx),
+            "z" if command => self.undo(cx),
             "escape" => {
                 if self.looking.hands.is_some() {
                     self.looking.hands = None;
@@ -957,6 +962,99 @@ impl ProjectionView {
         self.looking.hands = None;
         self.invoke_command(deed, cx);
         true
+    }
+
+    /// Clicking open ground while placing puts what the player picked right
+    /// there: counted with the nearest place, standing at the spot along
+    /// the ground that was clicked.
+    fn place_on_ground(
+        &mut self,
+        position: gpui::Point<gpui::Pixels>,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(hands) = self.looking.hands.as_ref() else {
+            return false;
+        };
+        if !matches!(
+            hands.verb.as_deref(),
+            Some("Build" | "Decorate" | "Plant" | "Move")
+        ) || hands.thing.as_deref().is_none_or(|thing| thing == "*")
+        {
+            return false;
+        }
+        let (width, height) = self.stage_size(window);
+        let stage = diorama::stage(&self.snapshot, width, height);
+        let camera = self
+            .looking
+            .camera_now
+            .unwrap_or_else(|| Camera::whole(&stage));
+        let (x, _) = camera.stage_point(
+            &stage,
+            f32::from(position.x),
+            f32::from(position.y) - CHROME,
+        );
+        let targets = self.hand_targets().unwrap_or_default();
+        let nearest = stage
+            .buildings
+            .iter()
+            .filter(|spot| targets.contains(&self.snapshot.canvas.items[spot.index].id))
+            .min_by(|a, b| (a.x - x).abs().total_cmp(&(b.x - x).abs()));
+        let Some(nearest) = nearest else {
+            return false;
+        };
+        let Some(deed) = self.deed_at(self.snapshot.canvas.items[nearest.index].id) else {
+            return false;
+        };
+        let spot = diorama::ground_spot(&stage, x);
+        self.looking.hands = None;
+        self.invoke_command(format!("{deed}@{spot}"), cx);
+        true
+    }
+
+    /// The player's last thing made or moved, which they can take back
+    /// this period: the command, and what it says.
+    fn undo_command(&self) -> Option<(String, String)> {
+        self.snapshot
+            .deeds()
+            .find(|(_, command, hand)| hand.verb == "Undo" && command.unavailable.is_none())
+            .map(|(_, command, _)| (command.id.clone(), command.title.clone()))
+    }
+
+    fn undo(&mut self, cx: &mut Context<Self>) {
+        if let Some((command, _)) = self.undo_command() {
+            self.invoke_command(command, cx);
+        }
+    }
+
+    /// A photograph of the scene: the chrome is hidden for a frame, the
+    /// window's picture is saved to Pictures, and the chrome comes back.
+    fn take_photo(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.looking.photographing {
+            return;
+        }
+        self.looking.photographing = true;
+        let bounds = window.bounds();
+        let title = self.snapshot.title.clone();
+        cx.notify();
+        cx.spawn_in(window, async move |this, cx| {
+            cx.background_executor()
+                .timer(Duration::from_millis(180))
+                .await;
+            let saved = cx
+                .background_executor()
+                .spawn(async move { save_photo(bounds, &title) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.looking.photographing = false;
+                if saved {
+                    this.looking.photo_saved = Some(Instant::now());
+                    this.cue(crate::Cue::Flip);
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     fn toggle_hands(&mut self, cx: &mut Context<Self>) {
@@ -1242,7 +1340,11 @@ impl ProjectionView {
                         .top_0()
                         .left_0()
                         .size_full()
-                        .on_click(cx.listener(|this, _, _, cx| this.look_away(cx))),
+                        .on_click(cx.listener(|this, event: &gpui::ClickEvent, window, cx| {
+                            if !this.place_on_ground(event.position(), window, cx) {
+                                this.look_away(cx);
+                            }
+                        })),
                 );
 
         // Buildings: named when pointed at, opening the drawer on a click.
@@ -1391,6 +1493,27 @@ impl ProjectionView {
                     ),
             );
         }
+        if self.looking.photographing {
+            return root.into_any_element();
+        }
+        if let Some(at) = self
+            .looking
+            .photo_saved
+            .filter(|at| at.elapsed().as_secs_f32() < 2.5)
+        {
+            let age = at.elapsed().as_secs_f32();
+            root = root.child(
+                div()
+                    .absolute()
+                    .bottom(px(24.0))
+                    .left_0()
+                    .right_0()
+                    .flex()
+                    .justify_center()
+                    .opacity((age / 0.2).min((2.5 - age) / 0.5).clamp(0.0, 1.0))
+                    .child(pill().child("Photo saved to Pictures")),
+            );
+        }
         root = root.child(self.render_hud(cx));
         if let Some(beginning) = self.render_beginning(width >= 760.0, cx) {
             root = root.child(
@@ -1503,6 +1626,26 @@ impl ProjectionView {
                     .hover(|style| style.bg(color(tokens::SURFACE)))
                     .child(plus_glyph(open).size(px(16.0)))
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_hands(cx))),
+            );
+        }
+        if let (true, Some((_, title))) = (has_deeds, self.undo_command()) {
+            right = right.child(
+                pill()
+                    .id("undo-handle")
+                    .cursor_pointer()
+                    .hover(|style| style.bg(color(tokens::SURFACE)))
+                    .child(format!("↶ {title}"))
+                    .on_click(cx.listener(|this, _, _, cx| this.undo(cx))),
+            );
+        }
+        if self.controller.is_some() && self.retelling.is_none() && !is_beginning(&self.snapshot) {
+            right = right.child(
+                pill()
+                    .id("photo-handle")
+                    .cursor_pointer()
+                    .hover(|style| style.bg(color(tokens::SURFACE)))
+                    .child("Photo")
+                    .on_click(cx.listener(|this, _, window, cx| this.take_photo(window, cx))),
             );
         }
         right = right.child(
@@ -2617,4 +2760,46 @@ fn standing_row(standing: &world_projection::Standing) -> Div {
 fn thinking_dots(since: Option<Instant>) -> String {
     let beat = since.map_or(0, |since| since.elapsed().as_millis() / 400) % 3;
     ".".repeat(beat as usize + 1)
+}
+
+/// Saves the screen area `bounds` covers as a picture in the player's
+/// Pictures, in a World Machine folder, named after the World and the
+/// time. Whether it was saved.
+fn save_photo(bounds: gpui::Bounds<gpui::Pixels>, title: &str) -> bool {
+    let Some(home) = std::env::var_os("HOME") else {
+        return false;
+    };
+    let folder = std::path::Path::new(&home)
+        .join("Pictures")
+        .join("World Machine");
+    if std::fs::create_dir_all(&folder).is_err() {
+        return false;
+    }
+    let name = title
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == ' ' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>();
+    let stamp = chrono::Local::now().format("%Y-%m-%d at %H.%M.%S");
+    let path = folder.join(format!("{} {stamp}.png", name.trim()));
+    let region = format!(
+        "{},{},{},{}",
+        f32::from(bounds.origin.x).round(),
+        f32::from(bounds.origin.y).round(),
+        f32::from(bounds.size.width).round(),
+        f32::from(bounds.size.height).round()
+    );
+    std::process::Command::new("/usr/sbin/screencapture")
+        .arg("-x")
+        .arg("-R")
+        .arg(region)
+        .arg(&path)
+        .status()
+        .is_ok_and(|status| status.success())
+        && path.is_file()
 }

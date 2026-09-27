@@ -907,6 +907,7 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                 stance: None,
                 standing: None,
                 mood: None,
+                spot: None,
             });
         }
     }
@@ -951,6 +952,7 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                 stance: crate::drawings::stance_of(world, id, workplace(world, id)),
                 standing: crate::speech::standing_of(world, id),
                 mood: crate::speech::mood_of(world, id),
+                spot: None,
             });
         }
     }
@@ -983,6 +985,7 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                 stance: crate::drawings::stance_of(world, id, crate::life::work(world.state(), id)),
                 standing: crate::speech::standing_of(world, id),
                 mood: crate::speech::mood_of(world, id),
+                spot: None,
             });
         }
     }
@@ -1021,6 +1024,7 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                 stance: None,
                 standing: None,
                 mood: None,
+                spot: None,
             });
         }
     }

@@ -2092,6 +2092,9 @@ pub(crate) fn line(event: &Event) -> Option<(EntityId, String)> {
     if calendar::is_calendar(event) {
         return calendar::said(event);
     }
+    if hands::is_hands(event) {
+        return hands::said(event);
+    }
     let spec = storylet_of(event)?;
     let who = spec.storylet.asker;
     if event.kind == "situation_arose" {
@@ -3996,6 +3999,15 @@ pub(crate) fn fixture_shape(shape: &str) -> world_projection::MarkShape {
         "bench" => MarkShape::Bench,
         "sprouts" => MarkShape::Sprouts,
         "tree" => MarkShape::Tree,
+        "boat" => MarkShape::Boat,
+        "well" => MarkShape::Well,
+        "swing" => MarkShape::Swing,
+        "fountain" => MarkShape::Fountain,
+        "signpost" => MarkShape::Signpost,
+        "birdhouse" => MarkShape::Birdhouse,
+        "planter" => MarkShape::Planter,
+        "statue" => MarkShape::Statue,
+        "postbox" => MarkShape::Postbox,
         _ => MarkShape::Parcel,
     }
 }
@@ -4030,6 +4042,10 @@ pub(crate) fn fixtures(world: &World) -> Vec<world_projection::CanvasItem> {
                 stance: None,
                 standing: None,
                 mood: None,
+                spot: match fixture.component(hands::SPOT) {
+                    Some(Value::Integer(spot)) => Some((*spot).clamp(0, 100) as f32 / 100.0),
+                    _ => None,
+                },
             }
         })
         .collect()

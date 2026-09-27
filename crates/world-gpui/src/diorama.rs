@@ -111,6 +111,16 @@ impl Stage {
     }
 }
 
+/// Where along the ground a stage point `x` is, from 0 (the left edge of
+/// the row places stand in) to 100 (its right edge): the spot something
+/// the player puts down there takes.
+pub fn ground_spot(stage: &Stage, x: f32) -> u8 {
+    let usable = stage.width * (1.0 - 2.0 * MARGIN);
+    (((x - stage.width * MARGIN) / usable.max(1.0)) * 100.0)
+        .round()
+        .clamp(0.0, 100.0) as u8
+}
+
 /// Pairs a Pack wants drawn together, who stand side by side.
 fn pairs(snapshot: &ProjectionSnapshot) -> Vec<(SelectionId, SelectionId)> {
     snapshot
@@ -146,8 +156,14 @@ pub fn stage(snapshot: &ProjectionSnapshot, width: f32, height: f32) -> Stage {
         let host = *index_of.get(&items[index].at?)?;
         (host != index && items[host].at.is_none()).then_some(host)
     };
+    // What the player stood somewhere of their choosing keeps its spot and
+    // takes no place in the row.
     let mut anchors = (0..items.len())
-        .filter(|index| host(*index).is_none() && items[*index].kind != CanvasItemKind::Actor)
+        .filter(|index| {
+            host(*index).is_none()
+                && items[*index].kind != CanvasItemKind::Actor
+                && items[*index].spot.is_none()
+        })
         .collect::<Vec<_>>();
     anchors.sort_by(|a, b| {
         items[*a]
@@ -193,6 +209,14 @@ pub fn stage(snapshot: &ProjectionSnapshot, width: f32, height: f32) -> Stage {
     let mut beside = BTreeMap::<usize, usize>::new();
     for (index, item) in items.iter().enumerate() {
         if item.kind == CanvasItemKind::Actor {
+            continue;
+        }
+        if let Some(spot) = item.spot {
+            things.push(Spot {
+                index,
+                x: width * MARGIN + usable * spot.clamp(0.0, 1.0),
+                y: feet,
+            });
             continue;
         }
         let Some(host) = host(index) else {
@@ -1626,6 +1650,7 @@ mod tests {
             stance: None,
             standing: None,
             mood: None,
+            spot: None,
         }
     }
 

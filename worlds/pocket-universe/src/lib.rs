@@ -400,6 +400,12 @@ where
         }
 
         if let Some(deed) = handwork::parse_command(command_id) {
+            if deed == handwork::UNDO {
+                return Ok(self
+                    .world
+                    .execute(&self.actions, &hands::undo_request())?
+                    .id);
+            }
             let event = self
                 .world
                 .execute(&self.actions, &hands::do_request(deed))?

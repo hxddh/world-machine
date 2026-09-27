@@ -197,6 +197,7 @@ fn canvas(world: &World, artifacts: &[EntityId]) -> CanvasProjection {
                 stance: None,
                 standing: None,
                 mood: None,
+                spot: None,
             });
         }
     }
@@ -231,6 +232,7 @@ fn canvas(world: &World, artifacts: &[EntityId]) -> CanvasProjection {
             stance: None,
             standing: None,
             mood: None,
+            spot: None,
         });
     }
 

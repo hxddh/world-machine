@@ -2267,6 +2267,7 @@ fn canvas(world: &World) -> CanvasProjection {
                 stance: crate::drawings::stance_of(world, *id),
                 standing: crate::speech::standing_of(world, *id),
                 mood: crate::speech::mood_of(world, *id),
+                spot: None,
             })
         })
         .collect();
@@ -2294,6 +2295,7 @@ fn canvas(world: &World) -> CanvasProjection {
             stance: crate::drawings::stance_of(world, id),
             standing: crate::speech::standing_of(world, id),
             mood: crate::speech::mood_of(world, id),
+            spot: None,
         });
     }
     items.extend(crate::story::fixtures(world));

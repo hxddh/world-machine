@@ -473,13 +473,26 @@ pub fn paint_mark(
             body.line_to(at(0.5, 0.45));
             body.line_to(at(0.9, 1.0));
         }
-        MarkShape::Bunting | MarkShape::Flag | MarkShape::Lantern => {
+        MarkShape::Bunting
+        | MarkShape::Flag
+        | MarkShape::Lantern
+        | MarkShape::Signpost
+        | MarkShape::Birdhouse
+        | MarkShape::Postbox
+        | MarkShape::Statue
+        | MarkShape::Swing => {
             body.move_to(at(0.45, 1.0));
             body.line_to(at(0.45, 0.2));
             body.line_to(at(0.55, 0.2));
             body.line_to(at(0.55, 1.0));
         }
-        MarkShape::Pier | MarkShape::Garden | MarkShape::Bench | MarkShape::Sprouts => {
+        MarkShape::Pier
+        | MarkShape::Garden
+        | MarkShape::Bench
+        | MarkShape::Sprouts
+        | MarkShape::Well
+        | MarkShape::Fountain
+        | MarkShape::Planter => {
             body.move_to(at(0.0, 1.0));
             body.line_to(at(0.0, 0.8));
             body.line_to(at(1.0, 0.8));

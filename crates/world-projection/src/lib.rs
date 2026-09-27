@@ -1425,6 +1425,22 @@ pub enum MarkShape {
     Bench,
     /// Seedlings just up out of the ground.
     Sprouts,
+    /// A stone well with a little roof and a bucket.
+    Well,
+    /// A swing hung from a frame.
+    Swing,
+    /// A round stone fountain, water rising.
+    Fountain,
+    /// A post with arms pointing the way.
+    Signpost,
+    /// A birdhouse on a pole.
+    Birdhouse,
+    /// A long box of flowers.
+    Planter,
+    /// A figure on a plinth.
+    Statue,
+    /// A pillar box for letters.
+    Postbox,
 }
 
 /// How a connection reads: warm, strained, or neither.
@@ -1488,6 +1504,10 @@ pub struct CanvasItem {
     pub standing: Option<Standing>,
     /// How a person feels, for their face.
     pub mood: Option<Mood>,
+    /// Where along the ground a thing stands, from 0 (the left edge) to 1
+    /// (the right), when the player put it somewhere of their choosing;
+    /// `None` stands it beside its place.
+    pub spot: Option<f32>,
 }
 
 /// How someone stands with the player: a mark from -2 (does not trust

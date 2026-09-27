@@ -1707,6 +1707,14 @@ pub enum MarkShapeWire {
     Tent,
     Bench,
     Sprouts,
+    Well,
+    Swing,
+    Fountain,
+    Signpost,
+    Birdhouse,
+    Planter,
+    Statue,
+    Postbox,
     #[serde(other)]
     Unknown,
 }
@@ -1733,6 +1741,14 @@ impl From<MarkShape> for MarkShapeWire {
             MarkShape::Tent => Self::Tent,
             MarkShape::Bench => Self::Bench,
             MarkShape::Sprouts => Self::Sprouts,
+            MarkShape::Well => Self::Well,
+            MarkShape::Swing => Self::Swing,
+            MarkShape::Fountain => Self::Fountain,
+            MarkShape::Signpost => Self::Signpost,
+            MarkShape::Birdhouse => Self::Birdhouse,
+            MarkShape::Planter => Self::Planter,
+            MarkShape::Statue => Self::Statue,
+            MarkShape::Postbox => Self::Postbox,
         }
     }
 }
@@ -1759,6 +1775,14 @@ impl From<MarkShapeWire> for MarkShape {
             MarkShapeWire::Tent => Self::Tent,
             MarkShapeWire::Bench => Self::Bench,
             MarkShapeWire::Sprouts => Self::Sprouts,
+            MarkShapeWire::Well => Self::Well,
+            MarkShapeWire::Swing => Self::Swing,
+            MarkShapeWire::Fountain => Self::Fountain,
+            MarkShapeWire::Signpost => Self::Signpost,
+            MarkShapeWire::Birdhouse => Self::Birdhouse,
+            MarkShapeWire::Planter => Self::Planter,
+            MarkShapeWire::Statue => Self::Statue,
+            MarkShapeWire::Postbox => Self::Postbox,
         }
     }
 }
@@ -1922,6 +1946,10 @@ pub struct CanvasItemWire {
     /// A mood this build does not know is drawn content.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mood: Option<String>,
+    /// Where along the ground a thing stands (0 to 1), when the player
+    /// chose; an older Pack sends none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spot: Option<f32>,
 }
 
 /// The longest few words a standing is told in.
@@ -1971,6 +1999,7 @@ impl From<&CanvasItem> for CanvasItemWire {
                 words: standing.words.clone(),
             }),
             mood: item.mood.map(|mood| mood.id().to_string()),
+            spot: item.spot,
         }
     }
 }
@@ -2017,6 +2046,10 @@ impl From<CanvasItemWire> for CanvasItem {
             mood: item
                 .mood
                 .map(|mood| world_projection::Mood::from_id(&mood).unwrap_or_default()),
+            spot: item
+                .spot
+                .filter(|spot| spot.is_finite())
+                .map(|spot| spot.clamp(0.0, 1.0)),
         }
     }
 }
@@ -2385,6 +2418,7 @@ mod tests {
                     stance: None,
                     standing: None,
                     mood: None,
+                    spot: None,
                 }],
                 links: vec![CanvasLink {
                     from: entity,

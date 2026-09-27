@@ -225,6 +225,11 @@ impl TinySocietyBranch {
         let deed = handwork::parse_command(command_id)
             .ok_or_else(|| std::io::Error::other(format!("not a deed: {command_id}")))?;
         let actions = build_action_registry()?;
+        if deed == handwork::UNDO {
+            return Ok(vec![
+                self.world.execute(&actions, &hands::undo_request())?.id,
+            ]);
+        }
         let event = self.world.execute(&actions, &hands::do_request(deed))?.id;
         let mut events = vec![event];
         // Someone nearby says what they make of it, and in a new harbour
