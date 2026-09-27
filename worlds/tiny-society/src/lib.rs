@@ -2,6 +2,7 @@ mod actions;
 mod behaviors;
 mod drift;
 mod fishing;
+mod handwork;
 mod hardship;
 mod host;
 mod interventions;
@@ -66,6 +67,10 @@ pub struct TinySocietyBranch {
 pub(crate) fn with_previews(world: &World, mut snapshot: ProjectionSnapshot) -> ProjectionSnapshot {
     let before = snapshot.gauges.clone();
     for command in &mut snapshot.commands {
+        // A deed of the player's own hands is not a choice to weigh.
+        if command.hand.is_some() {
+            continue;
+        }
         let mut copy = TinySocietyBranch {
             world: world.clone(),
         };
@@ -117,6 +122,7 @@ impl TinySocietyBranch {
             story::WAIT_COMMAND => self.pass_days(1, false),
             _ if story::parse_command(command_id).is_some() => self.answer(command_id),
             _ if life::parse_command(command_id).is_some() => self.answer_life(command_id),
+            _ if handwork::parse_command(command_id).is_some() => self.do_deed(command_id),
             _ => Err(
                 std::io::Error::other(format!("unknown projection command: {command_id}")).into(),
             ),
@@ -149,6 +155,14 @@ impl TinySocietyBranch {
             .world
             .execute(&actions, &lives::answer_request(situation, answer))?
             .id;
+        Ok(vec![event])
+    }
+
+    fn do_deed(&mut self, command_id: &str) -> Result<Vec<EventId>, Box<dyn Error>> {
+        let deed = handwork::parse_command(command_id)
+            .ok_or_else(|| std::io::Error::other(format!("not a deed: {command_id}")))?;
+        let actions = build_action_registry()?;
+        let event = self.world.execute(&actions, &hands::do_request(deed))?.id;
         Ok(vec![event])
     }
 

@@ -804,6 +804,8 @@ fn mark_shape_name(shape: world_projection::MarkShape) -> &'static str {
         MarkShape::Flag => "flag",
         MarkShape::Lantern => "lantern",
         MarkShape::Tent => "tent",
+        MarkShape::Bench => "bench",
+        MarkShape::Sprouts => "sprouts",
     }
 }
 
@@ -826,6 +828,8 @@ fn mark_shape_from_name(name: &str) -> world_projection::MarkShape {
         "flag" => MarkShape::Flag,
         "lantern" => MarkShape::Lantern,
         "tent" => MarkShape::Tent,
+        "bench" => MarkShape::Bench,
+        "sprouts" => MarkShape::Sprouts,
         _ => MarkShape::House,
     }
 }
@@ -1166,6 +1170,7 @@ mod tests {
                     moves: Vec::new(),
                     question: None,
                     unavailable: None,
+                    hand: None,
                 }],
                 ..ProjectionSnapshot::default()
             }

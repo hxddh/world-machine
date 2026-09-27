@@ -223,7 +223,7 @@ mod tests {
             .gauges
             .iter()
             .all(|gauge| (0.0..=1.0).contains(&gauge.value)));
-        for command in &snapshot.commands {
+        for command in snapshot.choices() {
             if command.id == crate::story::WAIT_COMMAND {
                 continue;
             }

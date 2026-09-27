@@ -829,7 +829,9 @@ pub fn paint_building(
         | MarkShape::Garden
         | MarkShape::Flag
         | MarkShape::Lantern
-        | MarkShape::Tent => {
+        | MarkShape::Tent
+        | MarkShape::Bench
+        | MarkShape::Sprouts => {
             paint_thing(window, x, base, w, shape, palette, 0.0);
         }
     }
@@ -1159,6 +1161,96 @@ pub fn paint_thing(
                 (-0.05, 0.6, 0xffffff),
             ] {
                 circle(window, x + w * dx, base - h * dy, w * 0.035, hex(colour));
+            }
+        }
+        MarkShape::Bench => {
+            let h = w * 0.34;
+            ellipse(
+                window,
+                x,
+                base,
+                w * 0.5,
+                h * 0.14,
+                gpui::black().opacity(0.12),
+            );
+            let wood = hex(0x9a6a3e);
+            // Legs, seat and back.
+            for dx in [-0.38, 0.34] {
+                rect(
+                    window,
+                    x + w * dx,
+                    base - h * 0.55,
+                    w * 0.05,
+                    h * 0.55,
+                    1.0,
+                    shade(wood, -0.3),
+                );
+            }
+            rect(
+                window,
+                x - w * 0.45,
+                base - h * 0.62,
+                w * 0.9,
+                h * 0.14,
+                2.0,
+                wood,
+            );
+            rect(window, x - w * 0.45, base - h, w * 0.9, h * 0.12, 2.0, wood);
+            rect(
+                window,
+                x - w * 0.45,
+                base - h * 0.82,
+                w * 0.9,
+                h * 0.1,
+                2.0,
+                shade(wood, -0.1),
+            );
+        }
+        MarkShape::Sprouts => {
+            let h = w * 0.28;
+            ellipse(
+                window,
+                x,
+                base,
+                w * 0.5,
+                h * 0.14,
+                gpui::black().opacity(0.1),
+            );
+            rect(
+                window,
+                x - w * 0.46,
+                base - h * 0.4,
+                w * 0.92,
+                h * 0.4,
+                3.0,
+                hex(0x6b4a2e),
+            );
+            // Rows of little shoots, two leaves each.
+            for dx in [-0.34, -0.17, 0.0, 0.17, 0.34] {
+                let stem_x = x + w * dx;
+                rect(
+                    window,
+                    stem_x - 0.75,
+                    base - h * 0.9,
+                    1.5,
+                    h * 0.5,
+                    0.0,
+                    hex(0x4f8a3c),
+                );
+                circle(
+                    window,
+                    stem_x - w * 0.03,
+                    base - h * 0.9,
+                    w * 0.035,
+                    hex(0x6fb04f),
+                );
+                circle(
+                    window,
+                    stem_x + w * 0.03,
+                    base - h * 0.95,
+                    w * 0.035,
+                    hex(0x6fb04f),
+                );
             }
         }
         MarkShape::Flag => {

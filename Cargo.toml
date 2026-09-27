@@ -36,6 +36,7 @@ members = [
   "systems/society-basic",
   "systems/storylets",
   "systems/lives",
+  "systems/hands",
   "worlds/tiny-society",
   "worlds/future-archaeologist",
   "worlds/pocket-universe",

@@ -479,7 +479,7 @@ pub fn paint_mark(
             body.line_to(at(0.55, 0.2));
             body.line_to(at(0.55, 1.0));
         }
-        MarkShape::Pier | MarkShape::Garden => {
+        MarkShape::Pier | MarkShape::Garden | MarkShape::Bench | MarkShape::Sprouts => {
             body.move_to(at(0.0, 1.0));
             body.line_to(at(0.0, 0.8));
             body.line_to(at(1.0, 0.8));

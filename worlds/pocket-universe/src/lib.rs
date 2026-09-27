@@ -2,6 +2,7 @@
 mod density;
 mod drift;
 mod era;
+mod handwork;
 mod legacy;
 mod life;
 pub mod narrator;
@@ -273,6 +274,10 @@ where
             return snapshot;
         }
         for command in &mut snapshot.commands {
+            // A deed of the player's own hands is not a choice to weigh.
+            if command.hand.is_some() {
+                continue;
+            }
             let asks_the_minds = command.id == NUDGE_COMMAND;
             if asks_the_minds && self.mind_profile != DETERMINISTIC_MIND_PROFILE {
                 continue;
@@ -351,6 +356,13 @@ where
             return Ok(self
                 .world
                 .execute(&self.actions, &storylets::choose_request(storylet, choice))?
+                .id);
+        }
+
+        if let Some(deed) = handwork::parse_command(command_id) {
+            return Ok(self
+                .world
+                .execute(&self.actions, &hands::do_request(deed))?
                 .id);
         }
 
@@ -2205,9 +2217,14 @@ mod tests {
                 if turn % 4 == 3 {
                     snapshot = session.advance_background(3).unwrap();
                 } else {
-                    let Some(command) = snapshot
+                    // Whatever can be done now, every choice and deed in turn.
+                    let offered = snapshot
                         .commands
-                        .get(turn % snapshot.commands.len().max(1))
+                        .iter()
+                        .filter(|command| command.unavailable.is_none())
+                        .collect::<Vec<_>>();
+                    let Some(command) = offered
+                        .get(turn % offered.len().max(1))
                         .map(|command| command.id.clone())
                     else {
                         break;
@@ -2246,9 +2263,14 @@ mod tests {
                     words <= world_gpui::RESTING_WORD_LIMIT,
                     "{seed} turn {turn}: {words} words at rest"
                 );
-                let Some(command) = snapshot
+                // Whatever can be done now, every choice and deed in turn.
+                let offered = snapshot
                     .commands
-                    .get(turn % snapshot.commands.len().max(1))
+                    .iter()
+                    .filter(|command| command.unavailable.is_none())
+                    .collect::<Vec<_>>();
+                let Some(command) = offered
+                    .get(turn % offered.len().max(1))
                     .map(|command| command.id.clone())
                 else {
                     break;
@@ -2312,9 +2334,14 @@ mod tests {
                     .filter(|item| item.kind == world_projection::CanvasItemKind::Actor)
                     .collect::<Vec<_>>();
                 assert!(people.iter().all(|person| person.look.is_some()));
-                let Some(command) = snapshot
+                // Whatever can be done now, every choice and deed in turn.
+                let offered = snapshot
                     .commands
-                    .get(turn % snapshot.commands.len().max(1))
+                    .iter()
+                    .filter(|command| command.unavailable.is_none())
+                    .collect::<Vec<_>>();
+                let Some(command) = offered
+                    .get(turn % offered.len().max(1))
                     .map(|command| command.id.clone())
                 else {
                     break;

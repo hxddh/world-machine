@@ -77,7 +77,11 @@ fn play(seed: &str, policy: Policy, days: usize) -> Played {
         let choices = snapshot
             .commands
             .iter()
-            .filter(|command| command.id != NUDGE_COMMAND && command.unavailable.is_none())
+            .filter(|command| {
+                command.id != NUDGE_COMMAND
+                    && command.unavailable.is_none()
+                    && command.hand.is_none()
+            })
             .map(|command| command.id.clone())
             .collect::<Vec<_>>();
         played.days_with_a_choice.push(!choices.is_empty());
@@ -478,4 +482,54 @@ fn a_year_on_maple_street_saying_no_never_runs_out() {
 #[test]
 fn a_year_on_icebridge_left_alone_never_runs_out() {
     a_year(crate::SEED_PENGUIN_CIVILIZATION_COMMAND, Policy::Absent);
+}
+
+/// The v0.12 bar for the player's own hands, in each place: at least five
+/// things to do besides answering, and after a month of building,
+/// planting and decorating, at least a third of what stands was put there
+/// by the player.
+#[test]
+fn your_hands_shape_each_place() {
+    for seed in [
+        MARS,
+        crate::SEED_1980S_TOWN_COMMAND,
+        crate::SEED_PENGUIN_CIVILIZATION_COMMAND,
+    ] {
+        let mut universe = PocketUniverse::new().unwrap();
+        universe.invoke_projection_command(seed).unwrap();
+        universe.invoke_projection_command(NUDGE_COMMAND).unwrap();
+        let verbs = projection::snapshot(universe.world())
+            .deeds()
+            .map(|(_, _, hand)| hand.verb.clone())
+            .collect::<std::collections::BTreeSet<_>>();
+        assert!(verbs.len() >= 5, "{seed}: {verbs:?}");
+        for period in 0..30 {
+            let snapshot = projection::snapshot(universe.world());
+            let deeds = snapshot
+                .deeds()
+                .filter(|(_, command, hand)| {
+                    command.unavailable.is_none()
+                        && ["Build", "Plant", "Decorate"].contains(&hand.verb.as_str())
+                })
+                .map(|(_, command, _)| command.id.clone())
+                .collect::<Vec<_>>();
+            if let Some(deed) = deeds.get(period * 7 % deeds.len().max(1)) {
+                universe.invoke_projection_command(deed).unwrap();
+            }
+            if let Some(answer) = snapshot
+                .choices()
+                .find(|command| command.question.is_some() && command.unavailable.is_none())
+            {
+                let _ = universe.invoke_projection_command(&answer.id.clone());
+            }
+            universe.invoke_projection_command(NUDGE_COMMAND).unwrap();
+        }
+        let state = universe.world().state();
+        let standing = storylets::fixtures(state).len();
+        let made = hands::made(state).len();
+        assert!(
+            made * 3 >= standing && made > 0,
+            "{seed}: {made} of {standing} things standing were the player's"
+        );
+    }
 }

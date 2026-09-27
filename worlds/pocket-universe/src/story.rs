@@ -964,7 +964,8 @@ pub(crate) fn register_actions(
     actions: &mut ActionRegistry,
 ) -> Result<(), world_core::ActionError> {
     storylets::register_actions(actions, deck)?;
-    lives::register_actions(actions, crate::life::cast)
+    lives::register_actions(actions, crate::life::cast)?;
+    hands::register_actions(actions, crate::handwork::kit)
 }
 
 /// The nouns each place fills into the storyteller's words.
@@ -1383,6 +1384,8 @@ pub(crate) fn tick(
     };
     let cast = crate::life::cast(world.state());
     let mut events = lives::tick(world, actions, &cast, away)?;
+    let kit = crate::handwork::kit(world.state());
+    events.extend(hands::tick(world, actions, &kit)?);
     events.extend(storylets::tick(world, actions, &deck(), &reading)?);
     Ok(events)
 }
@@ -1427,6 +1430,7 @@ fn storylet_commands(world: &World) -> Vec<world_projection::ProjectionCommand> 
                     prompt: fill(world, spec.line),
                 }),
                 unavailable: (!unmet.is_empty()).then(|| "Not possible right now".to_string()),
+                hand: None,
             })
         })
         .collect()
@@ -1482,6 +1486,9 @@ pub(crate) fn told(world: &World, event: &Event) -> Option<String> {
     }
     if lives::is_news(event) {
         return lives::told(event);
+    }
+    if hands::is_hands(event) {
+        return hands::told(event);
     }
     let spec = storylet_of(event)?;
     if event.kind == "situation_arose" {
@@ -3547,6 +3554,9 @@ fn fixture_shape(world: &World, shape: &str) -> world_projection::MarkShape {
         ("flag", _) => MarkShape::Flag,
         ("lantern", _) => MarkShape::Lantern,
         ("tent", _) => MarkShape::Tent,
+        ("bench", _) => MarkShape::Bench,
+        ("sprouts", _) => MarkShape::Sprouts,
+        ("tree", _) => MarkShape::Tree,
         _ => MarkShape::Parcel,
     }
 }

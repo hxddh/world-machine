@@ -181,6 +181,23 @@ pub struct ProjectionCommand {
     /// is shown only so the player can see what the choice would have
     /// been. A screen shows it greyed and does not offer it.
     pub unavailable: Option<String>,
+    /// Something the player does with their own hands rather than an
+    /// answer to anything: build a bench by the quay, give Mara a present.
+    /// A screen offers these as things to do in the place, not as cards.
+    pub hand: Option<Hand>,
+}
+
+/// Something the player does in the place with their own hands.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Hand {
+    /// What they do, as the player reads it: "Build", "Give".
+    pub verb: String,
+    /// What they do it with: "Bench", or who it is for.
+    pub thing: String,
+    /// Where it is done, or to whom: a place or a person on the scene.
+    pub at: Option<SelectionId>,
+    /// What it costs, in words, if anything.
+    pub cost: Option<String>,
 }
 
 /// A question someone puts to the player, which several choices answer.
@@ -558,6 +575,10 @@ impl ProjectionSnapshot {
         let mut cards: Vec<Vec<usize>> = Vec::new();
         let mut seen = BTreeMap::<&str, usize>::new();
         for (index, command) in self.commands.iter().enumerate() {
+            // What the player does with their own hands is not a card.
+            if command.hand.is_some() {
+                continue;
+            }
             match &command.question {
                 Some(question) => match seen.get(question.id.as_str()) {
                     Some(card) => cards[*card].push(index),
@@ -570,6 +591,22 @@ impl ProjectionSnapshot {
             }
         }
         cards
+    }
+
+    /// The choices on offer that are not deeds of the player's own hands:
+    /// what cards and comparisons are made of.
+    pub fn choices(&self) -> impl Iterator<Item = &ProjectionCommand> {
+        self.commands
+            .iter()
+            .filter(|command| command.hand.is_none())
+    }
+
+    /// What the player could do with their own hands now.
+    pub fn deeds(&self) -> impl Iterator<Item = (usize, &ProjectionCommand, &Hand)> {
+        self.commands
+            .iter()
+            .enumerate()
+            .filter_map(|(index, command)| Some((index, command, command.hand.as_ref()?)))
     }
 
     pub fn visible_text(&self) -> Vec<&str> {
@@ -1276,6 +1313,10 @@ pub enum MarkShape {
     Lantern,
     /// A tent.
     Tent,
+    /// A wooden bench.
+    Bench,
+    /// Seedlings just up out of the ground.
+    Sprouts,
 }
 
 /// How a connection reads: warm, strained, or neither.
@@ -2426,6 +2467,7 @@ mod tests {
                 moves: Vec::new(),
                 question: None,
                 unavailable: None,
+                hand: None,
             }],
             ..ProjectionSnapshot::default()
         };

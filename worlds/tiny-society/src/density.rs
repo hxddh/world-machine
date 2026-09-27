@@ -94,7 +94,11 @@ fn play(policy: Policy, days: usize) -> Played {
         let choices = snapshot
             .commands
             .iter()
-            .filter(|command| command.id != story::WAIT_COMMAND && command.unavailable.is_none())
+            .filter(|command| {
+                command.id != story::WAIT_COMMAND
+                    && command.unavailable.is_none()
+                    && command.hand.is_none()
+            })
             .map(|command| command.id.clone())
             .collect::<Vec<_>>();
         played.days_with_a_choice.push(!choices.is_empty());
@@ -485,4 +489,55 @@ fn a_year_of_saying_no_never_runs_out() {
 #[test]
 fn a_year_left_alone_never_runs_out() {
     a_year(Policy::Absent);
+}
+
+/// The v0.12 bar for the player's own hands: there are at least five
+/// things to do besides answering, and after a month of building, planting
+/// and decorating where they choose, at least a third of what stands in
+/// the harbour was put there by the player.
+#[test]
+fn your_hands_shape_the_harbour() {
+    let mut society = TinySociety::new().unwrap();
+    society.run_story().unwrap();
+    let mut branch = society.branch();
+    branch.begin_story().unwrap();
+    let verbs = branch
+        .projection_snapshot()
+        .deeds()
+        .map(|(_, _, hand)| hand.verb.clone())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert!(verbs.len() >= 5, "{verbs:?}");
+    for day in 0..30 {
+        let snapshot = branch.projection_snapshot();
+        // One deed a day, turning through what can be made and where.
+        let deeds = snapshot
+            .deeds()
+            .filter(|(_, command, hand)| {
+                command.unavailable.is_none()
+                    && ["Build", "Plant", "Decorate"].contains(&hand.verb.as_str())
+            })
+            .map(|(_, command, _)| command.id.clone())
+            .collect::<Vec<_>>();
+        if let Some(deed) = deeds.get(day * 7 % deeds.len().max(1)) {
+            branch.invoke_projection_command(deed).unwrap();
+        }
+        if let Some(answer) = snapshot
+            .choices()
+            .find(|command| command.question.is_some() && command.unavailable.is_none())
+        {
+            let _ = branch.invoke_projection_command(&answer.id.clone());
+        }
+        branch
+            .invoke_projection_command(story::WAIT_COMMAND)
+            .unwrap();
+    }
+    let state = branch.world().state();
+    let standing = storylets::fixtures(state).len();
+    let made = hands::made(state).len();
+    assert!(
+        made * 3 >= standing && made > 0,
+        "{made} of {standing} things standing were the player's"
+    );
+    let replayed = branch.world().replay().unwrap();
+    assert_eq!(replayed.state(), branch.world().state());
 }

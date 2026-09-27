@@ -8,6 +8,7 @@ publish = false
 [dependencies]
 storylets = { path = "../../systems/storylets" }
 lives = { path = "../../systems/lives" }
+hands = { path = "../../systems/hands" }
 world-agent = { path = "../../crates/world-agent" }
 world-core = { path = "../../crates/world-core" }
 world-host = { path = "../../crates/world-host" }

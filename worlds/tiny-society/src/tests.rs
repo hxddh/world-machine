@@ -30,9 +30,9 @@ fn full_story_is_causal_and_replayable() {
         text_component(replayed.state(), WEDDING_ORDER, ORDER_STATUS).unwrap(),
         "lost"
     );
-    let commands = simulation.projection_snapshot().commands;
-    assert_eq!(commands.len(), 1);
-    assert_eq!(commands[0].id, crate::story::WAIT_COMMAND);
+    let snapshot = simulation.projection_snapshot();
+    assert_eq!(snapshot.choices().count(), 1);
+    assert_eq!(snapshot.commands[0].id, crate::story::WAIT_COMMAND);
 }
 
 #[test]
@@ -134,7 +134,7 @@ fn branch_before_dismissal_preserves_the_alternative_state() {
         .items
         .iter()
         .all(|item| item.id != SelectionId::Event(dismissal)));
-    assert_eq!(snapshot.commands.len(), 2);
+    assert_eq!(snapshot.choices().count(), 2);
     assert_eq!(snapshot.commands[0].id, RETAIN_WORKER_COMMAND);
     assert_eq!(snapshot.commands[0].title, "Give Jonas another chance");
     assert_eq!(snapshot.commands[1].id, crate::story::WAIT_COMMAND);
@@ -165,7 +165,7 @@ fn forked_world_can_be_saved_and_reopened_with_its_choice_intact() {
         .events()
         .iter()
         .all(|event| event.kind != "worker_dismissed"));
-    assert_eq!(snapshot.commands.len(), 2);
+    assert_eq!(snapshot.choices().count(), 2);
     assert_eq!(snapshot.commands[0].id, RETAIN_WORKER_COMMAND);
 }
 
@@ -229,7 +229,7 @@ fn forked_branch_can_diverge_through_projection_command_and_keep_running() {
         .all(|event| event.kind != "worker_dismissed"));
 
     let snapshot = branch.projection_snapshot();
-    assert_eq!(snapshot.commands.len(), 1, "only letting the day pass");
+    assert_eq!(snapshot.choices().count(), 1, "only letting the day pass");
     let why = snapshot.why(future_shift.id).unwrap();
     assert!(why.nodes.iter().any(|node| node.event == retained.id));
     assert!(why.nodes.iter().any(|node| node.event == order_loss));

@@ -855,6 +855,20 @@ pub struct ProjectionCommandWire {
     /// Optional both ways: why this cannot be chosen now.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unavailable: Option<String>,
+    /// Optional both ways: something done with the player's own hands.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hand: Option<HandWire>,
+}
+
+/// Something the player does in the place with their own hands.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct HandWire {
+    pub verb: String,
+    pub thing: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at: Option<SelectionIdWire>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost: Option<String>,
 }
 
 /// A question several choices answer.
@@ -966,6 +980,12 @@ impl From<&ProjectionCommand> for ProjectionCommandWire {
                 prompt: question.prompt.clone(),
             }),
             unavailable: command.unavailable.clone(),
+            hand: command.hand.as_ref().map(|hand| HandWire {
+                verb: hand.verb.clone(),
+                thing: hand.thing.clone(),
+                at: hand.at.map(Into::into),
+                cost: hand.cost.clone(),
+            }),
         }
     }
 }
@@ -992,6 +1012,16 @@ impl From<ProjectionCommandWire> for ProjectionCommand {
                 }),
             // An empty reason still means it cannot be chosen.
             unavailable: command.unavailable.map(|reason| reason.trim().to_string()),
+            // A deed with no verb is no deed: the choice stands on its own.
+            hand: command
+                .hand
+                .filter(|hand| !hand.verb.trim().is_empty())
+                .map(|hand| world_projection::Hand {
+                    verb: hand.verb,
+                    thing: hand.thing,
+                    at: hand.at.map(Into::into),
+                    cost: hand.cost,
+                }),
             moves: command
                 .moves
                 .into_iter()
@@ -1261,6 +1291,8 @@ pub enum MarkShapeWire {
     Flag,
     Lantern,
     Tent,
+    Bench,
+    Sprouts,
     #[serde(other)]
     Unknown,
 }
@@ -1285,6 +1317,8 @@ impl From<MarkShape> for MarkShapeWire {
             MarkShape::Flag => Self::Flag,
             MarkShape::Lantern => Self::Lantern,
             MarkShape::Tent => Self::Tent,
+            MarkShape::Bench => Self::Bench,
+            MarkShape::Sprouts => Self::Sprouts,
         }
     }
 }
@@ -1309,6 +1343,8 @@ impl From<MarkShapeWire> for MarkShape {
             MarkShapeWire::Flag => Self::Flag,
             MarkShapeWire::Lantern => Self::Lantern,
             MarkShapeWire::Tent => Self::Tent,
+            MarkShapeWire::Bench => Self::Bench,
+            MarkShapeWire::Sprouts => Self::Sprouts,
         }
     }
 }
@@ -1841,6 +1877,7 @@ mod tests {
                 moves: Vec::new(),
                 question: None,
                 unavailable: None,
+                hand: None,
             }],
             collection: CollectionProjection {
                 title: "Entities".into(),

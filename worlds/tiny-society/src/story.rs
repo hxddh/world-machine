@@ -1371,6 +1371,7 @@ pub(crate) fn register_actions(
 ) -> Result<(), world_core::ActionError> {
     storylets::register_actions(actions, deck)?;
     lives::register_actions(actions, |_| crate::life::cast())?;
+    hands::register_actions(actions, crate::handwork::kit)?;
     actions.register(SpiritsSettle)
 }
 
@@ -1828,6 +1829,8 @@ pub(crate) fn tick(
     };
     let mut events = settled;
     events.extend(lives::tick(world, actions, &crate::life::cast(), away)?);
+    let kit = crate::handwork::kit(world.state());
+    events.extend(hands::tick(world, actions, &kit)?);
     events.extend(storylets::tick(world, actions, &deck(), &reading)?);
     Ok(events)
 }
@@ -1873,6 +1876,7 @@ fn storylet_commands(world: &World) -> Vec<world_projection::ProjectionCommand> 
                     prompt: named(world, spec.line, storylet.asker),
                 }),
                 unavailable: unmet.first().map(|condition| why_not(world, condition)),
+                hand: None,
             })
         })
         .collect()
@@ -1948,6 +1952,9 @@ pub(crate) fn told(world: &World, event: &Event) -> Option<String> {
     }
     if lives::is_news(event) {
         return lives::told(event);
+    }
+    if hands::is_hands(event) {
+        return hands::told(event);
     }
     let spec = storylet_of(event)?;
     let who = spec.storylet.asker;
@@ -3824,6 +3831,9 @@ pub(crate) fn fixture_shape(shape: &str) -> world_projection::MarkShape {
         "flag" => MarkShape::Flag,
         "lantern" => MarkShape::Lantern,
         "tent" => MarkShape::Tent,
+        "bench" => MarkShape::Bench,
+        "sprouts" => MarkShape::Sprouts,
+        "tree" => MarkShape::Tree,
         _ => MarkShape::Parcel,
     }
 }

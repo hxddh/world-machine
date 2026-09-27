@@ -626,7 +626,7 @@ impl Render for WorldDocumentView {
             let snapshot = self.projection.read(cx).snapshot();
             (
                 snapshot.capabilities.fork,
-                snapshot.commands.len() >= 2 && !world_gpui::is_beginning(snapshot),
+                snapshot.choices().count() >= 2 && !world_gpui::is_beginning(snapshot),
             )
         };
         let mut actions = div().flex_shrink_0().flex().items_center().gap_2();

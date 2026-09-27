@@ -982,6 +982,7 @@ pub(crate) fn commands(world: &World) -> Vec<world_projection::ProjectionCommand
                     moves: Vec::new(),
                     question: Some(question.clone()),
                     unavailable: answer.unavailable,
+                    hand: None,
                 })
         })
         .collect()
