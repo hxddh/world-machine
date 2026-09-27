@@ -3873,10 +3873,11 @@ pub(crate) fn fixtures(world: &World) -> Vec<world_projection::CanvasItem> {
     storylets::fixtures(world.state())
         .into_iter()
         .map(|fixture| {
-            let shape = match fixture.component("shape") {
-                Some(Value::Text(shape)) => fixture_shape(shape),
-                _ => world_projection::MarkShape::Parcel,
+            let named = match fixture.component("shape") {
+                Some(Value::Text(shape)) => shape.as_str(),
+                _ => "",
             };
+            let shape = fixture_shape(named);
             let at = match fixture.component("at") {
                 Some(Value::Entity(at)) => Some(world_projection::SelectionId::Entity(*at)),
                 _ => None,
@@ -3892,7 +3893,7 @@ pub(crate) fn fixtures(world: &World) -> Vec<world_projection::CanvasItem> {
                 shape: Some(shape),
                 at,
                 look: None,
-                drawing: None,
+                drawing: crate::drawings::fixture_drawing(named),
                 stance: None,
                 standing: None,
             }

@@ -1377,9 +1377,11 @@ pub fn cover(
     scenery: Option<Scenery>,
     marks: &[MarkShape],
     cast: Vec<CanvasItem>,
+    drawings: Vec<world_projection::Drawing>,
 ) -> gpui::Canvas<()> {
     let snapshot = ProjectionSnapshot {
         scenery,
+        drawings,
         canvas: world_projection::CanvasProjection {
             items: cast,
             links: Vec::new(),

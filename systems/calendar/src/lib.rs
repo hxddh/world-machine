@@ -117,6 +117,50 @@ fn held_key(festival: &str) -> String {
     format!("calendar.held.{festival}")
 }
 
+fn turnout_key(festival: &str) -> String {
+    format!("calendar.turnout.{festival}")
+}
+
+fn people_key(festival: &str) -> String {
+    format!("calendar.people.{festival}")
+}
+
+/// What is said of a festival against the last time it was held: bigger,
+/// quieter or the same, and how many new faces came since.
+fn against_last_year(
+    turnout: Turnout,
+    last: Option<i64>,
+    people: i64,
+    last_people: Option<i64>,
+) -> (String, String) {
+    let Some(last) = last else {
+        return (String::new(), String::new());
+    };
+    let now = turnout.index() as i64;
+    let (told, said) = match now.cmp(&last) {
+        std::cmp::Ordering::Less => (", bigger than last year", "Better than last year!"),
+        std::cmp::Ordering::Greater => (", nothing like last year", "Not like last year."),
+        std::cmp::Ordering::Equal => match turnout {
+            Turnout::Grand => (", as good as last year", "Every bit as good as last year."),
+            Turnout::Fine => (", much as it was last year", "Just like last year."),
+            Turnout::Thin => (", thin again this year", "Thin again. Like last year."),
+        },
+    };
+    let (mut told, mut said) = (told.to_string(), said.to_string());
+    match people - last_people.unwrap_or(people) {
+        ..=0 => {}
+        1 => {
+            told.push_str(", with a new face among them");
+            said.push_str(" Good to see a new face.");
+        }
+        new => {
+            told.push_str(&format!(", with {new} new faces among them"));
+            said.push_str(" Good to see new faces.");
+        }
+    }
+    (told, said)
+}
+
 fn integer(state: &WorldState, entity: EntityId, key: &str) -> Option<i64> {
     match state.entity(entity)?.component(key)? {
         Value::Integer(value) => Some(*value),
@@ -378,6 +422,25 @@ impl Action for Holds {
         changes.extend(mixing(state, &(almanac.people)(state), turnout));
         changes.extend((almanac.held)(state, festival, turnout, grown));
 
+        // Remembered for next year, and told against last year's.
+        let people = (almanac.people)(state).len() as i64;
+        let (then_told, then_said) = against_last_year(
+            turnout,
+            integer(state, almanac.notes, &turnout_key(festival.id)),
+            people,
+            integer(state, almanac.notes, &people_key(festival.id)),
+        );
+        changes.push(StateChange::SetComponent {
+            entity: almanac.notes,
+            key: turnout_key(festival.id),
+            value: (turnout.index() as i64).into(),
+        });
+        changes.push(StateChange::SetComponent {
+            entity: almanac.notes,
+            key: people_key(festival.id),
+            value: people.into(),
+        });
+
         let mut draft = EventDraft::new("festival_held");
         draft.actor = speaker(state, &almanac, festival);
         draft.targets = targets;
@@ -387,11 +450,21 @@ impl Action for Holds {
         draft.payload.insert("grown".into(), grown.into());
         draft.payload.insert(
             "told".into(),
-            fill(festival.told[turnout.index()], festival, 0).into(),
+            format!(
+                "{}{then_told}",
+                fill(festival.told[turnout.index()], festival, 0)
+            )
+            .into(),
         );
+        let said = fill(festival.said[turnout.index()], festival, 0);
         draft.payload.insert(
             "said".into(),
-            fill(festival.said[turnout.index()], festival, 0).into(),
+            if then_said.is_empty() {
+                said
+            } else {
+                format!("{said} {then_said}")
+            }
+            .into(),
         );
         draft.changes = changes;
         Ok(draft)

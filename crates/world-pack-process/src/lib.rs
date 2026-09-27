@@ -19,7 +19,7 @@ use world_pack_protocol::{
     PackRequestEnvelope, PackResponse, PackRuntimeManifest, ProjectionIntentWire,
 };
 use world_persistence::{WorldArchive, WorldPackRef};
-use world_projection::{ProjectionIntent, ProjectionSnapshot};
+use world_projection::{ProjectionIntent, ProjectionSnapshot, SelectionId};
 
 pub const PACK_MANIFEST_SUFFIX: &str = ".world-pack.json";
 pub const DEFAULT_MAX_REQUEST_BYTES: usize = 16 * 1024 * 1024;
@@ -571,6 +571,17 @@ impl WorldSession for ProcessWorldSession {
         Ok(snapshot)
     }
 
+    fn hearing(&self, to: SelectionId, words: &str) -> Result<Option<String>, HostError> {
+        let response = self.client.borrow_mut().request(PackRequest::Hear {
+            to: to.into(),
+            words: words.to_string(),
+        })?;
+        match response {
+            PackResponse::Hearing { prompt } => Ok(prompt),
+            response => Err(unexpected_response("hear", &response)),
+        }
+    }
+
     fn advance_background(&mut self, periods: u64) -> Result<ProjectionSnapshot, HostError> {
         let snapshot = self.request_snapshot(PackRequest::Advance { periods }, "advance")?;
         self.snapshot = snapshot.clone();
@@ -623,6 +634,7 @@ fn response_kind(response: &PackResponse) -> &'static str {
         PackResponse::Descriptor { .. } => "descriptor",
         PackResponse::Snapshot { .. } => "snapshot",
         PackResponse::Archive { .. } => "archive",
+        PackResponse::Hearing { .. } => "hearing",
         PackResponse::Ok => "ok",
         PackResponse::Error { .. } => "error",
     }

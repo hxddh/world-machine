@@ -68,3 +68,32 @@ The bar, checked by tests on the real Packs:
 Out of scope by decision: Worlds saved by earlier releases. They are not carried forward, and a Pack version bump may still start a fresh World.
 
 Still to do, and outside the code: the two-week diary on a real Mac (clicks, keys, sound), the five signing secrets that would allow notifications, and a commissioned artist's set to replace the first drawings.
+
+## Progress
+
+`v0.14.0` ships all four.
+
+| The bar | Tiny Society | Pocket Universe |
+| --- | --- | --- |
+| Kinds of thing people hear | 28, up from 16 | 28, the same System |
+| A fixed corpus of everyday phrases, English and Chinese | 428 phrases, none unheard, none misheard, spoken to three people | 428 phrases, none unheard, none misheard, in every seed |
+| New phrasing, measured before it was tuned for | three sets: 27%, 25% and 45% not understood; 13%, 3% and 7% misheard | the same System |
+| Names heard in Chinese | every resident and newcomer, and the four places | the pair, newcomers and places in every seed |
+| What people remember | a month of what the player said, one thing brought up a day | the same |
+| Standing with the player | shown in every card: five marks and a few words | the same |
+| "How are you?" over 30 days | no opening on more than half of the days, no clause repeated within an answer | the same |
+| World voice | asked off the window's thread; the World's own answer after 12 seconds | the same |
+| A festival's second year | told against its first, in every festival that came round twice in a 365-day year | the same, in every seed |
+| Festival fixtures drawn by the Pack | flag, bunting, lanterns, stall, tent | the same five in each seed's colours |
+
+The corpus measures what the System was built to hear, and the bar of at most 10% not understood holds on it. Phrasing it has never seen is the honest measure. Each of the three sets was written before any change for it, and a quarter to nearly half of it went unheard, idioms most of all. Each set was then added to the corpus. Rules and word lists cannot keep up with open language: for a player who types freely, World voice is how people understand them, and it no longer costs a frozen window.
+
+These are checked by the tests below, next to the year-long, consequence, story-density, talk and calendar tests from earlier releases, which still hold:
+
+- `everyday_words_are_understood`, `people_understand_everyday_phrases`, `people_understand_everyday_phrases_in_every_seed`
+- `people_remember_what_they_were_told`, `the_player_standing_is_shown_and_moves`
+- `no_clause_repeats_within_an_answer_or_every_day`
+- `a_model_that_takes_too_long_is_not_waited_for`, `an_app_can_ask_the_model_itself_and_the_world_still_decides`
+- `a_festival_remembers_last_year`, and each Pack's year-long test checking festivals are told differently two years running
+
+Still to do: a commissioned artist's set, drawings for what the player builds, trying World voice's deadline against a real model on a Mac, and, as before, the two-week diary on a real Mac and the five signing secrets.

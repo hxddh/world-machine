@@ -2,6 +2,47 @@
 
 Releases live on the [Releases page](https://github.com/hxddh/world-machine/releases). `0.2.0` is the first release intended to be usable without reading the repository; the `v0.1.0-pre.N` tags below were its pre-releases.
 
+## v0.14.0 (2026-09-27)
+
+**Worlds from `v0.13.0` do not open.** Tiny Society moves to `0.8.0` and Pocket Universe to `0.25.0`, because their people now hear and remember far more and their festivals remember earlier years. Carrying older Worlds forward is out of scope by decision; start a new one.
+
+In `v0.13.0` you could talk to anyone, but they understood only about half of what people ordinarily type, and remembered none of it the next day. With World voice on, the window froze while the model thought. This release is about being understood and remembered.
+
+- **People understand far more.** The conversation System hears 28 kinds of thing instead of 16:
+  - how someone's day has been, and who they are;
+  - their family, what worries them, and the weather;
+  - what is coming up, by name ("Are you going to Lantern Night?");
+  - a present, who their friends are, and what is wrong between them and someone else;
+  - an invitation for a drink or a walk, what they think of you, and small talk ("ok", "haha").
+
+  Names are recognised in Chinese as well as English (诺亚, 玛拉, 面包店), and places by other names ("harbour" for Harbor).
+- **What someone says about a person comes from what happened between them.** Ask Mara about Leo and she says what she thinks and when they last fell out or made up. Ask why she is angry with him and she tells you in her own words.
+- **People remember what you said.** The first time someone sees you on a day, they bring up what you said before:
+  - "Thank you again for the flowers yesterday."
+  - "You asked after Leo the other day. Leo's worried about money."
+  - "I did talk to Noah, like you said."
+  - "I haven't forgotten what you said yesterday."
+
+  A present warms someone, and an invitation eases loneliness if they accept it.
+- **See where you stand with someone.** Their card shows five marks and a few words: "Getting to know you", "Likes you", "Thinks the world of you", "Hurt by what you said". Ask "What do you think of me?" and they tell you.
+- **"How are you?" is said differently from day to day.** The same state of things is put several ways, and an answer no longer repeats the same person twice.
+- **World voice never freezes the window.** With the voice on, the app asks the model itself, off the window's thread: the person's card shows your words and a thinking "…" while the scene keeps moving. After 12 seconds, or if the model has nothing usable, the World answers in its own words. The model's answer is still only a proposal that the World's rules check.
+- **Festivals remember last year.** The second time a festival comes round, it is told against the first: "The whole harbour turned out for Spring Clean, bigger than last year, with 2 new faces among them."
+- **Drawn with each place's own pictures.** Flags, bunting, lanterns, stalls and tents put up for a festival are drawn by each Pack in its own colours: harbour red and navy, Mars orange, Maple Street neon, Icebridge ice blue. Home's covers draw a World's people and buildings with its own drawings.
+- **Measured.** A corpus of 428 everyday phrases in English and Chinese is heard without a miss by the System and by both Packs, in every seed. On three sets of new phrases written before any tuning for them, 27%, 25% and 45% were not understood and up to 13% misheard, before they were added to the corpus. Other tests check:
+  - people remembering what they were told;
+  - the standing moving with what is said;
+  - no clause repeating within an answer, and "How are you?" not opening the same way on more than half of 30 days;
+  - a model that takes too long not being waited for;
+  - an app asking the model itself while the World still decides;
+  - festivals told differently in their second year.
+- **Pack protocol:**
+  - `say` may carry `ears`: the World's own hearing, a model's response the app already has, or the World's own rules only.
+  - A new request, `hear`, returns the prompt a model should be asked, and changes nothing.
+  - Canvas items may carry a `standing`.
+
+  Everything new is optional. A World file keeps its cast's drawings for its cover.
+
 ## v0.13.0 (2026-09-27)
 
 **Worlds from `v0.12.0` need exporting first.** Tiny Society moves to `0.7.0` and Pocket Universe to `0.24.0`, because their people can now be spoken to, their year is longer and has festivals, and they draw with their own pictures. A World made with the older Packs reports that it needs a Pack this build does not have; export it before updating to keep its history.

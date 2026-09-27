@@ -49,6 +49,33 @@ pub(crate) fn settings_for(voice: Option<ConfiguredVoice>) -> Vec<(String, Strin
     }
 }
 
+/// Whether the World voice is switched on at all, read without touching
+/// the keychain, so a window can tell cheaply whether to ask a model.
+pub(crate) fn voice_on() -> bool {
+    analyst_settings::application_support_root()
+        .ok()
+        .and_then(|root| analyst_settings::load(&root).ok())
+        .is_some_and(|settings| settings.world_voice)
+}
+
+/// Asks the configured model `prompt`, the way a Pack would: its response,
+/// or nothing if no model is configured or it had nothing to say. Reads
+/// the key, so it belongs off the window's thread.
+pub(crate) fn ask_model(prompt: &str) -> Option<String> {
+    let root = analyst_settings::application_support_root().ok()?;
+    let settings = analyst_settings::load(&root).ok()?;
+    let mut completion = model_for(settings.configured_voice(key_store::load()))?.completion()?;
+    completion.complete(prompt)
+}
+
+/// The model a configured voice reaches.
+pub(crate) fn model_for(voice: Option<ConfiguredVoice>) -> Option<::world_voice::Voice> {
+    match voice? {
+        ConfiguredVoice::Program(program) => Some(::world_voice::Voice::Pi(program)),
+        ConfiguredVoice::Key(key) => Some(::world_voice::Voice::Api(key)),
+    }
+}
+
 /// Hand every Pack in this source the same settings.
 ///
 /// A setting the Pack layer refuses is a mistake in this app rather than
@@ -76,6 +103,19 @@ pub(crate) fn with_settings(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_app_asks_the_same_model_its_worlds_are_told_about() {
+        assert_eq!(model_for(None), None);
+        assert_eq!(
+            model_for(Some(ConfiguredVoice::Program("/usr/local/bin/pi".into()))),
+            Some(::world_voice::Voice::Pi("/usr/local/bin/pi".into()))
+        );
+        assert_eq!(
+            model_for(Some(ConfiguredVoice::Key("sk-ant-test".into()))),
+            Some(::world_voice::Voice::Api("sk-ant-test".into()))
+        );
+    }
 
     #[test]
     fn a_voice_with_nothing_behind_it_tells_a_pack_nothing() {

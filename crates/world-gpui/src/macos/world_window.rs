@@ -62,6 +62,9 @@ pub(crate) struct Looking {
     /// When the player last said something, so the answer shows over the
     /// person's head for a while.
     pub(crate) said_at: Option<Instant>,
+    /// Words the player said that a language model is still hearing: to
+    /// whom, and what. The window keeps drawing; the person is thinking.
+    pub(crate) listening: Option<(SelectionId, String)>,
     /// How close the player has zoomed in with the wheel, and on which
     /// stage point; 1 is the whole place.
     pub(crate) zoom: f32,
@@ -534,33 +537,75 @@ impl ProjectionView {
     }
 
     /// Says what the player typed to whoever they are talking to. The World
-    /// hears it and records the answer; no time passes.
+    /// hears it and records the answer; no time passes. With the World
+    /// voice on, a model hears it first, off the window's thread: the
+    /// window keeps drawing while the person thinks.
     fn say(&mut self, cx: &mut Context<Self>) {
         let (Some(who), Some(input)) = (self.looking.asking, self.looking.say.clone()) else {
             return;
         };
         let words = input.read(cx).text().trim().to_string();
-        if words.is_empty() || self.retelling.is_some() {
+        if words.is_empty() || self.retelling.is_some() || self.looking.listening.is_some() {
             return;
         }
         let Some(controller) = self.controller.as_mut() else {
             return;
         };
-        match controller.handle(ProjectionIntent::Say { to: who, words }) {
+        let Some(listening) = controller.listen(who, &words) else {
+            if self.finish_saying(who, words, Ears::World, cx) {
+                input.update(cx, |input, cx| input.clear(cx));
+            }
+            return;
+        };
+        self.looking.listening = Some((who, words.clone()));
+        input.update(cx, |input, cx| input.clear(cx));
+        let heard = cx
+            .background_executor()
+            .spawn(async move { crate::listen_within(listening, crate::LISTEN_DEADLINE) });
+        cx.spawn(async move |this, cx| {
+            let response = heard.await;
+            let _ = this.update(cx, |this, cx| {
+                this.looking.listening = None;
+                let ears = response.map_or(Ears::Own, Ears::Model);
+                this.finish_saying(who, words, ears, cx);
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
+    /// Records what the player said, heard by `ears`: whether it was.
+    fn finish_saying(
+        &mut self,
+        who: SelectionId,
+        words: String,
+        ears: Ears,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(controller) = self.controller.as_mut() else {
+            return false;
+        };
+        let said = match controller.handle(ProjectionIntent::Say {
+            to: who,
+            words,
+            ears,
+        }) {
             Ok(snapshot) => {
                 self.snapshot = snapshot;
                 self.looking.answered = None;
                 self.looking.said_at = Some(Instant::now());
                 self.status = None;
                 self.status_is_error = false;
-                input.update(cx, |input, cx| input.clear(cx));
+                true
             }
             Err(error) => {
                 self.status = Some(format!("Couldn't say that: {error}"));
                 self.status_is_error = true;
+                false
             }
-        }
+        };
         cx.notify();
+        said
     }
 
     fn answer(&mut self, talk: usize, cx: &mut Context<Self>) {
@@ -2018,6 +2063,34 @@ impl ProjectionView {
                 }
             }
         }
+        if let Some((_, words)) = self
+            .looking
+            .listening
+            .as_ref()
+            .filter(|(listening, _)| *listening == who)
+        {
+            conversation = conversation
+                .child(
+                    div().flex().justify_end().child(
+                        div()
+                            .max_w(px(220.0))
+                            .px_2()
+                            .py_1()
+                            .rounded_lg()
+                            .bg(color(tokens::ACCENT_SOFT))
+                            .text_xs()
+                            .text_color(color(tokens::ACCENT_TEXT))
+                            .child(words.clone()),
+                    ),
+                )
+                .child(
+                    div()
+                        .px_1()
+                        .text_sm()
+                        .text_color(color(tokens::TEXT_TERTIARY))
+                        .child(thinking_dots(self.looking.started)),
+                );
+        }
         conversation
     }
 
@@ -2275,15 +2348,16 @@ fn standing_row(standing: &world_projection::Standing) -> Div {
                 .bg(color(if index < filled { tone } else { tokens::BORDER })),
         );
     }
-    div()
-        .flex()
-        .items_center()
-        .gap_2()
-        .child(marks)
-        .child(
-            div()
-                .text_xs()
-                .text_color(color(tokens::TEXT_SECONDARY))
-                .child(standing.words.clone()),
-        )
+    div().flex().items_center().gap_2().child(marks).child(
+        div()
+            .text_xs()
+            .text_color(color(tokens::TEXT_SECONDARY))
+            .child(standing.words.clone()),
+    )
+}
+
+/// A person thinking: one to three dots, turning over while they do.
+fn thinking_dots(since: Option<Instant>) -> String {
+    let beat = since.map_or(0, |since| since.elapsed().as_millis() / 400) % 3;
+    ".".repeat(beat as usize + 1)
 }

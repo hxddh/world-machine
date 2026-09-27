@@ -5,9 +5,9 @@ use gpui::{
     Styled, Window,
 };
 use world_projection::{
-    BriefingItem, BriefingItemKind, CanvasItemKind, CollectionItem, CommandEffect, EffectChange,
-    InspectorProjection, ProjectionCommand, ProjectionIntent, ProjectionSnapshot, SelectionId,
-    TimelineItem, Tone, WhyNode,
+    BriefingItem, BriefingItemKind, CanvasItemKind, CollectionItem, CommandEffect, Ears,
+    EffectChange, InspectorProjection, ProjectionCommand, ProjectionIntent, ProjectionSnapshot,
+    SelectionId, TimelineItem, Tone, WhyNode,
 };
 use world_theme::tokens;
 

@@ -2,7 +2,7 @@ use crate::{tiny_society_pack_ref, TinySociety, TinySocietyBranch, VisitCursor};
 use std::sync::Arc;
 use world_host::{HostError, WorldDescriptor, WorldRegistration, WorldSession};
 use world_persistence::WorldArchive;
-use world_projection::{ProjectionIntent, ProjectionSnapshot, SelectionId};
+use world_projection::{Ears, ProjectionIntent, ProjectionSnapshot, SelectionId};
 
 /// Makes the listener each session hears the player's words with.
 pub type ListenerFactory = Arc<dyn Fn() -> Box<dyn conversation::Listener> + Send + Sync>;
@@ -64,19 +64,36 @@ impl WorldSession for TinySocietySession {
                     .invoke_projection_command(&command_id)
                     .map_err(HostError::session)?;
             }
-            ProjectionIntent::Say { to, words } => {
+            ProjectionIntent::Say { to, words, ears } => {
                 let SelectionId::Entity(who) = to else {
                     return Err(HostError::session(std::io::Error::other(
                         "only someone can be spoken to",
                     )));
                 };
+                let mut answered;
+                let mut own = conversation::OwnEars;
+                let listener: &mut dyn conversation::Listener = match ears {
+                    Ears::World => self.listener.as_mut(),
+                    Ears::Model(response) => {
+                        answered = conversation::Answered(response);
+                        &mut answered
+                    }
+                    Ears::Own => &mut own,
+                };
                 self.branch
-                    .say_with(who, &words, self.listener.as_mut())
+                    .say_with(who, &words, listener)
                     .map_err(HostError::session)?;
             }
         }
         self.background_cursor = None;
         Ok(self.snapshot())
+    }
+
+    fn hearing(&self, to: SelectionId, words: &str) -> Result<Option<String>, HostError> {
+        Ok(match to {
+            SelectionId::Entity(who) => crate::speech::prompt(self.branch.world(), who, words),
+            _ => None,
+        })
     }
 
     fn advance_background(&mut self, periods: u64) -> Result<ProjectionSnapshot, HostError> {
@@ -261,6 +278,7 @@ mod tests {
                 .handle(ProjectionIntent::Say {
                     to: mara,
                     words: words.into(),
+                    ears: world_projection::Ears::World,
                 })
                 .unwrap();
             let exchange = snapshot.exchanges_with(mara).last().unwrap().clone();
@@ -285,10 +303,78 @@ mod tests {
             .handle(ProjectionIntent::Say {
                 to: SelectionId::Entity(crate::BAKERY),
                 words: "hello".into(),
+                ears: world_projection::Ears::World,
             })
             .is_err());
         let next_day = session.advance_background(1).unwrap();
         assert!(next_day.exchanges.is_empty());
+    }
+
+    /// An app that asks a model itself gets the prompt from the World,
+    /// changing nothing, and says the words with the model's response:
+    /// taken as a proposal when it can be read, the World's own answer when
+    /// it cannot or when the app gave up waiting.
+    #[test]
+    fn an_app_can_ask_the_model_itself_and_the_world_still_decides() {
+        struct Loud;
+        impl conversation::Listener for Loud {
+            fn listen(&mut self, _: &conversation::Hearing) -> Option<conversation::Listened> {
+                Some(conversation::Listened {
+                    meaning: "greet".into(),
+                    about: None,
+                    answer: "The session's own model says hello.".into(),
+                })
+            }
+        }
+        let mut registry = world_host::WorldRegistry::new();
+        registry
+            .register(tiny_society_registration_with_listener(Arc::new(|| {
+                Box::new(Loud)
+            })))
+            .unwrap();
+        let mut session = registry.create(crate::TINY_SOCIETY_PACK_ID).unwrap();
+        let mara = SelectionId::Entity(crate::MARA);
+        let before = session.archive().unwrap().unwrap();
+        let prompt = session.hearing(mara, "How's Leo?").unwrap().unwrap();
+        assert!(
+            prompt.contains("Mara") && prompt.contains("How's Leo?"),
+            "{prompt}"
+        );
+        assert_eq!(session.archive().unwrap().unwrap(), before);
+        assert_eq!(
+            session
+                .hearing(SelectionId::Entity(crate::BAKERY), "hi")
+                .unwrap(),
+            None
+        );
+
+        let said = |session: &mut Box<dyn WorldSession>, words: &str, ears| {
+            session
+                .handle(ProjectionIntent::Say {
+                    to: mara,
+                    words: words.into(),
+                    ears,
+                })
+                .unwrap()
+                .exchanges_with(mara)
+                .last()
+                .unwrap()
+                .answer
+                .clone()
+        };
+        let modelled = said(
+            &mut session,
+            "How's Leo?",
+            Ears::Model("MEANING: how_is\nABOUT: Leo\nREPLY: Leo's grand, thanks.".into()),
+        );
+        assert_eq!(modelled, "Leo's grand, thanks.");
+        let unreadable = said(&mut session, "Hello!", Ears::Model("I am a teapot".into()));
+        assert_ne!(unreadable, "The session's own model says hello.");
+        assert!(!unreadable.is_empty());
+        let own = said(&mut session, "Hello again!", Ears::Own);
+        assert_ne!(own, "The session's own model says hello.");
+        let world = said(&mut session, "Hi!", Ears::World);
+        assert_eq!(world, "The session's own model says hello.");
     }
 
     #[test]

@@ -78,6 +78,17 @@ impl Voice {
         self.listener().unwrap_or_else(|| Box::new(OwnEars))
     }
 
+    /// The model itself, to ask a prompt of, if there is one.
+    pub fn completion(&self) -> Option<Box<dyn Completion>> {
+        match self {
+            Voice::None => None,
+            Voice::Pi(program) => Some(Box::new(PiCompletion(ProcessPiRpcTransport::new(
+                PiCommand::decision_only(program.clone()),
+            )))),
+            Voice::Api(key) => Some(Box::new(ApiCompletion::new(key.clone()))),
+        }
+    }
+
     /// A listener that speaks in the model's words, if there is a model.
     pub fn listener(&self) -> Option<Box<dyn Listener>> {
         match self {

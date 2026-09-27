@@ -1362,7 +1362,7 @@ fn accepts_invite(state: &WorldState, kit: &Kit, who: EntityId) -> bool {
 
 /// The last change between two people, as the later of them would tell it:
 /// what kind of change it was, the line its first person said, and when.
-fn last_bond<'a>(world: &'a World, who: EntityId, other: EntityId) -> Option<&'a Event> {
+fn last_bond(world: &World, who: EntityId, other: EntityId) -> Option<&Event> {
     let index = world.history_index();
     index
         .changes_of(who)
@@ -2187,6 +2187,30 @@ impl Listener for OwnEars {
     fn listen(&mut self, _: &Hearing) -> Option<Listened> {
         None
     }
+}
+
+/// A model's response the app already has: the app asked the model itself,
+/// off its own thread, and this reads what came back like any other
+/// proposal.
+pub struct Answered(pub String);
+
+impl Listener for Answered {
+    fn listen(&mut self, _: &Hearing) -> Option<Listened> {
+        parse(&self.0)
+    }
+}
+
+/// The prompt a language model is asked to hear the player's words to
+/// someone with, exactly as a listener would be given it; nothing for
+/// someone who cannot be spoken to or words that could never be recorded.
+pub fn prompt_for(world: &World, kit: &Kit, who: EntityId, words: &str) -> Option<String> {
+    let state = world.state();
+    if !can_talk_to(state, kit, who) || !plain(words.trim(), MOST_WORDS) {
+        return None;
+    }
+    let heard = hear(state, kit, who, words);
+    let own = reply(world, kit, who, heard);
+    Some(prompt(&hearing(world, kit, who, words, &own.line)))
 }
 
 /// What a listener is told about someone, from how their life stands.

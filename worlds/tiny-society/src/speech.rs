@@ -136,6 +136,12 @@ fn work_line(world: &World, who: EntityId) -> Option<String> {
     )
 }
 
+/// What a language model should be asked to hear the player's words to
+/// someone with.
+pub(crate) fn prompt(world: &World, who: EntityId, words: &str) -> Option<String> {
+    conversation::prompt_for(world, &kit(world.state()), who, words)
+}
+
 /// How someone the player can talk to stands with them.
 pub(crate) fn standing_of(world: &World, who: EntityId) -> Option<world_projection::Standing> {
     let state = world.state();

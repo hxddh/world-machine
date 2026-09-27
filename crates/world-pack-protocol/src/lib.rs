@@ -11,7 +11,7 @@ use world_projection::{
     ProjectionCapabilities, ProjectionCommand, ProjectionIntent, ProjectionSnapshot, Scenery,
     SelectionId, TimelineItem, TimelineProjection, Tone, WhyNode, WhyProjection,
 };
-use world_projection::{DrawPart, DrawShape, Drawing, Ink, Stance};
+use world_projection::{DrawPart, DrawShape, Drawing, Ears, Ink, Stance};
 
 pub const PACK_MANIFEST_FORMAT: &str = "world-machine-pack";
 pub const PACK_MANIFEST_VERSION: u32 = 1;
@@ -194,10 +194,22 @@ impl PackResponseEnvelope {
 pub enum PackRequest {
     Describe,
     Create,
-    Open { archive: WorldArchive },
+    Open {
+        archive: WorldArchive,
+    },
     Snapshot,
-    Handle { intent: ProjectionIntentWire },
-    Advance { periods: u64 },
+    Handle {
+        intent: ProjectionIntentWire,
+    },
+    /// What a language model should be asked, to hear the player's words to
+    /// someone: nothing changes, and a World without talk has no prompt.
+    Hear {
+        to: SelectionIdWire,
+        words: String,
+    },
+    Advance {
+        periods: u64,
+    },
     Archive,
     Shutdown,
 }
@@ -212,6 +224,7 @@ pub enum PackResponse {
     Descriptor { descriptor: PackDescriptor },
     Snapshot { snapshot: ProjectionSnapshotWire },
     Archive { archive: Option<WorldArchive> },
+    Hearing { prompt: Option<String> },
     Ok,
     Error { message: String },
 }
@@ -274,9 +287,60 @@ fn validate_selection_for_protocol(
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ProjectionIntentWire {
-    ForkBeforeEvent { event: u64 },
-    InvokeCommand { command: String },
-    Say { to: SelectionIdWire, words: String },
+    ForkBeforeEvent {
+        event: u64,
+    },
+    InvokeCommand {
+        command: String,
+    },
+    Say {
+        to: SelectionIdWire,
+        words: String,
+        #[serde(default, skip_serializing_if = "EarsWire::is_world")]
+        ears: EarsWire,
+    },
+}
+
+/// The longest model response a Pack is sent to read.
+pub const MOST_MODEL_RESPONSE: usize = 8 * 1024;
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum EarsWire {
+    #[default]
+    World,
+    Model {
+        response: String,
+    },
+    Own,
+}
+
+impl EarsWire {
+    fn is_world(&self) -> bool {
+        *self == EarsWire::World
+    }
+}
+
+impl From<Ears> for EarsWire {
+    fn from(ears: Ears) -> Self {
+        match ears {
+            Ears::World => Self::World,
+            Ears::Model(response) => Self::Model { response },
+            Ears::Own => Self::Own,
+        }
+    }
+}
+
+impl From<EarsWire> for Ears {
+    fn from(ears: EarsWire) -> Self {
+        match ears {
+            EarsWire::World => Self::World,
+            // A response too long to be an answer is not read at all.
+            EarsWire::Model { response } if response.len() > MOST_MODEL_RESPONSE => Self::Own,
+            EarsWire::Model { response } => Self::Model(response),
+            EarsWire::Own => Self::Own,
+        }
+    }
 }
 
 impl From<ProjectionIntent> for ProjectionIntentWire {
@@ -284,9 +348,10 @@ impl From<ProjectionIntent> for ProjectionIntentWire {
         match intent {
             ProjectionIntent::ForkBeforeEvent(event) => Self::ForkBeforeEvent { event: event.0 },
             ProjectionIntent::InvokeCommand(command) => Self::InvokeCommand { command },
-            ProjectionIntent::Say { to, words } => Self::Say {
+            ProjectionIntent::Say { to, words, ears } => Self::Say {
                 to: to.into(),
                 words,
+                ears: ears.into(),
             },
         }
     }
@@ -299,9 +364,10 @@ impl From<ProjectionIntentWire> for ProjectionIntent {
                 Self::ForkBeforeEvent(EventId::new(event))
             }
             ProjectionIntentWire::InvokeCommand { command } => Self::InvokeCommand(command),
-            ProjectionIntentWire::Say { to, words } => Self::Say {
+            ProjectionIntentWire::Say { to, words, ears } => Self::Say {
                 to: to.into(),
                 words,
+                ears: ears.into(),
             },
         }
     }
@@ -2414,13 +2480,46 @@ mod tests {
 
     #[test]
     fn what_the_player_says_crosses_the_boundary_as_said() {
-        let said = ProjectionIntent::Say {
-            to: SelectionId::Entity(EntityId::new(7)),
-            words: "How's the \"bakery\"? 你好".into(),
+        for ears in [
+            Ears::World,
+            Ears::Model("MEANING: greet\nABOUT: none\nREPLY: Hello!".into()),
+            Ears::Own,
+        ] {
+            let said = ProjectionIntent::Say {
+                to: SelectionId::Entity(EntityId::new(7)),
+                words: "How's the \"bakery\"? 你好".into(),
+                ears,
+            };
+            let json = serde_json::to_string(&ProjectionIntentWire::from(said.clone())).unwrap();
+            let back: ProjectionIntentWire = serde_json::from_str(&json).unwrap();
+            assert_eq!(ProjectionIntent::from(back), said);
+        }
+        // Said by an app that never heard of ears, the World hears it.
+        let older: ProjectionIntentWire =
+            serde_json::from_str(r#"{"type":"say","to":{"type":"entity","id":7},"words":"hi"}"#)
+                .unwrap();
+        assert!(matches!(
+            ProjectionIntent::from(older),
+            ProjectionIntent::Say {
+                ears: Ears::World,
+                ..
+            }
+        ));
+        // A response too long to be an answer is never read.
+        let long = ProjectionIntentWire::Say {
+            to: SelectionIdWire::Entity { id: 7 },
+            words: "hi".into(),
+            ears: EarsWire::Model {
+                response: "x".repeat(MOST_MODEL_RESPONSE + 1),
+            },
         };
-        let json = serde_json::to_string(&ProjectionIntentWire::from(said.clone())).unwrap();
-        let back: ProjectionIntentWire = serde_json::from_str(&json).unwrap();
-        assert_eq!(ProjectionIntent::from(back), said);
+        assert!(matches!(
+            ProjectionIntent::from(long),
+            ProjectionIntent::Say {
+                ears: Ears::Own,
+                ..
+            }
+        ));
     }
 
     #[test]

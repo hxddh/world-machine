@@ -269,6 +269,22 @@ impl world_gpui::ProjectionController for HostProjectionController {
         ambience::player::cue(cue);
     }
 
+    /// With the World voice on, the model is asked here rather than inside
+    /// the Pack, so the window can wait for it without freezing: the World
+    /// gives the prompt, the model is asked off the window's thread, and
+    /// the words are said with its response.
+    fn listen(
+        &mut self,
+        to: world_gpui::SelectionId,
+        words: &str,
+    ) -> Option<world_gpui::Listening> {
+        if !world_voice::voice_on() {
+            return None;
+        }
+        let prompt = self.document.borrow().session.hearing(to, words).ok()??;
+        Some(Box::new(move || world_voice::ask_model(&prompt)))
+    }
+
     fn handle(
         &mut self,
         intent: world_gpui::ProjectionIntent,
@@ -2376,6 +2392,7 @@ impl WorldMachineHome {
                     document.display_scenery,
                     &document.display_marks,
                     document.display_cast.clone(),
+                    document.display_drawings.clone(),
                 )
                 .size_full()
                 .into_any_element()
@@ -3980,6 +3997,7 @@ mod file_type_tests {
             display_marks: Vec::new(),
             display_moves_alone: false,
             display_cast: Vec::new(),
+            display_drawings: Vec::new(),
             world_time: 0,
             event_count: 0,
         };
@@ -4055,7 +4073,7 @@ mod file_type_tests {
     fn a_world_nothing_has_happened_in_is_not_listed_yet() {
         let mut summary = WorldDocumentSummary {
             id: WorldDocumentId::new("fresh").unwrap(),
-            pack: WorldPackRef::new("world-machine.pocket-universe", "0.24.0"),
+            pack: WorldPackRef::new("world-machine.pocket-universe", "0.25.0"),
             display_title: None,
             display_summary: None,
             display_scenery: None,
@@ -4063,6 +4081,7 @@ mod file_type_tests {
             display_marks: Vec::new(),
             display_moves_alone: false,
             display_cast: Vec::new(),
+            display_drawings: Vec::new(),
             world_time: 0,
             event_count: 0,
         };
@@ -4113,6 +4132,7 @@ mod file_type_tests {
             display_marks: Vec::new(),
             display_moves_alone: false,
             display_cast: Vec::new(),
+            display_drawings: Vec::new(),
             world_time: 3,
             event_count: 7,
         };
@@ -4187,6 +4207,7 @@ mod file_type_tests {
                     display_marks: Vec::new(),
                     display_moves_alone: false,
                     display_cast: Vec::new(),
+                    display_drawings: Vec::new(),
                     world_time: 0,
                     event_count: 0,
                 },

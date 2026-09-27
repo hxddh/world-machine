@@ -72,6 +72,8 @@ pub struct WorldDocumentSummary {
     pub display_moves_alone: bool,
     /// Its people, places and things as it last stood, for its cover.
     pub display_cast: Vec<world_projection::CanvasItem>,
+    /// The Pack's own drawings its cast is drawn with.
+    pub display_drawings: Vec<world_projection::Drawing>,
     pub world_time: u64,
     pub event_count: usize,
 }
@@ -586,6 +588,16 @@ impl DurableWorldSession {
         self.session.snapshot()
     }
 
+    /// What a language model should be asked to hear the player's words to
+    /// someone with; changes nothing.
+    pub fn hearing(
+        &self,
+        to: world_projection::SelectionId,
+        words: &str,
+    ) -> Result<Option<String>, LibraryError> {
+        Ok(self.session.hearing(to, words)?)
+    }
+
     pub fn metadata(&self) -> &WorldDocumentMetadata {
         &self.metadata
     }
@@ -708,9 +720,39 @@ pub fn describe_from_snapshot(
                 skin: look.skin,
                 bird: look.bird,
                 carries: look.carries.map(|carry| carry_name(carry).to_owned()),
+                drawing: item.drawing.clone(),
             }
         })
         .collect();
+    // Only the drawings the cast is drawn with, each once.
+    let used = snapshot
+        .canvas
+        .items
+        .iter()
+        .filter_map(|item| item.drawing.as_deref())
+        .collect::<std::collections::BTreeSet<_>>();
+    metadata.display_drawings = snapshot
+        .drawings
+        .iter()
+        .filter(|drawing| used.contains(drawing.id.as_str()))
+        .filter_map(|drawing| {
+            serde_json::to_value(world_pack_protocol::DrawingWire::from(drawing)).ok()
+        })
+        .collect();
+}
+
+/// The drawings a World's file keeps for its cover, leaving out any the
+/// app cannot draw.
+fn drawings_from_document(drawings: &[serde_json::Value]) -> Vec<world_projection::Drawing> {
+    drawings
+        .iter()
+        .filter_map(|drawing| {
+            serde_json::from_value::<world_pack_protocol::DrawingWire>(drawing.clone()).ok()
+        })
+        .map(world_projection::Drawing::from)
+        .filter(world_projection::Drawing::is_drawable)
+        .take(world_pack_protocol::MOST_DRAWINGS)
+        .collect()
 }
 
 fn carry_name(carry: world_projection::Carry) -> &'static str {
@@ -779,7 +821,7 @@ fn cast_from_document(
                 shape: figure.shape.as_deref().map(mark_shape_from_name),
                 at: figure.at.as_deref().and_then(SelectionId::from_stable_key),
                 look,
-                drawing: None,
+                drawing: figure.drawing.clone(),
                 stance: None,
                 standing: None,
             })
@@ -941,6 +983,7 @@ fn summary(id: WorldDocumentId, document: &WorldDocument) -> WorldDocumentSummar
             .collect(),
         display_moves_alone: document.metadata.display_moves_alone,
         display_cast: cast_from_document(&document.metadata.display_cast),
+        display_drawings: drawings_from_document(&document.metadata.display_drawings),
         world_time: document.archive.world_time,
         event_count: document.archive.events.len(),
     }

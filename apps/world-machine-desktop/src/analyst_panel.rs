@@ -2370,6 +2370,7 @@ mod tests {
             display_marks: Vec::new(),
             display_moves_alone: false,
             display_cast: Vec::new(),
+            display_drawings: Vec::new(),
             world_time: 0,
             event_count: 0,
         }

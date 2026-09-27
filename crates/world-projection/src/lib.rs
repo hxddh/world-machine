@@ -162,7 +162,23 @@ pub enum ProjectionIntent {
     Say {
         to: SelectionId,
         words: String,
+        ears: Ears,
     },
+}
+
+/// Who hears what the player says to someone.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub enum Ears {
+    /// The World, in whatever way it was set up to hear.
+    #[default]
+    World,
+    /// A language model the app has already asked, with the prompt the
+    /// World gave for these words: its response, which the World reads
+    /// only as a proposal and checks like any other.
+    Model(String),
+    /// Only the World's own rules, never a model: what the app sends when
+    /// the model it asked took too long or had nothing to say.
+    Own,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

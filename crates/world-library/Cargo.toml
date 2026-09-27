@@ -8,5 +8,7 @@ publish = false
 [dependencies]
 world-document = { path = "../world-document" }
 world-host = { path = "../world-host" }
+world-pack-protocol = { path = "../world-pack-protocol" }
+serde_json = "1"
 world-persistence = { path = "../world-persistence" }
 world-projection = { path = "../world-projection" }
