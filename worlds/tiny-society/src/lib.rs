@@ -17,6 +17,8 @@ mod persistence;
 mod projection;
 mod reciprocity;
 mod recovery;
+#[cfg(test)]
+mod red_team;
 mod seed;
 mod social;
 mod speech;
