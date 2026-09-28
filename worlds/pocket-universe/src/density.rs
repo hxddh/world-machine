@@ -437,13 +437,22 @@ fn a_week_away_lapses_at_most_three_questions() {
 fn a_year(seed: &str, policy: Policy) {
     let played = play(seed, policy, 365);
     let world = played.universe.world();
+    // A player who says yes finishes the place's goals and climbs its
+    // ladder of works, with only the latest still under way.
     if matches!(policy, Policy::Generous) {
-        let unfinished = crate::story::goals(world)
+        let goals = crate::story::goals(world);
+        let unfinished = goals
             .iter()
             .filter(|goal| !goal.finished())
             .map(|goal| format!("{} {} of {}", goal.label, goal.done, goal.parts))
             .collect::<Vec<_>>();
-        assert!(unfinished.is_empty(), "{seed}: {unfinished:?}");
+        assert!(unfinished.len() <= 1, "{seed}: {unfinished:?}");
+        // The place's three goals and at least eight works.
+        assert!(
+            goals.len() >= 11,
+            "{seed}: only {} goals in a year",
+            goals.len()
+        );
     }
 
     // A festival told in its second year is told against its first.

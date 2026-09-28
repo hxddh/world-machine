@@ -30,7 +30,7 @@ struct IncludedPackSpec {
 const INCLUDED_PACKS: &[IncludedPackSpec] = &[
     IncludedPackSpec {
         id: "world-machine.tiny-society",
-        version: "0.11.0",
+        version: "0.12.0",
         title: "Tiny Society",
         description: "A harbour town that keeps living while you are away. Its people want things of you, the sea and the calendar bring storms and feasts, and every season closes a chapter of the town's story.",
         experience: "Answer what people ask · Build the pier · See how the chapter ends",

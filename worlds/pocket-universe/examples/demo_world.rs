@@ -73,7 +73,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         &library,
         &colony_archive,
         "ares-pocket-colony",
-        ("ares-second", "Ares · The other answer"),
+        ("ares-second", "Ares · A second colony"),
         (&other.0, &other.1),
         8,
     )?;
@@ -82,7 +82,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         &library,
         &first,
         "ares-first",
-        ("ares-first-later", "Ares · Years later"),
+        ("ares-first-later", "Ares · Long settled"),
         (NUDGE_COMMAND, "Let time pass"),
         10,
     )?;

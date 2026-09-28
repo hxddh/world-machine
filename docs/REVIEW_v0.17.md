@@ -108,6 +108,31 @@ Compatibility with earlier versions and content is out of scope by decision. Wor
 
 **Not in this release:** a local model for World voice, on Apple Foundation Models or a small MLX model. It is the right direction: typed intents fit the Action-Event rule. But it can only be built and judged on a Mac with Apple Intelligence, and it does not work on mainland-China accounts. Signing, notarization and notifications still wait on the Apple account.
 
+## What v0.18.0 did
+
+The whole plan went into `v0.18.0`. Measured with the same scripted player as above, made warm (it makes something new every third day), over 480 days of Tiny Society:
+
+| | `v0.17.0` | `v0.18.0` |
+| --- | --- | --- |
+| Book found at a year | 56 of 108 (52%) | 106 of 114 (93%) |
+| Keepsakes in the first year | 350 (nearly all letters) | 65, at most 3 in any week; letters have their own box |
+| Days with nothing to work towards | from day 90 on | none in 480 days |
+| Most times one question is asked in a year | 50 | 4 |
+| New lines in the second year | 45% | 64% to 69% |
+
+- **One product:** 21 packages removed, Branch and What if gone, Pocket Universe's first design removed (25,400 lines to 15,700).
+- **A second year:** a ladder of works in both Packs; in Tiny Society the years turn (Mia grows up, the pub changes hands, newcomers settle, a new festival each year chosen by the last); memories of a year ago; seasonal gifts.
+- **Two verbs:** Suggest in both Packs; Host through **World → Invite a Guest**.
+- **On the desktop:** the strip.
+
+  ![The strip along a screen's edge, resting and with a letter open](review/v18-strip.png)
+- **Sharing:** postcards and World codes that open as read-only visits.
+- **The return:** every beat has words, and fog no longer draws bands.
+
+  ![A return in v0.18: the film card has words and the scene has no bands](review/v18-return.png)
+
+Still open: none of it has been used on a Mac; Pocket Universe has no year turns of its own; a World code holds the whole history, so it is long.
+
 ## Sources
 
 - **Desktop games:**

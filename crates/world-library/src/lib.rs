@@ -1190,6 +1190,41 @@ impl From<HostError> for LibraryError {
     }
 }
 
+/// Someone from another World in the library, as a guest: read from its
+/// listing only, never opened or written. Whoever is first among its
+/// people, bringing a line about how things stand there and a postcard.
+pub fn guest_from(summary: &WorldDocumentSummary) -> Option<world_projection::Guest> {
+    let people = summary
+        .display_cast
+        .iter()
+        .filter(|item| item.kind == world_projection::CanvasItemKind::Actor)
+        .collect::<Vec<_>>();
+    // A cover may keep people without their names.
+    let name = people
+        .iter()
+        .map(|item| item.label.trim())
+        .find(|label| !label.is_empty())
+        .unwrap_or(if people.is_empty() { "" } else { "A neighbour" });
+    if name.is_empty() {
+        return None;
+    }
+    let from = summary
+        .display_title
+        .clone()
+        .unwrap_or_else(|| summary.pack.id.clone());
+    let letter = summary
+        .display_summary
+        .clone()
+        .filter(|line| !line.trim().is_empty())
+        .unwrap_or_else(|| "Thought I'd come and see how you're all getting on.".into());
+    Some(world_projection::Guest {
+        name: name.to_string(),
+        gift: format!("a postcard of {from}"),
+        from,
+        letter,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

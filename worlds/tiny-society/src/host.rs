@@ -84,6 +84,9 @@ impl WorldSession for TinySocietySession {
                     .say_with(who, &words, listener)
                     .map_err(HostError::session)?;
             }
+            ProjectionIntent::Host(guest) => {
+                self.branch.host(&guest).map_err(HostError::session)?;
+            }
         }
         self.background_cursor = None;
         Ok(self.snapshot())

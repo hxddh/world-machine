@@ -183,6 +183,7 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
     // What the player can do with their own hands comes after every card;
     // a screen offers it apart from them.
     commands.extend(crate::handwork::commands(world));
+    commands.extend(crate::life::suggestions(world));
     commands
 }
 

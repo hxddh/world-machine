@@ -1093,3 +1093,57 @@ pub(crate) fn letters(world: &World) -> Vec<world_projection::Letter> {
         })
         .collect()
 }
+
+/// What the player can suggest the place does together.
+pub(crate) const SUGGEST_COMMAND: &str = "pocket-universe.suggest.";
+
+/// Whether the weather is fair enough to be out in.
+pub(crate) fn fair(world: &World) -> bool {
+    use world_projection::Weather;
+    !matches!(
+        crate::story::weather(world),
+        Weather::Rain | Weather::Storm | Weather::Snow | Weather::Dust
+    )
+}
+
+/// A picnic, a market or a dance: the player suggests it, and the place
+/// decides who comes and how it goes.
+pub(crate) fn suggestions(world: &World) -> Vec<world_projection::ProjectionCommand> {
+    let state = world.state();
+    if crate::seed_id(world) == crate::UNSEEDED {
+        return Vec::new();
+    }
+    let cast = cast(state);
+    lives::IDEAS
+        .iter()
+        .map(|idea| {
+            let place = if idea.outdoors {
+                cast.quiet
+            } else {
+                cast.gathering
+            };
+            world_projection::ProjectionCommand {
+                id: format!("{SUGGEST_COMMAND}{}", idea.id),
+                title: idea.name.into(),
+                detail: if idea.outdoors {
+                    format!("Out by {}, if the weather holds", lives::name(state, place))
+                } else {
+                    format!("At {}", lives::name(state, place))
+                },
+                effects: Vec::new(),
+                scenery: None,
+                moves: Vec::new(),
+                asker: None,
+                question: None,
+                unavailable: lives::can_suggest(state, &cast, idea.id).err(),
+                hand: Some(world_projection::Hand {
+                    verb: "Suggest".into(),
+                    thing: idea.name.into(),
+                    at: Some(world_projection::SelectionId::Entity(place)),
+                    cost: None,
+                }),
+                preview: None,
+            }
+        })
+        .collect()
+}

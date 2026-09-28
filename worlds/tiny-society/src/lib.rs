@@ -185,6 +185,24 @@ impl TinySocietyBranch {
         }
     }
 
+    /// Someone from another of the player's Worlds visits: a letter for
+    /// the letter box and, if the week has room, something to keep.
+    pub fn host(
+        &mut self,
+        guest: &world_projection::Guest,
+    ) -> Result<Vec<EventId>, Box<dyn Error>> {
+        let actions = build_action_registry()?;
+        Ok(vec![lives::host_guest(
+            &mut self.world,
+            &actions,
+            &life::cast(),
+            &guest.name,
+            &guest.from,
+            &guest.letter,
+            &guest.gift,
+        )?])
+    }
+
     /// The player suggests something; the harbour decides how it goes.
     fn suggest(&mut self, command_id: &str) -> Result<Vec<EventId>, Box<dyn Error>> {
         let idea = command_id.trim_start_matches(life::SUGGEST_COMMAND);

@@ -48,6 +48,7 @@ actions!(
         ShowAsStrip,
         CopyWorldCode,
         SaveWorldCode,
+        InviteGuest,
         // Where strips go, for every strip, from any window.
         StripAlongBottom,
         StripAlongTop,
@@ -154,6 +155,8 @@ pub fn set_menus(cx: &mut App) {
             MenuItem::separator(),
             MenuItem::action("Copy World Code", CopyWorldCode),
             MenuItem::action("Save World Code…", SaveWorldCode),
+            MenuItem::separator(),
+            MenuItem::action("Invite a Guest", InviteGuest),
             MenuItem::separator(),
             MenuItem::action("Show as Strip", ShowAsStrip),
             MenuItem::submenu(Menu::new("Strip").items([

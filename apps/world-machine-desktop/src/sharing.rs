@@ -109,6 +109,51 @@ impl WorldDocumentView {
             .map_err(|error| error.to_string())
     }
 
+    /// World ▸ Invite a Guest: someone from another of the player's Worlds
+    /// visits this one. The other World is only read from the library's
+    /// listing; the visit is an intent this World checks like any other.
+    pub(crate) fn invite_guest(&mut self, cx: &mut Context<Self>) {
+        let result = {
+            let mut document = self.document.borrow_mut();
+            let own = document.session.document_id().cloned();
+            let library = std::sync::Arc::clone(&document.library);
+            let registry = std::sync::Arc::clone(&document.registry);
+            match library.list() {
+                Err(error) => Err(error.to_string()),
+                Ok(worlds) => match worlds
+                    .iter()
+                    .filter(|world| Some(&world.id) != own.as_ref())
+                    .find_map(world_library::guest_from)
+                {
+                    None => Err(
+                        "Start another World first: a guest comes from one of your other Worlds"
+                            .into(),
+                    ),
+                    Some(guest) => document
+                        .session
+                        .handle(
+                            world_projection::ProjectionIntent::Host(guest.clone()),
+                            &registry,
+                            &library,
+                        )
+                        .map(|_| guest)
+                        .map_err(|error| error.to_string()),
+                },
+            }
+        };
+        self.status = Some(match result {
+            Ok(guest) => {
+                self.rebuild_projection(cx);
+                DocumentStatus::success(format!(
+                    "{} came over from {} with a letter",
+                    guest.name, guest.from
+                ))
+            }
+            Err(error) => DocumentStatus::error(error),
+        });
+        cx.notify();
+    }
+
     /// World ▸ Copy World Code: the code on the clipboard, for a message.
     pub(crate) fn copy_world_code(&mut self, cx: &mut Context<Self>) {
         self.status = Some(match self.world_code() {

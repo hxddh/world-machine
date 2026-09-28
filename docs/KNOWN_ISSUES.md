@@ -1,6 +1,6 @@
 # Known issues
 
-Current as of `v0.16.0` in the [changelog](../CHANGELOG.md). Report anything else with **Help → Report a Problem…** in the app.
+Current as of `v0.18.0` in the [changelog](../CHANGELOG.md). Report anything else with **Help → Report a Problem…** in the app.
 
 ## Installation
 
@@ -10,7 +10,7 @@ Current as of `v0.16.0` in the [changelog](../CHANGELOG.md). Report anything els
 
 ## Using Worlds
 
-- **Worlds saved by an earlier Pack version do not open.** A World names the Pack version that saved it, and a build opens only the Pack versions it ships; each release that moves a Pack's version leaves the earlier Worlds unopenable. Nothing is deleted; such a file still holds its whole history.
+- **Worlds saved by an earlier Pack version do not open.** A World names the Pack version that saved it, and a build opens only the Pack versions it ships; `v0.18.0` opens no World saved by `v0.17.0`. Nothing is deleted; such a file still holds its whole history.
 
 - **Renaming or removing a World that is open in a window.** Both write the World's file, so the open window is a step behind: after a rename choose **World → Reload** in that window, and after a removal close the window rather than saving from it, or the save writes the World back into the Library.
 - **Removed Worlds are not deleted.** **Remove** moves the file into a `Removed` folder inside `~/Library/Application Support/World Machine/Worlds`. Emptying that folder is a Finder step; the app never deletes World files.
@@ -21,8 +21,12 @@ Current as of `v0.16.0` in the [changelog](../CHANGELOG.md). Report anything els
 - **World voice answers take a few seconds.** The window keeps moving and shows the person thinking; after 12 seconds the World answers in its own words. That deadline has only been tried in tests, not against a real model on a Mac.
 - **People remember a month of what you said and did, and bring up one thing a day.** What they recall is the latest thing worth mentioning (something you said, an answer you gave them, something you made that they saw, a present), the first time they see you that day.
 - **Only the core residents have voices of their own:** Tiny Society's eight and Pocket Universe's six. Newcomers speak the shared lines and take their five friendship moments from their two traits, so two newcomers with the same traits say the same things at those moments. Every resident's lines and scenes were generated and are held by tests, not written by a writer.
-- **Quiet days bring letters, often.** A day that brings nothing to keep and nobody new brings a first meeting or a letter, so a player who only answers questions gets a letter most days of a quiet month; the keepsake drawer fills faster than before. Each person's first letter is new to the book; later ones bring something small until those run out, then a letter only.
-- **A return's keepsake comes from whoever likes you most.** It is always the same person until someone else overtakes them.
+- **Quiet days bring letters, often.** A day that brings nothing to keep and nobody new brings a first meeting or a letter, so the letter box fills most days of a quiet month. Letters are not keepsakes; keepsakes are at most three a week.
+- **A return's keepsake comes from whoever likes you most,** when the week has room for one; otherwise the return ends on a letter.
+- **The second year is measured, not played.** A scripted warm player's 480 days are the evidence for the ladder of works, the year turns and the fresh second year; nobody has lived a year in the harbour on a Mac. Pocket Universe has the shared pieces (letters, seasonal gifts, memories of a year ago, the question cap, Suggest) and a ladder of eight works in three rounds, but not Tiny Society's year turns: nobody grows up or hands anything on there yet.
+- **A guest comes from the first other World in your library** that has people; there is no choosing yet, and a guest from a World whose cover keeps no names is "a neighbour".
+- **World codes are long.** A code holds a World's whole history (about 20,000 characters for a month of Tiny Society, far more for a year), so the `.worldcode` file is the practical way to share one. A postcard of a past moment has that moment's words and day but today's scene. Neither has been tried on a Mac, and `.worldcode` files are not yet registered with Finder.
+- **The strip is untried on a Mac.** Its pacing is tested (never 15 frames a second, nothing drawn while nothing moves); its CPU and energy use, the always-in-front panel and its borderless look are not. It shows the World as its open window last saw it, and one strip follows one window.
 - **Festivals happen while you are away.** Like a storm, a festival's day does not wait for you; the return tells how it went.
 - **A long absence brings its own story.** While you are away wants wait for you and people live their own lives, but what cannot wait (a storm, market day, a chapter's climax) happens without you and can close a chapter. Its pacing has only been tried in tests, not over two weeks on a real Mac.
 - **Pocket Universe gives one reason for every answer it cannot take:** "Not possible right now". Tiny Society names what is short ("Noah hasn't 60 to spare").
@@ -38,7 +42,7 @@ Current as of `v0.16.0` in the [changelog](../CHANGELOG.md). Report anything els
 - **The sky follows your clock, not the World's.** Dawn, dusk and night are drawn from the Mac's local time, like a window onto the same sky; a World records nothing about them.
 - **No notification while a World is closed.** A World keeps going without you and its window says when it next moves, but nothing tells you from outside the app. macOS delivers notifications reliably only to a signed app, so this waits on notarization.
 
-- **Chinese is generated and not complete.** The catalogs were translated by a model and checked by tests, not by a translator. About 3% of what a year of Tiny Society shows stays partly in English (festival tellings built from several clauses, some tacked-on endings), and about 1% of what a year of Pocket Universe shows (a radio caller's song title, a successor's name); newcomers' names stay in Latin letters, and a line a World voice model says is shown as the model said it. Settings → Display switches back to English.
+- **Chinese is generated and not complete.** The catalogs were translated by a model and checked by tests, not by a translator. About 4% of what sixteen months of Tiny Society shows stays partly in English (festival tellings built from several clauses, some tacked-on endings), and about 1% of what a year of Pocket Universe shows (a radio caller's song title, a successor's name); newcomers' names stay in Latin letters, and a line a World voice model says is shown as the model said it. Settings → Display switches back to English.
 - **Text size, contrast and VoiceOver are unverified on a Mac.** Text from 100% to 200% is checked by tests on speech paging only; how every window lays out at 200%, what Increase Contrast looks like, and what VoiceOver reads have not been seen on a Mac.
 
 ## Verification gaps

@@ -203,3 +203,23 @@ fn a_damaged_code_for_a_real_world_is_refused() {
     );
     fs::remove_dir_all(root).unwrap();
 }
+
+/// A guest is made from another World's listing alone: its file is not
+/// opened or written.
+#[test]
+fn a_guest_comes_from_another_worlds_listing() {
+    let (root, _registry, library, _session) = played_world("guest");
+    let before = files_under(&root);
+    let worlds = library.list().unwrap();
+    let guest = worlds
+        .iter()
+        .find_map(world_library::guest_from)
+        .expect("someone lives there");
+    assert!(
+        !guest.name.is_empty() && !guest.from.is_empty() && !guest.letter.is_empty(),
+        "{guest:?}"
+    );
+    assert!(guest.gift.contains(&guest.from));
+    assert_eq!(files_under(&root), before, "the other World is only read");
+    let _ = fs::remove_dir_all(&root);
+}

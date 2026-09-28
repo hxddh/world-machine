@@ -268,6 +268,11 @@ impl PocketUniverse {
             return Ok(event);
         }
 
+        if let Some(idea) = command_id.strip_prefix(life::SUGGEST_COMMAND) {
+            let request = lives::suggestion_request(idea, life::fair(&self.world));
+            return Ok(self.world.execute(&self.actions, &request)?.id);
+        }
+
         if let Some((situation, answer)) = life::parse_command(command_id) {
             return Ok(self
                 .world
@@ -356,6 +361,24 @@ impl PocketUniverse {
         let cast = life::cast(self.world.state());
         lives::leave_keepsake(&mut self.world, &self.actions, &cast, &why)?;
         Ok(())
+    }
+
+    /// Someone from another of the player's Worlds visits: a letter for
+    /// the letter box and, if the week has room, something to keep.
+    pub fn host(&mut self, guest: &world_projection::Guest) -> Result<EventId, Box<dyn Error>> {
+        if seed_id(&self.world) == UNSEEDED {
+            return Err(std::io::Error::other("nobody lives here yet to welcome a guest").into());
+        }
+        let cast = life::cast(self.world.state());
+        Ok(lives::host_guest(
+            &mut self.world,
+            &self.actions,
+            &cast,
+            &guest.name,
+            &guest.from,
+            &guest.letter,
+            &guest.gift,
+        )?)
     }
 
     pub fn fork_before_event(&mut self, event_id: EventId) -> Result<(), Box<dyn Error>> {
@@ -450,6 +473,9 @@ impl WorldSession for PocketUniverseSession {
                 self.world
                     .say_with(who, &words, listener)
                     .map_err(HostError::session)?;
+            }
+            ProjectionIntent::Host(guest) => {
+                self.world.host(&guest).map_err(HostError::session)?;
             }
         }
         self.return_since_event_count = None;

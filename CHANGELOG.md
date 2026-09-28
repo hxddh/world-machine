@@ -2,6 +2,31 @@
 
 Releases live on the [Releases page](https://github.com/hxddh/world-machine/releases). `0.2.0` is the first release intended to be usable without reading the repository; the `v0.1.0-pre.N` tags below were its pre-releases.
 
+## v0.18.0 (2026-09-28)
+
+**Worlds from `v0.17.0` do not open.** Tiny Society moves to `0.12.0` and Pocket Universe to `0.29.0`. Keeping earlier Worlds working is out of scope by decision: the carry-forward machinery is removed; start a new World.
+
+The [v0.17 review](docs/REVIEW_v0.17.md) played sixteen months of each Pack. The first month was good; after it the World ran out of purpose: everything it worked towards was finished by day 90, a keepsake came almost every day, half the book was out of reach, and Pocket Universe asked the same two leftover questions on 188 days. This release cuts the product down to one, gives it a second year, and puts it on your desktop. Everything in it is still made by the program.
+
+- **One product.** Twenty-one packages are gone: the demonstration apps, Micro Company and Future Archaeologist, and the query, CLI, investigation, agent-tool, analyst, strategy and lineage crates (138,000 lines of Rust down to 102,000, with everything new in this release). Branch, What if, Compare and the Analyst are gone from the app. Pocket Universe's first design (era, pressure, succession, legacy, drift and the minds that drove them) is removed, and its story is told by the same lives, storylets, hands and calendar Systems as Tiny Society's; its two gauges are the ones its answers move. A test checks every gauge can be moved.
+- **A second year.**
+  - **A ladder of works.** After the pier and the lamp, the harbour builds fourteen works (a bandstand, a sea wall, a school garden, a clock, a boathouse, a fountain…), then paints each, then plants flowers round each: one is always under way, a part every fortnight or so. Each Pocket Universe place, once its first three goals are done, builds eight works of its own (a meeting hall, a store for the lean months, a lookout…), then mends and decorates each: about eleven a year.
+  - **The years turn.** Mia finishes school and starts with Evan; Leo hands the Anchor Pub to Sofia; newcomers settle for good; and each year adds a festival chosen by what the year before was like (Builders' Day for a year of building, the Garden Fair for gardens, the Neighbours' Supper for friendships, the Regatta for a quiet year).
+  - **A year ago today.** People remember, on the day, what happened a year before: a friendship, a festival, something you made.
+  - **Letters have a box of their own** in the drawer and the book, and are not keepsakes. **Keepsakes are rare again:** at most three in any week, one of them left for you as each season turns, going round everything that can be left.
+  - **No question more than six times a year.** Storylets rest after six askings in a year; a person does not ask the same thing within two months; Mara asks how to reopen the bakery for two days, then opens a counter herself.
+  - **Things you made get used a couple at a time,** and people say something different each time, naming what and where.
+  - **Measured** by a warm player over 480 days (answering the first question, making something new every third day): never a day without a work under way, 93% of the book found within a year (each silhouette says how), at most three keepsakes in any week, no question asked more than four times in a year, and 69% of what people say in the second year new, against 45% in `v0.17.0`. A test holds each.
+- **Suggest.** Hands has a new verb: suggest a picnic, a market or a dance. The place decides who comes, from how people think of you and their spirits, and the weather decides whether a picnic is rained off; it brings people together and replays the same. The same idea rests a week.
+- **Host.** **World → Invite a Guest** brings someone from another of your Worlds for a visit: they bring a letter for the letter box and leave a postcard of their place. The other World is only read from the library's listing; the visit is an Action in the World they visit, checked like any other.
+- **On your desktop.** **World → Show as Strip** (⌥⌘S) puts a World in a band along the bottom (or top) of a screen, on any display, in front of other windows if you like. Residents take turns walking its length, the day's letter drops in as an envelope you can open, and a double-click opens the full window. The strip draws only while someone walks, at most 12 frames a second, and not at all when nothing moves; a test plays ten minutes of it.
+- **Share a World.**
+  - **Postcards:** the World window's **Postcard** (or C) saves the scene as a card with a line someone said at that moment, their name, the World and the day.
+  - **World codes:** **World → Copy World Code** or **Save World Code…** gives a World's whole history as text (`wm1:…`) or a `.worldcode` file. **File → Open World Code…** or **Paste World Code** opens it as a visit: a read-only copy that cannot change the original. Tests reopen a code event for event and check a visit writes nothing back; a damaged code is refused in plain words.
+- **The return, fixed.** Every beat of the film has words (a beat without any is left out, and its words no longer fade in from nothing). Fog is drawn as soft veils, so nothing shows as bands when the camera is close; a test checks there is no hard edge at any zoom. The ridge shows only the latest five works.
+- **Chinese** covers the new text: 96% of what sixteen months of Tiny Society shows is fully in Chinese; a test holds it at 95% over 480 days.
+- **Pack protocol:** a snapshot may carry `letters`, and an intent may be `host` (a guest's name, home, letter and gift, each cut to 280 characters). The carry-forward fields are removed.
+
 ## v0.17.0 (2026-09-28)
 
 **Worlds from `v0.16.0` open and carry on.** For the first time a release keeps every World the last one saved: Tiny Society moves to `0.11.0` and Pocket Universe to `0.28.0`, and each opens its `0.10.0` and `0.27.0` Worlds with their whole history and goes on under the new rules. From now on no release may leave a World behind.

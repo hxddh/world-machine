@@ -673,6 +673,7 @@ impl Render for WorldDocumentView {
             .on_action(
                 cx.listener(|this, _: &about::SaveWorldCode, _, cx| this.save_world_code(cx)),
             )
+            .on_action(cx.listener(|this, _: &about::InviteGuest, _, cx| this.invite_guest(cx)))
             .on_action(cx.listener(|this, _: &about::ShowAsStrip, _, cx| {
                 let snapshot = this.projection.read(cx).snapshot().clone();
                 strip_window::toggle(&this.document, snapshot, cx);

@@ -312,3 +312,52 @@ fn a_suggestion_follows_from_people_and_weather_and_replays() {
         .execute(&actions, &lives::suggestion_request("market", true))
         .is_err());
 }
+
+/// A guest from another World brings a letter and something to keep, as
+/// Actions in the World they visit; the World they came from is only read,
+/// and nothing about it changes.
+#[test]
+fn a_guest_from_another_world_visits_and_writes_nothing_back() {
+    let mut registry = world_host::WorldRegistry::new();
+    registry
+        .register(crate::tiny_society_registration())
+        .unwrap();
+    let mut home = registry.create(crate::TINY_SOCIETY_PACK_ID).unwrap();
+    for _ in 0..5 {
+        home.handle(world_projection::ProjectionIntent::InvokeCommand(
+            crate::story::WAIT_COMMAND.into(),
+        ))
+        .unwrap();
+    }
+    let mut away = registry.create(crate::TINY_SOCIETY_PACK_ID).unwrap();
+    for _ in 0..3 {
+        away.handle(world_projection::ProjectionIntent::InvokeCommand(
+            crate::story::WAIT_COMMAND.into(),
+        ))
+        .unwrap();
+    }
+    let before = away.archive().unwrap().unwrap();
+    let guest = world_projection::Guest::from_snapshot(&away.snapshot()).expect("someone to visit");
+    let letters = home.snapshot().letters.len();
+    let after = home
+        .handle(world_projection::ProjectionIntent::Host(guest.clone()))
+        .unwrap();
+    assert_eq!(
+        after.letters.len(),
+        letters + 1,
+        "the guest's letter is in the box"
+    );
+    assert!(after
+        .letters
+        .last()
+        .is_some_and(|letter| letter.note.contains(&guest.letter)));
+    assert_eq!(
+        away.archive().unwrap().unwrap(),
+        before,
+        "the World the guest came from is unchanged"
+    );
+    // The visit replays like anything else.
+    let archive = home.archive().unwrap().unwrap();
+    let reopened = registry.open_archive(&archive).unwrap();
+    assert_eq!(reopened.snapshot().letters, after.letters);
+}
