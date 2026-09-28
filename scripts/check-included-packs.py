@@ -30,7 +30,6 @@ BUILD_APP = ROOT / "apps/world-machine-desktop/macos/build-app.sh"
 # in different files per crate, so the whole crate is searched.
 PACK_SOURCES = {
     "world-machine.pocket-universe": ROOT / "worlds/pocket-universe/src",
-    "world-machine.micro-company": ROOT / "worlds/micro-company/src",
     "world-machine.tiny-society": ROOT / "worlds/tiny-society/src",
 }
 

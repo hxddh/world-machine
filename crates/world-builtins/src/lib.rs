@@ -54,10 +54,7 @@ pub fn zh_hans_voices() -> String {
 
 impl WorldPackSource for BuiltinWorlds {
     fn registrations(&self) -> Result<Vec<WorldRegistration>, HostError> {
-        Ok(vec![
-            tiny_society::tiny_society_registration(),
-            future_archaeologist::future_archaeologist_registration(),
-        ])
+        Ok(vec![tiny_society::tiny_society_registration()])
     }
 }
 
@@ -73,20 +70,19 @@ mod tests {
     use std::collections::BTreeSet;
 
     #[test]
-    fn builtin_source_exposes_both_benchmark_worlds() {
+    fn builtin_source_exposes_tiny_society() {
         let registrations = BuiltinWorlds.registrations().unwrap();
         let ids = registrations
             .iter()
             .map(|registration| registration.descriptor.pack.id.as_str())
             .collect::<BTreeSet<_>>();
 
-        assert_eq!(ids.len(), 2);
+        assert_eq!(ids.len(), 1);
         assert!(ids.contains(tiny_society::TINY_SOCIETY_PACK_ID));
-        assert!(ids.contains(future_archaeologist::FUTURE_ARCHAEOLOGIST_PACK_ID));
     }
 
     #[test]
-    fn catalog_lists_both_benchmark_worlds() {
+    fn catalog_lists_tiny_society() {
         let registry = registry().unwrap();
         let ids = registry
             .descriptors()
@@ -94,9 +90,8 @@ mod tests {
             .map(|descriptor| descriptor.pack.id.as_str())
             .collect::<BTreeSet<_>>();
 
-        assert_eq!(ids.len(), 2);
+        assert_eq!(ids.len(), 1);
         assert!(ids.contains(tiny_society::TINY_SOCIETY_PACK_ID));
-        assert!(ids.contains(future_archaeologist::FUTURE_ARCHAEOLOGIST_PACK_ID));
     }
 
     #[test]
@@ -119,8 +114,9 @@ mod tests {
         }
     }
 
-    /// A year of Tiny Society in Chinese: nearly every sentence it shows
-    /// is in the catalogs, and what is left is only names.
+    /// Sixteen months of Tiny Society in Chinese, into its second year:
+    /// nearly every sentence it shows is in the catalogs, and what is left
+    /// is only names.
     #[test]
     fn a_year_of_tiny_society_is_shown_in_chinese() {
         for catalog in ZH_HANS {
@@ -138,7 +134,7 @@ mod tests {
         let registry = registry().unwrap();
         let mut session = registry.create(tiny_society::TINY_SOCIETY_PACK_ID).unwrap();
         let mut shown = std::collections::BTreeSet::new();
-        for day in 0..100 {
+        for day in 0..480 {
             let snapshot = session.snapshot();
             let mut texts = Vec::new();
             texts.extend(snapshot.voices.iter().map(|voice| voice.line.clone()));
@@ -148,6 +144,14 @@ mod tests {
             }
             texts.extend(snapshot.keepsakes.iter().map(|kept| kept.what.clone()));
             texts.extend(snapshot.keepsakes.iter().map(|kept| kept.note.clone()));
+            texts.extend(
+                snapshot
+                    .letters
+                    .iter()
+                    .rev()
+                    .take(2)
+                    .map(|letter| letter.note.clone()),
+            );
             texts.extend(snapshot.book.iter().map(|entry| entry.name.clone()));
             texts.extend(snapshot.book.iter().map(|entry| entry.hint.clone()));
             texts.extend(

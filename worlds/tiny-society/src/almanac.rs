@@ -364,7 +364,7 @@ fn festive(state: &WorldState) -> i64 {
 }
 
 /// How many gardens the player planted have grown.
-fn grown(state: &WorldState) -> i64 {
+pub(crate) fn grown(state: &WorldState) -> i64 {
     hands::made(state)
         .into_iter()
         .filter(|fixture| {
@@ -410,7 +410,7 @@ fn held(state: &WorldState, festival: &Festival, turnout: Turnout, grown: i64) -
     changes
 }
 
-pub(crate) fn almanac(_: &WorldState) -> Almanac {
+pub(crate) fn almanac(state: &WorldState) -> Almanac {
     Almanac {
         notes: world_core::EntityId::new(1001),
         first: 1010,
@@ -418,7 +418,7 @@ pub(crate) fn almanac(_: &WorldState) -> Almanac {
         period: crate::persistence::WORLD_DAY_TICKS,
         year: YEAR_DAYS,
         seasons: ["Spring", "Summer", "Autumn", "Winter"],
-        festivals: FESTIVALS,
+        festivals: crate::years::festivals(state, FESTIVALS),
         people: crate::story::people_in,
         festive,
         grown,

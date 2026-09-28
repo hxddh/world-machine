@@ -2,9 +2,7 @@
 members = [
   "crates/world-core",
   "crates/world-theme",
-  "crates/world-cli",
   "crates/world-agent",
-  "crates/world-analyst-client",
   "crates/world-pi-rpc",
   "crates/world-pack-protocol",
   "crates/world-pack-bundle",
@@ -13,21 +11,9 @@ members = [
   "crates/world-pack-server",
   "crates/world-projection",
   "crates/world-compare",
-  "crates/world-query",
-  "crates/world-investigation",
-  "crates/world-investigation-local",
-  "crates/world-agent-tools",
-  "crates/world-agent-tool-host",
-  "crates/world-agent-tool-stdio",
-  "crates/world-strategy",
-  "crates/world-strategy-document",
-  "crates/world-strategy-gpui",
-  "crates/world-lineage-compare",
   "crates/world-gpui",
   "crates/world-persistence",
   "crates/world-document",
-  "crates/world-lineage",
-  "crates/world-lineage-gpui",
   "crates/world-integrity",
   "crates/world-host",
   "crates/world-builtins",
@@ -42,16 +28,32 @@ members = [
   "systems/conversation",
   "systems/calendar",
   "worlds/tiny-society",
-  "worlds/future-archaeologist",
   "worlds/pocket-universe",
-  "worlds/micro-company",
   "apps/tiny-society-pack",
   "apps/pocket-universe-pack",
-  "apps/micro-company-pack",
-  "apps/tiny-society-desktop",
-  "apps/future-archaeologist-desktop",
   "apps/world-machine-desktop",
-  "apps/strategy-comparison-desktop",
-  "apps/lineage-explorer-desktop",
 ]
 resolver = "2"
+
+# The simulation runs years of days in its tests; build it optimised even
+# in debug so those tests stay quick.
+[profile.dev.package.world-core]
+opt-level = 2
+
+[profile.dev.package.lives]
+opt-level = 2
+
+[profile.dev.package.storylets]
+opt-level = 2
+
+[profile.dev.package.hands]
+opt-level = 2
+
+[profile.dev.package.calendar]
+opt-level = 2
+
+[profile.dev.package.tiny-society]
+opt-level = 2
+
+[profile.dev.package.pocket-universe]
+opt-level = 2

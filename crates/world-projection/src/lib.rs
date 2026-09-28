@@ -440,6 +440,8 @@ pub struct ProjectionSnapshot {
     /// What people have given the player to keep, oldest first: the
     /// drawer's keepsakes.
     pub keepsakes: Vec<Keepsake>,
+    /// Letters people wrote the player, oldest first: the letter box.
+    pub letters: Vec<Letter>,
     /// Everything there is to find in this World, found or not: the book
     /// the drawer keeps, with a silhouette for what is still to come.
     pub book: Vec<BookEntry>,
@@ -466,6 +468,14 @@ pub struct BookEntry {
 pub struct Keepsake {
     pub from: SelectionId,
     pub what: String,
+    pub note: String,
+    pub moment: SelectionId,
+}
+
+/// A letter someone wrote the player.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Letter {
+    pub from: SelectionId,
     pub note: String,
     pub moment: SelectionId,
 }
@@ -1377,7 +1387,8 @@ impl BriefingProjection {
     pub fn beats(&self) -> Vec<&BriefingItem> {
         self.items
             .iter()
-            .filter(|item| item.kind == BriefingItemKind::Beat)
+            // Every beat has words to show.
+            .filter(|item| item.kind == BriefingItemKind::Beat && !item.title.trim().is_empty())
             .collect()
     }
 }

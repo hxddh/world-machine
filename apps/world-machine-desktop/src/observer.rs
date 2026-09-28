@@ -253,7 +253,6 @@ mod tests {
                         pack: WorldPackRef::new(PACK, "1"),
                         title: "Observer Test".into(),
                         description: "Desktop catch-up test".into(),
-                        carries_forward: Vec::new(),
                     },
                     move || {
                         Ok(Box::new(MockSession {
@@ -282,7 +281,6 @@ mod tests {
                         pack: WorldPackRef::new(PACK, "1"),
                         title: "Static Observer Test".into(),
                         description: "Desktop no-op catch-up test".into(),
-                        carries_forward: Vec::new(),
                     },
                     || Ok(Box::new(StaticSession { time: 0 })),
                 )

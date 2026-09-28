@@ -618,3 +618,9 @@ Create relation	创建关系
 Remove relation	移除关系
 Relation #{relation}	关系 #{relation}
 Relation #{relation} · {}	关系 #{relation} · {}
+Show as Strip	显示为长条
+Strip	长条
+Along the Bottom	沿屏幕底部
+Along the Top	沿屏幕顶部
+Always in Front	始终在最前面
+Move to Next Display	移到下一个显示器

@@ -595,6 +595,20 @@ where
     )
 }
 
+/// Slides an element up into place without fading it, for words that must
+/// be readable from the first frame, whenever a screenshot is taken.
+pub fn slide_in<E>(element: E, key: impl Into<SharedString>) -> gpui::AnimationElement<E>
+where
+    E: IntoElement + Styled + 'static,
+{
+    use gpui::{Animation, AnimationExt};
+    element.with_animation(
+        ElementId::Name(key.into()),
+        Animation::new(ENTRANCE).with_easing(staggered(0)),
+        |element, t| element.mt(px((1.0 - t) * 10.0)),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::{initials, staggered};

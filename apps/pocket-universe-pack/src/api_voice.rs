@@ -229,14 +229,12 @@ mod tests {
         vec![
             NarrationFacts {
                 seed: "mars-colony".into(),
-                era: 3,
-                event_kind: "pressure_peaked".into(),
+                event_kind: "situation_arose".into(),
                 table_summary: "Dust is fouling the intakes.".into(),
             },
             NarrationFacts {
                 seed: "mars-colony".into(),
-                era: 3,
-                event_kind: "anchor_lost".into(),
+                event_kind: "chapter_ended".into(),
                 table_summary: "The reclaimer went quiet for good.".into(),
             },
         ]

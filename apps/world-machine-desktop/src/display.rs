@@ -2,12 +2,12 @@
 //! with how much contrast. What the player chose in Settings wins; where
 //! they chose nothing, the Mac's own settings decide.
 
-use crate::analyst_settings::DesktopAnalystSettings;
+use crate::app_settings::AppSettings;
 use world_gpui::Language;
 
 /// The language the app is shown in, from what the player chose or else
 /// the Mac.
-pub fn language(settings: Option<&DesktopAnalystSettings>) -> Language {
+pub fn language(settings: Option<&AppSettings>) -> Language {
     settings
         .and_then(|settings| settings.language.as_deref())
         .and_then(Language::from_id)
@@ -30,7 +30,7 @@ pub fn system_increase_contrast() -> bool {
 }
 
 /// Shows the app as the player chose.
-pub fn apply(settings: Option<&DesktopAnalystSettings>) {
+pub fn apply(settings: Option<&AppSettings>) {
     world_gpui::set_language(language(settings));
     world_gpui::set_text_scale(
         settings
@@ -50,7 +50,7 @@ mod tests {
 
     #[test]
     fn what_the_player_chose_wins() {
-        let mut settings = DesktopAnalystSettings::empty();
+        let mut settings = AppSettings::empty();
         settings.language = Some("zh-Hans".into());
         assert_eq!(language(Some(&settings)), Language::SimplifiedChinese);
         settings.language = Some("en".into());

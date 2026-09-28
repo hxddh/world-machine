@@ -22,7 +22,7 @@ The next release dispatch signs every executable with the hardened runtime, subm
 
 ## What the pipeline does with them
 
-- `build-app.sh` signs the analyst host, both Pack executables (before they are embedded in their `.worldpack` bundles), and the app with `--options runtime --timestamp` and the Developer ID identity from `WORLD_MACHINE_SIGNING_IDENTITY`.
+- `build-app.sh` signs both Pack executables (before they are embedded in their `.worldpack` bundles), and the app with `--options runtime --timestamp` and the Developer ID identity from `WORLD_MACHINE_SIGNING_IDENTITY`.
 - `package-release.sh` detects the Developer ID signature, submits the app with `notarytool`, staples it, builds the DMG, signs and notarizes the DMG too, and records the result in `release-manifest.json`.
 - `validate_release_package.py` refuses a Developer ID package that is not notarized, so a half-configured pipeline fails instead of publishing a confusing build.
 - The secrets never leave the runner: the certificate is imported into a temporary keychain that is discarded with the job.

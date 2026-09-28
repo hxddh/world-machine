@@ -47,7 +47,7 @@ impl Action for ReopenBakeryLean {
     fn evaluate(
         &self,
         state: &WorldState,
-        _request: &ActionRequest,
+        request: &ActionRequest,
     ) -> Result<EventDraft, ActionError> {
         if text_component(state, BAKERY, OPERATING_STATUS)? != "closed" {
             return Err(ActionError::Invalid("the bakery is not closed".into()));
@@ -109,6 +109,7 @@ impl Action for ReopenBakeryLean {
                 value: 0_i64.into(),
             },
         ];
+        crate::drift::record_decider(&mut draft, request);
         Ok(draft)
     }
 }

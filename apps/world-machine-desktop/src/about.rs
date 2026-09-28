@@ -39,16 +39,20 @@ actions!(
         ImportWorld,
         InstallPack,
         RefreshLibrary,
+        OpenWorldCode,
+        PasteWorldCode,
         // World menu, handled by the frontmost World window and greyed out
         // elsewhere because the handlers live on that window's root.
-        BranchWorld,
-        WhatIf,
         SaveWorldAs,
         ReloadWorld,
-        CompareWithParent,
-        CompareSavedWorlds,
-        ShowLineage,
-        AnalyzeWorlds
+        ShowAsStrip,
+        CopyWorldCode,
+        SaveWorldCode,
+        // Where strips go, for every strip, from any window.
+        StripAlongBottom,
+        StripAlongTop,
+        StripAlwaysOnTop,
+        StripNextDisplay
     ]
 );
 
@@ -110,8 +114,17 @@ pub fn install(cx: &mut App) {
         KeyBinding::new("ctrl-cmd-f", ToggleFullScreen, None),
         // Cmd-, is Settings everywhere else on this platform.
         KeyBinding::new("cmd-,", Settings, None),
+        KeyBinding::new("alt-cmd-s", ShowAsStrip, None),
     ]);
 
+    crate::strip_window::install(cx);
+    set_menus(cx);
+}
+
+/// Builds the menu bar, with the strip's choices ticked as they stand.
+/// Called again whenever one of them changes.
+pub fn set_menus(cx: &mut App) {
+    let strip = crate::strip_window::placement();
     cx.set_menus([
         Menu::new("World Machine").items([
             MenuItem::action("About World Machine…", About),
@@ -130,20 +143,26 @@ pub fn install(cx: &mut App) {
             MenuItem::action("Import World…", ImportWorld),
             MenuItem::action("Install World Pack…", InstallPack),
             MenuItem::separator(),
+            MenuItem::action("Open World Code…", OpenWorldCode),
+            MenuItem::action("Paste World Code", PasteWorldCode),
+            MenuItem::separator(),
             MenuItem::action("Refresh My Worlds", RefreshLibrary),
         ]),
         Menu::new("World").items([
-            MenuItem::action("Branch This World", BranchWorld),
-            MenuItem::action("What If…", WhatIf),
-            MenuItem::separator(),
             MenuItem::action("Save As…", SaveWorldAs),
             MenuItem::action("Reload from Disk", ReloadWorld),
             MenuItem::separator(),
-            MenuItem::action("Compare with Parent", CompareWithParent),
-            MenuItem::action("Compare Saved Worlds…", CompareSavedWorlds),
-            MenuItem::action("Lineage…", ShowLineage),
+            MenuItem::action("Copy World Code", CopyWorldCode),
+            MenuItem::action("Save World Code…", SaveWorldCode),
             MenuItem::separator(),
-            MenuItem::action("Analyze Saved Worlds (Experimental)…", AnalyzeWorlds),
+            MenuItem::action("Show as Strip", ShowAsStrip),
+            MenuItem::submenu(Menu::new("Strip").items([
+                MenuItem::action("Along the Bottom", StripAlongBottom).checked(!strip.top),
+                MenuItem::action("Along the Top", StripAlongTop).checked(strip.top),
+                MenuItem::separator(),
+                MenuItem::action("Always in Front", StripAlwaysOnTop).checked(strip.always_on_top),
+                MenuItem::action("Move to Next Display", StripNextDisplay),
+            ])),
         ]),
         Menu::new("Window").items([
             MenuItem::action("Minimize", MinimizeWindow),
@@ -173,6 +192,14 @@ pub fn install_home_actions(home: &Entity<WorldMachineHome>, cx: &mut App) {
     let install = home.clone();
     cx.on_action(move |_: &InstallPack, cx| {
         install.update(cx, |home, cx| home.install_pack(cx));
+    });
+    let open_code = home.clone();
+    cx.on_action(move |_: &OpenWorldCode, cx| {
+        open_code.update(cx, |home, cx| home.open_world_code_file(cx));
+    });
+    let paste_code = home.clone();
+    cx.on_action(move |_: &PasteWorldCode, cx| {
+        paste_code.update(cx, |home, cx| home.paste_world_code(cx));
     });
     let refresh = home.clone();
     cx.on_action(move |_: &RefreshLibrary, cx| {
@@ -282,8 +309,8 @@ impl Render for AboutView {
                     .text_color(ui::color(tokens::TEXT_TERTIARY))
                     .child(
                         "No account, no telemetry. Your Worlds are files on this Mac; \
-                         only the optional World voice and Analyst send anything out, \
-                         and only once you turn them on.",
+                         only the optional World voice sends anything out, \
+                         and only once you turn it on.",
                     ),
             )
             .child(

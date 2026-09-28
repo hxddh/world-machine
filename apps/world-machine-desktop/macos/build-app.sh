@@ -19,10 +19,6 @@ ICONSET_DIR="$TARGET_DIR/bundle/AppIcon.iconset"
 RESOURCES_DIR="$APP_DIR/Contents/Resources"
 BINARY_NAME="world-machine-desktop"
 INCLUDED_PACK_DIR="$APP_DIR/Contents/Resources/World Packs"
-ANALYST_RUNTIME_DIR="$APP_DIR/Contents/Resources/Analyst Runtime"
-ANALYST_BIN_DIR="$ANALYST_RUNTIME_DIR/bin"
-ANALYST_INTEGRATION_DIR="$ANALYST_RUNTIME_DIR/integrations/pi"
-ANALYST_SCRIPT_DIR="$ANALYST_RUNTIME_DIR/scripts"
 
 if [[ -n "${WORLD_MACHINE_BUILD_COMMIT:-}" ]]; then
     BUILD_COMMIT="$WORLD_MACHINE_BUILD_COMMIT"
@@ -55,17 +51,14 @@ sign_executable() {
 # expects to find and to the versions the world crates actually build.
 INCLUDED_PACK_NAMES=(
     pocket-universe
-    micro-company
     tiny-society
 )
 
 PACKAGES=(
     -p world-machine-desktop
-    -p world-agent-tool-stdio
 )
 BINARIES=(
     world-machine-desktop
-    world-agent-tool-stdio
 )
 for pack_name in "${INCLUDED_PACK_NAMES[@]}"; do
     PACKAGES+=(-p "$pack_name-pack")
@@ -123,14 +116,12 @@ else:
 ')"
 
 BINARY_PATH="$BIN_DIR/$BINARY_NAME"
-ANALYST_HOST_BINARY="$BIN_DIR/world-agent-tool-stdio"
 PACK_BINARIES=()
 for pack_name in "${INCLUDED_PACK_NAMES[@]}"; do
     PACK_BINARIES+=("$BIN_DIR/$pack_name-pack")
 done
 for executable in \
     "$BINARY_PATH" \
-    "$ANALYST_HOST_BINARY" \
     "${PACK_BINARIES[@]}"; do
     if [[ ! -x "$executable" ]]; then
         echo "built binary is missing or not executable: $executable" >&2
@@ -138,7 +129,6 @@ for executable in \
     fi
 done
 
-sign_executable "$ANALYST_HOST_BINARY"
 for pack_binary in "${PACK_BINARIES[@]}"; do
     sign_executable "$pack_binary"
 done
@@ -146,10 +136,7 @@ done
 rm -rf "$APP_DIR"
 mkdir -p \
     "$APP_DIR/Contents/MacOS" \
-    "$INCLUDED_PACK_DIR" \
-    "$ANALYST_BIN_DIR" \
-    "$ANALYST_INTEGRATION_DIR" \
-    "$ANALYST_SCRIPT_DIR"
+    "$INCLUDED_PACK_DIR"
 cp "$BINARY_PATH" "$APP_DIR/Contents/MacOS/$BINARY_NAME"
 chmod +x "$APP_DIR/Contents/MacOS/$BINARY_NAME"
 sed "s/@VERSION@/$VERSION/g" "$PLIST_TEMPLATE" > "$APP_DIR/Contents/Info.plist"
@@ -197,43 +184,9 @@ for pack_name in "${INCLUDED_PACK_NAMES[@]}"; do
         --inspect-only "$bundle"
 done
 
-for module in \
-    world-machine-analyst-turn-host.mjs \
-    world-machine-analyst-rpc.mjs \
-    world-machine-analyst.mjs \
-    world-machine-analyst-client.mjs; do
-    cp "$ROOT_DIR/integrations/pi/$module" "$ANALYST_INTEGRATION_DIR/$module"
-done
-cp "$ROOT_DIR/scripts/run-pi-analyst.sh" "$ANALYST_SCRIPT_DIR/run-pi-analyst.sh"
-cp "$ANALYST_HOST_BINARY" "$ANALYST_BIN_DIR/world-agent-tool-stdio"
-chmod +x \
-    "$ANALYST_SCRIPT_DIR/run-pi-analyst.sh" \
-    "$ANALYST_BIN_DIR/world-agent-tool-stdio"
-
-for runtime_file in \
-    "$ANALYST_INTEGRATION_DIR/world-machine-analyst-turn-host.mjs" \
-    "$ANALYST_INTEGRATION_DIR/world-machine-analyst-rpc.mjs" \
-    "$ANALYST_INTEGRATION_DIR/world-machine-analyst.mjs" \
-    "$ANALYST_INTEGRATION_DIR/world-machine-analyst-client.mjs" \
-    "$ANALYST_SCRIPT_DIR/run-pi-analyst.sh" \
-    "$ANALYST_BIN_DIR/world-agent-tool-stdio"; do
-    if [[ ! -s "$runtime_file" ]]; then
-        echo "bundled analyst runtime file is missing or empty: $runtime_file" >&2
-        exit 1
-    fi
-done
-if [[ ! -x "$ANALYST_SCRIPT_DIR/run-pi-analyst.sh" ]]; then
-    echo "bundled analyst launcher is not executable" >&2
-    exit 1
-fi
-if [[ ! -x "$ANALYST_BIN_DIR/world-agent-tool-stdio" ]]; then
-    echo "bundled analyst host is not executable" >&2
-    exit 1
-fi
-
 plutil -lint "$APP_DIR/Contents/Info.plist"
 
-python3 - "$APP_DIR/Contents/Info.plist" "$INCLUDED_PACK_DIR" "$ANALYST_RUNTIME_DIR" \
+python3 - "$APP_DIR/Contents/Info.plist" "$INCLUDED_PACK_DIR" \
     "${INCLUDED_PACK_NAMES[@]}" <<'PY'
 import plistlib
 import sys
@@ -241,7 +194,6 @@ from pathlib import Path
 
 plist_path = Path(sys.argv[1])
 included_pack_dir = Path(sys.argv[2])
-analyst_runtime_dir = Path(sys.argv[3])
 with plist_path.open("rb") as file:
     plist = plistlib.load(file)
 
@@ -278,26 +230,13 @@ assert "public.data" in pack["UTTypeConformsTo"]
 assert "public.content" in pack["UTTypeConformsTo"]
 assert pack["UTTypeTagSpecification"]["public.filename-extension"] == ["worldpack"]
 
-expected_packs = {f"{name}.worldpack" for name in sys.argv[4:]}
+expected_packs = {f"{name}.worldpack" for name in sys.argv[3:]}
 assert expected_packs, "build-app.sh passed no included Pack names"
 actual_packs = {path.name for path in included_pack_dir.iterdir() if path.is_file()}
 assert actual_packs == expected_packs, (actual_packs, expected_packs)
 assert all((included_pack_dir / name).stat().st_size > 0 for name in expected_packs)
-
-expected_runtime_files = {
-    "integrations/pi/world-machine-analyst-turn-host.mjs",
-    "integrations/pi/world-machine-analyst-rpc.mjs",
-    "integrations/pi/world-machine-analyst.mjs",
-    "integrations/pi/world-machine-analyst-client.mjs",
-    "scripts/run-pi-analyst.sh",
-    "bin/world-agent-tool-stdio",
-}
-for relative in expected_runtime_files:
-    path = analyst_runtime_dir / relative
-    assert path.is_file() and path.stat().st_size > 0, path
 PY
 
-sign_executable "$ANALYST_BIN_DIR/world-agent-tool-stdio"
 sign_executable "$APP_DIR"
 codesign --verify --strict --verbose=2 "$APP_DIR"
 if [[ "$SIGNING_IDENTITY" != "-" ]]; then

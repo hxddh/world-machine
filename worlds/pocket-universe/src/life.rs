@@ -42,6 +42,9 @@ const MARS: &[Activity] = &[
             "Survey done. The dust got in everything.",
             "Charted the crater rim. Beautiful, in a dead sort of way.",
             "Found a vein of ice under the ridge. {friend} owes me a drink.",
+            "Walked the survey line out to the old beacon and back.",
+            "Took readings at the dune field. The wind moved my markers.",
+            "Surveyed the far slope. Nothing but rock and more rock.",
         ],
         gives: &[],
     },
@@ -56,6 +59,9 @@ const MARS: &[Activity] = &[
             "{other} brought me a broken drill. It's a drill again now.",
             "Rewired {other}'s helmet lamp. Let there be light.",
             "Patched the rover seat for {other}. Again.",
+            "{other} dropped off a cracked visor. Good as new.",
+            "{other} and I fixed the winch on the rover. It only took all sol.",
+            "{other} needed a hinge fixed. Took five minutes, and an hour of chat.",
         ],
         gives: &[],
     },
@@ -70,6 +76,8 @@ const MARS: &[Activity] = &[
             "{other} and I picked the beans. Mostly I ate them.",
             "Pollinated the tomatoes with {other}. With a paintbrush.",
             "{other} and I counted the new shoots. Ninety-two.",
+            "{other} and I repotted the seedlings. Dirt everywhere.",
+            "Trimmed the vines. The greenhouse smells like summer.",
         ],
         gives: &[],
     },
@@ -84,6 +92,9 @@ const MARS: &[Activity] = &[
             "Dreamed of rain. Real rain.",
             "Slept through the dust alarm. Oops.",
             "{friend} let me sleep in. Hero.",
+            "Napped on the airlock bench. Don't tell anyone.",
+            "Woke up before the alarm for once.",
+            "Earplugs in, blanket up. Bliss.",
         ],
         gives: &[],
     },
@@ -98,6 +109,8 @@ const MARS: &[Activity] = &[
             "Sat among the plants in {place}. It smells like Earth.",
             "Watched Phobos cross the sky.",
             "{friend} says I stare at the horizon too much.",
+            "Counted the stars over the ridge. Lost count.",
+            "The dust settled and the sky went pink.",
         ],
         gives: &[],
     },
@@ -112,6 +125,8 @@ const MARS: &[Activity] = &[
             "Old records with {other}. We sang. Badly.",
             "{other} found a record I hadn't heard. Rare, out here.",
             "Lay back and let {other} pick the music.",
+            "{other} knows every song on the old tapes.",
+            "Turned the music up. Nobody complained.",
         ],
         gives: &[],
     },
@@ -126,6 +141,8 @@ const MARS: &[Activity] = &[
             "{other} made pancakes. On Mars! Pancakes!",
             "Ate with {other} and talked about the sea.",
             "Burnt the stew. {other} ate it anyway. Hero.",
+            "{other} and I shared the last of the chocolate.",
+            "Long supper, longer stories.",
         ],
         gives: &[],
     },
@@ -140,6 +157,8 @@ const MARS: &[Activity] = &[
             "Beat {other} at chess. Finally.",
             "{other} taught me a card game from home.",
             "{other} took my queen in four moves. Humiliating.",
+            "{other} and I played until the lights dimmed. A draw.",
+            "Lost at chess again. I blame the gravity.",
         ],
         gives: &[],
     },
@@ -154,6 +173,8 @@ const MARS: &[Activity] = &[
             "Heard back from Earth. Everyone's well.",
             "Recorded a message for my sister. Kept it cheerful.",
             "Told Earth all about {friend}. They're jealous.",
+            "Sent Earth a picture of the sunset.",
+            "Waited all sol for a reply. Worth it.",
         ],
         gives: &[],
     },
@@ -168,6 +189,8 @@ const MARS: &[Activity] = &[
             "{other} and I raced to the ridge. I lost.",
             "{other} spotted a dust devil. We watched it dance.",
             "Out on the rim with {other}. Earth is a blue dot from here.",
+            "{other} and I sat on the rim and said nothing for an hour.",
+            "Found our old boot prints on the rim. Still there.",
         ],
         gives: &[],
     },
@@ -182,6 +205,8 @@ const MARS: &[Activity] = &[
             "{other} knows the constellations now. From Mars they look odd.",
             "Showed {other} how the air recycler works.",
             "{other} asked a hundred questions. Good ones.",
+            "{other} fixed the pump alone today. I taught them that!",
+            "{other} learned the airlock drill. Perfect first time.",
         ],
         gives: &[],
     },
@@ -226,6 +251,8 @@ const MARS: &[Activity] = &[
             "Designing a greenhouse extension with {other}.",
             "{other} and I aligned the mirror. Nearly.",
             "Sketched plans with {other} till the lights dimmed.",
+            "{other} and I ground the lens a little finer.",
+            "The telescope's nearly done. One more screw.",
         ],
         gives: &[],
     },
@@ -684,7 +711,18 @@ fn traits(person: EntityId) -> Option<[&'static str; 2]> {
         SLOT_B => ["steady", "warm"],
         SLOT_E => ["restless", "sociable"],
         NEWCOMER => ["shy", "dreamy"],
-        _ => return None,
+        // Whoever comes to stay has two traits of their own, turn and turn
+        // about, so no two arrivals in a row are alike and nobody is left
+        // to speak in the words everyone without traits would share.
+        other => {
+            let n = other.0 as usize;
+            let first = lives::TRAITS[n % lives::TRAITS.len()];
+            let mut second = lives::TRAITS[(n * 3 + 5) % lives::TRAITS.len()];
+            if second == first {
+                second = lives::TRAITS[(n + 1) % lives::TRAITS.len()];
+            }
+            [first, second]
+        }
     })
 }
 
@@ -978,7 +1016,7 @@ pub(crate) fn cast(state: &WorldState) -> Cast {
         fund: None,
         visitors: Some(visitors),
         most_people: 8,
-        most_open: 1,
+        most_open: 2,
         voice: match seed.as_str() {
             "1980s-town" => crate::voices::town,
             "penguin-civilization" => crate::voices::ice,
@@ -1007,9 +1045,12 @@ pub(crate) fn commands(world: &World) -> Vec<world_projection::ProjectionCommand
                 id: format!("life.{}", situation.key),
                 prompt: situation.prompt.clone(),
             };
+            // Nobody here keeps a common fund to throw a party from.
+            let party = situation.key.starts_with("party.");
             situation
                 .answers
                 .into_iter()
+                .filter(move |answer| !(party && answer.id == "party"))
                 .map(move |answer| world_projection::ProjectionCommand {
                     id: format!("{LIFE_COMMAND}{}.{}", situation.key, answer.id),
                     title: answer.title,
@@ -1037,6 +1078,18 @@ pub(crate) fn keepsakes(world: &World) -> Vec<world_projection::Keepsake> {
             what: kept.what,
             note: kept.note,
             moment: world_projection::SelectionId::Event(kept.event),
+        })
+        .collect()
+}
+
+/// Letters the player has been written, oldest first, for the letter box.
+pub(crate) fn letters(world: &World) -> Vec<world_projection::Letter> {
+    lives::letters(world)
+        .into_iter()
+        .map(|letter| world_projection::Letter {
+            from: world_projection::SelectionId::Entity(letter.from),
+            note: letter.note,
+            moment: world_projection::SelectionId::Event(letter.event),
         })
         .collect()
 }

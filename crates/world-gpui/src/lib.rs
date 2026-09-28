@@ -2,7 +2,9 @@ pub mod art;
 pub mod diorama;
 pub mod i18n;
 mod macos;
+pub mod postcard;
 pub mod scene;
+pub mod strip;
 pub mod text_input;
 pub mod ui;
 

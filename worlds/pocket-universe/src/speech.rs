@@ -77,20 +77,9 @@ fn weather(world: &World) -> String {
     .into()
 }
 
-fn troubled(world: &World) -> bool {
-    matches!(
-        crate::pressure::pressure_id_from_state(world.state()).as_str(),
-        "warning" | "crisis" | "lost"
-    )
-}
-
 fn place_mood(world: &World) -> String {
     let anchor = lives::name(world.state(), SLOT_A);
-    if troubled(world) {
-        format!("Worried. {anchor} needs all of us.")
-    } else {
-        format!("{anchor}'s holding together. We're managing.")
-    }
+    format!("{anchor}'s holding together. We're managing.")
 }
 
 fn place_line(world: &World, who: EntityId, place: EntityId) -> String {
@@ -98,8 +87,6 @@ fn place_line(world: &World, who: EntityId, place: EntityId) -> String {
     let name = lives::name(state, place);
     let mut line = if crate::life::work(state, who) == Some(place) {
         format!("{name}? It's where I spend my days. I know every corner of it.")
-    } else if place == SLOT_A && troubled(world) {
-        format!("{name} is in trouble. We all feel it.")
     } else if place == SLOT_A {
         format!("{name}'s home. It holds us all together.")
     } else {

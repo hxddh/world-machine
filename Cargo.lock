@@ -1707,26 +1707,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "future-archaeologist"
-version = "0.1.0"
-dependencies = [
- "world-core",
- "world-host",
- "world-persistence",
- "world-projection",
-]
-
-[[package]]
-name = "future-archaeologist-desktop"
-version = "0.1.0"
-dependencies = [
- "future-archaeologist",
- "gpui",
- "gpui_platform",
- "world-gpui",
-]
-
-[[package]]
 name = "futures"
 version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2850,23 +2830,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "lineage-explorer-desktop"
-version = "0.1.0"
-dependencies = [
- "gpui",
- "gpui_platform",
- "world-document",
- "world-host",
- "world-library",
- "world-lineage",
- "world-lineage-compare",
- "world-lineage-gpui",
- "world-persistence",
- "world-projection",
- "world-strategy-gpui",
-]
-
-[[package]]
 name = "linebender_resource_handle"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3099,30 +3062,6 @@ dependencies = [
  "log",
  "objc",
  "paste",
-]
-
-[[package]]
-name = "micro-company"
-version = "0.1.0"
-dependencies = [
- "world-agent",
- "world-core",
- "world-host",
- "world-persistence",
- "world-projection",
-]
-
-[[package]]
-name = "micro-company-pack"
-version = "0.1.0"
-dependencies = [
- "micro-company",
- "world-host",
- "world-pack-catalog",
- "world-pack-server",
- "world-persistence",
- "world-pi-rpc",
- "world-projection",
 ]
 
 [[package]]
@@ -3897,14 +3836,13 @@ dependencies = [
 
 [[package]]
 name = "pocket-universe"
-version = "0.28.0"
+version = "0.29.0"
 dependencies = [
  "calendar",
  "conversation",
  "hands",
  "lives",
  "storylets",
- "world-agent",
  "world-compare",
  "world-core",
  "world-document",
@@ -3917,7 +3855,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-universe-pack"
-version = "0.28.0"
+version = "0.29.0"
 dependencies = [
  "pocket-universe",
  "serde_json",
@@ -5033,18 +4971,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "strategy-comparison-desktop"
-version = "0.1.0"
-dependencies = [
- "gpui",
- "gpui_platform",
- "tiny-society",
- "world-host",
- "world-strategy",
- "world-strategy-gpui",
-]
-
-[[package]]
 name = "strict-num"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5438,16 +5364,6 @@ dependencies = [
  "world-pack-protocol",
  "world-persistence",
  "world-projection",
-]
-
-[[package]]
-name = "tiny-society-desktop"
-version = "0.1.0"
-dependencies = [
- "gpui",
- "gpui_platform",
- "tiny-society",
- "world-gpui",
 ]
 
 [[package]]
@@ -6663,71 +6579,15 @@ dependencies = [
 ]
 
 [[package]]
-name = "world-agent-tool-host"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "world-agent-tools",
- "world-investigation",
- "world-query",
-]
-
-[[package]]
-name = "world-agent-tool-stdio"
-version = "0.1.0"
-dependencies = [
- "serde_json",
- "world-agent-tool-host",
- "world-agent-tools",
- "world-builtins",
- "world-investigation-local",
- "world-projection",
-]
-
-[[package]]
-name = "world-agent-tools"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "world-investigation",
- "world-query",
-]
-
-[[package]]
-name = "world-analyst-client"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "world-builtins"
 version = "0.1.0"
 dependencies = [
- "future-archaeologist",
  "pocket-universe",
  "tiny-society",
  "world-host",
  "world-i18n",
  "world-persistence",
  "world-projection",
-]
-
-[[package]]
-name = "world-cli"
-version = "0.1.0"
-dependencies = [
- "serde_json",
- "world-builtins",
- "world-integrity",
- "world-investigation",
- "world-investigation-local",
- "world-persistence",
- "world-projection",
- "world-query",
 ]
 
 [[package]]
@@ -6783,69 +6643,18 @@ dependencies = [
 ]
 
 [[package]]
-name = "world-investigation"
-version = "0.1.0"
-dependencies = [
- "world-query",
-]
-
-[[package]]
-name = "world-investigation-local"
-version = "0.1.0"
-dependencies = [
- "world-builtins",
- "world-host",
- "world-investigation",
- "world-persistence",
- "world-projection",
- "world-query",
-]
-
-[[package]]
 name = "world-library"
 version = "0.1.0"
 dependencies = [
+ "base64",
+ "flate2",
  "serde_json",
+ "world-builtins",
  "world-document",
  "world-host",
  "world-pack-protocol",
  "world-persistence",
  "world-projection",
-]
-
-[[package]]
-name = "world-lineage"
-version = "0.1.0"
-dependencies = [
- "world-document",
- "world-library",
- "world-persistence",
-]
-
-[[package]]
-name = "world-lineage-compare"
-version = "0.1.0"
-dependencies = [
- "world-compare",
- "world-document",
- "world-host",
- "world-library",
- "world-lineage",
- "world-persistence",
- "world-projection",
-]
-
-[[package]]
-name = "world-lineage-gpui"
-version = "0.1.0"
-dependencies = [
- "gpui",
- "world-document",
- "world-gpui",
- "world-library",
- "world-lineage",
- "world-persistence",
- "world-theme",
 ]
 
 [[package]]
@@ -6857,24 +6666,17 @@ dependencies = [
  "serde",
  "serde_json",
  "url",
- "world-analyst-client",
  "world-builtins",
- "world-document",
  "world-gpui",
  "world-host",
  "world-i18n",
  "world-library",
- "world-lineage",
- "world-lineage-compare",
- "world-lineage-gpui",
  "world-observer",
  "world-pack-bundle",
  "world-pack-catalog",
  "world-pack-process",
  "world-persistence",
  "world-projection",
- "world-strategy-document",
- "world-strategy-gpui",
  "world-theme",
  "world-voice",
 ]
@@ -6966,51 +6768,6 @@ name = "world-projection"
 version = "0.1.0"
 dependencies = [
  "world-core",
-]
-
-[[package]]
-name = "world-query"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "world-compare",
- "world-core",
- "world-projection",
-]
-
-[[package]]
-name = "world-strategy"
-version = "0.1.0"
-dependencies = [
- "tiny-society",
- "world-compare",
- "world-host",
- "world-persistence",
- "world-projection",
-]
-
-[[package]]
-name = "world-strategy-document"
-version = "0.1.0"
-dependencies = [
- "world-host",
- "world-library",
- "world-persistence",
- "world-projection",
- "world-strategy",
-]
-
-[[package]]
-name = "world-strategy-gpui"
-version = "0.1.0"
-dependencies = [
- "gpui",
- "world-compare",
- "world-gpui",
- "world-projection",
- "world-strategy",
- "world-theme",
 ]
 
 [[package]]

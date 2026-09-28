@@ -4,12 +4,7 @@
 //! the same every time the World is replayed, and none of it is ever read
 //! back as World state.
 
-use crate::{
-    seed_id, BOLD_PATH_COMMAND, CAREFUL_PATH_COMMAND, ENTRUST_LEGACY_COMMAND,
-    HOLD_PRESSURE_COMMAND, OUTWARD_POSTURE_COMMAND, REACH_PRESSURE_COMMAND, RECOVER_ANCHOR_COMMAND,
-    RELATIONSHIP, RELATIONSHIP_SOCIAL_ARC, RELATIONSHIP_TENSION, RELATIONSHIP_TRUST,
-    ROOTED_POSTURE_COMMAND, SHARED_PROJECT_COMMAND, SLOT_A, SLOT_B, SLOT_D, SLOT_E,
-};
+use crate::{seed_id, RELATIONSHIP, RELATIONSHIP_TENSION, RELATIONSHIP_TRUST, SLOT_B, SLOT_E};
 use world_core::{EntityId, Event, Value, World};
 use world_projection::{entity_title, Carry, Look, ProjectionCommand, SelectionId, Talk, Voice};
 
@@ -26,21 +21,6 @@ fn first_name(world: &World, id: EntityId) -> String {
         .map(entity_title)
         .and_then(|name| name.split_whitespace().next().map(str::to_string))
         .unwrap_or_else(|| "them".into())
-}
-
-fn title(world: &World, id: EntityId) -> String {
-    world
-        .state()
-        .entity(id)
-        .map(entity_title)
-        .unwrap_or_else(|| "home".into())
-}
-
-fn text(world: &World, id: EntityId, key: &str) -> Option<String> {
-    match world.state().entity(id)?.component(key)? {
-        Value::Text(value) => Some(value.clone()),
-        _ => None,
-    }
 }
 
 fn integer(world: &World, id: EntityId, key: &str) -> i64 {
@@ -100,130 +80,19 @@ pub(crate) fn look(world: &World, id: EntityId) -> Option<Look> {
     })
 }
 
-/// Who says the line for a moment, and what they say. The keeper speaks
-/// for home, the explorer for going out; what someone did, they say.
+/// Who says the line for a moment, and what they say.
 fn said(world: &World, event: &Event) -> Option<(EntityId, String)> {
     if let Some(said) = crate::story::line(world, event) {
         world.state().entity(said.0)?;
         return Some(said);
     }
-    let seed = seed_id(world);
-    let anchor = title(world, SLOT_A);
-    let vehicle = title(world, SLOT_D);
-    let doer = event.actor.filter(|id| [SLOT_B, SLOT_E].contains(id));
-    // Once people live their own lives, what they did with the day is what
-    // they talk about.
-    let living = lives::enrolled(world.state(), SLOT_B);
-    if living
-        && matches!(
-            event.kind.as_str(),
-            "agent_cared_for_world" | "agent_explored_world" | "universe_grew"
-        )
-    {
-        return None;
-    }
-    let (speaker, line) = match event.kind.as_str() {
-        "universe_seeded" => (SLOT_B, "Right. Let's make this place a home.".to_string()),
-        "agent_cared_for_world" | "agent_explored_world" => {
-            let doer = doer?;
-            if let Some(memory) = crate::story::remembered(world, doer) {
-                return Some((doer, memory));
-            }
-            let lines = if event.kind == "agent_cared_for_world" {
-                match seed {
-                    "mars-colony" => [
-                        "Seals checked. Air's steady.".to_string(),
-                        "The wheat's coming up green.".into(),
-                        format!("Scrubbed the filters at {anchor}."),
-                        "Water recycler's humming nicely.".into(),
-                        "Swept the dust out of the airlock.".into(),
-                    ],
-                    "1980s-town" => [
-                        format!("Lights are on at {anchor}."),
-                        "Fixed the jammed coin slot.".into(),
-                        "New high score on the board.".into(),
-                        "Mopped the floor, again.".into(),
-                        "The regulars are in tonight.".into(),
-                    ],
-                    _ => [
-                        "The ice is holding. The vault is full.".to_string(),
-                        "Lanterns trimmed and lit.".into(),
-                        "Patched a crack in the bridge.".into(),
-                        "Counted the fish twice.".into(),
-                        "The chicks are all asleep.".into(),
-                    ],
-                }
-            } else {
-                match seed {
-                    "mars-colony" => [
-                        format!("Taking {vehicle} past the ridge."),
-                        "Found a new way down the crater.".into(),
-                        "The dunes moved again overnight.".into(),
-                        "Picked up odd rocks by the ridge.".into(),
-                        format!("{vehicle}'s running well today."),
-                    ],
-                    "1980s-town" => [
-                        format!("Catching {vehicle} across town."),
-                        "Found a record shop I'd never seen.".into(),
-                        "Took the long way home.".into(),
-                        "Somebody called in a song request.".into(),
-                        "Walked the whole Maple Loop.".into(),
-                    ],
-                    _ => [
-                        "Going out over the ice.".to_string(),
-                        "Saw a whale past the floe.".into(),
-                        "Found a new fishing hole.".into(),
-                        "The wind's changed out there.".into(),
-                        "Slid all the way down the ridge!".into(),
-                    ],
-                }
-            };
-            let today = (event.world_time / crate::BACKGROUND_PERIOD % 5) as usize;
-            (doer, lines[today].clone())
+    match event.kind.as_str() {
+        "universe_seeded" => {
+            world.state().entity(SLOT_B)?;
+            Some((SLOT_B, "Right. Let's make this place a home.".to_string()))
         }
-        "partnership_formed" => (SLOT_E, "Let's do the next part together.".into()),
-        "relationship_fractured" => (SLOT_B, "Fine. Go on without me.".into()),
-        "universe_grew" => (
-            doer.unwrap_or(SLOT_B),
-            [
-                "Look at that. We built it.",
-                "A little bigger every day.",
-                "It's starting to feel like home.",
-                "Not bad for two of us.",
-                "Another piece in place.",
-            ][(event.world_time / crate::BACKGROUND_PERIOD % 5) as usize]
-                .into(),
-        ),
-        "pressure_rising" => (
-            SLOT_B,
-            match event.world_time / crate::BACKGROUND_PERIOD % 4 {
-                0 => format!("Something's wrong with {anchor}."),
-                1 => format!("{anchor} doesn't sound right."),
-                2 => format!("I don't like the look of {anchor}."),
-                _ => format!("{anchor}'s acting up again."),
-            },
-        ),
-        "pressure_peaked" => (SLOT_B, format!("{anchor} can't take much more!")),
-        "pressure_held" => (SLOT_B, "We held it. We actually held it!".into()),
-        "pressure_reached" => (SLOT_E, "I found a way through.".into()),
-        "anchor_lost" => (SLOT_B, format!("We've lost {anchor}.")),
-        "anchor_recovered" => (SLOT_B, format!("{anchor} is ours again.")),
-        "world_posture_chosen" => (doer.unwrap_or(SLOT_E), "Then that's the way we go.".into()),
-        "world_legacy_formed" => (SLOT_B, "This is how they'll remember us.".into()),
-        "era_began" => (
-            SLOT_E,
-            [
-                "It feels like a new chapter.",
-                "Something's changed. Can you feel it?",
-                "New times, then.",
-                "It's a different place than it was.",
-            ][(event.world_time / crate::BACKGROUND_PERIOD % 4) as usize]
-                .into(),
-        ),
-        _ => return None,
-    };
-    world.state().entity(speaker)?;
-    Some((speaker, line))
+        _ => None,
+    }
 }
 
 /// Everything the pair said worth drawing: every moment of the story, and
@@ -256,33 +125,9 @@ pub(crate) fn request(
     who: EntityId,
     commands: &[ProjectionCommand],
 ) -> Option<(String, Option<String>)> {
-    if let Some((line, grant)) = crate::story::wanting(world, who) {
-        let grant = grant.filter(|id| commands.iter().any(|command| &command.id == id));
-        return Some((line, grant));
-    }
-    let anchor = title(world, SLOT_A);
-    let other = first_name(world, if who == SLOT_B { SLOT_E } else { SLOT_B });
-    let theirs = |command: &&ProjectionCommand| {
-        command.asker == Some(SelectionId::Entity(who))
-            || command.asker == Some(SelectionId::Entity(RELATIONSHIP))
-                && command.id == SHARED_PROJECT_COMMAND
-    };
-    let command = commands.iter().find(theirs)?;
-    let line = match command.id.as_str() {
-        SHARED_PROJECT_COMMAND => {
-            format!("Something to build together. {other} and I could use that.")
-        }
-        BOLD_PATH_COMMAND => "Let me follow it. I'll be careful.".into(),
-        CAREFUL_PATH_COMMAND => "Keep us close to home for now.".into(),
-        OUTWARD_POSTURE_COMMAND => "Let us look outward.".into(),
-        ROOTED_POSTURE_COMMAND => "Let us put down roots here.".into(),
-        HOLD_PRESSURE_COMMAND => format!("Help me hold {anchor} together."),
-        REACH_PRESSURE_COMMAND => "Let me go and find another way.".into(),
-        RECOVER_ANCHOR_COMMAND => format!("Help me take {anchor} back."),
-        ENTRUST_LEGACY_COMMAND => "Let someone carry this on after us.".into(),
-        _ => return None,
-    };
-    Some((line, Some(command.id.clone())))
+    let (line, grant) = crate::story::wanting(world, who)?;
+    let grant = grant.filter(|id| commands.iter().any(|command| &command.id == id));
+    Some((line, grant))
 }
 
 /// What a player can ask each of the pair, and what they answer, from how
@@ -291,14 +136,8 @@ pub(crate) fn talks(world: &World, commands: &[ProjectionCommand]) -> Vec<Talk> 
     if seed_id(world) == "unseeded" {
         return Vec::new();
     }
-    let arc = text(world, RELATIONSHIP, RELATIONSHIP_SOCIAL_ARC).unwrap_or_default();
     let trust = integer(world, RELATIONSHIP, RELATIONSHIP_TRUST);
     let tension = integer(world, RELATIONSHIP, RELATIONSHIP_TENSION);
-    let anchor = title(world, SLOT_A);
-    let troubled = matches!(
-        crate::pressure::pressure_id_from_state(world.state()).as_str(),
-        "warning" | "crisis" | "lost"
-    );
     let mut talks = Vec::new();
     for (who, other) in [(SLOT_B, SLOT_E), (SLOT_E, SLOT_B)] {
         if world.state().entity(who).is_none() {
@@ -307,20 +146,14 @@ pub(crate) fn talks(world: &World, commands: &[ProjectionCommand]) -> Vec<Talk> 
         let other_name = first_name(world, other);
         let person = SelectionId::Entity(who);
         let (granted, grudges) = crate::story::kindness(world, who);
-        let how = if troubled {
-            format!("Worried. {anchor} needs us.")
-        } else if let Some(how) = lives::how_are_you(world, who) {
+        let how = if let Some(how) = lives::how_are_you(world, who) {
             how
         } else if grudges > granted {
             "Sore. Nobody listens when I ask for anything.".into()
         } else if granted > grudges {
             "Good. I feel looked after here.".into()
         } else {
-            match text(world, who, "last_intent").as_deref() {
-                Some("explore") => "Restless. There's more out there than we've seen.".into(),
-                Some("care") => "Busy, but it's good work.".into(),
-                _ => "Still finding my feet.".into(),
-            }
+            "Still finding my feet.".into()
         };
         talks.push(Talk {
             who: person,
@@ -328,9 +161,9 @@ pub(crate) fn talks(world: &World, commands: &[ProjectionCommand]) -> Vec<Talk> 
             answer: how,
             asks_for: None,
         });
-        let about = match arc.as_str() {
-            "partnership" => format!("I'd trust {other_name} with my life."),
-            "fracture" => format!("I'd rather not talk about {other_name}."),
+        let about = match () {
+            _ if trust >= 8 && tension <= 3 => format!("I'd trust {other_name} with my life."),
+            _ if tension >= 8 && trust <= 3 => format!("I'd rather not talk about {other_name}."),
             _ if tension > trust => format!("{other_name} and I don't see things the same way."),
             _ if trust >= 4 => format!("{other_name}'s good. I'm glad we're in this together."),
             _ => format!("{other_name} and I are still getting to know each other."),

@@ -8,8 +8,8 @@
 //! without it.
 
 use crate::{
-    seed_id, RELATIONSHIP, RELATIONSHIP_DIRECTION, RELATIONSHIP_TENSION, RELATIONSHIP_TRUST, SEED,
-    SLOT_A, SLOT_B, SLOT_C, SLOT_D, SLOT_E, UNIVERSE,
+    seed_id, RELATIONSHIP, RELATIONSHIP_TENSION, RELATIONSHIP_TRUST, SEED, SLOT_A, SLOT_B, SLOT_C,
+    SLOT_D, SLOT_E, UNIVERSE,
 };
 use std::sync::OnceLock;
 use storylets::{Choice, Condition, Deck, Ease, Effect, Goal, Outcome, Pinned, Reading, Storylet};
@@ -613,11 +613,6 @@ fn incidents() -> Vec<Spec> {
                         "Friends again?",
                         bond(2, -3),
                     )
-                    .and([Effect::Set {
-                        entity: RELATIONSHIP,
-                        key: RELATIONSHIP_DIRECTION,
-                        text: "none",
-                    }])
                     .remembered("I'm glad we talked."),
                 ),
                 no(
@@ -967,7 +962,61 @@ pub(crate) fn register_actions(
     lives::register_actions(actions, crate::life::cast)?;
     hands::register_actions(actions, crate::handwork::kit)?;
     conversation::register_actions(actions, crate::speech::kit)?;
-    calendar::register_actions(actions, crate::almanac::almanac)
+    calendar::register_actions(actions, crate::almanac::almanac)?;
+    actions.register(BondSettles)
+}
+
+/// Nothing between two people stays near either end for long: a period
+/// with trust or tension this near an end eases it one step back.
+struct BondSettles;
+const SETTLES_BELOW: i64 = 1;
+const SETTLES_ABOVE: i64 = 9;
+
+/// Whether trust or tension is near enough an end to ease back.
+fn unsettled(world: &World) -> bool {
+    [RELATIONSHIP_TRUST, RELATIONSHIP_TENSION]
+        .into_iter()
+        .any(|key| !(SETTLES_BELOW + 1..SETTLES_ABOVE).contains(&integer(world, RELATIONSHIP, key)))
+}
+
+impl world_core::Action for BondSettles {
+    fn name(&self) -> &'static str {
+        "bond_settles"
+    }
+
+    fn evaluate(
+        &self,
+        state: &world_core::WorldState,
+        _request: &world_core::ActionRequest,
+    ) -> Result<world_core::EventDraft, world_core::ActionError> {
+        let mut draft = world_core::EventDraft::new("bond_settled");
+        for key in [RELATIONSHIP_TRUST, RELATIONSHIP_TENSION] {
+            let value = match state
+                .entity(RELATIONSHIP)
+                .and_then(|bond| bond.component(key))
+            {
+                Some(Value::Integer(value)) => *value,
+                _ => continue,
+            };
+            let eased = match value {
+                ..=SETTLES_BELOW => value + 1,
+                SETTLES_ABOVE.. => value - 1,
+                _ => continue,
+            };
+            draft.changes.push(world_core::StateChange::SetComponent {
+                entity: RELATIONSHIP,
+                key: key.into(),
+                value: eased.into(),
+            });
+        }
+        if draft.changes.is_empty() {
+            return Err(world_core::ActionError::Invalid(
+                "neither trust nor tension is at an end".into(),
+            ));
+        }
+        draft.targets = vec![RELATIONSHIP];
+        Ok(draft)
+    }
 }
 
 /// The nouns each place fills into the storyteller's words.
@@ -1115,10 +1164,6 @@ fn chapter_line(event: &Event) -> Option<&'static str> {
         "amends_made" => "{explorer} and {keeper} made up after a long quarrel.",
         "explorer_rescued" => "{keeper} went out into the cold for {explorer}.",
         "beacon_invited" => "Someone answered the beacon, and was invited.",
-        "partnership_formed" => "{keeper} and {explorer} became partners.",
-        "relationship_fractured" => "{keeper} and {explorer} fell out.",
-        "anchor_lost" => "They lost {home}.",
-        "anchor_recovered" => "They took {home} back.",
         _ => return None,
     })
 }
@@ -1382,20 +1427,39 @@ pub(crate) fn tick(
     if seed_id(world) == "unseeded" {
         return Ok(Vec::new());
     }
+    let mut events = Vec::new();
+    // Reaching an end is a turning point, even as it starts to ease.
+    let ended = at_end(world);
+    if unsettled(world) {
+        events.push(
+            world
+                .execute(actions, &world_core::ActionRequest::new("bond_settles"))?
+                .id,
+        );
+    }
     let reading = Reading {
         pinned: pinned(world),
         away,
-        at_end: at_end(world),
+        at_end: ended,
         chapter_ending: Box::new(chapter_ending),
         hold: waiting_for_the_player(world),
     };
     let cast = crate::life::cast(world.state());
-    let mut events = lives::tick_holding(world, actions, &cast, away, reading.hold)?;
+    events.extend(lives::tick_holding(
+        world,
+        actions,
+        &cast,
+        away,
+        reading.hold,
+    )?);
     let kit = crate::handwork::kit(world.state());
     events.extend(hands::tick(world, actions, &kit)?);
     let almanac = crate::almanac::almanac(world.state());
     events.extend(calendar::tick(world, actions, &almanac)?);
     events.extend(storylets::tick(world, actions, &deck(), &reading)?);
+    // Each season turning brings a gift, and a year on, someone remembers.
+    events.extend(lives::season_turns(world, actions, &cast, SEASON_PERIODS)?);
+    events.extend(lives::remember_a_year(world, actions, &cast, YEAR)?);
     Ok(events)
 }
 
@@ -1685,21 +1749,6 @@ pub(crate) fn tone(event: &Event) -> Option<world_projection::Tone> {
         0 => Tone::Neutral,
         _ => Tone::Warning,
     })
-}
-
-/// What someone still says in the period after something went their
-/// way.
-pub(crate) fn remembered(world: &World, who: EntityId) -> Option<String> {
-    let now = world.world_time();
-    let since = now.saturating_sub(crate::BACKGROUND_PERIOD);
-    world
-        .events()
-        .iter()
-        .rev()
-        .take_while(|event| event.world_time >= since)
-        .filter(|event| event.world_time < now && event.actor == Some(who))
-        .find_map(|event| outcome_of(event).and_then(|said| said.remembered))
-        .map(|line| fill(world, line))
 }
 
 /// The newest thing the storyteller set going this period, told, for a

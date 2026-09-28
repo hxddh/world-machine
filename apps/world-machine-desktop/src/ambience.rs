@@ -499,7 +499,7 @@ pub mod player {
     const POLL: std::time::Duration = std::time::Duration::from_millis(100);
 
     fn directory() -> Option<PathBuf> {
-        let root = crate::analyst_settings::application_support_root().ok()?;
+        let root = crate::app_settings::application_support_root().ok()?;
         let directory = root.join("Ambience");
         std::fs::create_dir_all(&directory).ok()?;
         Some(directory)

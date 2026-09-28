@@ -1,4 +1,5 @@
 mod revision;
+mod world_code;
 
 use revision::DocumentRevision;
 use std::error::Error;
@@ -11,6 +12,12 @@ use world_document::{DocumentError, WorldDocument, WorldDocumentMetadata};
 use world_host::{HostError, WorldRegistry, WorldSession};
 use world_persistence::{PersistenceError, WorldArchive, WorldPackRef};
 use world_projection::{ProjectionIntent, ProjectionSnapshot};
+
+pub use world_code::{
+    decode_world_code, encode_world_code, looks_like_world_code, read_world_code_file,
+    world_code_for_archive, write_world_code_file, WorldCodeError, WorldVisit, WORLD_CODE_PREFIX,
+    WORLD_CODE_SUFFIX,
+};
 
 pub const WORLD_DOCUMENT_SUFFIX: &str = ".world";
 pub const LEGACY_WORLD_DOCUMENT_SUFFIX: &str = ".world.json";
@@ -1280,7 +1287,6 @@ mod tests {
                         pack: WorldPackRef::new(MOCK_PACK, "1"),
                         title: "Mock World".into(),
                         description: "Durable session test".into(),
-                        carries_forward: Vec::new(),
                     },
                     || Ok(Box::new(MockSession { count: 0 })),
                 )

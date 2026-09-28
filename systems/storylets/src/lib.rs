@@ -248,7 +248,8 @@ pub fn progress(state: &WorldState, deck: &Deck, goal: &str) -> i64 {
     integer(state, deck.story, &key("goal", goal)).unwrap_or(0)
 }
 
-fn finished(state: &WorldState, deck: &Deck, goal: &str) -> bool {
+/// Whether a goal has all its parts done.
+pub fn finished(state: &WorldState, deck: &Deck, goal: &str) -> bool {
     deck.goals
         .iter()
         .find(|spec| spec.id == goal)
@@ -348,7 +349,43 @@ pub fn can_arise(state: &WorldState, deck: &Deck, storylet: &Storylet) -> bool {
         }
         None => true,
     };
-    rested && all_hold(state, deck, &storylet.requires)
+    rested
+        && !asked_enough_this_year(state, deck, storylet.id)
+        && all_hold(state, deck, &storylet.requires)
+}
+
+/// The most times one storylet comes up in any year of periods.
+pub const MOST_A_YEAR: usize = 6;
+
+/// Periods in a year.
+pub const YEAR_PERIODS: u64 = 365;
+
+/// The periods a storylet last came up in, oldest first, at most
+/// [`MOST_A_YEAR`] of them.
+fn recently_raised(state: &WorldState, deck: &Deck, id: &str) -> Vec<u64> {
+    match state
+        .entity(deck.story)
+        .and_then(|story| story.components.get(&key("recent", id)))
+    {
+        Some(Value::List(times)) => times
+            .iter()
+            .filter_map(|time| match time {
+                Value::Integer(at) => Some((*at).max(0) as u64),
+                _ => None,
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// Whether a storylet has already come up [`MOST_A_YEAR`] times in the
+/// year to now.
+fn asked_enough_this_year(state: &WorldState, deck: &Deck, id: &str) -> bool {
+    let recent = recently_raised(state, deck, id);
+    recent.len() >= MOST_A_YEAR
+        && recent
+            .first()
+            .is_some_and(|oldest| period_index(state, deck).saturating_sub(*oldest) < YEAR_PERIODS)
 }
 
 /// How many times a storylet has come up in this World.
@@ -809,6 +846,20 @@ impl Action for Arises {
             value: times.into(),
         });
         draft.payload.insert("times".into(), times.into());
+        let mut recent = recently_raised(state, &deck, storylet.id);
+        recent.push(period_index(state, &deck));
+        let skip = recent.len().saturating_sub(MOST_A_YEAR);
+        draft.changes.push(StateChange::SetComponent {
+            entity: deck.story,
+            key: key("recent", storylet.id),
+            value: Value::List(
+                recent
+                    .into_iter()
+                    .skip(skip)
+                    .map(|at| Value::Integer(at as i64))
+                    .collect(),
+            ),
+        });
         if times == 1 {
             draft.changes.push(StateChange::SetComponent {
                 entity: deck.story,

@@ -1,12 +1,8 @@
 use pocket_universe::{
-    BOLD_PATH_COMMAND, OUTWARD_POSTURE_COMMAND, POCKET_UNIVERSE_PACK_ID,
-    POCKET_UNIVERSE_PACK_VERSION, ROOTED_POSTURE_COMMAND, SEED_MARS_COLONY_COMMAND,
-    SHARED_PROJECT_COMMAND,
+    NUDGE_COMMAND, POCKET_UNIVERSE_PACK_ID, POCKET_UNIVERSE_PACK_VERSION, SEED_MARS_COLONY_COMMAND,
 };
 use std::env;
 use std::fs;
-#[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::process::{self, Command};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -14,48 +10,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use world_host::WorldRegistry;
 use world_pack_catalog::PackCatalog;
 use world_projection::ProjectionIntent;
-
-const MIND_ENV: &str = "WORLD_MACHINE_POCKET_UNIVERSE_MIND";
-const PI_PROGRAM_ENV: &str = "WORLD_MACHINE_PI_PROGRAM";
-
-struct EnvGuard {
-    key: &'static str,
-    previous: Option<std::ffi::OsString>,
-}
-
-impl EnvGuard {
-    fn set(key: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
-        let previous = env::var_os(key);
-        env::set_var(key, value);
-        Self { key, previous }
-    }
-}
-
-impl Drop for EnvGuard {
-    fn drop(&mut self) {
-        if let Some(previous) = self.previous.as_ref() {
-            env::set_var(self.key, previous);
-        } else {
-            env::remove_var(self.key);
-        }
-    }
-}
-
-#[cfg(unix)]
-fn write_fake_pi(path: &PathBuf) {
-    fs::write(
-        path,
-        r#"#!/bin/sh
-IFS= read -r request || exit 2
-printf '%s\n' '{"type":"text_delta","delta":"WORLD_ACTION:pocket_agent.explore"}'
-printf '%s\n' '{"type":"response","command":"prompt","success":true}'
-"#,
-    )
-    .unwrap();
-    let mut permissions = fs::metadata(path).unwrap().permissions();
-    permissions.set_mode(0o755);
-    fs::set_permissions(path, permissions).unwrap();
-}
 
 static TEMP_DIR_NONCE: AtomicU64 = AtomicU64::new(1);
 
@@ -128,12 +82,8 @@ fn pocket_universe_is_a_real_external_pack_with_durable_seed_and_growth() {
             .iter()
             .map(|gauge| gauge.id.as_str())
             .collect::<Vec<_>>(),
-        ["trust", "tension", "anchor"]
+        ["trust", "tension"]
     );
-    assert!(seeded
-        .commands
-        .iter()
-        .any(|command| !command.moves.is_empty()));
     assert!(seeded.scenery.is_some(), "a started World keeps its look");
     assert!(
         seeded
@@ -160,181 +110,33 @@ fn pocket_universe_is_a_real_external_pack_with_durable_seed_and_growth() {
             .title,
         "While you were away"
     );
-    assert!(grown
-        .commands
-        .iter()
-        .any(|command| command.id == BOLD_PATH_COMMAND));
-    let chosen = session
-        .handle(ProjectionIntent::InvokeCommand(BOLD_PATH_COMMAND.into()))
-        .unwrap();
-    let briefing = chosen.briefing.as_ref().unwrap();
-    assert_eq!(briefing.title, "Their relationship is taking shape");
-    assert!(briefing.items.iter().any(|item| {
-        item.title == "Your turn · Relationship" && item.detail.contains("leave them alone")
-    }));
-    assert!(briefing.items.iter().any(|item| {
-        item.title == "Your influence · Signal expedition" && item.detail.contains("safe ridge")
-    }));
-
-    session
-        .handle(ProjectionIntent::InvokeCommand(
-            SHARED_PROJECT_COMMAND.into(),
-        ))
-        .unwrap();
-    let second_arc = session.advance_background(3).unwrap();
-    assert_eq!(
-        second_arc.briefing.as_ref().unwrap().title,
-        "While you were away"
-    );
-    assert!(second_arc
-        .commands
-        .iter()
-        .any(|command| command.id == OUTWARD_POSTURE_COMMAND));
-    assert!(second_arc
-        .commands
-        .iter()
-        .any(|command| command.id == ROOTED_POSTURE_COMMAND));
-    let directed = session
-        .handle(ProjectionIntent::InvokeCommand(
-            OUTWARD_POSTURE_COMMAND.into(),
-        ))
-        .unwrap();
-    assert!(directed
-        .briefing
-        .as_ref()
-        .unwrap()
-        .items
-        .iter()
-        .any(|item| {
-            item.title == "World direction · Outward"
-                && item.detail.contains("Nia keeps looking outward")
-        }));
+    // The questions people ask, and what answering them moves, cross the
+    // process boundary too.
+    let mut answered = false;
+    for _ in 0..10 {
+        let snapshot = session.snapshot();
+        if let Some(answer) = snapshot
+            .commands
+            .iter()
+            .find(|command| command.question.is_some() && command.unavailable.is_none())
+        {
+            session
+                .handle(ProjectionIntent::InvokeCommand(answer.id.clone()))
+                .unwrap();
+            answered = true;
+            break;
+        }
+        session
+            .handle(ProjectionIntent::InvokeCommand(NUDGE_COMMAND.into()))
+            .unwrap();
+    }
+    assert!(answered, "somebody asks something within ten periods");
 
     let archive = session.archive().unwrap().unwrap();
-    assert!(archive
-        .events
-        .iter()
-        .any(|event| event.kind == "agent_decision_recorded"));
-    assert!(archive.events.iter().any(|event| {
-        event.kind == "agent_cared_for_world" || event.kind == "agent_explored_world"
-    }));
-    assert!(archive.events.iter().any(|event| {
-        (event.kind == "agent_cared_for_world" || event.kind == "agent_explored_world")
-            && event.payload.get("mind_profile")
-                == Some(&world_persistence::ArchivedValue::Text(
-                    "deterministic".into(),
-                ))
-    }));
     let before = session.snapshot();
     drop(session);
 
     let reopened = registry.open_archive(&archive).unwrap();
     assert_eq!(reopened.snapshot(), before);
     assert_eq!(reopened.archive().unwrap().unwrap(), archive);
-
-    #[cfg(unix)]
-    {
-        let fake_pi = root.join("fake-pi.sh");
-        write_fake_pi(&fake_pi);
-        let _mind = EnvGuard::set(MIND_ENV, "pi");
-        let pi_program = EnvGuard::set(PI_PROGRAM_ENV, &fake_pi);
-
-        let mut pi_session = registry.create(POCKET_UNIVERSE_PACK_ID).unwrap();
-        pi_session
-            .handle(ProjectionIntent::InvokeCommand(
-                SEED_MARS_COLONY_COMMAND.into(),
-            ))
-            .unwrap();
-        pi_session.advance_background(3).unwrap();
-        let pi_archive = pi_session.archive().unwrap().unwrap();
-        assert!(pi_archive.events.iter().any(|event| {
-            event.kind == "agent_decision_recorded"
-                && event.payload.get("selected_action")
-                    == Some(&world_persistence::ArchivedValue::Text(
-                        "pocket_agent.explore".into(),
-                    ))
-        }));
-        assert_eq!(
-            pi_archive
-                .events
-                .iter()
-                .filter(|event| event.kind == "agent_explored_world")
-                .count(),
-            6
-        );
-        assert!(pi_archive.events.iter().any(|event| {
-            event.kind == "agent_explored_world"
-                && event.payload.get("mind_profile")
-                    == Some(&world_persistence::ArchivedValue::Text("pi".into()))
-        }));
-        assert!(!pi_archive
-            .events
-            .iter()
-            .any(|event| event.kind == "agent_cared_for_world"));
-        drop(pi_session);
-
-        drop(pi_program);
-        let missing_pi = root.join("missing-pi");
-        let _missing_program = EnvGuard::set(PI_PROGRAM_ENV, &missing_pi);
-        let mut reopened_without_pi = registry.open_archive(&pi_archive).unwrap();
-        assert_eq!(
-            reopened_without_pi.archive().unwrap().unwrap(),
-            pi_archive,
-            "fresh Open must restore recorded truth without invoking Pi"
-        );
-        let reopened_snapshot = reopened_without_pi.snapshot();
-        let relationship = reopened_snapshot
-            .inspectors
-            .values()
-            .find(|inspector| inspector.title == "Nia ↔ Tomas")
-            .expect("Pi relationship inspector");
-        assert!(relationship
-            .sections
-            .iter()
-            .flat_map(|section| &section.rows)
-            .any(|row| row.label == "Trust" && row.value == "0"));
-        assert!(relationship
-            .sections
-            .iter()
-            .flat_map(|section| &section.rows)
-            .any(|row| row.label == "Tension" && row.value == "6"));
-        assert!(relationship
-            .sections
-            .iter()
-            .flat_map(|section| &section.rows)
-            .any(|row| row.label == "Where it stands" && row.value == "Estranged"));
-        let rover = reopened_snapshot
-            .inspectors
-            .values()
-            .find(|inspector| inspector.title == "Kestrel Rover")
-            .expect("Pi rover inspector");
-        assert!(rover
-            .sections
-            .iter()
-            .flat_map(|section| &section.rows)
-            .any(|row| row.label == "Social status" && row.value == "Split survey routes"));
-
-        for actor_title in ["Nia Chen", "Tomas Vale"] {
-            let actor = reopened_snapshot
-                .inspectors
-                .values()
-                .find(|inspector| inspector.title == actor_title)
-                .unwrap_or_else(|| panic!("missing Pi actor inspector: {actor_title}"));
-            assert!(actor
-                .sections
-                .iter()
-                .flat_map(|section| &section.rows)
-                .any(|row| { row.label == "Guided by" && row.value == "Pi" }));
-        }
-
-        let error = reopened_without_pi.advance_background(1).unwrap_err();
-        assert!(error
-            .to_string()
-            .contains("failed to start external Pi runtime"));
-        assert_eq!(
-            reopened_without_pi.archive().unwrap().unwrap(),
-            pi_archive,
-            "Pi failure must preserve M63 world-atomic rollback"
-        );
-    }
 }

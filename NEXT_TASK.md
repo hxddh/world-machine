@@ -37,7 +37,7 @@ They have not moved since `v0.2.1` and they outrank everything below if they pro
 
 3. **Is generated prose actually better?** Everything measured in 0.5 is structural — that the lines differ, not that they read well. Nobody has judged the output of a real model against the hand-written copy. That judgement needs a person, and it may send content work in a different direction entirely.
    *User-visible change:* whatever the judgement finds.
-4. **The other Packs still end.** The era engine is Pocket Universe's, and so is the voice. Tiny Society has two consequence chains and then stops; Micro Company has one arc.
+4. **The other Packs still end.** The era engine is Pocket Universe's, and so is the voice. Tiny Society has two consequence chains and then stops.
    *User-visible change:* a Tiny Society World is still worth opening on the fifth visit.
 5. **A second Tiny Society branch worth taking.** There is still only one durable fork deciding both chains.
    *User-visible change:* two different Tiny Society Worlds diverge on more than one choice.
@@ -124,11 +124,10 @@ Run at minimum:
 
 - focused `world-pack-process` unit/integration tests;
 - `bash ./scripts/check-boundaries.sh`;
-- `bash ./scripts/check-pi-analyst.sh`;
 - `cargo fmt --all -- --check`;
 - Linux Clippy with `-D warnings` and full non-GPUI workspace tests;
 - external Pack conformance;
-- macOS GPUI/desktop/app packaging + packaged Analyst smoke whenever selected by the normal path filter;
+- macOS GPUI/desktop/app packaging whenever selected by the normal path filter;
 - exact-head Codex review with zero unresolved review threads before merge.
 
 ## Non-goals

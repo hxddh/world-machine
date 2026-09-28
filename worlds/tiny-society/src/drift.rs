@@ -38,6 +38,14 @@ use world_core::{
 /// harbour keeps moving.
 pub(crate) const BACKING_LAPSES_AFTER_DAYS: u64 = 8;
 
+/// Days Mara waits to be told how to open again after the bakery shuts
+/// before she opens an owner-run counter herself.
+pub(crate) const REOPENING_DRIFTS_AFTER_DAYS: u64 = 2;
+
+/// Days after Mara last asked before she asks again, so the question comes
+/// up no more than six times a year.
+pub(crate) const REOPENING_ASKED_APART_DAYS: u64 = 61;
+
 /// Days Jonas lives beside an unusable boat before selling it himself.
 pub(crate) const SALE_DRIFTS_AFTER_DAYS: u64 = 10;
 
@@ -94,6 +102,45 @@ pub(crate) fn sea_finch_can_be_sold(state: &WorldState) -> bool {
         && backing_status(state) == BACKING_WITHDRAWN
 }
 
+/// Whether Mara is asking how to open again: the bakery shut in the last
+/// couple of days, and the closure before it (if any) was long enough ago
+/// that she has not asked lately.
+pub(crate) fn reopening_is_asked(world: &World) -> bool {
+    // Before the storyteller begins, the harbour is only its economy, and
+    // the question stays open for as long as the bakery is shut.
+    if !story_begun(world) {
+        return true;
+    }
+    let day = crate::persistence::WORLD_DAY_TICKS;
+    // Each closure is asked about unless one was asked about within the
+    // last two months; only the latest can still be open.
+    let mut asked_at = None::<u64>;
+    let mut latest = None;
+    for event in world
+        .events()
+        .iter()
+        .filter(|event| event.kind == "bakery_closed")
+    {
+        let at = event.world_time;
+        let asked = asked_at
+            .is_none_or(|asked| at.saturating_sub(asked) >= REOPENING_ASKED_APART_DAYS * day);
+        if asked {
+            asked_at = Some(at);
+        }
+        latest = Some((at, asked));
+    }
+    latest.is_some_and(|(at, asked)| {
+        asked && world.world_time().saturating_sub(at) < REOPENING_DRIFTS_AFTER_DAYS * day
+    })
+}
+
+/// Whether the storyteller has begun: a World the player is living in,
+/// not the harbour's economy on its own.
+fn story_begun(world: &World) -> bool {
+    // A begun World opens with someone coming over to say hello.
+    world.events().iter().any(|event| event.kind == "greeted")
+}
+
 /// Answer at most one overdue question per day, so a long absence unfolds as a
 /// sequence a returning visitor can read rather than resolving in one jump.
 pub(crate) fn resolve_overdue(
@@ -141,6 +188,22 @@ fn overdue(world: &World) -> Option<(&'static str, EntityId, Option<EventId>)> {
             return Some(("sell_sea_finch", JONAS, Some(withdrawn.id)));
         }
         return None;
+    }
+
+    let state = world.state();
+    if text_component(state, crate::BAKERY, crate::model::OPERATING_STATUS).ok() == Some("closed")
+        && state.relation(crate::model::MARA_BAKERY_JOB).is_none()
+        && integer_component(state, crate::model::MARA, CASH)
+            .is_ok_and(|cash| cash >= crate::recovery::LEAN_REOPEN_INVESTMENT)
+        && story_begun(world)
+        && !reopening_is_asked(world)
+    {
+        let closure = world
+            .events()
+            .iter()
+            .rev()
+            .find(|event| event.kind == "bakery_closed")?;
+        return Some(("reopen_bakery_lean", crate::model::MARA, Some(closure.id)));
     }
 
     if crate::livelihood::work_ask_is_open(world.state()) {

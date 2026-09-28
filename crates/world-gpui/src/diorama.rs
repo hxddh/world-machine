@@ -759,9 +759,10 @@ pub fn frame(
 
     // What the World is working toward stands among them, larger, as an
     // outline that fills in part by part.
-    let goal_count = snapshot.goals.len();
-    let goals = snapshot
-        .goals
+    // Only the latest few: a long ladder of works would crowd the ridge.
+    let shown_goals = &snapshot.goals[snapshot.goals.len().saturating_sub(GOALS_SHOWN)..];
+    let goal_count = shown_goals.len();
+    let goals = shown_goals
         .iter()
         .enumerate()
         .map(|(position, goal)| {
@@ -950,6 +951,9 @@ pub fn frame(
         pan: (camera.x - stage.width / 2.0) * z,
     }
 }
+
+/// How many of what the World works towards stand on the ridge.
+const GOALS_SHOWN: usize = 5;
 
 /// A curve's end and control point, in screen pixels.
 type Curve = ((f32, f32), (f32, f32));
@@ -1955,29 +1959,86 @@ fn paint_weather(
                     - 40.0;
                 art::circle(window, x, y, 1.2 * k, art::hex(0xe0a070).opacity(0.55));
             }
+            let top = frame.horizon.max(0.0);
             window.paint_quad(gpui::fill(
                 Bounds::new(
-                    point(px(ox), px(oy + frame.horizon)),
-                    size(px(width), px(height - frame.horizon)),
+                    point(px(ox), px(oy + top)),
+                    size(px(width), px(height - top)),
                 ),
-                art::hex(0xc07040).opacity(0.18),
+                linear_gradient(
+                    180.0,
+                    linear_color_stop(art::hex(0xc07040).opacity(0.0), 0.0),
+                    linear_color_stop(art::hex(0xc07040).opacity(0.18), 0.2),
+                ),
             ));
         }
         Weather::Fog => {
-            for band in 0..4 {
-                let y = oy + frame.horizon + band as f32 * (height - frame.horizon) / 4.5;
-                let drift = (t * (4.0 + band as f32)) % 60.0;
+            for layer in fog_layers(frame.horizon, width, height, t) {
                 window.paint_quad(gpui::fill(
                     Bounds::new(
-                        point(px(ox - 60.0 + drift), px(y)),
-                        size(px(width + 120.0), px((height - frame.horizon) / 5.0)),
+                        point(px(ox + layer.x), px(oy + layer.y)),
+                        size(px(layer.w), px(layer.h)),
                     ),
-                    gpui::white().opacity(0.22),
+                    linear_gradient(
+                        180.0,
+                        linear_color_stop(gpui::white().opacity(layer.top), 0.0),
+                        linear_color_stop(gpui::white().opacity(layer.bottom), 1.0),
+                    ),
                 ));
             }
         }
         Weather::Clear | Weather::Cloudy => {}
     }
+}
+
+/// A layer of fog: where it lies on the scene, and how thick it is at its
+/// top and bottom edges.
+#[derive(Clone, Copy, Debug)]
+struct FogLayer {
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    top: f32,
+    bottom: f32,
+}
+
+/// Fog for a scene: a veil thickening towards the ground and soft wisps
+/// drifting across it. No layer has a hard edge inside the scene, so
+/// nothing reads as a band however close the camera is.
+fn fog_layers(horizon: f32, width: f32, height: f32, t: f32) -> Vec<FogLayer> {
+    let top = horizon.clamp(0.0, height);
+    let deep = (height - top).max(1.0);
+    let mut layers = vec![FogLayer {
+        x: 0.0,
+        y: top,
+        w: width,
+        h: deep,
+        top: if top > 0.0 { 0.0 } else { 0.1 },
+        bottom: 0.26,
+    }];
+    for wisp in 0..3 {
+        let centre = top + deep * (0.25 + 0.3 * wisp as f32);
+        let half = deep * 0.09;
+        let drift = (t * (4.0 + wisp as f32)) % 60.0;
+        layers.push(FogLayer {
+            x: -60.0 + drift,
+            y: centre - half,
+            w: width + 120.0,
+            h: half,
+            top: 0.0,
+            bottom: 0.14,
+        });
+        layers.push(FogLayer {
+            x: -60.0 + drift,
+            y: centre,
+            w: width + 120.0,
+            h: half,
+            top: 0.14,
+            bottom: 0.0,
+        });
+    }
+    layers
 }
 
 /// A World's cover: its landscape, what it has built, and its people and
@@ -2369,6 +2430,37 @@ mod tests {
         let (right, bottom) = close.at(&stage, stage.width, stage.height);
         assert!(left <= 0.01 && top <= 0.01);
         assert!(right >= stage.width - 0.01 && bottom >= stage.height - 0.01);
+    }
+
+    /// Fog never draws a band: down the scene its thickness never jumps,
+    /// zoomed out or right in.
+    #[test]
+    fn fog_has_no_hard_edges_at_any_zoom() {
+        let (width, height) = (1100.0_f32, 848.0_f32);
+        for horizon in [-400.0, -60.0, 0.0, 180.0, 300.0, 620.0] {
+            for t in [0.0, 7.5, 31.0] {
+                let layers = fog_layers(horizon, width, height, t);
+                let thickness = |y: f32| {
+                    layers
+                        .iter()
+                        .filter(|layer| y >= layer.y && y < layer.y + layer.h)
+                        .map(|layer| {
+                            let at = (y - layer.y) / layer.h.max(1.0);
+                            layer.top + (layer.bottom - layer.top) * at
+                        })
+                        .sum::<f32>()
+                };
+                let mut before = thickness(0.0);
+                for y in 1..height as usize {
+                    let now = thickness(y as f32);
+                    assert!(
+                        (now - before).abs() < 0.02,
+                        "a band edge at {y} with the horizon at {horizon}"
+                    );
+                    before = now;
+                }
+            }
+        }
     }
 
     /// The wheel zooms around the point under the pointer: it stays under

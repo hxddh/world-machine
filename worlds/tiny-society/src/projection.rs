@@ -103,6 +103,7 @@ pub(crate) fn snapshot_since(
         chapters: crate::story::chapters(world),
         weather: crate::story::weather(world),
         keepsakes: crate::life::keepsakes(world),
+        letters: crate::life::letters(world),
         book: crate::book::book(world),
     };
     snapshot.tell_events_as_history_does();
@@ -282,8 +283,11 @@ pub(crate) fn available_commands(world: &World) -> Vec<ProjectionCommand> {
         });
     }
 
-    let bakery_closed =
-        component_text(world, BAKERY, OPERATING_STATUS).as_deref() == Some("closed");
+    // Mara asks how to open again for a couple of days after a closure, and
+    // not again within two months; otherwise she settles it herself.
+    let bakery_closed = component_text(world, BAKERY, OPERATING_STATUS).as_deref()
+        == Some("closed")
+        && crate::drift::reopening_is_asked(world);
     let mara_can_reopen = component_integer(world, MARA, CASH)
         .is_some_and(|cash| cash >= crate::BAKERY_REOPEN_INVESTMENT);
     if bakery_closed && mara_can_reopen {
@@ -374,6 +378,7 @@ pub(crate) fn available_commands(world: &World) -> Vec<ProjectionCommand> {
     // What the player can do with their own hands comes after every
     // card; a screen offers it apart from them.
     commands.extend(crate::handwork::commands(world));
+    commands.extend(crate::life::suggestions(world));
     commands
 }
 
@@ -494,21 +499,36 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
     // collapse and the bakery's closure dropped the household budget cut that
     // caused them, because the cut was older. If beats are left out, the
     // briefing says how many rather than pretending there were none.
-    // What someone left the player while they were away closes the story
-    // of the return.
+    // What someone left or wrote the player while they were away closes
+    // the story of the return.
     if let Some(left) = relevant_events
         .iter()
         .rev()
-        .find(|event| event.kind == "keepsake_left")
+        .find(|event| matches!(event.kind.as_str(), "keepsake_left" | "letter_written"))
     {
         if let Some(title) = lives::told(left) {
-            items.push(BriefingItem {
-                selection: Some(SelectionId::Event(left.id)),
-                title,
-                detail: lives::said(left).map(|(_, note)| note).unwrap_or_default(),
-                kind: BriefingItemKind::Beat,
-                tone: world_projection::Tone::Good,
-            });
+            // In its place in time, so nothing reads before its cause.
+            let when = |item: &BriefingItem| match item.selection {
+                Some(SelectionId::Event(id)) => relevant_events
+                    .iter()
+                    .find(|event| event.id == id)
+                    .map(|event| event.world_time),
+                _ => None,
+            };
+            let at = items
+                .iter()
+                .position(|item| when(item).is_some_and(|time| time > left.world_time))
+                .unwrap_or(items.len());
+            items.insert(
+                at,
+                BriefingItem {
+                    selection: Some(SelectionId::Event(left.id)),
+                    title,
+                    detail: lives::said(left).map(|(_, note)| note).unwrap_or_default(),
+                    kind: BriefingItemKind::Beat,
+                    tone: world_projection::Tone::Good,
+                },
+            );
         }
     }
     let told = items.len();

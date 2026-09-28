@@ -6,7 +6,7 @@
 //! what a Pack is told, and the rule that a Pack given nothing behaves exactly
 //! as it always has.
 
-use world_machine_desktop::analyst_settings::{self, ConfiguredVoice};
+use world_machine_desktop::app_settings::{self, ConfiguredVoice};
 use world_machine_desktop::key_store;
 use world_pack_process::ProcessPackSource;
 
@@ -24,10 +24,10 @@ const VOICE_API: &str = "api";
 /// worth passing. Anything unreadable also reads as empty, because how a World
 /// phrases itself is never worth failing to open it over.
 pub(crate) fn pack_settings() -> Vec<(String, String)> {
-    let Ok(root) = analyst_settings::application_support_root() else {
+    let Ok(root) = app_settings::application_support_root() else {
         return Vec::new();
     };
-    let Ok(settings) = analyst_settings::load(&root) else {
+    let Ok(settings) = app_settings::load(&root) else {
         return Vec::new();
     };
     settings_for(settings.configured_voice(key_store::load()))
@@ -52,9 +52,9 @@ pub(crate) fn settings_for(voice: Option<ConfiguredVoice>) -> Vec<(String, Strin
 /// Whether the World voice is switched on at all, read without touching
 /// the keychain, so a window can tell cheaply whether to ask a model.
 pub(crate) fn voice_on() -> bool {
-    analyst_settings::application_support_root()
+    app_settings::application_support_root()
         .ok()
-        .and_then(|root| analyst_settings::load(&root).ok())
+        .and_then(|root| app_settings::load(&root).ok())
         .is_some_and(|settings| settings.world_voice)
 }
 
@@ -62,8 +62,8 @@ pub(crate) fn voice_on() -> bool {
 /// or nothing if no model is configured or it had nothing to say. Reads
 /// the key, so it belongs off the window's thread.
 pub(crate) fn ask_model(prompt: &str) -> Option<String> {
-    let root = analyst_settings::application_support_root().ok()?;
-    let settings = analyst_settings::load(&root).ok()?;
+    let root = app_settings::application_support_root().ok()?;
+    let settings = app_settings::load(&root).ok()?;
     let mut completion = model_for(settings.configured_voice(key_store::load()))?.completion()?;
     completion.complete(prompt)
 }

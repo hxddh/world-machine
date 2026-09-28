@@ -1,13 +1,10 @@
 //! Non-View native product ownership for World Machine desktop features.
 //!
-//! UI code consumes the analyst session, readiness, and persisted runtime-settings APIs here
-//! instead of owning Pi, Node, child-process, PATH resolution, filesystem persistence, or
-//! protocol lifecycle details directly.
+//! UI code consumes the persisted settings, sound and window-state APIs here
+//! instead of owning filesystem persistence or audio details directly.
 
 pub mod ambience;
-pub mod analyst_readiness;
-pub mod analyst_session;
-pub mod analyst_settings;
+pub mod app_settings;
 pub mod display;
 pub mod key_store;
 pub mod music;

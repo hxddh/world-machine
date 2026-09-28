@@ -199,7 +199,7 @@ fn incident(asker: EntityId, eases: Vec<Ease>) -> Shape {
         want: false,
         requires: Vec::new(),
         lasts: 2,
-        rests: 12,
+        rests: 16,
         weight: 2,
         eases,
         timely: false,
@@ -1328,10 +1328,334 @@ fn calendar() -> Vec<Spec> {
     days
 }
 
+/// What the harbour builds towards after the pier and the lamp, one at a
+/// time, in order: each asked for by the person who cares most, paid for
+/// by the harbour fund a part at a time. There is always one in hand.
+pub(crate) struct Work {
+    pub id: &'static str,
+    pub label: &'static str,
+    pub shape: world_projection::MarkShape,
+    champion: EntityId,
+    parts: i64,
+    cost: i64,
+    told: &'static str,
+    line: &'static str,
+}
+
+pub(crate) const WORKS: &[Work] = {
+    use world_projection::MarkShape as M;
+    &[
+        Work {
+            id: "bandstand",
+            label: "A bandstand on the square",
+            shape: M::Tent,
+            champion: SOFIA,
+            parts: 2,
+            cost: 50,
+            told: "Sofia wants a bandstand for summer nights",
+            line: "Music on the square every Saturday. Picture it.",
+        },
+        Work {
+            id: "sea_wall",
+            label: "A sea wall at the point",
+            shape: M::Pier,
+            champion: JONAS,
+            parts: 3,
+            cost: 50,
+            told: "Jonas wants a sea wall before the storms",
+            line: "One more winter like the last and the point's gone.",
+        },
+        Work {
+            id: "school_garden",
+            label: "A garden for the school",
+            shape: M::Garden,
+            champion: EMMA,
+            parts: 2,
+            cost: 30,
+            told: "Emma wants a garden for the school",
+            line: "The children should see things grow.",
+        },
+        Work {
+            id: "harbour_clock",
+            label: "The harbour clock going again",
+            shape: M::Tower,
+            champion: NOAH,
+            parts: 2,
+            cost: 60,
+            told: "Noah wants the harbour clock going again",
+            line: "Stopped at ten past four since before I was born.",
+        },
+        Work {
+            id: "boathouse",
+            label: "A boathouse for the winter",
+            shape: M::House,
+            champion: EVAN,
+            parts: 3,
+            cost: 45,
+            told: "Evan wants a boathouse for the winter",
+            line: "Somewhere dry to mend the boats.",
+        },
+        Work {
+            id: "fountain",
+            label: "A fountain on the square",
+            shape: M::Fountain,
+            champion: MIA,
+            parts: 2,
+            cost: 50,
+            told: "Mia wants a fountain on the square",
+            line: "A fountain! With a fish that spits!",
+        },
+        Work {
+            id: "fishers_statue",
+            label: "A statue of the first fishers",
+            shape: M::Statue,
+            champion: MARA,
+            parts: 2,
+            cost: 60,
+            told: "Mara wants a statue of the first fishers",
+            line: "They built this place. They deserve a stone.",
+        },
+        Work {
+            id: "new_well",
+            label: "A new well by the cottages",
+            shape: M::Well,
+            champion: LEO,
+            parts: 2,
+            cost: 40,
+            told: "Leo wants a new well by the cottages",
+            line: "The old one tastes of iron.",
+        },
+        Work {
+            id: "postbox",
+            label: "A postbox for the harbour",
+            shape: M::Postbox,
+            champion: EMMA,
+            parts: 1,
+            cost: 30,
+            told: "Emma wants a postbox so the children can write",
+            line: "Letters to the mainland, from us!",
+        },
+        Work {
+            id: "birdhouses",
+            label: "Birdhouses along the lane",
+            shape: M::Birdhouse,
+            champion: MIA,
+            parts: 2,
+            cost: 20,
+            told: "Mia wants birdhouses along the lane",
+            line: "The swallows need houses too.",
+        },
+        Work {
+            id: "signposts",
+            label: "Signposts for visitors",
+            shape: M::Signpost,
+            champion: SOFIA,
+            parts: 1,
+            cost: 25,
+            told: "Sofia wants signposts for the visitors",
+            line: "Half of them end up in the harbour looking for the pub.",
+        },
+        Work {
+            id: "quay_planters",
+            label: "Flowers along the quay",
+            shape: M::Planter,
+            champion: MARA,
+            parts: 2,
+            cost: 25,
+            told: "Mara wants flowers along the quay",
+            line: "A bit of colour for market day.",
+        },
+        Work {
+            id: "school_swings",
+            label: "Swings by the school",
+            shape: M::Swing,
+            champion: MIA,
+            parts: 2,
+            cost: 35,
+            told: "Mia wants swings by the school",
+            line: "Real swings. Not a rope on a tree.",
+        },
+        Work {
+            id: "lighthouse_paint",
+            label: "The lighthouse painted",
+            shape: M::Tower,
+            champion: JONAS,
+            parts: 2,
+            cost: 45,
+            told: "Jonas wants the lighthouse painted",
+            line: "Ships can't see it for the peeling.",
+        },
+    ]
+};
+
+/// A made-up text for the life of the program: each different one is
+/// kept once, however often the deck is dealt.
+fn leak(text: String) -> &'static str {
+    static KEPT: std::sync::OnceLock<std::sync::Mutex<std::collections::BTreeSet<&'static str>>> =
+        std::sync::OnceLock::new();
+    let mut kept = KEPT
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(known) = kept.get(text.as_str()) {
+        return known;
+    }
+    let made: &'static str = Box::leak(text.into_boxed_str());
+    kept.insert(made);
+    made
+}
+
+/// The works as storylets: each asked for once the one before it is
+/// done, the first once the pier and the lamp are.
+/// One rung of the ladder of works: a work built, then painted, then
+/// planted round, each round after the one before.
+pub(crate) struct Rung {
+    pub id: &'static str,
+    pub label: &'static str,
+    pub work: &'static Work,
+    told: &'static str,
+    line: &'static str,
+}
+
+/// How many times the ladder goes round the works.
+const ROUNDS: usize = 3;
+
+/// Every rung of the ladder, in order: every work once, then each
+/// painted, then each planted round, so there is always one under way.
+pub(crate) fn ladder() -> &'static [Rung] {
+    static LADDER: std::sync::OnceLock<Vec<Rung>> = std::sync::OnceLock::new();
+    LADDER.get_or_init(|| {
+        let mut rungs = Vec::new();
+        for round in 0..ROUNDS {
+            for work in WORKS {
+                let the = the(work.label);
+                rungs.push(match round {
+                    0 => Rung {
+                        id: work.id,
+                        label: work.label,
+                        work,
+                        told: work.told,
+                        line: work.line,
+                    },
+                    1 => Rung {
+                        id: leak(format!("{}_painted", work.id)),
+                        label: leak(format!("Paint {the}")),
+                        work,
+                        told: leak(format!("It's time to paint {the}")),
+                        line: leak(format!("A lick of paint and {the} will look new again.")),
+                    },
+                    _ => Rung {
+                        id: leak(format!("{}_flowers", work.id)),
+                        label: leak(format!("Flowers round {the}")),
+                        work,
+                        told: leak(format!("Flowers would brighten {the}")),
+                        line: leak(format!(
+                            "Something growing round {the}. That's all it needs."
+                        )),
+                    },
+                });
+            }
+        }
+        rungs
+    })
+}
+
+/// "A bandstand on the square" as "the bandstand on the square".
+fn the(label: &str) -> String {
+    let rest = label
+        .strip_prefix("A ")
+        .or_else(|| label.strip_prefix("An "))
+        .or_else(|| label.strip_prefix("The "));
+    let rest = rest.unwrap_or(label);
+    let mut chars = rest.chars();
+    let lower = chars
+        .next()
+        .map(|first| first.to_lowercase().chain(chars).collect::<String>())
+        .unwrap_or_default();
+    format!("the {lower}")
+}
+
+fn works() -> Vec<Spec> {
+    use Condition::{Finished, Unfinished};
+    let mut specs = Vec::new();
+    let ladder = ladder();
+    for (index, rung) in ladder.iter().enumerate() {
+        let work = rung.work;
+        let before = if index == 0 {
+            vec![Finished("pier"), Finished("lamp")]
+        } else {
+            vec![Finished(ladder[index - 1].id)]
+        };
+        let lower = {
+            let mut chars = rung.label.chars();
+            chars
+                .next()
+                .map(|first| first.to_lowercase().chain(chars).collect::<String>())
+                .unwrap_or_default()
+        };
+        let shape = Shape {
+            asker: work.champion,
+            want: true,
+            requires: [vec![Unfinished(rung.id)], before].concat(),
+            lasts: 3,
+            // A part every fortnight or so, so a work takes a month or
+            // more and the ladder lasts past a year.
+            rests: 12,
+            weight: 4,
+            eases: vec![up("spirits")],
+            timely: false,
+        };
+        specs.push(spec(
+            leak(format!("work_{}", rung.id)),
+            shape,
+            (rung.told, rung.line),
+            vec![
+                yes(
+                    "fund",
+                    "Pay for the next part",
+                    leak(format!(
+                        "The harbour fund pays {}. {} is a part nearer.",
+                        work.cost, rung.label
+                    )),
+                    vec![has(HARBOR, work.cost)],
+                    said(
+                        leak(format!("{}_part_built", rung.id)),
+                        leak(format!("Work went on at {lower}")),
+                        "Coming along nicely.",
+                        spend(HARBOR, work.cost)
+                            .into_iter()
+                            .chain([Effect::Advance(rung.id), mood(1)]),
+                    )
+                    .remembered("It's coming along, what we're building."),
+                ),
+                no(
+                    "wait",
+                    "It can wait",
+                    "Nothing spent this time.",
+                    said(
+                        leak(format!("{}_put_off", rung.id)),
+                        leak(format!("{} was put off", rung.label)),
+                        "Another time, then.",
+                        [],
+                    ),
+                ),
+            ],
+            said(
+                leak(format!("{}_waited", rung.id)),
+                leak(format!("{} waited another while", rung.label)),
+                "It'll keep.",
+                [],
+            ),
+        ));
+    }
+    specs
+}
+
 fn specs() -> &'static [Spec] {
     static SPECS: OnceLock<Vec<Spec>> = OnceLock::new();
     SPECS.get_or_init(|| {
         let mut specs = wants();
+        specs.extend(works());
         specs.extend(incidents());
         specs.extend(calendar());
         specs.extend(threads());
@@ -1355,7 +1679,17 @@ pub(crate) fn deck() -> Deck {
                 id: "lamp",
                 parts: 2,
             },
-        ],
+        ]
+        .into_iter()
+        .chain(ladder().iter().map(|rung| Goal {
+            id: rung.id,
+            parts: if rung.id == rung.work.id {
+                rung.work.parts
+            } else {
+                2
+            },
+        }))
+        .collect(),
         chapter_periods: CHAPTER_DAYS,
         shortest_chapter: 8,
         pressures: vec!["storm_season", "hard_times", "inspector"],
@@ -1845,6 +2179,9 @@ pub(crate) fn tick(
         hold: waiting_for_the_player(world),
     };
     let mut events = settled;
+    // What the year brings comes first, so the day's round of lives knows
+    // whether the day has already brought something new.
+    events.extend(crate::years::tick(world, actions)?);
     events.extend(lives::tick_holding(
         world,
         actions,
@@ -2188,16 +2525,7 @@ pub(crate) fn remembered(world: &World, who: EntityId) -> Option<&'static str> {
 /// lamp on the point.
 pub(crate) fn goals(world: &World) -> Vec<world_projection::Goal> {
     let deck = deck();
-    [
-        ("pier", "The new pier", world_projection::MarkShape::Bridge),
-        (
-            "lamp",
-            "A lamp on the point",
-            world_projection::MarkShape::Lamp,
-        ),
-    ]
-    .into_iter()
-    .filter_map(|(id, label, shape)| {
+    let goal = |id: &str, label: &str, shape| {
         let parts = deck.goals.iter().find(|goal| goal.id == id)?.parts;
         Some(world_projection::Goal {
             id: id.into(),
@@ -2206,8 +2534,33 @@ pub(crate) fn goals(world: &World) -> Vec<world_projection::Goal> {
             done: storylets::progress(world.state(), &deck, id).clamp(0, parts) as u32,
             parts: parts as u32,
         })
-    })
-    .collect()
+    };
+    let mut goals = [
+        ("pier", "The new pier", world_projection::MarkShape::Bridge),
+        (
+            "lamp",
+            "A lamp on the point",
+            world_projection::MarkShape::Lamp,
+        ),
+    ]
+    .into_iter()
+    .filter_map(|(id, label, shape)| goal(id, label, shape))
+    .collect::<Vec<_>>();
+    // The works done so far, and the one in hand; what comes after is
+    // not known yet.
+    if goals.iter().all(|goal| goal.done >= goal.parts) {
+        for rung in ladder() {
+            let Some(next) = goal(rung.id, rung.label, rung.work.shape) else {
+                continue;
+            };
+            let finished = next.done >= next.parts;
+            goals.push(next);
+            if !finished {
+                break;
+            }
+        }
+    }
+    goals
 }
 
 /// The chapters of the harbour's story that have ended.

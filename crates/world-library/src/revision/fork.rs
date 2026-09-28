@@ -104,7 +104,6 @@ mod tests {
                         pack: WorldPackRef::new(MOCK_PACK, "1"),
                         title: "Fork Mock".into(),
                         description: "Generic durable fork test".into(),
-                        carries_forward: Vec::new(),
                     },
                     || Ok(Box::new(MockSession { world_time: 0 })),
                 )

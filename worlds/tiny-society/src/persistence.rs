@@ -15,9 +15,6 @@ use world_projection::ProjectionSnapshot;
 
 pub const TINY_SOCIETY_PACK_ID: &str = "world-machine.tiny-society";
 pub const TINY_SOCIETY_PACK_VERSION: &str = "0.11.0";
-/// Earlier versions whose Worlds this version opens and carries on, so no
-/// update ever leaves a harbour behind.
-pub const CARRIES_FORWARD: &[&str] = &["0.10.0"];
 
 pub(crate) const WORLD_DAY_TICKS: u64 = 10;
 const MORNING_OFFSET_TICKS: u64 = 5;
@@ -48,7 +45,7 @@ impl TinySociety {
 
     pub fn resume_archive(archive: &WorldArchive) -> Result<Self, Box<dyn Error>> {
         let baseline = seed::seed_world()?;
-        let world = archive.restore_carried(&tiny_society_pack_ref(), CARRIES_FORWARD, baseline)?;
+        let world = archive.restore(&tiny_society_pack_ref(), baseline)?;
         restored_simulation(world)
     }
 
@@ -238,8 +235,11 @@ fn schedule_daily_shifts(world: &mut World, world_time: u64) -> Result<(), Box<d
     if current_job(world, EMMA) == Some("teacher") {
         shifts.push((EMMA, SCHOOL, 18_i64));
     }
-    if current_job(world, LEO) == Some("pub_owner") {
-        shifts.push((LEO, PUB, 22_i64));
+    // Whoever keeps the pub: Leo, until he hands it on.
+    for keeper in [LEO, crate::SOFIA] {
+        if current_job(world, keeper) == Some("pub_owner") {
+            shifts.push((keeper, PUB, 22_i64));
+        }
     }
 
     match current_job(world, JONAS) {

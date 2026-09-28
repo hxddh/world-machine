@@ -24,8 +24,8 @@
 # given in pixels relative to Home's top-left corner, or to the newest window
 # when the x is written @x) is written to output-dir as <window-id>.png.
 # "scroll N" turns the mouse wheel N notches over the newest window. Opening
-# the third World on Home, pressing What if…, and scrolling down is
-#   scripts/linux-preview.sh shots 688 489 @1035 25 scroll 15
+# the third World on Home and scrolling down is
+#   scripts/linux-preview.sh shots 688 489 scroll 15
 # "key K" presses a key chord (such as super+comma for Settings),
 # and "hover @X Y" rests the pointer on the newest window to capture a hover.
 # "frames N" right after a click captures N frames ~0.1s apart as
@@ -43,10 +43,8 @@ rm -rf "$SRC"
 mkdir -p "$SRC"
 tar -C "$ROOT_DIR" --exclude ./target --exclude ./.git -cf - . | tar -C "$SRC" -xf -
 
-# Lift the macOS gate in the copy. analyst_readiness.rs is excluded because its
-# gates choose between genuinely different per-OS constants.
+# Lift the macOS gate in the copy.
 grep -rl 'target_os = "macos"' "$SRC/apps/world-machine-desktop" \
-    | grep -v analyst_readiness.rs \
     | xargs sed -i 's/target_os = "macos"/unix/g'
 sed -i 's/features = \["font-kit"\]/features = ["font-kit", "x11"]/' \
     "$SRC/apps/world-machine-desktop/Cargo.toml"
@@ -55,7 +53,7 @@ export CARGO_TARGET_DIR="$WORK/target"
 (
     cd "$SRC"
     cargo build -q -p world-machine-desktop \
-        -p pocket-universe-pack -p micro-company-pack -p tiny-society-pack
+        -p pocket-universe-pack -p tiny-society-pack
 )
 BIN="$CARGO_TARGET_DIR/debug"
 
@@ -66,7 +64,7 @@ if [ -z "${FRESH:-}" ]; then
     (cd "$SRC" && cargo run -q -p pocket-universe --example demo_world -- "$STATE/Worlds")
     (cd "$SRC" && cargo run -q -p tiny-society --example demo_world -- "$STATE/Worlds")
 fi
-for pack in pocket-universe micro-company tiny-society; do
+for pack in pocket-universe tiny-society; do
     "$BIN/$pack-pack" --write-bundle "$STATE/packs/$pack.worldpack"
 done
 # AWAY_HOURS=N: open every World as a return after N hours away.

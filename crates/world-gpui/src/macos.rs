@@ -103,41 +103,6 @@ impl ProjectionView {
         cx.notify();
     }
 
-    fn fork_before_selected(&mut self, cx: &mut Context<Self>) {
-        let Some(SelectionId::Event(event)) = self.selected else {
-            return;
-        };
-        let event_title = self
-            .snapshot
-            .timeline
-            .items
-            .iter()
-            .find(|item| item.id == SelectionId::Event(event))
-            .map(|item| item.title.clone())
-            .unwrap_or_else(|| "this moment".into());
-        let Some(controller) = self.controller.as_mut() else {
-            return;
-        };
-
-        match controller.handle(ProjectionIntent::ForkBeforeEvent(event)) {
-            Ok(snapshot) => {
-                let previous = self.selected;
-                self.snapshot = snapshot;
-                self.revision += 1;
-                self.before_turn = None;
-                self.retelling = None;
-                self.selected = selection_for_snapshot(previous, &self.snapshot);
-                self.status = Some(format!("Branched before “{event_title}”"));
-                self.status_is_error = false;
-            }
-            Err(error) => {
-                self.status = Some(format!("Couldn't branch here: {error}"));
-                self.status_is_error = true;
-            }
-        }
-        cx.notify();
-    }
-
     fn invoke_command(&mut self, command_id: String, cx: &mut Context<Self>) {
         let Some(controller) = self.controller.as_mut() else {
             return;
@@ -318,10 +283,9 @@ impl ProjectionView {
                             .on_click(cx.listener(|this, _, _, cx| this.end_retelling(cx))),
                     ),
             )
-            .child(ui::arrive(
+            .child(ui::slide_in(
                 telling,
                 format!("retelling-{}-{index}", self.revision()),
-                0,
             ))
             .child(
                 div()
@@ -1088,22 +1052,12 @@ impl ProjectionView {
             nodes = nodes.child(self.why_node(node, cx));
         }
 
-        let mut header = div()
+        let header = div()
             .flex()
             .items_center()
             .justify_between()
             .gap_3()
             .child(ui::heading("Why it happened"));
-        if self.controller.is_some() && self.snapshot.capabilities.fork {
-            header = header.child(
-                ui::button(
-                    "fork-before-event",
-                    "Branch from before this",
-                    ButtonKind::Secondary,
-                )
-                .on_click(cx.listener(|this, _, _, cx| this.fork_before_selected(cx))),
-            );
-        }
 
         Some(
             ui::card()

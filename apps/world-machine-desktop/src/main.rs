@@ -11,7 +11,9 @@ mod observer;
 #[cfg(target_os = "macos")]
 mod settings;
 #[cfg(target_os = "macos")]
-mod strategy_compare;
+mod sharing;
+#[cfg(target_os = "macos")]
+mod strip_window;
 #[cfg(target_os = "macos")]
 mod system_open;
 #[cfg(target_os = "macos")]
@@ -31,15 +33,13 @@ pub(crate) fn watch_appearance(window: &mut Window) {
         .detach();
 }
 #[cfg(target_os = "macos")]
-mod world_fork;
-#[cfg(target_os = "macos")]
 mod world_voice;
 
 #[cfg(target_os = "macos")]
 use gpui::{
     div, point, prelude::*, px, size, App, AppContext, Bounds, Context, Entity, Global,
-    IntoElement, PathPromptOptions, PlatformDisplay, Render, SharedString, Styled, Window,
-    WindowBounds, WindowOptions,
+    IntoElement, PathPromptOptions, Render, SharedString, Styled, Window, WindowBounds,
+    WindowOptions,
 };
 #[cfg(target_os = "macos")]
 use std::cell::RefCell;
@@ -59,9 +59,7 @@ use std::sync::{
 #[cfg(target_os = "macos")]
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 #[cfg(target_os = "macos")]
-use world_document::WorldBranchCause;
-#[cfg(target_os = "macos")]
-use world_fork::analyst_input::{self, AnalystTextInput};
+use world_gpui::text_input::{self as text_field, TextInput};
 #[cfg(target_os = "macos")]
 use world_gpui::ui;
 #[cfg(target_os = "macos")]
@@ -69,8 +67,6 @@ use world_library::{
     DurableWorldSession, LibraryError, UnreadableWorldFile, WorldDocumentId, WorldDocumentSummary,
     WorldLibrary, LEGACY_WORLD_DOCUMENT_SUFFIX, WORLD_DOCUMENT_SUFFIX,
 };
-#[cfg(target_os = "macos")]
-use world_lineage::LineageIndex;
 #[cfg(target_os = "macos")]
 use world_machine_desktop::ambience;
 #[cfg(target_os = "macos")]
@@ -88,8 +84,6 @@ use world_theme::tokens;
 const LIBRARY_OVERRIDE_ENV: &str = "WORLD_MACHINE_LIBRARY_DIR";
 #[cfg(target_os = "macos")]
 const PACK_CATALOG_OVERRIDE_ENV: &str = "WORLD_MACHINE_PACK_CATALOG";
-#[cfg(target_os = "macos")]
-const LINEAGE_CHILD_PREVIEW_LIMIT: usize = 4;
 /// 200 ms ticks between writes of changed window geometry.
 #[cfg(target_os = "macos")]
 const WINDOW_GEOMETRY_FLUSH_TICKS: u32 = 5;
@@ -197,7 +191,7 @@ fn flush_window_geometry() {
     let (home, world) = (geometry.home, geometry.world);
     drop(geometry);
 
-    let Ok(root) = world_machine_desktop::analyst_settings::application_support_root() else {
+    let Ok(root) = world_machine_desktop::app_settings::application_support_root() else {
         return;
     };
     let mut state = window_state::load(&root);
@@ -219,7 +213,7 @@ fn flush_window_geometry() {
 /// Seed the remembered geometry from disk at launch.
 #[cfg(target_os = "macos")]
 fn load_window_geometry() {
-    let Ok(root) = world_machine_desktop::analyst_settings::application_support_root() else {
+    let Ok(root) = world_machine_desktop::app_settings::application_support_root() else {
         return;
     };
     let state = window_state::load(&root);
@@ -307,7 +301,6 @@ impl world_gpui::ProjectionController for HostProjectionController {
 #[cfg(target_os = "macos")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum DocumentStatusTone {
-    Info,
     Success,
     Error,
 }
@@ -321,13 +314,6 @@ struct DocumentStatus {
 
 #[cfg(target_os = "macos")]
 impl DocumentStatus {
-    fn info(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-            tone: DocumentStatusTone::Info,
-        }
-    }
-
     fn success(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
@@ -356,12 +342,6 @@ struct WorldDocumentView {
     document: SharedDocument,
     projection: Entity<world_gpui::ProjectionView>,
     status: Option<DocumentStatus>,
-    /// Whether the optional World Analyst runtime (Node + Pi) resolved when
-    /// this document opened. The Analyst entry stays hidden otherwise so a
-    /// fresh install never surfaces a feature that needs extra software.
-    analyst_available: bool,
-    /// "Branched from …", read once when the World opens.
-    lineage_label: Option<String>,
     /// When, in Unix seconds, this World next moves on its own; read once
     /// when it opens, since it only moves between visits.
     next_move_at: Option<u64>,
@@ -375,16 +355,29 @@ impl WorldDocumentView {
         library: Arc<WorldLibrary>,
         cx: &mut Context<Self>,
     ) -> Self {
-        let document_label = session.display_name();
-        let document_name = session_display_name(&session);
-        let next_move_at = observer::next_move_in(&session, &library)
-            .zip(unix_now())
-            .map(|(remaining, now)| now + remaining);
-        let document = Rc::new(RefCell::new(SharedDocumentState {
-            session,
-            registry,
-            library,
-        }));
+        Self::with_document(
+            Rc::new(RefCell::new(SharedDocumentState {
+                session,
+                registry,
+                library,
+            })),
+            cx,
+        )
+    }
+
+    /// A window onto a World that is already open elsewhere, such as in a
+    /// strip along the edge of the screen.
+    fn with_document(document: SharedDocument, cx: &mut Context<Self>) -> Self {
+        let (document_label, document_name, next_move_at) = {
+            let state = document.borrow();
+            (
+                state.session.display_name(),
+                session_display_name(&state.session),
+                observer::next_move_in(&state.session, &state.library)
+                    .zip(unix_now())
+                    .map(|(remaining, now)| now + remaining),
+            )
+        };
         let controller = HostProjectionController {
             document: Rc::clone(&document),
         };
@@ -393,8 +386,6 @@ impl WorldDocumentView {
         // The title bar reads the World's name and what it can do from the
         // page, so it redraws whenever the page does.
         cx.observe(&projection, |_, _, cx| cx.notify()).detach();
-        let analyst_available = world_fork::analyst_available();
-        let lineage_label = world_fork::lineage_label(&document);
         // Closing the last World brings Home back, even with Settings or
         // another small window still open, and silences its sound.
         let sound_owner = cx.entity_id().as_u64();
@@ -405,6 +396,7 @@ impl WorldDocumentView {
                 let world_or_home_open = windows.iter().any(|window| {
                     window.downcast::<WorldDocumentView>().is_some()
                         || window.downcast::<WorldMachineHome>().is_some()
+                        || window.downcast::<world_gpui::strip::StripView>().is_some()
                 });
                 if !world_or_home_open {
                     if let Some(home) = cx.try_global::<HomeEntity>().map(|home| home.0.clone()) {
@@ -420,8 +412,6 @@ impl WorldDocumentView {
             document,
             projection,
             status: None,
-            analyst_available,
-            lineage_label,
             next_move_at,
         }
     }
@@ -438,29 +428,6 @@ impl WorldDocumentView {
         };
         self.document_label = label;
         self.document_name = name;
-    }
-
-    /// Opens Compare Futures for this World. Returns the Home status to show
-    /// when the request came from a Home card.
-    fn open_compare(&mut self, cx: &mut Context<Self>) -> Option<HomeStatus> {
-        match strategy_compare::open_default(&self.document, cx) {
-            Ok((left, right)) => {
-                self.status = Some(DocumentStatus::success(format!(
-                    "What if · {left} vs {right} · {} periods",
-                    strategy_compare::DEFAULT_HORIZON
-                )));
-                cx.notify();
-                None
-            }
-            Err(error) => {
-                self.status = Some(DocumentStatus::info(error.clone()));
-                cx.notify();
-                Some(HomeStatus::info(format!(
-                    "Opened {} · {error}",
-                    self.document_name
-                )))
-            }
-        }
     }
 
     fn reload(&mut self, cx: &mut Context<Self>) {
@@ -552,60 +519,6 @@ impl WorldDocumentView {
         self.projection =
             cx.new(|_| world_gpui::ProjectionView::controlled(controller).without_header());
     }
-
-    fn branch(&mut self, cx: &mut Context<Self>) {
-        self.status = Some(match world_fork::fork_world(&self.document, cx) {
-            Ok(result) => match result.warning {
-                Some(warning) => {
-                    DocumentStatus::info(format!("Branched as {} · {warning}", result.id))
-                }
-                None => DocumentStatus::success(format!("Branched as {}", result.id)),
-            },
-            Err(error) => DocumentStatus::error(format!("Could not branch: {error}")),
-        });
-        cx.notify();
-    }
-
-    fn compare_with_parent(&mut self, cx: &mut Context<Self>) {
-        self.status = Some(match world_fork::compare_with_parent(&self.document, cx) {
-            Ok((left, right)) => DocumentStatus::success(format!("Comparing {left} with {right}")),
-            Err(error) => DocumentStatus::info(format!("Could not compare with parent: {error}")),
-        });
-        cx.notify();
-    }
-
-    fn open_saved_compare(&mut self, cx: &mut Context<Self>) {
-        self.status = Some(match world_fork::open_saved_compare(&self.document, cx) {
-            Ok(count) => DocumentStatus::success(format!(
-                "Choose another saved World to compare · {count} available"
-            )),
-            Err(error) => DocumentStatus::info(format!("Could not compare saved Worlds: {error}")),
-        });
-        cx.notify();
-    }
-
-    fn open_lineage(&mut self, cx: &mut Context<Self>) {
-        self.status = Some(match world_fork::open_lineage(&self.document, cx) {
-            Ok(count) => DocumentStatus::success(format!("Opened Branches · {count} Worlds")),
-            Err(error) => DocumentStatus::info(format!("Could not open Branches: {error}")),
-        });
-        cx.notify();
-    }
-
-    fn open_analyst(&mut self, cx: &mut Context<Self>) {
-        if !self.analyst_available {
-            self.status = Some(DocumentStatus::info(
-                "The World Analyst needs Node and the Pi runtime installed on this Mac.",
-            ));
-            cx.notify();
-            return;
-        }
-        self.status = Some(match world_fork::open_analyst(&self.document, cx) {
-            Ok(()) => DocumentStatus::success("Opened the World Analyst"),
-            Err(error) => DocumentStatus::error(format!("Could not open the Analyst: {error}")),
-        });
-        cx.notify();
-    }
 }
 
 #[cfg(target_os = "macos")]
@@ -658,49 +571,12 @@ impl Render for WorldDocumentView {
             },
             festival,
         };
+        // A strip of this World shows it as it is now.
+        strip_window::follow(&self.document, &self.projection, cx);
         match (window.is_window_active(), palette) {
             (true, Some(palette)) => ambience::player::claim(sound_owner, palette, moment),
             _ => ambience::player::release(sound_owner),
         }
-        // Branching and comparing mean something only once a World has a
-        // history and a choice to make; before that they are noise.
-        let (can_branch, can_compare) = {
-            let snapshot = self.projection.read(cx).snapshot();
-            (
-                snapshot.capabilities.fork,
-                snapshot.choices().count() >= 2 && !world_gpui::is_beginning(snapshot),
-            )
-        };
-        let mut actions = div().flex_shrink_0().flex().items_center().gap_2();
-        // Where this World came from is also the way to its family tree.
-        if let Some(label) = &self.lineage_label {
-            actions = actions.child(
-                div()
-                    .id("lineage-badge")
-                    .cursor_pointer()
-                    .child(world_fork::lineage_badge(label))
-                    .on_click(cx.listener(|this, _, _, cx| this.open_lineage(cx))),
-            );
-        }
-        if can_branch {
-            actions = actions.child(
-                ui::button("branch-world-document", "Branch", ui::ButtonKind::Secondary)
-                    .on_click(cx.listener(|this, _, _, cx| this.branch(cx))),
-            );
-        }
-        if can_compare {
-            actions = actions.child(
-                ui::button(
-                    "what-if-world-document",
-                    "What if…",
-                    ui::ButtonKind::Primary,
-                )
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.open_compare(cx);
-                })),
-            );
-        }
-
         // Beside its name, the one thing the app is about: this World goes on
         // without you, and when it next will.
         // Only a World that moves on its own may promise to keep going.
@@ -768,12 +644,10 @@ impl Render for WorldDocumentView {
             .border_color(ui::color(tokens::BORDER))
             .bg(ui::color(tokens::WINDOW))
             .text_color(ui::color(tokens::TEXT))
-            .child(identity)
-            .child(actions);
+            .child(identity);
 
         if let Some(status) = &self.status {
             let foreground = match status.tone {
-                DocumentStatusTone::Info => tokens::ACCENT_TEXT,
                 DocumentStatusTone::Success => tokens::SUCCESS,
                 DocumentStatusTone::Error => tokens::DANGER,
             };
@@ -791,24 +665,18 @@ impl Render for WorldDocumentView {
             .flex_col()
             // World menu items dispatch to the frontmost window's root, so a
             // World window answers them and Home greys them out.
-            .on_action(cx.listener(|this, _: &about::BranchWorld, _, cx| this.branch(cx)))
-            .on_action(cx.listener(|this, _: &about::WhatIf, _, cx| {
-                this.open_compare(cx);
-            }))
             .on_action(cx.listener(|this, _: &about::SaveWorldAs, _, cx| this.save_as(cx)))
             .on_action(cx.listener(|this, _: &about::ReloadWorld, _, cx| this.reload(cx)))
             .on_action(
-                cx.listener(|this, _: &about::CompareWithParent, _, cx| {
-                    this.compare_with_parent(cx)
-                }),
+                cx.listener(|this, _: &about::CopyWorldCode, _, cx| this.copy_world_code(cx)),
             )
             .on_action(
-                cx.listener(|this, _: &about::CompareSavedWorlds, _, cx| {
-                    this.open_saved_compare(cx)
-                }),
+                cx.listener(|this, _: &about::SaveWorldCode, _, cx| this.save_world_code(cx)),
             )
-            .on_action(cx.listener(|this, _: &about::ShowLineage, _, cx| this.open_lineage(cx)))
-            .on_action(cx.listener(|this, _: &about::AnalyzeWorlds, _, cx| this.open_analyst(cx)))
+            .on_action(cx.listener(|this, _: &about::ShowAsStrip, _, cx| {
+                let snapshot = this.projection.read(cx).snapshot().clone();
+                strip_window::toggle(&this.document, snapshot, cx);
+            }))
             .child(chrome)
             .child(
                 div()
@@ -870,7 +738,6 @@ struct WorldMachineHome {
     pack_catalog_path: PathBuf,
     documents: Vec<WorldDocumentSummary>,
     selected_world_pack: Option<String>,
-    lineage: Option<LineageIndex>,
     included_packs: Vec<included_packs::IncludedPack>,
     pending_pack_install: Option<PackInstallPreview>,
     pending_start_after_install: Option<WorldPackRef>,
@@ -895,7 +762,7 @@ struct WorldMachineHome {
     /// How My Worlds is ordered, for this run of the app.
     world_sort: WorldSort,
     /// What was typed into Find a World.
-    world_search: Entity<AnalystTextInput>,
+    world_search: Entity<TextInput>,
     /// On a first launch Home steps aside once the first World opens, so a
     /// new player meets one window, not two.
     step_aside_for_first_world: bool,
@@ -906,7 +773,7 @@ struct WorldMachineHome {
 #[cfg(target_os = "macos")]
 struct RenameDraft {
     document: WorldDocumentId,
-    input: Entity<AnalystTextInput>,
+    input: Entity<TextInput>,
 }
 
 #[cfg(target_os = "macos")]
@@ -1543,23 +1410,7 @@ impl WorldMachineHome {
         if !world_pack_filter_is_available(&self.documents, self.selected_world_pack.as_deref()) {
             self.selected_world_pack = None;
         }
-        self.refresh_lineage()?;
         Ok(count)
-    }
-
-    fn refresh_lineage(&mut self) -> Result<(), HomeStatus> {
-        match LineageIndex::from_library(self.library.as_ref()) {
-            Ok(lineage) => {
-                self.lineage = Some(lineage);
-                Ok(())
-            }
-            Err(error) => {
-                self.lineage = None;
-                Err(HomeStatus::error(format!(
-                    "Could not show this World's branches: {error}"
-                )))
-            }
-        }
     }
 
     fn refresh_from_menu(&mut self, cx: &mut Context<Self>) {
@@ -1574,22 +1425,11 @@ impl WorldMachineHome {
         self.refresh_documents().err()
     }
 
+    /// Opens a World window.
     fn open_session(
-        &mut self,
-        session: DurableWorldSession,
-        title: String,
-        cx: &mut Context<Self>,
-    ) {
-        self.open_session_with(session, title, false, cx);
-    }
-
-    /// Opens a World window; with `compare_on_open`, also opens Compare
-    /// Futures for it so a Home card can jump straight to "what if".
-    fn open_session_with(
         &mut self,
         mut session: DurableWorldSession,
         title: String,
-        compare_on_open: bool,
         cx: &mut Context<Self>,
     ) {
         let is_library_world = session.document_id().is_some();
@@ -1619,14 +1459,6 @@ impl WorldMachineHome {
             },
         );
 
-        let compare = match (&opened, compare_on_open) {
-            (Ok(handle), true) => handle
-                .update(cx, |view, _, cx| view.open_compare(cx))
-                .ok()
-                .flatten(),
-            _ => None,
-        };
-
         // A window opening is its own confirmation; Home only speaks up when
         // there is something the window does not already say.
         self.status = match opened {
@@ -1647,43 +1479,7 @@ impl WorldMachineHome {
         if let Some(status) = sync_error {
             self.status = Some(status);
         }
-        if let Some(compare) = compare {
-            self.status = Some(compare);
-        }
         cx.notify();
-    }
-
-    fn compare_document(&mut self, document_id: WorldDocumentId, cx: &mut Context<Self>) {
-        let summary = self
-            .documents
-            .iter()
-            .find(|document| document.id == document_id);
-        if let Some(document) = summary {
-            if self.registry.descriptor_for(&document.pack).is_none() {
-                self.status = Some(HomeStatus::error(self.missing_pack_message(&document.pack)));
-                cx.notify();
-                return;
-            }
-        }
-        // Called by the name Home shows for it, not by its World Pack's name.
-        let title = summary
-            .and_then(|document| {
-                self.registry
-                    .descriptor_for(&document.pack)
-                    .map(|descriptor| world_summary_title(document, &descriptor.title))
-            })
-            .unwrap_or_else(|| document_id.to_string());
-        let session = match DurableWorldSession::open(document_id, &self.registry, &self.library) {
-            Ok(session) => session,
-            Err(error) => {
-                self.status = Some(HomeStatus::error(format!(
-                    "Could not open {title}: {error}"
-                )));
-                cx.notify();
-                return;
-            }
-        };
-        self.open_session_with(session, title, true, cx);
     }
 
     fn create_world(&mut self, pack_id: String, cx: &mut Context<Self>) {
@@ -1794,6 +1590,10 @@ impl WorldMachineHome {
     }
 
     fn open_external_path(&mut self, source: PathBuf, cx: &mut Context<Self>) {
+        if sharing::is_world_code_file(&source) {
+            self.visit_path(&source, cx);
+            return;
+        }
         if is_world_pack_file(&source) {
             self.review_pack_path(source, None, false, cx);
             return;
@@ -2064,7 +1864,7 @@ impl WorldMachineHome {
     /// opens on that name; an unnamed one opens empty and shows its World
     /// Pack's title as the placeholder.
     fn begin_rename(&mut self, document_id: WorldDocumentId, cx: &mut Context<Self>) {
-        analyst_input::bind_keys(cx);
+        text_field::bind_keys(cx);
         let current = self
             .documents
             .iter()
@@ -2072,7 +1872,7 @@ impl WorldMachineHome {
             .and_then(|document| document.display_title.clone())
             .unwrap_or_default();
         let placeholder = rename_placeholder(&self.document_pack_title(&document_id));
-        let input = cx.new(|cx| AnalystTextInput::new(placeholder, cx).with_text(current));
+        let input = cx.new(|cx| TextInput::new(placeholder, cx).with_text(current));
         self.pending_removal = None;
         self.renaming = Some(RenameDraft {
             document: document_id,
@@ -2174,7 +1974,6 @@ impl WorldMachineHome {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let open_id = document.id.clone();
-        let compare_id = document.id.clone();
         let export_id = document.id.clone();
         let rename_id = document.id.clone();
         let remove_id = document.id.clone();
@@ -2185,11 +1984,6 @@ impl WorldMachineHome {
             .unwrap_or_else(|| document.pack.id.clone());
         let title = world_summary_title(&document, &pack_title);
         let document_label = document.id.to_string();
-        let lineage_node = self
-            .lineage
-            .as_ref()
-            .and_then(|lineage| lineage.node(&document.id))
-            .cloned();
 
         let mut details = div()
             .flex_1()
@@ -2312,10 +2106,6 @@ impl WorldMachineHome {
         let menu_open = self.card_menu.as_ref() == Some(&document.id)
             && !renaming_this_world
             && !removing_this_world;
-        let parent = lineage_node
-            .as_ref()
-            .and_then(|node| node.parent.as_ref())
-            .and_then(|parent| parent.resolved.clone());
         let menu =
             menu_open.then(|| {
                 let item = |id: String, label: &'static str| {
@@ -2329,60 +2119,43 @@ impl WorldMachineHome {
                         .hover(|style| style.bg(ui::color(tokens::ROW_HOVER)))
                         .child(label)
                 };
-                let mut menu =
-                    div()
-                        .id(SharedString::from(format!("menu-{document_label}")))
-                        .absolute()
-                        .top(px(6.0))
-                        .right(px(44.0))
-                        .w(px(200.0))
-                        .p_1()
-                        .rounded_lg()
-                        .bg(ui::color(tokens::SURFACE))
-                        .border_1()
-                        .border_color(ui::color(tokens::BORDER))
-                        .shadow_lg()
-                        .flex()
-                        .flex_col()
-                        .on_click(|_, _, cx| cx.stop_propagation())
-                        .child(item(format!("compare-{compare_id}"), "What if…").on_click(
-                            cx.listener(move |this, _, _, cx| {
-                                this.card_menu = None;
-                                this.compare_document(compare_id.clone(), cx)
-                            }),
-                        ))
-                        .child(item(format!("rename-{document_label}"), "Rename").on_click(
-                            cx.listener(move |this, _, _, cx| {
-                                this.card_menu = None;
-                                this.begin_rename(rename_id.clone(), cx)
-                            }),
-                        ))
-                        .child(item(format!("export-{export_id}"), "Export…").on_click(
-                            cx.listener(move |this, _, _, cx| {
+                div()
+                    .id(SharedString::from(format!("menu-{document_label}")))
+                    .absolute()
+                    .top(px(6.0))
+                    .right(px(44.0))
+                    .w(px(200.0))
+                    .p_1()
+                    .rounded_lg()
+                    .bg(ui::color(tokens::SURFACE))
+                    .border_1()
+                    .border_color(ui::color(tokens::BORDER))
+                    .shadow_lg()
+                    .flex()
+                    .flex_col()
+                    .on_click(|_, _, cx| cx.stop_propagation())
+                    .child(item(format!("rename-{document_label}"), "Rename").on_click(
+                        cx.listener(move |this, _, _, cx| {
+                            this.card_menu = None;
+                            this.begin_rename(rename_id.clone(), cx)
+                        }),
+                    ))
+                    .child(
+                        item(format!("export-{export_id}"), "Export…").on_click(cx.listener(
+                            move |this, _, _, cx| {
                                 this.card_menu = None;
                                 this.export_document(export_id.clone(), cx)
-                            }),
-                        ));
-                if let Some(parent_id) = parent.clone() {
-                    menu = menu.child(
-                        item(
-                            format!("lineage-parent-{document_label}"),
-                            "Where it branched from",
-                        )
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.card_menu = None;
-                            this.open_document(parent_id.clone(), cx)
-                        })),
-                    );
-                }
-                menu.child(
-                    item(format!("remove-{document_label}"), "Remove")
-                        .text_color(ui::color(tokens::DANGER))
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.card_menu = None;
-                            this.request_removal(remove_id.clone(), cx)
-                        })),
-                )
+                            },
+                        )),
+                    )
+                    .child(
+                        item(format!("remove-{document_label}"), "Remove")
+                            .text_color(ui::color(tokens::DANGER))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.card_menu = None;
+                                this.request_removal(remove_id.clone(), cx)
+                            })),
+                    )
             });
 
         // How long the World has been living without you, when it lives on
@@ -3086,12 +2859,10 @@ impl Render for WorldMachineHome {
             .map(|(_title, document)| document)
             .collect::<Vec<_>>();
         let visible_document_count = visible_documents.len();
-        let developer = developer_mode();
         let descriptors = self
             .registry
             .descriptors()
             .into_iter()
-            .filter(|descriptor| offered_to_start(&descriptor.pack.id, developer))
             .cloned()
             .collect::<Vec<_>>();
         let first_run = !has_documents;
@@ -3215,7 +2986,6 @@ impl Render for WorldMachineHome {
             .included_packs
             .iter()
             .filter(|included| !self.included_pack_is_installed(&included.pack))
-            .filter(|included| offered_to_start(&included.pack.id, developer))
             .filter(|included| {
                 featured_included.as_ref().is_none_or(|featured| {
                     featured.pack != included.pack || (!show_featured && !featured_review_pending)
@@ -3645,22 +3415,6 @@ fn world_summary_title(document: &WorldDocumentSummary, pack_title: &str) -> Str
 }
 
 #[cfg(target_os = "macos")]
-fn world_summary_description(document: &WorldDocumentSummary) -> Option<String> {
-    document
-        .display_summary
-        .as_deref()
-        .map(str::trim)
-        .filter(|summary| !summary.is_empty())
-        .map(str::to_owned)
-}
-
-#[cfg(target_os = "macos")]
-fn lineage_child_preview(children: &[WorldDocumentId]) -> (&[WorldDocumentId], usize) {
-    let visible = children.len().min(LINEAGE_CHILD_PREVIEW_LIMIT);
-    (&children[..visible], children.len() - visible)
-}
-
-#[cfg(target_os = "macos")]
 fn world_matches_pack_filter(document: &WorldDocumentSummary, pack_id: Option<&str>) -> bool {
     pack_id.is_none_or(|pack_id| document.pack.id == pack_id)
 }
@@ -3792,9 +3546,6 @@ fn build_registry(catalog: Option<&PackCatalog>) -> Result<world_host::WorldRegi
     Ok(registry)
 }
 
-/// Packs that exercise the engine rather than make a World a person would
-/// choose to play. Home does not offer them to start; Worlds already made
-/// with them still open, and `WORLD_MACHINE_DEVELOPER=1` offers them again.
 /// Now, in Unix seconds.
 #[cfg(target_os = "macos")]
 fn unix_now() -> Option<u64> {
@@ -3817,24 +3568,6 @@ fn keeps_going_line(remaining_seconds: u64, unit: &str) -> String {
         format!("{} min", remaining_seconds.div_ceil(60).max(1))
     };
     format!("Keeps going without you · next {unit} in {wait}")
-}
-
-#[cfg(target_os = "macos")]
-const DEVELOPER_PACKS: &[&str] = &[
-    "world-machine.future-archaeologist",
-    "world-machine.micro-company",
-];
-#[cfg(target_os = "macos")]
-const DEVELOPER_ENV: &str = "WORLD_MACHINE_DEVELOPER";
-
-#[cfg(target_os = "macos")]
-fn developer_mode() -> bool {
-    env::var_os(DEVELOPER_ENV).is_some_and(|value| value == "1")
-}
-
-#[cfg(target_os = "macos")]
-fn offered_to_start(pack_id: &str, developer: bool) -> bool {
-    developer || !DEVELOPER_PACKS.contains(&pack_id)
 }
 
 #[cfg(target_os = "macos")]
@@ -3983,14 +3716,12 @@ mod file_type_tests {
 
     #[test]
     fn document_status_tone_is_explicit_not_inferred_from_message_text() {
-        let info = DocumentStatus::info("failed-looking warning after a durable save");
-        let success = DocumentStatus::success("done");
+        let success = DocumentStatus::success("failed-looking note after a durable save");
         let error = DocumentStatus::error("failed");
 
-        assert_eq!(info.tone, DocumentStatusTone::Info);
         assert_eq!(success.tone, DocumentStatusTone::Success);
         assert_eq!(error.tone, DocumentStatusTone::Error);
-        assert_eq!(info.message, "failed-looking warning after a durable save");
+        assert_eq!(success.message, "failed-looking note after a durable save");
     }
 
     #[test]
@@ -4063,19 +3794,6 @@ mod file_type_tests {
     }
 
     #[test]
-    fn lineage_child_preview_is_bounded_without_losing_total_count() {
-        let children = (0..6)
-            .map(|index| WorldDocumentId::new(format!("child-{index}")).unwrap())
-            .collect::<Vec<_>>();
-        let (visible, hidden) = lineage_child_preview(&children);
-
-        assert_eq!(visible.len(), LINEAGE_CHILD_PREVIEW_LIMIT);
-        assert_eq!(visible[0].as_str(), "child-0");
-        assert_eq!(visible[3].as_str(), "child-3");
-        assert_eq!(hidden, 2);
-    }
-
-    #[test]
     fn home_counts_a_world_in_its_own_time_and_says_what_waits() {
         let sols = world_projection::Calendar {
             unit: "Sol".into(),
@@ -4135,19 +3853,6 @@ mod file_type_tests {
     }
 
     #[test]
-    fn home_offers_only_worlds_a_person_would_play_unless_developing() {
-        assert!(offered_to_start("world-machine.pocket-universe", false));
-        assert!(offered_to_start("world-machine.tiny-society", false));
-        assert!(!offered_to_start("world-machine.micro-company", false));
-        assert!(!offered_to_start(
-            "world-machine.future-archaeologist",
-            false
-        ));
-        assert!(offered_to_start("world-machine.micro-company", true));
-        assert!(offered_to_start("someone.else.pack", false));
-    }
-
-    #[test]
     fn world_summary_title_prefers_semantic_title_and_falls_back_cleanly() {
         let pack = WorldPackRef::new("pocket-universe", "0.10.0");
         let mut summary = WorldDocumentSummary {
@@ -4168,10 +3873,6 @@ mod file_type_tests {
         assert_eq!(
             world_summary_title(&summary, "Pocket Universe"),
             "Ares Pocket Colony"
-        );
-        assert_eq!(
-            world_summary_description(&summary).as_deref(),
-            Some("Current thread · Ridge Network")
         );
         summary.display_title = Some("   ".into());
         assert_eq!(
@@ -4422,9 +4123,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     system_open::install(&application);
     diagnostics::init();
     load_window_geometry();
-    let saved = world_machine_desktop::analyst_settings::application_support_root()
+    let saved = world_machine_desktop::app_settings::application_support_root()
         .ok()
-        .and_then(|root| world_machine_desktop::analyst_settings::load(&root).ok());
+        .and_then(|root| world_machine_desktop::app_settings::load(&root).ok());
     // The app's words and the built-in Worlds' in Simplified Chinese, and
     // the language, text size and contrast the player chose.
     world_i18n::install(world_gpui::i18n::APP_ZH_HANS);
@@ -4475,20 +4176,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Some(format!("Could not locate included World Packs: {error}")),
         ),
     };
-    let (documents, unreadable_documents, lineage, library_status) = match library.listing() {
-        Ok(listing) => match LineageIndex::from_library(library.as_ref()) {
-            Ok(lineage) => (listing.documents, listing.unreadable, Some(lineage), None),
-            Err(error) => (
-                listing.documents,
-                listing.unreadable,
-                None,
-                Some(format!("Could not show this World's branches: {error}")),
-            ),
-        },
+    let (documents, unreadable_documents, library_status) = match library.listing() {
+        Ok(listing) => (listing.documents, listing.unreadable, None),
         Err(error) => (
             Vec::new(),
             Vec::new(),
-            None,
             Some(format!("Could not read World Library: {error}")),
         ),
     };
@@ -4525,9 +4217,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     application.run(move |cx: &mut App| {
         about::install(cx);
-        analyst_input::bind_keys(cx);
+        text_field::bind_keys(cx);
         let home = cx.new(|cx| {
-            let world_search = cx.new(|cx| AnalystTextInput::new("Find a World…", cx));
+            let world_search = cx.new(|cx| TextInput::new("Find a World…", cx));
             // Typing filters the list, so Home has to redraw as the field changes.
             cx.observe(&world_search, |_, _, cx| cx.notify()).detach();
             let mut home = WorldMachineHome {
@@ -4537,7 +4229,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 pack_catalog_path,
                 documents,
                 selected_world_pack: None,
-                lineage,
                 included_packs,
                 pending_pack_install: None,
                 pending_start_after_install: None,

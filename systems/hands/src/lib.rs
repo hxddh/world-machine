@@ -743,6 +743,47 @@ impl Action for Undoes {
     }
 }
 
+/// At most this many things the player made are used a day.
+const USED_A_DAY: usize = 2;
+
+/// What someone says resting on something the player made.
+const REST_LINES: [&str; 10] = [
+    "The {what} by {place}: just what my legs needed.",
+    "Best seat by {place}, this {what}.",
+    "I could sit on this {what} all day.",
+    "Good {what}, this. Solid.",
+    "You can see all of {place} from here.",
+    "Five minutes on the {what}. Then back to it.",
+    "Whoever made this {what} knew what they were doing.",
+    "My favourite spot, the {what} by {place}.",
+    "Sat on the {what} and watched the gulls. Bliss.",
+    "A rest on the {what} and I'm new again.",
+];
+
+/// What someone says after an evening by something the player made.
+const GATHER_LINES: [&str; 10] = [
+    "It's nice by the {what} of an evening.",
+    "We lost track of time by the {what}.",
+    "The light down by {place} makes you want to stay.",
+    "{other} told me a story I'd never heard.",
+    "Me and {other}, putting the world to rights.",
+    "{other} laughed so hard they cried.",
+    "Didn't feel the cold, talking to {other}.",
+    "You learn a lot about {other} after dark.",
+    "The {what} was the only light down by {place}.",
+    "Stayed out by the {what} longer than I meant to.",
+];
+
+/// What someone says bringing the player what their garden grew.
+const HARVEST_LINES: [&str; 6] = [
+    "From your {what}. Seemed only fair.",
+    "The {what} did well this week. This is yours.",
+    "First pick from your {what}.",
+    "Your {what} keeps giving. Here.",
+    "Picked these from your {what} this morning.",
+    "Don't tell anyone, but your {what} beats mine.",
+];
+
 /// Someone uses something the player made: rests on a bench, meets
 /// friends under a lamp, brings the player what a garden grew.
 struct Enjoys(fn(&WorldState) -> Kit);
@@ -801,28 +842,42 @@ impl Action for Enjoys {
                 .to_string()
         });
         let seed = fixture.0.wrapping_mul(31).wrapping_add(period(state, &kit));
+        // Each use says the next of what can be said about it, so the same
+        // thing is not heard again until every other has been.
+        let uses = match state
+            .entity(fixture)
+            .and_then(|f| f.component("hands.uses"))
+        {
+            Some(Value::Integer(uses)) => *uses,
+            _ => 0,
+        };
+        let line = |lines: &[&str]| {
+            let lines = lines
+                .iter()
+                .filter(|line| other_name.is_some() || !line.contains("{other}"))
+                .collect::<Vec<_>>();
+            let at = (uses.max(0) as u64 + fixture.0) % lines.len().max(1) as u64;
+            lines
+                .get(at as usize)
+                .map(|line| {
+                    line.replace("{what}", &what)
+                        .replace("{place}", &place)
+                        .replace("{other}", other_name.as_deref().unwrap_or(""))
+                })
+                .unwrap_or_default()
+        };
         let mut draft = EventDraft::new("enjoyed");
         let (told, said) = match effect {
             Effect::Rest => (
                 format!("{first} rested on the {what} by {place}"),
-                [
-                    "Just what my legs needed.",
-                    "Best seat in the place, this.",
-                    "I could sit here all day.",
-                ][(seed % 3) as usize]
-                    .to_string(),
+                line(&REST_LINES),
             ),
             Effect::Gather => (
                 match &other_name {
                     Some(other) => format!("{first} and {other} talked under the {what} till late"),
                     None => format!("{first} sat a while by the {what} after dark"),
                 },
-                [
-                    "It's nice here of an evening.",
-                    "We lost track of time.",
-                    "The light makes you want to stay.",
-                ][(seed % 3) as usize]
-                    .to_string(),
+                line(&GATHER_LINES),
             ),
             Effect::Harvest => {
                 let gift = PRODUCE[(seed % PRODUCE.len() as u64) as usize];
@@ -830,7 +885,7 @@ impl Action for Enjoys {
                 draft.payload.insert("kept".into(), true.into());
                 (
                     format!("{first} brought you {gift} from the {what} you planted"),
-                    format!("From your {what}. Seemed only fair."),
+                    line(&HARVEST_LINES),
                 )
             }
             Effect::None => return Err(ActionError::Invalid("nothing to use".into())),
@@ -843,6 +898,11 @@ impl Action for Enjoys {
             entity: fixture,
             key: "hands.used".into(),
             value: (period(state, &kit) as i64).into(),
+        });
+        changes.push(StateChange::SetComponent {
+            entity: fixture,
+            key: "hands.uses".into(),
+            value: (uses + 1).into(),
         });
         draft.actor = Some(who);
         draft.targets = std::iter::once(fixture).chain(other).collect();
@@ -879,7 +939,29 @@ pub fn tick(
     if people.is_empty() {
         return Ok(events);
     }
-    for fixture in made(world.state()) {
+    // A harvest is something to keep, and no more than three things to
+    // keep come in a week, whoever gives them.
+    let week_began = world.world_time().saturating_sub(kit.period * 7);
+    let mut kept_this_week = world
+        .events()
+        .iter()
+        .rev()
+        .take_while(|event| event.world_time > week_began)
+        .filter(|event| {
+            event.kind == "keepsake_left"
+                || event.payload.get("kept") == Some(&Value::Bool(true))
+                || (event.kind == "situation_answered"
+                    && event.payload.get("kind") == Some(&Value::Text("keepsake".into())))
+        })
+        .count();
+    let mut used_today = 0;
+    // Starting somewhere different each day, so everything gets its turn.
+    let mut all = made(world.state()).into_iter().collect::<Vec<_>>();
+    if !all.is_empty() {
+        let turn = (now as usize) % all.len();
+        all.rotate_left(turn);
+    }
+    for fixture in all {
         let state = world.state();
         let Some(effect) = text(state, fixture, "hands.thing")
             .and_then(|id| thing(kit, id))
@@ -894,8 +976,8 @@ pub fn tick(
         let waited = now.saturating_sub(since);
         let due = match effect {
             Effect::None => false,
-            Effect::Rest => waited >= 2,
-            Effect::Gather => waited >= 1,
+            Effect::Rest => waited >= 4,
+            Effect::Gather => waited >= 3,
             // Only once it has grown into its last stage.
             Effect::Harvest => {
                 waited >= 7
@@ -905,8 +987,21 @@ pub fn tick(
                         .is_none_or(|(last, _)| text(state, fixture, "name") == Some(last))
             }
         };
-        if !due {
+        // A couple of things in use a day is life about the place; every
+        // bench and lamp every day would be all anyone talks about.
+        if !due || (effect != Effect::Harvest && used_today >= USED_A_DAY) {
             continue;
+        }
+        if effect != Effect::Harvest {
+            used_today += 1;
+        }
+        if effect == Effect::Harvest {
+            // A harvest a week at most, leaving room in the week for
+            // what people give.
+            if kept_this_week >= 1 {
+                continue;
+            }
+            kept_this_week += 1;
         }
         let pick = |salt: u64| {
             people[((fixture.0 ^ now.wrapping_mul(salt)) % people.len() as u64) as usize]
