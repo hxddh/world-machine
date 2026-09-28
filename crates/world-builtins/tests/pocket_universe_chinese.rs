@@ -120,7 +120,6 @@ fn left_in_english(
 /// A year of every place: nearly every sentence it shows is in the
 /// catalogs, and what is left is only names.
 #[test]
-#[ignore = "until the Pocket Universe catalog is written"]
 fn a_year_of_pocket_universe_is_shown_in_chinese() {
     let catalog = catalog();
     let (shown, names) = shown(100);

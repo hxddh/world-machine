@@ -41,7 +41,7 @@ Current as of `v0.16.0` in the [changelog](../CHANGELOG.md). Report anything els
 - **Home offers two Packs to start.** *Future Archaeologist* and *Micro Company* are engine test Packs and are hidden from Home; Worlds already made with them still open, and launching with `WORLD_MACHINE_DEVELOPER=1` offers them again.
 - **World Analyst is experimental** and needs Node and the Pi runtime on your PATH. The entry stays hidden otherwise. See [PI_ANALYST.md](PI_ANALYST.md).
 
-- **Chinese is generated and not complete.** The catalogs were translated by a model and checked by tests, not by a translator. About 3% of what a year of Tiny Society shows stays partly in English (festival tellings built from several clauses, some tacked-on endings), and PU_LEFT of Pocket Universe; newcomers' names stay in Latin letters, and a line a World voice model says is shown as the model said it. Settings → Display switches back to English.
+- **Chinese is generated and not complete.** The catalogs were translated by a model and checked by tests, not by a translator. About 3% of what a year of Tiny Society shows stays partly in English (festival tellings built from several clauses, some tacked-on endings), and about 1% of what a year of Pocket Universe shows (a radio caller's song title, a successor's name); newcomers' names stay in Latin letters, and a line a World voice model says is shown as the model said it. Settings → Display switches back to English.
 - **Text size, contrast and VoiceOver are unverified on a Mac.** Text from 100% to 200% is checked by tests on speech paging only; how every window lays out at 200%, what Increase Contrast looks like, and what VoiceOver reads have not been seen on a Mac.
 
 ## Verification gaps

@@ -229,7 +229,7 @@ pub(crate) const LENA_VOICE: Voice = Voice {
             &[
                 "Someone left a quarter in Galaga.",
                 "Swept up a whole bag of popcorn.",
-                "Mr. Dunn let me keep the tips.",
+                "Old Dunn let me keep the tips.",
                 "Max played a request for me.",
                 "Studied between customers.",
                 "The claw machine ate my dime.",
