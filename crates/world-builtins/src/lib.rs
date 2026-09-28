@@ -3,10 +3,11 @@ use world_host::{HostError, WorldPackSource, WorldRegistration, WorldRegistry};
 pub struct BuiltinWorlds;
 
 /// The Simplified Chinese the built-in Worlds are shown in: the Systems'
-/// words every World shares, and Tiny Society's own.
-pub const ZH_HANS: [&str; 2] = [
+/// words every World shares, Tiny Society's own and Pocket Universe's.
+pub const ZH_HANS: [&str; 3] = [
     include_str!("../locales/systems.zh-Hans.tsv"),
     tiny_society::ZH_HANS,
+    include_str!("../../../worlds/pocket-universe/locales/zh-Hans.tsv"),
 ];
 
 /// Every line Tiny Society's core residents can say of their own, in
