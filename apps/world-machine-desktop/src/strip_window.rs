@@ -204,7 +204,12 @@ fn open(
         cx.new(|_| {
             StripView::new(snapshot)
                 .on_open(move |_, cx| open_world(&for_open, cx))
-                .on_close(|window, _| window.remove_window())
+                .on_close(|window, cx| {
+                    window.remove_window();
+                    // Closing the last strip with no World open brings Home
+                    // back, as closing the last World window does.
+                    cx.defer(crate::restore_home_if_nothing_open);
+                })
         })
     });
     match opened {

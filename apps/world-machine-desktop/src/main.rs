@@ -391,19 +391,7 @@ impl WorldDocumentView {
         let sound_owner = cx.entity_id().as_u64();
         cx.on_release(move |_, cx| {
             ambience::player::release(sound_owner);
-            cx.defer(|cx| {
-                let windows = cx.windows();
-                let world_or_home_open = windows.iter().any(|window| {
-                    window.downcast::<WorldDocumentView>().is_some()
-                        || window.downcast::<WorldMachineHome>().is_some()
-                        || window.downcast::<world_gpui::strip::StripView>().is_some()
-                });
-                if !world_or_home_open {
-                    if let Some(home) = cx.try_global::<HomeEntity>().map(|home| home.0.clone()) {
-                        open_home_window(home, cx);
-                    }
-                }
-            });
+            cx.defer(restore_home_if_nothing_open);
         })
         .detach();
         Self {
@@ -4267,6 +4255,23 @@ struct HomeEntity(Entity<WorldMachineHome>);
 
 #[cfg(target_os = "macos")]
 impl Global for HomeEntity {}
+
+/// Brings Home back when no World, strip or Home window is left open, so
+/// closing the last of them never leaves the app with nothing on screen.
+#[cfg(target_os = "macos")]
+fn restore_home_if_nothing_open(cx: &mut App) {
+    let windows = cx.windows();
+    let world_or_home_open = windows.iter().any(|window| {
+        window.downcast::<WorldDocumentView>().is_some()
+            || window.downcast::<WorldMachineHome>().is_some()
+            || window.downcast::<world_gpui::strip::StripView>().is_some()
+    });
+    if !world_or_home_open {
+        if let Some(home) = cx.try_global::<HomeEntity>().map(|home| home.0.clone()) {
+            open_home_window(home, cx);
+        }
+    }
+}
 
 #[cfg(target_os = "macos")]
 fn open_home_window(home: Entity<WorldMachineHome>, cx: &mut App) {

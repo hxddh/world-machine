@@ -72,17 +72,15 @@ fn who_comes(state: &WorldState, cast: &Cast, idea: &Idea, fair: bool) -> Vec<En
             person.0,
         )
     });
+    // Only people who think well enough of the player come at all.
+    people.retain(|person| regard(state, *person) > -10);
     let spirits = (cast.mood)(state);
-    let willing = people
-        .iter()
-        .copied()
-        .filter(|person| regard(state, *person) > -10)
-        .count();
-    let mut room = willing as i64 + spirits.clamp(-3, 3) - 2;
+    let willing = people.len() as i64;
+    let mut room = willing + spirits.clamp(-3, 3) - 2;
     if idea.outdoors && !fair {
         room = room.min(3);
     }
-    people.truncate(room.clamp(1, willing.max(1) as i64) as usize);
+    people.truncate(room.clamp(1, willing.max(1)) as usize);
     people
 }
 

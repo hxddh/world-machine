@@ -357,7 +357,10 @@ pub fn can_arise(state: &WorldState, deck: &Deck, storylet: &Storylet) -> bool {
 /// The most times one storylet comes up in any year of periods.
 pub const MOST_A_YEAR: usize = 6;
 
-/// Periods in a year.
+/// Periods in the year the cap counts: a year of the player's days, not a
+/// Pack's own calendar year. The cap is how often the player hears the
+/// same question over a real year of play (a Pack's in-World year may be
+/// much shorter), so it is the same for every Pack.
 pub const YEAR_PERIODS: u64 = 365;
 
 /// The periods a storylet last came up in, oldest first, at most
