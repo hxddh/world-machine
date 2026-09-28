@@ -101,7 +101,7 @@ fn play() -> Run {
                 .iter()
                 .find(|spec| spec.id == storylet.as_str())
                 .unwrap();
-            if storylets::can_arise(state, &deck, spec) {
+            if storylets::can_arise(state, deck, spec) {
                 waiting[at] += 1;
                 longest_wait[at] = longest_wait[at].max(waiting[at]);
             } else {
@@ -154,7 +154,7 @@ fn play() -> Run {
         let state = branch.world().state();
         let done = story::ladder()
             .iter()
-            .filter(|rung| storylets::finished(state, &deck, rung.id))
+            .filter(|rung| storylets::finished(state, deck, rung.id))
             .count();
         if done > done_before {
             run.finished.push(day);

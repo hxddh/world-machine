@@ -180,7 +180,7 @@ fn scores(state: &WorldState) -> [i64; 4] {
     let deck = crate::story::deck();
     let works = crate::story::WORKS
         .iter()
-        .filter(|work| storylets::finished(state, &deck, work.id))
+        .filter(|work| storylets::finished(state, deck, work.id))
         .count() as i64;
     let friends = crate::story::people_in(state)
         .into_iter()

@@ -1845,7 +1845,7 @@ const SEASONS: [&str; 4] = ["spring", "summer", "autumn", "winter"];
 
 /// Which season it is in the harbour.
 pub(crate) fn season(world: &World) -> usize {
-    storylets::season(storylets::period_index(world.state(), &deck()), SEASON_DAYS) as usize
+    storylets::season(storylets::period_index(world.state(), deck()), SEASON_DAYS) as usize
 }
 
 /// What a moment adds to the chapter it happened in, when that chapter
@@ -1887,7 +1887,7 @@ fn chapter_line(event: &Event) -> Option<&'static str> {
 /// on how the town stands.
 fn chapter_ending(world: &World) -> (String, String) {
     let deck = deck();
-    let (_, started) = storylets::chapter(world.state(), &deck);
+    let (_, started) = storylets::chapter(world.state(), deck);
     // Events are recorded in time order, so the chapter's are the tail.
     let events = world.events();
     let lived = events[events.partition_point(|event| event.world_time < started)..]
@@ -2213,7 +2213,7 @@ pub(crate) fn tick(
     events.extend(hands::tick(world, actions, &kit)?);
     let almanac = crate::almanac::almanac(world.state());
     events.extend(calendar::tick(world, actions, &almanac)?);
-    events.extend(storylets::tick(world, actions, &deck(), &reading)?);
+    events.extend(storylets::tick(world, actions, deck(), &reading)?);
     Ok(events)
 }
 
@@ -2224,14 +2224,14 @@ pub(crate) fn tick(
 fn waiting_for_the_player(world: &World) -> bool {
     let deck = deck();
     let state = world.state();
-    if storylets::anything_raised(state, &deck) {
+    if storylets::anything_raised(state, deck) {
         return false;
     }
     let acted = state.entity(crate::handwork::kit(state).notes).is_some()
         || world.events().iter().any(conversation::is_talk);
-    let (_, started) = storylets::chapter(state, &deck);
+    let (_, started) = storylets::chapter(state, deck);
     let first_day = state.entity(deck.story).is_none()
-        || storylets::period_index(state, &deck) <= started / deck.period.max(1);
+        || storylets::period_index(state, deck) <= started / deck.period.max(1);
     !acted && first_day
 }
 
@@ -2241,7 +2241,7 @@ pub(crate) fn after_first_deed(
     world: &mut World,
     actions: &ActionRegistry,
 ) -> Result<Vec<EventId>, WorldError> {
-    if storylets::anything_raised(world.state(), &deck()) || waiting_for_the_player(world) {
+    if storylets::anything_raised(world.state(), deck()) || waiting_for_the_player(world) {
         return Ok(Vec::new());
     }
     let money = crate::projection::gauges(world)
@@ -2255,7 +2255,7 @@ pub(crate) fn after_first_deed(
         chapter_ending: Box::new(chapter_ending),
         hold: false,
     };
-    storylets::tick(world, actions, &deck(), &reading)
+    storylets::tick(world, actions, deck(), &reading)
 }
 
 fn command_id(storylet: &str, choice: &str) -> String {
@@ -2331,8 +2331,8 @@ fn asking(world: &World, spec: &Spec) -> String {
         world,
         &asked(
             spec,
-            storylets::times_raised(world.state(), &deck, id),
-            storylets::last_outcome(world.state(), &deck, id),
+            storylets::times_raised(world.state(), deck, id),
+            storylets::last_outcome(world.state(), deck, id),
         ),
         spec.storylet.asker,
     )
@@ -2340,7 +2340,7 @@ fn asking(world: &World, spec: &Spec) -> String {
 
 fn storylet_commands(world: &World) -> Vec<world_projection::ProjectionCommand> {
     let deck = deck();
-    storylets::answers(world.state(), &deck)
+    storylets::answers(world.state(), deck)
         .into_iter()
         .filter_map(|(storylet, choice, unmet)| {
             let spec = find(storylet.id)?;
@@ -2379,11 +2379,11 @@ fn why_not(world: &World, condition: &Condition) -> String {
 /// say, and the answer that grants it, if it can be given.
 pub(crate) fn wanting(world: &World, who: EntityId) -> Option<(String, Option<String>)> {
     let deck = deck();
-    let storylet = storylets::open(world.state(), &deck)
+    let storylet = storylets::open(world.state(), deck)
         .into_iter()
         .find(|storylet| storylet.want && storylet.asker == who)?;
     let spec = find(storylet.id)?;
-    let grant = storylets::choices(world.state(), &deck)
+    let grant = storylets::choices(world.state(), deck)
         .into_iter()
         .find(|(open, choice)| open.id == storylet.id && !choice.refuses)
         .map(|(open, choice)| command_id(open.id, choice.id));
@@ -2392,7 +2392,7 @@ pub(crate) fn wanting(world: &World, who: EntityId) -> Option<(String, Option<St
 
 /// How many wants someone has had granted, and turned down or let lapse.
 pub(crate) fn kindness(world: &World, who: EntityId) -> (i64, i64) {
-    storylets::kindness(world.state(), &deck(), who)
+    storylets::kindness(world.state(), deck(), who)
 }
 
 fn storylet_of(event: &Event) -> Option<&'static Spec> {
@@ -2561,7 +2561,7 @@ pub(crate) fn goals(world: &World) -> Vec<world_projection::Goal> {
             id: id.into(),
             label: label.into(),
             shape,
-            done: storylets::progress(world.state(), &deck, id).clamp(0, parts) as u32,
+            done: storylets::progress(world.state(), deck, id).clamp(0, parts) as u32,
             parts: parts as u32,
         })
     };
@@ -4351,7 +4351,7 @@ pub(crate) fn people(world: &World) -> Vec<EntityId> {
 /// Everyone living in the harbour now, read straight from its state.
 pub(crate) fn people_in(state: &world_core::WorldState) -> Vec<EntityId> {
     let deck = deck();
-    let asking = storylets::open(state, &deck)
+    let asking = storylets::open(state, deck)
         .into_iter()
         .map(|storylet| storylet.asker)
         .collect::<Vec<_>>();
@@ -4463,7 +4463,7 @@ pub(crate) fn from_the_calendar(id: &str) -> bool {
 pub(crate) fn weather(world: &World) -> world_projection::Weather {
     use world_projection::Weather;
     let deck = deck();
-    let stormy = storylets::open(world.state(), &deck)
+    let stormy = storylets::open(world.state(), deck)
         .iter()
         .any(|storylet| matches!(storylet.id, "storm_warning" | "great_storm"));
     let day = world.world_time() / crate::persistence::WORLD_DAY_TICKS;

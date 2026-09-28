@@ -87,7 +87,7 @@ fn play(policy: Policy, days: usize) -> Played {
         // Whoever asks an open question is in the harbour to ask it, even
         // someone back from being away.
         let here = story::people(branch.world());
-        for storylet in storylets::open(branch.world().state(), &story::deck()) {
+        for storylet in storylets::open(branch.world().state(), story::deck()) {
             if branch.world().state().entity(storylet.asker).is_some() {
                 assert!(
                     here.contains(&storylet.asker),
@@ -111,7 +111,7 @@ fn play(policy: Policy, days: usize) -> Played {
         played.could.push(
             deck.storylets
                 .iter()
-                .filter(|storylet| storylets::can_arise(branch.world().state(), &deck, storylet))
+                .filter(|storylet| storylets::can_arise(branch.world().state(), deck, storylet))
                 .map(|storylet| storylet.id)
                 .collect(),
         );
@@ -703,7 +703,7 @@ fn the_weather_follows_the_world() {
     for _ in 0..80 {
         let world = branch.world();
         let weather = projection::snapshot(world).weather;
-        let storm_on = storylets::open(world.state(), &story::deck())
+        let storm_on = storylets::open(world.state(), story::deck())
             .iter()
             .any(|storylet| matches!(storylet.id, "storm_warning" | "great_storm"));
         if storm_on {
