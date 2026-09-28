@@ -4,12 +4,13 @@ use std::collections::BTreeSet;
 use world_projection::ProjectionIntent::InvokeCommand;
 
 fn catalog() -> world_i18n::Catalog {
-    let mut catalog = world_builtins::ZH_HANS
-        .iter()
-        .fold(world_i18n::Catalog::default(), |mut all, text| {
-            all.extend(text);
-            all
-        });
+    let mut catalog =
+        world_builtins::ZH_HANS
+            .iter()
+            .fold(world_i18n::Catalog::default(), |mut all, text| {
+                all.extend(text);
+                all
+            });
     catalog.extend(&world_builtins::zh_hans_voices());
     catalog
 }
@@ -52,7 +53,12 @@ fn shown(periods: usize) -> (BTreeSet<String>, BTreeSet<String>) {
             texts.extend(snapshot.keepsakes.iter().map(|kept| kept.note.clone()));
             texts.extend(snapshot.book.iter().map(|entry| entry.name.clone()));
             texts.extend(snapshot.book.iter().map(|entry| entry.hint.clone()));
-            texts.extend(snapshot.chapters.iter().map(|chapter| chapter.title.clone()));
+            texts.extend(
+                snapshot
+                    .chapters
+                    .iter()
+                    .map(|chapter| chapter.title.clone()),
+            );
             texts.extend(snapshot.goals.iter().map(|goal| goal.label.clone()));
             texts.extend(snapshot.gauges.iter().map(|gauge| gauge.label.clone()));
             if let Some(calendar) = &snapshot.calendar {
