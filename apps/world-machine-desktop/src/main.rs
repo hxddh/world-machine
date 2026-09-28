@@ -2161,6 +2161,8 @@ impl WorldMachineHome {
             .unwrap_or_else(|| "day".into());
         let mut cover = div()
             .id(SharedString::from(format!("cover-{document_label}")))
+            .role(gpui::Role::Button)
+            .aria_label(ui::t(format!("Open {title}")))
             .relative()
             .w_full()
             .h(px(WORLD_COVER_HEIGHT))
@@ -2241,6 +2243,9 @@ impl WorldMachineHome {
         cover = cover.child(
             div()
                 .id(SharedString::from(format!("more-{document_label}")))
+                .role(gpui::Role::Button)
+                .aria_label(ui::t(format!("More for {title}")))
+                .aria_expanded(menu_open)
                 .absolute()
                 .top_2()
                 .right_2()
@@ -2276,6 +2281,8 @@ impl WorldMachineHome {
         let right_click_id = document.id.clone();
         div()
             .id(SharedString::from(format!("document-{document_label}")))
+            .role(gpui::Role::Group)
+            .aria_label(title.clone())
             .group(SharedString::from(format!("card-{document_label}")))
             .on_mouse_down(
                 gpui::MouseButton::Right,

@@ -3,8 +3,9 @@
 //! day's letter arriving in it as a small envelope to click and read.
 //!
 //! A strip lives on the desktop all day, so it draws only while something
-//! in it moves, never faster than [`MOST_FRAMES_A_SECOND`], and not at all
-//! while everything stands still. Everything here is presentation: who
+//! in it moves, never faster than [`MOST_FRAMES_A_SECOND`], not at all
+//! while everything stands still, and neither draws nor wakes while it
+//! cannot be seen (covered, minimised, or on a sleeping display). Everything here is presentation: who
 //! walks where follows the local clock and a seed, never anything the World
 //! records.
 
@@ -14,7 +15,8 @@ use crate::scene::{self, Daylight};
 use crate::ui;
 use gpui::{
     canvas, div, point, prelude::*, px, size, App, Bounds, Context, FontWeight, Hsla, IntoElement,
-    Pixels, Render, Styled, Task, Window,
+    Pixels, Render, Role, SharedString, SpringConfig, SpringState, Styled, Subscription, Task,
+    Window,
 };
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -44,8 +46,15 @@ const LEAD_SECONDS: f32 = 3.0;
 /// The longest a walk takes; a longer way is walked a little faster.
 const LONGEST_WALK: f32 = OUTING_SECONDS * 0.6;
 
-/// How long a new letter takes to drop into place.
+/// The longest a new letter takes to drop into place.
 pub const LETTER_SECONDS: f32 = 1.6;
+
+/// The spring a new letter drops on: a little under critically damped
+/// (a damping ratio near 0.6), so it lands with one small bounce.
+pub const LETTER_SPRING: SpringConfig = SpringConfig::new(90.0, 11.0, 1.0);
+
+/// How close to rest, as a share of the drop, a letter counts as landed.
+const LETTER_REST: f32 = 0.004;
 
 /// Which edge of the screen a strip lies along.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -68,20 +77,26 @@ pub fn band(visible: Bounds<Pixels>, edge: Edge) -> Bounds<Pixels> {
 }
 
 /// How long to wait before the next frame: a frame's time while something
-/// moves, and no frame at all while nothing does.
-pub fn next_frame_delay(moving: bool) -> Option<Duration> {
-    moving.then_some(FRAME)
+/// moves and the strip can be seen, and no frame at all while nothing
+/// moves or nobody could see it drawn.
+pub fn next_frame_delay(moving: bool, visible: bool) -> Option<Duration> {
+    (moving && visible).then_some(FRAME)
 }
 
-/// When the strip should next wake: the next frame while something moves;
-/// otherwise when something next starts to move (`next_motion` seconds
-/// from now), or the next look at the light, whichever is sooner.
-pub fn wake_after(moving: bool, next_motion: Option<f32>) -> Duration {
-    next_frame_delay(moving).unwrap_or_else(|| {
+/// When the strip should next wake, if at all: the next frame while
+/// something moves; otherwise when something next starts to move
+/// (`next_motion` seconds from now), or the next look at the light,
+/// whichever is sooner. While the strip cannot be seen it does not wake
+/// at all: it draws once, at once, when it can be seen again.
+pub fn wake_after(moving: bool, visible: bool, next_motion: Option<f32>) -> Option<Duration> {
+    if !visible {
+        return None;
+    }
+    Some(next_frame_delay(moving, visible).unwrap_or_else(|| {
         next_motion
             .map(|seconds| Duration::from_secs_f32(seconds.max(0.0)))
             .map_or(LIGHT_CHECK, |motion| motion.min(LIGHT_CHECK))
-    })
+    }))
 }
 
 /// A number from 0 to 1 that only `seed` and `turn` decide.
@@ -251,9 +266,23 @@ impl Outings {
 
 /// How far above its resting place a letter that arrived `since` seconds
 /// ago still is, as a share of the drop (1 just arrived, 0 at rest), or
-/// `None` once it has landed.
+/// `None` once it has landed. It falls on [`LETTER_SPRING`], GPUI's
+/// damped spring, and bounces once off the ground as it lands.
 pub fn letter_drop(since: f32) -> Option<f32> {
-    (since < LETTER_SECONDS).then(|| 1.0 - diorama::ease(since.max(0.0) / LETTER_SECONDS))
+    let start = SpringState {
+        position: 1.0,
+        velocity: 0.0,
+    };
+    let lands = LETTER_SPRING
+        .settle_time(start, 0.0, LETTER_REST)
+        .as_secs_f32()
+        .min(LETTER_SECONDS);
+    (since < lands).then(|| {
+        LETTER_SPRING
+            .step(start, 0.0, since.max(0.0))
+            .position
+            .abs()
+    })
 }
 
 /// Lays a World out along a strip `width` by `height`: the diorama's
@@ -304,6 +333,8 @@ pub struct StripView {
     reading: bool,
     /// The one wake-up waiting, if any: dropping it cancels it.
     wake: Option<Task<()>>,
+    /// Hears when the strip is covered or shown again.
+    visibility: Option<Subscription>,
     on_open: Option<Handler>,
     on_close: Option<Handler>,
     drawn: u64,
@@ -318,6 +349,7 @@ impl StripView {
             letter_at: None,
             reading: false,
             wake: None,
+            visibility: None,
             on_open: None,
             on_close: None,
             drawn: 0,
@@ -361,11 +393,38 @@ impl StripView {
         self.drawn
     }
 
+    /// Whether a wake-up is waiting: false while the strip sleeps.
+    pub fn is_waiting(&self) -> bool {
+        self.wake.is_some()
+    }
+
     fn schedule(&mut self, delay: Duration, window: &mut Window, cx: &mut Context<Self>) {
         self.wake = Some(cx.spawn_in(window, async move |this, cx| {
             cx.background_executor().timer(delay).await;
-            let _ = this.update(cx, |_, cx| cx.notify());
+            let _ = this.update_in(cx, |_, window, cx| {
+                if window.is_visible() {
+                    cx.notify();
+                }
+            });
         }));
+    }
+
+    /// Listens, once, for the strip being covered or shown: covered, the
+    /// waiting wake-up is dropped; shown again, it draws at once, and that
+    /// frame picks the pace up from there.
+    fn watch_visibility(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.visibility.is_some() {
+            return;
+        }
+        self.visibility = Some(
+            cx.observe_window_visibility(window, |this, visibility, _, cx| {
+                if visibility.is_visible() {
+                    cx.notify();
+                } else {
+                    this.wake = None;
+                }
+            }),
+        );
     }
 
     fn render_letter(
@@ -376,43 +435,24 @@ impl StripView {
     ) -> gpui::Stateful<gpui::Div> {
         let (x, y) = rest;
         let y = y - drop * (y + LETTER_H + 4.0);
-        div()
-            .id("strip-letter")
-            .absolute()
-            .left(px(x))
-            .top(px(y))
-            .w(px(LETTER_W))
-            .h(px(LETTER_H))
-            .cursor_pointer()
-            .child(
-                canvas(
-                    |_, _, _| (),
-                    |bounds, _, window, _| paint_envelope(bounds, window),
-                )
-                .size_full(),
-            )
-            .on_click(cx.listener(|this, _, _, cx| {
+        letter_button(letter_from(&self.snapshot), self.reading, x, y).on_click(cx.listener(
+            |this, _, _, cx| {
                 this.reading = !this.reading;
                 cx.stop_propagation();
                 cx.notify();
-            }))
+            },
+        ))
     }
 
     fn render_reading(&self, width: f32, height: f32) -> Option<gpui::Stateful<gpui::Div>> {
         let letter = self.snapshot.letters.last()?;
-        let from = self
-            .snapshot
-            .canvas
-            .items
-            .iter()
-            .find(|item| item.id == letter.from)
-            .and_then(|item| item.label.split_whitespace().next().map(str::to_string))
-            .map(|name| ui::t(format!("From {name}")))
-            .unwrap_or_else(|| ui::t("From a friend"));
+        let from = letter_from(&self.snapshot);
         let card_w = (width - 2.0 * LETTER_W - 48.0).clamp(160.0, 520.0);
         Some(
             div()
                 .id("strip-reading")
+                .role(Role::Article)
+                .aria_label(from.clone())
                 .absolute()
                 .right(px(LETTER_W + 40.0))
                 .top(px(10.0))
@@ -442,6 +482,80 @@ impl StripView {
 
 const LETTER_W: f32 = 34.0;
 const LETTER_H: f32 = 24.0;
+
+/// Who the latest letter is from, as its card heads it.
+fn letter_from(snapshot: &ProjectionSnapshot) -> SharedString {
+    snapshot
+        .letters
+        .last()
+        .and_then(|letter| {
+            snapshot
+                .canvas
+                .items
+                .iter()
+                .find(|item| item.id == letter.from)
+        })
+        .and_then(|item| item.label.split_whitespace().next().map(str::to_string))
+        .map(|name| ui::t(format!("From {name}")))
+        .unwrap_or_else(|| ui::t("From a friend"))
+}
+
+/// The envelope at `x`, `y`: a button that opens the letter to read, or
+/// puts it away again, and says which to a screen reader.
+pub(crate) fn letter_button(
+    from: SharedString,
+    reading: bool,
+    x: f32,
+    y: f32,
+) -> gpui::Stateful<gpui::Div> {
+    let label = if reading {
+        ui::t("Put the letter away")
+    } else {
+        ui::t(format!("A letter. {from}. Open it to read"))
+    };
+    div()
+        .id("strip-letter")
+        .role(Role::Button)
+        .aria_label(label)
+        .aria_expanded(reading)
+        .absolute()
+        .left(px(x))
+        .top(px(y))
+        .w(px(LETTER_W))
+        .h(px(LETTER_H))
+        .cursor_pointer()
+        .child(
+            canvas(
+                |_, _, _| (),
+                |bounds, _, window, _| paint_envelope(bounds, window),
+            )
+            .size_full(),
+        )
+}
+
+/// The small round button that puts the strip away.
+pub(crate) fn close_button(ink: Hsla) -> gpui::Stateful<gpui::Div> {
+    div()
+        .id("strip-close")
+        .role(Role::Button)
+        .aria_label(ui::t("Close the strip"))
+        .absolute()
+        .top(px(6.0))
+        .right(px(8.0))
+        .size(px(18.0))
+        .rounded_full()
+        .flex()
+        .items_center()
+        .justify_center()
+        .text_xs()
+        .text_color(ink)
+        .bg(Hsla {
+            a: 0.55,
+            ..gpui::white()
+        })
+        .cursor_pointer()
+        .child("×")
+}
 
 /// What changes between one snapshot of a World and the next, cheaply.
 fn key(snapshot: &ProjectionSnapshot) -> (String, usize, usize, usize, usize, String) {
@@ -520,8 +634,15 @@ impl Render for StripView {
             .filter(|_| !still)
             .and_then(|at| letter_drop(now.duration_since(at).as_secs_f32()));
         let moving = outings.moving(seconds, night, still) || drop.is_some();
-        let wake = wake_after(moving, outings.next_start(seconds, night));
-        self.schedule(wake, window, cx);
+        self.watch_visibility(window, cx);
+        match wake_after(
+            moving,
+            window.is_visible(),
+            outings.next_start(seconds, night),
+        ) {
+            Some(wake) => self.schedule(wake, window, cx),
+            None => self.wake = None,
+        }
 
         let letter_rest = (
             width - LETTER_W - 22.0,
@@ -532,6 +653,9 @@ impl Render for StripView {
 
         div()
             .id("strip")
+            .role(Role::Region)
+            .aria_label(self.snapshot.title.clone())
+            .aria_description(ui::t("Double-click to open the World"))
             .size_full()
             .relative()
             .overflow_hidden()
@@ -565,30 +689,12 @@ impl Render for StripView {
                 strip.children(self.render_reading(width, height))
             })
             .child(
-                div()
-                    .id("strip-close")
-                    .absolute()
-                    .top(px(6.0))
-                    .right(px(8.0))
-                    .size(px(18.0))
-                    .rounded_full()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .text_xs()
-                    .text_color(ink)
-                    .bg(Hsla {
-                        a: 0.55,
-                        ..gpui::white()
-                    })
-                    .cursor_pointer()
-                    .child("×")
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        cx.stop_propagation();
-                        if let Some(close) = this.on_close.clone() {
-                            close(window, cx);
-                        }
-                    })),
+                close_button(ink).on_click(cx.listener(|this, _, window, cx| {
+                    cx.stop_propagation();
+                    if let Some(close) = this.on_close.clone() {
+                        close(window, cx);
+                    }
+                })),
             )
     }
 }
@@ -668,22 +774,38 @@ mod tests {
             let drop = letter.then(|| letter_drop(now)).flatten();
             let moving = outings.moving(now, false, false) || drop.is_some();
             drawn.push((now, moving));
-            now += wake_after(moving, outings.next_start(now, false)).as_secs_f32();
+            now += wake_after(moving, true, outings.next_start(now, false))
+                .expect("a strip in view always wakes again")
+                .as_secs_f32();
         }
         drawn
     }
 
     #[test]
     fn pacing_is_no_frames_when_still_and_under_fifteen_a_second_when_not() {
-        assert_eq!(next_frame_delay(false), None);
-        let delay = next_frame_delay(true).expect("a frame while moving");
+        assert_eq!(next_frame_delay(false, true), None);
+        let delay = next_frame_delay(true, true).expect("a frame while moving");
         assert!(delay >= Duration::from_secs_f64(1.0 / 15.0));
         assert!(1.0 / delay.as_secs_f64() < 15.0);
         // Still, it sleeps until the next walk, or the light check.
-        assert_eq!(wake_after(false, Some(7.5)), Duration::from_secs_f32(7.5));
-        assert_eq!(wake_after(false, None), LIGHT_CHECK);
-        assert_eq!(wake_after(false, Some(1e6)), LIGHT_CHECK);
-        assert_eq!(wake_after(true, Some(0.01)), FRAME);
+        let wake = |moving, next| wake_after(moving, true, next);
+        assert_eq!(wake(false, Some(7.5)), Some(Duration::from_secs_f32(7.5)));
+        assert_eq!(wake(false, None), Some(LIGHT_CHECK));
+        assert_eq!(wake(false, Some(1e6)), Some(LIGHT_CHECK));
+        assert_eq!(wake(true, Some(0.01)), Some(FRAME));
+    }
+
+    /// Covered, minimised or on a sleeping display, a strip asks for no
+    /// frame and no wake-up at all, whatever is moving in it and however
+    /// soon the next walk starts.
+    #[test]
+    fn a_strip_nobody_can_see_neither_draws_nor_wakes() {
+        for moving in [false, true] {
+            assert_eq!(next_frame_delay(moving, false), None);
+            for next in [None, Some(0.0), Some(2.0), Some(1e6)] {
+                assert_eq!(wake_after(moving, false, next), None);
+            }
+        }
     }
 
     /// The v0.18 bar, in the style of the window's busy-frame benchmark:
@@ -732,7 +854,10 @@ mod tests {
             assert!(!busy.moving(seconds, true, false));
             assert!(!busy.moving(seconds, false, true));
         }
-        assert_eq!(wake_after(false, busy.next_start(100.0, true)), LIGHT_CHECK);
+        assert_eq!(
+            wake_after(false, true, busy.next_start(100.0, true)),
+            Some(LIGHT_CHECK)
+        );
         let (_, _, empty) = outings(0, 1800.0);
         assert!(!empty.moving(50.0, false, false));
         assert_eq!(empty.next_start(50.0, false), None);
@@ -812,5 +937,93 @@ mod tests {
         if !cfg!(debug_assertions) {
             assert!(each < Duration::from_millis(4), "{each:?} a frame");
         }
+    }
+
+    /// A new letter falls on GPUI's spring: from the top, down past its
+    /// place, one small bounce, and landed well inside [`LETTER_SECONDS`];
+    /// never outside the strip, and never jumping between two frames.
+    #[test]
+    fn a_letter_drops_on_a_spring_and_bounces_once() {
+        assert!(letter_drop(0.0).is_some_and(|drop| (drop - 1.0).abs() < 1e-6));
+        let step = FRAME.as_secs_f32();
+        let mut frames = Vec::new();
+        let mut at = 0.0;
+        while let Some(drop) = letter_drop(at) {
+            assert!((0.0..=1.0).contains(&drop), "{drop} at {at}");
+            frames.push(drop);
+            at += step;
+        }
+        assert!(at <= LETTER_SECONDS + step, "landed after {at}s");
+        // Down, back up a little, down again: one bounce.
+        let turns = frames
+            .windows(3)
+            .filter(|w| (w[1] - w[0]) * (w[2] - w[1]) < 0.0)
+            .count();
+        assert!(turns >= 1, "{frames:?}");
+        let bounce = frames
+            .iter()
+            .skip_while(|drop| **drop > 0.05)
+            .fold(0.0_f32, |high, drop| high.max(*drop));
+        assert!(bounce > 0.02 && bounce < 0.2, "bounce {bounce}");
+        for pair in frames.windows(2) {
+            assert!((pair[0] - pair[1]).abs() < 0.5, "{frames:?}");
+        }
+        assert_eq!(letter_drop(LETTER_SECONDS + 0.1), None);
+    }
+
+    /// The envelope and the close button are buttons a screen reader can
+    /// name; the envelope says whether the letter is open.
+    #[test]
+    fn the_letter_and_close_button_are_named_buttons() {
+        let (role, node) =
+            crate::ui::accessible(&letter_button("From Mara".into(), false, 0.0, 0.0));
+        assert_eq!(role, Some(Role::Button));
+        assert_eq!(node.label(), Some("A letter. From Mara. Open it to read"));
+        assert_eq!(node.is_expanded(), Some(false));
+        let (_, open) = crate::ui::accessible(&letter_button("From Mara".into(), true, 0.0, 0.0));
+        assert_eq!(open.label(), Some("Put the letter away"));
+        assert_eq!(open.is_expanded(), Some(true));
+        let (role, node) = crate::ui::accessible(&close_button(gpui::black()));
+        assert_eq!(role, Some(Role::Button));
+        assert_eq!(node.label(), Some("Close the strip"));
+        assert_eq!(
+            letter_from(&town(3)).as_ref(),
+            "From Item",
+            "named by the first word of who wrote it"
+        );
+    }
+
+    /// Through GPUI's own test window: a strip with a letter falling
+    /// draws at its pace; covered, it drops its wake-up and draws nothing
+    /// however long it stays covered; shown again, it draws once at once
+    /// and takes up its pace.
+    #[gpui::test]
+    fn a_covered_strip_sleeps_and_draws_at_once_when_shown(cx: &mut gpui::TestAppContext) {
+        use gpui::{VisualTestContext, WindowVisibility};
+        let window = cx.add_window(|_, _| StripView::new(town(3)));
+        let view = window.root(cx).expect("the strip");
+        let cx = &mut VisualTestContext::from_window(window.into(), cx);
+        cx.run_until_parked();
+        let drawn =
+            |cx: &mut VisualTestContext| view.read_with(cx, |strip, _| strip.frames_drawn());
+        let waiting =
+            |cx: &mut VisualTestContext| view.read_with(cx, |strip, _| strip.is_waiting());
+        let first = drawn(cx);
+        assert!(first >= 1);
+        assert!(waiting(cx), "a strip in view always has its next wake-up");
+
+        cx.simulate_visibility_change(WindowVisibility::Hidden);
+        cx.run_until_parked();
+        assert!(!waiting(cx), "covered, the wake-up is dropped");
+        let covered = drawn(cx);
+        cx.executor().advance_clock(LIGHT_CHECK * 3);
+        cx.run_until_parked();
+        assert_eq!(drawn(cx), covered, "nothing is drawn while covered");
+        assert!(!waiting(cx));
+
+        cx.simulate_visibility_change(WindowVisibility::Visible);
+        cx.run_until_parked();
+        assert_eq!(drawn(cx), covered + 1, "one frame at once when shown");
+        assert!(waiting(cx), "and the pace picks up again");
     }
 }

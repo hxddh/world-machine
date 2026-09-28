@@ -94,7 +94,12 @@ Every dependency is now on its latest stable release, in the same pull request a
   - A refusal counts as no answer, so the World's own words stand.
 - **Pocket Universe's narrator** asks for its lines as JSON held to a schema (`output_config.format`), so nothing is picked out of prose. Its older "LINE n:" reply is still read.
 - **pi's new terminal `error` event is read.** A missing key is named as `auth.missing_api_key` instead of "no successful response".
-- **GPUI capabilities put to use:** in progress on this branch (visibility-paced drawing, capped frame rate for the strip, springs that honour Reduce Motion, accessibility roles); listed here once they land with tests.
+- **GPUI capabilities put to use** (tested on Linux through GPUI's test window unless noted):
+  - *Window visibility* (`observe_window_visibility`, `is_visible`): the strip and the World window draw nothing and keep no clock while nobody can see them, and draw once the moment they are shown. Tested with simulated visibility changes; real macOS occlusion is compiled only.
+  - *Springs* (`with_spring`, `SpringConfig`): question, asking and gift cards spring in; the strip's letter drops with one bounce, using the spring maths inside our own 12 fps budget. Reduce Motion (GPUI's and ours) starts them at rest. Tested by element bounds.
+  - *Accessibility roles* (`.role()`): buttons, answers (with position in set and "Not now" reasons), the drawer's lists, the hands' verb tabs, the strip, Home cards and Settings switches and chips. Found on the way: elements with a label but no role were never exposed at all. Element roles are tested; the live tree and VoiceOver are not (GPUI's test window has no accessibility tree), and Home/Settings are compiled only.
+  - *Headless rendering* (`HeadlessAppContext::with_platform`): four golden pictures (diorama by day and at dusk, strip, postcard) drawn from GPUI's real `Scene` by a small CPU rasteriser in the tests, since GPUI's only headless renderer is Metal. They catch changes in what is drawn, not Metal's pixels, and carry no text. Real-pixel goldens on a macOS runner are a v0.19 item.
+  - *Not used:* `Animation::with_max_fps` keeps waking a hidden element, which would undo the visibility gating; the strip's own scheduler already caps at 12 fps. GPUI v1.21.0 still lets CJK closing punctuation start a line, so our speech paging now applies that rule itself (tested); text GPUI wraps itself is unchanged.
 
 ## v0.19: concrete content
 

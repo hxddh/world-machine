@@ -672,6 +672,14 @@ pub struct Frame {
 }
 
 impl Frame {
+    /// The same frame graded for `hour` whatever the clock says, so a test
+    /// picture never depends on when it is drawn.
+    #[cfg(test)]
+    pub(crate) fn at_hour(mut self, hour: f32) -> Self {
+        self.hour = hour;
+        self
+    }
+
     /// A building or thing clicked in the last [`BOUNCE_SECONDS`] squashes
     /// and springs back: a little wider and lower, then taller, then
     /// settled.

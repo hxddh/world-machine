@@ -8,7 +8,8 @@
 //! looks like the rest of the app by default.
 
 use gpui::{
-    div, prelude::*, px, relative, rgb, Div, ElementId, FontWeight, Rgba, SharedString, Stateful,
+    accesskit, div, prelude::*, px, relative, rgb, Div, Element, ElementId, FontWeight, Rgba, Role,
+    SharedString, SpringAnimation, SpringAnimationElement, SpringConfig, Stateful,
 };
 use world_theme::tokens::{self, Token};
 
@@ -149,8 +150,11 @@ pub fn button(
     label: impl Into<SharedString>,
     kind: ButtonKind,
 ) -> Stateful<Div> {
+    let label = t(label);
     let base = div()
         .id(id)
+        .role(Role::Button)
+        .aria_label(label.clone())
         .flex_shrink_0()
         .px_3()
         .py(px(6.0))
@@ -158,7 +162,7 @@ pub fn button(
         .text_sm()
         .font_weight(FontWeight::MEDIUM)
         .cursor_pointer()
-        .child(t(label));
+        .child(label);
     match kind {
         ButtonKind::Primary => base
             .bg(color(tokens::ACCENT))
@@ -609,9 +613,89 @@ where
     )
 }
 
+/// The spring a card rises into place on: a little under critically
+/// damped (a damping ratio near 0.75), so it settles with a hint of give
+/// and no wobble, in about half a second.
+pub const ENTRANCE_SPRING: SpringConfig = SpringConfig::new(260.0, 24.0, 1.0);
+
+/// A card arriving on a spring: it fades in and rises the last few pixels
+/// into place, with a little give. Keyed by `key`, so it plays again only
+/// when what it shows changes. With Reduce Motion on (`still`, and GPUI's
+/// own setting) it is simply there: no spring, no frames asked for.
+pub fn spring_in<E>(
+    element: E,
+    key: impl Into<SharedString>,
+    still: bool,
+) -> SpringAnimationElement<E>
+where
+    E: IntoElement + Styled + 'static,
+{
+    use gpui::AnimationExt;
+    element.with_spring(
+        ElementId::Name(key.into()),
+        SpringAnimation::new(ENTRANCE_SPRING)
+            .to(1.0_f32)
+            .from(if still { 1.0 } else { 0.0 }),
+        |element, t| element.opacity(t.clamp(0.0, 1.0)).mt(px((1.0 - t) * 14.0)),
+    )
+}
+
+/// A part of a screen a screen reader can find and name: a list of
+/// letters, a shelf of the book, a panel.
+pub fn region(
+    id: impl Into<ElementId>,
+    role: Role,
+    label: impl Into<SharedString>,
+) -> Stateful<Div> {
+    div().id(id).role(role).aria_label(t(label))
+}
+
+/// What a screen reader is told about `element`: its role (none: it is
+/// not in the accessibility tree) and the properties GPUI would report.
+pub fn accessible(element: &impl Element) -> (Option<Role>, accesskit::Node) {
+    let role = element.a11y_role();
+    let mut node = accesskit::Node::new(role.unwrap_or(Role::Unknown));
+    element.write_a11y_info(&mut node);
+    (role, node)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{initials, staggered};
+    use super::{accessible, button, initials, region, staggered, ButtonKind, Role};
+
+    #[test]
+    fn buttons_and_regions_are_named_for_a_screen_reader() {
+        let (role, node) = accessible(&button("open", "Open", ButtonKind::Primary));
+        assert_eq!(role, Some(Role::Button));
+        assert_eq!(node.label(), Some("Open"));
+        let (role, node) = accessible(&region("letters", Role::List, "Letters · 2"));
+        assert_eq!(role, Some(Role::List));
+        assert_eq!(node.label(), Some("Letters · 2"));
+        // A plain div is not in the tree at all.
+        use gpui::InteractiveElement;
+        assert_eq!(accessible(&gpui::div().id("plain")).0, None);
+    }
+
+    /// The entrance spring settles in well under a second from nothing to
+    /// in place, overshooting only a little, so a card never wobbles.
+    #[test]
+    fn the_entrance_spring_settles_quickly_with_a_little_give() {
+        use gpui::SpringState;
+        let spring = super::ENTRANCE_SPRING;
+        let start = SpringState {
+            position: 0.0,
+            velocity: 0.0,
+        };
+        let settles = spring.settle_time(start, 1.0, 0.001);
+        assert!(
+            settles < std::time::Duration::from_millis(900),
+            "{settles:?}"
+        );
+        let highest = (0..120)
+            .map(|frame| spring.step(start, 1.0, frame as f32 / 120.0).position)
+            .fold(0.0_f32, f32::max);
+        assert!(highest > 1.0 && highest < 1.05, "overshoots to {highest}");
+    }
 
     #[test]
     fn later_arrivals_wait_their_turn_and_everything_settles() {

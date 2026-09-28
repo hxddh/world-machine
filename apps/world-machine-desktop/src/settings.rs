@@ -306,6 +306,12 @@ fn program_name(path: &str) -> &str {
 fn switch(id: &'static str, on: bool) -> gpui::Stateful<gpui::Div> {
     div()
         .id(id)
+        .role(gpui::Role::Switch)
+        .aria_toggled(if on {
+            gpui::Toggled::True
+        } else {
+            gpui::Toggled::False
+        })
         .flex_shrink_0()
         .w(px(38.0))
         .h(px(22.0))
@@ -426,6 +432,7 @@ impl Render for SettingsView {
                 )
                 .child(
                     switch("world-voice-switch", on)
+                        .aria_label(ui::t("Let Worlds speak for themselves"))
                         .on_click(cx.listener(move |this, _, _, cx| this.set_voice(!on, cx))),
                 ),
         );
@@ -625,6 +632,7 @@ impl Render for SettingsView {
                     )
                     .child(
                         switch("ambient-sound-switch", sound_on)
+                            .aria_label(ui::t("Sound"))
                             .on_click(cx.listener(move |this, _, _, cx| this.set_sound(!sound_on, cx))),
                     ),
             ),
@@ -657,6 +665,8 @@ impl SettingsView {
                     tokens::SURFACE
                 }))
                 .text_sm()
+                .role(gpui::Role::RadioButton)
+                .aria_selected(selected)
                 .aria_label(label.clone())
                 .child(label)
         };
