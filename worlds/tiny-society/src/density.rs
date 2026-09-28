@@ -438,11 +438,14 @@ fn a_year(policy: Policy) {
     let world = played.branch.world();
 
     // The goals on the horizon can be finished: a player who says yes to
-    // what the harbour can afford builds the pier and lights the lamp.
+    // what the harbour can afford builds the pier, lights the lamp and
+    // climbs the ladder of works, with one always still under way.
     if matches!(policy, Policy::Generous) {
         let goals = crate::story::goals(world);
-        assert_eq!(goals.len(), 2);
-        for goal in goals {
+        assert!(goals.len() >= 8, "{} goals in a year", goals.len());
+        let (done, doing) = goals.split_at(goals.len() - 1);
+        assert!(!doing[0].finished(), "one still under way");
+        for goal in done {
             assert!(
                 goal.finished(),
                 "{} is {} of {} after a year",
@@ -1122,8 +1125,8 @@ fn every_card_fits_in_two_lines() {
 
 /// Something new every day for a month, for a player who only answers the
 /// first question on offer and makes something every third day: something
-/// to find in the book, something to keep, or a chapter's close, and at
-/// least four keepsakes in the month.
+/// to find in the book, something to keep, a letter, or a chapter's
+/// close, and at least four keepsakes or letters in the month.
 #[test]
 fn something_new_every_day_for_a_month() {
     let mut society = TinySociety::new().unwrap();
@@ -1135,8 +1138,9 @@ fn something_new_every_day_for_a_month() {
         (
             snapshot.book.iter().filter(|entry| entry.found).count()
                 + snapshot.keepsakes.len()
+                + snapshot.letters.len()
                 + snapshot.chapters.len(),
-            snapshot.keepsakes.len(),
+            snapshot.keepsakes.len() + snapshot.letters.len(),
         )
     };
     let (mut before, _) = news(&branch);
@@ -1169,6 +1173,35 @@ fn something_new_every_day_for_a_month() {
         before = now;
     }
     assert!(quiet.is_empty(), "nothing new on days {quiet:?}");
-    let (_, keepsakes) = news(&branch);
-    assert!(keepsakes >= 4, "{keepsakes} keepsakes in a month");
+    let (_, kept) = news(&branch);
+    assert!(kept >= 4, "{kept} keepsakes and letters in a month");
+}
+
+/// Every beat of the film shown on a return has words, after absences
+/// short and long, early in a World and a year in.
+#[test]
+fn every_beat_of_a_return_has_words() {
+    let mut society = TinySociety::new().unwrap();
+    society.run_story().unwrap();
+    let mut branch = society.branch();
+    branch.begin_story().unwrap();
+    for away in [1, 3, 7, 7, 30, 7, 60, 7] {
+        let cursor = branch.visit_cursor();
+        branch.advance_days(away).unwrap();
+        branch.leave_keepsake(cursor).unwrap();
+        let snapshot = branch.projection_snapshot_since(cursor);
+        let briefing = snapshot.briefing.expect("a return is told");
+        assert!(
+            !briefing.beats().is_empty(),
+            "something to tell after {away} days"
+        );
+        for item in &briefing.items {
+            if item.kind == world_projection::BriefingItemKind::Beat {
+                assert!(
+                    !item.title.trim().is_empty(),
+                    "a wordless beat after {away} days: {item:?}"
+                );
+            }
+        }
+    }
 }

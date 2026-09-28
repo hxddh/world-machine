@@ -27,6 +27,7 @@ mod staffing;
 mod story;
 mod talk;
 mod voices;
+mod years;
 
 use std::error::Error;
 use world_agent::{
@@ -177,10 +178,37 @@ impl TinySocietyBranch {
             _ if story::parse_command(command_id).is_some() => self.answer(command_id),
             _ if life::parse_command(command_id).is_some() => self.answer_life(command_id),
             _ if handwork::parse_command(command_id).is_some() => self.do_deed(command_id),
+            _ if command_id.starts_with(life::SUGGEST_COMMAND) => self.suggest(command_id),
             _ => Err(
                 std::io::Error::other(format!("unknown projection command: {command_id}")).into(),
             ),
         }
+    }
+
+    /// Someone from another of the player's Worlds visits: a letter for
+    /// the letter box and, if the week has room, something to keep.
+    pub fn host(
+        &mut self,
+        guest: &world_projection::Guest,
+    ) -> Result<Vec<EventId>, Box<dyn Error>> {
+        let actions = build_action_registry()?;
+        Ok(vec![lives::host_guest(
+            &mut self.world,
+            &actions,
+            &life::cast(),
+            &guest.name,
+            &guest.from,
+            &guest.letter,
+            &guest.gift,
+        )?])
+    }
+
+    /// The player suggests something; the harbour decides how it goes.
+    fn suggest(&mut self, command_id: &str) -> Result<Vec<EventId>, Box<dyn Error>> {
+        let idea = command_id.trim_start_matches(life::SUGGEST_COMMAND);
+        let actions = build_action_registry()?;
+        let request = lives::suggestion_request(idea, life::fair(&self.world));
+        Ok(vec![self.world.execute(&actions, &request)?.id])
     }
 
     /// Answers one of the storyteller's storylets, and lets the town react.
@@ -567,6 +595,7 @@ fn build_action_registry() -> Result<ActionRegistry, Box<dyn Error>> {
     social::register_actions(&mut actions)?;
     staffing::register_actions(&mut actions)?;
     story::register_actions(&mut actions)?;
+    years::register_actions(&mut actions)?;
     Ok(actions)
 }
 

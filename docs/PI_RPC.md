@@ -92,7 +92,7 @@ arguments are readable by every process on the machine; the request body goes to
 a file created `0600` and removed when the narration is done.
 
 The app sets `…_VOICE` and `…_PI_PROGRAM` on the Pack processes it launches
-when somebody turns **World voice** on in the Analyst settings and has chosen a
+when somebody turns **World voice** on in Settings and has chosen a
 Pi program. A host may only add settings named `WORLD_MACHINE_…` to a Pack's
 environment; anything else is refused, so a host configures a Pack rather than
 reshaping what it inherits.

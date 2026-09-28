@@ -495,3 +495,66 @@ pub(crate) fn keepsakes(world: &World) -> Vec<world_projection::Keepsake> {
         })
         .collect()
 }
+
+/// Letters the player has been written, oldest first, for the letter box.
+pub(crate) fn letters(world: &World) -> Vec<world_projection::Letter> {
+    lives::letters(world)
+        .into_iter()
+        .map(|letter| world_projection::Letter {
+            from: world_projection::SelectionId::Entity(letter.from),
+            note: letter.note,
+            moment: world_projection::SelectionId::Event(letter.event),
+        })
+        .collect()
+}
+
+/// What the player can suggest the harbour does together.
+pub(crate) const SUGGEST_COMMAND: &str = "tiny-society.suggest.";
+
+/// Whether the weather is fair enough to be out in.
+pub(crate) fn fair(world: &World) -> bool {
+    use world_projection::Weather;
+    !matches!(
+        crate::story::weather(world),
+        Weather::Rain | Weather::Storm | Weather::Snow
+    )
+}
+
+/// A picnic, a market or a dance: the player suggests it, and the
+/// harbour decides who comes and how it goes.
+pub(crate) fn suggestions(world: &World) -> Vec<world_projection::ProjectionCommand> {
+    let state = world.state();
+    let cast = cast();
+    lives::IDEAS
+        .iter()
+        .map(|idea| world_projection::ProjectionCommand {
+            id: format!("{SUGGEST_COMMAND}{}", idea.id),
+            title: idea.name.into(),
+            detail: if idea.outdoors {
+                format!(
+                    "Out by {}, if the weather holds",
+                    lives::name(state, cast.quiet)
+                )
+            } else {
+                format!("At {}", lives::name(state, cast.gathering))
+            },
+            effects: Vec::new(),
+            scenery: None,
+            moves: Vec::new(),
+            asker: None,
+            question: None,
+            unavailable: lives::can_suggest(state, &cast, idea.id).err(),
+            hand: Some(world_projection::Hand {
+                verb: "Suggest".into(),
+                thing: idea.name.into(),
+                at: Some(world_projection::SelectionId::Entity(if idea.outdoors {
+                    cast.quiet
+                } else {
+                    cast.gathering
+                })),
+                cost: None,
+            }),
+            preview: None,
+        })
+        .collect()
+}

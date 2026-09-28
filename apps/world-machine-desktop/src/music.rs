@@ -111,7 +111,7 @@ pub fn root(palette: Palette) -> u32 {
     );
     let max = r.max(g).max(b);
     let min = r.min(g).min(b);
-    let hue = if max - min < f32::EPSILON {
+    let hue = if (max - min).abs() < f32::EPSILON {
         0.0
     } else if max == r {
         ((g - b) / (max - min)).rem_euclid(6.0) / 6.0
@@ -259,7 +259,11 @@ fn score(palette: Palette, moment: Moment) -> Vec<Note> {
     // passing notes between and a note left out now and then.
     let day = if moment.festival { day.max(0.8) } else { day };
     if day > 0.02 {
-        let octave = if moment.hour % 3 == 0 { 36.0 } else { 24.0 };
+        let octave = if moment.hour.is_multiple_of(3) {
+            36.0
+        } else {
+            24.0
+        };
         for (bar, chord) in chords.iter().enumerate() {
             let mut at = bar as f32 * CHORD_SECONDS;
             let bar_end = at + CHORD_SECONDS;

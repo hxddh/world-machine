@@ -1,5 +1,5 @@
 //! The app's single-line text field: a World's player speaks through it,
-//! and the app names Worlds and asks its Analyst with it.
+//! and the app names Worlds and finds them with it.
 
 use crate::ui;
 use std::ops::Range;
@@ -13,10 +13,10 @@ use gpui::{
     TextRun, UTF16Selection, UnderlineStyle, Window,
 };
 
-const INPUT_CONTEXT: &str = "WorldMachineAnalystInput";
+const INPUT_CONTEXT: &str = "WorldMachineTextInput";
 
 actions!(
-    analyst_input,
+    text_input,
     [
         Backspace,
         Delete,
@@ -585,7 +585,7 @@ impl Element for TextElement {
         if let Some(selection) = prepaint.selection.take() {
             window.paint_quad(selection);
         }
-        let line = prepaint.line.take().expect("analyst input line was shaped");
+        let line = prepaint.line.take().expect("text input line was shaped");
         line.paint(
             bounds.origin,
             window.line_height(),
@@ -594,7 +594,7 @@ impl Element for TextElement {
             window,
             cx,
         )
-        .expect("analyst input text paint failed");
+        .expect("text input paint failed");
         if focus_handle.is_focused(window) {
             if let Some(cursor) = prepaint.cursor.take() {
                 window.paint_quad(cursor);

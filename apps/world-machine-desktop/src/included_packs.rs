@@ -30,7 +30,7 @@ struct IncludedPackSpec {
 const INCLUDED_PACKS: &[IncludedPackSpec] = &[
     IncludedPackSpec {
         id: "world-machine.tiny-society",
-        version: "0.11.0",
+        version: "0.12.0",
         title: "Tiny Society",
         description: "A harbour town that keeps living while you are away. Its people want things of you, the sea and the calendar bring storms and feasts, and every season closes a chapter of the town's story.",
         experience: "Answer what people ask · Build the pier · See how the chapter ends",
@@ -39,21 +39,12 @@ const INCLUDED_PACKS: &[IncludedPackSpec] = &[
     },
     IncludedPackSpec {
         id: "world-machine.pocket-universe",
-        version: "0.28.0",
+        version: "0.29.0",
         title: "Pocket Universe",
         description: "Begin a tiny world, let the people in it live, and watch their choices, friendships and habits become what that place is known for.",
-        experience: "Pick a place · Answer what they ask · Branch what happens next",
+        experience: "Pick a place · Answer what they ask · See what it becomes",
         featured: false,
         file_name: "pocket-universe.worldpack",
-    },
-    IncludedPackSpec {
-        id: "world-machine.micro-company",
-        version: "0.1.0",
-        title: "Micro Company",
-        description: "Run a tiny product company where two founders make small decisions and the business either finds its customers or runs out of cash.",
-        experience: "Choose a direction · Watch demand and cash · Adapt",
-        featured: false,
-        file_name: "micro-company.worldpack",
     },
 ];
 
@@ -143,12 +134,12 @@ mod tests {
         let packs = discover_in(&root);
         assert_eq!(packs.len(), 1);
         assert_eq!(packs[0].pack.id, "world-machine.pocket-universe");
-        assert_eq!(packs[0].pack.version, "0.28.0");
+        assert_eq!(packs[0].pack.version, "0.29.0");
         assert_eq!(packs[0].title, "Pocket Universe");
         assert!(!packs[0].featured);
         assert_eq!(
             packs[0].experience,
-            "Pick a place · Answer what they ask · Branch what happens next"
+            "Pick a place · Answer what they ask · See what it becomes"
         );
         assert_eq!(packs[0].path, root.join("pocket-universe.worldpack"));
 
@@ -159,7 +150,7 @@ mod tests {
     fn included_pack_order_is_product_defined_and_stable() {
         let root = scratch_dir();
         fs::create_dir_all(&root).unwrap();
-        fs::write(root.join("micro-company.worldpack"), b"company").unwrap();
+        fs::write(root.join("surprise.worldpack"), b"surprise").unwrap();
         fs::write(root.join("tiny-society.worldpack"), b"society").unwrap();
         fs::write(root.join("pocket-universe.worldpack"), b"pocket").unwrap();
 
@@ -171,8 +162,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![
                 "world-machine.tiny-society",
-                "world-machine.pocket-universe",
-                "world-machine.micro-company"
+                "world-machine.pocket-universe"
             ]
         );
         assert_eq!(packs.iter().filter(|pack| pack.featured).count(), 1);

@@ -279,7 +279,6 @@ fn protocol_descriptor(descriptor: &WorldDescriptor) -> PackDescriptor {
         descriptor.title.clone(),
         descriptor.description.clone(),
     )
-    .carrying_forward(descriptor.carries_forward.clone())
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -443,7 +442,6 @@ mod tests {
                 pack: WorldPackRef::new(PACK_ID, PACK_VERSION),
                 title: "Fixture Pack".into(),
                 description: "server fixture".into(),
-                carries_forward: Vec::new(),
             },
             || Ok(Box::new(FixtureSession { world_time: 0 })),
         )
@@ -620,7 +618,6 @@ mod tests {
             pack: WorldPackRef::new(PACK_ID, PACK_VERSION),
             title: "Fixture Pack".into(),
             description: "server fixture".into(),
-            carries_forward: Vec::new(),
         };
         let path = PathBuf::from(OsString::from_vec(vec![b'/', b't', b'm', b'p', b'/', 0xff]));
         let error = manifest_for_canonical_exe(&descriptor, &path).unwrap_err();
@@ -646,7 +643,6 @@ mod tests {
             pack: WorldPackRef::new(PACK_ID, PACK_VERSION),
             title: "Fixture Pack".into(),
             description: "server fixture".into(),
-            carries_forward: Vec::new(),
         };
         let manifest = manifest_for_current_exe(&descriptor).unwrap();
         assert_eq!(manifest.descriptor.pack, descriptor.pack);

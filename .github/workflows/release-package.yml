@@ -82,7 +82,6 @@ jobs:
         run: |
           cargo test -p world-library
           cargo test -p pocket-universe-pack
-          cargo test -p micro-company-pack
           cargo test -p tiny-society-pack
           cargo test -p world-machine-desktop
 

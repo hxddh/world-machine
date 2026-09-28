@@ -27,7 +27,7 @@ struct Played {
     /// on the scene.
     answered: usize,
     answers_seen: usize,
-    universe: PocketUniverse<crate::PocketMind>,
+    universe: PocketUniverse,
 }
 
 /// What the scene shows: everything on it, by name and where it stands.
@@ -40,7 +40,7 @@ fn scene(world: &world_core::World) -> std::collections::BTreeSet<String> {
         .collect()
 }
 
-fn said_today(universe: &PocketUniverse<crate::PocketMind>) -> Vec<String> {
+fn said_today(universe: &PocketUniverse) -> Vec<String> {
     let world = universe.world();
     let now = world.world_time();
     talk::voices(world)
@@ -437,13 +437,22 @@ fn a_week_away_lapses_at_most_three_questions() {
 fn a_year(seed: &str, policy: Policy) {
     let played = play(seed, policy, 365);
     let world = played.universe.world();
+    // A player who says yes finishes the place's goals and climbs its
+    // ladder of works, with only the latest still under way.
     if matches!(policy, Policy::Generous) {
-        let unfinished = crate::story::goals(world)
+        let goals = crate::story::goals(world);
+        let unfinished = goals
             .iter()
             .filter(|goal| !goal.finished())
             .map(|goal| format!("{} {} of {}", goal.label, goal.done, goal.parts))
             .collect::<Vec<_>>();
-        assert!(unfinished.is_empty(), "{seed}: {unfinished:?}");
+        assert!(unfinished.len() <= 1, "{seed}: {unfinished:?}");
+        // The place's three goals and at least eight works.
+        assert!(
+            goals.len() >= 11,
+            "{seed}: only {} goals in a year",
+            goals.len()
+        );
     }
 
     // A festival told in its second year is told against its first.
@@ -516,16 +525,23 @@ fn a_year(seed: &str, policy: Policy) {
         .map(|event| period(event) - first)
         .collect::<Vec<_>>();
     // Strangers take a while to arrive; from the fourth month on, how
-    // people stand with each other keeps changing.
-    for start in 90..335 {
+    // people stand with each other keeps changing. Left alone, with nobody
+    // asking or answering, it changes more slowly (a month can be quiet),
+    // but it still changes.
+    let (fewest, span) = if matches!(policy, Policy::Absent) {
+        (2, 45)
+    } else {
+        (3, 30)
+    };
+    for start in 90..365 - span {
         let count = changes
             .iter()
-            .filter(|at| (start..start + 30).contains(*at))
+            .filter(|at| (start..start + span).contains(*at))
             .count();
         assert!(
-            count >= 3,
+            count >= fewest,
             "{seed} {policy:?}: only {count} changes between people in periods {start}-{}",
-            start + 30
+            start + span
         );
     }
 
@@ -648,7 +664,7 @@ fn your_hands_shape_each_place() {
 fn branches_become_different_colonies() {
     let mut universe = PocketUniverse::new().unwrap();
     universe.invoke_projection_command(MARS).unwrap();
-    let step = |universe: &mut PocketUniverse<crate::PocketMind>, last: bool| {
+    let step = |universe: &mut PocketUniverse, last: bool| {
         let snapshot = projection::snapshot(universe.world());
         let answers = snapshot
             .choices()
@@ -678,7 +694,7 @@ fn branches_become_different_colonies() {
         step(&mut left, false);
         step(&mut right, false);
     }
-    let met = |universe: &PocketUniverse<crate::PocketMind>| {
+    let met = |universe: &PocketUniverse| {
         universe.world().events()[split..]
             .iter()
             .filter_map(|event| match event.kind.as_str() {
@@ -839,7 +855,7 @@ const SEEDS: [&str; 3] = [
     crate::SEED_PENGUIN_CIVILIZATION_COMMAND,
 ];
 
-fn begun(seed: &str) -> PocketUniverse<crate::PocketMind> {
+fn begun(seed: &str) -> PocketUniverse {
     let mut universe = PocketUniverse::new().unwrap();
     universe.invoke_projection_command(seed).unwrap();
     universe.invoke_projection_command(NUDGE_COMMAND).unwrap();
@@ -914,7 +930,8 @@ fn a_warm_friendship_opens_doors_in_every_place() {
 }
 
 /// The v0.15 bar: every return, of one period to seven, ends on something
-/// someone left the player to keep.
+/// someone left the player to keep, unless a week has already brought as
+/// many as it may.
 #[test]
 fn every_return_brings_a_keepsake_in_every_place() {
     for seed in SEEDS {
@@ -935,8 +952,12 @@ fn every_return_brings_a_keepsake_in_every_place() {
                 })
                 .map(|item| item.title.clone())
                 .unwrap_or_default();
+            // Unless the week has already brought as many things to keep
+            // as it may, so that each still means something.
+            let cast = crate::life::cast(universe.world().state());
+            let room = lives::room_for_keepsake(universe.world(), &cast);
             assert!(
-                last.contains(" left you "),
+                last.contains(" left you ") || !room,
                 "{seed}: a return of {periods} ended on {last:?}"
             );
         }
@@ -1152,8 +1173,9 @@ fn a_careful_player_finishes_every_goal_in_a_year() {
 
 /// Something new every period for a month in every place, for a player
 /// who only answers the first question on offer and makes something every
-/// third period: something to find in the book, something to keep, or a
-/// chapter's close, and at least four keepsakes in the month.
+/// third period: something to find in the book, something to keep, a
+/// letter, or a chapter's close, and at least four keepsakes or letters in
+/// the month.
 #[test]
 fn something_new_every_period_for_a_month_in_every_place() {
     for seed in [
@@ -1163,13 +1185,14 @@ fn something_new_every_period_for_a_month_in_every_place() {
     ] {
         let mut universe = PocketUniverse::new().unwrap();
         universe.invoke_projection_command(seed).unwrap();
-        let news = |universe: &PocketUniverse<crate::PocketMind>| {
+        let news = |universe: &PocketUniverse| {
             let snapshot = universe.projection_snapshot();
             (
                 snapshot.book.iter().filter(|entry| entry.found).count()
                     + snapshot.keepsakes.len()
+                    + snapshot.letters.len()
                     + snapshot.chapters.len(),
-                snapshot.keepsakes.len(),
+                snapshot.keepsakes.len() + snapshot.letters.len(),
             )
         };
         let (mut before, _) = news(&universe);
@@ -1201,6 +1224,71 @@ fn something_new_every_period_for_a_month_in_every_place() {
         }
         assert!(quiet.is_empty(), "{seed}: nothing new in periods {quiet:?}");
         let (_, keepsakes) = news(&universe);
-        assert!(keepsakes >= 4, "{seed}: {keepsakes} keepsakes in a month");
+        assert!(
+            keepsakes >= 4,
+            "{seed}: {keepsakes} keepsakes and letters in a month"
+        );
+    }
+}
+
+/// Nothing is asked over and over: a player who answers the first open
+/// question every period and builds every third, for a year in each place,
+/// is asked no one question (by its words) more than six times.
+#[test]
+fn no_question_is_asked_more_than_six_times_a_year() {
+    for seed in [
+        MARS,
+        crate::SEED_1980S_TOWN_COMMAND,
+        crate::SEED_PENGUIN_CIVILIZATION_COMMAND,
+    ] {
+        let mut universe = PocketUniverse::new().unwrap();
+        universe.invoke_projection_command(seed).unwrap();
+        let mut opened = std::collections::BTreeMap::<String, usize>::new();
+        let mut open_before = std::collections::BTreeSet::<String>::new();
+        for period in 0..365 {
+            let snapshot = universe.projection_snapshot();
+            let open_now = snapshot
+                .commands
+                .iter()
+                .filter_map(|command| command.question.as_ref())
+                .map(|question| question.prompt.clone())
+                .collect::<std::collections::BTreeSet<_>>();
+            for prompt in open_now.difference(&open_before) {
+                *opened.entry(prompt.clone()).or_default() += 1;
+            }
+            if let Some(answer) = snapshot.commands.iter().find(|command| {
+                command.question.is_some()
+                    && command.unavailable.is_none()
+                    && command.id != NUDGE_COMMAND
+            }) {
+                universe.invoke_projection_command(&answer.id).unwrap();
+            }
+            if period % 3 == 0 {
+                if let Some(deed) = snapshot
+                    .commands
+                    .iter()
+                    .find(|command| command.hand.is_some() && command.unavailable.is_none())
+                {
+                    let _ = universe.invoke_projection_command(&deed.id);
+                }
+            }
+            // What is still open after the answer stays the same question.
+            open_before = universe
+                .projection_snapshot()
+                .commands
+                .iter()
+                .filter_map(|command| command.question.as_ref())
+                .map(|question| question.prompt.clone())
+                .collect();
+            universe.invoke_projection_command(NUDGE_COMMAND).unwrap();
+        }
+        let too_often = opened
+            .iter()
+            .filter(|(_, times)| **times > 6)
+            .collect::<Vec<_>>();
+        assert!(
+            too_often.is_empty(),
+            "{seed}: asked too often: {too_often:#?}"
+        );
     }
 }

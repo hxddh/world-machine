@@ -1,15 +1,9 @@
 //! Who says what happened, when a World is asked to say it in its own words.
 //!
-//! Measured before this existed: eighty periods of play put 586 lines of prose
-//! on screen, of which 114 were distinct, and the first repeated line arrived
-//! at period 3. Two Worlds seeded the same way and answered the opposite way at
-//! every choice still shared 46% of their prose word for word. The era engine
-//! made a World's story unbounded; its vocabulary stayed a lookup table.
-//!
-//! The deterministic path is untouched and always writes its line first: every
-//! consequence Event carries a `summary` and sets `last_change`. A narrator, if
-//! this World has one, is then asked to say that same already-decided fact in
-//! this World's own words, and what it says is recorded as a `world_narrated`
+//! The deterministic path is untouched and always has its line first: what
+//! an Event records about itself, or what was said at it. A narrator, if this
+//! World has one, is then asked to say that same already-decided fact in this
+//! World's own words, and what it says is recorded as a `world_narrated`
 //! Event that overwrites `last_change`.
 //!
 //! Three rules keep this a decoration rather than a dependency:
@@ -19,7 +13,7 @@
 //!   World is never worse for having asked.
 //! * **Structure is not on the table.** The narrator is handed facts that are
 //!   already decided and already recorded. It cannot change which trouble comes
-//!   next, when an era turns, or what a choice cost — only how it reads.
+//!   next or what a choice cost — only how it reads.
 //! * **Recorded, never recomputed.** `World::replay` applies the StateChanges of
 //!   recorded Events and never re-runs `evaluate`, so a narrated line is as
 //!   durable and as replay-exact as any other fact, and replaying a World never
@@ -49,9 +43,7 @@ pub(crate) const MAX_NARRATION_CHARS: usize = 600;
 pub struct NarrationFacts {
     /// Which seed this World grew from, e.g. `mars-colony`.
     pub seed: String,
-    /// Which era it is now.
-    pub era: i64,
-    /// The kind of the Event being re-worded, e.g. `pressure_peaked`.
+    /// The kind of the Event being re-worded, e.g. `chapter_ended`.
     pub event_kind: String,
     /// The line the World would show if nobody narrated. A narrator is being
     /// asked to say this, not to replace what it says.
@@ -127,20 +119,16 @@ pub(crate) fn return_facts(world: &World, since: usize) -> Vec<(EventId, Narrati
     let Ok(seed) = seed_id_from_state(state) else {
         return Vec::new();
     };
-    let era = era::era_from_state(state);
     projection::digest_events(window)
         .into_iter()
         .filter_map(|(event, _)| {
-            let Some(Value::Text(summary)) = event.payload.get("summary") else {
-                return None;
-            };
+            let summary = projection::table_line(world, event)?;
             Some((
                 event.id,
                 NarrationFacts {
                     seed: seed.clone(),
-                    era,
                     event_kind: event.kind.clone(),
-                    table_summary: summary.clone(),
+                    table_summary: summary,
                 },
             ))
         })

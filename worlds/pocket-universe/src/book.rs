@@ -1,4 +1,4 @@
-//! A pocket universe's book of everything to find: keepsakes, people met,
+//! A pocket universe's book of everything to find: keepsakes, letters, people met,
 //! things made and festival days, found or still a silhouette.
 
 use world_core::World;
@@ -48,6 +48,16 @@ pub(crate) fn book(world: &World) -> Vec<BookEntry> {
             found,
             Some(MarkShape::Parcel),
             hint,
+        ));
+    }
+    // Letters: one from everyone who lives here.
+    for (name, wrote) in lives::letter_writers(world, &cast) {
+        book.push(entry(
+            "Letters",
+            name,
+            wrote,
+            Some(MarkShape::Parcel),
+            "Comes on a quiet day".into(),
         ));
     }
     // People: everyone here, and strangers who might come to stay.

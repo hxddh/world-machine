@@ -30,4 +30,3 @@ If the app does not start at all, open an issue with the [bug report template](h
 
 - Every release also publishes a `.zip`, a `.sha256` for each download, and `release-manifest.json` with the exact commit, architectures, and signing status. `shasum -a 256 -c <file>.sha256` verifies a download.
 - `scripts/install.sh` installs or updates from the Terminal in one line and clears the first-launch block itself; it is optional and does nothing the steps above do not.
-- The experimental World Analyst needs Node and the Pi runtime; its menu entry says so when they are missing.

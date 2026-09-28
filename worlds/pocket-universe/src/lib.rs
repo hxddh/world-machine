@@ -3,26 +3,17 @@ mod book;
 #[cfg(test)]
 mod density;
 mod drawings;
-mod drift;
-mod era;
 mod handwork;
-mod legacy;
 mod life;
 pub mod narrator;
-mod pressure;
 mod projection;
 mod speech;
 mod story;
-mod succession;
 mod talk;
 mod voices;
 
 use std::error::Error;
 use std::sync::Arc;
-use world_agent::{
-    register_actions as register_agent_actions, AgentDecision, AgentExecutor, AgentObservation,
-    AgentRuntime, AgentRuntimeError, AvailableAction, ScopedPerception,
-};
 use world_core::{
     Action, ActionError, ActionRegistry, ActionRequest, Entity, EntityId, EventDraft, EventId,
     StateChange, Value, World, WorldState, WorldStateError,
@@ -32,26 +23,13 @@ use world_persistence::{PersistenceError, WorldArchive, WorldPackRef};
 use world_projection::{ProjectionIntent, ProjectionSnapshot};
 
 pub const POCKET_UNIVERSE_PACK_ID: &str = "world-machine.pocket-universe";
-pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.28.0";
-/// Earlier versions whose Worlds this version opens and carries on, so no
-/// update ever leaves a place behind.
-pub const CARRIES_FORWARD: &[&str] = &["0.27.0"];
+pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.29.0";
 
 pub const SEED_MARS_COLONY_COMMAND: &str = "pocket-universe.seed-mars-colony";
 pub const SEED_1980S_TOWN_COMMAND: &str = "pocket-universe.seed-1980s-town";
 pub const SEED_PENGUIN_CIVILIZATION_COMMAND: &str = "pocket-universe.seed-penguin-civilization";
+/// Letting one period pass.
 pub const NUDGE_COMMAND: &str = "pocket-universe.nudge";
-pub const BOLD_PATH_COMMAND: &str = "pocket-universe.choose-bold-path";
-pub const CAREFUL_PATH_COMMAND: &str = "pocket-universe.choose-careful-path";
-pub const SHARED_PROJECT_COMMAND: &str = "pocket-universe.relationship-shared-project";
-pub const RIVALRY_COMMAND: &str = "pocket-universe.relationship-rivalry";
-pub const OUTWARD_POSTURE_COMMAND: &str = "pocket-universe.posture-outward";
-pub const ROOTED_POSTURE_COMMAND: &str = "pocket-universe.posture-rooted";
-pub const HOLD_PRESSURE_COMMAND: &str = "pocket-universe.pressure-hold";
-pub const REACH_PRESSURE_COMMAND: &str = "pocket-universe.pressure-reach";
-pub const RECOVER_ANCHOR_COMMAND: &str = "pocket-universe.pressure-recover";
-pub const ENTRUST_LEGACY_COMMAND: &str = "pocket-universe.succession-entrust";
-pub const RELEASE_LEGACY_COMMAND: &str = "pocket-universe.succession-release";
 
 /// The residents' own lines as templates and what fills them, for showing
 /// every one of them in another language.
@@ -68,187 +46,48 @@ pub fn voice_templates() -> VoiceTemplates {
         .collect()
 }
 
-/// How many of the latest events each of the pair is shown when deciding
-/// what to do: enough for any mind to know what just happened, and the same
-/// however long the World has lived.
-const RECENTLY_SEEN: usize = 64;
-
 pub(crate) const UNIVERSE: EntityId = EntityId::new(1);
 pub(crate) const SLOT_A: EntityId = EntityId::new(10);
 pub(crate) const SLOT_B: EntityId = EntityId::new(11);
 pub(crate) const SLOT_C: EntityId = EntityId::new(12);
 pub(crate) const SLOT_D: EntityId = EntityId::new(13);
 pub(crate) const SLOT_E: EntityId = EntityId::new(14);
+/// How the pair get on: the trust and tension the storyteller's questions
+/// move.
 pub(crate) const RELATIONSHIP: EntityId = EntityId::new(15);
 
 pub(crate) const SEED: &str = "seed";
-pub(crate) const GENERATION: &str = "generation";
 pub(crate) const LAST_CHANGE: &str = "last_change";
-pub(crate) const DECISION: &str = "decision";
-pub(crate) const POSTURE: &str = "posture";
-pub(crate) const POSTURE_GENERATION: &str = "posture_generation";
-pub(crate) const LEGACY: &str = "legacy";
-pub(crate) const LEGACY_SUMMARY: &str = "legacy_summary";
-pub(crate) const LEGACY_BEHAVIOR: &str = "legacy_behavior";
-pub(crate) const LEGACY_CYCLES: &str = "legacy_cycles";
-pub(crate) const RELATIONSHIP_DIRECTION: &str = "direction";
-const RELATIONSHIP_TRUST: &str = "trust";
-const RELATIONSHIP_TENSION: &str = "tension";
-const RELATIONSHIP_LAST_DYNAMIC: &str = "last_dynamic";
-const RELATIONSHIP_SOCIAL_ARC: &str = "social_arc";
-const ANCHOR_PULSE: &str = "pulse";
+pub(crate) const RELATIONSHIP_TRUST: &str = "trust";
+pub(crate) const RELATIONSHIP_TENSION: &str = "tension";
 const UNSEEDED: &str = "unseeded";
 pub(crate) const BACKGROUND_PERIOD: u64 = 10;
-const AGENT_CARE_ACTION: &str = "pocket_agent.care";
-const AGENT_EXPLORE_ACTION: &str = "pocket_agent.explore";
-const AGENT_CARE_COUNT: &str = "care_count";
-const AGENT_EXPLORE_COUNT: &str = "explore_count";
-const MIND_PROFILE_ARG: &str = "mind_profile";
-const LAST_MIND_PROFILE: &str = "last_mind_profile";
-const DETERMINISTIC_MIND_PROFILE: &str = "deterministic";
-const CUSTOM_MIND_PROFILE: &str = "custom";
 
 pub fn pocket_universe_pack_ref() -> WorldPackRef {
     WorldPackRef::new(POCKET_UNIVERSE_PACK_ID, POCKET_UNIVERSE_PACK_VERSION)
 }
 
-#[derive(Clone, Debug, Default)]
-pub struct PocketMind;
-
-impl AgentRuntime for PocketMind {
-    fn decide(
-        &mut self,
-        observation: &AgentObservation,
-        actions: &[AvailableAction],
-    ) -> Result<AgentDecision, AgentRuntimeError> {
-        let actor = observation
-            .entities
-            .iter()
-            .find(|entity| entity.id == observation.actor)
-            .ok_or_else(|| {
-                AgentRuntimeError::new("Pocket Mind observation is missing its actor")
-            })?;
-        let count = |key: &str| match actor.component(key) {
-            Some(Value::Integer(value)) => Ok(*value),
-            _ => Err(AgentRuntimeError::new(format!(
-                "Pocket Mind actor is missing integer component {key}"
-            ))),
-        };
-        let care_count = count(AGENT_CARE_COUNT)?;
-        let explore_count = count(AGENT_EXPLORE_COUNT)?;
-        let relationship = observation
-            .entities
-            .iter()
-            .find(|entity| entity.id == RELATIONSHIP)
-            .ok_or_else(|| {
-                AgentRuntimeError::new("Pocket Mind observation is missing relationship state")
-            })?;
-        let direction = match relationship.component(RELATIONSHIP_DIRECTION) {
-            Some(Value::Text(direction)) => direction.as_str(),
-            _ => {
-                return Err(AgentRuntimeError::new(
-                    "Pocket Mind relationship is missing its direction",
-                ))
-            }
-        };
-        let universe = observation
-            .entities
-            .iter()
-            .find(|entity| entity.id == UNIVERSE)
-            .ok_or_else(|| {
-                AgentRuntimeError::new("Pocket Mind observation is missing its World")
-            })?;
-        let posture = match universe.component(POSTURE) {
-            Some(Value::Text(posture)) => posture.as_str(),
-            _ => {
-                return Err(AgentRuntimeError::new(
-                    "Pocket Mind World is missing its posture",
-                ))
-            }
-        };
-        let primary_outcome = observation.events.iter().rev().find(|event| {
-            event.actor == Some(SLOT_B)
-                && matches!(
-                    event.kind.as_str(),
-                    "agent_cared_for_world" | "agent_explored_world"
-                )
-        });
-        let fallback = match posture {
-            "outward" => AGENT_EXPLORE_ACTION,
-            "rooted" => AGENT_CARE_ACTION,
-            "none" if care_count <= explore_count => AGENT_CARE_ACTION,
-            "none" => AGENT_EXPLORE_ACTION,
-            other => {
-                return Err(AgentRuntimeError::new(format!(
-                    "Pocket Mind World has unknown posture {other}"
-                )))
-            }
-        };
-        let desired = if observation.actor == SLOT_E {
-            match (direction, primary_outcome.map(|event| event.kind.as_str())) {
-                ("rivalry", Some("agent_cared_for_world")) => AGENT_CARE_ACTION,
-                ("rivalry", Some("agent_explored_world")) => AGENT_EXPLORE_ACTION,
-                (_, Some("agent_cared_for_world")) => AGENT_EXPLORE_ACTION,
-                (_, Some("agent_explored_world")) => AGENT_CARE_ACTION,
-                (_, _) => fallback,
-            }
-        } else {
-            fallback
-        };
-        if !actions.iter().any(|action| action.name() == desired) {
-            return Err(AgentRuntimeError::new(format!(
-                "Pocket Mind expected offered action {desired}"
-            )));
-        }
-        Ok(AgentDecision::choose(desired))
-    }
-}
-
-pub struct PocketUniverse<R = PocketMind>
-where
-    R: AgentRuntime,
-{
+pub struct PocketUniverse {
     world: World,
     actions: ActionRegistry,
-    mind: R,
-    mind_profile: String,
     /// Who says what happened in this World's own words. A World without one
-    /// reads from the table, which is every World that shipped before this
-    /// existed.
+    /// reads from the table.
     narrator: Box<dyn narrator::Narrator>,
 }
 
-impl PocketUniverse<PocketMind> {
+impl PocketUniverse {
     pub fn new() -> Result<Self, Box<dyn Error>> {
-        Self::with_agent_runtime_profile(PocketMind, DETERMINISTIC_MIND_PROFILE)
-    }
-
-    pub fn resume_archive(archive: &WorldArchive) -> Result<Self, Box<dyn Error>> {
-        Self::resume_archive_with_agent_runtime_profile(
-            archive,
-            PocketMind,
-            DETERMINISTIC_MIND_PROFILE,
-        )
-    }
-}
-
-impl<R> PocketUniverse<R>
-where
-    R: AgentRuntime,
-{
-    pub fn with_agent_runtime(mind: R) -> Result<Self, Box<dyn Error>> {
-        Self::with_agent_runtime_profile(mind, CUSTOM_MIND_PROFILE)
-    }
-
-    pub fn with_agent_runtime_profile(
-        mind: R,
-        mind_profile: impl Into<String>,
-    ) -> Result<Self, Box<dyn Error>> {
         Ok(Self {
             world: World::new(baseline()?),
             actions: build_action_registry()?,
-            mind,
-            mind_profile: validate_mind_profile(mind_profile.into())?,
+            narrator: Box::new(narrator::NoNarrator),
+        })
+    }
+
+    pub fn resume_archive(archive: &WorldArchive) -> Result<Self, Box<dyn Error>> {
+        Ok(Self {
+            world: archive.restore(&pocket_universe_pack_ref(), baseline()?)?,
+            actions: build_action_registry()?,
             narrator: Box::new(narrator::NoNarrator),
         })
     }
@@ -265,8 +104,7 @@ where
         )
     }
 
-    /// Give this World a voice. Without one it reads from the table, and every
-    /// World that has already been recorded keeps reading exactly as it did.
+    /// Give this World a voice. Without one it reads from the table.
     pub fn set_narrator(&mut self, narrator: Box<dyn narrator::Narrator>) {
         self.narrator = narrator;
     }
@@ -286,11 +124,18 @@ where
         self.with_previews(projection::snapshot_since(&self.world, since_event_count))
     }
 
+    /// A copy of this World to try something on, with no narrator.
+    fn sketch(&self) -> Option<PocketUniverse> {
+        Some(PocketUniverse {
+            world: self.world.sketch(world_projection::RECENT_EVENTS),
+            actions: build_action_registry().ok()?,
+            narrator: Box::new(narrator::NoNarrator),
+        })
+    }
+
     /// Mark each choice with how it would move the gauges, by playing it on a
     /// copy of this World and reading them again: the same rules, so the
-    /// same result. A choice that asks the people what they do is only
-    /// previewed while their minds are this Pack's own, which answer the same
-    /// way twice; an outside mind is never asked a question just to preview.
+    /// same result.
     fn with_previews(&self, mut snapshot: ProjectionSnapshot) -> ProjectionSnapshot {
         let before = snapshot.gauges.clone();
         if before.is_empty() {
@@ -301,19 +146,8 @@ where
             if command.hand.is_some() {
                 continue;
             }
-            let asks_the_minds = command.id == NUDGE_COMMAND;
-            if asks_the_minds && self.mind_profile != DETERMINISTIC_MIND_PROFILE {
+            let Some(mut copy) = self.sketch() else {
                 continue;
-            }
-            let Ok(actions) = build_action_registry() else {
-                continue;
-            };
-            let mut copy = PocketUniverse {
-                world: self.world.sketch(world_projection::RECENT_EVENTS),
-                actions,
-                mind: PocketMind,
-                mind_profile: DETERMINISTIC_MIND_PROFILE.into(),
-                narrator: Box::new(narrator::NoNarrator),
             };
             if copy.invoke_projection_command(&command.id).is_ok() {
                 command.moves =
@@ -331,15 +165,8 @@ where
             if command.scenery.is_none() {
                 continue;
             }
-            let Ok(actions) = build_action_registry() else {
+            let Some(mut copy) = self.sketch() else {
                 continue;
-            };
-            let mut copy = PocketUniverse {
-                world: self.world.sketch(world_projection::RECENT_EVENTS),
-                actions,
-                mind: PocketMind,
-                mind_profile: DETERMINISTIC_MIND_PROFILE.into(),
-                narrator: Box::new(narrator::NoNarrator),
             };
             if copy.invoke_projection_command(&command.id).is_ok() {
                 let begun = projection::snapshot(&copy.world);
@@ -352,51 +179,20 @@ where
         snapshot
     }
 
-    /// One period passing on `candidate`, as a turn: the World grows, each
-    /// of the pair takes a turn, their relationship moves, and the
-    /// storyteller and people's lives move on.
-    fn pass_period_on(&mut self, candidate: &mut World) -> Result<EventId, Box<dyn Error>> {
-        // A turn is a period passing: "let the first sol unfold" moves
-        // the clock by one sol, the same as a sol passing while nobody
-        // watches, so History can tell one day from the next.
+    /// One period passing on `candidate`: people live their day, the
+    /// calendar turns and the storyteller moves on. `away` is whether the
+    /// player is watching.
+    fn pass_period_on(
+        &self,
+        candidate: &mut World,
+        away: bool,
+    ) -> Result<Option<EventId>, Box<dyn Error>> {
         let target = candidate
             .world_time()
             .checked_add(BACKGROUND_PERIOD)
             .ok_or_else(|| std::io::Error::other("Pocket Universe time overflow"))?;
-        candidate.schedule_at(target, growth_request(candidate))?;
-        let growth = candidate
-            .advance_to(&self.actions, target)?
-            .last()
-            .copied()
-            .ok_or_else(|| std::io::Error::other("Pocket Universe growth did not run"))?;
-        let primary_causes = agent_turn_causes(candidate, SLOT_B, growth);
-        let primary_outcome = Self::run_agent_turn_on(
-            &mut self.mind,
-            candidate,
-            &self.actions,
-            &self.mind_profile,
-            SLOT_B,
-            &primary_causes,
-        )?;
-        let secondary_causes = agent_turn_causes(candidate, SLOT_E, primary_outcome);
-        let secondary_outcome = Self::run_agent_turn_on(
-            &mut self.mind,
-            candidate,
-            &self.actions,
-            &self.mind_profile,
-            SLOT_E,
-            &secondary_causes,
-        )?;
-        let relationship_request = with_causes(
-            ActionRequest::new("update_relationship")
-                .caused_by(primary_outcome)
-                .caused_by(secondary_outcome),
-            relationship_context_causes(candidate),
-        );
-        let relationship = candidate.execute(&self.actions, &relationship_request)?.id;
-        let returned = era::resolve_period(candidate, &self.actions, relationship)?;
-        story::tick(candidate, &self.actions, false)?;
-        Ok(returned)
+        candidate.advance_to(&self.actions, target)?;
+        Ok(story::tick(candidate, &self.actions, away)?.last().copied())
     }
 
     /// Says something to someone in the player's own words, and records
@@ -426,19 +222,24 @@ where
         command_id: &str,
     ) -> Result<EventId, Box<dyn Error>> {
         if command_id == NUDGE_COMMAND {
+            if seed_id(&self.world) == UNSEEDED {
+                return Err(std::io::Error::other("choose where this World begins first").into());
+            }
             let since = self.world.events().len();
             // The period passes on the World itself; if any part of it
             // fails, the World goes back to where it stood.
             let checkpoint = self.world.checkpoint();
             let mut world = std::mem::replace(&mut self.world, World::new(WorldState::default()));
-            let outcome = self.pass_period_on(&mut world);
+            let outcome = self.pass_period_on(&mut world, false);
             if outcome.is_err() {
                 world.rollback(checkpoint);
             }
             self.world = world;
             let returned = outcome?;
             self.narrate_return(since);
-            return Ok(returned);
+            return returned
+                .or_else(|| self.world.events().last().map(|event| event.id))
+                .ok_or_else(|| std::io::Error::other("nothing happened").into());
         }
 
         if let Some((storylet, choice)) = story::parse_command(command_id) {
@@ -467,6 +268,11 @@ where
             return Ok(event);
         }
 
+        if let Some(idea) = command_id.strip_prefix(life::SUGGEST_COMMAND) {
+            let request = lives::suggestion_request(idea, life::fair(&self.world));
+            return Ok(self.world.execute(&self.actions, &request)?.id);
+        }
+
         if let Some((situation, answer)) = life::parse_command(command_id) {
             return Ok(self
                 .world
@@ -478,17 +284,6 @@ where
             SEED_MARS_COLONY_COMMAND => "seed_mars_colony",
             SEED_1980S_TOWN_COMMAND => "seed_1980s_town",
             SEED_PENGUIN_CIVILIZATION_COMMAND => "seed_penguin_civilization",
-            BOLD_PATH_COMMAND => "choose_bold_path",
-            CAREFUL_PATH_COMMAND => "choose_careful_path",
-            SHARED_PROJECT_COMMAND => "steer_shared_project",
-            RIVALRY_COMMAND => "steer_rivalry",
-            OUTWARD_POSTURE_COMMAND => "choose_outward_posture",
-            ROOTED_POSTURE_COMMAND => "choose_rooted_posture",
-            HOLD_PRESSURE_COMMAND => "hold_through_pressure",
-            REACH_PRESSURE_COMMAND => "reach_beyond_pressure",
-            RECOVER_ANCHOR_COMMAND => "recover_anchor",
-            ENTRUST_LEGACY_COMMAND => "entrust_legacy",
-            RELEASE_LEGACY_COMMAND => "release_legacy",
             _ => {
                 return Err(std::io::Error::other(format!(
                     "unknown projection command: {command_id}"
@@ -500,61 +295,26 @@ where
             .world
             .execute(&self.actions, &ActionRequest::new(action).actor(UNIVERSE))?
             .id;
-        // A World that has just begun opens on its first question.
-        if action.starts_with("seed_") {
-            story::tick(&mut self.world, &self.actions, false)?;
-            // Someone comes over to say hello.
-            let cast = life::cast(self.world.state());
-            lives::greet(&mut self.world, &self.actions, &cast)?;
-        }
+        // A World that has just begun opens on its first question, and
+        // someone comes over to say hello.
+        story::tick(&mut self.world, &self.actions, false)?;
+        let cast = life::cast(self.world.state());
+        lives::greet(&mut self.world, &self.actions, &cast)?;
         Ok(event)
     }
 
     /// `periods` passing on `candidate` while nobody watches.
-    fn advance_on(&mut self, candidate: &mut World, periods: u64) -> Result<(), Box<dyn Error>> {
+    fn advance_on(&self, candidate: &mut World, periods: u64) -> Result<(), Box<dyn Error>> {
         for _ in 0..periods {
-            let target = candidate
-                .world_time()
-                .checked_add(BACKGROUND_PERIOD)
-                .ok_or_else(|| std::io::Error::other("Pocket Universe time overflow"))?;
             if seed_id(candidate) == UNSEEDED {
+                let target = candidate
+                    .world_time()
+                    .checked_add(BACKGROUND_PERIOD)
+                    .ok_or_else(|| std::io::Error::other("Pocket Universe time overflow"))?;
                 candidate.advance_to(&self.actions, target)?;
                 continue;
             }
-
-            let growth_request = growth_request(candidate);
-            candidate.schedule_at(target, growth_request)?;
-            let executed = candidate.advance_to(&self.actions, target)?;
-            let growth = executed.last().copied().ok_or_else(|| {
-                std::io::Error::other("scheduled Pocket Universe growth did not run")
-            })?;
-            let primary_causes = agent_turn_causes(candidate, SLOT_B, growth);
-            let primary_outcome = Self::run_agent_turn_on(
-                &mut self.mind,
-                candidate,
-                &self.actions,
-                &self.mind_profile,
-                SLOT_B,
-                &primary_causes,
-            )?;
-            let secondary_causes = agent_turn_causes(candidate, SLOT_E, primary_outcome);
-            let secondary_outcome = Self::run_agent_turn_on(
-                &mut self.mind,
-                candidate,
-                &self.actions,
-                &self.mind_profile,
-                SLOT_E,
-                &secondary_causes,
-            )?;
-            let relationship_request = with_causes(
-                ActionRequest::new("update_relationship")
-                    .caused_by(primary_outcome)
-                    .caused_by(secondary_outcome),
-                relationship_context_causes(candidate),
-            );
-            let relationship = candidate.execute(&self.actions, &relationship_request)?.id;
-            era::resolve_period(candidate, &self.actions, relationship)?;
-            story::tick(candidate, &self.actions, true)?;
+            self.pass_period_on(candidate, true)?;
         }
         Ok(())
     }
@@ -575,7 +335,7 @@ where
         outcome?;
         self.leave_keepsake(since)?;
         // Once, for the lines an observer is about to read — not once per
-        // period. A week-long catch-up resolves as fast as it always did.
+        // period.
         self.narrate_return(since);
         Ok(())
     }
@@ -603,35 +363,22 @@ where
         Ok(())
     }
 
-    fn run_agent_turn_on(
-        mind: &mut R,
-        world: &mut World,
-        registry: &ActionRegistry,
-        mind_profile: &str,
-        actor: EntityId,
-        caused_by: &[EventId],
-    ) -> Result<EventId, Box<dyn Error>> {
-        let actions = vec![
-            AvailableAction::new(
-                "Care for the small world and reinforce what already exists.",
-                ActionRequest::new(AGENT_CARE_ACTION).arg(MIND_PROFILE_ARG, mind_profile),
-            ),
-            AvailableAction::new(
-                "Explore beyond the familiar routine and bring back a new thread.",
-                ActionRequest::new(AGENT_EXPLORE_ACTION).arg(MIND_PROFILE_ARG, mind_profile),
-            ),
-        ];
-        let execution = AgentExecutor::decide_and_execute(
-            mind,
-            &ScopedPerception::new([UNIVERSE, SLOT_A, SLOT_B, SLOT_E, RELATIONSHIP])
-                .with_recent_events(RECENTLY_SEEN),
-            world,
-            registry,
-            actor,
-            &actions,
-            caused_by,
-        )?;
-        Ok(execution.outcome_event)
+    /// Someone from another of the player's Worlds visits: a letter for
+    /// the letter box and, if the week has room, something to keep.
+    pub fn host(&mut self, guest: &world_projection::Guest) -> Result<EventId, Box<dyn Error>> {
+        if seed_id(&self.world) == UNSEEDED {
+            return Err(std::io::Error::other("nobody lives here yet to welcome a guest").into());
+        }
+        let cast = life::cast(self.world.state());
+        Ok(lives::host_guest(
+            &mut self.world,
+            &self.actions,
+            &cast,
+            &guest.name,
+            &guest.from,
+            &guest.letter,
+            &guest.gift,
+        )?)
     }
 
     pub fn fork_before_event(&mut self, event_id: EventId) -> Result<(), Box<dyn Error>> {
@@ -648,55 +395,21 @@ where
     pub fn archive(&self) -> Result<WorldArchive, PersistenceError> {
         WorldArchive::capture(pocket_universe_pack_ref(), &self.world)
     }
-
-    pub fn resume_archive_with_agent_runtime(
-        archive: &WorldArchive,
-        mind: R,
-    ) -> Result<Self, Box<dyn Error>> {
-        Self::resume_archive_with_agent_runtime_profile(archive, mind, CUSTOM_MIND_PROFILE)
-    }
-
-    pub fn resume_archive_with_agent_runtime_profile(
-        archive: &WorldArchive,
-        mind: R,
-        mind_profile: impl Into<String>,
-    ) -> Result<Self, Box<dyn Error>> {
-        Ok(Self {
-            world: archive.restore_carried(
-                &pocket_universe_pack_ref(),
-                CARRIES_FORWARD,
-                baseline()?,
-            )?,
-            actions: build_action_registry()?,
-            mind,
-            mind_profile: validate_mind_profile(mind_profile.into())?,
-            narrator: Box::new(narrator::NoNarrator),
-        })
-    }
 }
 
-struct PocketUniverseSession<R>
-where
-    R: AgentRuntime,
-{
-    world: PocketUniverse<R>,
+struct PocketUniverseSession {
+    world: PocketUniverse,
     return_since_event_count: Option<usize>,
     /// Hears what the player says to people.
     listener: Box<dyn conversation::Listener>,
 }
 
-impl<R> PocketUniverseSession<R>
-where
-    R: AgentRuntime + 'static,
-{
+impl PocketUniverseSession {
     fn fresh(
-        mind: R,
-        mind_profile: &str,
         voice: Box<dyn narrator::Narrator>,
         listener: Box<dyn conversation::Listener>,
     ) -> Result<Box<dyn WorldSession>, HostError> {
-        let mut world = PocketUniverse::with_agent_runtime_profile(mind, mind_profile)
-            .map_err(HostError::session)?;
+        let mut world = PocketUniverse::new().map_err(HostError::session)?;
         world.set_narrator(voice);
         Ok(Box::new(Self {
             world,
@@ -707,14 +420,10 @@ where
 
     fn open_archive(
         archive: &WorldArchive,
-        mind: R,
-        mind_profile: &str,
         voice: Box<dyn narrator::Narrator>,
         listener: Box<dyn conversation::Listener>,
     ) -> Result<Box<dyn WorldSession>, HostError> {
-        let mut world =
-            PocketUniverse::resume_archive_with_agent_runtime_profile(archive, mind, mind_profile)
-                .map_err(HostError::session)?;
+        let mut world = PocketUniverse::resume_archive(archive).map_err(HostError::session)?;
         world.set_narrator(voice);
         Ok(Box::new(Self {
             world,
@@ -724,10 +433,7 @@ where
     }
 }
 
-impl<R> WorldSession for PocketUniverseSession<R>
-where
-    R: AgentRuntime + 'static,
-{
+impl WorldSession for PocketUniverseSession {
     fn pack(&self) -> WorldPackRef {
         pocket_universe_pack_ref()
     }
@@ -768,6 +474,9 @@ where
                     .say_with(who, &words, listener)
                     .map_err(HostError::session)?;
             }
+            ProjectionIntent::Host(guest) => {
+                self.world.host(&guest).map_err(HostError::session)?;
+            }
         }
         self.return_since_event_count = None;
         Ok(self.snapshot())
@@ -807,32 +516,7 @@ pub fn pocket_universe_descriptor() -> WorldDescriptor {
         title: "Pocket Universe".into(),
         description:
             "A tiny world that keeps living while you are away: begin it, let it grow, then come back to see what changed.".into(),
-        carries_forward: CARRIES_FORWARD.iter().map(|version| version.to_string()).collect(),
     }
-}
-
-pub fn pocket_universe_registration() -> WorldRegistration {
-    registration_with_validated_profile(|| PocketMind, DETERMINISTIC_MIND_PROFILE)
-}
-
-pub fn pocket_universe_registration_with_agent_runtime<R, F>(factory: F) -> WorldRegistration
-where
-    R: AgentRuntime + 'static,
-    F: Fn() -> R + Send + Sync + 'static,
-{
-    registration_with_validated_profile(factory, CUSTOM_MIND_PROFILE)
-}
-
-pub fn pocket_universe_registration_with_agent_runtime_profile<R, F>(
-    factory: F,
-    mind_profile: impl Into<String>,
-) -> Result<WorldRegistration, std::io::Error>
-where
-    R: AgentRuntime + 'static,
-    F: Fn() -> R + Send + Sync + 'static,
-{
-    let mind_profile = validate_mind_profile(mind_profile.into())?;
-    Ok(registration_with_validated_profile(factory, mind_profile))
 }
 
 /// Builds the narrator each session of this Pack gets.
@@ -841,118 +525,37 @@ pub type NarratorFactory = Arc<dyn Fn() -> Box<dyn narrator::Narrator> + Send + 
 /// Makes the listener each session hears the player's words with.
 pub type ListenerFactory = Arc<dyn Fn() -> Box<dyn conversation::Listener> + Send + Sync>;
 
-/// A Pack whose Worlds speak for their people too: every session hears the
-/// player with a listener from `listener_factory`, such as a language model
-/// the player switched on.
-pub fn pocket_universe_registration_with_voices<R, F>(
-    factory: F,
-    mind_profile: impl Into<String>,
-    narrator_factory: NarratorFactory,
-    listener_factory: ListenerFactory,
-) -> Result<WorldRegistration, std::io::Error>
-where
-    R: AgentRuntime + 'static,
-    F: Fn() -> R + Send + Sync + 'static,
-{
-    let mind_profile = validate_mind_profile(mind_profile.into())?;
-    Ok(registration_with_voices(
-        factory,
-        mind_profile,
-        narrator_factory,
-        listener_factory,
-    ))
+pub fn pocket_universe_registration() -> WorldRegistration {
+    pocket_universe_registration_with_voice(Arc::new(|| Box::new(narrator::NoNarrator)))
 }
 
-/// A Pack whose Worlds have a voice as well as a mind.
-///
-/// Every World this registration creates or opens is given a narrator from
-/// `narrator_factory`. A Pack registered without one keeps reading from the
-/// table, which is what every registration above does.
-pub fn pocket_universe_registration_with_voice<R, F>(
-    factory: F,
-    mind_profile: impl Into<String>,
+/// A Pack whose Worlds have a voice: every World this registration creates
+/// or opens is given a narrator from `narrator_factory`.
+pub fn pocket_universe_registration_with_voice(
     narrator_factory: NarratorFactory,
-) -> Result<WorldRegistration, std::io::Error>
-where
-    R: AgentRuntime + 'static,
-    F: Fn() -> R + Send + Sync + 'static,
-{
-    let mind_profile = validate_mind_profile(mind_profile.into())?;
-    Ok(registration_with_narrator(
-        factory,
-        mind_profile,
-        narrator_factory,
-    ))
-}
-
-fn registration_with_validated_profile<R, F>(
-    factory: F,
-    mind_profile: impl Into<String>,
-) -> WorldRegistration
-where
-    R: AgentRuntime + 'static,
-    F: Fn() -> R + Send + Sync + 'static,
-{
-    registration_with_narrator(
-        factory,
-        mind_profile,
-        Arc::new(|| Box::new(narrator::NoNarrator)),
-    )
-}
-
-fn registration_with_narrator<R, F>(
-    factory: F,
-    mind_profile: impl Into<String>,
-    narrator_factory: NarratorFactory,
-) -> WorldRegistration
-where
-    R: AgentRuntime + 'static,
-    F: Fn() -> R + Send + Sync + 'static,
-{
-    registration_with_voices(
-        factory,
-        mind_profile,
+) -> WorldRegistration {
+    pocket_universe_registration_with_voices(
         narrator_factory,
         Arc::new(|| Box::new(conversation::OwnEars)),
     )
 }
 
-fn registration_with_voices<R, F>(
-    factory: F,
-    mind_profile: impl Into<String>,
+/// A Pack whose Worlds speak for their people too: every session hears the
+/// player with a listener from `listener_factory`, such as a language model
+/// the player switched on.
+pub fn pocket_universe_registration_with_voices(
     narrator_factory: NarratorFactory,
     listener_factory: ListenerFactory,
-) -> WorldRegistration
-where
-    R: AgentRuntime + 'static,
-    F: Fn() -> R + Send + Sync + 'static,
-{
-    let factory = Arc::new(factory);
+) -> WorldRegistration {
     let create_ears = Arc::clone(&listener_factory);
     let open_ears = listener_factory;
-    let mind_profile = Arc::new(mind_profile.into());
-    let create_factory = Arc::clone(&factory);
-    let open_factory = Arc::clone(&factory);
-    let create_profile = Arc::clone(&mind_profile);
-    let open_profile = Arc::clone(&mind_profile);
     let create_voice = Arc::clone(&narrator_factory);
-    let open_voice = Arc::clone(&narrator_factory);
+    let open_voice = narrator_factory;
     WorldRegistration::new(pocket_universe_descriptor(), move || {
-        PocketUniverseSession::fresh(
-            create_factory(),
-            create_profile.as_str(),
-            create_voice(),
-            create_ears(),
-        )
+        PocketUniverseSession::fresh(create_voice(), create_ears())
     })
     .with_archive_opener(move |archive| {
-        PocketUniverseSession::open_archive(
-            archive,
-            open_factory(),
-            open_profile.as_str(),
-            open_voice(),
-            open_ears(),
-        )
+        PocketUniverseSession::open_archive(archive, open_voice(), open_ears())
     })
 }
 
@@ -962,14 +565,6 @@ fn baseline() -> Result<WorldState, WorldStateError> {
         Entity::new(UNIVERSE, "universe")
             .with_component("name", "Untitled Pocket Universe")
             .with_component(SEED, UNSEEDED)
-            .with_component(GENERATION, 0_i64)
-            .with_component(DECISION, "none")
-            .with_component(POSTURE, "none")
-            .with_component(POSTURE_GENERATION, 0_i64)
-            .with_component(LEGACY, "forming")
-            .with_component(LEGACY_SUMMARY, "")
-            .with_component(LEGACY_BEHAVIOR, "forming")
-            .with_component(LEGACY_CYCLES, 0_i64)
             .with_component(LAST_CHANGE, "Nothing exists here yet."),
     )?;
     Ok(state)
@@ -977,26 +572,10 @@ fn baseline() -> Result<WorldState, WorldStateError> {
 
 fn build_action_registry() -> Result<ActionRegistry, ActionError> {
     let mut actions = ActionRegistry::new();
-    register_agent_actions(&mut actions)?;
     actions.register(SeedMarsColony)?;
     actions.register(Seed1980sTown)?;
     actions.register(SeedPenguinCivilization)?;
-    actions.register(GrowUniverse)?;
-    actions.register(ChooseBoldPath)?;
-    actions.register(ChooseCarefulPath)?;
-    actions.register(ChooseOutwardPosture)?;
-    actions.register(ChooseRootedPosture)?;
-    actions.register(CareForWorld)?;
-    actions.register(ExploreWorld)?;
-    actions.register(UpdateRelationship)?;
-    actions.register(ResolveSocialArc)?;
-    legacy::register_actions(&mut actions)?;
-    era::register_actions(&mut actions)?;
     narrator::register_actions(&mut actions)?;
-    pressure::register_actions(&mut actions)?;
-    succession::register_actions(&mut actions)?;
-    actions.register(SteerSharedProject)?;
-    actions.register(SteerRivalry)?;
     story::register_actions(&mut actions)?;
     Ok(actions)
 }
@@ -1004,17 +583,6 @@ fn build_action_registry() -> Result<ActionRegistry, ActionError> {
 struct SeedMarsColony;
 struct Seed1980sTown;
 struct SeedPenguinCivilization;
-struct GrowUniverse;
-struct ChooseBoldPath;
-struct ChooseCarefulPath;
-struct ChooseOutwardPosture;
-struct ChooseRootedPosture;
-struct CareForWorld;
-struct ExploreWorld;
-struct UpdateRelationship;
-struct ResolveSocialArc;
-struct SteerSharedProject;
-struct SteerRivalry;
 
 impl Action for SeedMarsColony {
     fn name(&self) -> &'static str {
@@ -1033,15 +601,10 @@ impl Action for SeedMarsColony {
             [
                 Entity::new(SLOT_A, "habitat")
                     .with_component("name", "Ares Habitat")
-                    .with_component("status", "pressurized")
-                    .with_component(ANCHOR_PULSE, "first lights")
-                    .with_component("water_cycles", 0_i64),
+                    .with_component("status", "pressurized"),
                 Entity::new(SLOT_B, "person")
                     .with_component("name", "Nia Chen")
-                    .with_component("role", "systems keeper")
-                    .with_component(AGENT_CARE_COUNT, 0_i64)
-                    .with_component(AGENT_EXPLORE_COUNT, 0_i64)
-                    .with_component(LAST_MIND_PROFILE, "none"),
+                    .with_component("role", "systems keeper"),
                 Entity::new(SLOT_C, "place")
                     .with_component("name", "Hydroponics Bay")
                     .with_component("crop", "dwarf wheat"),
@@ -1050,10 +613,7 @@ impl Action for SeedMarsColony {
                     .with_component("range", "18 km"),
                 Entity::new(SLOT_E, "person")
                     .with_component("name", "Tomas Vale")
-                    .with_component("role", "rover scout")
-                    .with_component(AGENT_CARE_COUNT, 0_i64)
-                    .with_component(AGENT_EXPLORE_COUNT, 0_i64)
-                    .with_component(LAST_MIND_PROFILE, "none"),
+                    .with_component("role", "rover scout"),
                 relationship_entity("Nia ↔ Tomas"),
             ],
         )
@@ -1077,15 +637,10 @@ impl Action for Seed1980sTown {
             [
                 Entity::new(SLOT_A, "place")
                     .with_component("name", "Maple Arcade")
-                    .with_component("status", "open late")
-                    .with_component(ANCHOR_PULSE, "new high score")
-                    .with_component("high_scores", 0_i64),
+                    .with_component("status", "open late"),
                 Entity::new(SLOT_B, "person")
                     .with_component("name", "Lena Ortiz")
-                    .with_component("role", "night-shift student")
-                    .with_component(AGENT_CARE_COUNT, 0_i64)
-                    .with_component(AGENT_EXPLORE_COUNT, 0_i64)
-                    .with_component(LAST_MIND_PROFILE, "none"),
+                    .with_component("role", "night-shift student"),
                 Entity::new(SLOT_C, "radio_station")
                     .with_component("name", "K-88 Radio")
                     .with_component("format", "local mix"),
@@ -1094,10 +649,7 @@ impl Action for Seed1980sTown {
                     .with_component("route", "Maple Loop"),
                 Entity::new(SLOT_E, "person")
                     .with_component("name", "Max Park")
-                    .with_component("role", "radio volunteer")
-                    .with_component(AGENT_CARE_COUNT, 0_i64)
-                    .with_component(AGENT_EXPLORE_COUNT, 0_i64)
-                    .with_component(LAST_MIND_PROFILE, "none"),
+                    .with_component("role", "radio volunteer"),
                 relationship_entity("Lena ↔ Max"),
             ],
         )
@@ -1121,15 +673,10 @@ impl Action for SeedPenguinCivilization {
             [
                 Entity::new(SLOT_A, "colony")
                     .with_component("name", "Icebridge")
-                    .with_component("status", "lanterns lit")
-                    .with_component(ANCHOR_PULSE, "first fish bell")
-                    .with_component("bridge_spans", 1_i64),
+                    .with_component("status", "lanterns lit"),
                 Entity::new(SLOT_B, "penguin")
                     .with_component("name", "Piko")
-                    .with_component("role", "bridge keeper")
-                    .with_component(AGENT_CARE_COUNT, 0_i64)
-                    .with_component(AGENT_EXPLORE_COUNT, 0_i64)
-                    .with_component(LAST_MIND_PROFILE, "none"),
+                    .with_component("role", "bridge keeper"),
                 Entity::new(SLOT_C, "storehouse")
                     .with_component("name", "Fish Vault")
                     .with_component("reserve", "steady"),
@@ -1138,849 +685,21 @@ impl Action for SeedPenguinCivilization {
                     .with_component("custom", "vote at moonrise"),
                 Entity::new(SLOT_E, "penguin")
                     .with_component("name", "Miri")
-                    .with_component("role", "fish-vault keeper")
-                    .with_component(AGENT_CARE_COUNT, 0_i64)
-                    .with_component(AGENT_EXPLORE_COUNT, 0_i64)
-                    .with_component(LAST_MIND_PROFILE, "none"),
+                    .with_component("role", "fish-vault keeper"),
                 relationship_entity("Piko ↔ Miri"),
             ],
         )
     }
 }
 
-impl Action for GrowUniverse {
-    fn name(&self) -> &'static str {
-        "grow_universe"
-    }
-
-    fn evaluate(
-        &self,
-        state: &WorldState,
-        _request: &ActionRequest,
-    ) -> Result<EventDraft, ActionError> {
-        let seed = seed_id_from_state(state)?;
-        if seed == UNSEEDED {
-            return Err(ActionError::Invalid(
-                "choose a Pocket Universe seed before growing it".into(),
-            ));
-        }
-        let generation = integer_component(state, UNIVERSE, GENERATION)?;
-        let next = generation + 1;
-        let decision = decision_id_from_state(state)?;
-        let posture = posture_id_from_state(state)?;
-        let social_arc = text_component_from_state(state, RELATIONSHIP, RELATIONSHIP_SOCIAL_ARC)?;
-        let legacy = legacy::legacy_id_from_state(state)?;
-        let change = growth_message(&seed, next, &decision, &social_arc, &posture, &legacy);
-        let pulse = anchor_pulse(&seed, next);
-        let (metric_key, metric_value) = growth_metric(state, &seed)?;
-        let mut draft = EventDraft::new("universe_grew");
-        draft.targets = vec![UNIVERSE, SLOT_A];
-        draft.payload.insert("seed".into(), seed.into());
-        draft.payload.insert("generation".into(), next.into());
-        draft.payload.insert("change".into(), change.clone().into());
-        draft.changes = vec![
-            StateChange::SetComponent {
-                entity: UNIVERSE,
-                key: GENERATION.into(),
-                value: next.into(),
-            },
-            StateChange::SetComponent {
-                entity: UNIVERSE,
-                key: LAST_CHANGE.into(),
-                value: change.into(),
-            },
-            StateChange::SetComponent {
-                entity: SLOT_A,
-                key: ANCHOR_PULSE.into(),
-                value: pulse.into(),
-            },
-            StateChange::SetComponent {
-                entity: SLOT_A,
-                key: metric_key.into(),
-                value: metric_value.into(),
-            },
-        ];
-        Ok(draft)
-    }
-}
-
-impl Action for CareForWorld {
-    fn name(&self) -> &'static str {
-        AGENT_CARE_ACTION
-    }
-
-    fn evaluate(
-        &self,
-        state: &WorldState,
-        request: &ActionRequest,
-    ) -> Result<EventDraft, ActionError> {
-        mind_action_draft(state, request, true)
-    }
-}
-
-impl Action for ExploreWorld {
-    fn name(&self) -> &'static str {
-        AGENT_EXPLORE_ACTION
-    }
-
-    fn evaluate(
-        &self,
-        state: &WorldState,
-        request: &ActionRequest,
-    ) -> Result<EventDraft, ActionError> {
-        mind_action_draft(state, request, false)
-    }
-}
-
-fn mind_action_draft(
-    state: &WorldState,
-    request: &ActionRequest,
-    care: bool,
-) -> Result<EventDraft, ActionError> {
-    let actor = request
-        .actor
-        .ok_or_else(|| ActionError::Invalid("Pocket Mind action requires an actor".into()))?;
-    if actor != SLOT_B && actor != SLOT_E {
-        return Err(ActionError::Invalid(format!(
-            "Pocket Mind action requires a seeded actor ({SLOT_B} or {SLOT_E}), got {actor}"
-        )));
-    }
-    let mind_profile = match request.args.get(MIND_PROFILE_ARG) {
-        Some(Value::Text(profile)) if is_valid_mind_profile(profile) => profile.clone(),
-        _ => {
-            return Err(ActionError::Invalid(
-                "Pocket Mind action requires a valid mind_profile label".into(),
-            ))
-        }
-    };
-    let seed = seed_id_from_state(state)?;
-    if seed == UNSEEDED {
-        return Err(ActionError::Invalid(
-            "Pocket Mind cannot act before its world is seeded".into(),
-        ));
-    }
-    let count_key = if care {
-        AGENT_CARE_COUNT
-    } else {
-        AGENT_EXPLORE_COUNT
-    };
-    let next = integer_component(state, actor, count_key)? + 1;
-    let (target, key, value, change) = mind_outcome(&seed, actor, care)?;
-    let mut draft = EventDraft::new(if care {
-        "agent_cared_for_world"
-    } else {
-        "agent_explored_world"
-    });
-    draft.targets = vec![actor, target];
-    draft.payload.insert("seed".into(), seed.into());
-    draft.payload.insert("change".into(), change.clone().into());
-    draft.payload.insert("turn".into(), next.into());
-    draft
-        .payload
-        .insert(MIND_PROFILE_ARG.into(), mind_profile.clone().into());
-    draft.changes = vec![
-        StateChange::SetComponent {
-            entity: actor,
-            key: count_key.into(),
-            value: next.into(),
-        },
-        StateChange::SetComponent {
-            entity: actor,
-            key: "last_intent".into(),
-            value: if care { "care" } else { "explore" }.into(),
-        },
-        StateChange::SetComponent {
-            entity: actor,
-            key: LAST_MIND_PROFILE.into(),
-            value: mind_profile.into(),
-        },
-        StateChange::SetComponent {
-            entity: target,
-            key: key.into(),
-            value: value.into(),
-        },
-        StateChange::SetComponent {
-            entity: UNIVERSE,
-            key: LAST_CHANGE.into(),
-            value: change.into(),
-        },
-    ];
-    Ok(draft)
-}
-
-fn mind_outcome(
-    seed: &str,
-    actor: EntityId,
-    care: bool,
-) -> Result<(EntityId, &'static str, String, String), ActionError> {
-    let outcome = match (seed, actor, care) {
-        ("mars-colony", SLOT_B, true) => (
-            SLOT_C,
-            "crop",
-            "Nia's tending".into(),
-            "Nia tuned the hydroponics loop.".into(),
-        ),
-        ("mars-colony", SLOT_B, false) => (
-            SLOT_D,
-            "range",
-            "Nia's survey route".into(),
-            "Nia sent Kestrel past the familiar markers.".into(),
-        ),
-        ("mars-colony", SLOT_E, true) => (
-            SLOT_D,
-            "status",
-            "Tomas's service round".into(),
-            "Tomas serviced Kestrel after Nia's latest move.".into(),
-        ),
-        ("mars-colony", SLOT_E, false) => (
-            SLOT_A,
-            "survey_report",
-            "Tomas's ridge trace".into(),
-            "Tomas followed Nia's lead and brought Ares Habitat a new trace of the ridge.".into(),
-        ),
-        ("1980s-town", SLOT_B, true) => (
-            SLOT_A,
-            "status",
-            "Lena's community night".into(),
-            "Lena kept Maple Arcade open for community night.".into(),
-        ),
-        ("1980s-town", SLOT_B, false) => (
-            SLOT_D,
-            "route",
-            "Lena's late loop".into(),
-            "Lena rode Night Bus 6 on its late loop and came back with a new story.".into(),
-        ),
-        ("1980s-town", SLOT_E, true) => (
-            SLOT_C,
-            "format",
-            "Max's community set".into(),
-            "Max answered Lena with a community set on K-88.".into(),
-        ),
-        ("1980s-town", SLOT_E, false) => (
-            SLOT_D,
-            "route",
-            "Max's signal chase".into(),
-            "Max followed the thread from Lena's night and chased a signal along Bus 6.".into(),
-        ),
-        ("penguin-civilization", SLOT_B, true) => (
-            SLOT_A,
-            "status",
-            "Piko's reinforced span".into(),
-            "Piko reinforced a span of the Icebridge before the next cold tide.".into(),
-        ),
-        ("penguin-civilization", SLOT_B, false) => (
-            SLOT_D,
-            "custom",
-            "Piko's edge report".into(),
-            "Piko came back from the edge with a new route under the aurora.".into(),
-        ),
-        ("penguin-civilization", SLOT_E, true) => (
-            SLOT_C,
-            "reserve",
-            "Miri's reserve count".into(),
-            "Miri answered Piko by balancing the Fish Vault's reserve.".into(),
-        ),
-        ("penguin-civilization", SLOT_E, false) => (
-            SLOT_D,
-            "custom",
-            "Miri's tide map".into(),
-            "Miri followed Piko's trail and brought the Aurora Council a new tide map.".into(),
-        ),
-        _ => {
-            return Err(ActionError::Invalid(format!(
-                "unsupported Pocket Universe mind outcome: seed={seed}, actor={actor}, care={care}"
-            )))
-        }
-    };
-    Ok(outcome)
-}
-
-impl Action for UpdateRelationship {
-    fn name(&self) -> &'static str {
-        "update_relationship"
-    }
-
-    fn evaluate(
-        &self,
-        state: &WorldState,
-        _request: &ActionRequest,
-    ) -> Result<EventDraft, ActionError> {
-        let primary = text_component_from_state(state, SLOT_B, "last_intent")?;
-        let secondary = text_component_from_state(state, SLOT_E, "last_intent")?;
-        let direction = text_component_from_state(state, RELATIONSHIP, RELATIONSHIP_DIRECTION)?;
-        let trust = integer_component(state, RELATIONSHIP, RELATIONSHIP_TRUST)?;
-        let tension = integer_component(state, RELATIONSHIP, RELATIONSHIP_TENSION)?;
-
-        let (mut trust_delta, mut tension_delta, dynamic) =
-            match (primary.as_str(), secondary.as_str()) {
-                ("care", "care") => (2, -1, "They reinforced the same fragile thing together."),
-                ("explore", "explore") => (
-                    -1,
-                    2,
-                    "They chased the same frontier and began to compete for it.",
-                ),
-                ("care", "explore") | ("explore", "care") => (
-                    1,
-                    -1,
-                    "Their different instincts covered each other's blind spots.",
-                ),
-                _ => {
-                    return Err(ActionError::Invalid(
-                        "relationship update requires both actors to have acted".into(),
-                    ))
-                }
-            };
-        match direction.as_str() {
-            "shared-project" => {
-                trust_delta += 1;
-                tension_delta -= 1;
-            }
-            "rivalry" => {
-                tension_delta += 1;
-            }
-            "none" => {}
-            other => {
-                return Err(ActionError::Invalid(format!(
-                    "unknown relationship direction: {other}"
-                )))
-            }
-        }
-
-        // Nothing between two people stays at its end: ease turns into
-        // small frictions, and a feud wears itself out.
-        let mut dynamic = dynamic;
-        let (next_trust, next_tension) = (trust + trust_delta, tension + tension_delta);
-        if (next_trust >= 10 && trust_delta >= 0) || (next_tension <= 0 && next_trust >= 7) {
-            trust_delta = trust_delta.min(0).min(9 - trust);
-            tension_delta = tension_delta.max(1);
-            dynamic =
-                "They are so at ease with each other that small things have started to grate.";
-        } else if (next_tension >= 10 && tension_delta >= 0)
-            || (next_trust <= 0 && next_tension >= 7)
-        {
-            trust_delta = trust_delta.max(1);
-            tension_delta = tension_delta.min(0).min(9 - tension);
-            dynamic = "Too tired to keep fighting, they let a small kindness through.";
-        }
-        let next_trust = (trust + trust_delta).clamp(0, 10);
-        let next_tension = (tension + tension_delta).clamp(0, 10);
-        let summary = format!(
-            "{dynamic}{}",
-            bond_change(trust, next_trust, tension, next_tension)
-        );
-        let mut draft = EventDraft::new("relationship_shifted");
-        draft.targets = vec![RELATIONSHIP, SLOT_B, SLOT_E];
-        draft
-            .payload
-            .insert("summary".into(), summary.clone().into());
-        draft.payload.insert("trust".into(), next_trust.into());
-        draft.payload.insert("tension".into(), next_tension.into());
-        draft.payload.insert("direction".into(), direction.into());
-        draft.changes = vec![
-            StateChange::SetComponent {
-                entity: RELATIONSHIP,
-                key: RELATIONSHIP_TRUST.into(),
-                value: next_trust.into(),
-            },
-            StateChange::SetComponent {
-                entity: RELATIONSHIP,
-                key: RELATIONSHIP_TENSION.into(),
-                value: next_tension.into(),
-            },
-            StateChange::SetComponent {
-                entity: RELATIONSHIP,
-                key: RELATIONSHIP_LAST_DYNAMIC.into(),
-                value: summary.clone().into(),
-            },
-            StateChange::SetComponent {
-                entity: UNIVERSE,
-                key: LAST_CHANGE.into(),
-                value: summary.into(),
-            },
-        ];
-        Ok(draft)
-    }
-}
-
-fn social_arc_candidate(state: &WorldState) -> Result<Option<&'static str>, ActionError> {
-    if text_component_from_state(state, RELATIONSHIP, RELATIONSHIP_SOCIAL_ARC)? != "forming" {
-        return Ok(None);
-    }
-    let direction = text_component_from_state(state, RELATIONSHIP, RELATIONSHIP_DIRECTION)?;
-    let trust = integer_component(state, RELATIONSHIP, RELATIONSHIP_TRUST)?;
-    let tension = integer_component(state, RELATIONSHIP, RELATIONSHIP_TENSION)?;
-
-    if direction == "shared-project" && trust >= 5 {
-        return Ok(Some("partnership"));
-    }
-    if direction == "rivalry" && tension >= 5 {
-        return Ok(Some("fracture"));
-    }
-    if trust >= 5 && trust >= tension + 2 {
-        return Ok(Some("partnership"));
-    }
-    if tension >= 5 && tension >= trust + 2 {
-        return Ok(Some("fracture"));
-    }
-    Ok(None)
-}
-
-impl Action for ResolveSocialArc {
-    fn name(&self) -> &'static str {
-        "resolve_social_arc"
-    }
-
-    fn evaluate(
-        &self,
-        state: &WorldState,
-        _request: &ActionRequest,
-    ) -> Result<EventDraft, ActionError> {
-        let arc = social_arc_candidate(state)?.ok_or_else(|| {
-            ActionError::Invalid("relationship has not reached a social-arc threshold".into())
-        })?;
-        let seed = seed_id_from_state(state)?;
-        let trust = integer_component(state, RELATIONSHIP, RELATIONSHIP_TRUST)?;
-        let tension = integer_component(state, RELATIONSHIP, RELATIONSHIP_TENSION)?;
-        let (kind, summary, target, key, value) = match (seed.as_str(), arc) {
-            ("mars-colony", "partnership") => (
-                "partnership_formed",
-                "Nia and Tomas stopped dividing the work into separate turns. Kestrel now launches with them as one expedition crew.",
-                SLOT_D,
-                "social_status",
-                "joint expedition crew",
-            ),
-            ("mars-colony", "fracture") => (
-                "relationship_fractured",
-                "Nia and Tomas stopped trusting the same route. Kestrel now runs split survey plans with competing priorities.",
-                SLOT_D,
-                "social_status",
-                "split survey routes",
-            ),
-            ("1980s-town", "partnership") => (
-                "partnership_formed",
-                "Lena and Max turned their late-night improvisation into a real partnership. K-88 now carries a shared neighborhood show.",
-                SLOT_C,
-                "social_format",
-                "Lena + Max neighborhood show",
-            ),
-            ("1980s-town", "fracture") => (
-                "relationship_fractured",
-                "Lena and Max began pulling the same audience in different directions. K-88 now schedules competing late shows.",
-                SLOT_C,
-                "social_format",
-                "competing late shows",
-            ),
-            ("penguin-civilization", "partnership") => (
-                "partnership_formed",
-                "Piko and Miri turned their different duties into one shared watch. The Aurora Council now plans around their joint reports.",
-                SLOT_D,
-                "social_order",
-                "shared watch council",
-            ),
-            ("penguin-civilization", "fracture") => (
-                "relationship_fractured",
-                "Piko and Miri split the colony's priorities into rival camps. The Aurora Council now meets as two moonrise caucuses.",
-                SLOT_D,
-                "social_order",
-                "split moonrise caucuses",
-            ),
-            _ => {
-                return Err(ActionError::Invalid(format!(
-                    "unsupported Pocket Universe social arc: seed={seed}, arc={arc}"
-                )))
-            }
-        };
-        let mut draft = EventDraft::new(kind);
-        draft.targets = vec![RELATIONSHIP, SLOT_B, SLOT_E, target];
-        draft.payload.insert("social_arc".into(), arc.into());
-        draft.payload.insert("trust".into(), trust.into());
-        draft.payload.insert("tension".into(), tension.into());
-        draft.payload.insert("summary".into(), summary.into());
-        draft.changes = vec![
-            StateChange::SetComponent {
-                entity: RELATIONSHIP,
-                key: RELATIONSHIP_SOCIAL_ARC.into(),
-                value: arc.into(),
-            },
-            StateChange::SetComponent {
-                entity: RELATIONSHIP,
-                key: RELATIONSHIP_LAST_DYNAMIC.into(),
-                value: summary.into(),
-            },
-            StateChange::SetComponent {
-                entity: target,
-                key: key.into(),
-                value: value.into(),
-            },
-            StateChange::SetComponent {
-                entity: UNIVERSE,
-                key: LAST_CHANGE.into(),
-                value: summary.into(),
-            },
-        ];
-        Ok(draft)
-    }
-}
-
-impl Action for SteerSharedProject {
-    fn name(&self) -> &'static str {
-        "steer_shared_project"
-    }
-
-    fn evaluate(
-        &self,
-        state: &WorldState,
-        _request: &ActionRequest,
-    ) -> Result<EventDraft, ActionError> {
-        steer_relationship_draft(state, "shared-project")
-    }
-}
-
-impl Action for SteerRivalry {
-    fn name(&self) -> &'static str {
-        "steer_rivalry"
-    }
-
-    fn evaluate(
-        &self,
-        state: &WorldState,
-        _request: &ActionRequest,
-    ) -> Result<EventDraft, ActionError> {
-        steer_relationship_draft(state, "rivalry")
-    }
-}
-
-fn steer_relationship_draft(
-    state: &WorldState,
-    direction: &str,
-) -> Result<EventDraft, ActionError> {
-    if integer_component(state, UNIVERSE, GENERATION)? < 2 {
-        return Err(ActionError::Invalid(
-            "the relationship has not developed enough to steer yet".into(),
-        ));
-    }
-    if text_component_from_state(state, RELATIONSHIP, RELATIONSHIP_SOCIAL_ARC)? != "forming" {
-        return Err(ActionError::Invalid(
-            "this relationship has already resolved into a social arc".into(),
-        ));
-    }
-    if text_component_from_state(state, RELATIONSHIP, RELATIONSHIP_DIRECTION)? != "none" {
-        return Err(ActionError::Invalid(
-            "this relationship already has a chosen direction".into(),
-        ));
-    }
-    let trust = integer_component(state, RELATIONSHIP, RELATIONSHIP_TRUST)?;
-    let tension = integer_component(state, RELATIONSHIP, RELATIONSHIP_TENSION)?;
-    let (next_trust, next_tension, summary) = match direction {
-        "shared-project" => (
-            (trust + 2).clamp(0, 10),
-            (tension - 1).clamp(0, 10),
-            "You gave them something neither could finish alone. Their relationship now leans toward a shared project.",
-        ),
-        "rivalry" => (
-            trust,
-            (tension + 2).clamp(0, 10),
-            "You let competition sharpen the space between them. Their relationship now leans toward rivalry.",
-        ),
-        _ => return Err(ActionError::Invalid("unknown relationship direction".into())),
-    };
-    let mut draft = EventDraft::new("relationship_steered");
-    draft.targets = vec![RELATIONSHIP, SLOT_B, SLOT_E];
-    draft.payload.insert("direction".into(), direction.into());
-    draft.payload.insert("summary".into(), summary.into());
-    draft.changes = vec![
-        StateChange::SetComponent {
-            entity: RELATIONSHIP,
-            key: RELATIONSHIP_DIRECTION.into(),
-            value: direction.into(),
-        },
-        StateChange::SetComponent {
-            entity: RELATIONSHIP,
-            key: RELATIONSHIP_TRUST.into(),
-            value: next_trust.into(),
-        },
-        StateChange::SetComponent {
-            entity: RELATIONSHIP,
-            key: RELATIONSHIP_TENSION.into(),
-            value: next_tension.into(),
-        },
-        StateChange::SetComponent {
-            entity: RELATIONSHIP,
-            key: RELATIONSHIP_LAST_DYNAMIC.into(),
-            value: summary.into(),
-        },
-        StateChange::SetComponent {
-            entity: UNIVERSE,
-            key: LAST_CHANGE.into(),
-            value: summary.into(),
-        },
-    ];
-    Ok(draft)
-}
-
-impl Action for ChooseBoldPath {
-    fn name(&self) -> &'static str {
-        "choose_bold_path"
-    }
-
-    fn evaluate(
-        &self,
-        state: &WorldState,
-        request: &ActionRequest,
-    ) -> Result<EventDraft, ActionError> {
-        choice_draft(state, request, true)
-    }
-}
-
-impl Action for ChooseCarefulPath {
-    fn name(&self) -> &'static str {
-        "choose_careful_path"
-    }
-
-    fn evaluate(
-        &self,
-        state: &WorldState,
-        request: &ActionRequest,
-    ) -> Result<EventDraft, ActionError> {
-        choice_draft(state, request, false)
-    }
-}
-
-/// What each seed's first intervention does: its id, what the World records
-/// it as, and the one component it sets on one entity. Shared by the action
-/// and by the projection that shows the choice's consequence before it is
-/// made, so the two cannot disagree.
-pub(crate) fn intervention_plan(
-    seed: &str,
-    bold: bool,
-) -> Option<(
-    &'static str,
-    &'static str,
-    EntityId,
-    &'static str,
-    &'static str,
-)> {
-    match (seed, bold) {
-        ("mars-colony", true) => Some((
-            "follow-signal",
-            "Kestrel leaves the safe route to follow a repeating signal beyond the ridge.",
-            SLOT_D,
-            "status",
-            "signal expedition",
-        )),
-        ("mars-colony", false) => Some((
-            "fortify-habitat",
-            "The colony diverts its spare capacity into sealing Ares Habitat before the next dust front.",
-            SLOT_A,
-            "status",
-            "storm sealed",
-        )),
-        ("1980s-town", true) => Some((
-            "community-arcade",
-            "Maple Arcade turns its late hours into a neighborhood club instead of closing the shutters.",
-            SLOT_A,
-            "status",
-            "community nights",
-        )),
-        ("1980s-town", false) => Some((
-            "steady-business",
-            "Maple Arcade keeps a quieter commercial rhythm and protects its small cash buffer.",
-            SLOT_A,
-            "status",
-            "steady business",
-        )),
-        ("penguin-civilization", true) => Some((
-            "winter-feast",
-            "Icebridge opens the Fish Vault for a winter feast that brings distant colonies onto the bridge.",
-            SLOT_C,
-            "reserve",
-            "festival opened",
-        )),
-        ("penguin-civilization", false) => Some((
-            "conserve-reserves",
-            "The Aurora Council keeps the Fish Vault sealed and stores extra reserves for the dark season.",
-            SLOT_C,
-            "reserve",
-            "winter conserved",
-        )),
-        _ => None,
-    }
-}
-
-fn choice_draft(
-    state: &WorldState,
-    request: &ActionRequest,
-    bold: bool,
-) -> Result<EventDraft, ActionError> {
-    let seed = seed_id_from_state(state)?;
-    if seed == UNSEEDED {
-        return Err(ActionError::Invalid(
-            "choose a Pocket Universe seed before intervening".into(),
-        ));
-    }
-    if integer_component(state, UNIVERSE, GENERATION)? < 3 {
-        return Err(ActionError::Invalid(
-            "this Pocket Universe has not grown enough for that choice yet".into(),
-        ));
-    }
-    if decision_id_from_state(state)? != "none" {
-        return Err(ActionError::Invalid(
-            "this Pocket Universe has already crossed its first intervention point".into(),
-        ));
-    }
-
-    let (choice, summary, target, key, value) = intervention_plan(&seed, bold)
-        .ok_or_else(|| ActionError::Invalid(format!("unsupported Pocket Universe seed: {seed}")))?;
-
-    let mut draft = EventDraft::new("universe_intervened");
-    draft.targets = vec![UNIVERSE, target];
-    draft.payload.insert("choice".into(), choice.into());
-    draft.payload.insert("summary".into(), summary.into());
-    draft.changes = vec![
-        StateChange::SetComponent {
-            entity: UNIVERSE,
-            key: DECISION.into(),
-            value: choice.into(),
-        },
-        StateChange::SetComponent {
-            entity: UNIVERSE,
-            key: LAST_CHANGE.into(),
-            value: summary.into(),
-        },
-        StateChange::SetComponent {
-            entity: target,
-            key: key.into(),
-            value: value.into(),
-        },
-    ];
-    drift::record_decider(&mut draft, request);
-    Ok(draft)
-}
-
-impl Action for ChooseOutwardPosture {
-    fn name(&self) -> &'static str {
-        "choose_outward_posture"
-    }
-
-    fn evaluate(
-        &self,
-        state: &WorldState,
-        request: &ActionRequest,
-    ) -> Result<EventDraft, ActionError> {
-        posture_draft(state, request, "outward")
-    }
-}
-
-impl Action for ChooseRootedPosture {
-    fn name(&self) -> &'static str {
-        "choose_rooted_posture"
-    }
-
-    fn evaluate(
-        &self,
-        state: &WorldState,
-        request: &ActionRequest,
-    ) -> Result<EventDraft, ActionError> {
-        posture_draft(state, request, "rooted")
-    }
-}
-
-fn posture_draft(
-    state: &WorldState,
-    request: &ActionRequest,
-    posture: &str,
-) -> Result<EventDraft, ActionError> {
-    let seed = seed_id_from_state(state)?;
-    if seed == UNSEEDED {
-        return Err(ActionError::Invalid(
-            "choose a Pocket Universe seed before choosing its next direction".into(),
-        ));
-    }
-    let generation = integer_component(state, UNIVERSE, GENERATION)?;
-    if generation < 6 {
-        return Err(ActionError::Invalid(
-            "this Pocket Universe has not reached its second chapter yet".into(),
-        ));
-    }
-    if decision_id_from_state(state)? == "none" {
-        return Err(ActionError::Invalid(
-            "the first intervention must settle before choosing a second direction".into(),
-        ));
-    }
-    if text_component_from_state(state, RELATIONSHIP, RELATIONSHIP_SOCIAL_ARC)? == "forming" {
-        return Err(ActionError::Invalid(
-            "the central relationship must resolve before choosing a second direction".into(),
-        ));
-    }
-    if posture_id_from_state(state)? != "none" {
-        return Err(ActionError::Invalid(
-            "this Pocket Universe already has a second-chapter direction".into(),
-        ));
-    }
-
-    let summary = match (seed.as_str(), posture) {
-        ("mars-colony", "outward") => {
-            "The colony opens Kestrel's ridge routes into a wider exploration network."
-        }
-        ("mars-colony", "rooted") => {
-            "The colony turns its next chapter toward making Ares Habitat deeper, safer, and more self-sufficient."
-        }
-        ("1980s-town", "outward") => {
-            "Maple Street lets the arcade, radio, and night bus pull new people into its orbit."
-        }
-        ("1980s-town", "rooted") => {
-            "Maple Street turns its next chapter toward the local places and rituals that already feel like home."
-        }
-        ("penguin-civilization", "outward") => {
-            "Icebridge invites the outer colonies into a wider network under the aurora."
-        }
-        ("penguin-civilization", "rooted") => {
-            "Icebridge turns its next chapter toward winter systems meant to keep local life resilient."
-        }
-        (_, "outward") => "The World chooses to carry its next chapter outward.",
-        (_, "rooted") => "The World chooses to deepen the home it has already made.",
-        (_, other) => {
-            return Err(ActionError::Invalid(format!(
-                "unknown Pocket Universe posture: {other}"
-            )))
-        }
-    };
-
-    let mut draft = EventDraft::new("world_posture_chosen");
-    draft.targets = vec![UNIVERSE, RELATIONSHIP, SLOT_B, SLOT_E];
-    draft.payload.insert("posture".into(), posture.into());
-    draft.payload.insert("summary".into(), summary.into());
-    draft.changes = vec![
-        StateChange::SetComponent {
-            entity: UNIVERSE,
-            key: POSTURE.into(),
-            value: posture.into(),
-        },
-        StateChange::SetComponent {
-            entity: UNIVERSE,
-            key: POSTURE_GENERATION.into(),
-            value: generation.into(),
-        },
-        StateChange::SetComponent {
-            entity: UNIVERSE,
-            key: LAST_CHANGE.into(),
-            value: summary.into(),
-        },
-    ];
-    drift::record_decider(&mut draft, request);
-    Ok(draft)
-}
-
+/// The pair's bond, which begins neither close nor strained.
 fn relationship_entity(name: &str) -> Entity {
     Entity::new(RELATIONSHIP, "relationship")
         .with_component("name", name)
         .with_component("primary", Value::Entity(SLOT_B))
         .with_component("secondary", Value::Entity(SLOT_E))
-        .with_component(RELATIONSHIP_TRUST, 0_i64)
-        .with_component(RELATIONSHIP_TENSION, 0_i64)
-        .with_component(RELATIONSHIP_DIRECTION, "none")
-        .with_component(RELATIONSHIP_SOCIAL_ARC, "forming")
-        .with_component(RELATIONSHIP_LAST_DYNAMIC, "forming")
+        .with_component(RELATIONSHIP_TRUST, 4_i64)
+        .with_component(RELATIONSHIP_TENSION, 3_i64)
 }
 
 fn seed_draft(
@@ -2010,61 +729,6 @@ fn seed_draft(
         },
         StateChange::SetComponent {
             entity: UNIVERSE,
-            key: GENERATION.into(),
-            value: 0_i64.into(),
-        },
-        StateChange::SetComponent {
-            entity: UNIVERSE,
-            key: DECISION.into(),
-            value: "none".into(),
-        },
-        StateChange::SetComponent {
-            entity: UNIVERSE,
-            key: POSTURE.into(),
-            value: "none".into(),
-        },
-        StateChange::SetComponent {
-            entity: UNIVERSE,
-            key: POSTURE_GENERATION.into(),
-            value: 0_i64.into(),
-        },
-        StateChange::SetComponent {
-            entity: UNIVERSE,
-            key: LEGACY.into(),
-            value: "forming".into(),
-        },
-        StateChange::SetComponent {
-            entity: UNIVERSE,
-            key: LEGACY_SUMMARY.into(),
-            value: "".into(),
-        },
-        StateChange::SetComponent {
-            entity: UNIVERSE,
-            key: LEGACY_BEHAVIOR.into(),
-            value: "forming".into(),
-        },
-        StateChange::SetComponent {
-            entity: UNIVERSE,
-            key: LEGACY_CYCLES.into(),
-            value: 0_i64.into(),
-        },
-        StateChange::SetComponent {
-            entity: UNIVERSE,
-            key: pressure::PRESSURE.into(),
-            value: "none".into(),
-        },
-        StateChange::SetComponent {
-            entity: UNIVERSE,
-            key: pressure::PRESSURE_GENERATION.into(),
-            value: 0_i64.into(),
-        },
-        StateChange::SetComponent {
-            entity: UNIVERSE,
-            key: pressure::PRESSURE_OUTCOME.into(),
-            value: "none".into(),
-        },
-        StateChange::SetComponent {
-            entity: UNIVERSE,
             key: LAST_CHANGE.into(),
             value: "A new world has taken shape.".into(),
         },
@@ -2073,101 +737,6 @@ fn seed_draft(
         .changes
         .extend(entities.into_iter().map(StateChange::CreateEntity));
     Ok(draft)
-}
-
-fn with_causes(
-    mut request: ActionRequest,
-    causes: impl IntoIterator<Item = EventId>,
-) -> ActionRequest {
-    for cause in causes {
-        if !request.caused_by.contains(&cause) {
-            request.caused_by.push(cause);
-        }
-    }
-    request
-}
-
-fn latest_event_id(world: &World, kind: &str) -> Option<EventId> {
-    world
-        .events()
-        .iter()
-        .rev()
-        .find(|event| event.kind == kind)
-        .map(|event| event.id)
-}
-
-fn latest_event_id_from(world: &World, kinds: &[&str]) -> Option<EventId> {
-    world
-        .events()
-        .iter()
-        .rev()
-        .find(|event| kinds.contains(&event.kind.as_str()))
-        .map(|event| event.id)
-}
-
-fn growth_context_causes(world: &World) -> Vec<EventId> {
-    let mut causes = Vec::new();
-    for cause in [
-        latest_event_id(world, "universe_intervened"),
-        latest_event_id_from(world, &["partnership_formed", "relationship_fractured"]),
-        latest_event_id(world, "world_posture_chosen"),
-        latest_event_id(world, "world_legacy_formed"),
-    ]
-    .into_iter()
-    .flatten()
-    {
-        if !causes.contains(&cause) {
-            causes.push(cause);
-        }
-    }
-    causes
-}
-
-fn growth_request(world: &World) -> ActionRequest {
-    with_causes(
-        ActionRequest::new("grow_universe").actor(UNIVERSE),
-        growth_context_causes(world),
-    )
-}
-
-fn agent_turn_causes(world: &World, actor: EntityId, immediate: EventId) -> Vec<EventId> {
-    let mut causes = vec![immediate];
-    if let Some(posture) = latest_event_id(world, "world_posture_chosen") {
-        if !causes.contains(&posture) {
-            causes.push(posture);
-        }
-    }
-    if actor == SLOT_E {
-        if let Some(direction) = latest_event_id(world, "relationship_steered") {
-            if !causes.contains(&direction) {
-                causes.push(direction);
-            }
-        }
-    }
-    causes
-}
-
-fn relationship_context_causes(world: &World) -> Vec<EventId> {
-    latest_event_id(world, "relationship_steered")
-        .into_iter()
-        .collect()
-}
-
-fn validate_mind_profile(profile: String) -> Result<String, std::io::Error> {
-    if is_valid_mind_profile(&profile) {
-        Ok(profile)
-    } else {
-        Err(std::io::Error::other(
-            "mind profile must be one of: deterministic, pi, custom",
-        ))
-    }
-}
-
-fn is_valid_mind_profile(profile: &str) -> bool {
-    matches!(
-        profile,
-        DETERMINISTIC_MIND_PROFILE | "pi" | CUSTOM_MIND_PROFILE
-    )
 }
 
 pub(crate) fn seed_id(world: &World) -> &str {
@@ -2194,44 +763,7 @@ fn seed_id_from_state(state: &WorldState) -> Result<String, ActionError> {
     }
 }
 
-fn decision_id_from_state(state: &WorldState) -> Result<String, ActionError> {
-    match state
-        .entity(UNIVERSE)
-        .and_then(|entity| entity.component(DECISION))
-    {
-        Some(Value::Text(decision)) => Ok(decision.clone()),
-        _ => Err(ActionError::Invalid(
-            "Pocket Universe decision state is missing".into(),
-        )),
-    }
-}
-
-fn posture_id_from_state(state: &WorldState) -> Result<String, ActionError> {
-    match state
-        .entity(UNIVERSE)
-        .and_then(|entity| entity.component(POSTURE))
-    {
-        Some(Value::Text(posture)) => Ok(posture.clone()),
-        _ => Err(ActionError::Invalid(
-            "Pocket Universe posture state is missing".into(),
-        )),
-    }
-}
-
-fn growth_metric(state: &WorldState, seed: &str) -> Result<(&'static str, i64), ActionError> {
-    let key = match seed {
-        "mars-colony" => "water_cycles",
-        "1980s-town" => "high_scores",
-        "penguin-civilization" => "bridge_spans",
-        _ => {
-            return Err(ActionError::Invalid(format!(
-                "unsupported Pocket Universe seed: {seed}"
-            )))
-        }
-    };
-    Ok((key, integer_component(state, SLOT_A, key)? + 1))
-}
-
+#[cfg(test)]
 fn text_component_from_state(
     state: &WorldState,
     entity: EntityId,
@@ -2248,181 +780,9 @@ fn text_component_from_state(
     }
 }
 
-fn integer_component(state: &WorldState, entity: EntityId, key: &str) -> Result<i64, ActionError> {
-    match state
-        .entity(entity)
-        .and_then(|entity| entity.component(key))
-    {
-        Some(Value::Integer(value)) => Ok(*value),
-        _ => Err(ActionError::Invalid(format!(
-            "entity {entity} has no integer component {key}"
-        ))),
-    }
-}
-
-fn growth_message(
-    seed: &str,
-    generation: i64,
-    decision: &str,
-    social_arc: &str,
-    posture: &str,
-    legacy: &str,
-) -> String {
-    let cycle = ((generation - 1).rem_euclid(3)) as usize;
-    let messages: [&[&str]; 3] = [
-        &[
-            "The colony opened a new water-recovery loop.",
-            "A dust front changed the rover routes overnight.",
-            "The hydroponics crew harvested its first shared meal.",
-        ],
-        &[
-            "A handwritten tournament bracket appeared at the arcade.",
-            "K-88 dedicated an hour to calls from the neighborhood.",
-            "Night Bus 6 added an unscheduled stop after the rain.",
-        ],
-        &[
-            "A new ice bridge shortened the walk to the Fish Vault.",
-            "Piko rang the fish bell early after spotting a silver shoal.",
-            "The Aurora Council adopted a new moonrise signal.",
-        ],
-    ];
-    let base = match seed {
-        "mars-colony" => messages[0][cycle],
-        "1980s-town" => messages[1][cycle],
-        "penguin-civilization" => messages[2][cycle],
-        _ => "Something small changed, and it stayed changed.",
-    };
-    let mut story = base.to_owned();
-    if decision != "none" {
-        let consequence = match decision {
-            "follow-signal" => {
-                "The signal expedition keeps pulling attention beyond the safe ridge."
-            }
-            "fortify-habitat" => {
-                "The stronger habitat makes every later risk feel more deliberate."
-            }
-            "community-arcade" => {
-                "The arcade is becoming a place people organize their evenings around."
-            }
-            "steady-business" => "The arcade survives by staying small, predictable, and open.",
-            "winter-feast" => {
-                "The feast has turned Icebridge into a meeting point for distant colonies."
-            }
-            "conserve-reserves" => {
-                "The sealed reserve gives the council more room to plan for the dark season."
-            }
-            _ => "The earlier intervention is still shaping what happens next.",
-        };
-        story.push(' ');
-        story.push_str(consequence);
-    }
-    let social_consequence = match (seed, social_arc) {
-        (_, "forming") => None,
-        ("mars-colony", "partnership") => {
-            Some("Nia and Tomas now plan each rover run as one crew.")
-        }
-        ("mars-colony", "fracture") => {
-            Some("Nia and Tomas now divide rover access into competing routes.")
-        }
-        ("1980s-town", "partnership") => {
-            Some("Lena and Max now turn late-night discoveries into one shared broadcast.")
-        }
-        ("1980s-town", "fracture") => {
-            Some("Lena and Max now compete to define the neighborhood's late-night rhythm.")
-        }
-        ("penguin-civilization", "partnership") => {
-            Some("Piko and Miri now bring one shared watch report to the council.")
-        }
-        ("penguin-civilization", "fracture") => {
-            Some("Piko and Miri now bring rival priorities to each moonrise council.")
-        }
-        (_, _) => Some("How the two of them get along is now shaping what happens next."),
-    };
-    if let Some(social_consequence) = social_consequence {
-        story.push(' ');
-        story.push_str(social_consequence);
-    }
-    let posture_consequence = match (seed, posture) {
-        (_, "none") => None,
-        ("mars-colony", "outward") => Some(
-            "Looking outward keeps pushing attention and infrastructure beyond the known ridge.",
-        ),
-        ("mars-colony", "rooted") => {
-            Some("Staying rooted keeps pulling effort back toward a stronger home base.")
-        }
-        ("1980s-town", "outward") => Some(
-            "Looking outward keeps bringing unfamiliar faces into Maple Street's late-night life.",
-        ),
-        ("1980s-town", "rooted") => Some(
-            "Staying rooted keeps turning familiar places into deeper neighborhood institutions.",
-        ),
-        ("penguin-civilization", "outward") => {
-            Some("Looking outward keeps widening Icebridge's circle under the aurora.")
-        }
-        ("penguin-civilization", "rooted") => {
-            Some("Staying rooted keeps investing in winter systems that make home resilient.")
-        }
-        (_, "outward") => Some("The outward posture keeps carrying the World toward new edges."),
-        (_, "rooted") => Some("The rooted posture keeps deepening the World it already has."),
-        (_, _) => Some("The direction you chose is shaping what happens next."),
-    };
-    if let Some(posture_consequence) = posture_consequence {
-        story.push(' ');
-        story.push_str(posture_consequence);
-    }
-    if let Some(legacy_consequence) = legacy::growth_consequence(seed, legacy) {
-        story.push(' ');
-        story.push_str(legacy_consequence);
-    }
-    story
-}
-
-/// How a relationship moved, in words: the numbers stay in the World for
-/// anything that wants to draw them, and out of the sentences.
-fn bond_change(trust: i64, next_trust: i64, tension: i64, next_tension: i64) -> String {
-    let trust = match next_trust.cmp(&trust) {
-        std::cmp::Ordering::Greater => " Trust between them grew.",
-        std::cmp::Ordering::Less => " Trust between them slipped.",
-        std::cmp::Ordering::Equal => "",
-    };
-    let tension = match next_tension.cmp(&tension) {
-        std::cmp::Ordering::Greater => " Tension rose.",
-        std::cmp::Ordering::Less => " Tension eased.",
-        std::cmp::Ordering::Equal => "",
-    };
-    format!("{trust}{tension}")
-}
-
-/// Where two people stand, in words, from trust and tension out of ten.
-pub(crate) fn bond_phrase(trust: i64, tension: i64) -> String {
-    let trust = match trust {
-        i64::MIN..=2 => "They barely trust each other",
-        3..=5 => "They are learning to trust each other",
-        6..=8 => "They trust each other",
-        _ => "They trust each other completely",
-    };
-    let tension = match tension {
-        i64::MIN..=1 => "",
-        2..=4 => ", with some friction",
-        5..=7 => ", despite real tension",
-        _ => ", though tension runs high",
-    };
-    format!("{trust}{tension}.")
-}
-
-fn anchor_pulse(seed: &str, generation: i64) -> String {
-    match seed {
-        "mars-colony" => format!("Sol {generation}"),
-        "1980s-town" => format!("Night {generation}"),
-        "penguin-civilization" => format!("Aurora {generation}"),
-        _ => format!("Moment {generation}"),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use world_agent::MockAgentRuntime;
 
     /// Every place to begin shows itself as it will first stand: its own
     /// people and buildings, not a landscape alone.
@@ -2702,63 +1062,107 @@ mod tests {
                 SEED_MARS_COLONY_COMMAND.into(),
             ))
             .unwrap();
-        session.advance_background(2).unwrap();
-        let before = session.snapshot();
+        let mut marked = None;
+        for _ in 0..40 {
+            let snapshot = session.snapshot();
+            if let Some(command) = snapshot.commands.iter().find(|command| {
+                command.question.is_some()
+                    && command.unavailable.is_none()
+                    && !command.moves.is_empty()
+            }) {
+                marked = Some((snapshot.clone(), command.clone()));
+                break;
+            }
+            session
+                .handle(ProjectionIntent::InvokeCommand(NUDGE_COMMAND.into()))
+                .unwrap();
+        }
+        let (before, command) = marked.expect("some answer moves a gauge");
         let ids: Vec<&str> = before
             .gauges
             .iter()
             .map(|gauge| gauge.id.as_str())
             .collect();
-        assert_eq!(ids, ["trust", "tension", "anchor"]);
-        let shared = before
-            .commands
-            .iter()
-            .find(|command| command.id == SHARED_PROJECT_COMMAND)
-            .expect("the pair can be given something to share");
-        assert!(!shared.moves.is_empty(), "sharing a project moves trust");
-        assert_eq!(
-            shared.asker,
-            Some(world_projection::SelectionId::Entity(RELATIONSHIP)),
-            "a choice about the pair is theirs to ask"
-        );
+        assert_eq!(ids, ["trust", "tension"]);
         let after = session
-            .handle(ProjectionIntent::InvokeCommand(
-                SHARED_PROJECT_COMMAND.into(),
-            ))
+            .handle(ProjectionIntent::InvokeCommand(command.id.clone()))
             .unwrap();
         assert_eq!(
             world_projection::gauge_moves(&before.gauges, &after.gauges),
-            shared.moves
+            command.moves
         );
+    }
+
+    /// Every gauge a World shows can be moved: over a season and more of
+    /// play, answering what is asked and building, each gauge changes, and
+    /// something the player chose is followed by a gauge moving.
+    #[test]
+    fn every_gauge_can_be_moved() {
+        for seed in [
+            SEED_MARS_COLONY_COMMAND,
+            SEED_1980S_TOWN_COMMAND,
+            SEED_PENGUIN_CIVILIZATION_COMMAND,
+        ] {
+            let mut universe = freshly_seeded(seed);
+            let first = universe.projection_snapshot().gauges;
+            assert!(!first.is_empty(), "{seed}: no gauges");
+            let mut moved = std::collections::BTreeSet::new();
+            let mut chosen_and_moved = 0;
+            for period in 0..120 {
+                let snapshot = universe.projection_snapshot();
+                if let Some(answer) = snapshot
+                    .commands
+                    .iter()
+                    .find(|command| command.question.is_some() && command.unavailable.is_none())
+                {
+                    let before = projection::gauges(universe.world());
+                    universe.invoke_projection_command(&answer.id).unwrap();
+                    let after = projection::gauges(universe.world());
+                    if before != after {
+                        chosen_and_moved += 1;
+                    }
+                }
+                if period % 3 == 0 {
+                    if let Some(deed) = snapshot
+                        .commands
+                        .iter()
+                        .find(|command| command.hand.is_some() && command.unavailable.is_none())
+                    {
+                        let _ = universe.invoke_projection_command(&deed.id);
+                    }
+                }
+                let before = projection::gauges(universe.world());
+                universe.invoke_projection_command(NUDGE_COMMAND).unwrap();
+                let now = projection::gauges(universe.world());
+                for (then, gauge) in before.iter().zip(&now) {
+                    if then.value != gauge.value || then.reading != gauge.reading {
+                        moved.insert(gauge.id.clone());
+                    }
+                }
+                for (then, gauge) in first.iter().zip(&now) {
+                    if then.value != gauge.value {
+                        moved.insert(gauge.id.clone());
+                    }
+                }
+            }
+            for gauge in &first {
+                assert!(
+                    moved.contains(&gauge.id),
+                    "{seed}: {} never moved",
+                    gauge.id
+                );
+            }
+            assert!(
+                chosen_and_moved > 0,
+                "{seed}: none of the player's choices moved a gauge"
+            );
+        }
     }
 
     fn registry() -> world_host::WorldRegistry {
         let mut registry = world_host::WorldRegistry::new();
         registry.register(pocket_universe_registration()).unwrap();
         registry
-    }
-
-    #[test]
-    fn registration_factory_creates_a_fresh_runtime_for_create_and_open() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
-
-        let created = Arc::new(AtomicUsize::new(0));
-        let counter = Arc::clone(&created);
-        let registration = pocket_universe_registration_with_agent_runtime(move || {
-            counter.fetch_add(1, Ordering::SeqCst);
-            PanicMind
-        });
-        let mut registry = world_host::WorldRegistry::new();
-        registry.register(registration).unwrap();
-
-        let session = registry.create(POCKET_UNIVERSE_PACK_ID).unwrap();
-        assert_eq!(created.load(Ordering::SeqCst), 1);
-        let archive = session.archive().unwrap().unwrap();
-        drop(session);
-
-        let reopened = registry.open_archive(&archive).unwrap();
-        assert_eq!(created.load(Ordering::SeqCst), 2);
-        assert_eq!(reopened.archive().unwrap().unwrap(), archive);
     }
 
     #[test]
@@ -2846,65 +1250,6 @@ mod tests {
     }
 
     #[test]
-    fn background_time_grows_a_seeded_world() {
-        let registry = registry();
-        let mut session = registry.create(POCKET_UNIVERSE_PACK_ID).unwrap();
-        session
-            .handle(ProjectionIntent::InvokeCommand(
-                SEED_MARS_COLONY_COMMAND.into(),
-            ))
-            .unwrap();
-        let before = session.snapshot();
-
-        let after = session.advance_background(2).unwrap();
-
-        assert_eq!(after.world_time, before.world_time + 20);
-        let new_events = &session.archive().unwrap().unwrap().events[before.timeline.items.len()..];
-        assert_eq!(
-            new_events
-                .iter()
-                .filter(|event| event.kind == "universe_grew")
-                .count(),
-            2
-        );
-        assert_eq!(
-            new_events
-                .iter()
-                .filter(|event| event.kind == "agent_decision_recorded")
-                .count(),
-            4
-        );
-        assert_eq!(
-            new_events
-                .iter()
-                .filter(|event| {
-                    event.kind == "agent_cared_for_world" || event.kind == "agent_explored_world"
-                })
-                .count(),
-            4
-        );
-        let briefing = after.briefing.as_ref().unwrap();
-        assert_eq!(briefing.title, "While you were away");
-        assert_eq!(
-            briefing
-                .items
-                .iter()
-                .filter(|item| item.selection.is_some() && !item.title.contains(" left you "))
-                .count(),
-            3,
-            "the return digest should keep three selected history items"
-        );
-        assert!(briefing
-            .items
-            .iter()
-            .any(|item| { item.title == "Your turn · Relationship" && item.selection.is_none() }));
-        assert!(briefing
-            .items
-            .iter()
-            .all(|item| !item.detail.trim().is_empty()));
-    }
-
-    #[test]
     fn archive_round_trip_preserves_seed_and_growth() {
         let registry = registry();
         let mut session = registry.create(POCKET_UNIVERSE_PACK_ID).unwrap();
@@ -2928,1126 +1273,36 @@ mod tests {
     }
 
     #[test]
-    fn scripted_mind_selects_only_offered_actions_and_records_causal_outcome() {
-        let mut universe = PocketUniverse::with_agent_runtime(MockAgentRuntime::scripted([
-            AGENT_EXPLORE_ACTION,
-            AGENT_CARE_ACTION,
-        ]))
-        .unwrap();
-        universe
-            .invoke_projection_command(SEED_MARS_COLONY_COMMAND)
-            .unwrap();
-        universe.advance_periods(1).unwrap();
-
-        let decision = universe
-            .world()
-            .events()
-            .iter()
-            .find(|event| event.kind == "agent_decision_recorded" && event.actor == Some(SLOT_B))
-            .unwrap();
-        let outcome = universe
-            .world()
-            .events()
-            .iter()
-            .find(|event| event.kind == "agent_explored_world" && event.actor == Some(SLOT_B))
-            .unwrap();
-        assert_eq!(decision.actor, Some(SLOT_B));
-        assert!(outcome.caused_by.contains(&decision.id));
-        assert!(outcome.caused_by.iter().any(|cause| universe
-            .world()
-            .event(*cause)
-            .is_some_and(|event| event.kind == "universe_grew")));
-        assert_eq!(
-            universe
-                .world()
-                .state()
-                .entity(SLOT_B)
-                .unwrap()
-                .component(AGENT_EXPLORE_COUNT),
-            Some(&Value::Integer(1))
-        );
-    }
-
-    #[test]
-    fn one_period_runs_two_causally_chained_agent_turns() {
-        let mut universe = PocketUniverse::with_agent_runtime(MockAgentRuntime::scripted([
-            AGENT_EXPLORE_ACTION,
-            AGENT_CARE_ACTION,
-        ]))
-        .unwrap();
-        universe
-            .invoke_projection_command(SEED_MARS_COLONY_COMMAND)
-            .unwrap();
-        universe.advance_periods(1).unwrap();
-
-        let events = universe.world().events();
-        let growth = events
-            .iter()
-            .find(|event| event.kind == "universe_grew")
-            .unwrap();
-        let primary_decision = events
-            .iter()
-            .find(|event| event.kind == "agent_decision_recorded" && event.actor == Some(SLOT_B))
-            .unwrap();
-        let primary_outcome = events
-            .iter()
-            .find(|event| event.kind == "agent_explored_world" && event.actor == Some(SLOT_B))
-            .unwrap();
-        let secondary_decision = events
-            .iter()
-            .find(|event| event.kind == "agent_decision_recorded" && event.actor == Some(SLOT_E))
-            .unwrap();
-        let secondary_outcome = events
-            .iter()
-            .find(|event| event.kind == "agent_cared_for_world" && event.actor == Some(SLOT_E))
-            .unwrap();
-
-        assert!(primary_decision.caused_by.contains(&growth.id));
-        assert!(primary_outcome.caused_by.contains(&growth.id));
-        assert!(primary_outcome.caused_by.contains(&primary_decision.id));
-        assert!(secondary_decision.caused_by.contains(&primary_outcome.id));
-        assert!(secondary_outcome.caused_by.contains(&primary_outcome.id));
-        assert!(secondary_outcome.caused_by.contains(&secondary_decision.id));
-
-        let why = universe.projection_snapshot().why;
-        let chain = why.get(&secondary_outcome.id).unwrap();
-        assert!(chain
-            .nodes
-            .iter()
-            .any(|node| node.event == primary_outcome.id));
-        assert!(chain.nodes.iter().any(|node| node.event == growth.id));
-    }
-
-    struct FailingMind;
-
-    impl AgentRuntime for FailingMind {
-        fn decide(
-            &mut self,
-            _observation: &AgentObservation,
-            _actions: &[AvailableAction],
-        ) -> Result<AgentDecision, AgentRuntimeError> {
-            Err(AgentRuntimeError::new("Pocket Mind is unavailable"))
-        }
-    }
-
-    #[test]
-    fn nudge_runtime_failure_leaves_durable_world_unchanged() {
-        let mut universe = PocketUniverse::with_agent_runtime(FailingMind).unwrap();
-        universe
-            .invoke_projection_command(SEED_MARS_COLONY_COMMAND)
-            .unwrap();
-        let before = universe.archive().unwrap();
-
-        let error = universe
-            .invoke_projection_command(NUDGE_COMMAND)
-            .unwrap_err();
-
-        assert!(error.to_string().contains("Pocket Mind is unavailable"));
-        assert_eq!(universe.archive().unwrap(), before);
-        assert_eq!(universe.world().world_time(), 0);
-    }
-
-    #[test]
-    fn second_agent_failure_rolls_back_growth_and_primary_agent_turn() {
-        let mut universe = PocketUniverse::with_agent_runtime(MockAgentRuntime::scripted([
-            AGENT_CARE_ACTION,
-            "not-an-offered-action",
-        ]))
-        .unwrap();
-        universe
-            .invoke_projection_command(SEED_PENGUIN_CIVILIZATION_COMMAND)
-            .unwrap();
-        let before = universe.archive().unwrap();
-
-        let error = universe.advance_periods(1).unwrap_err();
-
-        assert!(error.to_string().contains("unavailable action"));
-        assert_eq!(universe.archive().unwrap(), before);
-        assert_eq!(universe.world().world_time(), 0);
-    }
-
-    #[test]
-    fn mind_profile_is_durable_and_visible_to_snapshot_compare() {
-        use world_compare::{compare_snapshots, DifferenceKind};
-
-        let mut left = PocketUniverse::with_agent_runtime_profile(
-            MockAgentRuntime::scripted([AGENT_CARE_ACTION, AGENT_CARE_ACTION]),
-            DETERMINISTIC_MIND_PROFILE,
-        )
-        .unwrap();
-        let mut right = PocketUniverse::with_agent_runtime_profile(
-            MockAgentRuntime::scripted([AGENT_CARE_ACTION, AGENT_CARE_ACTION]),
-            "pi",
-        )
-        .unwrap();
-        left.invoke_projection_command(SEED_MARS_COLONY_COMMAND)
-            .unwrap();
-        right
-            .invoke_projection_command(SEED_MARS_COLONY_COMMAND)
-            .unwrap();
-        left.advance_periods(1).unwrap();
-        right.advance_periods(1).unwrap();
-
-        let left_outcome = left
-            .world()
-            .events()
-            .iter()
-            .find(|event| event.kind == "agent_cared_for_world")
-            .unwrap();
-        assert_eq!(
-            left_outcome.payload.get(MIND_PROFILE_ARG),
-            Some(&Value::Text(DETERMINISTIC_MIND_PROFILE.into()))
-        );
-
-        let comparison =
-            compare_snapshots(&left.projection_snapshot(), &right.projection_snapshot());
-        let actor = comparison
-            .entities
-            .iter()
-            .find(|difference| difference.id == world_projection::SelectionId::Entity(SLOT_B))
-            .unwrap();
-        assert_eq!(actor.kind, DifferenceKind::Changed);
-        let profile = actor
-            .inspector_rows
-            .iter()
-            .find(|row| row.key.label == "Guided by")
-            .unwrap();
-        assert_eq!(profile.left.as_deref(), None);
-        assert_eq!(profile.right.as_deref(), Some("Pi"));
-    }
-
-    #[test]
-    fn registration_profile_rejects_credentials_without_panicking() {
-        for profile in [
-            "ghp_abcdefghijklmnopqrstuvwxyz0123456789",
-            "0123456789abcdef0123456789abcdef",
-        ] {
-            let error =
-                pocket_universe_registration_with_agent_runtime_profile(|| PocketMind, profile)
-                    .err()
-                    .expect("credential-shaped registration profile must be rejected");
-            assert!(error.to_string().contains("mind profile must be one of"));
-        }
-    }
-
-    #[test]
-    fn mind_profile_rejects_arbitrary_slug_and_credential_shaped_values() {
-        for profile in [
-            "mind-a",
-            "ghp_abcdefghijklmnopqrstuvwxyz0123456789",
-            "0123456789abcdef0123456789abcdef",
-            "pi api-key=secret",
-        ] {
-            let error = PocketUniverse::with_agent_runtime_profile(PocketMind, profile)
-                .err()
-                .expect("non-closed-set mind profile must be rejected");
-            assert!(error.to_string().contains("mind profile must be one of"));
-        }
-    }
-
-    #[test]
-    fn deterministic_mind_uses_durable_actor_memory_across_turns() {
-        let mut universe = PocketUniverse::new().unwrap();
-        universe
-            .invoke_projection_command(SEED_MARS_COLONY_COMMAND)
-            .unwrap();
-
-        universe.invoke_projection_command(NUDGE_COMMAND).unwrap();
-        universe.invoke_projection_command(NUDGE_COMMAND).unwrap();
-
-        for actor_id in [SLOT_B, SLOT_E] {
-            let actor = universe.world().state().entity(actor_id).unwrap();
-            assert_eq!(actor.component(AGENT_CARE_COUNT), Some(&Value::Integer(1)));
-            assert_eq!(
-                actor.component(AGENT_EXPLORE_COUNT),
-                Some(&Value::Integer(1))
-            );
-            let decisions = universe
-                .world()
-                .events()
-                .iter()
-                .filter(|event| {
-                    event.kind == "agent_decision_recorded" && event.actor == Some(actor_id)
-                })
-                .filter_map(|event| match event.payload.get("selected_action") {
-                    Some(Value::Text(action)) => Some(action.as_str()),
-                    _ => None,
-                })
-                .collect::<Vec<_>>();
-            let expected = if actor_id == SLOT_B {
-                vec![AGENT_CARE_ACTION, AGENT_EXPLORE_ACTION]
-            } else {
-                vec![AGENT_EXPLORE_ACTION, AGENT_CARE_ACTION]
-            };
-            assert_eq!(decisions, expected);
-        }
-        // Each turn is one period of the World's own time.
-        assert_eq!(universe.world().world_time(), 2 * BACKGROUND_PERIOD);
-    }
-
-    #[test]
-    fn deterministic_secondary_actor_reacts_to_primary_outcome() {
-        let mut universe = PocketUniverse::new().unwrap();
-        universe
-            .invoke_projection_command(SEED_MARS_COLONY_COMMAND)
-            .unwrap();
-
-        universe.advance_periods(1).unwrap();
-
-        let primary = universe.world().state().entity(SLOT_B).unwrap();
-        let secondary = universe.world().state().entity(SLOT_E).unwrap();
-        assert_eq!(
-            primary.component(AGENT_CARE_COUNT),
-            Some(&Value::Integer(1))
-        );
-        assert_eq!(
-            primary.component(AGENT_EXPLORE_COUNT),
-            Some(&Value::Integer(0))
-        );
-        assert_eq!(
-            secondary.component(AGENT_CARE_COUNT),
-            Some(&Value::Integer(0))
-        );
-        assert_eq!(
-            secondary.component(AGENT_EXPLORE_COUNT),
-            Some(&Value::Integer(1))
-        );
-        assert_eq!(
-            secondary.component("last_intent"),
-            Some(&Value::Text("explore".into()))
-        );
-    }
-
-    #[test]
-    fn relationship_direction_changes_future_secondary_behavior() {
-        let mut shared = PocketUniverse::new().unwrap();
-        let mut rivalry = PocketUniverse::new().unwrap();
-        for universe in [&mut shared, &mut rivalry] {
-            universe
-                .invoke_projection_command(SEED_MARS_COLONY_COMMAND)
-                .unwrap();
-            universe.advance_periods(2).unwrap();
-        }
-
-        shared
-            .invoke_projection_command(SHARED_PROJECT_COMMAND)
-            .unwrap();
-        rivalry.invoke_projection_command(RIVALRY_COMMAND).unwrap();
-        shared.advance_periods(1).unwrap();
-        rivalry.advance_periods(1).unwrap();
-
-        let shared_primary = shared.world().state().entity(SLOT_B).unwrap();
-        let shared_secondary = shared.world().state().entity(SLOT_E).unwrap();
-        let rivalry_primary = rivalry.world().state().entity(SLOT_B).unwrap();
-        let rivalry_secondary = rivalry.world().state().entity(SLOT_E).unwrap();
-        assert_eq!(
-            shared_primary.component("last_intent"),
-            Some(&Value::Text("care".into()))
-        );
-        assert_eq!(
-            rivalry_primary.component("last_intent"),
-            Some(&Value::Text("care".into()))
-        );
-        assert_eq!(
-            shared_secondary.component("last_intent"),
-            Some(&Value::Text("explore".into()))
-        );
-        assert_eq!(
-            rivalry_secondary.component("last_intent"),
-            Some(&Value::Text("care".into()))
-        );
-
-        let shared_relationship = shared.world().state().entity(RELATIONSHIP).unwrap();
-        let rivalry_relationship = rivalry.world().state().entity(RELATIONSHIP).unwrap();
-        assert_eq!(
-            shared_relationship.component(RELATIONSHIP_DIRECTION),
-            Some(&Value::Text("shared-project".into()))
-        );
-        assert_eq!(
-            rivalry_relationship.component(RELATIONSHIP_DIRECTION),
-            Some(&Value::Text("rivalry".into()))
-        );
-    }
-
-    #[derive(Clone)]
-    struct RecordingMind {
-        observations: Arc<std::sync::Mutex<Vec<AgentObservation>>>,
-    }
-
-    impl AgentRuntime for RecordingMind {
-        fn decide(
-            &mut self,
-            observation: &AgentObservation,
-            _actions: &[AvailableAction],
-        ) -> Result<AgentDecision, AgentRuntimeError> {
-            self.observations.lock().unwrap().push(observation.clone());
-            Ok(AgentDecision::choose(AGENT_CARE_ACTION))
-        }
-    }
-
-    #[test]
-    fn every_agent_provider_observes_durable_relationship_context() {
-        let observations = Arc::new(std::sync::Mutex::new(Vec::new()));
-        let mut universe = PocketUniverse::with_agent_runtime(RecordingMind {
-            observations: Arc::clone(&observations),
-        })
-        .unwrap();
-        universe
-            .invoke_projection_command(SEED_1980S_TOWN_COMMAND)
-            .unwrap();
-        universe.advance_periods(2).unwrap();
-        universe.invoke_projection_command(RIVALRY_COMMAND).unwrap();
-        observations.lock().unwrap().clear();
-
-        universe.advance_periods(1).unwrap();
-
-        let captured = observations.lock().unwrap();
-        assert_eq!(captured.len(), 2);
-        for observation in captured.iter() {
-            let relationship = observation
-                .entities
-                .iter()
-                .find(|entity| entity.id == RELATIONSHIP)
-                .expect("agent observation must contain the durable relationship entity");
-            assert_eq!(
-                relationship.component(RELATIONSHIP_DIRECTION),
-                Some(&Value::Text("rivalry".into()))
-            );
-            assert!(matches!(
-                relationship.component(RELATIONSHIP_TRUST),
-                Some(Value::Integer(_))
-            ));
-            assert!(matches!(
-                relationship.component(RELATIONSHIP_TENSION),
-                Some(Value::Integer(_))
-            ));
-        }
-        let secondary = captured
-            .iter()
-            .find(|observation| observation.actor == SLOT_E)
-            .expect("secondary observation");
-        assert!(secondary.events.iter().any(|event| {
-            event.actor == Some(SLOT_B)
-                && matches!(
-                    event.kind.as_str(),
-                    "agent_cared_for_world" | "agent_explored_world"
-                )
-        }));
-    }
-
-    #[test]
-    fn shared_project_cascades_into_a_partnership_that_changes_the_world() {
-        let mut universe = PocketUniverse::new().unwrap();
-        universe
-            .invoke_projection_command(SEED_MARS_COLONY_COMMAND)
-            .unwrap();
-        universe.advance_periods(2).unwrap();
-        universe
-            .invoke_projection_command(SHARED_PROJECT_COMMAND)
-            .unwrap();
-        universe.advance_periods(1).unwrap();
-
-        let relationship = universe.world().state().entity(RELATIONSHIP).unwrap();
-        assert_eq!(
-            relationship.component(RELATIONSHIP_SOCIAL_ARC),
-            Some(&Value::Text("partnership".into()))
-        );
-        assert_eq!(
-            universe
-                .world()
-                .state()
-                .entity(SLOT_D)
-                .unwrap()
-                .component("social_status"),
-            Some(&Value::Text("joint expedition crew".into()))
-        );
-        let partnership = universe
-            .world()
-            .events()
-            .iter()
-            .find(|event| event.kind == "partnership_formed")
-            .expect("partnership event");
-        assert_eq!(partnership.caused_by.len(), 1);
-        let relationship_shift = partnership.caused_by[0];
-        assert_eq!(
-            universe
-                .world()
-                .events()
-                .iter()
-                .find(|event| event.id == relationship_shift)
-                .map(|event| event.kind.as_str()),
-            Some("relationship_shifted")
-        );
-        let snapshot = universe.projection_snapshot();
-        let why = snapshot.why(partnership.id).unwrap();
-        let growth = universe
-            .world()
-            .events()
-            .iter()
-            .rev()
-            .find(|event| event.kind == "universe_grew")
-            .unwrap()
-            .id;
-        assert!(why.nodes.iter().any(|node| node.event == growth));
-
-        universe.advance_periods(1).unwrap();
-        assert_eq!(
-            universe
-                .world()
-                .state()
-                .entity(SLOT_D)
-                .unwrap()
-                .component("social_status"),
-            Some(&Value::Text("joint expedition crew".into())),
-            "ordinary later agent turns must not erase a resolved social arc"
-        );
-        let later_growth = universe
-            .world()
-            .events()
-            .iter()
-            .rev()
-            .find(|event| event.kind == "universe_grew")
-            .unwrap();
-        assert!(matches!(
-            later_growth.payload.get("change"),
-            Some(Value::Text(change)) if change.contains("one crew")
-        ));
-    }
-
-    #[test]
-    fn rivalry_cascades_into_a_fracture_that_changes_the_world_and_is_forkable() {
-        let mut universe = PocketUniverse::new().unwrap();
-        universe
-            .invoke_projection_command(SEED_MARS_COLONY_COMMAND)
-            .unwrap();
-        universe.advance_periods(2).unwrap();
-        universe.invoke_projection_command(RIVALRY_COMMAND).unwrap();
-        universe.advance_periods(2).unwrap();
-
-        let relationship = universe.world().state().entity(RELATIONSHIP).unwrap();
-        assert_eq!(
-            relationship.component(RELATIONSHIP_SOCIAL_ARC),
-            Some(&Value::Text("fracture".into()))
-        );
-        assert_eq!(
-            universe
-                .world()
-                .state()
-                .entity(SLOT_D)
-                .unwrap()
-                .component("social_status"),
-            Some(&Value::Text("split survey routes".into()))
-        );
-        let fractured = universe
-            .world()
-            .events()
-            .iter()
-            .find(|event| event.kind == "relationship_fractured")
-            .expect("fracture event")
-            .id;
-
-        universe.fork_before_event(fractured).unwrap();
-        assert_eq!(
-            universe
-                .world()
-                .state()
-                .entity(RELATIONSHIP)
-                .unwrap()
-                .component(RELATIONSHIP_SOCIAL_ARC),
-            Some(&Value::Text("forming".into()))
-        );
-        assert_ne!(
-            universe
-                .world()
-                .state()
-                .entity(SLOT_D)
-                .unwrap()
-                .component("social_status"),
-            Some(&Value::Text("split survey routes".into()))
-        );
-    }
-
-    #[test]
-    fn resolved_social_arc_closes_relationship_steering() {
-        let mut universe = PocketUniverse::new().unwrap();
-        universe
-            .invoke_projection_command(SEED_MARS_COLONY_COMMAND)
-            .unwrap();
-        let arc = |universe: &PocketUniverse<PocketMind>| {
-            universe
-                .world()
-                .state()
-                .entity(RELATIONSHIP)
-                .unwrap()
-                .component(RELATIONSHIP_SOCIAL_ARC)
-                .cloned()
-        };
-        for _ in 0..15 {
-            if arc(&universe) != Some(Value::Text("forming".into())) {
-                break;
-            }
-            universe.advance_periods(1).unwrap();
-        }
-
-        assert_ne!(arc(&universe), Some(Value::Text("forming".into())));
-        assert_eq!(
-            universe
-                .world()
-                .state()
-                .entity(RELATIONSHIP)
-                .unwrap()
-                .component(RELATIONSHIP_DIRECTION),
-            Some(&Value::Text("none".into()))
-        );
-        let snapshot = universe.projection_snapshot();
-        assert!(snapshot.command(SHARED_PROJECT_COMMAND).is_none());
-        assert!(snapshot.command(RIVALRY_COMMAND).is_none());
-
-        let before = universe.archive().unwrap();
-        let error = universe
-            .invoke_projection_command(RIVALRY_COMMAND)
-            .expect_err("resolved relationship must reject later steering");
-        assert!(error
-            .to_string()
-            .contains("already resolved into a social arc"));
-        assert_eq!(universe.archive().unwrap(), before);
-    }
-
-    #[test]
-    fn deterministic_default_mind_keeps_identical_worlds_reproducible() {
-        let mut left = PocketUniverse::new().unwrap();
-        let mut right = PocketUniverse::new().unwrap();
-        left.invoke_projection_command(SEED_PENGUIN_CIVILIZATION_COMMAND)
-            .unwrap();
-        right
-            .invoke_projection_command(SEED_PENGUIN_CIVILIZATION_COMMAND)
-            .unwrap();
-
-        left.advance_periods(4).unwrap();
-        right.advance_periods(4).unwrap();
-
-        assert_eq!(left.archive().unwrap(), right.archive().unwrap());
-        assert_eq!(left.projection_snapshot(), right.projection_snapshot());
-    }
-
-    #[test]
-    fn return_briefing_hides_agent_plumbing_but_keeps_agent_outcomes() {
+    fn background_time_grows_a_seeded_world() {
         let registry = registry();
         let mut session = registry.create(POCKET_UNIVERSE_PACK_ID).unwrap();
         session
             .handle(ProjectionIntent::InvokeCommand(
-                SEED_1980S_TOWN_COMMAND.into(),
+                SEED_MARS_COLONY_COMMAND.into(),
             ))
             .unwrap();
-        let returned = session.advance_background(2).unwrap();
-        let briefing = returned.briefing.as_ref().unwrap();
+        let before = session.snapshot();
+        let events_before = session.archive().unwrap().unwrap().events.len();
 
+        let after = session.advance_background(2).unwrap();
+
+        assert_eq!(after.world_time, before.world_time + 20);
+        assert!(session.archive().unwrap().unwrap().events.len() > events_before);
+        let briefing = after.briefing.as_ref().unwrap();
         assert_eq!(briefing.title, "While you were away");
-        assert_eq!(
+        assert!(
             briefing
                 .items
                 .iter()
-                .filter(|item| item.selection.is_some() && !item.title.contains(" left you "))
-                .count(),
-            3,
-            "the return digest should stay bounded independently of the Compass"
+                .filter(|item| item.selection.is_some())
+                .count()
+                >= 1,
+            "a return says what happened"
         );
         assert!(briefing
             .items
             .iter()
-            .any(|item| { item.title == "Your turn · Relationship" && item.selection.is_none() }));
-        assert!(briefing
-            .items
-            .iter()
-            .all(|item| item.title != "agent decision recorded"));
-        assert_eq!(
-            briefing
-                .items
-                .iter()
-                .filter(|item| item.detail.starts_with("Lena"))
-                .count(),
-            1
-        );
-        assert_eq!(
-            briefing
-                .items
-                .iter()
-                .filter(|item| item.detail.starts_with("Max"))
-                .count(),
-            1
-        );
-    }
-
-    struct PanicMind;
-
-    impl AgentRuntime for PanicMind {
-        fn decide(
-            &mut self,
-            _observation: &AgentObservation,
-            _actions: &[AvailableAction],
-        ) -> Result<AgentDecision, AgentRuntimeError> {
-            panic!("archive restore must never call the agent runtime")
-        }
-    }
-
-    #[test]
-    fn archive_restore_does_not_call_the_mind() {
-        let mut universe = PocketUniverse::new().unwrap();
-        universe
-            .invoke_projection_command(SEED_MARS_COLONY_COMMAND)
-            .unwrap();
-        universe.advance_periods(2).unwrap();
-        let archive = universe.archive().unwrap();
-
-        let restored =
-            PocketUniverse::resume_archive_with_agent_runtime(&archive, PanicMind).unwrap();
-
-        assert_eq!(restored.archive().unwrap(), archive);
-        assert_eq!(restored.world().events(), universe.world().events());
-    }
-
-    #[test]
-    fn complementary_deterministic_agents_build_trust() {
-        let mut universe = PocketUniverse::new().unwrap();
-        universe
-            .invoke_projection_command(SEED_MARS_COLONY_COMMAND)
-            .unwrap();
-        universe.advance_periods(2).unwrap();
-
-        let relationship = universe.world().state().entity(RELATIONSHIP).unwrap();
-        assert_eq!(
-            relationship.component(RELATIONSHIP_TRUST),
-            Some(&Value::Integer(2))
-        );
-        assert_eq!(
-            relationship.component(RELATIONSHIP_TENSION),
-            Some(&Value::Integer(0))
-        );
-        assert_eq!(
-            relationship.component(RELATIONSHIP_DIRECTION),
-            Some(&Value::Text("none".into()))
-        );
-        assert_eq!(
-            universe
-                .world()
-                .events()
-                .iter()
-                .filter(|event| event.kind == "relationship_shifted")
-                .count(),
-            2
-        );
-    }
-
-    #[test]
-    fn same_explore_choices_raise_tension_and_keep_full_causal_why() {
-        let mut universe = PocketUniverse::with_agent_runtime(MockAgentRuntime::scripted([
-            AGENT_EXPLORE_ACTION,
-            AGENT_EXPLORE_ACTION,
-        ]))
-        .unwrap();
-        universe
-            .invoke_projection_command(SEED_MARS_COLONY_COMMAND)
-            .unwrap();
-        universe.advance_periods(1).unwrap();
-
-        let relationship = universe.world().state().entity(RELATIONSHIP).unwrap();
-        assert_eq!(
-            relationship.component(RELATIONSHIP_TRUST),
-            Some(&Value::Integer(0))
-        );
-        assert_eq!(
-            relationship.component(RELATIONSHIP_TENSION),
-            Some(&Value::Integer(2))
-        );
-        let shifted = universe
-            .world()
-            .events()
-            .iter()
-            .find(|event| event.kind == "relationship_shifted")
-            .unwrap();
-        assert_eq!(shifted.caused_by.len(), 2);
-        let explored = universe
-            .world()
-            .events()
-            .iter()
-            .find(|event| event.kind == "agent_explored_world")
-            .unwrap()
-            .id;
-        let growth = universe
-            .world()
-            .events()
-            .iter()
-            .find(|event| event.kind == "universe_grew")
-            .unwrap()
-            .id;
-        let why = universe.projection_snapshot().why;
-        let chain = why.get(&shifted.id).unwrap();
-        assert!(chain.nodes.iter().any(|node| node.event == explored));
-        assert!(chain.nodes.iter().any(|node| node.event == growth));
-    }
-
-    #[test]
-    fn relationship_direction_is_durable_compareable_and_forkable() {
-        use world_compare::{compare_snapshots, DifferenceKind};
-
-        let mut shared = PocketUniverse::new().unwrap();
-        let mut rivalry = PocketUniverse::new().unwrap();
-        shared
-            .invoke_projection_command(SEED_1980S_TOWN_COMMAND)
-            .unwrap();
-        rivalry
-            .invoke_projection_command(SEED_1980S_TOWN_COMMAND)
-            .unwrap();
-        shared.advance_periods(2).unwrap();
-        rivalry.advance_periods(2).unwrap();
-
-        let before_choice = shared.archive().unwrap();
-        let shared_snapshot = shared
-            .invoke_projection_command(SHARED_PROJECT_COMMAND)
-            .map(|_| shared.projection_snapshot())
-            .unwrap();
-        let rivalry_snapshot = rivalry
-            .invoke_projection_command(RIVALRY_COMMAND)
-            .map(|_| rivalry.projection_snapshot())
-            .unwrap();
-
-        let comparison = compare_snapshots(&shared_snapshot, &rivalry_snapshot);
-        let relationship = comparison
-            .entities
-            .iter()
-            .find(|difference| difference.id == world_projection::SelectionId::Entity(RELATIONSHIP))
-            .unwrap();
-        assert_eq!(relationship.kind, DifferenceKind::Changed);
-        assert!(relationship.inspector_rows.iter().any(|row| {
-            row.key.label == "Where it stands"
-                && row.left.as_deref() == Some("Working together")
-                && row.right.as_deref() == Some("Rivals")
-        }));
-
-        let steer_event = shared
-            .world()
-            .events()
-            .iter()
-            .find(|event| event.kind == "relationship_steered")
-            .unwrap()
-            .id;
-        shared.fork_before_event(steer_event).unwrap();
-        assert_eq!(shared.archive().unwrap(), before_choice);
-        let commands = shared.projection_snapshot().commands;
-        assert!(commands
-            .iter()
-            .any(|command| command.id == SHARED_PROJECT_COMMAND));
-        assert!(commands.iter().any(|command| command.id == RIVALRY_COMMAND));
-    }
-
-    fn second_arc_world(direction_command: &str) -> PocketUniverse {
-        let mut universe = PocketUniverse::new().unwrap();
-        universe
-            .invoke_projection_command(SEED_MARS_COLONY_COMMAND)
-            .unwrap();
-        universe.advance_periods(3).unwrap();
-        universe
-            .invoke_projection_command(BOLD_PATH_COMMAND)
-            .unwrap();
-        universe
-            .invoke_projection_command(direction_command)
-            .unwrap();
-        universe.advance_periods(3).unwrap();
-        universe
-    }
-
-    fn last_intent(universe: &PocketUniverse, actor: EntityId) -> String {
-        text_component_from_state(universe.world().state(), actor, "last_intent").unwrap()
-    }
-
-    #[test]
-    fn second_arc_waits_for_the_first_arc_then_exposes_two_durable_directions() {
-        let mut universe = PocketUniverse::new().unwrap();
-        universe
-            .invoke_projection_command(SEED_MARS_COLONY_COMMAND)
-            .unwrap();
-        universe.advance_periods(3).unwrap();
-        universe
-            .invoke_projection_command(BOLD_PATH_COMMAND)
-            .unwrap();
-        universe
-            .invoke_projection_command(SHARED_PROJECT_COMMAND)
-            .unwrap();
-
-        let before_resolution = universe.projection_snapshot();
-        assert!(!before_resolution
-            .commands
-            .iter()
-            .any(|command| command.id == OUTWARD_POSTURE_COMMAND));
-
-        universe.advance_periods(3).unwrap();
-        let ready = universe.projection_snapshot();
-        let command_ids = ready
-            .commands
-            .iter()
-            .map(|command| command.id.as_str())
-            .collect::<Vec<_>>();
-        assert_eq!(
-            ready.briefing.as_ref().unwrap().title,
-            "A second chapter is ready"
-        );
-        assert!(command_ids.contains(&OUTWARD_POSTURE_COMMAND));
-        assert!(command_ids.contains(&ROOTED_POSTURE_COMMAND));
-    }
-
-    #[test]
-    fn second_arc_posture_and_relationship_direction_compose_agent_behavior() {
-        for (direction, outward_expected, rooted_expected) in [
-            (
-                SHARED_PROJECT_COMMAND,
-                ("explore", "care"),
-                ("care", "explore"),
-            ),
-            (RIVALRY_COMMAND, ("explore", "explore"), ("care", "care")),
-        ] {
-            let base = second_arc_world(direction);
-            let archive = base.archive().unwrap();
-
-            let mut outward = PocketUniverse::resume_archive(&archive).unwrap();
-            outward
-                .invoke_projection_command(OUTWARD_POSTURE_COMMAND)
-                .unwrap();
-            outward.invoke_projection_command(NUDGE_COMMAND).unwrap();
-            assert_eq!(last_intent(&outward, SLOT_B), outward_expected.0);
-            assert_eq!(last_intent(&outward, SLOT_E), outward_expected.1);
-
-            let mut rooted = PocketUniverse::resume_archive(&archive).unwrap();
-            rooted
-                .invoke_projection_command(ROOTED_POSTURE_COMMAND)
-                .unwrap();
-            rooted.invoke_projection_command(NUDGE_COMMAND).unwrap();
-            assert_eq!(last_intent(&rooted, SLOT_B), rooted_expected.0);
-            assert_eq!(last_intent(&rooted, SLOT_E), rooted_expected.1);
-        }
-    }
-
-    #[test]
-    fn second_arc_posture_survives_archive_and_keeps_shaping_growth() {
-        let mut universe = second_arc_world(SHARED_PROJECT_COMMAND);
-        universe
-            .invoke_projection_command(OUTWARD_POSTURE_COMMAND)
-            .unwrap();
-        let chosen = universe.projection_snapshot();
-        assert!(chosen.briefing.as_ref().unwrap().items.iter().any(|item| {
-            item.title == "World direction · Outward"
-                && item.detail.contains("Nia keeps looking outward")
-        }));
-        assert_eq!(
-            posture_id_from_state(universe.world().state()).unwrap(),
-            "outward"
-        );
-
-        let archive = universe.archive().unwrap();
-        let mut reopened = PocketUniverse::resume_archive(&archive).unwrap();
-        assert_eq!(reopened.projection_snapshot(), chosen);
-        assert_eq!(
-            posture_id_from_state(reopened.world().state()).unwrap(),
-            "outward"
-        );
-
-        let before = reopened.world().events().len();
-        reopened.invoke_projection_command(NUDGE_COMMAND).unwrap();
-        let growth = reopened.world().events()[before..]
-            .iter()
-            .find(|event| event.kind == "universe_grew")
-            .unwrap();
-        let change = match growth.payload.get("change") {
-            Some(Value::Text(change)) => change,
-            other => panic!("expected growth change text, got {other:?}"),
-        };
-        assert!(change.contains("Looking outward"));
-        assert!(reopened
-            .projection_snapshot()
-            .briefing
-            .as_ref()
-            .unwrap()
-            .items
-            .iter()
-            .any(|item| item.title == "World direction · Outward"));
-    }
-
-    #[test]
-    fn intervention_remains_visible_after_the_world_keeps_moving() {
-        let mut universe = PocketUniverse::new().unwrap();
-        universe
-            .invoke_projection_command(SEED_1980S_TOWN_COMMAND)
-            .unwrap();
-        universe.advance_periods(3).unwrap();
-        universe
-            .invoke_projection_command(BOLD_PATH_COMMAND)
-            .unwrap();
-
-        let chosen = universe.projection_snapshot();
-        assert!(chosen.briefing.as_ref().unwrap().items.iter().any(|item| {
-            item.title == "Your influence · Community arcade"
-                && item.detail.contains("organizes its evenings")
-        }));
-
-        universe.advance_periods(1).unwrap();
-        let later = universe.projection_snapshot();
-        assert!(later.briefing.as_ref().unwrap().items.iter().any(|item| {
-            item.title == "Your influence · Community arcade"
-                && item.detail.contains("organizes its evenings")
-        }));
-    }
-
-    #[test]
-    fn relationship_direction_stays_visible_and_upgrades_to_a_resolved_arc() {
-        let mut universe = PocketUniverse::new().unwrap();
-        universe
-            .invoke_projection_command(SEED_MARS_COLONY_COMMAND)
-            .unwrap();
-        universe.advance_periods(2).unwrap();
-        universe
-            .invoke_projection_command(SHARED_PROJECT_COMMAND)
-            .unwrap();
-
-        let steered = universe.projection_snapshot();
-        assert!(steered.briefing.as_ref().unwrap().items.iter().any(|item| {
-            item.title == "Relationship · Shared project"
-                && item
-                    .detail
-                    .contains("They are learning to trust each other.")
-        }));
-
-        universe.invoke_projection_command(NUDGE_COMMAND).unwrap();
-        let resolved = universe.projection_snapshot();
-        assert!(resolved
-            .briefing
-            .as_ref()
-            .unwrap()
-            .items
-            .iter()
-            .any(|item| {
-                item.title == "Partnership formed" && item.detail.contains("lasting partnership")
-            }));
-        assert!(!resolved
-            .briefing
-            .as_ref()
-            .unwrap()
-            .items
-            .iter()
-            .any(|item| { item.title == "Relationship · Shared project" }));
-    }
-
-    #[test]
-    fn return_briefing_keeps_the_players_persistent_influence_in_context() {
-        let registry = registry();
-        let mut session = registry.create(POCKET_UNIVERSE_PACK_ID).unwrap();
-        session
-            .handle(ProjectionIntent::InvokeCommand(
-                SEED_PENGUIN_CIVILIZATION_COMMAND.into(),
-            ))
-            .unwrap();
-        session.advance_background(3).unwrap();
-        session
-            .handle(ProjectionIntent::InvokeCommand(CAREFUL_PATH_COMMAND.into()))
-            .unwrap();
-
-        let returned = session.advance_background(1).unwrap();
-        let briefing = returned.briefing.as_ref().unwrap();
-        assert_eq!(briefing.title, "While you were away");
-        assert!(briefing.items.iter().any(|item| {
-            item.title == "Your influence · Conserved reserves"
-                && item.detail.contains("dark season")
-        }));
-    }
-
-    #[test]
-    fn generation_three_exposes_a_durable_intervention() {
-        let registry = registry();
-        let mut session = registry.create(POCKET_UNIVERSE_PACK_ID).unwrap();
-        session
-            .handle(ProjectionIntent::InvokeCommand(
-                SEED_1980S_TOWN_COMMAND.into(),
-            ))
-            .unwrap();
-        let grown = session.advance_background(3).unwrap();
-        let command_ids = grown
-            .commands
-            .iter()
-            .map(|command| command.id.as_str())
-            .collect::<Vec<_>>();
-        assert!(command_ids.contains(&BOLD_PATH_COMMAND));
-        assert!(command_ids.contains(&CAREFUL_PATH_COMMAND));
-
-        let chosen = session
-            .handle(ProjectionIntent::InvokeCommand(BOLD_PATH_COMMAND.into()))
-            .unwrap();
-        let briefing = chosen.briefing.as_ref().unwrap();
-        assert_eq!(briefing.title, "Their relationship is taking shape");
-        assert!(briefing.items.iter().any(|item| {
-            item.title == "Your turn · Relationship" && item.detail.contains("leave them alone")
-        }));
-        assert!(!chosen
-            .commands
-            .iter()
-            .any(|command| command.id == BOLD_PATH_COMMAND || command.id == CAREFUL_PATH_COMMAND));
-        let universe = chosen
-            .inspectors
-            .get(&world_projection::SelectionId::Entity(UNIVERSE))
-            .unwrap();
-        assert!(universe
-            .sections
-            .iter()
-            .flat_map(|section| &section.rows)
-            .any(|row| { row.label == "Your choice" && row.value == "Community arcade" }));
-
-        let archive = session.archive().unwrap().unwrap();
-        drop(session);
-        let reopened = registry.open_archive(&archive).unwrap();
-        assert_eq!(reopened.archive().unwrap().unwrap(), archive);
-        assert!(!reopened
-            .snapshot()
-            .commands
-            .iter()
-            .any(|command| command.id == BOLD_PATH_COMMAND || command.id == CAREFUL_PATH_COMMAND));
-    }
-
-    #[test]
-    fn forking_before_intervention_reopens_the_choice() {
-        let registry = registry();
-        let mut session = registry.create(POCKET_UNIVERSE_PACK_ID).unwrap();
-        session
-            .handle(ProjectionIntent::InvokeCommand(
-                SEED_PENGUIN_CIVILIZATION_COMMAND.into(),
-            ))
-            .unwrap();
-        session.advance_background(3).unwrap();
-        let chosen = session
-            .handle(ProjectionIntent::InvokeCommand(CAREFUL_PATH_COMMAND.into()))
-            .unwrap();
-        let intervention = chosen
-            .timeline
-            .items
-            .iter()
-            .find(|item| {
-                let archive = session.archive().unwrap().unwrap();
-                matches!(item.id, world_projection::SelectionId::Event(id)
-                    if archive.events.iter().any(|event| event.id == id.0 && event.kind == "universe_intervened"))
-            })
-            .and_then(|item| match item.id {
-                world_projection::SelectionId::Event(id) => Some(id),
-                _ => None,
-            })
-            .unwrap();
-
-        let forked = session
-            .handle(ProjectionIntent::ForkBeforeEvent(intervention))
-            .unwrap();
-        assert!(forked
-            .commands
-            .iter()
-            .any(|command| command.id == BOLD_PATH_COMMAND));
-        assert!(forked
-            .commands
-            .iter()
-            .any(|command| command.id == CAREFUL_PATH_COMMAND));
+            .all(|item| !item.detail.trim().is_empty()));
     }
 
     #[test]
@@ -4079,265 +1334,6 @@ mod tests {
         assert_eq!(forked.commands.len(), 3);
     }
 
-    fn era_of(universe: &PocketUniverse) -> i64 {
-        era::era_from_state(universe.world().state())
-    }
-
-    fn pressure_kind_of(universe: &PocketUniverse) -> String {
-        let state = universe.world().state();
-        let seed = seed_id_from_state(state).unwrap();
-        pressure::pressure_kind_from_state(state, &seed)
-    }
-
-    fn succession_of(universe: &PocketUniverse) -> String {
-        succession::succession_id_from_state(universe.world().state())
-    }
-
-    fn succession_outcome_of(universe: &PocketUniverse) -> String {
-        text_component_from_state(
-            universe.world().state(),
-            UNIVERSE,
-            succession::SUCCESSION_OUTCOME,
-        )
-        .unwrap()
-    }
-
-    fn succession_patience_of(universe: &PocketUniverse) -> i64 {
-        succession::succession_patience_from_state(universe.world().state())
-    }
-
-    fn advance_until(
-        universe: &mut PocketUniverse,
-        done: impl Fn(&PocketUniverse) -> bool,
-        max_periods: usize,
-    ) {
-        for _ in 0..max_periods {
-            if done(universe) {
-                return;
-            }
-            universe.advance_periods(1).unwrap();
-        }
-        assert!(
-            done(universe),
-            "condition not reached within {max_periods} periods"
-        );
-    }
-
-    fn pressure_of(universe: &PocketUniverse) -> String {
-        pressure::pressure_id_from_state(universe.world().state())
-    }
-
-    fn pressure_outcome_of(universe: &PocketUniverse) -> String {
-        text_component_from_state(
-            universe.world().state(),
-            UNIVERSE,
-            pressure::PRESSURE_OUTCOME,
-        )
-        .unwrap()
-    }
-
-    fn anchor_status(universe: &PocketUniverse) -> String {
-        text_component_from_state(universe.world().state(), SLOT_A, "status").unwrap()
-    }
-
-    fn legacy_cycles(universe: &PocketUniverse) -> i64 {
-        integer_component(universe.world().state(), UNIVERSE, LEGACY_CYCLES).unwrap()
-    }
-
-    fn has_event(universe: &PocketUniverse, kind: &str) -> bool {
-        universe
-            .world()
-            .events()
-            .iter()
-            .any(|event| event.kind == kind)
-    }
-
-    fn command_ids(universe: &PocketUniverse) -> Vec<String> {
-        universe
-            .projection_snapshot()
-            .commands
-            .iter()
-            .map(|command| command.id.clone())
-            .collect()
-    }
-
-    fn legacy_world(posture_command: &str) -> PocketUniverse {
-        let mut universe = second_arc_world(SHARED_PROJECT_COMMAND);
-        universe.invoke_projection_command(posture_command).unwrap();
-        advance_until(
-            &mut universe,
-            |universe| legacy::legacy_id_from_state(universe.world().state()).unwrap() != "forming",
-            8,
-        );
-        universe
-    }
-
-    fn rising_pressure_world(posture_command: &str) -> PocketUniverse {
-        let mut universe = legacy_world(posture_command);
-        advance_until(
-            &mut universe,
-            |universe| pressure_of(universe) == "warning",
-            6,
-        );
-        universe
-    }
-
-    fn lost_anchor_world() -> PocketUniverse {
-        let mut universe = rising_pressure_world(ROOTED_POSTURE_COMMAND);
-        advance_until(&mut universe, |universe| pressure_of(universe) == "lost", 8);
-        universe
-    }
-
-    #[test]
-    fn pressure_rises_only_after_the_legacy_reinforces_twice() {
-        let mut universe = legacy_world(ROOTED_POSTURE_COMMAND);
-        assert_eq!(pressure_of(&universe), "none");
-        assert!(!has_event(&universe, "pressure_rising"));
-
-        advance_until(
-            &mut universe,
-            |universe| pressure_of(universe) == "warning",
-            6,
-        );
-
-        assert!(has_event(&universe, "pressure_rising"));
-        assert!(legacy_cycles(&universe) >= 2);
-        assert_eq!(anchor_status(&universe), "reclaimer faltering");
-        let snapshot = universe.projection_snapshot();
-        let ids = command_ids(&universe);
-        assert!(ids.iter().any(|id| id == HOLD_PRESSURE_COMMAND));
-        assert!(ids.iter().any(|id| id == REACH_PRESSURE_COMMAND));
-        assert!(!ids.iter().any(|id| id == RECOVER_ANCHOR_COMMAND));
-        let briefing = snapshot.briefing.as_ref().unwrap();
-        assert_eq!(briefing.title, "Pressure is rising");
-        assert!(briefing
-            .items
-            .iter()
-            .any(|item| item.title == "Your turn · Hold or reach"));
-        assert!(briefing
-            .items
-            .iter()
-            .any(|item| item.title == "World pressure · Rising"));
-        let nudge = snapshot
-            .commands
-            .iter()
-            .find(|command| command.id == NUDGE_COMMAND)
-            .unwrap();
-        assert_eq!(nudge.title, "Let the sol pass");
-        assert!(nudge.detail.contains("The World will not wait forever"));
-    }
-
-    #[test]
-    fn ignored_pressure_peaks_and_then_loses_the_anchor() {
-        let mut universe = rising_pressure_world(ROOTED_POSTURE_COMMAND);
-
-        advance_until(
-            &mut universe,
-            |universe| pressure_of(universe) == "crisis",
-            4,
-        );
-        assert!(has_event(&universe, "pressure_peaked"));
-        assert_eq!(anchor_status(&universe), "rationing water");
-        assert_eq!(
-            universe.projection_snapshot().briefing.unwrap().title,
-            "Ares Habitat is in crisis"
-        );
-        assert!(command_ids(&universe)
-            .iter()
-            .any(|id| id == HOLD_PRESSURE_COMMAND));
-
-        advance_until(&mut universe, |universe| pressure_of(universe) == "lost", 5);
-        assert!(has_event(&universe, "anchor_lost"));
-        assert_eq!(anchor_status(&universe), "lower ring sealed");
-        assert_eq!(pressure_outcome_of(&universe), "lost");
-        let ids = command_ids(&universe);
-        assert!(ids.iter().any(|id| id == RECOVER_ANCHOR_COMMAND));
-        assert!(!ids.iter().any(|id| id == HOLD_PRESSURE_COMMAND));
-        assert!(!ids.iter().any(|id| id == REACH_PRESSURE_COMMAND));
-        let briefing = universe.projection_snapshot().briefing.unwrap();
-        assert_eq!(briefing.title, "Something was lost");
-        assert!(briefing
-            .items
-            .iter()
-            .any(|item| item.title == "World pressure · Lost"));
-
-        // The loss is durable: further cycles neither undo it nor re-raise it.
-        let events_before = universe.world().events().len();
-        universe.advance_periods(2).unwrap();
-        assert_eq!(pressure_of(&universe), "lost");
-        assert_eq!(anchor_status(&universe), "lower ring sealed");
-        assert!(!universe.world().events()[events_before..]
-            .iter()
-            .any(|event| event.kind.starts_with("pressure_") || event.kind == "anchor_lost"));
-    }
-
-    #[test]
-    fn a_successor_inherits_the_world_and_waits_until_the_observer_decides() {
-        let mut universe = rising_pressure_world(ROOTED_POSTURE_COMMAND);
-        universe
-            .invoke_projection_command(HOLD_PRESSURE_COMMAND)
-            .unwrap();
-        assert_eq!(pressure_of(&universe), "held");
-        assert_eq!(succession_of(&universe), "none");
-
-        // Nobody inherits the moment the pressure resolves.
-        advance_until(
-            &mut universe,
-            |universe| succession_of(universe) == "emerging",
-            6,
-        );
-        assert!(has_event(&universe, "successor_emerged"));
-        let ids = command_ids(&universe);
-        assert!(ids.iter().any(|id| id == ENTRUST_LEGACY_COMMAND));
-        assert!(ids.iter().any(|id| id == RELEASE_LEGACY_COMMAND));
-        let briefing = universe.projection_snapshot().briefing.unwrap();
-        assert!(briefing
-            .items
-            .iter()
-            .any(|item| item.title == "Succession · New hands"));
-
-        // Waiting is not neutral: the successor's own habits deepen, and the
-        // World keeps saying so on every return.
-        let patience_before = succession_patience_of(&universe);
-        universe.advance_periods(4).unwrap();
-        assert_eq!(succession_of(&universe), "emerging");
-        assert!(succession_patience_of(&universe) > patience_before);
-        assert!(universe
-            .projection_snapshot()
-            .briefing
-            .unwrap()
-            .items
-            .iter()
-            .any(|item| item.title == "Succession · Already theirs"));
-
-        // The choice is still there however long it waited.
-        universe
-            .invoke_projection_command(ENTRUST_LEGACY_COMMAND)
-            .unwrap();
-        assert_eq!(succession_of(&universe), "settled");
-        assert_eq!(succession_outcome_of(&universe), "continued");
-        let ids = command_ids(&universe);
-        assert!(!ids.iter().any(|id| id == ENTRUST_LEGACY_COMMAND));
-        assert!(!ids.iter().any(|id| id == RELEASE_LEGACY_COMMAND));
-
-        // The answer is durable, and the World does not stop at it: the next
-        // period opens a new era rather than reopening the settled question.
-        let events_before = universe.world().events().len();
-        universe.advance_periods(1).unwrap();
-        assert_eq!(era_of(&universe), 2);
-        assert_eq!(succession_of(&universe), "none");
-        assert!(universe.world().events()[events_before..]
-            .iter()
-            .any(|event| event.kind == "era_began"));
-        assert!(!universe.world().events()[events_before..]
-            .iter()
-            .any(|event| event.kind == "legacy_entrusted"));
-
-        // The new era faces a threat this World has not just survived.
-        assert_eq!(pressure_of(&universe), "none");
-        assert_ne!(pressure_kind_of(&universe), "reclaimer");
-    }
-
     /// A World that has only been seeded, with every later decision still open.
     fn freshly_seeded(seed_command: &str) -> PocketUniverse {
         let mut universe = PocketUniverse::new().unwrap();
@@ -4345,162 +1341,19 @@ mod tests {
         universe
     }
 
-    /// Take the first decision the World offers each period, whatever it is.
-    fn live_with(universe: &mut PocketUniverse, periods: usize, prefer_release: bool) {
-        let succession = if prefer_release {
-            RELEASE_LEGACY_COMMAND
-        } else {
-            ENTRUST_LEGACY_COMMAND
-        };
+    /// Answer the first question the World asks each period, whatever it is.
+    fn live_with(universe: &mut PocketUniverse, periods: usize) {
         for _ in 0..periods {
             universe.advance_periods(1).unwrap();
-            let offered = command_ids(universe);
-            for candidate in [
-                CAREFUL_PATH_COMMAND,
-                ROOTED_POSTURE_COMMAND,
-                HOLD_PRESSURE_COMMAND,
-                RECOVER_ANCHOR_COMMAND,
-                succession,
-            ] {
-                if offered.iter().any(|id| id == candidate) {
-                    universe.invoke_projection_command(candidate).unwrap();
-                    break;
-                }
+            let answer = universe
+                .projection_snapshot()
+                .commands
+                .into_iter()
+                .find(|command| command.question.is_some() && command.unavailable.is_none());
+            if let Some(answer) = answer {
+                universe.invoke_projection_command(&answer.id).unwrap();
             }
         }
-    }
-
-    #[test]
-    fn a_later_era_says_which_era_it_is_and_what_it_inherited() {
-        let mut universe = freshly_seeded(SEED_MARS_COLONY_COMMAND);
-        // A first visit is not told it is in "Era 1"; that would be noise.
-        assert!(!universe
-            .projection_snapshot()
-            .briefing
-            .unwrap()
-            .items
-            .iter()
-            .any(|item| item.title.starts_with("Era ")));
-
-        live_with(&mut universe, 20, false);
-        let briefing = universe.projection_snapshot().briefing.unwrap();
-        let era = briefing
-            .items
-            .iter()
-            .find(|item| item.title.starts_with("Era "))
-            .expect("a World past its first era says so");
-        assert!(era.title.contains("kept what it was handed"));
-        assert!(!era.detail.is_empty());
-    }
-
-    #[test]
-    fn a_world_that_keeps_answering_the_same_way_is_told_so() {
-        let mut settled = freshly_seeded(SEED_MARS_COLONY_COMMAND);
-        live_with(&mut settled, 30, false);
-        let detail = |universe: &PocketUniverse| {
-            universe
-                .projection_snapshot()
-                .briefing
-                .unwrap()
-                .items
-                .iter()
-                .find(|item| item.title.starts_with("Era "))
-                .expect("a World past its first era says so")
-                .detail
-                .clone()
-        };
-        assert!(
-            detail(&settled).contains("handed their habits on unchanged"),
-            "a World that keeps entrusting is not told it has a pattern: {}",
-            detail(&settled)
-        );
-
-        let mut restless = freshly_seeded(SEED_MARS_COLONY_COMMAND);
-        live_with(&mut restless, 30, true);
-        assert!(
-            detail(&restless).contains("rewritten"),
-            "a World that keeps releasing is not told it has a pattern: {}",
-            detail(&restless)
-        );
-    }
-
-    #[test]
-    fn the_quiet_stretch_after_an_era_opens_says_it_is_quiet() {
-        let mut universe = freshly_seeded(SEED_MARS_COLONY_COMMAND);
-        live_with(&mut universe, 14, false);
-        assert_eq!(era_of(&universe), 2);
-        assert_eq!(pressure_of(&universe), "none");
-
-        let nudge = universe
-            .projection_snapshot()
-            .commands
-            .into_iter()
-            .find(|command| command.id == NUDGE_COMMAND)
-            .expect("every World can let a cycle pass");
-        assert_eq!(nudge.title, "Let the sol pass");
-        assert!(nudge.detail.contains("Nothing needs deciding"));
-    }
-
-    #[test]
-    fn a_world_nobody_answers_keeps_living_and_says_what_it_decided() {
-        // Measured before drift existed: a World seeded and then left alone
-        // walked to period 18 and stopped at succession=emerging forever, and
-        // one never given its opening choices never left legacy=forming.
-        let mut abandoned = freshly_seeded(SEED_MARS_COLONY_COMMAND);
-        abandoned.advance_periods(60).unwrap();
-
-        assert!(
-            era_of(&abandoned) >= 2,
-            "an abandoned World never reached a second era"
-        );
-        assert_ne!(
-            legacy::legacy_id_from_state(abandoned.world().state()).unwrap(),
-            "forming",
-            "an abandoned World never formed a legacy"
-        );
-
-        // Everything it decided is marked as its own doing, and readable.
-        let drifted = drift::drifted_decisions(abandoned.world().events());
-        assert!(
-            drifted.len() >= 3,
-            "expected the opening choices and a succession to drift, got {}",
-            drifted.len()
-        );
-        for event in &drifted {
-            assert!(
-                drift::drift_note(event).is_some(),
-                "{} drifted without anything to say about it",
-                event.kind
-            );
-        }
-    }
-
-    #[test]
-    fn coming_back_to_an_abandoned_world_leads_with_what_it_decided() {
-        let mut universe = freshly_seeded(SEED_MARS_COLONY_COMMAND);
-        let cursor = universe.world().events().len();
-        universe.advance_periods(30).unwrap();
-
-        let briefing = universe
-            .projection_snapshot_since(Some(cursor))
-            .briefing
-            .expect("a return has a briefing");
-        assert_eq!(briefing.title, "While you were away");
-        let titles = briefing
-            .items
-            .iter()
-            .map(|item| item.title.as_str())
-            .collect::<Vec<_>>();
-        let decided = titles
-            .iter()
-            .position(|title| *title == "Decided without you")
-            .unwrap_or_else(|| panic!("nothing said what the World decided: {titles:?}"));
-        // Only the era frame is allowed above it; routine churn is not.
-        assert!(
-            decided <= 1,
-            "the World buried what it decided under {titles:?}"
-        );
-        assert!(!briefing.items[decided].detail.is_empty());
     }
 
     /// A narrator that says a fixed line and counts both how often it was
@@ -4532,7 +1385,7 @@ mod tests {
         }
     }
 
-    fn narrated_with(line: &str) -> (PocketUniverse<PocketMind>, std::rc::Rc<NarratorCalls>) {
+    fn narrated_with(line: &str) -> (PocketUniverse, std::rc::Rc<NarratorCalls>) {
         let calls = std::rc::Rc::new(NarratorCalls::default());
         let mut universe = freshly_seeded(SEED_MARS_COLONY_COMMAND);
         universe.set_narrator(Box::new(ScriptedNarrator {
@@ -4547,7 +1400,7 @@ mod tests {
         // The floor under everything else here: the table is what a World
         // shows when nobody is putting it into words.
         let mut plain = freshly_seeded(SEED_MARS_COLONY_COMMAND);
-        live_with(&mut plain, 12, false);
+        live_with(&mut plain, 12);
 
         assert!(
             !plain
@@ -4630,10 +1483,10 @@ mod tests {
             let (mut universe, _) = narrated_with(unusable);
             let plain = {
                 let mut plain = freshly_seeded(SEED_MARS_COLONY_COMMAND);
-                live_with(&mut plain, 8, false);
+                live_with(&mut plain, 8);
                 plain
             };
-            live_with(&mut universe, 8, false);
+            live_with(&mut universe, 8);
 
             assert!(
                 !universe
@@ -4748,398 +1601,5 @@ mod tests {
                 .map(|item| (&item.title, &item.detail))
                 .collect::<Vec<_>>()
         );
-    }
-
-    #[test]
-    fn a_long_absence_reads_as_the_eras_it_crossed() {
-        // A week away is now twenty-eight periods rather than seven, so the
-        // digest has to say what an absence amounted to instead of counting
-        // the routine events inside it.
-        let mut universe = freshly_seeded(SEED_MARS_COLONY_COMMAND);
-        live_with(&mut universe, 12, false);
-        let left_during = era_of(&universe);
-        let cursor = universe.world().events().len();
-        live_with(&mut universe, 28, false);
-
-        let briefing = universe
-            .projection_snapshot_since(Some(cursor))
-            .briefing
-            .expect("a return has a briefing");
-        let first = briefing.items.first().expect("a return digest has items");
-        let era = era_of(&universe);
-        assert!(
-            era > left_during,
-            "the absence did not cross an era, so this test proves nothing"
-        );
-        assert!(
-            first.title.ends_with("eras turned") || first.title == "An era turned",
-            "a return spanning eras led with {:?}",
-            first.title
-        );
-        assert!(
-            first.detail.starts_with(&format!(
-                "You left during era {left_during}; this is era {era}."
-            )),
-            "the era frame does not say where the absence started and ended: {:?}",
-            first.detail
-        );
-    }
-
-    #[test]
-    fn a_world_that_is_answered_is_never_answered_for() {
-        // Drift must never overrule somebody who is actually there.
-        let mut attended = freshly_seeded(SEED_MARS_COLONY_COMMAND);
-        live_with(&mut attended, 40, false);
-
-        assert!(
-            drift::drifted_decisions(attended.world().events()).is_empty(),
-            "the World decided something on behalf of an observer who was answering"
-        );
-    }
-
-    #[test]
-    fn a_world_that_finished_its_story_keeps_having_a_next_one() {
-        // The measurement this whole engine exists for: before eras, all four
-        // chapters completed by period 13 and the command list was exactly
-        // ["pocket-universe.nudge"] for every period after.
-        let mut universe = freshly_seeded(SEED_MARS_COLONY_COMMAND);
-        live_with(&mut universe, 40, false);
-
-        let eras = era_of(&universe);
-        assert!(eras >= 5, "40 periods produced only {eras} era(s)");
-        assert_eq!(
-            universe
-                .world()
-                .events()
-                .iter()
-                .filter(|event| event.kind == "era_began")
-                .count() as i64,
-            eras - 1
-        );
-
-        // Still living. Not "there is a decision right now" — an era opens on a
-        // calm stretch where there is genuinely nothing to decide — but "a
-        // decision comes back", which is precisely what stopped being true at
-        // period 13 before eras existed.
-        let mut waited = 0;
-        while command_ids(&universe) == vec![NUDGE_COMMAND.to_string()] {
-            universe.advance_periods(1).unwrap();
-            waited += 1;
-            assert!(
-                waited <= 10,
-                "the World offered nothing but nudge for {waited} periods"
-            );
-        }
-    }
-
-    #[test]
-    fn consecutive_eras_never_face_the_same_threat() {
-        let mut universe = freshly_seeded(SEED_MARS_COLONY_COMMAND);
-        live_with(&mut universe, 40, false);
-
-        let threats = universe
-            .world()
-            .events()
-            .iter()
-            .filter(|event| event.kind == "era_began")
-            .map(|event| match event.payload.get("pressure_kind") {
-                Some(Value::Text(kind)) => kind.clone(),
-                _ => panic!("an era records the threat it faces"),
-            })
-            .collect::<Vec<_>>();
-
-        assert!(threats.len() >= 4, "not enough eras to judge: {threats:?}");
-        for pair in threats.windows(2) {
-            assert_ne!(pair[0], pair[1], "two eras running faced {}", pair[0]);
-        }
-    }
-
-    #[test]
-    fn how_an_era_ends_decides_what_the_next_one_inherits() {
-        let mut entrusted = freshly_seeded(SEED_MARS_COLONY_COMMAND);
-        live_with(&mut entrusted, 14, false);
-        let mut released = freshly_seeded(SEED_MARS_COLONY_COMMAND);
-        live_with(&mut released, 14, true);
-
-        // Both are in their second era, and they inherited different Worlds:
-        // a legacy handed on unchanged carries over, one let go has to form
-        // again from whatever the successor builds.
-        assert_eq!(era_of(&entrusted), 2);
-        assert_eq!(era_of(&released), 2);
-        assert_ne!(
-            legacy::legacy_id_from_state(entrusted.world().state()).unwrap(),
-            "forming"
-        );
-        assert_eq!(
-            legacy::legacy_id_from_state(released.world().state()).unwrap(),
-            "forming"
-        );
-
-        let opening = |universe: &PocketUniverse| {
-            universe
-                .world()
-                .events()
-                .iter()
-                .rev()
-                .find(|event| event.kind == "era_began")
-                .and_then(|event| event.payload.get("inherited").cloned())
-                .unwrap()
-        };
-        assert_eq!(opening(&entrusted), Value::Text("continued".into()));
-        assert_eq!(opening(&released), Value::Text("renewed".into()));
-    }
-
-    #[test]
-    fn an_era_cannot_begin_before_its_succession_settles() {
-        let mut universe = rising_pressure_world(ROOTED_POSTURE_COMMAND);
-        let before = era_of(&universe);
-        universe.advance_periods(2).unwrap();
-        assert_eq!(era_of(&universe), before, "an era began mid-story");
-    }
-
-    #[test]
-    fn releasing_the_legacy_resets_its_cycles_and_keeps_a_lost_anchor_lost() {
-        let mut universe = lost_anchor_world();
-        assert_eq!(anchor_status(&universe), "lower ring sealed");
-
-        advance_until(
-            &mut universe,
-            |universe| succession_of(universe) == "emerging",
-            6,
-        );
-        // Chapter four never overwrites the anchor's status: a World that lost
-        // its anchor keeps saying so after somebody inherits it.
-        assert_eq!(anchor_status(&universe), "lower ring sealed");
-        assert_eq!(pressure_outcome_of(&universe), "lost");
-
-        universe
-            .invoke_projection_command(RELEASE_LEGACY_COMMAND)
-            .unwrap();
-        assert_eq!(succession_outcome_of(&universe), "renewed");
-        assert_eq!(anchor_status(&universe), "lower ring sealed");
-        assert_eq!(
-            integer_component(universe.world().state(), UNIVERSE, LEGACY_CYCLES).unwrap(),
-            0,
-            "releasing resets the legacy's cycles, as chapter three's recovery does"
-        );
-    }
-
-    #[test]
-    fn nobody_can_inherit_a_world_whose_pressure_has_not_resolved() {
-        let mut universe = rising_pressure_world(ROOTED_POSTURE_COMMAND);
-        assert_eq!(succession_of(&universe), "none");
-        let ids = command_ids(&universe);
-        assert!(!ids.iter().any(|id| id == ENTRUST_LEGACY_COMMAND));
-        assert!(!ids.iter().any(|id| id == RELEASE_LEGACY_COMMAND));
-        assert!(universe
-            .invoke_projection_command(ENTRUST_LEGACY_COMMAND)
-            .is_err());
-    }
-
-    #[test]
-    fn holding_or_reaching_records_alignment_with_the_world_direction() {
-        for (posture, command, kind, outcome, status) in [
-            (
-                ROOTED_POSTURE_COMMAND,
-                HOLD_PRESSURE_COMMAND,
-                "pressure_held",
-                "aligned",
-                "reclaimer rebuilt",
-            ),
-            (
-                ROOTED_POSTURE_COMMAND,
-                REACH_PRESSURE_COMMAND,
-                "pressure_reached",
-                "strained",
-                "resupplied from the ridge",
-            ),
-            (
-                OUTWARD_POSTURE_COMMAND,
-                REACH_PRESSURE_COMMAND,
-                "pressure_reached",
-                "aligned",
-                "resupplied from the ridge",
-            ),
-            (
-                OUTWARD_POSTURE_COMMAND,
-                HOLD_PRESSURE_COMMAND,
-                "pressure_held",
-                "strained",
-                "reclaimer rebuilt",
-            ),
-        ] {
-            let mut universe = rising_pressure_world(posture);
-            let cycles_before = legacy_cycles(&universe);
-            universe.invoke_projection_command(command).unwrap();
-
-            assert!(has_event(&universe, kind), "{posture} + {command}");
-            assert_eq!(
-                pressure_outcome_of(&universe),
-                outcome,
-                "{posture} + {command}"
-            );
-            assert_eq!(anchor_status(&universe), status);
-            let ids = command_ids(&universe);
-            assert!(!ids.iter().any(|id| id == HOLD_PRESSURE_COMMAND));
-            assert!(!ids.iter().any(|id| id == REACH_PRESSURE_COMMAND));
-            let error = universe.invoke_projection_command(command).unwrap_err();
-            assert!(error.to_string().contains("no open pressure"));
-            let briefing = universe.projection_snapshot().briefing.unwrap();
-            assert!(briefing.items.iter().any(|item| {
-                item.title.starts_with("You chose ·")
-                    && item.detail.contains(match outcome {
-                        "aligned" => "fit the direction",
-                        _ => "ran against the direction",
-                    })
-            }));
-
-            // An answered pressure never escalates, and the legacy keeps living.
-            universe.advance_periods(4).unwrap();
-            assert!(!has_event(&universe, "pressure_peaked"));
-            assert!(!has_event(&universe, "anchor_lost"));
-            assert!(legacy_cycles(&universe) > cycles_before);
-        }
-    }
-
-    #[test]
-    fn recovering_the_anchor_costs_the_legacy_its_cycles() {
-        let mut universe = lost_anchor_world();
-        assert!(legacy_cycles(&universe) >= 2);
-
-        universe
-            .invoke_projection_command(RECOVER_ANCHOR_COMMAND)
-            .unwrap();
-
-        assert!(has_event(&universe, "anchor_recovered"));
-        assert_eq!(pressure_of(&universe), "recovered");
-        assert_eq!(pressure_outcome_of(&universe), "recovered");
-        assert_eq!(anchor_status(&universe), "ring reopened");
-        assert_eq!(legacy_cycles(&universe), 0);
-        assert!(!command_ids(&universe)
-            .iter()
-            .any(|id| id == RECOVER_ANCHOR_COMMAND));
-        let error = universe
-            .invoke_projection_command(RECOVER_ANCHOR_COMMAND)
-            .unwrap_err();
-        assert!(error.to_string().contains("nothing to recover"));
-
-        universe.advance_periods(1).unwrap();
-        assert_eq!(legacy_cycles(&universe), 1);
-        assert_eq!(pressure_of(&universe), "recovered");
-    }
-
-    #[test]
-    fn pressure_answers_are_rejected_before_pressure_exists() {
-        let mut universe = PocketUniverse::new().unwrap();
-        universe
-            .invoke_projection_command(SEED_MARS_COLONY_COMMAND)
-            .unwrap();
-        for command in [HOLD_PRESSURE_COMMAND, REACH_PRESSURE_COMMAND] {
-            let error = universe.invoke_projection_command(command).unwrap_err();
-            assert!(error.to_string().contains("no open pressure"), "{command}");
-        }
-        let error = universe
-            .invoke_projection_command(RECOVER_ANCHOR_COMMAND)
-            .unwrap_err();
-        assert!(error.to_string().contains("nothing to recover"));
-        assert_eq!(pressure_of(&universe), "none");
-    }
-
-    #[test]
-    fn pressure_survives_archive_round_trip_and_keeps_its_clock() {
-        let mut universe = rising_pressure_world(OUTWARD_POSTURE_COMMAND);
-        let snapshot = universe.projection_snapshot();
-        let archive = universe.archive().unwrap();
-
-        let mut reopened = PocketUniverse::resume_archive(&archive).unwrap();
-        assert_eq!(reopened.projection_snapshot(), snapshot);
-        assert_eq!(pressure_of(&reopened), "warning");
-
-        universe.advance_periods(2).unwrap();
-        reopened.advance_periods(2).unwrap();
-        assert_eq!(pressure_of(&reopened), pressure_of(&universe));
-        assert_eq!(
-            reopened.projection_snapshot(),
-            universe.projection_snapshot()
-        );
-    }
-
-    #[test]
-    fn every_seed_reaches_pressure_with_its_own_anchor_status() {
-        for (seed, warning_status) in [
-            (SEED_MARS_COLONY_COMMAND, "reclaimer faltering"),
-            (SEED_1980S_TOWN_COMMAND, "rent rising"),
-            (SEED_PENGUIN_CIVILIZATION_COMMAND, "span cracked"),
-        ] {
-            let mut universe = PocketUniverse::new().unwrap();
-            universe.invoke_projection_command(seed).unwrap();
-            universe.advance_periods(3).unwrap();
-            universe
-                .invoke_projection_command(CAREFUL_PATH_COMMAND)
-                .unwrap();
-            universe
-                .invoke_projection_command(SHARED_PROJECT_COMMAND)
-                .unwrap();
-            universe.advance_periods(3).unwrap();
-            universe
-                .invoke_projection_command(ROOTED_POSTURE_COMMAND)
-                .unwrap();
-            advance_until(
-                &mut universe,
-                |universe| pressure_of(universe) == "warning",
-                14,
-            );
-            assert_eq!(anchor_status(&universe), warning_status, "{seed}");
-        }
-    }
-
-    #[test]
-    fn return_briefing_reports_rising_pressure() {
-        let registry = registry();
-        let mut session = registry.create(POCKET_UNIVERSE_PACK_ID).unwrap();
-        session
-            .handle(ProjectionIntent::InvokeCommand(
-                SEED_MARS_COLONY_COMMAND.into(),
-            ))
-            .unwrap();
-        session.advance_background(3).unwrap();
-        session
-            .handle(ProjectionIntent::InvokeCommand(BOLD_PATH_COMMAND.into()))
-            .unwrap();
-        session
-            .handle(ProjectionIntent::InvokeCommand(
-                SHARED_PROJECT_COMMAND.into(),
-            ))
-            .unwrap();
-        session.advance_background(3).unwrap();
-        session
-            .handle(ProjectionIntent::InvokeCommand(
-                ROOTED_POSTURE_COMMAND.into(),
-            ))
-            .unwrap();
-
-        let mut returned = None;
-        for _ in 0..14 {
-            let snapshot = session.advance_background(1).unwrap();
-            let briefing = snapshot.briefing.clone().unwrap();
-            if briefing
-                .items
-                .iter()
-                .any(|item| item.title == "Pressure is rising")
-            {
-                returned = Some(briefing);
-                break;
-            }
-        }
-        let briefing = returned.expect("background living raises pressure");
-        assert_eq!(briefing.title, "While you were away");
-        assert!(briefing
-            .items
-            .iter()
-            .any(|item| item.title == "Your turn · Hold or reach"));
-        let commands = session.snapshot().commands;
-        assert!(commands
-            .iter()
-            .any(|command| command.id == HOLD_PRESSURE_COMMAND));
     }
 }

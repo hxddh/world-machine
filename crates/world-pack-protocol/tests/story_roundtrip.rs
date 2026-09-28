@@ -158,3 +158,30 @@ fn a_book_and_where_things_stand_cross_the_wire_and_an_older_pack_sends_neither(
     let back: ProjectionSnapshotWire = serde_json::from_str(&older).unwrap();
     assert!(back.book.is_empty());
 }
+
+#[test]
+fn a_guest_crosses_the_wire_and_too_long_a_letter_is_cut() {
+    use world_pack_protocol::{ProjectionIntentWire, MOST_GUEST_TEXT};
+    use world_projection::{Guest, ProjectionIntent};
+    let guest = Guest {
+        name: "Nia".into(),
+        from: "Ares Station".into(),
+        letter: "Dust storm cleared. Thought of you.".into(),
+        gift: "a postcard of Ares Station".into(),
+    };
+    let wire = ProjectionIntentWire::from(ProjectionIntent::Host(guest.clone()));
+    let json = serde_json::to_string(&wire).unwrap();
+    let back: ProjectionIntentWire = serde_json::from_str(&json).unwrap();
+    assert_eq!(ProjectionIntent::from(back), ProjectionIntent::Host(guest));
+
+    let long = ProjectionIntentWire::Host {
+        name: "Nia".into(),
+        from: "Ares".into(),
+        letter: "x".repeat(MOST_GUEST_TEXT * 3),
+        gift: String::new(),
+    };
+    let ProjectionIntent::Host(cut) = ProjectionIntent::from(long) else {
+        panic!("a guest");
+    };
+    assert_eq!(cut.letter.chars().count(), MOST_GUEST_TEXT);
+}

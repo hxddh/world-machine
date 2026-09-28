@@ -27,6 +27,8 @@ const FRAME: Duration = Duration::from_millis(250);
 const LINE_SECONDS: f32 = 4.6;
 const BEAT_SECONDS: f32 = 5.2;
 const ANSWER_SECONDS: f32 = 9.0;
+/// How many letters the drawer shows, newest first.
+const LETTERS_SHOWN: usize = 12;
 /// How long a keepsake handed over in front of the player stays up.
 const GIFT_SECONDS: f32 = 5.0;
 /// How long the camera takes to move.
@@ -88,6 +90,10 @@ pub(crate) struct Looking {
     /// when the last was saved.
     pub(crate) photographing: bool,
     pub(crate) photo_saved: Option<Instant>,
+    /// A postcard being taken: the paper and caption drawn around the
+    /// scene while the photograph is taken, and when the last was saved.
+    pub(crate) postcard: Option<crate::postcard::Postcard>,
+    pub(crate) postcard_saved: Option<Instant>,
 }
 
 /// The player's hands: which verb they picked, and what they are about to
@@ -226,13 +232,11 @@ pub const RESTING_WORD_LIMIT: usize = 40;
 
 /// How many words a World window shows at rest, the bar above it included:
 /// the World's name, when it next moves ("Keeps going without you · next
-/// sol in 6 h"), Branch and What if…, and everything `resting_text` lists.
+/// sol in 6 h"), and everything `resting_text` lists.
 pub fn words_at_rest(snapshot: &ProjectionSnapshot) -> usize {
     let bar = [
         snapshot.title.clone(),
         "Keeps going without you · next day in 6 h".to_string(),
-        "Branch".to_string(),
-        "What if…".to_string(),
     ];
     word_count(&bar) + word_count(&resting_text(snapshot))
 }
@@ -778,6 +782,7 @@ impl ProjectionView {
             "z" if command => self.undo(cx),
             "h" if !command && self.retelling.is_none() => self.toggle_hands(cx),
             "p" if !command && self.retelling.is_none() => self.take_photo(window, cx),
+            "c" if !command && self.retelling.is_none() => self.take_postcard(window, cx),
             "escape" => {
                 if self.looking.hands.is_some() {
                     self.looking.hands = None;
@@ -1085,6 +1090,59 @@ impl ProjectionView {
                 this.looking.photographing = false;
                 if saved {
                     this.looking.photo_saved = Some(Instant::now());
+                    this.cue(crate::Cue::Flip);
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// A postcard: the moment picked in History (or the scene now) with
+    /// what a resident said then as its caption, printed on paper around
+    /// the scene and saved to Pictures like a photograph. Only this view's
+    /// own area is saved, without the window's bars.
+    fn take_postcard(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.looking.photographing {
+            return;
+        }
+        let moment = self.selected.filter(|selected| {
+            self.snapshot
+                .timeline
+                .items
+                .iter()
+                .any(|item| item.id == *selected)
+        });
+        let card = crate::postcard::postcard(&self.snapshot, moment);
+        let stem = card.file_stem();
+        self.looking.postcard = Some(card);
+        self.looking.photographing = true;
+        let bounds = window.bounds();
+        let viewport = window.viewport_size();
+        // The window's own title bar is what its frame has beyond its
+        // content; the World's bar sits under it.
+        let bars = (f32::from(bounds.size.height) - f32::from(viewport.height)).max(0.0) + CHROME;
+        let region = gpui::Bounds::new(
+            gpui::point(bounds.origin.x, bounds.origin.y + px(bars)),
+            gpui::size(
+                bounds.size.width,
+                (bounds.size.height - px(bars)).max(px(1.0)),
+            ),
+        );
+        cx.notify();
+        cx.spawn_in(window, async move |this, cx| {
+            cx.background_executor()
+                .timer(Duration::from_millis(180))
+                .await;
+            let saved = cx
+                .background_executor()
+                .spawn(async move { save_picture(region, &stem, false) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.looking.photographing = false;
+                this.looking.postcard = None;
+                if saved {
+                    this.looking.postcard_saved = Some(Instant::now());
                     this.cue(crate::Cue::Flip);
                 }
                 cx.notify();
@@ -1533,14 +1591,20 @@ impl ProjectionView {
                     ),
             );
         }
+        if let Some(card) = &self.looking.postcard {
+            root = root.child(postcard_paper(card, width, height));
+        }
         if self.looking.photographing {
             return root.into_any_element();
         }
-        if let Some(at) = self
-            .looking
-            .photo_saved
-            .filter(|at| at.elapsed().as_secs_f32() < 2.5)
-        {
+        let saved = [
+            (self.looking.photo_saved, "Photo saved to Pictures"),
+            (self.looking.postcard_saved, "Postcard saved to Pictures"),
+        ]
+        .into_iter()
+        .filter_map(|(at, words)| Some((at?, words)))
+        .max_by_key(|(at, _)| *at);
+        if let Some((at, words)) = saved.filter(|(at, _)| at.elapsed().as_secs_f32() < 2.5) {
             let age = at.elapsed().as_secs_f32();
             root = root.child(
                 div()
@@ -1551,7 +1615,7 @@ impl ProjectionView {
                     .flex()
                     .justify_center()
                     .opacity((age / 0.2).min((2.5 - age) / 0.5).clamp(0.0, 1.0))
-                    .child(pill().child(ui::t("Photo saved to Pictures"))),
+                    .child(pill().child(ui::t(words))),
             );
         }
         root = root.child(self.render_hud(cx));
@@ -1689,6 +1753,17 @@ impl ProjectionView {
                     .hover(|style| style.bg(color(tokens::SURFACE)))
                     .child(ui::t("Photo"))
                     .on_click(cx.listener(|this, _, window, cx| this.take_photo(window, cx))),
+            );
+            right = right.child(
+                pill()
+                    .id("postcard-handle")
+                    .aria_label(ui::t(
+                        "Save a postcard of the moment picked in History, or of now (C)",
+                    ))
+                    .cursor_pointer()
+                    .hover(|style| style.bg(color(tokens::SURFACE)))
+                    .child(ui::t("Postcard"))
+                    .on_click(cx.listener(|this, _, window, cx| this.take_postcard(window, cx))),
             );
         }
         right = right.child(
@@ -2288,6 +2363,37 @@ impl ProjectionView {
         Some(kept)
     }
 
+    /// The letter box: what people have written the player, newest first,
+    /// kept apart from keepsakes so a keepsake still means something.
+    pub(crate) fn render_letters(&self) -> Option<Div> {
+        if self.snapshot.letters.is_empty() {
+            return None;
+        }
+        let mut letters = div()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .child(ui::section_label(format!(
+                "Letters · {}",
+                self.snapshot.letters.len()
+            )));
+        for letter in self.snapshot.letters.iter().rev().take(LETTERS_SHOWN) {
+            let from = label_of(&self.snapshot, letter.from)
+                .map(|name| format!("From {}", first_name(&name)))
+                .unwrap_or_else(|| "From a friend".into());
+            letters = letters.child(
+                div()
+                    .px_3()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(ui::caption(from))
+                    .children((!letter.note.is_empty()).then(|| ui::detail(letter.note.clone()))),
+            );
+        }
+        Some(letters)
+    }
+
     /// The book of everything to find: a shelf each for keepsakes, people,
     /// things made and festival days, what has been found drawn in colour
     /// and what is still to come as a silhouette with a hint.
@@ -2618,6 +2724,7 @@ impl ProjectionView {
         // chapters it has closed.
         for part in [
             self.render_chapters(),
+            self.render_letters(),
             self.render_keepsakes(),
             self.render_book(),
             self.render_closer_look(cx),
@@ -2871,6 +2978,14 @@ fn thinking_dots(since: Option<Instant>) -> String {
 /// Pictures, in a World Machine folder, named after the World and the
 /// time. Whether it was saved.
 fn save_photo(bounds: gpui::Bounds<gpui::Pixels>, title: &str) -> bool {
+    save_picture(bounds, title, true)
+}
+
+/// Saves the screen area `bounds` covers to Pictures/World Machine as
+/// `<name>.png`, with the time after the name when `stamped` (a photo) or
+/// only when a picture of that name is already there (a postcard, which is
+/// named after its day).
+fn save_picture(bounds: gpui::Bounds<gpui::Pixels>, title: &str, stamped: bool) -> bool {
     let Some(home) = std::env::var_os("HOME") else {
         return false;
     };
@@ -2891,7 +3006,12 @@ fn save_photo(bounds: gpui::Bounds<gpui::Pixels>, title: &str) -> bool {
         })
         .collect::<String>();
     let stamp = chrono::Local::now().format("%Y-%m-%d at %H.%M.%S");
-    let path = folder.join(format!("{} {stamp}.png", name.trim()));
+    let plain = folder.join(format!("{}.png", name.trim()));
+    let path = if stamped || plain.exists() {
+        folder.join(format!("{} {stamp}.png", name.trim()))
+    } else {
+        plain
+    };
     let region = format!(
         "{},{},{},{}",
         f32::from(bounds.origin.x).round(),
@@ -2907,6 +3027,73 @@ fn save_photo(bounds: gpui::Bounds<gpui::Pixels>, title: &str) -> bool {
         .status()
         .is_ok_and(|status| status.success())
         && path.is_file()
+}
+
+/// The paper of a postcard around a scene `width` by `height`: an even
+/// border, and at the foot a band with the caption, who said it, and the
+/// World and the day.
+fn postcard_paper(card: &crate::postcard::Postcard, width: f32, height: f32) -> Div {
+    let layout = crate::postcard::postcard_layout(width, height);
+    let paper = gpui::rgb(crate::postcard::PAPER);
+    let ink = gpui::rgb(crate::postcard::INK);
+    let soft = gpui::rgb(crate::postcard::INK_SOFT);
+    let edge = |div: Div| div.absolute().bg(paper);
+    div()
+        .absolute()
+        .top_0()
+        .left_0()
+        .w(px(width))
+        .h(px(height))
+        .child(edge(div()).top_0().left_0().right_0().h(px(layout.border)))
+        .child(edge(div()).top_0().bottom_0().left_0().w(px(layout.border)))
+        .child(
+            edge(div())
+                .top_0()
+                .bottom_0()
+                .right_0()
+                .w(px(layout.border)),
+        )
+        // A hairline where the picture meets the paper, as if pasted on.
+        .child(
+            div()
+                .absolute()
+                .top(px(layout.border))
+                .left(px(layout.border))
+                .w(px(layout.scene_width))
+                .h(px(layout.scene_height))
+                .border_1()
+                .border_color(gpui::rgb(crate::postcard::INK_SOFT).opacity(0.35)),
+        )
+        .child(
+            edge(div())
+                .bottom_0()
+                .left_0()
+                .right_0()
+                .h(px(layout.band))
+                .px(px(layout.border * 1.5))
+                .flex()
+                .flex_col()
+                .justify_center()
+                .gap_1()
+                .child(
+                    div()
+                        .text_color(ink)
+                        .text_lg()
+                        .italic()
+                        .line_clamp(2)
+                        .child(card.printed_caption()),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .justify_between()
+                        .gap_4()
+                        .text_sm()
+                        .text_color(soft)
+                        .child(card.signature())
+                        .child(div().flex_shrink_0().child(ui::t("World Machine"))),
+                ),
+        )
 }
 
 fn shelf_len(book: &[world_projection::BookEntry], shelf: &str) -> usize {

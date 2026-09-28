@@ -263,6 +263,8 @@ The repository moved well past the original M42 target. The main capabilities la
 - **Read-only Analyst** (`world-agent-tools`, `world-agent-tool-host`, `world-agent-tool-stdio`, `world-analyst-client`, `integrations/pi`): an out-of-process Pi session with only catalog-derived read-only tools, a World Machine-owned analyst-turn protocol, and a desktop Analyst panel with readiness probing, virtualized history, and bounded framing on every hop.
 - **Pre-alpha packaging**: repeatable `World Machine.app` build, ad-hoc signed and not notarized, with a validated package manifest.
 
+Since then World Machine has become one product, the macOS app with Tiny Society and Pocket Universe. Strategy comparison, lineage, evidence query and investigation, the Analyst, Micro Company, Future Archaeologist and the per-World demo apps were removed; `world-compare` remains because Pocket Universe's tests use it.
+
 ## Phase VI — 0.2 "Usable" release
 
 Status: in progress. This phase replaces milestone-by-milestone infrastructure work with acceptance criteria that describe what a user can do.
@@ -539,7 +541,6 @@ Decide the next phase from real usage, not from architectural interest. Candidat
 3. Carrying a World across a Pack version change. Deliberately deferred by Phase VII, which instead keeps content additive so version bumps stay rare; revisit only if a rules change genuinely has to alter what past Events mean.
 4. Windows or Linux support if download requests justify the GPUI cost.
 5. A second-party Pack authoring guide once first-party content proves retention.
-6. Persistent Pi sessions or direct model API access for the Analyst if the Experimental panel sees use.
-7. Return to transport and scheduler hardening only against reported failures.
+6. Return to transport and scheduler hardening only against reported failures.
 
 The project should resist adding infrastructure merely because it is architecturally interesting. New runtime primitives should be justified by a product behavior that at least two different Worlds can use.

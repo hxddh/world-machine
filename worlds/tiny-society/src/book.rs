@@ -50,6 +50,16 @@ pub(crate) fn book(world: &World) -> Vec<BookEntry> {
             hint,
         ));
     }
+    // Letters: one from everyone who lives here.
+    for (name, wrote) in lives::letter_writers(world, &cast) {
+        book.push(entry(
+            "Letters",
+            name,
+            wrote,
+            Some(MarkShape::Parcel),
+            "Comes on a quiet day".into(),
+        ));
+    }
     // People: everyone here, and strangers who might come to stay.
     let met = lives::met(world);
     for (name, person) in lives::people_to_meet(world, &cast) {
@@ -123,7 +133,7 @@ mod tests {
             .map(|entry| (entry.shelf.clone(), entry.name.clone()))
             .collect::<std::collections::BTreeSet<_>>();
         assert_eq!(names.len(), first.len(), "no entry twice");
-        for shelf in ["Keepsakes", "People", "Made", "Days"] {
+        for shelf in ["Keepsakes", "Letters", "People", "Made", "Days"] {
             assert!(first.iter().any(|entry| entry.shelf == shelf), "{shelf}");
         }
         assert!(first

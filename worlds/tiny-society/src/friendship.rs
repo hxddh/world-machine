@@ -243,8 +243,9 @@ fn what_you_made_is_named_as_yours() {
     );
 }
 
+/// Every return ends on something someone left or wrote for the player.
 #[test]
-fn every_return_brings_a_keepsake() {
+fn every_return_brings_a_keepsake_or_a_letter() {
     let mut registry = world_host::WorldRegistry::new();
     registry
         .register(crate::tiny_society_registration())
@@ -266,8 +267,97 @@ fn every_return_brings_a_keepsake() {
             .unwrap_or_default();
         let last = beats.last().cloned().unwrap_or_default();
         assert!(
-            last.contains(" left you "),
+            last.contains(" left you ") || last.contains(" wrote to you"),
             "a return of {periods} ended on {last:?}"
         );
     }
+}
+
+/// A suggestion's outcome follows from the people and the weather: a
+/// picnic in the rain draws fewer than one in sunshine, a dance indoors
+/// does not care, and the World replays the same without deciding again.
+#[test]
+fn a_suggestion_follows_from_people_and_weather_and_replays() {
+    let mut society = crate::TinySociety::new().unwrap();
+    society.run_story().unwrap();
+    let mut branch = society.branch();
+    branch.begin_story().unwrap();
+    for _ in 0..20 {
+        branch
+            .invoke_projection_command(crate::story::WAIT_COMMAND)
+            .unwrap();
+    }
+    let actions = crate::build_action_registry().unwrap();
+    let came = |fair: bool, idea: &str| {
+        let mut world = branch.world().clone();
+        let event = world
+            .execute(&actions, &lives::suggestion_request(idea, fair))
+            .unwrap();
+        let came = match event.payload.get("came") {
+            Some(world_core::Value::Integer(came)) => *came,
+            _ => 0,
+        };
+        let replayed = world.replay().unwrap();
+        assert_eq!(replayed.state(), world.state(), "replays the same");
+        came
+    };
+    assert!(came(true, "picnic") > came(false, "picnic"));
+    assert_eq!(came(true, "dance"), came(false, "dance"));
+    // Once suggested, not again for a while.
+    let mut world = branch.world().clone();
+    world
+        .execute(&actions, &lives::suggestion_request("market", true))
+        .unwrap();
+    assert!(world
+        .execute(&actions, &lives::suggestion_request("market", true))
+        .is_err());
+}
+
+/// A guest from another World brings a letter and something to keep, as
+/// Actions in the World they visit; the World they came from is only read,
+/// and nothing about it changes.
+#[test]
+fn a_guest_from_another_world_visits_and_writes_nothing_back() {
+    let mut registry = world_host::WorldRegistry::new();
+    registry
+        .register(crate::tiny_society_registration())
+        .unwrap();
+    let mut home = registry.create(crate::TINY_SOCIETY_PACK_ID).unwrap();
+    for _ in 0..5 {
+        home.handle(world_projection::ProjectionIntent::InvokeCommand(
+            crate::story::WAIT_COMMAND.into(),
+        ))
+        .unwrap();
+    }
+    let mut away = registry.create(crate::TINY_SOCIETY_PACK_ID).unwrap();
+    for _ in 0..3 {
+        away.handle(world_projection::ProjectionIntent::InvokeCommand(
+            crate::story::WAIT_COMMAND.into(),
+        ))
+        .unwrap();
+    }
+    let before = away.archive().unwrap().unwrap();
+    let guest = world_projection::Guest::from_snapshot(&away.snapshot()).expect("someone to visit");
+    let letters = home.snapshot().letters.len();
+    let after = home
+        .handle(world_projection::ProjectionIntent::Host(guest.clone()))
+        .unwrap();
+    assert_eq!(
+        after.letters.len(),
+        letters + 1,
+        "the guest's letter is in the box"
+    );
+    assert!(after
+        .letters
+        .last()
+        .is_some_and(|letter| letter.note.contains(&guest.letter)));
+    assert_eq!(
+        away.archive().unwrap().unwrap(),
+        before,
+        "the World the guest came from is unchanged"
+    );
+    // The visit replays like anything else.
+    let archive = home.archive().unwrap().unwrap();
+    let reopened = registry.open_archive(&archive).unwrap();
+    assert_eq!(reopened.snapshot().letters, after.letters);
 }

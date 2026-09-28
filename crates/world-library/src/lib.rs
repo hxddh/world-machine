@@ -1,4 +1,5 @@
 mod revision;
+mod world_code;
 
 use revision::DocumentRevision;
 use std::error::Error;
@@ -11,6 +12,12 @@ use world_document::{DocumentError, WorldDocument, WorldDocumentMetadata};
 use world_host::{HostError, WorldRegistry, WorldSession};
 use world_persistence::{PersistenceError, WorldArchive, WorldPackRef};
 use world_projection::{ProjectionIntent, ProjectionSnapshot};
+
+pub use world_code::{
+    decode_world_code, encode_world_code, looks_like_world_code, read_world_code_file,
+    world_code_for_archive, write_world_code_file, WorldCodeError, WorldVisit, WORLD_CODE_PREFIX,
+    WORLD_CODE_SUFFIX,
+};
 
 pub const WORLD_DOCUMENT_SUFFIX: &str = ".world";
 pub const LEGACY_WORLD_DOCUMENT_SUFFIX: &str = ".world.json";
@@ -1183,6 +1190,41 @@ impl From<HostError> for LibraryError {
     }
 }
 
+/// Someone from another World in the library, as a guest: read from its
+/// listing only, never opened or written. Whoever is first among its
+/// people, bringing a line about how things stand there and a postcard.
+pub fn guest_from(summary: &WorldDocumentSummary) -> Option<world_projection::Guest> {
+    let people = summary
+        .display_cast
+        .iter()
+        .filter(|item| item.kind == world_projection::CanvasItemKind::Actor)
+        .collect::<Vec<_>>();
+    // A cover may keep people without their names.
+    let name = people
+        .iter()
+        .map(|item| item.label.trim())
+        .find(|label| !label.is_empty())
+        .unwrap_or(if people.is_empty() { "" } else { "A neighbour" });
+    if name.is_empty() {
+        return None;
+    }
+    let from = summary
+        .display_title
+        .clone()
+        .unwrap_or_else(|| summary.pack.id.clone());
+    let letter = summary
+        .display_summary
+        .clone()
+        .filter(|line| !line.trim().is_empty())
+        .unwrap_or_else(|| "Thought I'd come and see how you're all getting on.".into());
+    Some(world_projection::Guest {
+        name: name.to_string(),
+        gift: format!("a postcard of {from}"),
+        from,
+        letter,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1280,7 +1322,6 @@ mod tests {
                         pack: WorldPackRef::new(MOCK_PACK, "1"),
                         title: "Mock World".into(),
                         description: "Durable session test".into(),
-                        carries_forward: Vec::new(),
                     },
                     || Ok(Box::new(MockSession { count: 0 })),
                 )

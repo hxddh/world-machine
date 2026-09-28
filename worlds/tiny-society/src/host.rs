@@ -84,6 +84,9 @@ impl WorldSession for TinySocietySession {
                     .say_with(who, &words, listener)
                     .map_err(HostError::session)?;
             }
+            ProjectionIntent::Host(guest) => {
+                self.branch.host(&guest).map_err(HostError::session)?;
+            }
         }
         self.background_cursor = None;
         Ok(self.snapshot())
@@ -131,10 +134,6 @@ pub fn tiny_society_registration_with_listener(listener: ListenerFactory) -> Wor
             description:
                 "A small harbour town that keeps living while you are away, where friendships, money and luck become its history."
                     .into(),
-            carries_forward: crate::persistence::CARRIES_FORWARD
-                .iter()
-                .map(|version| version.to_string())
-                .collect(),
         },
         move || TinySocietySession::fresh(listener()),
     )

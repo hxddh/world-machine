@@ -1,28 +1,27 @@
 //! The Settings window.
 //!
-//! One place to say how this app's Worlds should speak, separate from the
-//! Analyst, because a World's voice is not an Analyst feature — it only lived
-//! beside one because that is where the program path already was.
+//! One place to say how this app's Worlds should speak and sound, and how
+//! the app is shown.
 //!
 //! The window is deliberately plain and says what is true rather than what is
 //! encouraging: which way the voice reaches a model, that a key is the only way
 //! a World's contents leave this Mac, and what happens when it is switched off.
 
 use gpui::{
-    div, prelude::*, px, size, App, AppContext, Bounds, Context, Entity, IntoElement, Render,
-    SharedString, Styled, Window, WindowBounds, WindowOptions,
+    div, prelude::*, px, size, App, AppContext, Bounds, Context, Entity, IntoElement,
+    PathPromptOptions, Render, SharedString, Styled, Window, WindowBounds, WindowOptions,
 };
 use world_gpui::ui;
 use world_machine_desktop::ambience;
-use world_machine_desktop::analyst_settings::{self, VoiceSource};
+use world_machine_desktop::app_settings::{self, VoiceSource};
 use world_machine_desktop::key_store;
 use world_theme::tokens;
 
 use crate::diagnostics;
-use crate::world_fork::analyst_input::{self, AnalystTextInput};
+use world_gpui::text_input::{self as text_field, TextInput};
 
 pub fn open(cx: &mut App) {
-    analyst_input::bind_keys(cx);
+    text_field::bind_keys(cx);
     let bounds = Bounds::centered(None, size(px(600.0), px(640.0)), cx);
     let opened = cx.open_window(
         WindowOptions {
@@ -37,7 +36,7 @@ pub fn open(cx: &mut App) {
 }
 
 struct SettingsView {
-    key_input: Entity<AnalystTextInput>,
+    key_input: Entity<TextInput>,
     /// Whether a key is stored, read once when the window opens and after every
     /// change. The key itself is never held here.
     key_stored: bool,
@@ -58,7 +57,7 @@ struct SettingsView {
 
 impl SettingsView {
     fn new(cx: &mut Context<Self>) -> Self {
-        let key_input = cx.new(|cx| AnalystTextInput::new("Paste an API key…", cx));
+        let key_input = cx.new(|cx| TextInput::new("Paste an API key…", cx));
         cx.observe(&key_input, |_, _, cx| cx.notify()).detach();
         let mut view = Self {
             key_input,
@@ -81,9 +80,9 @@ impl SettingsView {
     /// configured, which is the same as never having set it up.
     fn reload(&mut self) {
         self.key_stored = key_store::is_configured();
-        let settings = analyst_settings::application_support_root()
+        let settings = app_settings::application_support_root()
             .ok()
-            .and_then(|root| analyst_settings::load(&root).ok());
+            .and_then(|root| app_settings::load(&root).ok());
         match settings {
             Some(settings) => {
                 self.voice_on = settings.world_voice;
@@ -123,9 +122,9 @@ impl SettingsView {
     fn set_voice(&mut self, on: bool, cx: &mut Context<Self>) {
         self.apply(
             move || {
-                let root = analyst_settings::application_support_root()
-                    .map_err(|error| error.to_string())?;
-                analyst_settings::save_world_voice(&root, on).map_err(|error| error.to_string())
+                let root =
+                    app_settings::application_support_root().map_err(|error| error.to_string())?;
+                app_settings::save_world_voice(&root, on).map_err(|error| error.to_string())
             },
             cx,
         );
@@ -134,9 +133,9 @@ impl SettingsView {
     fn set_sound(&mut self, on: bool, cx: &mut Context<Self>) {
         self.apply(
             move || {
-                let root = analyst_settings::application_support_root()
-                    .map_err(|error| error.to_string())?;
-                analyst_settings::save_ambient_sound(&root, on).map_err(|error| error.to_string())
+                let root =
+                    app_settings::application_support_root().map_err(|error| error.to_string())?;
+                app_settings::save_ambient_sound(&root, on).map_err(|error| error.to_string())
             },
             cx,
         );
@@ -145,9 +144,9 @@ impl SettingsView {
 
     /// Shows every window the way the player now asks.
     fn show_as_chosen(&mut self, cx: &mut Context<Self>) {
-        let settings = analyst_settings::application_support_root()
+        let settings = app_settings::application_support_root()
             .ok()
-            .and_then(|root| analyst_settings::load(&root).ok());
+            .and_then(|root| app_settings::load(&root).ok());
         world_machine_desktop::display::apply(settings.as_ref());
         cx.refresh_windows();
     }
@@ -155,9 +154,9 @@ impl SettingsView {
     fn set_language(&mut self, language: Option<String>, cx: &mut Context<Self>) {
         self.apply(
             move || {
-                let root = analyst_settings::application_support_root()
-                    .map_err(|error| error.to_string())?;
-                analyst_settings::save_language(&root, language).map_err(|error| error.to_string())
+                let root =
+                    app_settings::application_support_root().map_err(|error| error.to_string())?;
+                app_settings::save_language(&root, language).map_err(|error| error.to_string())
             },
             cx,
         );
@@ -167,9 +166,9 @@ impl SettingsView {
     fn set_text_scale(&mut self, percent: u32, cx: &mut Context<Self>) {
         self.apply(
             move || {
-                let root = analyst_settings::application_support_root()
-                    .map_err(|error| error.to_string())?;
-                analyst_settings::save_text_scale(&root, percent).map_err(|error| error.to_string())
+                let root =
+                    app_settings::application_support_root().map_err(|error| error.to_string())?;
+                app_settings::save_text_scale(&root, percent).map_err(|error| error.to_string())
             },
             cx,
         );
@@ -179,10 +178,9 @@ impl SettingsView {
     fn set_contrast(&mut self, on: Option<bool>, cx: &mut Context<Self>) {
         self.apply(
             move || {
-                let root = analyst_settings::application_support_root()
-                    .map_err(|error| error.to_string())?;
-                analyst_settings::save_increase_contrast(&root, on)
-                    .map_err(|error| error.to_string())
+                let root =
+                    app_settings::application_support_root().map_err(|error| error.to_string())?;
+                app_settings::save_increase_contrast(&root, on).map_err(|error| error.to_string())
             },
             cx,
         );
@@ -192,9 +190,9 @@ impl SettingsView {
     fn set_level(&mut self, channel: ambience::Channel, percent: u8, cx: &mut Context<Self>) {
         self.apply(
             move || {
-                let root = analyst_settings::application_support_root()
-                    .map_err(|error| error.to_string())?;
-                analyst_settings::save_sound_level(&root, channel, percent)
+                let root =
+                    app_settings::application_support_root().map_err(|error| error.to_string())?;
+                app_settings::save_sound_level(&root, channel, percent)
                     .map_err(|error| error.to_string())
             },
             cx,
@@ -207,9 +205,9 @@ impl SettingsView {
     fn set_source(&mut self, source: VoiceSource, cx: &mut Context<Self>) {
         self.apply(
             move || {
-                let root = analyst_settings::application_support_root()
-                    .map_err(|error| error.to_string())?;
-                analyst_settings::save_world_voice_source(&root, source)
+                let root =
+                    app_settings::application_support_root().map_err(|error| error.to_string())?;
+                app_settings::save_world_voice_source(&root, source)
                     .map_err(|error| error.to_string())
             },
             cx,
@@ -221,6 +219,43 @@ impl SettingsView {
         self.apply(move || key_store::save(&typed), cx);
         // Never leave a key sitting in a field once it is stored.
         self.key_input.update(cx, |input, cx| input.clear(cx));
+    }
+
+    /// Asks which program on this Mac the voice writes with.
+    fn choose_program(&mut self, cx: &mut Context<Self>) {
+        let picker = cx.prompt_for_paths(PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some("Choose the voice program".into()),
+        });
+        cx.spawn(async move |this, cx| {
+            let chosen = match picker.await {
+                Ok(Ok(Some(mut paths))) => paths.pop(),
+                Ok(Ok(None)) => None,
+                Ok(Err(error)) => {
+                    let message = format!("Could not choose a program: {error}");
+                    let _ = this.update(cx, |this, cx| this.apply(|| Err(message), cx));
+                    return;
+                }
+                Err(_) => return,
+            };
+            let Some(path) = chosen else {
+                return;
+            };
+            let _ = this.update(cx, |this, cx| {
+                this.apply(
+                    move || {
+                        let root = app_settings::application_support_root()
+                            .map_err(|error| error.to_string())?;
+                        app_settings::save_pi_program(&root, path)
+                            .map_err(|error| error.to_string())
+                    },
+                    cx,
+                )
+            });
+        })
+        .detach();
     }
 
     fn forget_key(&mut self, cx: &mut Context<Self>) {
@@ -409,7 +444,7 @@ impl Render for SettingsView {
         if on {
             let program_fact = match self.program.as_deref() {
                 Some(program) => format!("Stays on this Mac · {}", program_name(program)),
-                None => "Stays on this Mac · choose one in Analyst settings".into(),
+                None => "Stays on this Mac · choose the program below".into(),
             };
             let key_fact = if self.key_stored {
                 "Each return is sent to your provider · key stored".to_string()
@@ -447,6 +482,23 @@ impl Render for SettingsView {
                             ),
                         ),
                 );
+            if matches!(source, VoiceSource::Program) {
+                let label = if self.program.is_some() {
+                    "Choose another program…"
+                } else {
+                    "Choose program…"
+                };
+                sources = sources.child(
+                    div().flex().gap_2().items_center().child(
+                        ui::button(
+                            "world-voice-choose-program",
+                            label,
+                            ui::ButtonKind::Secondary,
+                        )
+                        .on_click(cx.listener(|this, _, _, cx| this.choose_program(cx))),
+                    ),
+                );
+            }
             if matches!(source, VoiceSource::Key) {
                 let mut actions = div().flex().gap_2().items_center().child(
                     ui::button("world-voice-save-key", "Save key", ui::ButtonKind::Primary)

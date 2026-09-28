@@ -94,28 +94,6 @@ impl WorldArchive {
         Ok(world)
     }
 
-    /// Restore a World saved by `expected`, or by one of the earlier
-    /// versions of the same Pack that `expected` carries forward. The
-    /// history is kept exactly as it was recorded: its Events already hold
-    /// every change they made, so nothing is decided again, and the World
-    /// then goes on under the rules of `expected`.
-    pub fn restore_carried(
-        &self,
-        expected: &WorldPackRef,
-        carries_forward: &[&str],
-        baseline: WorldState,
-    ) -> Result<World, PersistenceError> {
-        let carried = self.pack.id == expected.id
-            && carries_forward
-                .iter()
-                .any(|version| *version == self.pack.version);
-        if carried {
-            self.restore(&self.pack, baseline)
-        } else {
-            self.restore(expected, baseline)
-        }
-    }
-
     fn validate_header(&self) -> Result<(), PersistenceError> {
         if self.format != WORLD_ARCHIVE_FORMAT {
             return Err(PersistenceError::UnsupportedFormat(self.format.clone()));

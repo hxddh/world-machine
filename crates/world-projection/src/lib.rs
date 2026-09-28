@@ -164,6 +164,60 @@ pub enum ProjectionIntent {
         words: String,
         ears: Ears,
     },
+    /// Someone from another of the player's Worlds comes to visit. They
+    /// arrive only as words, which this World checks like anything else;
+    /// nothing is shared with, or written back to, the World they came from.
+    Host(Guest),
+}
+
+/// A guest from another World: who they are, where from, the letter they
+/// bring, and something they leave to keep.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct Guest {
+    pub name: String,
+    pub from: String,
+    pub letter: String,
+    pub gift: String,
+}
+
+impl Guest {
+    /// Someone from the World a snapshot shows, read and never written:
+    /// whoever last said something there, bringing that line as their
+    /// letter and a postcard of the place. `None` when nobody lives there.
+    pub fn from_snapshot(snapshot: &ProjectionSnapshot) -> Option<Self> {
+        let person = |id: &SelectionId| {
+            snapshot
+                .canvas
+                .items
+                .iter()
+                .find(|item| &item.id == id && item.kind == CanvasItemKind::Actor)
+        };
+        let (who, line) = snapshot
+            .voices
+            .iter()
+            .rev()
+            .find_map(|voice| person(&voice.speaker).map(|who| (who, voice.line.clone())))
+            .or_else(|| {
+                snapshot
+                    .canvas
+                    .items
+                    .iter()
+                    .find(|item| item.kind == CanvasItemKind::Actor)
+                    .map(|who| {
+                        (
+                            who,
+                            "Thought I'd come and see how you're all getting on.".to_string(),
+                        )
+                    })
+            })?;
+        let from = snapshot.title.clone();
+        Some(Guest {
+            name: who.label.clone(),
+            gift: format!("a postcard of {from}"),
+            from,
+            letter: line,
+        })
+    }
 }
 
 /// Who hears what the player says to someone.
@@ -440,6 +494,8 @@ pub struct ProjectionSnapshot {
     /// What people have given the player to keep, oldest first: the
     /// drawer's keepsakes.
     pub keepsakes: Vec<Keepsake>,
+    /// Letters people wrote the player, oldest first: the letter box.
+    pub letters: Vec<Letter>,
     /// Everything there is to find in this World, found or not: the book
     /// the drawer keeps, with a silhouette for what is still to come.
     pub book: Vec<BookEntry>,
@@ -466,6 +522,14 @@ pub struct BookEntry {
 pub struct Keepsake {
     pub from: SelectionId,
     pub what: String,
+    pub note: String,
+    pub moment: SelectionId,
+}
+
+/// A letter someone wrote the player.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Letter {
+    pub from: SelectionId,
     pub note: String,
     pub moment: SelectionId,
 }
@@ -1377,7 +1441,8 @@ impl BriefingProjection {
     pub fn beats(&self) -> Vec<&BriefingItem> {
         self.items
             .iter()
-            .filter(|item| item.kind == BriefingItemKind::Beat)
+            // Every beat has words to show.
+            .filter(|item| item.kind == BriefingItemKind::Beat && !item.title.trim().is_empty())
             .collect()
     }
 }

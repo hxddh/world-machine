@@ -10,7 +10,6 @@ world-host = { path = "../world-host" }
 world-i18n = { path = "../world-i18n" }
 tiny-society = { path = "../../worlds/tiny-society" }
 pocket-universe = { path = "../../worlds/pocket-universe" }
-future-archaeologist = { path = "../../worlds/future-archaeologist" }
 
 [dev-dependencies]
 world-projection = { path = "../world-projection" }

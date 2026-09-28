@@ -11,14 +11,9 @@ PACK_PROCESS="$ROOT/crates/world-pack-process"
 PACK_CATALOG="$ROOT/crates/world-pack-catalog"
 PACK_SERVER="$ROOT/crates/world-pack-server"
 PROJECTION="$ROOT/crates/world-projection"
-INVESTIGATION="$ROOT/crates/world-investigation"
-AGENT_TOOLS="$ROOT/crates/world-agent-tools"
 HOST="$ROOT/crates/world-host"
 LIBRARY="$ROOT/crates/world-library"
-LINEAGE="$ROOT/crates/world-lineage"
 GPUI="$ROOT/crates/world-gpui"
-STRATEGY_GPUI="$ROOT/crates/world-strategy-gpui"
-LINEAGE_GPUI="$ROOT/crates/world-lineage-gpui"
 DESKTOP="$ROOT/apps/world-machine-desktop"
 
 core_forbidden=("TinySociety" "Tiny Society" "FutureArchaeologist" "Future Archaeologist" "Person" "Town" "Bakery" "Society" "gpui" "pi_agent" "FootballPlayer" "Evidence" "world_agent")
@@ -30,14 +25,9 @@ pack_catalog_forbidden=("TinySociety" "tiny_society" "tiny-society" "Tiny Societ
 pack_process_forbidden=("TinySociety" "tiny_society" "tiny-society" "Tiny Society" "FutureArchaeologist" "future_archaeologist" "future-archaeologist" "Future Archaeologist" "gpui" "pi_agent" "openai" "anthropic")
 pack_protocol_forbidden=("TinySociety" "tiny_society" "tiny-society" "Tiny Society" "FutureArchaeologist" "future_archaeologist" "future-archaeologist" "Future Archaeologist" "gpui" "pi_agent" "openai" "anthropic")
 projection_forbidden=("TinySociety" "Tiny Society" "FutureArchaeologist" "Future Archaeologist" "Bakery" "Society" "gpui" "pi_agent")
-investigation_forbidden=("world_projection" "world-projection" "ProjectionSnapshot" "world_core" "world-core" "world_agent" "world-agent" "gpui" "pi_agent" "openai" "anthropic")
-agent_tools_forbidden=("world_projection" "world-projection" "ProjectionSnapshot" "world_core" "world-core" "../world-agent" "world_agent::" "gpui" "pi_agent" "openai" "anthropic")
 host_forbidden=("TinySociety" "tiny_society" "FutureArchaeologist" "future_archaeologist" "gpui" "pi_agent")
 library_forbidden=("TinySociety" "tiny_society" "FutureArchaeologist" "future_archaeologist" "gpui" "pi_agent")
-lineage_forbidden=("TinySociety" "tiny_society" "FutureArchaeologist" "future_archaeologist" "Bakery" "Mara" "Jonas" "gpui" "pi_agent")
 gpui_forbidden=("TinySociety" "tiny_society" "FutureArchaeologist" "future_archaeologist" "world_core" "pi_agent")
-strategy_gpui_forbidden=("TinySociety" "tiny_society" "FutureArchaeologist" "future_archaeologist" "Bakery" "Mara" "Jonas" "world_core" "pi_agent")
-lineage_gpui_forbidden=("TinySociety" "tiny_society" "FutureArchaeologist" "future_archaeologist" "Bakery" "Mara" "Jonas" "world_core" "pi_agent")
 desktop_forbidden=("TinySociety" "tiny_society" "FutureArchaeologist" "future_archaeologist")
 
 failed=0
@@ -129,26 +119,6 @@ if [[ -d "$PROJECTION" ]]; then
   done
 fi
 
-if [[ -d "$INVESTIGATION" ]]; then
-  for token in "${investigation_forbidden[@]}"; do
-    if grep -Rni --exclude-dir=target -i -- "$token" "$INVESTIGATION" >/tmp/world-machine-investigation-boundary-check 2>/dev/null; then
-      echo "Boundary violation: '$token' found in query-only world-investigation adapter:"
-      cat /tmp/world-machine-investigation-boundary-check
-      failed=1
-    fi
-  done
-fi
-
-if [[ -d "$AGENT_TOOLS" ]]; then
-  for token in "${agent_tools_forbidden[@]}"; do
-    if grep -Rni --exclude-dir=target -i -- "$token" "$AGENT_TOOLS" >/tmp/world-machine-agent-tools-boundary-check 2>/dev/null; then
-      echo "Boundary violation: '$token' found in read-only world-agent-tools boundary:"
-      cat /tmp/world-machine-agent-tools-boundary-check
-      failed=1
-    fi
-  done
-fi
-
 if [[ -d "$HOST" ]]; then
   for token in "${host_forbidden[@]}"; do
     if grep -Rni --exclude-dir=target -i -- "$token" "$HOST" >/tmp/world-machine-host-boundary-check 2>/dev/null; then
@@ -169,41 +139,11 @@ if [[ -d "$LIBRARY" ]]; then
   done
 fi
 
-if [[ -d "$LINEAGE" ]]; then
-  for token in "${lineage_forbidden[@]}"; do
-    if grep -Rni --exclude-dir=target -i -- "$token" "$LINEAGE" >/tmp/world-machine-lineage-boundary-check 2>/dev/null; then
-      echo "Boundary violation: '$token' found in generic world-lineage:"
-      cat /tmp/world-machine-lineage-boundary-check
-      failed=1
-    fi
-  done
-fi
-
 if [[ -d "$GPUI" ]]; then
   for token in "${gpui_forbidden[@]}"; do
     if grep -Rni --exclude-dir=target -i -- "$token" "$GPUI" >/tmp/world-machine-gpui-boundary-check 2>/dev/null; then
       echo "Boundary violation: '$token' found in world-gpui renderer:"
       cat /tmp/world-machine-gpui-boundary-check
-      failed=1
-    fi
-  done
-fi
-
-if [[ -d "$STRATEGY_GPUI" ]]; then
-  for token in "${strategy_gpui_forbidden[@]}"; do
-    if grep -Rni --exclude-dir=target -i -- "$token" "$STRATEGY_GPUI" >/tmp/world-machine-strategy-gpui-boundary-check 2>/dev/null; then
-      echo "Boundary violation: '$token' found in generic world-strategy-gpui renderer:"
-      cat /tmp/world-machine-strategy-gpui-boundary-check
-      failed=1
-    fi
-  done
-fi
-
-if [[ -d "$LINEAGE_GPUI" ]]; then
-  for token in "${lineage_gpui_forbidden[@]}"; do
-    if grep -Rni --exclude-dir=target -i -- "$token" "$LINEAGE_GPUI" >/tmp/world-machine-lineage-gpui-boundary-check 2>/dev/null; then
-      echo "Boundary violation: '$token' found in generic world-lineage-gpui renderer:"
-      cat /tmp/world-machine-lineage-gpui-boundary-check
       failed=1
     fi
   done

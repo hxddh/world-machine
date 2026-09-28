@@ -86,6 +86,9 @@ pub fn localize(mut snapshot: ProjectionSnapshot) -> ProjectionSnapshot {
         put(&mut keepsake.what);
         put(&mut keepsake.note);
     }
+    for letter in &mut snapshot.letters {
+        put(&mut letter.note);
+    }
     for entry in &mut snapshot.book {
         put(&mut entry.shelf);
         put(&mut entry.name);

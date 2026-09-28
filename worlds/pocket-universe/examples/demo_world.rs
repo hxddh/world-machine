@@ -14,9 +14,8 @@ use std::error::Error;
 use std::path::PathBuf;
 
 use pocket_universe::{
-    pocket_universe_registration, BOLD_PATH_COMMAND, HOLD_PRESSURE_COMMAND, NUDGE_COMMAND,
-    POCKET_UNIVERSE_PACK_ID, REACH_PRESSURE_COMMAND, ROOTED_POSTURE_COMMAND,
-    SEED_1980S_TOWN_COMMAND, SEED_MARS_COLONY_COMMAND, SHARED_PROJECT_COMMAND,
+    pocket_universe_registration, NUDGE_COMMAND, POCKET_UNIVERSE_PACK_ID, SEED_1980S_TOWN_COMMAND,
+    SEED_MARS_COLONY_COMMAND,
 };
 use world_document::{WorldBranchCause, WorldDocument, WorldLineage, WorldParent};
 use world_host::{WorldRegistry, WorldSession};
@@ -33,45 +32,40 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut registry = WorldRegistry::new();
     registry.register(pocket_universe_registration())?;
 
-    // A Mars colony that has lived long enough for chapter three to open:
-    // first intervention, partnership, rooted posture, legacy, then pressure.
+    // A Mars colony that has lived a while, answering what it asks, until
+    // a question is open to branch on.
     let mut colony = registry.create(POCKET_UNIVERSE_PACK_ID)?;
     invoke(colony.as_mut(), SEED_MARS_COLONY_COMMAND)?;
-    colony.advance_background(3)?;
-    invoke(colony.as_mut(), BOLD_PATH_COMMAND)?;
-    invoke(colony.as_mut(), SHARED_PROJECT_COMMAND)?;
-    colony.advance_background(3)?;
-    invoke(colony.as_mut(), ROOTED_POSTURE_COMMAND)?;
+    for _ in 0..12 {
+        if let Some(answer) = first_answer(colony.as_ref(), 0) {
+            invoke(colony.as_mut(), &answer.0)?;
+        }
+        invoke(colony.as_mut(), NUDGE_COMMAND)?;
+    }
     let mut periods = 0;
-    while !colony
-        .snapshot()
-        .commands
-        .iter()
-        .any(|command| command.id == HOLD_PRESSURE_COMMAND)
-    {
-        colony.advance_background(1)?;
+    while first_answer(colony.as_ref(), 1).is_none() {
+        invoke(colony.as_mut(), NUDGE_COMMAND)?;
         periods += 1;
-        if periods > 20 {
-            return Err("the colony never reached its third chapter".into());
+        if periods > 40 {
+            return Err("the colony never asked a question with two answers".into());
         }
     }
     save(&library, "ares-pocket-colony", colony.as_ref())?;
 
-    // Two futures branched from the colony at its crisis, and a branch of a
-    // branch, so the lineage graph has a family to draw.
+    // Two futures branched from the colony at that question, and a branch
+    // of a branch, so the lineage graph has a family to draw.
     let colony_archive = colony
         .archive()?
         .ok_or("Pocket Universe sessions always have an archive")?;
-    let held = branch(
+    let yes = first_answer(colony.as_ref(), 0).ok_or("the question closed")?;
+    let other = first_answer(colony.as_ref(), 1).ok_or("the question closed")?;
+    let first = branch(
         &registry,
         &library,
         &colony_archive,
         "ares-pocket-colony",
-        ("ares-held", "Ares · Held on"),
-        (
-            HOLD_PRESSURE_COMMAND,
-            "Rebuild the reclaimer from what Ares has",
-        ),
+        ("ares-first", "Ares · One answer"),
+        (&yes.0, &yes.1),
         12,
     )?;
     branch(
@@ -79,16 +73,16 @@ fn main() -> Result<(), Box<dyn Error>> {
         &library,
         &colony_archive,
         "ares-pocket-colony",
-        ("ares-reached", "Ares · Reached out"),
-        (REACH_PRESSURE_COMMAND, "Send Kestrel for a replacement"),
+        ("ares-second", "Ares · A second colony"),
+        (&other.0, &other.1),
         8,
     )?;
     branch(
         &registry,
         &library,
-        &held,
-        "ares-held",
-        ("ares-held-later", "Ares · Held on, years later"),
+        &first,
+        "ares-first",
+        ("ares-first-later", "Ares · Long settled"),
         (NUDGE_COMMAND, "Let time pass"),
         10,
     )?;
@@ -139,6 +133,25 @@ fn branch(
     library.describe(&WorldDocumentId::new(id)?, &session.snapshot())?;
     println!("{id} · branched from {parent} · {title}");
     Ok(archive)
+}
+
+/// The `nth` answer to the first question open now, as its id and title.
+fn first_answer(session: &dyn WorldSession, nth: usize) -> Option<(String, String)> {
+    let snapshot = session.snapshot();
+    let question = snapshot
+        .commands
+        .iter()
+        .find(|command| command.question.is_some() && command.unavailable.is_none())?
+        .question
+        .clone()?;
+    snapshot
+        .commands
+        .iter()
+        .filter(|command| {
+            command.question.as_ref() == Some(&question) && command.unavailable.is_none()
+        })
+        .nth(nth)
+        .map(|command| (command.id.clone(), command.title.clone()))
 }
 
 fn invoke(session: &mut dyn WorldSession, command: &str) -> Result<(), Box<dyn Error>> {

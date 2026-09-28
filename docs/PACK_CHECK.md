@@ -66,4 +66,4 @@ It does **not** prove that every Pack command is correct, that background progre
 
 External Pack authors should continue to implement the ordinary public `WorldRegistration` / `WorldSession` surface and use `world-pack-server` for stdio serving and `.worldpack` generation. The check command deliberately reuses `world-pack-catalog` and `world-pack-process` rather than introducing a second protocol or a Pack-specific test API.
 
-The repository's Tiny Society, Pocket Universe, and Micro Company external Pack tests remain deeper product regressions. `world-pack-check` is the common minimum gate that any unrelated Pack can run before those domain-specific tests exist.
+The repository's Tiny Society and Pocket Universe external Pack tests remain deeper product regressions. `world-pack-check` is the common minimum gate that any unrelated Pack can run before those domain-specific tests exist.

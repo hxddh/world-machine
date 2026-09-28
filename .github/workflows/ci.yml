@@ -27,9 +27,6 @@ jobs:
           filters: |
             gpui:
               - 'crates/world-gpui/**'
-              - 'crates/world-strategy-gpui/**'
-              - 'crates/world-lineage-gpui/**'
-              - 'crates/world-analyst-client/**'
               - 'crates/world-pack-protocol/**'
               - 'crates/world-pack-bundle/**'
               - 'crates/world-pack-process/**'
@@ -37,35 +34,17 @@ jobs:
               - 'crates/world-pack-server/**'
               - 'crates/world-projection/**'
               - 'crates/world-compare/**'
-              - 'crates/world-strategy/**'
               - 'crates/world-document/**'
-              - 'crates/world-lineage/**'
               - 'crates/world-host/**'
               - 'crates/world-builtins/**'
               - 'crates/world-library/**'
               - 'crates/world-core/**'
               - 'crates/world-persistence/**'
-              - 'crates/world-query/**'
-              - 'crates/world-investigation/**'
-              - 'crates/world-investigation-local/**'
-              - 'crates/world-agent-tools/**'
-              - 'crates/world-agent-tool-host/**'
-              - 'crates/world-agent-tool-stdio/**'
-              - 'integrations/pi/**'
-              - 'scripts/run-pi-analyst.sh'
-              - 'scripts/check-packaged-analyst-runtime.mjs'
               - 'apps/tiny-society-pack/**'
               - 'apps/pocket-universe-pack/**'
-              - 'apps/micro-company-pack/**'
-              - 'apps/tiny-society-desktop/**'
-              - 'apps/future-archaeologist-desktop/**'
               - 'apps/world-machine-desktop/**'
-              - 'apps/strategy-comparison-desktop/**'
-              - 'apps/lineage-explorer-desktop/**'
               - 'worlds/tiny-society/**'
-              - 'worlds/future-archaeologist/**'
               - 'worlds/pocket-universe/**'
-              - 'worlds/micro-company/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'rust-toolchain.toml'
@@ -90,18 +69,14 @@ jobs:
         run: python3 ./scripts/check-workflows.py
       - name: Check the app icon
         run: python3 ./scripts/check-app-icon.py
-      - name: Check Pi analyst integration
-        run: bash ./scripts/check-pi-analyst.sh
-      - name: Check packaged analyst smoke syntax
-        run: node --check scripts/check-packaged-analyst-runtime.mjs
       - run: cargo fmt --all -- --check
-      - run: cargo clippy --workspace --exclude world-gpui --exclude world-strategy-gpui --exclude world-lineage-gpui --exclude tiny-society-desktop --exclude future-archaeologist-desktop --exclude world-machine-desktop --exclude strategy-comparison-desktop --exclude lineage-explorer-desktop --all-targets -- -D warnings
-      - run: cargo test --workspace --exclude world-gpui --exclude world-strategy-gpui --exclude world-lineage-gpui --exclude tiny-society-desktop --exclude future-archaeologist-desktop --exclude world-machine-desktop --exclude strategy-comparison-desktop --exclude lineage-explorer-desktop
+      - run: cargo clippy --workspace --exclude world-gpui --exclude world-machine-desktop --all-targets -- -D warnings
+      - run: cargo test --workspace --exclude world-gpui --exclude world-machine-desktop
       - name: Verify external Pack conformance command
         run: |
           mkdir -p target/pack-check
-          cargo run -p micro-company-pack -- --write-bundle target/pack-check/micro-company.worldpack
-          cargo run -p world-pack-catalog --bin world-pack-check -- target/pack-check/micro-company.worldpack
+          cargo run -p tiny-society-pack -- --write-bundle target/pack-check/tiny-society.worldpack
+          cargo run -p world-pack-catalog --bin world-pack-check -- target/pack-check/tiny-society.worldpack
 
   gpui-macos:
     needs: changes
@@ -116,19 +91,10 @@ jobs:
       - run: cargo test -p world-library
       - run: cargo test -p tiny-society-pack
       - run: cargo test -p pocket-universe-pack
-      - run: cargo test -p micro-company-pack
       - run: cargo check -p world-gpui
-      - run: cargo check -p world-strategy-gpui
-      - run: cargo check -p world-lineage-gpui
-      - run: cargo test -p tiny-society-desktop
-      - run: cargo test -p future-archaeologist-desktop
       - run: cargo test -p world-machine-desktop
-      - run: cargo test -p strategy-comparison-desktop
-      - run: cargo test -p lineage-explorer-desktop
       - name: Build and validate World Machine.app
         run: bash apps/world-machine-desktop/macos/build-app.sh
-      - name: Smoke packaged analyst runtime
-        run: node scripts/check-packaged-analyst-runtime.mjs "target/bundle/World Machine.app"
       - name: Archive World Machine.app
         run: ditto -c -k --keepParent "target/bundle/World Machine.app" target/bundle/World-Machine-macOS.zip
       - uses: actions/upload-artifact@v4

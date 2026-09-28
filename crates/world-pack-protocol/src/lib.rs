@@ -85,9 +85,6 @@ pub struct PackDescriptor {
     pub pack: WorldPackRef,
     pub title: String,
     pub description: String,
-    /// Optional both ways: earlier versions whose Worlds this one opens.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub carries_forward: Vec<String>,
 }
 
 impl PackDescriptor {
@@ -100,14 +97,7 @@ impl PackDescriptor {
             pack,
             title: title.into(),
             description: description.into(),
-            carries_forward: Vec::new(),
         }
-    }
-
-    /// The same descriptor, opening Worlds saved by these earlier versions.
-    pub fn carrying_forward(mut self, versions: impl IntoIterator<Item = String>) -> Self {
-        self.carries_forward = versions.into_iter().collect();
-        self
     }
 
     pub fn validate(&self) -> Result<(), ProtocolError> {
@@ -338,6 +328,21 @@ pub enum ProjectionIntentWire {
         #[serde(default, skip_serializing_if = "EarsWire::is_world")]
         ears: EarsWire,
     },
+    Host {
+        name: String,
+        from: String,
+        letter: String,
+        #[serde(default)]
+        gift: String,
+    },
+}
+
+/// The longest a guest's name, home, letter or gift is read: anything
+/// longer is cut, and the World checks what it gets like anything else.
+pub const MOST_GUEST_TEXT: usize = 280;
+
+fn guest_text(text: String) -> String {
+    text.chars().take(MOST_GUEST_TEXT).collect()
 }
 
 /// The longest model response a Pack is sent to read.
@@ -392,6 +397,12 @@ impl From<ProjectionIntent> for ProjectionIntentWire {
                 words,
                 ears: ears.into(),
             },
+            ProjectionIntent::Host(guest) => Self::Host {
+                name: guest.name,
+                from: guest.from,
+                letter: guest.letter,
+                gift: guest.gift,
+            },
         }
     }
 }
@@ -408,6 +419,17 @@ impl From<ProjectionIntentWire> for ProjectionIntent {
                 words,
                 ears: ears.into(),
             },
+            ProjectionIntentWire::Host {
+                name,
+                from,
+                letter,
+                gift,
+            } => Self::Host(world_projection::Guest {
+                name: guest_text(name),
+                from: guest_text(from),
+                letter: guest_text(letter),
+                gift: guest_text(gift),
+            }),
         }
     }
 }
@@ -486,6 +508,9 @@ pub struct ProjectionSnapshotWire {
     pub drawings: Vec<DrawingWire>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub keepsakes: Vec<KeepsakeWire>,
+    /// Optional both ways: the letter box.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub letters: Vec<LetterWire>,
     /// Optional both ways: the book of everything to find. An older Pack
     /// sends none, and the drawer shows no book.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -517,6 +542,17 @@ pub struct KeepsakeWire {
     pub note: String,
     pub moment: SelectionIdWire,
 }
+
+/// A letter someone wrote the player, as it crosses the boundary.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LetterWire {
+    pub from: SelectionIdWire,
+    pub note: String,
+    pub moment: SelectionIdWire,
+}
+
+/// The most letters one snapshot carries: the latest.
+pub const MOST_LETTERS: usize = 400;
 
 /// The most drawings one snapshot carries.
 pub const MOST_DRAWINGS: usize = 64;
@@ -1097,6 +1133,15 @@ impl From<&ProjectionSnapshot> for ProjectionSnapshotWire {
                     moment: keepsake.moment.into(),
                 })
                 .collect(),
+            letters: snapshot
+                .letters
+                .iter()
+                .map(|letter| LetterWire {
+                    from: letter.from.into(),
+                    note: letter.note.clone(),
+                    moment: letter.moment.into(),
+                })
+                .collect(),
             book: snapshot
                 .book
                 .iter()
@@ -1261,6 +1306,22 @@ impl TryFrom<ProjectionSnapshotWire> for ProjectionSnapshot {
                     moment: keepsake.moment.into(),
                 })
                 .collect(),
+            // The latest letters, as many as the app keeps, each with words.
+            letters: {
+                let letters = snapshot
+                    .letters
+                    .into_iter()
+                    .filter(|letter| !letter.note.trim().is_empty())
+                    .collect::<Vec<_>>();
+                letters[letters.len().saturating_sub(MOST_LETTERS)..]
+                    .iter()
+                    .map(|letter| world_projection::Letter {
+                        from: letter.from.into(),
+                        note: letter.note.clone(),
+                        moment: letter.moment.into(),
+                    })
+                    .collect()
+            },
             // A book no longer than the app keeps, of entries with names.
             book: snapshot
                 .book
@@ -2559,6 +2620,7 @@ mod tests {
             exchanges: Vec::new(),
             drawings: Vec::new(),
             keepsakes: Vec::new(),
+            letters: Vec::new(),
             book: Vec::new(),
         }
     }

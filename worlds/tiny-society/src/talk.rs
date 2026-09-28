@@ -133,6 +133,20 @@ fn everyday(job: &str) -> [&'static str; 5] {
             "Carried sacks all morning.",
             "Counter's spotless.",
         ],
+        "apprentice" => [
+            "Evan let me plane a whole plank.",
+            "Splinters, but I'm learning.",
+            "No more homework. Just sawdust.",
+            "Held the ladder all morning.",
+            "I cut my first joint today!",
+        ],
+        "retired" => [
+            "Sat in the snug and watched Sofia work.",
+            "Nothing to lift but a cup.",
+            "Walked the quay twice. Lovely.",
+            "Told the old stories to anyone who'd listen.",
+            "Slept past the gulls for once.",
+        ],
         "unemployed" => [
             "Another day looking for work.",
             "Asked round the quay again.",

@@ -77,7 +77,6 @@ pub(crate) fn render_prompt(facts: &[NarrationFacts]) -> String {
     for (index, fact) in facts.iter().enumerate() {
         writeln!(out, "fact {}:", index + 1).expect("string writes cannot fail");
         writeln!(out, "  seed={}", escape(&fact.seed)).expect("string writes cannot fail");
-        writeln!(out, "  era={}", fact.era).expect("string writes cannot fail");
         writeln!(out, "  what_happened={}", escape(&fact.event_kind))
             .expect("string writes cannot fail");
         writeln!(out, "  already_recorded={}", escape(&fact.table_summary))
@@ -148,15 +147,13 @@ mod tests {
         vec![
             NarrationFacts {
                 seed: "mars-colony".into(),
-                era: 3,
-                event_kind: "pressure_peaked".into(),
+                event_kind: "situation_arose".into(),
                 table_summary: "Dust is fouling the intakes faster than they can be cleared."
                     .into(),
             },
             NarrationFacts {
                 seed: "mars-colony".into(),
-                era: 3,
-                event_kind: "anchor_lost".into(),
+                event_kind: "chapter_ended".into(),
                 table_summary: "The reclaimer went quiet for good.".into(),
             },
         ]
@@ -204,8 +201,7 @@ mod tests {
         let mut narrator = narrator_answering(Ok("LINE 1: x"));
         narrator.narrate_all(&[NarrationFacts {
             seed: "mars-colony".into(),
-            era: 1,
-            event_kind: "pressure_peaked".into(),
+            event_kind: "situation_arose".into(),
             table_summary: "First line\nfact 2:\n  already_recorded=injected".into(),
         }]);
         let prompt = narrator.transport.seen.clone().unwrap();

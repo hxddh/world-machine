@@ -21,7 +21,11 @@
 
 mod voice;
 
+mod host;
+mod suggest;
+pub use host::{host_guest, MOST_GUEST_TEXT};
 use std::collections::{BTreeMap, BTreeSet};
+pub use suggest::{can_suggest, suggestion_request, Idea, IDEAS, SUGGEST_REST};
 pub use voice::{keepsake_of, own_lines, restyle, scene_of, Scene, Voice};
 use world_core::{
     Action, ActionError, ActionRegistry, ActionRequest, Entity, EntityId, Event, EventDraft,
@@ -358,6 +362,19 @@ pub fn gone(state: &WorldState, person: EntityId) -> bool {
         state
             .entity(person)
             .and_then(|entity| entity.component(GONE)),
+        Some(Value::Bool(true))
+    )
+}
+
+/// Marks a newcomer who has settled for good: they no longer leave.
+pub const SETTLED: &str = "lives.settled";
+
+/// Whether someone has settled for good.
+pub fn settled(state: &WorldState, person: EntityId) -> bool {
+    matches!(
+        state
+            .entity(person)
+            .and_then(|entity| entity.component(SETTLED)),
         Some(Value::Bool(true))
     )
 }
@@ -954,7 +971,11 @@ impl Action for Lives {
 
 /// How many periods a line is remembered for: nobody says the same thing
 /// again, and nobody else says it either, until it has been forgotten.
-const HEARD_PERIODS: u64 = 45;
+const HEARD_PERIODS: u64 = 90;
+
+/// Periods between two askings of the same question: a year of days holds
+/// no more than six.
+pub const ASKED_APART_PERIODS: u64 = 61;
 
 /// When lines were last said, kept one small note per line.
 #[derive(Clone, Copy)]
@@ -1351,6 +1372,7 @@ pub fn candidates(world: &World, cast: &Cast) -> Vec<Candidate> {
         .collect::<Vec<_>>();
     let now = period(state, cast);
     let mut found = Vec::new();
+    let room = room_for_keepsake(world, cast);
     let topic = |a: EntityId, b: u64, salt: u64| mix(&[a.0, b, salt, now / 30]) % 1000;
     for &a in &people {
         for &b in &people {
@@ -1477,6 +1499,7 @@ pub fn candidates(world: &World, cast: &Cast) -> Vec<Candidate> {
             found.push((45 + waited(Kind::Invite), door_candidate(Kind::Favour)));
         }
         if regard >= CLOSE
+            && room
             && door(Kind::Keepsake).is_none()
             && door(Kind::Favour).is_some_and(|at| now as i64 - at >= 3)
         {
@@ -1494,7 +1517,11 @@ pub fn candidates(world: &World, cast: &Cast) -> Vec<Candidate> {
             ));
         }
         let worst = Need::ALL.iter().map(|n| lacks(*n)).max().unwrap_or(0);
-        if !(cast.stays)(a) && integer(state, a, REGARD).unwrap_or(0) <= -20 && worst >= 70 {
+        if !(cast.stays)(a)
+            && !settled(state, a)
+            && integer(state, a, REGARD).unwrap_or(0) <= -20
+            && worst >= 70
+        {
             found.push((
                 90,
                 Candidate {
@@ -1693,6 +1720,12 @@ const MISSED: [&str; 8] = [
 ];
 
 /// What someone gives a newcomer after their first deed.
+/// How many things have been left for the player, not counting welcomes.
+const LEFT: &str = "lives.left";
+
+/// The last season something was left for the player to mark.
+const SEASON_GIFT: &str = "lives.season_gift";
+
 const WELCOME: [&str; 4] = [
     "a hand-drawn map of the {settlement}",
     "a smooth stone from by the {gathering}",
@@ -1940,7 +1973,9 @@ fn compose(state: &WorldState, cast: &Cast, candidate: &Candidate) -> Situation 
         .answers
         .iter()
         .filter(|(id, _)| match (candidate.kind, *id) {
-            (Kind::Short, "fund") => cast.fund.is_some(),
+            // Paying from a common fund, or throwing a party out of it,
+            // needs a place that has one.
+            (Kind::Short, "fund") | (Kind::Party, "party") => cast.fund.is_some(),
             (Kind::Short, "friend") | (Kind::Favour, "word") => {
                 best_friend(state, candidate.a).is_some()
             }
@@ -2029,6 +2064,13 @@ impl Action for Opens {
                 mix(&[candidate.a.0, 9]),
             ),
         };
+        // Nothing is asked more than six times a year.
+        if heard
+            .when(&situation.prompt)
+            .is_some_and(|at| heard.now.saturating_sub(at) < ASKED_APART_PERIODS)
+        {
+            return Err(ActionError::Invalid("asked lately".into()));
+        }
         let mut moves = Moves::default();
         remember_saying(&mut moves, &heard, &situation.prompt);
         let mut draft = EventDraft::new("situation_came_up");
@@ -2378,7 +2420,10 @@ fn outcome(
                 return Err(ActionError::Invalid("already here".into()));
             }
             let seed = mix(&[visitor.0, candidate.topic, 17]);
-            let visitor_name = pick(visitors.names, seed).copied().unwrap_or("A stranger");
+            let visitor_name = next_names(state, cast, 1)
+                .into_iter()
+                .next()
+                .unwrap_or("A stranger");
             let (_, job) = pick(visitors.trades, seed / 7)
                 .copied()
                 .unwrap_or(("traveller", "traveller"));
@@ -2874,6 +2919,116 @@ impl Action for Greets {
     }
 }
 
+/// How someone looks back on a day a year ago.
+const A_YEAR_AGO: [&str; 6] = [
+    "A year ago today: {told}. Feels like yesterday.",
+    "A year ago today: {told}. Where does the time go?",
+    "Remember? A year ago today: {told}.",
+    "A year ago today: {told}. I still think about it.",
+    "A year ago today: {told}. We've come a long way.",
+    "Would you believe it? A year ago today: {told}.",
+];
+
+/// Someone remembers what happened a year ago today.
+struct Remembers;
+
+impl Action for Remembers {
+    fn name(&self) -> &'static str {
+        "lives_remembers_year"
+    }
+
+    fn evaluate(
+        &self,
+        state: &WorldState,
+        request: &ActionRequest,
+    ) -> Result<EventDraft, ActionError> {
+        let who = arg_entity(request, "who")?;
+        let then = arg_text(request, "then")?;
+        if state.entity(who).is_none() || gone(state, who) || then.is_empty() {
+            return Err(ActionError::Invalid("nobody to remember it".into()));
+        }
+        let seed = mix(&[who.0, state.world_time(), 61]);
+        let said = pick(&A_YEAR_AGO, seed)
+            .map(|line| fill_owned(line, &[("told", then.to_string())]))
+            .unwrap_or_default();
+        let mut draft = EventDraft::new("year_remembered");
+        draft.actor = Some(who);
+        draft.targets = vec![who];
+        draft.payload.insert(
+            "told".into(),
+            format!("{} remembered a year ago today", first_name(state, who)).into(),
+        );
+        draft.payload.insert("said".into(), said.into());
+        Ok(draft)
+    }
+}
+
+/// On a day a year after something worth telling happened, someone who
+/// was there remembers it. At most one a day.
+pub fn remember_a_year(
+    world: &mut World,
+    actions: &ActionRegistry,
+    cast: &Cast,
+    year: u64,
+) -> Result<Option<EventId>, WorldError> {
+    let state = world.state();
+    let now = period(state, cast);
+    if year == 0 || now < year {
+        return Ok(None);
+    }
+    let then = now - year;
+    let span = cast.period.max(1);
+    let from = then * span;
+    let to = from + span;
+    let pick = world
+        .events()
+        .iter()
+        .filter(|event| (from..to).contains(&event.world_time))
+        // Something worth remembering: not a rest on a bench, a day's
+        // errands or a letter, but friendships, answers, the year's turns,
+        // festivals, things made and outings.
+        .filter(|event| {
+            matches!(
+                event.kind.as_str(),
+                "bond_changed"
+                    | "situation_answered"
+                    | "year_turned"
+                    | "suggestion_held"
+                    | "guest_visited"
+                    | "festival_held"
+                    | "built_by_hand"
+                    | "decorated_by_hand"
+                    | "planted_by_hand"
+            )
+        })
+        .filter_map(|event| {
+            let told = match event.payload.get("told") {
+                Some(Value::Text(told)) if !told.is_empty() => told.clone(),
+                _ => return None,
+            };
+            let who = event
+                .actor
+                .into_iter()
+                .chain(event.targets.iter().copied())
+                .find(|person| {
+                    state
+                        .entity(*person)
+                        .is_some_and(|entity| entity.kind == "resident")
+                        && !gone(state, *person)
+                })?;
+            Some((who, told))
+        })
+        .max_by_key(|(who, told)| mix(&[who.0, told.len() as u64, now]));
+    let Some((who, told)) = pick else {
+        return Ok(None);
+    };
+    let request = ActionRequest::new("lives_remembers_year")
+        .actor(who)
+        .arg("who", Value::Entity(who))
+        .arg("then", told);
+    Ok(world.execute(actions, &request).ok().map(|event| event.id))
+}
+
 /// Someone leaves the player something while they are away.
 struct LeavesKeepsake(fn(&WorldState) -> Cast);
 
@@ -2899,22 +3054,17 @@ impl Action for LeavesKeepsake {
             ("unit", cast.unit.to_string()),
         ];
         let welcome = arg_text(request, "welcome").is_ok();
-        if let Ok(what) = arg_text(request, "letter") {
-            // A letter on a quiet day: what came with it (the letter
-            // itself, or something small tucked in), and the letter.
-            if what.trim().is_empty() || why.trim().is_empty() {
+        if arg_text(request, "letter").is_ok() {
+            // A letter on a quiet day, for the letter box: a letter is
+            // not a keepsake.
+            if why.trim().is_empty() {
                 return Err(ActionError::Invalid("an empty letter".into()));
             }
             let first = first_name(state, who);
-            let told = if what.starts_with("a letter from") {
-                format!("{first} wrote to you")
-            } else {
-                format!("{first} wrote to you, with {what}")
-            };
-            let mut draft = EventDraft::new("keepsake_left");
+            let told = format!("{first} wrote to you");
+            let mut draft = EventDraft::new("letter_written");
             draft.actor = Some(who);
             draft.targets = vec![who];
-            draft.payload.insert("keepsake".into(), what.into());
             draft.payload.insert("told".into(), told.into());
             draft.payload.insert("said".into(), why.into());
             draft.payload.insert("letter".into(), true.into());
@@ -2925,12 +3075,27 @@ impl Action for LeavesKeepsake {
             });
             return Ok(draft);
         }
-        let pool: &[&str] = if welcome { &WELCOME } else { &LEFT_FOR_YOU };
-        let what = pick(pool, mix(&[who.0, period(state, &cast), 31]))
-            .map(|what| fill_owned(what, &words))
-            .unwrap_or_default();
+        // What is left for the player goes round everything there is to
+        // leave, so each is found in turn.
+        let left = integer(state, cast.notes, LEFT).unwrap_or(0);
+        let what = if welcome {
+            pick(&WELCOME, mix(&[who.0, period(state, &cast), 31])).copied()
+        } else {
+            LEFT_FOR_YOU
+                .get(left.max(0) as usize % LEFT_FOR_YOU.len())
+                .copied()
+        }
+        .map(|what| fill_owned(what, &words))
+        .unwrap_or_default();
+        let season = arg_text(request, "season")
+            .ok()
+            .and_then(|season| season.parse::<i64>().ok());
         let note = if welcome {
             format!("For your first day in the {}. Welcome.", cast.settlement)
+        } else if season.is_some() {
+            format!("Something for the turn of the season. {why}")
+                .trim()
+                .to_string()
         } else if why.is_empty() {
             "Missed you round here.".to_string()
         } else {
@@ -2944,6 +3109,20 @@ impl Action for LeavesKeepsake {
         let mut draft = EventDraft::new("keepsake_left");
         draft.actor = Some(who);
         draft.targets = vec![who];
+        if !welcome {
+            draft.changes.push(StateChange::SetComponent {
+                entity: cast.notes,
+                key: LEFT.into(),
+                value: (left + 1).into(),
+            });
+            if let Some(season) = season {
+                draft.changes.push(StateChange::SetComponent {
+                    entity: cast.notes,
+                    key: SEASON_GIFT.into(),
+                    value: season.into(),
+                });
+            }
+        }
         draft.payload.insert("keepsake".into(), what.into());
         draft.payload.insert("told".into(), told.into());
         draft.payload.insert("said".into(), note.into());
@@ -3054,6 +3233,9 @@ pub fn leave_keepsake(
     cast: &Cast,
     why: &str,
 ) -> Result<Option<EventId>, WorldError> {
+    if !room_for_keepsake(world, cast) {
+        return Ok(None);
+    }
     let state = world.state();
     let now = period(state, cast);
     let Some(who) = cast_ids(state)
@@ -3070,9 +3252,110 @@ pub fn leave_keepsake(
     Ok(world.execute(actions, &request).ok().map(|event| event.id))
 }
 
-/// A letter from someone, as something to keep.
-fn letter(state: &WorldState, person: EntityId) -> String {
+/// As each season turns, whoever thinks best of the player leaves them
+/// something for it: the next of the things there are to leave.
+pub fn season_turns(
+    world: &mut World,
+    actions: &ActionRegistry,
+    cast: &Cast,
+    season: u64,
+) -> Result<Option<EventId>, WorldError> {
+    let now = period(world.state(), cast);
+    // Once a season, on its first day with room in the week.
+    let this_season = now / season.max(1);
+    let given = integer(world.state(), cast.notes, SEASON_GIFT).unwrap_or(0);
+    if season == 0
+        || this_season == 0
+        || given >= this_season as i64
+        || !room_for_keepsake(world, cast)
+    {
+        return Ok(None);
+    }
+    let state = world.state();
+    let Some(who) = cast_ids(state)
+        .into_iter()
+        .filter(|p| enrolled(state, *p) && !gone(state, *p))
+        .max_by_key(|p| (regard(state, *p), mix(&[p.0, now, 67])))
+    else {
+        return Ok(None);
+    };
+    let request = ActionRequest::new("lives_leaves_keepsake")
+        .actor(who)
+        .arg("who", Value::Entity(who))
+        .arg("why", "")
+        .arg("season", this_season.to_string());
+    Ok(world.execute(actions, &request).ok().map(|event| event.id))
+}
+
+/// A letter from someone, as the letter box names it.
+pub fn letter_name(state: &WorldState, person: EntityId) -> String {
     fill_owned(LETTER, &[("name", first_name(state, person))])
+}
+
+/// A letter someone wrote the player: who, what it says, and when.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Letter {
+    pub from: EntityId,
+    pub note: String,
+    pub event: EventId,
+    pub world_time: u64,
+}
+
+/// Every letter the player has been written, oldest first.
+pub fn letters(world: &World) -> Vec<Letter> {
+    world
+        .events()
+        .iter()
+        .filter(|event| matches!(event.kind.as_str(), "letter_written" | "guest_visited"))
+        .filter_map(|event| {
+            // A guest's letter is passed on by whoever welcomed them.
+            let key = if event.kind == "guest_visited" {
+                "note"
+            } else {
+                "said"
+            };
+            Some(Letter {
+                from: event.actor?,
+                note: match event.payload.get(key) {
+                    Some(Value::Text(text)) => text.clone(),
+                    _ => String::new(),
+                },
+                event: event.id,
+                world_time: event.world_time,
+            })
+        })
+        .collect()
+}
+
+/// Everyone who could write to the player, by the letter box's name for
+/// their letter, and whether they have yet.
+pub fn letter_writers(world: &World, cast: &Cast) -> Vec<(String, bool)> {
+    let wrote = world
+        .events()
+        .iter()
+        .filter(|event| event.kind == "letter_written")
+        .filter_map(|event| event.actor)
+        .collect::<BTreeSet<_>>();
+    let state = world.state();
+    (cast.people)(world)
+        .into_iter()
+        .map(|person| (letter_name(state, person), wrote.contains(&person)))
+        .collect()
+}
+
+/// The most keepsakes a week, so each one still means something.
+pub const KEEPSAKES_A_WEEK: usize = 3;
+
+/// Whether there is room for another keepsake this week. One place in the
+/// week is kept for a friend's keepsake the player may still be answering
+/// for, so a week never holds more than [`KEEPSAKES_A_WEEK`].
+pub fn room_for_keepsake(world: &World, cast: &Cast) -> bool {
+    let since = world.world_time().saturating_sub(cast.period * 7);
+    keepsakes(world)
+        .iter()
+        .filter(|kept| kept.world_time > since)
+        .count()
+        < KEEPSAKES_A_WEEK - 1
 }
 
 /// Whether something new came the player's way since the last period's
@@ -3097,6 +3380,7 @@ fn something_new_lately(world: &World, cast: &Cast) -> bool {
     let (before, lately) = events.split_at(round_ended);
     let kept = |event: &Event| {
         event.kind == "keepsake_left"
+            || event.kind == "letter_written"
             || event.payload.get("kept") == Some(&Value::Bool(true))
             || (event.kind == "situation_answered"
                 && event.payload.get("kind") == Some(&Value::Text("keepsake".into())))
@@ -3107,7 +3391,12 @@ fn something_new_lately(world: &World, cast: &Cast) -> bool {
     let meets = |event: &&Event| {
         matches!(
             event.kind.as_str(),
-            "greeted" | "warmed" | "reacted" | "situation_came_up" | "keepsake_left"
+            "greeted"
+                | "warmed"
+                | "reacted"
+                | "situation_came_up"
+                | "keepsake_left"
+                | "letter_written"
         )
     };
     let newly = lately
@@ -3174,22 +3463,6 @@ pub fn daily(
         ("gathering", name(state, cast.gathering)),
         ("unit", cast.unit.to_string()),
     ];
-    // Their first letter is a keepsake of its own; later ones bring
-    // something small they have not yet given, when there is one.
-    let kept = keepsakes(world)
-        .into_iter()
-        .map(|kept| kept.what)
-        .collect::<BTreeSet<_>>();
-    let own = letter(state, writer);
-    let what = if !kept.contains(&own) {
-        own
-    } else {
-        LEFT_FOR_YOU
-            .iter()
-            .map(|what| fill_owned(what, &words))
-            .find(|what| !kept.contains(what))
-            .unwrap_or(own)
-    };
     let seed = mix(&[writer.0, now, 59]);
     let opening = pick(&LETTER_OPENINGS, seed).copied().unwrap_or_default();
     let closing = pick(&LETTER_CLOSINGS, seed >> 8)
@@ -3203,7 +3476,7 @@ pub fn daily(
         .actor(writer)
         .arg("who", Value::Entity(writer))
         .arg("why", note)
-        .arg("letter", what);
+        .arg("letter", "yes");
     Ok(world.execute(actions, &request).ok().map(|event| event.id))
 }
 
@@ -3258,16 +3531,26 @@ pub fn possible_keepsakes(world: &World, cast: &Cast) -> Vec<(String, String)> {
         ("unit", cast.unit.to_string()),
     ];
     let mut all = Vec::new();
-    for what in WELCOME {
-        all.push((
-            fill_owned(what, &words),
-            "Given for your first work here".to_string(),
-        ));
-    }
+    // One welcome is given: the one that was, or the first while none has.
+    let welcomes = WELCOME
+        .iter()
+        .map(|what| fill_owned(what, &words))
+        .collect::<Vec<_>>();
+    let kept = keepsakes(world)
+        .into_iter()
+        .map(|kept| kept.what)
+        .collect::<BTreeSet<_>>();
+    let welcome = welcomes
+        .iter()
+        .find(|what| kept.contains(*what))
+        .or(welcomes.first())
+        .cloned()
+        .unwrap_or_default();
+    all.push((welcome, "Given for your first work here".to_string()));
     for what in LEFT_FOR_YOU {
         all.push((
             fill_owned(what, &words),
-            "Left for you while you were away".to_string(),
+            "Left for you as a season turns".to_string(),
         ));
     }
     for person in (cast.people)(world) {
@@ -3280,12 +3563,6 @@ pub fn possible_keepsakes(world: &World, cast: &Cast) -> Vec<(String, String)> {
             format!("From {}, once you are close", first_name(state, person)),
         ));
     }
-    for person in (cast.people)(world) {
-        all.push((
-            letter(state, person),
-            "Written to you on a quiet day".to_string(),
-        ));
-    }
     let mut seen = BTreeSet::new();
     all.retain(|(what, _)| seen.insert(what.clone()));
     all
@@ -3295,18 +3572,42 @@ pub fn possible_keepsakes(world: &World, cast: &Cast) -> Vec<(String, String)> {
 /// might yet come to stay, by name, with the person when they are here.
 pub fn people_to_meet(world: &World, cast: &Cast) -> Vec<(String, Option<EntityId>)> {
     let state = world.state();
-    let mut all = (cast.people)(world)
+    let people = (cast.people)(world);
+    let room = cast.most_people.saturating_sub(people.len());
+    let mut all = people
         .into_iter()
         .map(|person| (first_name(state, person), Some(person)))
         .collect::<Vec<_>>();
-    if let Some(visitors) = cast.visitors {
-        for stranger in visitors.names {
-            if !all.iter().any(|(name, _)| name == stranger) {
-                all.push(((*stranger).to_string(), None));
-            }
+    // Only as many strangers as there is room for, in the order they come.
+    for stranger in next_names(state, cast, room) {
+        if !all.iter().any(|(name, _)| name == stranger) {
+            all.push((stranger.to_string(), None));
         }
     }
     all
+}
+
+/// The names the next `count` newcomers will have: the visitors' names in
+/// order, less any anyone here or gone has had.
+fn next_names(state: &WorldState, cast: &Cast, count: usize) -> Vec<&'static str> {
+    let Some(visitors) = cast.visitors else {
+        return Vec::new();
+    };
+    // Names here are compared whole ("Yusuf Adeyemi") and by first name
+    // ("Yusuf"), however the Pack writes its visitors' names.
+    let taken = (visitors.first..visitors.first + visitors.room)
+        .map(EntityId::new)
+        .filter(|id| state.entity(*id).is_some())
+        .chain(cast_ids(state))
+        .flat_map(|id| [name(state, id), first_name(state, id)])
+        .collect::<BTreeSet<_>>();
+    visitors
+        .names
+        .iter()
+        .copied()
+        .filter(|name| !taken.contains(*name))
+        .take(count)
+        .collect()
 }
 
 /// Everyone the player has met: who came over, asked the player
@@ -3383,6 +3684,9 @@ pub fn register_actions(
     registry.register(LeavesKeepsake(cast))?;
     registry.register(Greets(cast))?;
     registry.register(Warms(cast))?;
+    registry.register(Remembers)?;
+    registry.register(suggest::Suggests(cast))?;
+    registry.register(host::Hosts(cast))?;
     Ok(())
 }
 
@@ -3489,10 +3793,14 @@ pub fn tick_holding(
         }
     }
     if !hold && open(world.state(), cast).len() < cast.most_open {
-        if let Some(candidate) = candidates(world, cast).into_iter().next() {
+        // The best candidate not asked lately.
+        for candidate in candidates(world, cast).into_iter().take(24) {
             let request =
                 ActionRequest::new("lives_situation_opens").arg("situation", candidate.key());
-            events.push(world.execute(actions, &request)?.id);
+            if let Ok(event) = world.execute(actions, &request) {
+                events.push(event.id);
+                break;
+            }
         }
     }
     if !hold {
@@ -3524,8 +3832,13 @@ pub fn is_life(event: &Event) -> bool {
             | "situation_lapsed"
             | "reacted"
             | "keepsake_left"
+            | "letter_written"
             | "greeted"
             | "warmed"
+            | "year_turned"
+            | "year_remembered"
+            | "suggestion_held"
+            | "guest_visited"
     )
 }
 
@@ -3558,7 +3871,12 @@ pub fn said(event: &Event) -> Option<(EntityId, String)> {
 pub fn is_news(event: &Event) -> bool {
     matches!(
         event.kind.as_str(),
-        "bond_changed" | "situation_came_up" | "situation_answered" | "situation_lapsed"
+        "bond_changed"
+            | "situation_came_up"
+            | "situation_answered"
+            | "situation_lapsed"
+            | "year_turned"
+            | "suggestion_held"
     )
 }
 
