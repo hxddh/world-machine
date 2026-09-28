@@ -232,6 +232,7 @@ mod tests {
                         pack: WorldPackRef::new(MOCK_PACK, "1"),
                         title: "Strategy Document Mock".into(),
                         description: "Durable strategy adapter regression".into(),
+                        carries_forward: Vec::new(),
                     },
                     || Ok(Box::new(MockSession { count: 0 })),
                 )

@@ -31,7 +31,10 @@ use world_persistence::{PersistenceError, WorldArchive, WorldPackRef};
 use world_projection::{ProjectionIntent, ProjectionSnapshot};
 
 pub const POCKET_UNIVERSE_PACK_ID: &str = "world-machine.pocket-universe";
-pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.27.0";
+pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.28.0";
+/// Earlier versions whose Worlds this version opens and carries on, so no
+/// update ever leaves a place behind.
+pub const CARRIES_FORWARD: &[&str] = &["0.27.0"];
 
 pub const SEED_MARS_COLONY_COMMAND: &str = "pocket-universe.seed-mars-colony";
 pub const SEED_1980S_TOWN_COMMAND: &str = "pocket-universe.seed-1980s-town";
@@ -643,7 +646,11 @@ where
         mind_profile: impl Into<String>,
     ) -> Result<Self, Box<dyn Error>> {
         Ok(Self {
-            world: archive.restore(&pocket_universe_pack_ref(), baseline()?)?,
+            world: archive.restore_carried(
+                &pocket_universe_pack_ref(),
+                CARRIES_FORWARD,
+                baseline()?,
+            )?,
             actions: build_action_registry()?,
             mind,
             mind_profile: validate_mind_profile(mind_profile.into())?,
@@ -784,6 +791,7 @@ pub fn pocket_universe_descriptor() -> WorldDescriptor {
         title: "Pocket Universe".into(),
         description:
             "A tiny world that keeps living while you are away: begin it, let it grow, then come back to see what changed.".into(),
+        carries_forward: CARRIES_FORWARD.iter().map(|version| version.to_string()).collect(),
     }
 }
 

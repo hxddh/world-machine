@@ -13,3 +13,5 @@ future-archaeologist = { path = "../../worlds/future-archaeologist" }
 
 [dev-dependencies]
 world-projection = { path = "../world-projection" }
+pocket-universe = { path = "../../worlds/pocket-universe" }
+world-persistence = { path = "../world-persistence" }

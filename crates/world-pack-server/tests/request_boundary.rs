@@ -41,6 +41,7 @@ fn registration() -> WorldRegistration {
             pack: WorldPackRef::new(PACK_ID, PACK_VERSION),
             title: "Pack Request Boundary Fixture".into(),
             description: "Locks the v1 physical JSONL request ceiling".into(),
+            carries_forward: Vec::new(),
         },
         || Ok(Box::new(FixtureSession)),
     )

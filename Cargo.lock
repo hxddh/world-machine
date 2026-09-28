@@ -3897,7 +3897,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-universe"
-version = "0.27.0"
+version = "0.28.0"
 dependencies = [
  "calendar",
  "conversation",
@@ -3917,7 +3917,7 @@ dependencies = [
 
 [[package]]
 name = "pocket-universe-pack"
-version = "0.27.0"
+version = "0.28.0"
 dependencies = [
  "pocket-universe",
  "serde_json",
@@ -5421,7 +5421,7 @@ dependencies = [
 
 [[package]]
 name = "tiny-society"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "calendar",
  "conversation",
@@ -5452,7 +5452,7 @@ dependencies = [
 
 [[package]]
 name = "tiny-society-pack"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "tiny-society",
  "world-host",
@@ -6708,9 +6708,11 @@ name = "world-builtins"
 version = "0.1.0"
 dependencies = [
  "future-archaeologist",
+ "pocket-universe",
  "tiny-society",
  "world-host",
  "world-i18n",
+ "world-persistence",
  "world-projection",
 ]
 

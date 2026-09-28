@@ -276,6 +276,7 @@ impl ProcessPack {
             pack: self.descriptor.pack.clone(),
             title: self.descriptor.title.clone(),
             description: self.descriptor.description.clone(),
+            carries_forward: self.descriptor.carries_forward.clone(),
         };
         let create_pack = self.clone();
         let open_pack = self.clone();
@@ -502,7 +503,13 @@ impl ProcessWorldSession {
     }
 
     fn open(pack: ProcessPack, archive: WorldArchive) -> Result<Self, HostError> {
-        if archive.pack != pack.descriptor.pack {
+        let carried = archive.pack.id == pack.descriptor.pack.id
+            && pack
+                .descriptor
+                .carries_forward
+                .iter()
+                .any(|version| *version == archive.pack.version);
+        if archive.pack != pack.descriptor.pack && !carried {
             return Err(HostError::session(format!(
                 "external Pack {}@{} cannot open archive {}@{}",
                 pack.descriptor.pack.id,

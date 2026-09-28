@@ -85,6 +85,9 @@ pub struct PackDescriptor {
     pub pack: WorldPackRef,
     pub title: String,
     pub description: String,
+    /// Optional both ways: earlier versions whose Worlds this one opens.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub carries_forward: Vec<String>,
 }
 
 impl PackDescriptor {
@@ -97,7 +100,14 @@ impl PackDescriptor {
             pack,
             title: title.into(),
             description: description.into(),
+            carries_forward: Vec::new(),
         }
+    }
+
+    /// The same descriptor, opening Worlds saved by these earlier versions.
+    pub fn carrying_forward(mut self, versions: impl IntoIterator<Item = String>) -> Self {
+        self.carries_forward = versions.into_iter().collect();
+        self
     }
 
     pub fn validate(&self) -> Result<(), ProtocolError> {

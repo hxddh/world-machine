@@ -304,6 +304,7 @@ mod tests {
                         pack,
                         title: "Strategy Mock".into(),
                         description: "Strategy harness isolation test".into(),
+                        carries_forward: Vec::new(),
                     },
                     || Err(HostError::session("factory is unused")),
                 )

@@ -131,6 +131,10 @@ pub fn tiny_society_registration_with_listener(listener: ListenerFactory) -> Wor
             description:
                 "A small harbour town that keeps living while you are away, where friendships, money and luck become its history."
                     .into(),
+            carries_forward: crate::persistence::CARRIES_FORWARD
+                .iter()
+                .map(|version| version.to_string())
+                .collect(),
         },
         move || TinySocietySession::fresh(listener()),
     )

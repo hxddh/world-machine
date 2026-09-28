@@ -397,6 +397,7 @@ pub fn micro_company_descriptor() -> WorldDescriptor {
         description:
             "A tiny persistent company where product, growth, runway, and working relationships evolve together."
                 .into(),
+        carries_forward: Vec::new(),
     }
 }
 
