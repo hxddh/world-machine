@@ -60,7 +60,7 @@ The workspace has 9 direct crates from crates.io or git and 701 packages in its 
 
 | Component | Ours | Latest | What it offers | Do |
 | --- | --- | --- | --- | --- |
-| **GitHub `macos-14` runners** (CI, release, screenshots) | macos-14 | macos-15, macos-26 (= latest, Xcode 26.6), xcode-27 preview | `macos-14` is deprecated: brownouts on eight October days from **2026-10-05**, retired **2026-11-02** | **Move now** to macos-15 (build) and macos-26 (screenshots); checkout and upload-artifact to v7 |
+| **GitHub `macos-14` runners** (CI, release, screenshots) | macos-14 (**moved in this PR**) | macos-15, macos-26 (= latest, Xcode 26.6), xcode-27 preview | `macos-14` is deprecated: brownouts on eight October days from **2026-10-05**, retired **2026-11-02** | **Move now** to macos-15 (build) and macos-26 (screenshots); checkout and upload-artifact to v7 |
 | **GPUI** (git pin) | `4e8057d`, 2026-08-10 | Zed main `5becf8b`, 2026-09-28: 707 commits, 132 in GPUI. Stable tag v1.21.0 | New since our pin:<br>• `observe_window_visibility`, so nothing draws while covered, minimised or asleep<br>• `Animation::with_max_fps` and spring animations<br>• headless rendering on Linux (wgpu)<br>• runtime font install (a bundled CJK font)<br>• CJK line breaking<br>• two crash fixes<br>crates.io still has only 0.2.2 (2025) | Bump to a Zed **stable-tag** commit in v0.19 |
 | GPUI, already in our pin | — | — | Accessibility roles (`.role()`; we use only `.aria_label`, 11 times). `render_to_image` offscreen, behind `test-support` | Use now: VoiceOver roles and golden images |
 | **Rust** | 1.97.1 local; CI's `@stable` already resolves to 1.98.1 | 1.98.1 (2026-09-03) | Zed main needs 1.98.1. 1.98.1 fixes a miscompile. Local and CI disagree today | Pin `1.98.1` in `rust-toolchain.toml` with the GPUI bump. Edition 2024 later |
@@ -77,49 +77,79 @@ The workspace has 9 direct crates from crates.io or git and 701 packages in its 
 | pi licence | — | — | pi_agent_rust is MIT **plus a rider granting no rights to Anthropic, OpenAI or anyone acting for them**, with "use" including running and testing. The TypeScript pi (badlogic/pi-mono, plain MIT) has the same `--mode rpc` | A maintainer should decide. Document the plain-MIT pi as an alternative, after a compatibility test |
 | Offline Chinese models | — | llama.cpp b11229, MLX 0.32.2, Qwen3.5 0.8B–9B (secondary sources) | A voice for where Apple Intelligence is not offered, run as a subprocess like pi | Watch |
 
-## v0.19: a third year, lighter saves, and a current platform
+## The upgrade, done ahead of v0.19
 
-1. **Keep CI alive (first, before 2026-10-05).**
-   - Move `ci.yml` and `release-package.yml` to `macos-15`, and screenshots to `macos-15` and `macos-26`.
-   - Bump `actions/checkout` and `upload-artifact`.
-   - Pin Rust `1.98.1` so local and CI build the same compiler.
-2. **Works that keep moving.**
-   - A work in progress is always in the running: it counts as needed whenever no *work* is open, whatever other wants are.
-   - Pocket Universe gets year turns of its own: someone grows up, a place is handed on, newcomers settle, and a festival is chosen.
-   - Tested over three years in both Packs:
-     - a work finishes at least every 60 days;
-     - never a day without one under way;
-     - new lines at least 55% in every 120 days of years two and three.
-3. **Fewer, better letters; no quiet days.**
-   - A letter at most every few days, and one that says something only a letter could (news from the year, something the writer remembers).
-   - A quiet day gets something small and new instead (a first line from someone, a new corner of a place).
-   - Tested: at most 2 letters a week, and no more than 4 quiet days in any 120.
-4. **Saves that stay small.**
-   - Keep a checkpoint of the World's state with the events since it, and fold older events into chapter summaries the book keeps. Replay stays exact from the checkpoint, and no decision is made again.
-   - Snapshots read only what they show.
-   - Tested at three years:
-     - save under 3 MB;
-     - snapshot under 15 ms;
-     - a World code (checkpoint plus recent history) under 50,000 characters, reopening as the same World.
-5. **A current GPUI.**
-   - Move to a Zed stable-tag commit.
-   - Use window visibility so the World and the strip draw nothing while covered or asleep, and `with_max_fps` for the strip's walk.
-   - Pick up CJK line breaking and the crash fixes.
-   - Tested: the frame budget benchmark, plus a hidden-window test that counts zero frames.
-6. **World voice, cheaper and local.**
-   - Sonnet 5 with thinking off, the model name in settings, a JSON schema for the three read-back lines, and refusal handling.
-   - An opt-in on-device voice through `fm` on macOS 27, falling back to the World's own words where it is not available (mainland China today).
-   - Parse pi's new error event and say plainly when pi has no key.
-   - Tested with recorded responses, as the red-team set is today.
-7. **Seen and heard properly.**
-   - VoiceOver roles on the cards, drawer, book, strip and envelope, using the accessibility API GPUI already has.
-   - Postcards and covers rendered in-app, with golden-image tests from the offscreen renderer, so the Screen Recording prompt goes away.
-8. **Housekeeping:** `cargo update`, sha2 0.11. Document the pi licence rider and the plain-MIT alternative for a maintainer to decide.
+Every dependency is now on its latest stable release, in the same pull request as this review:
 
-**Not in this release:**
-- **In-process audio (rodio).** It is worth doing, but it touches every sound and needs listening on a Mac.
-- **Edition 2024.**
-- **Notifications and widgets.** They still wait on signing.
+- **GPUI** is pinned to Zed's **v1.21.0** stable tag (`33c9585`). The crate is still not published on crates.io, so a pin is the only way. It needed no code changes.
+- **Rust** is pinned to **1.98.1** in `rust-toolchain.toml`, and CI now installs exactly that version instead of whatever `stable` is.
+- **Crates:** `cargo update` took every compatible bump.
+  - sha2 moved to 0.11. It no longer formats a digest as hex, so the three Pack crates now write the hex themselves.
+  - base64 moved to 0.23. GPUI's SVG library still uses 0.22, so the tree now has both.
+  - Three transitive crates stay behind because a dependency pins them: cocoa 0.26.0, generic-array 0.14.7 and unicode-properties 0.1.3.
+- **CI** moved off `macos-14` to `macos-15`. Screenshots now run on `macos-15` and `macos-26`. `checkout` and `upload-artifact` are at v7 and `paths-filter` at v4.
+- **World voice** now defaults to `claude-sonnet-5`:
+  - Thinking is off for models that allow it (Sonnet 5, Opus 5), and effort is low for those that do not.
+  - `WORLD_MACHINE_VOICE_MODEL` picks another model.
+  - A refusal counts as no answer, so the World's own words stand.
+- **Pocket Universe's narrator** asks for its lines as JSON held to a schema (`output_config.format`), so nothing is picked out of prose. Its older "LINE n:" reply is still read.
+- **pi's new terminal `error` event is read.** A missing key is named as `auth.missing_api_key` instead of "no successful response".
+- **GPUI capabilities put to use:** in progress on this branch (visibility-paced drawing, capped frame rate for the strip, springs that honour Reduce Motion, accessibility roles); listed here once they land with tests.
+
+## v0.19: concrete content
+
+Each item names what changes, where, and the test that holds it.
+
+1. **Works that keep moving.**
+   - `storylets` gains a lane for goals. A storylet that advances an unfinished goal counts as *needed* whenever no storylet for a goal is open, whatever wants are open. Deck order decides which goal comes first.
+   - The Tiny Society ladder is unchanged otherwise.
+   - Tested by the 480-day player, plus a 1,080-day run: a work finishes at least every 60 days in both Packs, and no rung waits longer than 45 days to be asked.
+2. **Pocket Universe years.** Each place gets its own year turns, as Tiny Society has, in a `years.rs` of its own:
+   - **Ares:** Nia's apprentice takes over the greenhouse, and the relay crew rotates (one newcomer settles).
+   - **Maple Street:** the arcade changes hands, and Ray's kid starts at the high school.
+   - **Icebridge:** a chick fledges, and the lantern-keeper passes the lantern on.
+   - Each year adds a festival chosen by the last.
+   - Tested: the second year's new lines at least 60%, as in Tiny Society.
+3. **A third year.**
+   - Tiny Society's year turns go on:
+     - year 4: the school gets a second teacher;
+     - year 5: Leo retires to the quay and his boat passes to Mia;
+     - later years: newcomers marry, move out and move in.
+   - The ladder gains a fourth round ("light it up": lamps and bunting on each work).
+   - Tested: new lines at least 55% in every 120 days up to day 1,080.
+4. **Fewer letters, no quiet days.**
+   - Letters at most two a week, each carrying news from the year or a memory of the writer's own.
+   - A quiet day instead gets a small first: someone's first line about something they have never mentioned, or a corner of a place not yet seen.
+   - Tested: at most 2 letters in any 7 days, and at most 4 quiet days in any 120, over 1,080 days.
+5. **Saves a tenth the size.**
+   - What fills a year of Tiny Society: 9,622 events and 9.9 MB of JSON.
+     - Day-to-day "lived" events are 49% of events and 70% of the bytes, about 1.4 KB each, holding about ten changed values.
+     - Written with tags, each changed value costs about 110 bytes.
+     - Serialising a year takes 34 ms, and happens on every save.
+   - Steps, each tested:
+     - (a) A compact value and change encoding, read alongside the old one. Target at least 3 times smaller.
+     - (b) The World file is deflated on disk (`flate2`, already a dependency). Target a year under 1 MB.
+     - (c) A checkpoint of state every season, with the events since. Replay starts from the checkpoint and stays exact, and the full history stays in the file for the book and History.
+     - (d) A World code carries the latest checkpoint and the last season's events. Target under 50,000 characters at three years.
+   - Tested:
+     - a three-year World saves under 3 MB;
+     - it reopens event for event;
+     - a code reopens as the same World;
+     - its snapshot takes under 15 ms.
+6. **Snapshots under 15 ms at three years.**
+   - Profile the projection at day 1,080 and remove every full scan of the history from snapshot. The book, keepsakes, letters and the "met" set are currently rebuilt from every event on every snapshot.
+   - Keep running counts in the System's notes instead.
+   - Tested by the existing snapshot benchmark, extended to three years.
+7. **World voice everywhere.**
+   - An opt-in on-device voice through macOS 27's `fm respond --schema`. It is shown only when `/usr/bin/fm` is present and working, and falls back to the World's own words (so mainland China gets no model voice).
+   - A Settings field for the Claude model name.
+   - Tested with recorded `fm` output, as the red-team set is today.
+8. **In-process sound (rodio).** It needs listening on a Mac, so it waits for one.
+
+**Not in v0.19:**
+- edition 2024;
+- notifications and widgets, which still wait on signing;
+- a bundled Chinese font, which macOS does not need (PingFang ships with it).
 
 ## Sources
 
