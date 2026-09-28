@@ -15,6 +15,7 @@ mod speech;
 mod story;
 mod succession;
 mod talk;
+mod voices;
 
 use std::error::Error;
 use std::sync::Arc;
@@ -51,6 +52,21 @@ pub const REACH_PRESSURE_COMMAND: &str = "pocket-universe.pressure-reach";
 pub const RECOVER_ANCHOR_COMMAND: &str = "pocket-universe.pressure-recover";
 pub const ENTRUST_LEGACY_COMMAND: &str = "pocket-universe.succession-entrust";
 pub const RELEASE_LEGACY_COMMAND: &str = "pocket-universe.succession-release";
+
+/// The residents' own lines as templates and what fills them, for showing
+/// every one of them in another language.
+pub type VoiceTemplates = Vec<(
+    &'static [&'static str],
+    &'static [(&'static str, &'static [&'static str])],
+)>;
+
+/// Every place's two residents' templates: Mars, Maple Street, Icebridge.
+pub fn voice_templates() -> VoiceTemplates {
+    voices::ALL
+        .iter()
+        .map(|voice| (voice.lines, voice.slots))
+        .collect()
+}
 
 /// How many of the latest events each of the pair is shown when deciding
 /// what to do: enough for any mind to know what just happened, and the same
