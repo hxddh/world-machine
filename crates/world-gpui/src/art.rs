@@ -504,6 +504,59 @@ pub fn paint_portrait(window: &mut Window, bounds: Bounds<gpui::Pixels>, figure:
     );
 }
 
+/// Someone's head and shoulders as the scene draws them: their Pack's own
+/// drawing when it ships one, with the face of their mood, else the
+/// figure the app draws for them. `talking` opens their mouth.
+pub fn paint_likeness(
+    window: &mut Window,
+    bounds: Bounds<gpui::Pixels>,
+    figure: &Figure,
+    drawing: Option<&world_projection::Drawing>,
+    mood: world_projection::Mood,
+    talking: bool,
+) {
+    let Some(drawing) = drawing else {
+        paint_portrait(window, bounds, figure);
+        return;
+    };
+    let x = f32::from(bounds.origin.x);
+    let y = f32::from(bounds.origin.y);
+    let w = f32::from(bounds.size.width);
+    let h = f32::from(bounds.size.height);
+    rect(
+        window,
+        x,
+        y,
+        w,
+        h,
+        w.min(h) * 0.24,
+        shade(figure.clothes, 0.78),
+    );
+    // Drawn large enough that the head fills the upper half and the
+    // shoulders the lower, standing below the frame.
+    let height = h * 2.3;
+    let base = y + h * 0.1 + height;
+    let stance = if talking {
+        world_projection::Stance::Talking
+    } else {
+        world_projection::Stance::Standing
+    };
+    paint_drawing(
+        window,
+        x + w / 2.0,
+        base,
+        height * drawing.aspect,
+        height,
+        drawing,
+        &Inks::of_person(figure),
+        stance,
+        mood,
+        0.0,
+        0.0,
+        1.0,
+    );
+}
+
 /// Colours a building is painted in.
 #[derive(Clone, Copy, Debug)]
 pub struct Palette {
