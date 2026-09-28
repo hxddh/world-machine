@@ -678,6 +678,25 @@ impl ProjectionSnapshot {
         }
     }
 
+    /// Keep only the voices a screen can show: those of moments on the
+    /// timeline or retold on a return. A World that has spoken for a year
+    /// then carries a day's worth, not a year's.
+    pub fn keep_voices_in_view(&mut self) {
+        let shown: BTreeSet<SelectionId> = self
+            .timeline
+            .items
+            .iter()
+            .map(|item| item.id)
+            .chain(
+                self.briefing
+                    .iter()
+                    .flat_map(|briefing| briefing.items.iter())
+                    .filter_map(|item| item.selection),
+            )
+            .collect();
+        self.voices.retain(|voice| shown.contains(&voice.moment));
+    }
+
     /// Every piece of text this snapshot can put in front of a player, so a
     /// Pack can check that none of it speaks in engine words.
     /// What was said at a moment, and by whom.
@@ -2178,6 +2197,43 @@ pub(crate) fn humanize(value: &str) -> String {
 mod tests {
     use super::*;
     use world_core::{Entity, Event, EventId, StateChange, WorldState};
+
+    #[test]
+    fn only_voices_a_screen_can_show_are_kept() {
+        let voice = |id: u64| Voice {
+            moment: SelectionId::Event(EventId::new(id)),
+            speaker: SelectionId::Entity(EntityId::new(1)),
+            line: format!("line {id}"),
+        };
+        let mut snapshot = ProjectionSnapshot {
+            voices: (1..=5).map(voice).collect(),
+            timeline: TimelineProjection {
+                items: vec![TimelineItem {
+                    id: SelectionId::Event(EventId::new(4)),
+                    world_time: 0,
+                    title: String::new(),
+                    subtitle: String::new(),
+                    caused_by: Vec::new(),
+                    routine: false,
+                }],
+            },
+            briefing: Some(BriefingProjection {
+                eyebrow: String::new(),
+                title: String::new(),
+                items: vec![BriefingItem {
+                    selection: Some(SelectionId::Event(EventId::new(2))),
+                    title: String::new(),
+                    detail: String::new(),
+                    kind: BriefingItemKind::Beat,
+                    tone: Tone::Neutral,
+                }],
+                returned: true,
+            }),
+            ..ProjectionSnapshot::default()
+        };
+        snapshot.keep_voices_in_view();
+        assert_eq!(snapshot.voices, vec![voice(2), voice(4)]);
+    }
 
     fn sample_world() -> World {
         let mut state = WorldState::default();

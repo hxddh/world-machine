@@ -105,6 +105,7 @@ pub(crate) fn snapshot_since(
         book: crate::book::book(world),
     };
     snapshot.tell_events_as_history_does();
+    snapshot.keep_voices_in_view();
     snapshot
 }
 
