@@ -1670,7 +1670,10 @@ mod probe_parts {
             let open = storylets::open(world.state(), deck);
             assert_eq!(asked.len(), open.len(), "day {day}");
             assert!(
-                asked.iter().zip(&open).all(|((_, a), b)| std::ptr::eq(*a, *b)),
+                asked
+                    .iter()
+                    .zip(&open)
+                    .all(|((_, a), b)| std::ptr::eq(*a, *b)),
                 "day {day}"
             );
             let snapshot = snapshot(world);
