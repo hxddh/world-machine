@@ -164,6 +164,28 @@ const MARS: &[Festival] = &[
         ],
     },
     Festival {
+        id: "dust_devil_watch",
+        name: "the Dust Devil Watch",
+        day: 62,
+        prepare: 3,
+        at: SLOT_A,
+        speaker: SLOT_B,
+        shape: "flag",
+        harvest: false,
+        nears: "The Dust Devil Watch is {days} sols off. Chairs on the ridge.",
+        getting_ready: "Dust devil season. Bring a flask up the ridge.",
+        told: [
+            "The whole habitat counted dust devils from the ridge",
+            "The habitat watched the dust devils go by",
+            "The Dust Devil Watch was mostly dust",
+        ],
+        said: [
+            "Seven at once! I counted!",
+            "Nice evening on the ridge.",
+            "Saw one. Maybe.",
+        ],
+    },
+    Festival {
         id: "greenhouse_harvest",
         name: "the Greenhouse Harvest",
         day: 70,
@@ -441,6 +463,28 @@ const TOWN: &[Festival] = &[
         said: ["Wow. Just wow.", "Pretty show.", "Two rockets and a dud."],
     },
     Festival {
+        id: "skate_night",
+        name: "the Roller Rink Night",
+        day: 62,
+        prepare: 3,
+        at: SLOT_A,
+        speaker: SLOT_B,
+        shape: "lantern",
+        harvest: false,
+        nears: "Roller Rink Night is {days} nights off. Dust off your skates.",
+        getting_ready: "Rink Night soon. I've been practising backwards.",
+        told: [
+            "The whole street skated till the rink lights went off",
+            "Maple Street went skating at the rink",
+            "Roller Rink Night was mostly falling over",
+        ],
+        said: [
+            "Went backwards and didn't fall once!",
+            "Fun. My ankles hurt.",
+            "Fell over. Twice. On purpose.",
+        ],
+    },
+    Festival {
         id: "pie_contest",
         name: "the County Fair Pie Contest",
         day: 70,
@@ -706,6 +750,28 @@ const ICE: &[Festival] = &[
         ],
     },
     Festival {
+        id: "aurora_night",
+        name: "the Aurora Night",
+        day: 63,
+        prepare: 3,
+        at: SLOT_A,
+        speaker: SLOT_B,
+        shape: "lantern",
+        harvest: false,
+        nears: "Aurora Night is {days} moonrises away. Keep your flippers warm.",
+        getting_ready: "Aurora Night soon. Everyone up on the bridge.",
+        told: [
+            "The sky burned green over the ice for Aurora Night",
+            "The colony watched the Aurora Night from the bridge",
+            "Aurora Night was clouded over",
+        ],
+        said: [
+            "Green all the way across!",
+            "Pretty, and cold.",
+            "Clouds. Of course.",
+        ],
+    },
+    Festival {
         id: "krill_harvest",
         name: "the Krill Harvest",
         day: 70,
@@ -932,5 +998,34 @@ pub(crate) fn almanac(state: &WorldState) -> Almanac {
         festive,
         grown,
         held,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A dated day comes round at least every two weeks, all year, in
+    /// every place.
+    #[test]
+    fn a_dated_day_at_least_every_fourteen_periods() {
+        for (place, festivals) in [("Mars", MARS), ("Maple Street", TOWN), ("Icebridge", ICE)] {
+            let mut days = festivals
+                .iter()
+                .map(|festival| festival.day)
+                .collect::<Vec<_>>();
+            days.sort_unstable();
+            let wrap = days[0] + YEAR - days[days.len() - 1];
+            let widest = days
+                .windows(2)
+                .map(|pair| pair[1] - pair[0])
+                .chain([wrap])
+                .max()
+                .unwrap();
+            assert!(
+                widest <= 14,
+                "{place}: {widest} periods without a dated day"
+            );
+        }
     }
 }

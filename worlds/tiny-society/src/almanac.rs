@@ -425,3 +425,26 @@ pub(crate) fn almanac(_: &WorldState) -> Almanac {
         held,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A dated day comes round at least every two weeks, all year.
+    #[test]
+    fn a_dated_day_at_least_every_fourteen_days() {
+        let mut days = FESTIVALS
+            .iter()
+            .map(|festival| festival.day)
+            .collect::<Vec<_>>();
+        days.sort_unstable();
+        let wrap = days[0] + YEAR_DAYS - days[days.len() - 1];
+        let widest = days
+            .windows(2)
+            .map(|pair| pair[1] - pair[0])
+            .chain([wrap])
+            .max()
+            .unwrap();
+        assert!(widest <= 14, "{widest} days without a dated day");
+    }
+}
