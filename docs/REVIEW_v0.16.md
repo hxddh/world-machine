@@ -128,3 +128,26 @@ A release that turns the showcase into a product a player keeps. It has six part
   - First frame within 400 ms: [WWDC19](https://developer.apple.com/videos/play/wwdc2019/423/).
 
 Some of these figures came from search summaries rather than the pages themselves (the fetches were blocked). They are bars to aim at, not measurements of those games.
+
+## Progress in v0.17.0
+
+All six parts shipped in `v0.17.0`, still made entirely by the program. Measured against the bars:
+
+| Bar | Result |
+| --- | --- |
+| First launch opens the best World | A first launch opens Tiny Society (tested). Each Pocket Universe place to begin carries a picture of its own people and buildings, drawn as its window draws them (tested); the old "absent name" worry was wrong, Max is on the scene. |
+| Something new every day | The same scripted player now meets something new on every one of the first 30 days (was 17 quiet days), and 2 of the next 30 are quiet. Tested in both Packs: no quiet day in 30, at least four keepsakes. By day 30: 31 book entries and 21 keepsakes (was 16 and 1). A dated day every 14 periods or sooner in every place (tested). |
+| Letters while away | A return ends on a letter from someone, in their own words of the day. |
+| Never lose a World | Worlds saved by the real `v0.16.0` (a harbour and each Pocket Universe place) open, play 30 more days, keep their history event for event, and reopen (tested). Carried forward as they stood rather than replayed, since every Event already holds its changes; nothing is lost and nothing is decided again. |
+| Finish the surface | Contact shading, wall feet, ink rims, haze, a foreground, a path, depth for people, scaffolding on what is being built (see the screenshots below). The grade differs for every one of the 24 hours (tested). Portraits come from the scene's own drawing, with mood and a moving mouth (tested). The "no empty quarter" bar was checked on screenshots, not by a test. |
+| Music with memory | A motif per World, played in phrases; the resident's three notes before a question; a festival theme (tested: motifs differ, the phrase comes home, the day plays the motif, festivals sound different). Heard only as files, not on a Mac. |
+| Pocket Universe at parity | 162 to 200 lines and five scenes for each of six residents (tested). 98.9% of a year of Pocket Universe is shown in Chinese (a test holds 95%). |
+| Snapshot under 20 ms at a year | 14 ms on this machine (19 ms for `v0.16.0` measured the same way). Voices carried at day 60: 388 (was 513); only those a screen can show. |
+
+![First launch in v0.17: the harbour](review/v17-first-launch.png)
+
+![A question in v0.17: Jonas as the scene draws him](review/v17-tiny-society.png)
+
+![Maple Street at dusk in v0.17: scaffolding, a path, a foreground](review/v17-maple-street-dusk.png)
+
+Still outside the code: signing and notarization, playtests and timing on real Macs, and a human pass over the generated art, music, lines and both Chinese catalogs. A quiet month now brings a letter most days, which may be more than players want; the next review should look at how often.
