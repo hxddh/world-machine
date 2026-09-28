@@ -207,7 +207,7 @@ impl PackBundle {
             output
                 .sync_all()
                 .map_err(|error| io_error("sync extracted Pack program", &destination, error))?;
-            let found = format!("{:x}", hasher.finalize());
+            let found = lower_hex(&hasher.finalize());
             if !found.eq_ignore_ascii_case(&self.header.program_sha256) {
                 return Err(PackBundleError::ProgramDigestMismatch {
                     expected: self.header.program_sha256.clone(),
@@ -325,7 +325,7 @@ pub fn write_bundle(
                 .map_err(|error| io_error("write Pack bundle program", &destination, error))?;
             hasher.update(&buffer[..read]);
         }
-        let copied_sha256 = format!("{:x}", hasher.finalize());
+        let copied_sha256 = lower_hex(&hasher.finalize());
         if copied != header.program_bytes
             || !copied_sha256.eq_ignore_ascii_case(&header.program_sha256)
         {
@@ -367,7 +367,7 @@ fn hash_program(path: &Path) -> Result<(String, u64), PackBundleError> {
     if total == 0 {
         return Err(PackBundleError::InvalidProgramSize(0));
     }
-    Ok((format!("{:x}", hasher.finalize()), total))
+    Ok((lower_hex(&hasher.finalize()), total))
 }
 
 fn io_error(operation: &'static str, path: &Path, error: std::io::Error) -> PackBundleError {
@@ -461,6 +461,11 @@ impl fmt::Display for PackBundleError {
 }
 
 impl Error for PackBundleError {}
+
+/// A digest written as lowercase hexadecimal.
+fn lower_hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
 
 #[cfg(test)]
 mod tests {

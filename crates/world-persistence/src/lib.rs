@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::error::Error;
 use std::fmt;
 use world_core::{
@@ -9,6 +9,13 @@ use world_core::{
 
 pub const WORLD_ARCHIVE_FORMAT: &str = "world-machine";
 pub const WORLD_ARCHIVE_VERSION: u32 = 1;
+/// The version a World file says when its archive is written in the
+/// compact encoding (described in `compact.rs`). The archive it holds is
+/// the same archive, so it reads back as [`WORLD_ARCHIVE_VERSION`].
+pub const WORLD_ARCHIVE_COMPACT_VERSION: u32 = 2;
+
+mod compact;
+use compact::{CompactChanges, CompactEvents, Keys};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct WorldPackRef {
@@ -33,6 +40,13 @@ pub struct WorldArchive {
     pub world_time: u64,
     pub events: Vec<ArchivedEvent>,
     pub pending: Vec<ArchivedScheduledAction>,
+    /// Where the World stood after the events before `events`, or after
+    /// the first of them: restoring starts from it, and an archive that
+    /// keeps only the events after it (a World code's) opens only with it.
+    /// A World capturing itself leaves it out; its file and its code carry
+    /// it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checkpoint: Option<ArchivedCheckpoint>,
 }
 
 impl WorldArchive {
@@ -49,6 +63,7 @@ impl WorldArchive {
                 .pending()
                 .map(ArchivedScheduledAction::from)
                 .collect(),
+            checkpoint: None,
         })
     }
 
@@ -57,10 +72,11 @@ impl WorldArchive {
         serde_json::to_string_pretty(self).map_err(PersistenceError::Json)
     }
 
+    /// Reads an archive written in either encoding.
     pub fn from_json(json: &str) -> Result<Self, PersistenceError> {
-        let archive: Self = serde_json::from_str(json).map_err(PersistenceError::Json)?;
-        archive.validate_header()?;
-        Ok(archive)
+        let value: serde_json::Value =
+            serde_json::from_str(json).map_err(PersistenceError::Json)?;
+        Self::from_json_value(&value)
     }
 
     pub fn restore(
@@ -78,7 +94,33 @@ impl WorldArchive {
         }
 
         let events = self.events.iter().map(Event::from).collect::<Vec<_>>();
-        let mut world = World::from_history(baseline, &events).map_err(PersistenceError::World)?;
+        let checkpoint = self
+            .checkpoint
+            .as_ref()
+            .and_then(|checkpoint| Some((checkpoint.fit(self)?, checkpoint)));
+        let mut world = match checkpoint {
+            Some((fit, checkpoint)) => {
+                let settled = checkpoint
+                    .changes
+                    .iter()
+                    .map(StateChange::from)
+                    .collect::<Vec<_>>();
+                let from = match fit {
+                    CheckpointFit::Within => checkpoint.events,
+                    CheckpointFit::Before => 0,
+                };
+                World::resume(
+                    baseline,
+                    &settled,
+                    checkpoint.world_time,
+                    checkpoint.last_event + 1,
+                    events,
+                    from,
+                )
+            }
+            None => World::from_history(baseline, &events),
+        }
+        .map_err(PersistenceError::World)?;
 
         let empty_actions = ActionRegistry::new();
         world
@@ -92,6 +134,82 @@ impl WorldArchive {
         }
 
         Ok(world)
+    }
+
+    /// The archive in the compact encoding, as one JSON object, with any
+    /// further top-level fields (such as a World document's own) alongside.
+    pub fn to_compact_json(
+        &self,
+        extra: &serde_json::Map<String, serde_json::Value>,
+    ) -> Result<Vec<u8>, PersistenceError> {
+        self.to_compact_json_with(self.checkpoint.as_ref(), extra)
+    }
+
+    /// [`Self::to_compact_json`], written with `checkpoint` in place of the
+    /// archive's own.
+    pub fn to_compact_json_with(
+        &self,
+        checkpoint: Option<&ArchivedCheckpoint>,
+        extra: &serde_json::Map<String, serde_json::Value>,
+    ) -> Result<Vec<u8>, PersistenceError> {
+        self.validate_header()?;
+        let mut keys = Keys::default();
+        if let Some(checkpoint) = checkpoint {
+            keys.gather(&checkpoint.changes);
+        }
+        for event in &self.events {
+            keys.gather(&event.changes);
+        }
+        let written = CompactArchiveOut {
+            format: &self.format,
+            format_version: WORLD_ARCHIVE_COMPACT_VERSION,
+            pack: &self.pack,
+            world_time: self.world_time,
+            pending: &self.pending,
+            keys: keys.names(),
+            checkpoint: checkpoint.map(|checkpoint| CompactCheckpoint {
+                checkpoint,
+                keys: &keys,
+            }),
+            events: CompactEvents {
+                events: &self.events,
+                keys: &keys,
+            },
+            extra,
+        };
+        serde_json::to_vec(&written).map_err(PersistenceError::Json)
+    }
+
+    /// Reads an archive in either encoding from a parsed JSON object:
+    /// tagged (as every World file was written before the compact one) or
+    /// compact.
+    pub fn from_json_value(value: &serde_json::Value) -> Result<Self, PersistenceError> {
+        let compact = value
+            .get("format_version")
+            .and_then(serde_json::Value::as_u64)
+            == Some(u64::from(WORLD_ARCHIVE_COMPACT_VERSION));
+        let archive = if compact {
+            let header = ArchiveHeader::deserialize(value).map_err(PersistenceError::Json)?;
+            let keys = compact::keys_from(value.get("keys")).map_err(PersistenceError::Compact)?;
+            let events = compact::events_from(
+                value.get("events").unwrap_or(&serde_json::Value::Null),
+                &keys,
+            )
+            .map_err(PersistenceError::Compact)?;
+            Self {
+                format: header.format,
+                format_version: WORLD_ARCHIVE_VERSION,
+                pack: header.pack,
+                world_time: header.world_time,
+                events,
+                pending: header.pending,
+                checkpoint: ArchivedCheckpoint::from_compact(value)?,
+            }
+        } else {
+            Self::deserialize(value).map_err(PersistenceError::Json)?
+        };
+        archive.validate_header()?;
+        Ok(archive)
     }
 
     fn validate_header(&self) -> Result<(), PersistenceError> {
@@ -115,6 +233,8 @@ fn validate_pack(pack: &WorldPackRef) -> Result<(), PersistenceError> {
 #[derive(Debug)]
 pub enum PersistenceError {
     Json(serde_json::Error),
+    /// A compact archive that does not read as one.
+    Compact(String),
     UnsupportedFormat(String),
     UnsupportedVersion(u32),
     InvalidPack,
@@ -129,6 +249,7 @@ impl fmt::Display for PersistenceError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Json(error) => write!(f, "invalid world archive JSON: {error}"),
+            Self::Compact(error) => write!(f, "invalid world archive: {error}"),
             Self::UnsupportedFormat(format) => {
                 write!(f, "unsupported world archive format: {format}")
             }
@@ -151,11 +272,294 @@ impl Error for PersistenceError {
         match self {
             Self::Json(error) => Some(error),
             Self::World(error) => Some(error),
-            Self::UnsupportedFormat(_)
+            Self::Compact(_)
+            | Self::UnsupportedFormat(_)
             | Self::UnsupportedVersion(_)
             | Self::InvalidPack
             | Self::PackMismatch { .. } => None,
         }
+    }
+}
+
+#[derive(Serialize)]
+struct CompactArchiveOut<'a> {
+    format: &'a str,
+    format_version: u32,
+    pack: &'a WorldPackRef,
+    world_time: u64,
+    pending: &'a [ArchivedScheduledAction],
+    #[serde(skip_serializing_if = "<[_]>::is_empty")]
+    keys: &'a [&'a str],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    checkpoint: Option<CompactCheckpoint<'a, 'a>>,
+    events: CompactEvents<'a, 'a>,
+    #[serde(flatten)]
+    extra: &'a serde_json::Map<String, serde_json::Value>,
+}
+
+#[derive(Deserialize)]
+struct ArchiveHeader {
+    format: String,
+    pack: WorldPackRef,
+    world_time: u64,
+    #[serde(default)]
+    pending: Vec<ArchivedScheduledAction>,
+}
+
+struct CompactCheckpoint<'a, 'k> {
+    checkpoint: &'a ArchivedCheckpoint,
+    keys: &'k Keys<'a>,
+}
+
+impl Serialize for CompactCheckpoint<'_, '_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        let checkpoint = self.checkpoint;
+        let mut map = serializer.serialize_map(Some(4))?;
+        map.serialize_entry("events", &checkpoint.events)?;
+        map.serialize_entry("last_event", &checkpoint.last_event)?;
+        map.serialize_entry("world_time", &checkpoint.world_time)?;
+        map.serialize_entry(
+            "changes",
+            &CompactChanges {
+                changes: &checkpoint.changes,
+                keys: self.keys,
+            },
+        )?;
+        map.end()
+    }
+}
+
+/// Where a World stood after the first events of its history, summed up as
+/// the changes that take its Pack's starting state there. Replay can start
+/// from it instead of from the first event; a history that keeps only what
+/// came after it (a World code does) opens only with it.
+///
+/// It is derived from the recorded events alone, so it never needs the
+/// Pack, and it is exact: applying [`ArchivedCheckpoint::changes`] to the
+/// starting state gives the same state as applying every event it sums up.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct ArchivedCheckpoint {
+    /// How many events, from the first, it sums up.
+    pub events: usize,
+    /// The id of the last of them, or 0 for none.
+    pub last_event: u64,
+    /// The world time of the last of them.
+    pub world_time: u64,
+    /// The changes they came to, with every change a later one undid or
+    /// replaced left out.
+    pub changes: Vec<ArchivedStateChange>,
+}
+
+/// How a checkpoint stands to an archive's events.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CheckpointFit {
+    /// The archive holds the events it sums up, and more after them.
+    Within,
+    /// The archive holds only events after it.
+    Before,
+}
+
+impl ArchivedCheckpoint {
+    /// The checkpoint that sums up these events, the first of a history.
+    pub fn covering(events: &[ArchivedEvent]) -> Self {
+        let mut checkpoint = Self::default();
+        checkpoint.advance(events);
+        checkpoint
+    }
+
+    /// Moves the checkpoint on over the events that came right after it.
+    pub fn advance(&mut self, events: &[ArchivedEvent]) {
+        let Some(last) = events.last() else {
+            return;
+        };
+        let existing = std::mem::take(&mut self.changes);
+        self.changes = settle(
+            existing.into_iter().chain(
+                events
+                    .iter()
+                    .flat_map(|event| event.changes.iter().cloned()),
+            ),
+        );
+        self.events += events.len();
+        self.last_event = last.id;
+        self.world_time = last.world_time;
+    }
+
+    /// Whether this checkpoint belongs to the archive's history, and how.
+    pub fn fit(&self, archive: &WorldArchive) -> Option<CheckpointFit> {
+        if archive.world_time < self.world_time {
+            return None;
+        }
+        if self.events == 0 {
+            return Some(CheckpointFit::Within);
+        }
+        let covered = archive.events.get(self.events - 1);
+        if covered
+            .is_some_and(|event| event.id == self.last_event && event.world_time == self.world_time)
+        {
+            return Some(CheckpointFit::Within);
+        }
+        let first = archive.events.first();
+        if first
+            .is_none_or(|event| event.id > self.last_event && event.world_time >= self.world_time)
+        {
+            return Some(CheckpointFit::Before);
+        }
+        None
+    }
+
+    /// The checkpoint for the archive's history up to (not including) the
+    /// first event at or after `world_time`, carried on from `self` where
+    /// it still fits, and started again where it does not.
+    pub fn at(previous: Option<&Self>, archive: &WorldArchive, world_time: u64) -> Self {
+        let end = archive
+            .events
+            .partition_point(|event| event.world_time < world_time);
+        match previous {
+            Some(previous)
+                if previous.fit(archive) == Some(CheckpointFit::Within)
+                    && previous.events <= end =>
+            {
+                let mut next = previous.clone();
+                next.advance(&archive.events[previous.events..end]);
+                next
+            }
+            _ => Self::covering(&archive.events[..end]),
+        }
+    }
+
+    /// The checkpoint a compact archive keeps, if it keeps one. `value` is
+    /// the whole object the archive is read from.
+    fn from_compact(value: &serde_json::Value) -> Result<Option<Self>, PersistenceError> {
+        let Some(checkpoint) = value.get("checkpoint") else {
+            return Ok(None);
+        };
+        let number = |key: &str| {
+            checkpoint
+                .get(key)
+                .and_then(serde_json::Value::as_u64)
+                .ok_or_else(|| PersistenceError::Compact(format!("checkpoint without {key}")))
+        };
+        let keys = compact::keys_from(value.get("keys")).map_err(PersistenceError::Compact)?;
+        Ok(Some(Self {
+            events: usize::try_from(number("events")?)
+                .map_err(|_| PersistenceError::Compact("checkpoint too long".into()))?,
+            last_event: number("last_event")?,
+            world_time: number("world_time")?,
+            changes: compact::changes_from(
+                checkpoint
+                    .get("changes")
+                    .unwrap_or(&serde_json::Value::Null),
+                &keys,
+            )
+            .map_err(PersistenceError::Compact)?,
+        }))
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+enum Target {
+    Entity(u64),
+    Relation(u64),
+}
+
+/// The changes that come to the same as `changes` applied in order: a
+/// value set on something created along the way is folded into its
+/// creation, and a value set again, or on something removed or created
+/// anew, is left out. Every creation and removal is kept, so every change
+/// kept meets the same World it met in the full run.
+fn settle(changes: impl Iterator<Item = ArchivedStateChange>) -> Vec<ArchivedStateChange> {
+    let mut out: Vec<Option<ArchivedStateChange>> = Vec::new();
+    // Where the live creation of each thing is, while nothing has removed it.
+    let mut created: HashMap<Target, usize> = HashMap::new();
+    // Where the latest write of each value of things not created here is.
+    let mut written: HashMap<Target, HashMap<String, usize>> = HashMap::new();
+    for change in changes {
+        let (target, key) = match &change {
+            ArchivedStateChange::CreateEntity { entity } => {
+                let target = Target::Entity(entity.id);
+                forget(&mut out, &mut written, target);
+                created.insert(target, out.len());
+                out.push(Some(change));
+                continue;
+            }
+            ArchivedStateChange::CreateRelation { relation } => {
+                let target = Target::Relation(relation.id);
+                forget(&mut out, &mut written, target);
+                created.insert(target, out.len());
+                out.push(Some(change));
+                continue;
+            }
+            ArchivedStateChange::RemoveEntity { entity } => {
+                let target = Target::Entity(*entity);
+                forget(&mut out, &mut written, target);
+                created.remove(&target);
+                out.push(Some(change));
+                continue;
+            }
+            ArchivedStateChange::RemoveRelation { relation } => {
+                let target = Target::Relation(*relation);
+                forget(&mut out, &mut written, target);
+                created.remove(&target);
+                out.push(Some(change));
+                continue;
+            }
+            ArchivedStateChange::SetComponent { entity, key, .. }
+            | ArchivedStateChange::RemoveComponent { entity, key } => {
+                (Target::Entity(*entity), key)
+            }
+            ArchivedStateChange::SetRelationProperty { relation, key, .. }
+            | ArchivedStateChange::RemoveRelationProperty { relation, key } => {
+                (Target::Relation(*relation), key)
+            }
+        };
+        if let Some(at) = created.get(&target) {
+            if let Some(creation) = out[*at].as_mut() {
+                fold_into(creation, change);
+                continue;
+            }
+        }
+        let key = key.clone();
+        let at = out.len();
+        out.push(Some(change));
+        if let Some(earlier) = written.entry(target).or_default().insert(key, at) {
+            out[earlier] = None;
+        }
+    }
+    out.into_iter().flatten().collect()
+}
+
+fn forget(
+    out: &mut [Option<ArchivedStateChange>],
+    written: &mut HashMap<Target, HashMap<String, usize>>,
+    target: Target,
+) {
+    for at in written
+        .remove(&target)
+        .into_iter()
+        .flat_map(HashMap::into_values)
+    {
+        out[at] = None;
+    }
+}
+
+fn fold_into(creation: &mut ArchivedStateChange, change: ArchivedStateChange) {
+    let values = match creation {
+        ArchivedStateChange::CreateEntity { entity } => &mut entity.components,
+        ArchivedStateChange::CreateRelation { relation } => &mut relation.properties,
+        _ => unreachable!("only creations are folded into"),
+    };
+    match change {
+        ArchivedStateChange::SetComponent { key, value, .. }
+        | ArchivedStateChange::SetRelationProperty { key, value, .. } => {
+            values.insert(key, value);
+        }
+        ArchivedStateChange::RemoveComponent { key, .. }
+        | ArchivedStateChange::RemoveRelationProperty { key, .. } => {
+            values.remove(&key);
+        }
+        _ => unreachable!("only values are folded"),
     }
 }
 
@@ -650,5 +1054,339 @@ mod tests {
             archive.to_json_pretty(),
             Err(PersistenceError::UnsupportedVersion(_))
         ));
+    }
+
+    fn every_kind_of_value() -> Value {
+        let mut map = BTreeMap::new();
+        map.insert("plain".to_string(), Value::Integer(-4));
+        map.insert("#".to_string(), Value::Text("looks like an entity".into()));
+        let mut lone_hash = BTreeMap::new();
+        lone_hash.insert("#".to_string(), Value::Integer(7));
+        let mut lone_braces = BTreeMap::new();
+        lone_braces.insert("{}".to_string(), Value::Map(BTreeMap::new()));
+        Value::List(vec![
+            Value::Null,
+            Value::Bool(true),
+            Value::Integer(i64::MIN),
+            Value::Integer(i64::MAX),
+            Value::Text("\"quoted\" and ☃".into()),
+            Value::Entity(EntityId::new(u64::MAX)),
+            Value::Map(map),
+            Value::Map(lone_hash),
+            Value::Map(lone_braces),
+            Value::Map(BTreeMap::new()),
+            Value::List(Vec::new()),
+        ])
+    }
+
+    fn every_kind_of_change() -> Vec<StateChange> {
+        let entity = EntityId::new(5);
+        let relation = RelationId::new(9);
+        vec![
+            StateChange::CreateEntity(
+                Entity::new(entity, "thing").with_component("odd", every_kind_of_value()),
+            ),
+            StateChange::SetComponent {
+                entity,
+                key: "a".into(),
+                value: every_kind_of_value(),
+            },
+            StateChange::SetComponent {
+                entity,
+                key: "b".into(),
+                value: 2_i64.into(),
+            },
+            StateChange::RemoveComponent {
+                entity,
+                key: "a".into(),
+            },
+            StateChange::RemoveComponent {
+                entity,
+                key: "b".into(),
+            },
+            StateChange::SetComponent {
+                entity: EntityId::new(1),
+                key: "a".into(),
+                value: 1_i64.into(),
+            },
+            StateChange::CreateRelation(
+                Relation::new(relation, "knows", EntityId::new(1), entity)
+                    .with_property("since", 3_i64),
+            ),
+            StateChange::SetRelationProperty {
+                relation,
+                key: "since".into(),
+                value: 4_i64.into(),
+            },
+            StateChange::RemoveRelationProperty {
+                relation,
+                key: "since".into(),
+            },
+            StateChange::RemoveRelation(relation),
+            StateChange::RemoveEntity(entity),
+        ]
+    }
+
+    fn event(id: u64, world_time: u64, changes: Vec<StateChange>) -> Event {
+        let mut payload = BTreeMap::new();
+        payload.insert("said".to_string(), Value::Text("Hello".into()));
+        payload.insert("odd".to_string(), every_kind_of_value());
+        Event {
+            id: EventId::new(id),
+            kind: "something".into(),
+            world_time,
+            actor: id.is_multiple_of(2).then(|| EntityId::new(1)),
+            targets: vec![EntityId::new(1)],
+            caused_by: (id > 1).then(|| EventId::new(id - 1)).into_iter().collect(),
+            payload,
+            changes,
+        }
+    }
+
+    fn compact_round_trip(archive: &WorldArchive) -> WorldArchive {
+        let json = archive.to_compact_json(&serde_json::Map::new()).unwrap();
+        WorldArchive::from_json(std::str::from_utf8(&json).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn the_compact_encoding_reads_back_every_value_and_change() {
+        let mut archive = WorldArchive::capture(
+            WorldPackRef::new("test.counter", "1"),
+            &World::new(baseline()),
+        )
+        .unwrap();
+        archive.world_time = 40;
+        archive.events = [
+            event(1, 3, every_kind_of_change()),
+            // The same time, the next id; then ids and times that jump.
+            event(2, 3, Vec::new()),
+            event(7, 3, every_kind_of_change()),
+            event(8, 40, vec![]),
+        ]
+        .iter()
+        .map(ArchivedEvent::from)
+        .collect();
+        assert_eq!(compact_round_trip(&archive), archive);
+
+        let tagged = serde_json::to_vec(&archive).unwrap();
+        let compact = archive.to_compact_json(&serde_json::Map::new()).unwrap();
+        assert!(
+            compact.len() * 2 < tagged.len(),
+            "{} vs {}",
+            compact.len(),
+            tagged.len()
+        );
+    }
+
+    #[test]
+    fn a_tagged_archive_still_reads() {
+        let registry = registry();
+        let mut world = World::new(baseline());
+        world
+            .execute(
+                &registry,
+                &ActionRequest::new("add_units")
+                    .actor(EntityId::new(1))
+                    .arg("amount", 3_i64),
+            )
+            .unwrap();
+        let archive =
+            WorldArchive::capture(WorldPackRef::new("test.counter", "1"), &world).unwrap();
+        let tagged = archive.to_json_pretty().unwrap();
+        assert!(tagged.contains("\"set_component\""));
+        assert_eq!(WorldArchive::from_json(&tagged).unwrap(), archive);
+        assert_eq!(compact_round_trip(&archive), archive);
+    }
+
+    #[test]
+    fn a_damaged_compact_archive_is_refused() {
+        let archive = WorldArchive::capture(
+            WorldPackRef::new("test.counter", "1"),
+            &World::new(baseline()),
+        )
+        .unwrap();
+        let json =
+            String::from_utf8(archive.to_compact_json(&serde_json::Map::new()).unwrap()).unwrap();
+        for bad in [
+            json.replace("\"events\":[]", "\"events\":[{\"k\":\"x\"}]"),
+            json.replace(
+                "\"events\":[]",
+                "\"events\":[{\"k\":\"x\",\"t\":1,\"x\":[[\"s\",1,9,1]]}]",
+            ),
+            json.replace(
+                "\"events\":[]",
+                "\"events\":[{\"k\":\"x\",\"t\":1,\"x\":[[\"zz\",1]]}]",
+            ),
+            json.replace(
+                "\"events\":[]",
+                "\"events\":[{\"k\":\"x\",\"t\":1,\"p\":{\"f\":1.5}}]",
+            ),
+        ] {
+            assert!(WorldArchive::from_json(&bad).is_err(), "{bad}");
+        }
+    }
+
+    /// A little World that makes, changes and unmakes things and their
+    /// relations, to sum up.
+    fn busy_history() -> (WorldState, Vec<Event>) {
+        let mut events = Vec::new();
+        let mut time = 0;
+        for round in 0..6_u64 {
+            let thing = EntityId::new(10 + round % 3);
+            let relation = RelationId::new(20 + round % 2);
+            time += 1;
+            let mut changes = Vec::new();
+            if round >= 3 {
+                changes.push(StateChange::RemoveEntity(thing));
+            }
+            changes.extend([
+                StateChange::CreateEntity(
+                    Entity::new(thing, "thing").with_component("made", round as i64),
+                ),
+                StateChange::SetComponent {
+                    entity: thing,
+                    key: "made".into(),
+                    value: (round as i64 * 2).into(),
+                },
+                StateChange::SetComponent {
+                    entity: EntityId::new(1),
+                    key: "units".into(),
+                    value: (round as i64).into(),
+                },
+                StateChange::SetComponent {
+                    entity: EntityId::new(1),
+                    key: format!("seen.{round}"),
+                    value: true.into(),
+                },
+            ]);
+            if round.is_multiple_of(2) {
+                changes.push(StateChange::RemoveComponent {
+                    entity: EntityId::new(1),
+                    key: format!("seen.{}", round.saturating_sub(2)),
+                });
+            }
+            if round >= 2 {
+                changes.push(StateChange::RemoveRelation(relation));
+            }
+            changes.extend([
+                StateChange::CreateRelation(Relation::new(
+                    relation,
+                    "near",
+                    EntityId::new(1),
+                    thing,
+                )),
+                StateChange::SetRelationProperty {
+                    relation,
+                    key: "how".into(),
+                    value: (round as i64).into(),
+                },
+                StateChange::SetRelationProperty {
+                    relation: RelationId::new(30),
+                    key: "how".into(),
+                    value: (round as i64).into(),
+                },
+            ]);
+            events.push(event(round + 1, time, changes));
+        }
+        let mut start = baseline();
+        start
+            .seed_entity(Entity::new(EntityId::new(2), "other"))
+            .unwrap();
+        start
+            .seed_relation(Relation::new(
+                RelationId::new(30),
+                "knows",
+                EntityId::new(1),
+                EntityId::new(2),
+            ))
+            .unwrap();
+        (start, events)
+    }
+
+    #[test]
+    fn a_checkpoint_sums_up_its_events_exactly() {
+        let (start, events) = busy_history();
+        let full = World::from_history(start.clone(), &events).unwrap();
+        let archive = WorldArchive::capture(WorldPackRef::new("test.counter", "1"), &full).unwrap();
+        let pack = WorldPackRef::new("test.counter", "1");
+        let mut carried: Option<ArchivedCheckpoint> = None;
+        for time in 0..=8 {
+            let checkpoint = ArchivedCheckpoint::at(carried.as_ref(), &archive, time);
+            let covered = archive
+                .events
+                .partition_point(|event| event.world_time < time);
+            assert_eq!(
+                checkpoint,
+                ArchivedCheckpoint::covering(&archive.events[..covered])
+            );
+            assert_eq!(checkpoint.events, covered);
+            assert!(checkpoint.fit(&archive) == Some(CheckpointFit::Within));
+
+            // Applied to the start, it is where the events took the World.
+            let settled = World::resume(
+                start.clone(),
+                &checkpoint
+                    .changes
+                    .iter()
+                    .map(StateChange::from)
+                    .collect::<Vec<_>>(),
+                checkpoint.world_time,
+                checkpoint.last_event + 1,
+                Vec::new(),
+                0,
+            )
+            .unwrap();
+            let mut partial = World::from_history(start.clone(), &events[..covered]).unwrap();
+            if covered == 0 {
+                partial = World::new(start.clone());
+            }
+            assert_eq!(settled.state(), partial.state(), "at {time}");
+
+            // Restored with it, whole or from it on, it is the full replay.
+            let mut whole = archive.clone();
+            whole.checkpoint = Some(checkpoint.clone());
+            let restored = whole.restore(&pack, start.clone()).unwrap();
+            assert_eq!(restored.state(), full.state());
+            assert_eq!(restored.events(), full.events());
+            let mut tail = whole.clone();
+            tail.events = archive.events[covered..].to_vec();
+            if covered > 0 {
+                assert_eq!(checkpoint.fit(&tail), Some(CheckpointFit::Before));
+            }
+            let restored = tail.restore(&pack, start.clone()).unwrap();
+            assert_eq!(restored.state(), full.state());
+            assert_eq!(restored.events(), &full.events()[covered..]);
+
+            // It reads back as written, in either encoding.
+            let json = tail.to_compact_json(&serde_json::Map::new()).unwrap();
+            let read = WorldArchive::from_json(std::str::from_utf8(&json).unwrap()).unwrap();
+            assert_eq!(read, tail);
+            let tagged = tail.to_json_pretty().unwrap();
+            assert_eq!(WorldArchive::from_json(&tagged).unwrap(), tail);
+            carried = Some(checkpoint);
+        }
+        // The last one leaves out what later changes replaced.
+        let changes = events
+            .iter()
+            .map(|event| event.changes.len())
+            .sum::<usize>();
+        assert!(carried.unwrap().changes.len() < changes);
+    }
+
+    #[test]
+    fn a_checkpoint_from_another_history_is_not_used() {
+        let (start, events) = busy_history();
+        let world = World::from_history(start.clone(), &events).unwrap();
+        let archive =
+            WorldArchive::capture(WorldPackRef::new("test.counter", "1"), &world).unwrap();
+        let mut other = ArchivedCheckpoint::covering(&archive.events[..3]);
+        other.last_event = 99;
+        let mut archive = archive;
+        archive.checkpoint = Some(other.clone());
+        assert_eq!(other.fit(&archive), None);
+        let restored = archive
+            .restore(&WorldPackRef::new("test.counter", "1"), start.clone())
+            .unwrap();
+        assert_eq!(restored.state(), world.state());
     }
 }

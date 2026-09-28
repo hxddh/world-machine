@@ -19,7 +19,11 @@ pub const PACK_PROTOCOL_VERSION_V1: u32 = 1;
 pub const PACK_PROTOCOL_VERSION_V2: u32 = 2;
 /// Adds `hear`, and `ears` on `say`: an app that asks a model itself.
 pub const PACK_PROTOCOL_VERSION_V3: u32 = 3;
-pub const PACK_PROTOCOL_VERSION: u32 = PACK_PROTOCOL_VERSION_V3;
+/// Adds a checkpoint to the archive `open` hands over: the Pack restores
+/// from it, and opens a history that keeps only what came after it (a World
+/// code's).
+pub const PACK_PROTOCOL_VERSION_V4: u32 = 4;
+pub const PACK_PROTOCOL_VERSION: u32 = PACK_PROTOCOL_VERSION_V4;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PackManifest {
@@ -258,7 +262,10 @@ pub fn decode_response(json: &str) -> Result<PackResponseEnvelope, ProtocolDecod
 fn validate_protocol_version(version: u32) -> Result<(), ProtocolError> {
     if matches!(
         version,
-        PACK_PROTOCOL_VERSION_V1 | PACK_PROTOCOL_VERSION_V2 | PACK_PROTOCOL_VERSION_V3
+        PACK_PROTOCOL_VERSION_V1
+            | PACK_PROTOCOL_VERSION_V2
+            | PACK_PROTOCOL_VERSION_V3
+            | PACK_PROTOCOL_VERSION_V4
     ) {
         Ok(())
     } else {
@@ -267,11 +274,20 @@ fn validate_protocol_version(version: u32) -> Result<(), ProtocolError> {
 }
 
 /// What a Pack speaking an older protocol cannot read: asking it what to
-/// ask a model, or handing it a model's response.
+/// ask a model, handing it a model's response, or opening an archive from a
+/// checkpoint (which it would pass over, replaying the wrong history).
 fn validate_request_for_protocol(
     protocol_version: u32,
     request: &PackRequest,
 ) -> Result<(), ProtocolError> {
+    if let PackRequest::Open { archive } = request {
+        if archive.checkpoint.is_some() && protocol_version < PACK_PROTOCOL_VERSION_V4 {
+            return Err(ProtocolError::RequestNotSupportedInProtocol {
+                protocol_version,
+                request: "open with a checkpoint",
+            });
+        }
+    }
     let needs_v3 = match request {
         PackRequest::Hear { .. } => true,
         PackRequest::Handle {

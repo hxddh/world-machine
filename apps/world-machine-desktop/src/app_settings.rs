@@ -37,6 +37,11 @@ pub struct AppSettings {
     /// settings file written before it keeps behaving as it did.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub world_voice_source: Option<VoiceSource>,
+    /// Which Claude model an API key asks; absent is
+    /// `world_voice::DEFAULT_MODEL`. `WORLD_MACHINE_VOICE_MODEL` in the
+    /// environment still wins over it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub voice_model: Option<String>,
     /// Whether a World's window plays its landscape's quiet sound. Off
     /// unless somebody turns it on, and omitted from the file while off.
     #[serde(default, skip_serializing_if = "is_off")]
@@ -94,6 +99,10 @@ fn is_off(value: &bool) -> bool {
 pub enum ConfiguredVoice {
     Program(String),
     Key(String),
+    /// The model built into macOS, through `/usr/bin/fm`. Whether it is
+    /// there and working is found out when it is asked; when it is not, the
+    /// World's own words stand.
+    OnDevice,
 }
 
 /// How a World's voice reaches a model.
@@ -107,6 +116,9 @@ pub enum VoiceSource {
     /// A key the observer gave the app. The only way a World's contents leave
     /// the machine because of World Machine itself.
     Key,
+    /// The model built into macOS 27, through its `fm` program. Offered only
+    /// where `fm` is present and answers.
+    OnDevice,
 }
 
 impl AppSettings {
@@ -125,6 +137,7 @@ impl AppSettings {
             pi_program: None,
             world_voice: false,
             world_voice_source: None,
+            voice_model: None,
             ambient_sound: false,
             sound_levels: Default::default(),
             language: None,
@@ -152,6 +165,7 @@ impl AppSettings {
                 let key = stored_key?;
                 (!key.trim().is_empty()).then_some(ConfiguredVoice::Key(key))
             }
+            VoiceSource::OnDevice => Some(ConfiguredVoice::OnDevice),
         }
     }
 
@@ -338,6 +352,14 @@ pub fn save_world_voice_source(root: &Path, source: VoiceSource) -> Result<(), A
     })
 }
 
+/// Which Claude model an API key asks; blank goes back to the default.
+pub fn save_voice_model(root: &Path, model: Option<String>) -> Result<(), AppSettingsError> {
+    let model = model
+        .map(|model| model.trim().to_string())
+        .filter(|model| !model.is_empty());
+    update_settings(root, move |settings| settings.voice_model = model)
+}
+
 /// How a World shown as a strip is placed.
 pub fn save_strip(root: &Path, strip: StripSettings) -> Result<(), AppSettingsError> {
     update_settings(root, move |settings| settings.strip = strip)
@@ -436,6 +458,7 @@ mod tests {
             pi_program: Some(PathBuf::from("/usr/local/bin/pi")),
             world_voice: false,
             world_voice_source: None,
+            voice_model: None,
             ambient_sound: false,
             sound_levels: Default::default(),
             language: None,
@@ -576,6 +599,34 @@ mod tests {
             load(&fixture.root).unwrap().world_voice_source,
             Some(VoiceSource::Program)
         );
+    }
+
+    #[test]
+    fn the_claude_model_and_the_on_device_voice_are_kept() {
+        let fixture = Fixture::new();
+        save(&fixture.root, &AppSettings::empty()).unwrap();
+        let written = fs::read_to_string(settings_path(&fixture.root)).unwrap();
+        assert!(!written.contains("voice_model"), "{written}");
+
+        save_voice_model(&fixture.root, Some("  claude-opus-5-5 ".into())).unwrap();
+        save_world_voice_source(&fixture.root, VoiceSource::OnDevice).unwrap();
+        let stored = load(&fixture.root).unwrap();
+        assert_eq!(stored.voice_model.as_deref(), Some("claude-opus-5-5"));
+        assert_eq!(stored.world_voice_source, Some(VoiceSource::OnDevice));
+        let written = fs::read_to_string(settings_path(&fixture.root)).unwrap();
+        assert!(written.contains("\"on-device\""), "{written}");
+
+        // The on-device voice needs nothing stored behind it.
+        let mut on = stored.clone();
+        on.world_voice = true;
+        assert_eq!(on.configured_voice(None), Some(ConfiguredVoice::OnDevice));
+
+        // Blank goes back to the default, and leaves no trace.
+        save_voice_model(&fixture.root, Some("   ".into())).unwrap();
+        assert_eq!(load(&fixture.root).unwrap().voice_model, None);
+        save_voice_model(&fixture.root, Some("claude-sonnet-5".into())).unwrap();
+        save_voice_model(&fixture.root, None).unwrap();
+        assert_eq!(load(&fixture.root).unwrap().voice_model, None);
     }
 
     #[test]

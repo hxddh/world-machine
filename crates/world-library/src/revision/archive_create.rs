@@ -49,8 +49,8 @@ impl WorldLibrary {
 }
 
 fn create_document_file(path: &Path, document: &WorldDocument) -> Result<(), LibraryError> {
-    let json = document.to_json_pretty()?;
-    atomic_create(path, json.as_bytes())?;
+    let bytes = document.to_bytes()?;
+    atomic_create(path, &bytes)?;
     Ok(())
 }
 
@@ -112,6 +112,7 @@ mod tests {
             world_time,
             events: Vec::new(),
             pending: Vec::new(),
+            checkpoint: None,
         }
     }
 

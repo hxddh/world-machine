@@ -1,5 +1,7 @@
 pub mod art;
 pub mod diorama;
+#[cfg(test)]
+mod golden;
 pub mod i18n;
 mod macos;
 pub mod postcard;

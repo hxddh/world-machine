@@ -1490,7 +1490,7 @@ pub(crate) const WORKS: &[Work] = {
 
 /// A made-up text for the life of the program: each different one is
 /// kept once, however often the deck is dealt.
-fn leak(text: String) -> &'static str {
+pub(crate) fn leak(text: String) -> &'static str {
     static KEPT: std::sync::OnceLock<std::sync::Mutex<std::collections::BTreeSet<&'static str>>> =
         std::sync::OnceLock::new();
     let mut kept = KEPT
@@ -1508,7 +1508,7 @@ fn leak(text: String) -> &'static str {
 /// The works as storylets: each asked for once the one before it is
 /// done, the first once the pier and the lamp are.
 /// One rung of the ladder of works: a work built, then painted, then
-/// planted round, each round after the one before.
+/// planted round, then lit up, each round after the one before.
 pub(crate) struct Rung {
     pub id: &'static str,
     pub label: &'static str,
@@ -1517,8 +1517,9 @@ pub(crate) struct Rung {
     line: &'static str,
 }
 
-/// How many times the ladder goes round the works.
-const ROUNDS: usize = 3;
+/// How many times the ladder goes round the works: built, painted,
+/// planted round, then lit up with lamps and bunting.
+const ROUNDS: usize = 4;
 
 /// Every rung of the ladder, in order: every work once, then each
 /// painted, then each planted round, so there is always one under way.
@@ -1544,13 +1545,22 @@ pub(crate) fn ladder() -> &'static [Rung] {
                         told: leak(format!("It's time to paint {the}")),
                         line: leak(format!("A lick of paint and {the} will look new again.")),
                     },
-                    _ => Rung {
+                    2 => Rung {
                         id: leak(format!("{}_flowers", work.id)),
                         label: leak(format!("Flowers round {the}")),
                         work,
                         told: leak(format!("Flowers would brighten {the}")),
                         line: leak(format!(
                             "Something growing round {the}. That's all it needs."
+                        )),
+                    },
+                    _ => Rung {
+                        id: leak(format!("{}_lit", work.id)),
+                        label: leak(format!("Lamps and bunting on {the}")),
+                        work,
+                        told: leak(format!("Let's light up {the}")),
+                        line: leak(format!(
+                            "A few lamps and a string of bunting on {the}. It'll glow at night."
                         )),
                     },
                 });
@@ -1561,7 +1571,7 @@ pub(crate) fn ladder() -> &'static [Rung] {
 }
 
 /// "A bandstand on the square" as "the bandstand on the square".
-fn the(label: &str) -> String {
+pub(crate) fn the(label: &str) -> String {
     let rest = label
         .strip_prefix("A ")
         .or_else(|| label.strip_prefix("An "))
@@ -1600,7 +1610,7 @@ fn works() -> Vec<Spec> {
             lasts: 3,
             // A part every fortnight or so, so a work takes a month or
             // more and the ladder lasts past a year.
-            rests: 12,
+            rests: 20,
             weight: 4,
             eases: vec![up("spirits")],
             timely: false,
@@ -1664,7 +1674,15 @@ fn specs() -> &'static [Spec] {
     })
 }
 
-pub(crate) fn deck() -> Deck {
+/// The storyteller's deck. It is the same every time, so it is made once:
+/// the whole deck is cloned out of the specs otherwise, and people, talks,
+/// goals and the weather each ask for it.
+pub(crate) fn deck() -> &'static Deck {
+    static DECK: OnceLock<Deck> = OnceLock::new();
+    DECK.get_or_init(made_deck)
+}
+
+fn made_deck() -> Deck {
     Deck {
         story: STORY,
         story_name: "The harbour's year",
@@ -1705,8 +1723,8 @@ pub(crate) fn deck() -> Deck {
 pub(crate) fn register_actions(
     actions: &mut ActionRegistry,
 ) -> Result<(), world_core::ActionError> {
-    storylets::register_actions(actions, deck)?;
-    lives::register_actions(actions, |_| crate::life::cast())?;
+    storylets::register_actions(actions, || deck().clone())?;
+    lives::register_actions(actions, crate::life::cast_in)?;
     hands::register_actions(actions, crate::handwork::kit)?;
     conversation::register_actions(actions, crate::speech::kit)?;
     calendar::register_actions(actions, crate::almanac::almanac)?;
@@ -1827,7 +1845,7 @@ const SEASONS: [&str; 4] = ["spring", "summer", "autumn", "winter"];
 
 /// Which season it is in the harbour.
 pub(crate) fn season(world: &World) -> usize {
-    storylets::season(storylets::period_index(world.state(), &deck()), SEASON_DAYS) as usize
+    storylets::season(storylets::period_index(world.state(), deck()), SEASON_DAYS) as usize
 }
 
 /// What a moment adds to the chapter it happened in, when that chapter
@@ -1869,11 +1887,11 @@ fn chapter_line(event: &Event) -> Option<&'static str> {
 /// on how the town stands.
 fn chapter_ending(world: &World) -> (String, String) {
     let deck = deck();
-    let (_, started) = storylets::chapter(world.state(), &deck);
-    let lived = world
-        .events()
+    let (_, started) = storylets::chapter(world.state(), deck);
+    // Events are recorded in time order, so the chapter's are the tail.
+    let events = world.events();
+    let lived = events[events.partition_point(|event| event.world_time < started)..]
         .iter()
-        .filter(|event| event.world_time >= started)
         .collect::<Vec<_>>();
     let mut title = None;
     let mut lines = Vec::<String>::new();
@@ -2182,18 +2200,20 @@ pub(crate) fn tick(
     // What the year brings comes first, so the day's round of lives knows
     // whether the day has already brought something new.
     events.extend(crate::years::tick(world, actions)?);
-    events.extend(lives::tick_holding(
+    let cast = crate::life::cast_in(world.state());
+    events.extend(lives::tick_with(
         world,
         actions,
-        &crate::life::cast(),
+        &cast,
         away,
         reading.hold,
+        &crate::firsts::quiet_days(),
     )?);
     let kit = crate::handwork::kit(world.state());
     events.extend(hands::tick(world, actions, &kit)?);
     let almanac = crate::almanac::almanac(world.state());
     events.extend(calendar::tick(world, actions, &almanac)?);
-    events.extend(storylets::tick(world, actions, &deck(), &reading)?);
+    events.extend(storylets::tick(world, actions, deck(), &reading)?);
     Ok(events)
 }
 
@@ -2204,14 +2224,14 @@ pub(crate) fn tick(
 fn waiting_for_the_player(world: &World) -> bool {
     let deck = deck();
     let state = world.state();
-    if storylets::anything_raised(state, &deck) {
+    if storylets::anything_raised(state, deck) {
         return false;
     }
     let acted = state.entity(crate::handwork::kit(state).notes).is_some()
         || world.events().iter().any(conversation::is_talk);
-    let (_, started) = storylets::chapter(state, &deck);
+    let (_, started) = storylets::chapter(state, deck);
     let first_day = state.entity(deck.story).is_none()
-        || storylets::period_index(state, &deck) <= started / deck.period.max(1);
+        || storylets::period_index(state, deck) <= started / deck.period.max(1);
     !acted && first_day
 }
 
@@ -2221,7 +2241,7 @@ pub(crate) fn after_first_deed(
     world: &mut World,
     actions: &ActionRegistry,
 ) -> Result<Vec<EventId>, WorldError> {
-    if storylets::anything_raised(world.state(), &deck()) || waiting_for_the_player(world) {
+    if storylets::anything_raised(world.state(), deck()) || waiting_for_the_player(world) {
         return Ok(Vec::new());
     }
     let money = crate::projection::gauges(world)
@@ -2235,7 +2255,7 @@ pub(crate) fn after_first_deed(
         chapter_ending: Box::new(chapter_ending),
         hold: false,
     };
-    storylets::tick(world, actions, &deck(), &reading)
+    storylets::tick(world, actions, deck(), &reading)
 }
 
 fn command_id(storylet: &str, choice: &str) -> String {
@@ -2245,6 +2265,16 @@ fn command_id(storylet: &str, choice: &str) -> String {
 /// The choice a command makes, if it is one of the storyteller's.
 pub(crate) fn parse_command(command_id: &str) -> Option<(&str, &str)> {
     command_id.strip_prefix(STORY_COMMAND)?.split_once('.')
+}
+
+/// The kinds of Event a storylet's moments are recorded as: coming up,
+/// each answer's and letting it go.
+pub(crate) fn storylet_kinds() -> impl Iterator<Item = &'static str> {
+    specs().iter().flat_map(|spec| {
+        std::iter::once("situation_arose")
+            .chain(spec.answers.iter().map(|answer| answer.said.event))
+            .chain(std::iter::once(spec.lapse.event))
+    })
 }
 
 fn find(storylet: &str) -> Option<&'static Spec> {
@@ -2301,8 +2331,8 @@ fn asking(world: &World, spec: &Spec) -> String {
         world,
         &asked(
             spec,
-            storylets::times_raised(world.state(), &deck, id),
-            storylets::last_outcome(world.state(), &deck, id),
+            storylets::times_raised(world.state(), deck, id),
+            storylets::last_outcome(world.state(), deck, id),
         ),
         spec.storylet.asker,
     )
@@ -2310,7 +2340,7 @@ fn asking(world: &World, spec: &Spec) -> String {
 
 fn storylet_commands(world: &World) -> Vec<world_projection::ProjectionCommand> {
     let deck = deck();
-    storylets::answers(world.state(), &deck)
+    storylets::answers(world.state(), deck)
         .into_iter()
         .filter_map(|(storylet, choice, unmet)| {
             let spec = find(storylet.id)?;
@@ -2349,11 +2379,11 @@ fn why_not(world: &World, condition: &Condition) -> String {
 /// say, and the answer that grants it, if it can be given.
 pub(crate) fn wanting(world: &World, who: EntityId) -> Option<(String, Option<String>)> {
     let deck = deck();
-    let storylet = storylets::open(world.state(), &deck)
+    let storylet = storylets::open(world.state(), deck)
         .into_iter()
         .find(|storylet| storylet.want && storylet.asker == who)?;
     let spec = find(storylet.id)?;
-    let grant = storylets::choices(world.state(), &deck)
+    let grant = storylets::choices(world.state(), deck)
         .into_iter()
         .find(|(open, choice)| open.id == storylet.id && !choice.refuses)
         .map(|(open, choice)| command_id(open.id, choice.id));
@@ -2362,7 +2392,7 @@ pub(crate) fn wanting(world: &World, who: EntityId) -> Option<(String, Option<St
 
 /// How many wants someone has had granted, and turned down or let lapse.
 pub(crate) fn kindness(world: &World, who: EntityId) -> (i64, i64) {
-    storylets::kindness(world.state(), &deck(), who)
+    storylets::kindness(world.state(), deck(), who)
 }
 
 fn storylet_of(event: &Event) -> Option<&'static Spec> {
@@ -2531,7 +2561,7 @@ pub(crate) fn goals(world: &World) -> Vec<world_projection::Goal> {
             id: id.into(),
             label: label.into(),
             shape,
-            done: storylets::progress(world.state(), &deck, id).clamp(0, parts) as u32,
+            done: storylets::progress(world.state(), deck, id).clamp(0, parts) as u32,
             parts: parts as u32,
         })
     };
@@ -4321,7 +4351,7 @@ pub(crate) fn people(world: &World) -> Vec<EntityId> {
 /// Everyone living in the harbour now, read straight from its state.
 pub(crate) fn people_in(state: &world_core::WorldState) -> Vec<EntityId> {
     let deck = deck();
-    let asking = storylets::open(state, &deck)
+    let asking = storylets::open(state, deck)
         .into_iter()
         .map(|storylet| storylet.asker)
         .collect::<Vec<_>>();
@@ -4433,7 +4463,7 @@ pub(crate) fn from_the_calendar(id: &str) -> bool {
 pub(crate) fn weather(world: &World) -> world_projection::Weather {
     use world_projection::Weather;
     let deck = deck();
-    let stormy = storylets::open(world.state(), &deck)
+    let stormy = storylets::open(world.state(), deck)
         .iter()
         .any(|storylet| matches!(storylet.id, "storm_warning" | "great_storm"));
     let day = world.world_time() / crate::persistence::WORLD_DAY_TICKS;

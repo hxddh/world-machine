@@ -578,6 +578,7 @@ impl PackCatalog {
 
     fn materialize_managed_bundle(&self, bundle: PackBundle) -> Result<ProcessPack, CatalogError> {
         let descriptor = bundle.manifest().descriptor.clone();
+        let protocol_version = bundle.manifest().protocol_version;
         let program_name = bundle.program_name().to_owned();
         let final_dir = managed_pack_dir(&self.path, &descriptor.pack);
         if final_dir.try_exists().map_err(|error| CatalogError::Io {
@@ -607,8 +608,10 @@ impl PackCatalog {
                 .extract_program(&staged_program)
                 .map_err(bundle_error)?;
 
-            let managed_manifest =
+            // The copy speaks the protocol the Pack declared, not the newest.
+            let mut managed_manifest =
                 PackManifest::process(descriptor.clone(), program_name.clone(), Vec::new());
+            managed_manifest.protocol_version = protocol_version;
             let manifest_path = stage.join("pack.world-pack.json");
             let mut manifest_json = managed_manifest
                 .to_json_pretty()
@@ -702,8 +705,10 @@ impl PackCatalog {
                 })?;
             }
 
-            let managed_manifest =
+            // The copy speaks the protocol the Pack declared, not the newest.
+            let mut managed_manifest =
                 PackManifest::process(source.descriptor.clone(), program_name, Vec::new());
+            managed_manifest.protocol_version = source.protocol_version;
             let manifest_path = stage.join("pack.world-pack.json");
             let mut manifest_json = managed_manifest
                 .to_json_pretty()
@@ -869,7 +874,7 @@ fn managed_pack_key(pack: &WorldPackRef) -> String {
     hasher.update(pack.id.as_bytes());
     hasher.update([0]);
     hasher.update(pack.version.as_bytes());
-    format!("{:x}", hasher.finalize())
+    lower_hex(&hasher.finalize())
 }
 
 fn managed_pack_dir(catalog_path: &Path, pack: &WorldPackRef) -> PathBuf {
@@ -1134,6 +1139,11 @@ impl fmt::Display for CatalogError {
 }
 
 impl Error for CatalogError {}
+
+/// A digest written as lowercase hexadecimal.
+fn lower_hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
 
 #[cfg(test)]
 mod tests {

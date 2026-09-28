@@ -10,7 +10,58 @@ pub(crate) const DAILY_CATCH_VALUE: i64 = 35;
 pub(crate) fn register_actions(registry: &mut ActionRegistry) -> Result<(), ActionError> {
     registry.register(LandCatch)?;
     registry.register(SellFish)?;
+    registry.register(MarketRestocks)?;
     Ok(())
+}
+
+/// When the mainland's buyers have less than this left, a new season's
+/// money comes in.
+const MARKET_LOW: i64 = DAILY_CATCH_VALUE * 30;
+/// What a new season brings the mainland's buyers.
+const MARKET_SEASON: i64 = 3_000;
+
+/// The mainland is bigger than the harbour: when its fish buyers run low,
+/// a new season's money comes in, so the harbour's catch always has a
+/// market and its fund does not dry up in the years after the first.
+struct MarketRestocks;
+
+impl Action for MarketRestocks {
+    fn name(&self) -> &'static str {
+        "mainland_market_restocks"
+    }
+
+    fn evaluate(
+        &self,
+        state: &WorldState,
+        _request: &ActionRequest,
+    ) -> Result<EventDraft, ActionError> {
+        let cash = integer_component(state, MAINLAND_MARKET, CASH)?;
+        if cash >= MARKET_LOW {
+            return Err(ActionError::Invalid(
+                "the mainland's buyers have money enough".into(),
+            ));
+        }
+        let mut draft = EventDraft::new("market_restocked");
+        draft.targets = vec![MAINLAND_MARKET];
+        draft.changes = vec![StateChange::SetComponent {
+            entity: MAINLAND_MARKET,
+            key: CASH.into(),
+            value: (cash + MARKET_SEASON).into(),
+        }];
+        Ok(draft)
+    }
+}
+
+/// A new season's money for the mainland's buyers, if they are running
+/// low.
+pub(crate) fn restock(
+    world: &mut world_core::World,
+    actions: &ActionRegistry,
+) -> Option<world_core::EventId> {
+    world
+        .execute(actions, &ActionRequest::new("mainland_market_restocks"))
+        .ok()
+        .map(|event| event.id)
 }
 
 struct LandCatch;

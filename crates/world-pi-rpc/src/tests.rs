@@ -218,3 +218,16 @@ fn value_rendering_does_not_require_serializing_world_state() {
     let prompt = DecisionPrompt::new(&observation, &actions()).render();
     assert!(prompt.contains("nested=[1,entity:2]"));
 }
+
+#[test]
+fn rpc_event_parser_reports_pi_stopping_for_want_of_a_key() {
+    let mut parser = PiRpcEventParser::default();
+    let error = parser
+        .push_line(r#"{"type":"error","phase":"startup","code":"auth.missing_api_key","message":"No API key for the model"}"#)
+        .unwrap_err();
+    assert!(error.is_missing_key());
+    assert_eq!(
+        error.to_string(),
+        "pi stopped (auth.missing_api_key): No API key for the model"
+    );
+}

@@ -1,9 +1,26 @@
+use flate2::read::GzDecoder;
+use flate2::write::GzEncoder;
+use flate2::Compression;
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::error::Error;
 use std::fmt;
-use world_persistence::{PersistenceError, WorldArchive, WorldPackRef};
+use std::io::{Read, Write};
+use world_persistence::{
+    ArchivedCheckpoint, CheckpointFit, PersistenceError, WorldArchive, WorldPackRef,
+};
 
 pub const DOCUMENT_METADATA_FIELD: &str = "document";
+/// How many of a World's own days make a season, for its checkpoints: a
+/// World file carries one at the start of its latest season.
+pub const CHECKPOINT_SEASON_UNITS: u64 = 30;
+/// For a World that does not say what it counts time in, how much world
+/// time a checkpoint's season is.
+pub const CHECKPOINT_FALLBACK_SPAN: u64 = 30;
+/// The largest World file a reader will unpack, so a hostile file cannot
+/// fill memory: far more than years of any World's history.
+pub const MAX_DOCUMENT_BYTES: u64 = 512 * 1024 * 1024;
+const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct WorldDocumentMetadata {
@@ -142,6 +159,125 @@ impl WorldDocument {
         }
     }
 
+    /// How much world time a checkpoint's season is for this World.
+    pub fn season_span(&self) -> u64 {
+        self.metadata
+            .display_calendar
+            .as_ref()
+            .map(|calendar| calendar.length.max(1) * CHECKPOINT_SEASON_UNITS)
+            .unwrap_or(CHECKPOINT_FALLBACK_SPAN)
+    }
+
+    /// The world time the latest season began at.
+    pub fn season_start(&self) -> u64 {
+        let span = self.season_span();
+        self.archive.world_time / span * span
+    }
+
+    /// Brings the archive's checkpoint up to the start of the latest
+    /// season, carrying the one it has on rather than summing up the whole
+    /// history again. The checkpoint lets opening the World replay only the
+    /// season since; it is derived from the archive alone.
+    pub fn settle_checkpoint(&mut self) {
+        if let Cow::Owned(settled) = self.settled_checkpoint() {
+            self.archive.checkpoint = Some(settled);
+        }
+    }
+
+    /// The checkpoint at the start of the latest season: the one the
+    /// document has when it is already there, or else that one carried on
+    /// (or, when it does not belong to this history, a new one).
+    pub fn settled_checkpoint(&self) -> Cow<'_, ArchivedCheckpoint> {
+        let start = self.season_start();
+        let end = self
+            .archive
+            .events
+            .partition_point(|event| event.world_time < start);
+        match &self.archive.checkpoint {
+            Some(checkpoint)
+                if checkpoint.events == end
+                    && checkpoint.fit(&self.archive) == Some(CheckpointFit::Within) =>
+            {
+                Cow::Borrowed(checkpoint)
+            }
+            previous => Cow::Owned(ArchivedCheckpoint::at(
+                previous.as_ref(),
+                &self.archive,
+                start,
+            )),
+        }
+    }
+
+    /// The document as a World file writes it: its archive in the compact
+    /// encoding with its metadata and its checkpoint at the start of the
+    /// latest season alongside, gzipped.
+    pub fn to_bytes(&self) -> Result<Vec<u8>, DocumentError> {
+        // A checkpoint of nothing says nothing, so it is not written.
+        let checkpoint = self.settled_checkpoint();
+        let checkpoint = Some(checkpoint.as_ref()).filter(|checkpoint| checkpoint.events > 0);
+        let json = self.compact_json_with(checkpoint)?;
+        // A low level: it finds most of what a history repeats, and a
+        // World is saved after every change.
+        let mut encoder = GzEncoder::new(Vec::with_capacity(json.len() / 8), Compression::new(2));
+        encoder.write_all(&json).map_err(DocumentError::Io)?;
+        encoder.finish().map_err(DocumentError::Io)
+    }
+
+    /// The document as one line of compact JSON, with the checkpoint its
+    /// archive has as it stands.
+    pub fn to_compact_json(&self) -> Result<Vec<u8>, DocumentError> {
+        self.compact_json_with(self.archive.checkpoint.as_ref())
+    }
+
+    fn compact_json_with(
+        &self,
+        checkpoint: Option<&ArchivedCheckpoint>,
+    ) -> Result<Vec<u8>, DocumentError> {
+        let mut extra = serde_json::Map::new();
+        if !self.metadata.is_empty() {
+            extra.insert(
+                DOCUMENT_METADATA_FIELD.into(),
+                serde_json::to_value(&self.metadata)?,
+            );
+        }
+        Ok(self.archive.to_compact_json_with(checkpoint, &extra)?)
+    }
+
+    /// Reads a World file however it was written: gzipped or not, compact
+    /// or tagged, with or without a checkpoint.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, DocumentError> {
+        if bytes.starts_with(&GZIP_MAGIC) {
+            let mut json = Vec::new();
+            GzDecoder::new(bytes)
+                .take(MAX_DOCUMENT_BYTES + 1)
+                .read_to_end(&mut json)
+                .map_err(DocumentError::Io)?;
+            if json.len() as u64 > MAX_DOCUMENT_BYTES {
+                return Err(DocumentError::TooLarge);
+            }
+            Self::from_json_bytes(&json)
+        } else {
+            Self::from_json_bytes(bytes)
+        }
+    }
+
+    fn from_json_bytes(json: &[u8]) -> Result<Self, DocumentError> {
+        let value: serde_json::Value = serde_json::from_slice(json)?;
+        Self::from_json_value(&value)
+    }
+
+    fn from_json_value(value: &serde_json::Value) -> Result<Self, DocumentError> {
+        // The persistence layer deliberately ignores document-only extension
+        // fields, so Packs and Host code continue to consume a pure archive.
+        let archive = WorldArchive::from_json_value(value)?;
+        let object = value.as_object().ok_or(DocumentError::InvalidRoot)?;
+        let metadata = match object.get(DOCUMENT_METADATA_FIELD) {
+            Some(value) => WorldDocumentMetadata::deserialize(value)?,
+            None => WorldDocumentMetadata::default(),
+        };
+        Ok(Self { archive, metadata })
+    }
+
     pub fn with_display_title(mut self, title: impl Into<String>) -> Self {
         self.metadata.display_title = Some(title.into());
         self
@@ -157,6 +293,9 @@ impl WorldDocument {
         self
     }
 
+    /// The document in the tagged encoding World files were written in
+    /// before the compact one, which older World Machines read (they pass
+    /// over the checkpoint).
     pub fn to_json_pretty(&self) -> Result<String, DocumentError> {
         // Keep WorldArchive's existing header validation as the source of truth.
         let archive_json = self.archive.to_json_pretty()?;
@@ -171,17 +310,9 @@ impl WorldDocument {
         Ok(serde_json::to_string_pretty(&value)?)
     }
 
+    /// Reads a document written as JSON, in either encoding.
     pub fn from_json(json: &str) -> Result<Self, DocumentError> {
-        // The persistence layer deliberately ignores document-only extension
-        // fields, so Packs and Host code continue to consume a pure archive.
-        let archive = WorldArchive::from_json(json)?;
-        let value: serde_json::Value = serde_json::from_str(json)?;
-        let object = value.as_object().ok_or(DocumentError::InvalidRoot)?;
-        let metadata = match object.get(DOCUMENT_METADATA_FIELD) {
-            Some(value) => serde_json::from_value(value.clone())?,
-            None => WorldDocumentMetadata::default(),
-        };
-        Ok(Self { archive, metadata })
+        Self::from_json_bytes(json.as_bytes())
     }
 }
 
@@ -190,6 +321,8 @@ pub enum DocumentError {
     Persistence(PersistenceError),
     Json(serde_json::Error),
     InvalidRoot,
+    Io(std::io::Error),
+    TooLarge,
 }
 
 impl fmt::Display for DocumentError {
@@ -198,6 +331,8 @@ impl fmt::Display for DocumentError {
             Self::Persistence(error) => error.fmt(f),
             Self::Json(error) => write!(f, "invalid World document JSON: {error}"),
             Self::InvalidRoot => write!(f, "World document JSON root must be an object"),
+            Self::Io(error) => write!(f, "unreadable World document: {error}"),
+            Self::TooLarge => write!(f, "World document is too large to open"),
         }
     }
 }
@@ -207,7 +342,8 @@ impl Error for DocumentError {
         match self {
             Self::Persistence(error) => Some(error),
             Self::Json(error) => Some(error),
-            Self::InvalidRoot => None,
+            Self::Io(error) => Some(error),
+            Self::InvalidRoot | Self::TooLarge => None,
         }
     }
 }
@@ -237,6 +373,7 @@ mod tests {
             world_time,
             events: Vec::new(),
             pending: Vec::new(),
+            checkpoint: None,
         }
     }
 
@@ -329,5 +466,77 @@ mod tests {
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
 
         assert!(value.get(DOCUMENT_METADATA_FIELD).is_none());
+    }
+
+    fn lived_archive() -> WorldArchive {
+        use world_persistence::{ArchivedEvent, ArchivedStateChange, ArchivedValue};
+        let mut archive = archive(99);
+        archive.events = (1..=12)
+            .map(|id| ArchivedEvent {
+                id,
+                kind: "lived".into(),
+                world_time: id * 8,
+                actor: Some(1),
+                targets: Vec::new(),
+                caused_by: Vec::new(),
+                payload: Default::default(),
+                changes: vec![ArchivedStateChange::SetComponent {
+                    entity: 1,
+                    key: "day".into(),
+                    value: ArchivedValue::Integer(id as i64),
+                }],
+            })
+            .collect();
+        archive
+    }
+
+    #[test]
+    fn a_world_file_is_gzipped_compact_json_with_a_seasons_checkpoint() {
+        let mut document = WorldDocument::new(lived_archive()).with_display_title("Harbor");
+        document.metadata.display_calendar = Some(DocumentCalendar {
+            unit: "Day".into(),
+            length: 1,
+        });
+        let bytes = document.to_bytes().unwrap();
+        assert_eq!(bytes[..2], GZIP_MAGIC);
+
+        let read = WorldDocument::from_bytes(&bytes).unwrap();
+        assert_eq!(read.archive.events, document.archive.events);
+        assert_eq!(read.metadata, document.metadata);
+        // Its checkpoint is at the start of the latest thirty days: day 90.
+        let checkpoint = read.archive.checkpoint.clone().expect("a checkpoint");
+        assert_eq!(checkpoint.events, 11);
+        assert_eq!(checkpoint.last_event, 11);
+        assert_eq!(checkpoint.changes.len(), 1, "only the latest value is kept");
+        assert_eq!(document.season_start(), 90);
+
+        // Carried on, it comes to the same.
+        let mut settled = document.clone();
+        settled.archive.checkpoint =
+            Some(ArchivedCheckpoint::covering(&document.archive.events[..4]));
+        settled.settle_checkpoint();
+        assert_eq!(settled.archive.checkpoint.as_ref(), Some(&checkpoint));
+    }
+
+    #[test]
+    fn older_world_files_still_open() {
+        let document = WorldDocument::new(lived_archive()).with_display_title("Harbor");
+        // Tagged and pretty, as World files were written before.
+        let tagged = document.to_json_pretty().unwrap();
+        assert!(tagged.contains("\"set_component\""));
+        let read = WorldDocument::from_bytes(tagged.as_bytes()).unwrap();
+        assert_eq!(read, document);
+        assert_eq!(WorldDocument::from_json(&tagged).unwrap(), document);
+        // Compact but not gzipped.
+        let compact = document.to_compact_json().unwrap();
+        assert_eq!(WorldDocument::from_bytes(&compact).unwrap(), document);
+        // Tagged and gzipped.
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(tagged.as_bytes()).unwrap();
+        let gzipped = encoder.finish().unwrap();
+        assert_eq!(WorldDocument::from_bytes(&gzipped).unwrap(), document);
+        // A cut file is refused.
+        let bytes = document.to_bytes().unwrap();
+        assert!(WorldDocument::from_bytes(&bytes[..bytes.len() / 2]).is_err());
     }
 }

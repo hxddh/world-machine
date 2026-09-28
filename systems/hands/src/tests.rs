@@ -345,3 +345,41 @@ fn people_use_what_you_make() {
     let replayed = world.replay().unwrap();
     assert_eq!(replayed.state(), world.state());
 }
+
+#[test]
+fn only_this_periods_count_of_deeds_is_kept() {
+    let (mut world, registry) = world(1_000);
+    for _ in 0..5 {
+        let deed = deeds(&world, &kit(world.state()))
+            .into_iter()
+            .find(|deed| deed.unavailable.is_none() && deed.verb == Verb::Build)
+            .unwrap();
+        world.execute(&registry, &do_request(&deed.key)).unwrap();
+        pass(&mut world, &registry);
+    }
+    let counts = |world: &World| {
+        world
+            .state()
+            .entity(NOTES)
+            .unwrap()
+            .components
+            .keys()
+            .filter(|key| key.starts_with(DONE))
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(counts(&world).len(), 1, "{:?}", counts(&world));
+    // What is left for today is counted as before.
+    let deed = deeds(&world, &kit(world.state()))
+        .into_iter()
+        .find(|deed| deed.unavailable.is_none() && deed.verb == Verb::Build)
+        .unwrap();
+    world.execute(&registry, &do_request(&deed.key)).unwrap();
+    assert_eq!(left_this_period(world.state(), &kit(world.state())), 1);
+    assert_eq!(
+        counts(&world),
+        vec![done_key(period(world.state(), &kit(world.state())))]
+    );
+    let replayed = world.replay().unwrap();
+    assert_eq!(replayed.state(), world.state());
+}

@@ -14,6 +14,8 @@ use world_theme::tokens;
 use crate::scene;
 
 mod world_window;
+#[cfg(test)]
+pub(crate) use world_window::postcard_paper;
 pub use world_window::{scene_share, speech_pages, words_at_rest, RESTING_WORD_LIMIT};
 
 const ENTITY_HISTORY_LIMIT: usize = 6;

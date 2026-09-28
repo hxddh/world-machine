@@ -7,3 +7,7 @@ publish = false
 
 [dependencies]
 world-core = { path = "../../crates/world-core" }
+
+[features]
+# The old full-history scans, as a reference for Packs' tests.
+scan-reference = []

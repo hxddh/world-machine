@@ -60,6 +60,7 @@ mod tests {
                 world_time: self.world_time,
                 events: Vec::new(),
                 pending: Vec::new(),
+                checkpoint: None,
             }))
         }
     }
@@ -69,6 +70,7 @@ mod tests {
             target: WorldDocumentTarget::File(PathBuf::from("unused.world")),
             revision: DocumentRevision::from_bytes(b"archive-source-test"),
             metadata: WorldDocumentMetadata::default(),
+            checkpoint: None,
             session: Box::new(MockSession {
                 world_time,
                 archive,

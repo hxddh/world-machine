@@ -1,13 +1,25 @@
-use crate::{Entity, EntityId, Relation, RelationId, StateChange};
+use crate::{Entity, EntityId, Relation, RelationId, StateChange, Value};
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
+use std::sync::Arc;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct WorldState {
     world_time: u64,
-    entities: BTreeMap<EntityId, Entity>,
+    /// Each entity shared between copies of the state until one of them
+    /// changes it, so a copy (to try something on, or to go back to) costs
+    /// what the entities it changes cost, not the whole World.
+    entities: BTreeMap<EntityId, Arc<Entity>>,
     relations: BTreeMap<RelationId, Relation>,
+}
+
+/// How to put back one change [`WorldState::apply_all`] made.
+enum Undo {
+    Entity(EntityId, Option<Arc<Entity>>),
+    Relation(RelationId, Option<Relation>),
+    Component(EntityId, String, Option<Value>),
+    Property(RelationId, String, Option<Value>),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -41,7 +53,7 @@ impl WorldState {
     }
 
     pub fn entity(&self, id: EntityId) -> Option<&Entity> {
-        self.entities.get(&id)
+        self.entities.get(&id).map(Arc::as_ref)
     }
 
     pub fn relation(&self, id: RelationId) -> Option<&Relation> {
@@ -49,7 +61,7 @@ impl WorldState {
     }
 
     pub fn entities(&self) -> impl Iterator<Item = &Entity> {
-        self.entities.values()
+        self.entities.values().map(Arc::as_ref)
     }
 
     pub fn relations(&self) -> impl Iterator<Item = &Relation> {
@@ -60,7 +72,7 @@ impl WorldState {
         if self.entities.contains_key(&entity.id) {
             return Err(WorldStateError::EntityAlreadyExists(entity.id));
         }
-        self.entities.insert(entity.id, entity);
+        self.entities.insert(entity.id, Arc::new(entity));
         Ok(())
     }
 
@@ -78,13 +90,144 @@ impl WorldState {
         Ok(())
     }
 
+    /// Applies every change or none: when one does not apply, those before
+    /// it are undone, so the state is as it was. Only what the changes
+    /// touch is kept aside to undo, never the whole state.
+    pub(crate) fn apply_all(&mut self, changes: &[StateChange]) -> Result<(), WorldStateError> {
+        let mut undo = Vec::new();
+        for change in changes {
+            if let Err(error) = self.apply_undoable(change, &mut undo) {
+                while let Some(step) = undo.pop() {
+                    self.undo(step);
+                }
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
+
+    fn apply_undoable(
+        &mut self,
+        change: &StateChange,
+        undo: &mut Vec<Undo>,
+    ) -> Result<(), WorldStateError> {
+        match change {
+            StateChange::RemoveEntity(id) => {
+                let entity = self
+                    .entities
+                    .remove(id)
+                    .ok_or(WorldStateError::EntityNotFound(*id))?;
+                let (gone, kept) = std::mem::take(&mut self.relations)
+                    .into_iter()
+                    .partition(|(_, relation)| relation.from == *id || relation.to == *id);
+                self.relations = kept;
+                undo.push(Undo::Entity(entity.id, Some(entity)));
+                for (_, relation) in gone {
+                    undo.push(Undo::Relation(relation.id, Some(relation)));
+                }
+            }
+            StateChange::SetComponent { entity, key, value } => {
+                let target = self
+                    .entities
+                    .get_mut(entity)
+                    .ok_or(WorldStateError::EntityNotFound(*entity))?;
+                let before = Arc::make_mut(target)
+                    .components
+                    .insert(key.clone(), value.clone());
+                undo.push(Undo::Component(*entity, key.clone(), before));
+            }
+            StateChange::RemoveComponent { entity, key } => {
+                let target = self
+                    .entities
+                    .get_mut(entity)
+                    .ok_or(WorldStateError::EntityNotFound(*entity))?;
+                let before = Arc::make_mut(target).components.remove(key);
+                undo.push(Undo::Component(*entity, key.clone(), before));
+            }
+            StateChange::RemoveRelation(id) => {
+                let relation = self
+                    .relations
+                    .remove(id)
+                    .ok_or(WorldStateError::RelationNotFound(*id))?;
+                undo.push(Undo::Relation(*id, Some(relation)));
+            }
+            StateChange::SetRelationProperty {
+                relation,
+                key,
+                value,
+            } => {
+                let target = self
+                    .relations
+                    .get_mut(relation)
+                    .ok_or(WorldStateError::RelationNotFound(*relation))?;
+                let before = target.properties.insert(key.clone(), value.clone());
+                undo.push(Undo::Property(*relation, key.clone(), before));
+            }
+            StateChange::RemoveRelationProperty { relation, key } => {
+                let target = self
+                    .relations
+                    .get_mut(relation)
+                    .ok_or(WorldStateError::RelationNotFound(*relation))?;
+                let before = target.properties.remove(key);
+                undo.push(Undo::Property(*relation, key.clone(), before));
+            }
+            StateChange::CreateEntity(entity) => {
+                self.apply_change(change)?;
+                undo.push(Undo::Entity(entity.id, None));
+            }
+            StateChange::CreateRelation(relation) => {
+                self.apply_change(change)?;
+                undo.push(Undo::Relation(relation.id, None));
+            }
+        }
+        Ok(())
+    }
+
+    fn undo(&mut self, step: Undo) {
+        match step {
+            Undo::Entity(id, before) => match before {
+                Some(entity) => {
+                    self.entities.insert(id, entity);
+                }
+                None => {
+                    self.entities.remove(&id);
+                }
+            },
+            Undo::Relation(id, before) => match before {
+                Some(relation) => {
+                    self.relations.insert(id, relation);
+                }
+                None => {
+                    self.relations.remove(&id);
+                }
+            },
+            Undo::Component(id, key, before) => {
+                if let Some(entity) = self.entities.get_mut(&id) {
+                    let entity = Arc::make_mut(entity);
+                    match before {
+                        Some(value) => entity.components.insert(key, value),
+                        None => entity.components.remove(&key),
+                    };
+                }
+            }
+            Undo::Property(id, key, before) => {
+                if let Some(relation) = self.relations.get_mut(&id) {
+                    match before {
+                        Some(value) => relation.properties.insert(key, value),
+                        None => relation.properties.remove(&key),
+                    };
+                }
+            }
+        }
+    }
+
     pub(crate) fn apply_change(&mut self, change: &StateChange) -> Result<(), WorldStateError> {
         match change {
             StateChange::CreateEntity(entity) => {
                 if self.entities.contains_key(&entity.id) {
                     return Err(WorldStateError::EntityAlreadyExists(entity.id));
                 }
-                self.entities.insert(entity.id, entity.clone());
+                self.entities.insert(entity.id, Arc::new(entity.clone()));
             }
             StateChange::RemoveEntity(id) => {
                 if self.entities.remove(id).is_none() {
@@ -98,14 +241,16 @@ impl WorldState {
                     .entities
                     .get_mut(entity)
                     .ok_or(WorldStateError::EntityNotFound(*entity))?;
-                target.components.insert(key.clone(), value.clone());
+                Arc::make_mut(target)
+                    .components
+                    .insert(key.clone(), value.clone());
             }
             StateChange::RemoveComponent { entity, key } => {
                 let target = self
                     .entities
                     .get_mut(entity)
                     .ok_or(WorldStateError::EntityNotFound(*entity))?;
-                target.components.remove(key);
+                Arc::make_mut(target).components.remove(key);
             }
             StateChange::CreateRelation(relation) => {
                 if self.relations.contains_key(&relation.id) {

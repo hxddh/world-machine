@@ -445,6 +445,214 @@ pub(crate) fn cast() -> Cast {
     }
 }
 
+/// What people say about their days in the harbour's later years, besides
+/// what they always have: from its sixth year, then more from its ninth,
+/// so the years after the first few are not told in the first few's words.
+const LATER_SAID: &[(&str, [&str; 3], [&str; 3])] = &[
+    (
+        "shift",
+        [
+            "{other} and I have worked {place} so long we don't need to talk.",
+            "Another year at {place} with {other}. Wouldn't change it.",
+            "{other} taught the new ones the ropes at {place}.",
+        ],
+        [
+            "{other} and I finish each other's sentences at {place} now.",
+            "Remember when {other} was new at {place}? Look at them now.",
+            "{other} made tea for all of {place}. First time in years.",
+        ],
+    ),
+    (
+        "errands",
+        [
+            "{other} had me up and down the lane all day.",
+            "Fetched a parcel off the ferry for {other}.",
+            "{other}'s list was longer than my arm.",
+        ],
+        [
+            "Did {other}'s shopping. They'd have done the same.",
+            "{other} paid me in cake. Fair trade.",
+            "Carried {other}'s coal up the hill. My back knows it.",
+        ],
+    ),
+    (
+        "stall",
+        [
+            "Sold {other} a teapot with no lid. They were delighted.",
+            "{other} haggled me down to nothing. Again.",
+            "{other} bought the last jar of jam off my stall.",
+        ],
+        [
+            "{other} said my stall's the best thing about Saturdays.",
+            "Swapped {other} a lamp for a hat. Don't ask.",
+            "{other} minded the stall while I had my dinner.",
+        ],
+    ),
+    (
+        "cliff_walk",
+        [
+            "Walked the cliffs with {other}. The wind took our words.",
+            "{other} spotted a puffin. I only saw rocks.",
+            "{other} and I sat on the top and said nothing for an hour.",
+        ],
+        [
+            "The path's worn smooth where {other} and I always stop.",
+            "{other} knows the name of every flower up there.",
+            "Up the cliffs with {other} before breakfast. Worth it.",
+        ],
+    ),
+    (
+        "pint",
+        [
+            "{other} bought the first round. A first.",
+            "{other} and I had our usual corner.",
+            "Talked boats with {other} till last orders.",
+        ],
+        [
+            "{other} told the same joke again. Still funny.",
+            "One drink with {other}, they said. Three, it was.",
+            "{other} and I drank to absent friends.",
+        ],
+    ),
+    (
+        "cards",
+        [
+            "{other} won every hand. I'm sure there's a trick.",
+            "Taught {other} a new game. They beat me at it.",
+            "{other} and I played for matchsticks. I owe them forty.",
+        ],
+        [
+            "{other} cheats at cards. Everybody knows. We still play.",
+            "Lost to {other} again. It's tradition now.",
+            "{other} shuffles like a card sharp these days.",
+        ],
+    ),
+    (
+        "tea",
+        [
+            "{other} brought their own biscuits. Wise.",
+            "Tea with {other}. The pot went cold, we talked so long.",
+            "{other} told me their news over tea. I'll keep it.",
+        ],
+        [
+            "{other} has a cup with their name on it at mine now.",
+            "Tea with {other}, same as every week.",
+            "{other} fixed my wobbly table while the kettle boiled.",
+        ],
+    ),
+    (
+        "dance",
+        [
+            "{other} trod on my toes. I trod on theirs.",
+            "Danced with {other} till the fiddler gave up.",
+            "{other} knows all the old steps.",
+        ],
+        [
+            "{other} and I have a dance of our own now.",
+            "Everyone stopped to watch {other} and me.",
+            "{other} swung me round so fast I saw stars.",
+        ],
+    ),
+    (
+        "chat",
+        [
+            "{other} and I watched the tide turn, talking.",
+            "{other} told me about the old harbour.",
+            "Skimmed stones with {other}. They won.",
+        ],
+        [
+            "{other} and I talked about the years gone by.",
+            "{other} says the water's warmer than it was.",
+            "Found {other} on the shingle. We put the world right.",
+        ],
+    ),
+    (
+        "lend_a_hand",
+        [
+            "Helped {other} mend a gate at {place}.",
+            "{other} needed a hand with a heavy crate at {place}.",
+            "Held the ladder for {other} at {place}.",
+        ],
+        [
+            "{other} and I fixed the roof at {place} between us.",
+            "Gave {other} a hand at {place}. They'll pay me back in pie.",
+            "{other} and I shifted half of {place} this afternoon.",
+        ],
+    ),
+    (
+        "knots",
+        [
+            "{other} can tie a bowline with their eyes shut now.",
+            "Showed {other} a knot my grandad taught me.",
+            "{other} tied a knot I'd never seen. Where'd they learn that?",
+        ],
+        [
+            "{other} is teaching the children knots now. Proud of that.",
+            "{other} and I made a rope ladder. It holds.",
+            "{other} still can't do a sheepshank. Nobody can.",
+        ],
+    ),
+    (
+        "plan",
+        [
+            "{other} and I have a plan for the spring. It's a secret.",
+            "Sketched something with {other} at {place}. Watch this space.",
+            "{other} has big ideas. I'm helping.",
+        ],
+        [
+            "{other} and I are planning a party for the whole harbour.",
+            "Drew up plans with {other} at {place}. Very official.",
+            "{other} and I have been plotting. Don't worry. It's nice.",
+        ],
+    ),
+];
+
+/// The year of the harbour from which each of the later sets of words is
+/// said.
+const LATER_YEARS: [u64; 2] = [6, 9];
+
+/// Everyone's days as the harbour's year has them: from its sixth year on,
+/// with the later years' words added.
+fn activities(state: &WorldState) -> &'static [Activity] {
+    static LATER: std::sync::OnceLock<[Vec<Activity>; 2]> = std::sync::OnceLock::new();
+    let year = crate::years::year(state);
+    let tiers = LATER_YEARS.iter().filter(|from| year >= **from).count();
+    if tiers == 0 {
+        return ACTIVITIES;
+    }
+    let later = LATER.get_or_init(|| {
+        [1, 2].map(|tiers| {
+            ACTIVITIES
+                .iter()
+                .map(|activity| {
+                    let mut activity = *activity;
+                    if let Some((_, first, second)) =
+                        LATER_SAID.iter().find(|(id, _, _)| *id == activity.id)
+                    {
+                        let mut said = activity.said.to_vec();
+                        said.extend(first);
+                        if tiers > 1 {
+                            said.extend(second);
+                        }
+                        activity.said = Box::leak(said.into_boxed_slice());
+                    }
+                    activity
+                })
+                .collect()
+        })
+    });
+    &later[tiers - 1]
+}
+
+/// The harbour's cast as its year has it: its people's days in the words
+/// of the year it is.
+pub(crate) fn cast_in(state: &WorldState) -> Cast {
+    Cast {
+        activities: activities(state),
+        ..cast()
+    }
+}
+
 const LIFE_COMMAND: &str = "tiny-society.life.";
 
 /// The situation and answer a command gives, if it is one of these.

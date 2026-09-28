@@ -2246,18 +2246,20 @@ pub(crate) fn event_summary(event: &Event, world: &World) -> String {
 }
 
 pub(crate) fn humanize(value: &str) -> String {
-    value
-        .split('_')
-        .filter(|part| !part.is_empty())
-        .map(|part| {
-            let mut chars = part.chars();
-            match chars.next() {
-                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
-                None => String::new(),
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
+    // Written into one string: a snapshot humanizes every value the World
+    // keeps, thousands of them in a long-lived World.
+    let mut humane = String::with_capacity(value.len());
+    for part in value.split('_').filter(|part| !part.is_empty()) {
+        if !humane.is_empty() {
+            humane.push(' ');
+        }
+        let mut chars = part.chars();
+        if let Some(first) = chars.next() {
+            humane.extend(first.to_uppercase());
+            humane.push_str(chars.as_str());
+        }
+    }
+    humane
 }
 
 #[cfg(test)]

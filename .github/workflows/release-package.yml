@@ -24,10 +24,10 @@ concurrency:
 
 jobs:
   macos-release:
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@1.98.1
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: release-macos
@@ -201,7 +201,7 @@ jobs:
             target/release-package/*.zip.sha256 \
             target/release-package/release-manifest.json
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: world-machine-release-package
           path: target/release-package/*

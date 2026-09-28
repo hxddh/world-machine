@@ -9,7 +9,7 @@
 use super::*;
 use crate::art::{self, Figure};
 use crate::diorama::{self, Camera, Glows, Stage};
-use gpui::{canvas, Focusable, Hsla, KeyDownEvent};
+use gpui::{canvas, Focusable, Hsla, KeyDownEvent, Role, Stateful};
 use std::collections::BTreeSet;
 use std::time::{Duration, Instant};
 
@@ -22,6 +22,34 @@ const DRAWER_WIDTH: f32 = 360.0;
 /// How often a window behind others checks whether it has come to the
 /// front again. In front, it draws at the display's own rate.
 const FRAME: Duration = Duration::from_millis(250);
+/// How a World window keeps drawing.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Pace {
+    /// In front and moving freely: at the display's own rate.
+    EveryFrame,
+    /// In front with Reduce Motion on: a few times a second
+    /// ([`FRAME`]), enough for what still moves.
+    Ticking,
+    /// Behind other windows: nothing drawn, the clock only looking now
+    /// and then whether the window has come to the front.
+    Waiting,
+    /// Nobody can see it (covered, minimised, or on a sleeping display):
+    /// no frames and no clock at all, until it can be seen again.
+    Asleep,
+}
+
+/// How a World window whose frames can (`visible`) or cannot be seen,
+/// in front (`active`) or not, with Reduce Motion (`still`) or not, keeps
+/// drawing.
+pub(crate) fn pace(visible: bool, active: bool, still: bool) -> Pace {
+    match (visible, active, still) {
+        (false, ..) => Pace::Asleep,
+        (true, false, _) => Pace::Waiting,
+        (true, true, true) => Pace::Ticking,
+        (true, true, false) => Pace::EveryFrame,
+    }
+}
+
 /// How long each thing someone says stays over them, and how long a beat
 /// of a return plays before the next.
 const LINE_SECONDS: f32 = 4.6;
@@ -58,7 +86,11 @@ pub(crate) struct Looking {
     pub(crate) camera_to: Option<Camera>,
     pub(crate) camera_at: Option<Instant>,
     pub(crate) focus: Option<gpui::FocusHandle>,
-    pub(crate) ticking: bool,
+    /// The clock that keeps a living World moving; dropped (stopping it)
+    /// while the window cannot be seen.
+    pub(crate) clock: Option<gpui::Task<()>>,
+    /// Hears when the window is covered, minimised, or shown again.
+    pub(crate) visibility: Option<gpui::Subscription>,
     /// The last chapter whose ending card the player has turned past.
     pub(crate) chapter_read: Option<u32>,
     /// What the player is doing with their own hands, if anything.
@@ -401,8 +433,53 @@ fn text_width(text: &str) -> usize {
         .sum()
 }
 
+/// Punctuation that closes a phrase, and so never begins a line (the
+/// Chinese and Japanese line-breaking rule, kinsoku shori).
+pub(crate) fn never_starts_a_line(character: char) -> bool {
+    matches!(
+        character,
+        '，' | '。'
+            | '、'
+            | '！'
+            | '？'
+            | '：'
+            | '；'
+            | '」'
+            | '』'
+            | '）'
+            | '】'
+            | '》'
+            | '〉'
+            | '〕'
+            | '”'
+            | '’'
+            | '…'
+            | '・'
+            | '～'
+            | 'ー'
+            | ','
+            | '.'
+            | '!'
+            | '?'
+            | ':'
+            | ';'
+            | ')'
+            | ']'
+    )
+}
+
+/// Punctuation that opens a phrase, and so never ends a line.
+fn never_ends_a_line(character: char) -> bool {
+    matches!(
+        character,
+        '「' | '『' | '（' | '【' | '《' | '〈' | '〔' | '“' | '‘' | '(' | '['
+    )
+}
+
 /// A line cut into pages of at most two bubble lines each, broken between
-/// words, or anywhere in a language written without spaces.
+/// words, or anywhere in a language written without spaces, but never
+/// before a closing mark or after an opening one: the character before a
+/// comma goes down to the next line with it.
 pub fn speech_pages(line: &str) -> Vec<String> {
     let mut rows: Vec<String> = Vec::new();
     let mut row = String::new();
@@ -413,7 +490,25 @@ pub fn speech_pages(line: &str) -> Vec<String> {
         let mut piece = String::new();
         for character in word.chars() {
             if text_width(&piece) + text_width(&character.to_string()) > bubble_line() {
-                pieces.push(std::mem::take(&mut piece));
+                let mut carried = Vec::new();
+                if never_starts_a_line(character) {
+                    // Closing marks run together (。」); the word they
+                    // close goes down with them.
+                    while piece.chars().last().is_some_and(never_starts_a_line) {
+                        carried.extend(piece.pop());
+                    }
+                    carried.extend(piece.pop());
+                }
+                while piece.chars().last().is_some_and(never_ends_a_line) {
+                    carried.extend(piece.pop());
+                }
+                if piece.is_empty() {
+                    // Nothing left to break before: keep it all on one line.
+                    piece.extend(carried.into_iter().rev());
+                } else {
+                    pieces.push(std::mem::take(&mut piece));
+                    piece.extend(carried.into_iter().rev());
+                }
             }
             piece.push(character);
         }
@@ -518,24 +613,45 @@ impl ProjectionView {
     }
 
     /// Start the clock that keeps a living World moving while its window is
-    /// in front, once.
+    /// in front, once, unless nobody can see the window.
     fn keep_living(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.looking.ticking {
+        if self.looking.clock.is_some() || !window.is_visible() {
             return;
         }
-        self.looking.ticking = true;
-        cx.spawn_in(window, async move |this, cx| loop {
+        self.looking.clock = Some(cx.spawn_in(window, async move |this, cx| loop {
             cx.background_executor().timer(FRAME).await;
             let alive = this.update_in(cx, |_, window, cx| {
-                if window.is_window_active() {
+                let still = cx.reduce_motion();
+                if matches!(
+                    pace(window.is_visible(), window.is_window_active(), still),
+                    Pace::EveryFrame | Pace::Ticking
+                ) {
                     cx.notify();
                 }
             });
             if alive.is_err() {
                 break;
             }
-        })
-        .detach();
+        }));
+    }
+
+    /// Listens, once, for the window being covered or shown: covered, the
+    /// clock stops; shown again, the World is drawn at once, and that frame
+    /// starts the clock and the pace again.
+    fn watch_visibility(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.looking.visibility.is_some() {
+            return;
+        }
+        self.looking.visibility = Some(cx.observe_window_visibility(
+            window,
+            |this, visibility, _, cx| {
+                if visibility.is_visible() {
+                    cx.notify();
+                } else {
+                    this.looking.clock = None;
+                }
+            },
+        ));
     }
 
     fn cue(&mut self, cue: crate::Cue) {
@@ -1188,11 +1304,17 @@ impl ProjectionView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
+        self.watch_visibility(window, cx);
         self.keep_living(window, cx);
         // In front, the World is drawn at the display's own rate (60 or
         // 120 times a second); with Reduce Motion on, a few times a second
-        // is enough for what still moves.
-        if window.is_window_active() && !cx.reduce_motion() {
+        // is enough for what still moves; covered, not at all.
+        if pace(
+            window.is_visible(),
+            window.is_window_active(),
+            cx.reduce_motion(),
+        ) == Pace::EveryFrame
+        {
             window.request_animation_frame();
         }
         let focus = self
@@ -1456,6 +1578,7 @@ impl ProjectionView {
                         "stage-{}",
                         selection.stable_key()
                     )))
+                    .role(Role::Button)
                     .aria_label(label_of(&self.snapshot, selection).unwrap_or_default())
                     .group(group.clone())
                     .absolute()
@@ -1500,6 +1623,7 @@ impl ProjectionView {
                         "stage-{}",
                         selection.stable_key()
                     )))
+                    .role(Role::Button)
                     .aria_label(label_of(&self.snapshot, selection).unwrap_or_default())
                     .group(group.clone())
                     .absolute()
@@ -1556,39 +1680,43 @@ impl ProjectionView {
         {
             let age = at.elapsed().as_secs_f32();
             let from = label_of(&self.snapshot, keepsake.from).unwrap_or_default();
-            let opacity = (age / 0.3).min((GIFT_SECONDS - age) / 0.6).clamp(0.0, 1.0);
-            let rise = 12.0 * (1.0 - crate::diorama::ease((age / 0.5).min(1.0)));
+            // It rises in on a spring and fades away at the end.
+            let fading = ((GIFT_SECONDS - age) / 0.6).clamp(0.0, 1.0);
+            let gift = div()
+                .id("gift-shown")
+                .role(gpui::Role::Status)
+                .aria_label(format!("{from} gave you {}", keepsake.what))
+                .max_w(px(420.0))
+                .px_4()
+                .py_2()
+                .rounded_xl()
+                .bg(gpui::white())
+                .shadow_md()
+                .flex()
+                .flex_col()
+                .items_center()
+                .child(ui::caption(format!("{from} gave you")))
+                .child(
+                    div()
+                        .text_sm()
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(color(tokens::TEXT))
+                        .child(capitalized(&keepsake.what)),
+                );
             root = root.child(
                 div()
                     .absolute()
-                    .top(px(72.0 + rise))
+                    .top(px(72.0))
                     .left_0()
                     .right_0()
                     .flex()
                     .justify_center()
-                    .opacity(opacity)
-                    .child(
-                        div()
-                            .max_w(px(420.0))
-                            .px_4()
-                            .py_2()
-                            .rounded_xl()
-                            .bg(gpui::white())
-                            .shadow_md()
-                            .flex()
-                            .flex_col()
-                            .items_center()
-                            .child(ui::caption(format!("{from} gave you")))
-                            .id("gift-shown")
-                            .aria_label(format!("{from} gave you {}", keepsake.what))
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .font_weight(FontWeight::MEDIUM)
-                                    .text_color(color(tokens::TEXT))
-                                    .child(capitalized(&keepsake.what)),
-                            ),
-                    ),
+                    .opacity(fading)
+                    .child(ui::spring_in(
+                        gift,
+                        format!("gift-{held}"),
+                        cx.reduce_motion(),
+                    )),
             );
         }
         if let Some(card) = &self.looking.postcard {
@@ -1725,7 +1853,9 @@ impl ProjectionView {
             right = right.child(
                 pill()
                     .id("hands-handle")
+                    .role(Role::Button)
                     .aria_label(ui::t("Make something (H)"))
+                    .aria_expanded(open)
                     .cursor_pointer()
                     .when(open, |pill| pill.bg(color(tokens::ACCENT)))
                     .hover(|style| style.bg(color(tokens::SURFACE)))
@@ -1737,6 +1867,7 @@ impl ProjectionView {
             right = right.child(
                 pill()
                     .id("undo-handle")
+                    .role(Role::Button)
                     .aria_label(ui::t(format!("{title} (⌘Z)")))
                     .cursor_pointer()
                     .hover(|style| style.bg(color(tokens::SURFACE)))
@@ -1748,6 +1879,7 @@ impl ProjectionView {
             right = right.child(
                 pill()
                     .id("photo-handle")
+                    .role(Role::Button)
                     .aria_label(ui::t("Save a photo of the scene (P)"))
                     .cursor_pointer()
                     .hover(|style| style.bg(color(tokens::SURFACE)))
@@ -1757,6 +1889,7 @@ impl ProjectionView {
             right = right.child(
                 pill()
                     .id("postcard-handle")
+                    .role(Role::Button)
                     .aria_label(ui::t(
                         "Save a postcard of the moment picked in History, or of now (C)",
                     ))
@@ -1769,6 +1902,8 @@ impl ProjectionView {
         right = right.child(
             pill()
                 .id("drawer-handle")
+                .role(Role::Button)
+                .aria_expanded(self.looking.drawer)
                 .aria_label(ui::t("The drawer: story, keepsakes and the book (⌘I)"))
                 .cursor_pointer()
                 .hover(|style| style.bg(color(tokens::SURFACE)))
@@ -1797,35 +1932,21 @@ impl ProjectionView {
             .into_iter()
             .filter(|verb| self.snapshot.deeds().any(|(_, _, hand)| hand.verb == *verb))
             .collect::<Vec<_>>();
-        let mut tabs = div().flex().flex_wrap().gap_1();
+        let mut tabs = ui::region("hands-verbs", Role::TabList, "What to do")
+            .flex()
+            .flex_wrap()
+            .gap_1();
         for verb in verbs {
             let chosen = hands.verb.as_deref() == Some(verb);
-            tabs = tabs.child(
-                div()
-                    .id(SharedString::from(format!("hands-verb-{verb}")))
-                    .aria_label(ui::t(verb))
-                    .px_2()
-                    .py(px(3.0))
-                    .rounded_full()
-                    .text_sm()
-                    .cursor_pointer()
-                    .when(chosen, |tab| {
-                        tab.bg(color(tokens::ACCENT))
-                            .text_color(color(tokens::SURFACE))
-                    })
-                    .when(!chosen, |tab| {
-                        tab.text_color(color(tokens::TEXT_SECONDARY))
-                            .hover(|style| style.bg(color(tokens::ROW_SELECTED)))
-                    })
-                    .child(verb)
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.looking.hands = Some(Hands {
-                            verb: Some(verb.to_string()),
-                            thing: to_someone(verb).then(|| "*".to_string()),
-                        });
-                        cx.notify();
-                    })),
-            );
+            tabs = tabs.child(verb_tab(verb, chosen).on_click(cx.listener(
+                move |this, _, _, cx| {
+                    this.looking.hands = Some(Hands {
+                        verb: Some(verb.to_string()),
+                        thing: to_someone(verb).then(|| "*".to_string()),
+                    });
+                    cx.notify();
+                },
+            )));
         }
         let mut body = div().flex().flex_col().gap_1();
         match (hands.verb.as_deref(), hands.thing.as_deref()) {
@@ -1863,6 +1984,8 @@ impl ProjectionView {
                     body = body.child(
                         div()
                             .id("hands-back")
+                            .role(Role::Button)
+                            .aria_label(ui::t("Something else"))
                             .text_sm()
                             .text_color(color(tokens::ACCENT_TEXT))
                             .cursor_pointer()
@@ -1918,6 +2041,12 @@ impl ProjectionView {
                     let (verb, thing) = (verb.to_string(), key);
                     let mut row = div()
                         .id(SharedString::from(format!("hands-thing-{}", command.id)))
+                        .role(Role::Button)
+                        .aria_label(label.clone())
+                        .when_some(
+                            command.unavailable.clone().filter(|_| !possible),
+                            |row, reason| row.aria_description(reason),
+                        )
                         .px_2()
                         .py(px(5.0))
                         .rounded_md()
@@ -1958,6 +2087,9 @@ impl ProjectionView {
                 .w(px(260.0))
                 .child(
                     ui::card()
+                        .id("hands")
+                        .role(Role::Group)
+                        .aria_label(ui::t("Make something"))
                         .p_3()
                         .flex()
                         .flex_col()
@@ -2054,6 +2186,7 @@ impl ProjectionView {
             dots = dots.child(arrow_button(
                 "card-previous",
                 "‹",
+                "Previous card",
                 cx.listener(|this, _, _, cx| this.cycle_card(-1, cx)),
             ));
             for step in 0..count {
@@ -2071,6 +2204,7 @@ impl ProjectionView {
             dots = dots.child(arrow_button(
                 "card-next",
                 "›",
+                "Next card",
                 cx.listener(|this, _, _, cx| this.cycle_card(1, cx)),
             ));
         }
@@ -2082,6 +2216,13 @@ impl ProjectionView {
             .child(
                 div()
                     .id("card-more")
+                    .role(Role::Button)
+                    .aria_label(ui::t(if self.looking.card_back {
+                        "Less"
+                    } else {
+                        "More"
+                    }))
+                    .aria_expanded(self.looking.card_back)
                     .text_sm()
                     .text_color(color(tokens::TEXT_SECONDARY))
                     .cursor_pointer()
@@ -2110,7 +2251,10 @@ impl ProjectionView {
         // leans toward it and the gauges show what it would move; clicking
         // it answers.
         let leaned = self.looking.answer.min(answers.len().saturating_sub(1));
-        let mut replies = div().flex().flex_col().gap_2();
+        let mut replies = ui::region("answers", Role::Group, "Answers")
+            .flex()
+            .flex_col()
+            .gap_2();
         if question.is_some() {
             for (position, answer) in answers.iter().enumerate() {
                 let Some(reply) = self.snapshot.commands.get(*answer) else {
@@ -2118,73 +2262,40 @@ impl ProjectionView {
                 };
                 let id = reply.id.clone();
                 let chosen = position == leaned;
-                if let Some(reason) = &reply.unavailable {
-                    // Shown so the player sees what the choice would have
-                    // been; the reason only when they lean on it.
-                    let mut row = div()
-                        .id(SharedString::from(format!("answer-{position}")))
-                        .px_4()
-                        .py_2()
-                        .rounded_xl()
-                        .border_1()
-                        .border_color(color(tokens::BORDER))
-                        .text_sm()
-                        .text_color(color(tokens::TEXT_TERTIARY))
-                        .flex()
-                        .justify_between()
-                        .gap_3()
-                        .child(reply.title.clone())
-                        .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
-                            if *hovered {
-                                this.lean_to(position, cx);
-                            }
-                        }));
-                    if chosen && !reason.is_empty() {
-                        row = row.child(div().text_xs().child(reason.clone()));
+                let row = answer_button(
+                    position,
+                    answers.len(),
+                    reply.title.clone(),
+                    chosen,
+                    reply.unavailable.as_deref(),
+                )
+                .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
+                    if *hovered {
+                        this.lean_to(position, cx);
                     }
-                    replies = replies.child(row);
-                    continue;
-                }
-                replies = replies.child(
-                    div()
-                        .id(SharedString::from(format!("answer-{position}")))
-                        .px_4()
-                        .py_2()
-                        .rounded_xl()
-                        .border_1()
-                        .cursor_pointer()
-                        .text_sm()
-                        .font_weight(FontWeight::MEDIUM)
-                        .border_color(color(if chosen {
-                            tokens::ACCENT
-                        } else {
-                            tokens::BORDER
-                        }))
-                        .bg(color(if chosen {
-                            tokens::ACCENT_SOFT
-                        } else {
-                            tokens::SURFACE
-                        }))
-                        .text_color(color(if chosen {
-                            tokens::ACCENT_TEXT
-                        } else {
-                            tokens::TEXT
-                        }))
-                        .hover(|style| style.border_color(color(tokens::ACCENT)))
-                        .child(reply.title.clone())
-                        .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
-                            if *hovered {
-                                this.lean_to(position, cx);
-                            }
-                        }))
-                        .on_click(
-                            cx.listener(move |this, _, _, cx| this.invoke_command(id.clone(), cx)),
-                        ),
-                );
+                }));
+                replies = replies.child(if reply.unavailable.is_some() {
+                    row
+                } else {
+                    row.on_click(
+                        cx.listener(move |this, _, _, cx| this.invoke_command(id.clone(), cx)),
+                    )
+                });
             }
         }
 
+        let prompt = match &question {
+            Some(question) => question.prompt.clone(),
+            None => command.title.clone(),
+        };
         let card = div()
+            .id("turn-card")
+            .role(Role::Group)
+            .aria_label(if names.is_empty() {
+                prompt.to_string()
+            } else {
+                format!("{}: {prompt}", names.join(" & "))
+            })
             .p_5()
             .rounded_2xl()
             .bg(color(tokens::SURFACE))
@@ -2205,10 +2316,10 @@ impl ProjectionView {
                     .child(dots)
                     .child(actions),
             );
-        Some(div().child(ui::arrive(
+        Some(div().child(ui::spring_in(
             card,
             format!("card-{}-{index}", self.revision()),
-            0,
+            cx.reduce_motion(),
         )))
     }
 
@@ -2260,13 +2371,16 @@ impl ProjectionView {
 
     /// The story so far, chapter by chapter, and what the World is building,
     /// for the drawer.
-    pub(crate) fn render_chapters(&self) -> Option<Div> {
+    pub(crate) fn render_chapters(&self) -> Option<Stateful<Div>> {
         if self.snapshot.chapters.is_empty() && self.snapshot.goals.is_empty() {
             return None;
         }
-        let mut book = div().flex().flex_col().gap_4();
+        let mut book = ui::region("drawer-story", Role::Group, "The story so far")
+            .flex()
+            .flex_col()
+            .gap_4();
         if !self.snapshot.goals.is_empty() {
-            let mut goals = div()
+            let mut goals = ui::region("drawer-goals", Role::List, "Building")
                 .flex()
                 .flex_col()
                 .gap_2()
@@ -2283,40 +2397,47 @@ impl ProjectionView {
                     )));
                 }
                 goals = goals.child(
-                    div()
-                        .px_3()
-                        .flex()
-                        .items_center()
-                        .justify_between()
-                        .child(div().text_sm().child(goal.label.clone()))
-                        .child(pips),
+                    list_entry(
+                        SharedString::from(format!("goal-{}", goal.label)),
+                        format!("{}: {} of {}", goal.label, goal.done, goal.parts),
+                    )
+                    .px_3()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .child(div().text_sm().child(goal.label.clone()))
+                    .child(pips),
                 );
             }
             book = book.child(goals);
         }
         if !self.snapshot.chapters.is_empty() {
-            let mut chapters = div()
+            let heading = format!("Chapters · {}", self.snapshot.chapters.len());
+            let mut chapters = ui::region("drawer-chapters", Role::List, heading.clone())
                 .flex()
                 .flex_col()
                 .gap_3()
-                .child(ui::section_label(format!(
-                    "Chapters · {}",
-                    self.snapshot.chapters.len()
-                )));
+                .child(ui::section_label(heading));
             for chapter in self.snapshot.chapters.iter().rev() {
                 chapters = chapters.child(
-                    div()
-                        .px_3()
-                        .flex()
-                        .flex_col()
-                        .gap_1()
-                        .child(ui::caption(format!("Chapter {}", chapter.number)))
-                        .child(
-                            div()
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .child(chapter.title.clone()),
-                        )
-                        .child(ui::detail(chapter.summary.clone())),
+                    list_entry(
+                        SharedString::from(format!("chapter-{}", chapter.number)),
+                        format!(
+                            "Chapter {}: {}. {}",
+                            chapter.number, chapter.title, chapter.summary
+                        ),
+                    )
+                    .px_3()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(ui::caption(format!("Chapter {}", chapter.number)))
+                    .child(
+                        div()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(chapter.title.clone()),
+                    )
+                    .child(ui::detail(chapter.summary.clone())),
                 );
             }
             book = book.child(chapters);
@@ -2326,38 +2447,43 @@ impl ProjectionView {
 
     /// What people have given the player to keep, newest first, for the
     /// drawer: what it is, who from, and what they said with it.
-    pub(crate) fn render_keepsakes(&self) -> Option<Div> {
+    pub(crate) fn render_keepsakes(&self) -> Option<Stateful<Div>> {
         if self.snapshot.keepsakes.is_empty() {
             return None;
         }
-        let mut kept = div()
+        let heading = format!("Keepsakes · {}", self.snapshot.keepsakes.len());
+        let mut kept = ui::region("drawer-keepsakes", Role::List, heading.clone())
             .flex()
             .flex_col()
             .gap_3()
-            .child(ui::section_label(format!(
-                "Keepsakes · {}",
-                self.snapshot.keepsakes.len()
-            )));
-        for keepsake in self.snapshot.keepsakes.iter().rev() {
+            .child(ui::section_label(heading));
+        for (index, keepsake) in self.snapshot.keepsakes.iter().enumerate().rev() {
             let from = label_of(&self.snapshot, keepsake.from)
                 .map(|name| format!("From {}", first_name(&name)))
                 .unwrap_or_else(|| "From a friend".into());
+            let said = if keepsake.note.is_empty() {
+                String::new()
+            } else {
+                format!(": “{}”", keepsake.note)
+            };
             kept = kept.child(
-                div()
-                    .px_3()
-                    .flex()
-                    .flex_col()
-                    .gap_1()
-                    .child(ui::caption(from))
-                    .child(
-                        div()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(capitalized(&keepsake.what)),
-                    )
-                    .children(
-                        (!keepsake.note.is_empty())
-                            .then(|| ui::detail(format!("“{}”", keepsake.note))),
-                    ),
+                list_entry(
+                    SharedString::from(format!("keepsake-{index}")),
+                    format!("{}. {from}{said}", capitalized(&keepsake.what)),
+                )
+                .px_3()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .child(ui::caption(from))
+                .child(
+                    div()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(capitalized(&keepsake.what)),
+                )
+                .children(
+                    (!keepsake.note.is_empty()).then(|| ui::detail(format!("“{}”", keepsake.note))),
+                ),
             );
         }
         Some(kept)
@@ -2365,30 +2491,38 @@ impl ProjectionView {
 
     /// The letter box: what people have written the player, newest first,
     /// kept apart from keepsakes so a keepsake still means something.
-    pub(crate) fn render_letters(&self) -> Option<Div> {
+    pub(crate) fn render_letters(&self) -> Option<Stateful<Div>> {
         if self.snapshot.letters.is_empty() {
             return None;
         }
-        let mut letters = div()
+        let heading = format!("Letters · {}", self.snapshot.letters.len());
+        let mut letters = ui::region("drawer-letters", Role::List, heading.clone())
             .flex()
             .flex_col()
             .gap_3()
-            .child(ui::section_label(format!(
-                "Letters · {}",
-                self.snapshot.letters.len()
-            )));
-        for letter in self.snapshot.letters.iter().rev().take(LETTERS_SHOWN) {
+            .child(ui::section_label(heading));
+        for (index, letter) in self
+            .snapshot
+            .letters
+            .iter()
+            .enumerate()
+            .rev()
+            .take(LETTERS_SHOWN)
+        {
             let from = label_of(&self.snapshot, letter.from)
                 .map(|name| format!("From {}", first_name(&name)))
                 .unwrap_or_else(|| "From a friend".into());
             letters = letters.child(
-                div()
-                    .px_3()
-                    .flex()
-                    .flex_col()
-                    .gap_1()
-                    .child(ui::caption(from))
-                    .children((!letter.note.is_empty()).then(|| ui::detail(letter.note.clone()))),
+                list_entry(
+                    SharedString::from(format!("letter-{index}")),
+                    format!("{from}: {}", letter.note),
+                )
+                .px_3()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .child(ui::caption(from))
+                .children((!letter.note.is_empty()).then(|| ui::detail(letter.note.clone()))),
             );
         }
         Some(letters)
@@ -2397,20 +2531,18 @@ impl ProjectionView {
     /// The book of everything to find: a shelf each for keepsakes, people,
     /// things made and festival days, what has been found drawn in colour
     /// and what is still to come as a silhouette with a hint.
-    pub(crate) fn render_book(&self) -> Option<Div> {
+    pub(crate) fn render_book(&self) -> Option<Stateful<Div>> {
         let book = &self.snapshot.book;
         if book.is_empty() {
             return None;
         }
         let found = book.iter().filter(|entry| entry.found).count();
-        let mut section = div()
+        let heading = format!("Book · {found} of {}", book.len());
+        let mut section = ui::region("drawer-book", Role::Group, heading.clone())
             .flex()
             .flex_col()
             .gap_3()
-            .child(ui::section_label(format!(
-                "Book · {found} of {}",
-                book.len()
-            )));
+            .child(ui::section_label(heading));
         let mut shelves = Vec::<&str>::new();
         for entry in book {
             if !shelves.contains(&entry.shelf.as_str()) {
@@ -2424,20 +2556,22 @@ impl ProjectionView {
                 .collect::<Vec<_>>();
             let found = entries.iter().filter(|entry| entry.found).count();
             let mut grid = div().flex().flex_wrap().gap_2();
-            for entry in entries {
-                grid = grid.child(book_tile(entry));
+            for (index, entry) in entries.into_iter().enumerate() {
+                grid = grid.child(book_tile(entry, index));
             }
+            let heading = format!("{shelf} · {found} of {}", shelf_len(book, shelf));
             section = section.child(
-                div()
-                    .px_3()
-                    .flex()
-                    .flex_col()
-                    .gap_2()
-                    .child(ui::caption(format!(
-                        "{shelf} · {found} of {}",
-                        shelf_len(book, shelf)
-                    )))
-                    .child(grid),
+                ui::region(
+                    SharedString::from(format!("shelf-{shelf}")),
+                    Role::List,
+                    heading.clone(),
+                )
+                .px_3()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(ui::caption(heading))
+                .child(grid),
             );
         }
         Some(section)
@@ -2465,6 +2599,8 @@ impl ProjectionView {
             .unwrap_or_default();
         let mut card = div()
             .id("asking")
+            .role(Role::Group)
+            .aria_label(ui::t(format!("Asking {name}")))
             .w(px(WIDTH))
             .p_4()
             .rounded_xl()
@@ -2494,6 +2630,7 @@ impl ProjectionView {
                     .child(arrow_button(
                         "asking-close",
                         "×",
+                        "Close",
                         cx.listener(|this, _, _, cx| this.look_away(cx)),
                     )),
             );
@@ -2519,6 +2656,8 @@ impl ProjectionView {
             card = card.child(
                 div()
                     .id(SharedString::from(format!("ask-{index}")))
+                    .role(Role::Button)
+                    .aria_label(talk.question.clone())
                     .px_3()
                     .py_2()
                     .rounded_lg()
@@ -2585,6 +2724,7 @@ impl ProjectionView {
         card = card.child(
             div()
                 .id("ask-more")
+                .role(Role::Button)
                 .pt_1()
                 .text_xs()
                 .text_color(color(tokens::TEXT_SECONDARY))
@@ -2615,7 +2755,11 @@ impl ProjectionView {
             .absolute()
             .left(px(left))
             .top(px(top))
-            .child(ui::arrive(card, format!("asking-{}", who.stable_key()), 0))
+            .child(ui::spring_in(
+                card,
+                format!("asking-{}", who.stable_key()),
+                cx.reduce_motion(),
+            ))
     }
 
     /// What the player and someone said to each other today, latest last:
@@ -2717,21 +2861,23 @@ impl ProjectionView {
                 .child(arrow_button(
                     "drawer-close",
                     "×",
+                    "Close the drawer",
                     cx.listener(|this, _, _, cx| this.toggle_drawer(cx)),
                 )),
         );
         // The story so far comes first: what the World is building and the
         // chapters it has closed.
         for part in [
-            self.render_chapters(),
-            self.render_letters(),
-            self.render_keepsakes(),
-            self.render_book(),
-            self.render_closer_look(cx),
-            self.render_story(cx),
-            self.render_standing(cx),
-            self.render_cast(cx),
-            self.render_history(cx),
+            self.render_chapters().map(IntoElement::into_any_element),
+            self.render_letters().map(IntoElement::into_any_element),
+            self.render_keepsakes().map(IntoElement::into_any_element),
+            self.render_book().map(IntoElement::into_any_element),
+            self.render_closer_look(cx)
+                .map(IntoElement::into_any_element),
+            self.render_story(cx).map(IntoElement::into_any_element),
+            self.render_standing(cx).map(IntoElement::into_any_element),
+            self.render_cast(cx).map(IntoElement::into_any_element),
+            self.render_history(cx).map(IntoElement::into_any_element),
         ]
         .into_iter()
         .flatten()
@@ -2740,6 +2886,8 @@ impl ProjectionView {
         }
         div()
             .id("world-drawer")
+            .role(Role::Complementary)
+            .aria_label(ui::t("The drawer"))
             .absolute()
             .top_0()
             .right_0()
@@ -2897,13 +3045,105 @@ fn drawer_glyph() -> gpui::Canvas<()> {
     )
 }
 
+/// One entry in a list a screen reader reads out whole: a letter, a
+/// keepsake, a chapter, a thing in the book.
+fn list_entry(id: impl Into<gpui::ElementId>, label: impl Into<SharedString>) -> Stateful<Div> {
+    div().id(id).role(Role::ListItem).aria_label(label)
+}
+
+/// One of the hands' verbs, as a tab: chosen or not.
+fn verb_tab(verb: &'static str, chosen: bool) -> Stateful<Div> {
+    div()
+        .id(SharedString::from(format!("hands-verb-{verb}")))
+        .role(Role::Tab)
+        .aria_label(ui::t(verb))
+        .aria_selected(chosen)
+        .px_2()
+        .py(px(3.0))
+        .rounded_full()
+        .text_sm()
+        .cursor_pointer()
+        .when(chosen, |tab| {
+            tab.bg(color(tokens::ACCENT))
+                .text_color(color(tokens::SURFACE))
+        })
+        .when(!chosen, |tab| {
+            tab.text_color(color(tokens::TEXT_SECONDARY))
+                .hover(|style| style.bg(color(tokens::ROW_SELECTED)))
+        })
+        .child(verb)
+}
+
+/// One answer to the question on the card, the `position`th of `count`:
+/// a button, leaned toward (`chosen`) or not. One that cannot be chosen
+/// now is shown greyed so the player sees what it would have been, with
+/// why not when they lean on it; a screen reader hears why at once.
+fn answer_button(
+    position: usize,
+    count: usize,
+    title: String,
+    chosen: bool,
+    unavailable: Option<&str>,
+) -> Stateful<Div> {
+    let row = div()
+        .id(SharedString::from(format!("answer-{position}")))
+        .role(Role::Button)
+        .aria_label(title.clone())
+        .aria_position_in_set(position + 1)
+        .aria_size_of_set(count)
+        .px_4()
+        .py_2()
+        .rounded_xl()
+        .border_1()
+        .text_sm();
+    if let Some(reason) = unavailable {
+        let row = row
+            .when(!reason.is_empty(), |row| {
+                row.aria_description(ui::t(format!("Not now: {reason}")))
+            })
+            .border_color(color(tokens::BORDER))
+            .text_color(color(tokens::TEXT_TERTIARY))
+            .flex()
+            .justify_between()
+            .gap_3()
+            .child(title);
+        return if chosen && !reason.is_empty() {
+            row.child(div().text_xs().child(reason.to_string()))
+        } else {
+            row
+        };
+    }
+    row.cursor_pointer()
+        .font_weight(FontWeight::MEDIUM)
+        .border_color(color(if chosen {
+            tokens::ACCENT
+        } else {
+            tokens::BORDER
+        }))
+        .bg(color(if chosen {
+            tokens::ACCENT_SOFT
+        } else {
+            tokens::SURFACE
+        }))
+        .text_color(color(if chosen {
+            tokens::ACCENT_TEXT
+        } else {
+            tokens::TEXT
+        }))
+        .hover(|style| style.border_color(color(tokens::ACCENT)))
+        .child(title)
+}
+
 fn arrow_button(
     id: &'static str,
     glyph: &'static str,
+    label: &'static str,
     on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App) + 'static,
 ) -> impl IntoElement {
     div()
         .id(id)
+        .role(Role::Button)
+        .aria_label(ui::t(label))
         .size(px(26.0))
         .rounded_full()
         .flex()
@@ -3032,7 +3272,7 @@ fn save_picture(bounds: gpui::Bounds<gpui::Pixels>, title: &str, stamped: bool) 
 /// The paper of a postcard around a scene `width` by `height`: an even
 /// border, and at the foot a band with the caption, who said it, and the
 /// World and the day.
-fn postcard_paper(card: &crate::postcard::Postcard, width: f32, height: f32) -> Div {
+pub(crate) fn postcard_paper(card: &crate::postcard::Postcard, width: f32, height: f32) -> Div {
     let layout = crate::postcard::postcard_layout(width, height);
     let paper = gpui::rgb(crate::postcard::PAPER);
     let ink = gpui::rgb(crate::postcard::INK);
@@ -3102,7 +3342,7 @@ fn shelf_len(book: &[world_projection::BookEntry], shelf: &str) -> usize {
 
 /// One entry of the book: drawn in colour with its name once found, a
 /// silhouette with a hint until then.
-fn book_tile(entry: &world_projection::BookEntry) -> Div {
+fn book_tile(entry: &world_projection::BookEntry, index: usize) -> Stateful<Div> {
     let found = entry.found;
     let shape = entry.shape;
     let key = entry.name.clone();
@@ -3157,7 +3397,12 @@ fn book_tile(entry: &world_projection::BookEntry) -> Div {
     )
     .w(px(64.0))
     .h(px(48.0));
-    div()
+    let label = if found {
+        capitalized(&entry.name)
+    } else {
+        format!("Not found yet: {}", entry.hint)
+    };
+    list_entry(SharedString::from(format!("book-{index}")), label)
         .w(px(88.0))
         .p_1()
         .rounded_md()
@@ -3186,4 +3431,232 @@ fn book_tile(entry: &world_projection::BookEntry) -> Div {
                     entry.hint.clone()
                 }),
         )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ui::accessible;
+    use world_projection::{BookEntry, Chapter, Keepsake, Letter};
+
+    #[test]
+    fn a_world_nobody_can_see_asks_for_no_frames_and_keeps_no_clock() {
+        for active in [false, true] {
+            for still in [false, true] {
+                assert_eq!(pace(false, active, still), Pace::Asleep);
+            }
+        }
+        assert_eq!(pace(true, false, false), Pace::Waiting);
+        assert_eq!(pace(true, false, true), Pace::Waiting);
+        assert_eq!(pace(true, true, true), Pace::Ticking);
+        assert_eq!(pace(true, true, false), Pace::EveryFrame);
+    }
+
+    /// Through GPUI's test window: covered, the World's clock stops;
+    /// shown again, it is drawn at once and the clock starts again.
+    #[gpui::test]
+    fn a_covered_world_stops_its_clock_and_draws_when_shown(cx: &mut gpui::TestAppContext) {
+        use gpui::{VisualTestContext, WindowVisibility};
+        let window = cx.add_window(|_, _| ProjectionView::new(ProjectionSnapshot::default()));
+        let view = window.root(cx).expect("the World");
+        let cx = &mut VisualTestContext::from_window(window.into(), cx);
+        cx.run_until_parked();
+        let ticking =
+            |cx: &mut VisualTestContext| view.read_with(cx, |view, _| view.looking.clock.is_some());
+        assert!(ticking(cx), "a World in view keeps its clock");
+
+        cx.simulate_visibility_change(WindowVisibility::Hidden);
+        cx.run_until_parked();
+        assert!(!ticking(cx), "covered, the clock stops");
+        cx.executor().advance_clock(FRAME * 40);
+        cx.run_until_parked();
+        assert!(!ticking(cx), "and nothing starts it while covered");
+
+        cx.simulate_visibility_change(WindowVisibility::Visible);
+        cx.run_until_parked();
+        assert!(ticking(cx), "shown, it is drawn and the clock starts again");
+    }
+
+    fn someone() -> SelectionId {
+        SelectionId::from_stable_key("entity-7").expect("an entity key")
+    }
+
+    fn a_full_drawer() -> ProjectionSnapshot {
+        let mut snapshot = ProjectionSnapshot {
+            letters: vec![Letter {
+                from: someone(),
+                note: "The pier is mended.".into(),
+                moment: someone(),
+            }],
+            keepsakes: vec![Keepsake {
+                from: someone(),
+                what: "a pressed flower".into(),
+                note: "From the harbour".into(),
+                moment: someone(),
+            }],
+            chapters: vec![Chapter {
+                number: 1,
+                title: "The storm".into(),
+                summary: "The town came through.".into(),
+                moment: None,
+            }],
+            book: vec![
+                BookEntry {
+                    shelf: "Keepsakes".into(),
+                    name: "a pressed flower".into(),
+                    found: true,
+                    shape: None,
+                    hint: String::new(),
+                },
+                BookEntry {
+                    shelf: "Keepsakes".into(),
+                    name: "a shell".into(),
+                    found: false,
+                    shape: None,
+                    hint: "Someone by the sea".into(),
+                },
+            ],
+            ..ProjectionSnapshot::default()
+        };
+        snapshot.canvas.items.push(world_projection::CanvasItem {
+            id: someone(),
+            kind: world_projection::CanvasItemKind::Actor,
+            label: "Mara Quinn".into(),
+            detail: String::new(),
+            x: 0.5,
+            y: 0.5,
+            changes: Vec::new(),
+            shape: None,
+            at: None,
+            look: None,
+            drawing: None,
+            stance: None,
+            standing: None,
+            mood: None,
+            spot: None,
+        });
+        snapshot
+    }
+
+    /// Each part of the drawer is a region a screen reader can find by
+    /// name, and what is in it is read out entry by entry.
+    #[test]
+    fn the_drawer_sections_are_named_lists() {
+        let view = ProjectionView::new(a_full_drawer());
+        let named = |part: Option<Stateful<Div>>| {
+            let (role, node) = accessible(&part.expect("a section"));
+            (role, node.label().map(str::to_string))
+        };
+        assert_eq!(
+            named(view.render_letters()),
+            (Some(Role::List), Some("Letters · 1".into()))
+        );
+        assert_eq!(
+            named(view.render_keepsakes()),
+            (Some(Role::List), Some("Keepsakes · 1".into()))
+        );
+        assert_eq!(
+            named(view.render_book()),
+            (Some(Role::Group), Some("Book · 1 of 2".into()))
+        );
+        assert_eq!(
+            named(view.render_chapters()),
+            (Some(Role::Group), Some("The story so far".into()))
+        );
+        let entry = accessible(&list_entry("letter-0", "From Mara: The pier is mended."));
+        assert_eq!(entry.0, Some(Role::ListItem));
+        assert_eq!(entry.1.label(), Some("From Mara: The pier is mended."));
+        let snapshot = a_full_drawer();
+        let (role, found) = accessible(&book_tile(&snapshot.book[0], 0));
+        assert_eq!(role, Some(Role::ListItem));
+        assert_eq!(found.label(), Some("A pressed flower"));
+        let (_, missing) = accessible(&book_tile(&snapshot.book[1], 1));
+        assert_eq!(missing.label(), Some("Not found yet: Someone by the sea"));
+    }
+
+    /// The answers on a question's card are buttons in a set, named by
+    /// what they say; one that cannot be chosen now says why.
+    #[test]
+    fn answers_and_verbs_are_named_controls() {
+        let (role, node) = accessible(&answer_button(1, 3, "Stay home".into(), true, None));
+        assert_eq!(role, Some(Role::Button));
+        assert_eq!(node.label(), Some("Stay home"));
+        assert_eq!(node.position_in_set(), Some(2));
+        assert_eq!(node.size_of_set(), Some(3));
+        let (role, node) = accessible(&answer_button(
+            0,
+            3,
+            "Lend the boat".into(),
+            false,
+            Some("The boat is out"),
+        ));
+        assert_eq!(role, Some(Role::Button));
+        assert_eq!(node.description(), Some("Not now: The boat is out"));
+        let (role, node) = accessible(&verb_tab("Plant", true));
+        assert_eq!(role, Some(Role::Tab));
+        assert_eq!(node.label(), Some("Plant"));
+        assert_eq!(node.is_selected(), Some(true));
+        let (_, other) = accessible(&verb_tab("Give", false));
+        assert_eq!(other.is_selected(), Some(false));
+    }
+
+    struct Arriving(bool);
+
+    impl Render for Arriving {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div().size_full().child(ui::spring_in(
+                div().debug_selector(|| "arriving".into()).size(px(40.0)),
+                "arriving",
+                self.0,
+            ))
+        }
+    }
+
+    /// A card springs up from a little below its place, and with Reduce
+    /// Motion on (GPUI's setting, and ours) it is in its place from the
+    /// first frame.
+    #[gpui::test]
+    fn a_card_springs_into_place_unless_motion_is_reduced(cx: &mut gpui::TestAppContext) {
+        use gpui::VisualTestContext;
+        let top = |still: bool, reduce: bool, cx: &mut gpui::TestAppContext| {
+            cx.update(|cx| cx.set_reduce_motion(reduce));
+            let window = cx.add_window(move |_, _| Arriving(still));
+            let cx = &mut VisualTestContext::from_window(window.into(), cx);
+            cx.run_until_parked();
+            f32::from(cx.debug_bounds("arriving").expect("drawn").origin.y)
+        };
+        let moving = top(false, false, cx);
+        assert!(moving > 10.0, "starts below its place: {moving}");
+        assert_eq!(top(false, true, cx), 0.0, "GPUI's Reduce Motion");
+        assert_eq!(top(true, false, cx), 0.0, "our own");
+    }
+
+    /// Chinese is cut by width, but a closing mark (，。！？」) never
+    /// starts a line, and an opening one (「) never ends one: the
+    /// character before goes down with it, and every line still fits.
+    #[test]
+    fn chinese_lines_never_start_with_closing_punctuation() {
+        // Eighteen characters fill a bubble line; each mark here falls
+        // just where the line would otherwise break.
+        let lines = [
+            "今天港口的船都回来了大家都很高兴我们，晚上在码头一起吃饭吧你也来吗？",
+            "今天港口的船都回来了大家都很高兴我们。」他笑着说今天港口的船都回来了。",
+            "今天港口的船都回来了大家都很高兴我「们」今天港口的船都回来了大家都很！",
+        ];
+        for line in lines {
+            let pages = speech_pages(line);
+            let rows = pages
+                .iter()
+                .flat_map(|page| page.lines())
+                .collect::<Vec<_>>();
+            assert!(rows.len() >= 2, "{rows:?}");
+            for row in &rows {
+                let first = row.chars().next().expect("a row is never empty");
+                assert!(!never_starts_a_line(first), "{row:?} starts with {first}");
+                assert!(!row.ends_with('「'), "{row:?} ends opening a quote");
+                assert!(row.chars().count() <= 18, "{row:?} is too wide");
+            }
+            assert_eq!(rows.concat(), line, "nothing is lost");
+        }
+    }
 }

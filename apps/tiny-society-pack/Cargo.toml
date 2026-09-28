@@ -1,6 +1,6 @@
 [package]
 name = "tiny-society-pack"
-version = "0.12.0"
+version = "0.13.0"
 edition = "2021"
 license = "Apache-2.0"
 publish = false
@@ -11,7 +11,10 @@ world-pack-server = { path = "../../crates/world-pack-server" }
 world-voice = { path = "../../crates/world-voice" }
 
 [dev-dependencies]
+world-document = { path = "../../crates/world-document" }
+world-library = { path = "../../crates/world-library" }
 world-host = { path = "../../crates/world-host" }
 world-pack-catalog = { path = "../../crates/world-pack-catalog" }
+world-pack-process = { path = "../../crates/world-pack-process" }
 world-pack-protocol = { path = "../../crates/world-pack-protocol" }
 world-projection = { path = "../../crates/world-projection" }

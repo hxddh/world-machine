@@ -393,6 +393,19 @@ An API key	一个 API 密钥
 Save key	保存密钥
 Forget key	忘记密钥
 The key goes into your login keychain, never into a file.	密钥会存入你的登录钥匙串，绝不会写入文件。
+This Mac's own model	这台 Mac 自带的模型
+Stays on this Mac · free, and needs no key	留在这台 Mac 上 · 免费，无需密钥
+On, through this Mac's own model.	已开启，通过这台 Mac 自带的模型。
+On, checking this Mac's own model…	已开启，正在检查这台 Mac 自带的模型…
+On, but this Mac's own model is not available, so Worlds still read from the app's copy.	已开启，但这台 Mac 自带的模型不可用，世界仍从应用自带的副本中读取。
+Apple's model answers what people say to you, through /usr/bin/fm. When it cannot, they answer in the World's own words.	Apple 的模型通过 /usr/bin/fm 回应人们对你说的话。它无法回应时，人们会用世界自己的话来回答。
+Apple's model answers what people say to you, through /usr/bin/fm.	Apple 的模型通过 /usr/bin/fm 回应人们对你说的话。
+When it cannot, they answer in the World's own words.	它无法回应时，人们会用世界自己的话来回答。
+Claude model	Claude 模型
+Save model	保存模型
+Model: {}	模型：{}
+Model: {}, set by WORLD_MACHINE_VOICE_MODEL	模型：{}，由 WORLD_MACHINE_VOICE_MODEL 指定
+An empty field goes back to the default.	留空则恢复默认值。
 Music	音乐
 Chords, a morning tune and an evening one, by the hour and the weather	和弦，一段晨曲与一段暮曲，随时辰与天气变化
 Landscape	风景

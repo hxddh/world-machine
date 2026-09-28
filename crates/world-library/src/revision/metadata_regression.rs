@@ -113,6 +113,7 @@ fn archive(world_time: u64) -> WorldArchive {
         world_time,
         events: Vec::new(),
         pending: Vec::new(),
+        checkpoint: None,
     }
 }
 

@@ -1,22 +1,30 @@
-//! World codes: a World's start and history as a short piece of text (or a
-//! `.worldcode` file holding it) that anyone can open as a *visit*.
+//! World codes: a World as a short piece of text (or a `.worldcode` file
+//! holding it) that anyone can open as a *visit*.
 //!
-//! A code is `wm1:` followed by the World document (its archive and its
-//! name) as compact JSON, deflated and written in URL-safe base64 without
-//! padding, then `.` and the CRC-32 of that JSON as eight hex digits:
+//! A code is `wm2:` followed by the World document as compact JSON,
+//! deflated and written in URL-safe base64 without padding, then `.` and
+//! the CRC-32 of that JSON as eight hex digits:
 //!
 //! ```text
-//! wm1:<base64url(deflate(json))>.<crc32 hex>
+//! wm2:<base64url(deflate(json))>.<crc32 hex>
 //! ```
+//!
+//! The document carries the World's name, its checkpoint at the start of
+//! its latest season, and only the events since: where the World stands,
+//! what is pending and the season a visitor walks into, not every day it
+//! has lived. Its archive is written in the compact encoding.
+//!
+//! A `wm1:` code, as World Machine wrote before, carries the whole history
+//! in the tagged encoding and no checkpoint. It still opens.
 //!
 //! Whitespace anywhere in a code is ignored, so a code that a chat window
 //! wrapped over several lines still opens. A code that is cut short or
 //! changed fails its checksum and is refused with a plain sentence.
 //!
-//! A visit replays the archive through the World's own Pack: nothing is
-//! decided again, only recorded events are applied. It has no file and no
-//! place in the library, and it refuses every intent, so it can never
-//! change the World it was made from.
+//! A visit replays the archive through the World's own Pack, from the
+//! checkpoint on: nothing is decided again, only recorded changes are
+//! applied. It has no file and no place in the library, and it refuses
+//! every intent, so it can never change the World it was made from.
 
 use std::error::Error;
 use std::fmt;
@@ -31,13 +39,18 @@ use flate2::write::DeflateEncoder;
 use flate2::{Compression, Crc};
 use world_document::{WorldDocument, WorldDocumentMetadata};
 use world_host::{HostError, WorldRegistry, WorldSession};
-use world_persistence::{WorldArchive, WorldPackRef};
+use world_persistence::{ArchivedCheckpoint, CheckpointFit, WorldArchive, WorldPackRef};
 use world_projection::{ProjectionIntent, ProjectionSnapshot};
 
 use crate::{required_archive, DurableWorldSession};
 
 /// What every World code starts with; the digit is the code's format.
-pub const WORLD_CODE_PREFIX: &str = "wm1:";
+pub const WORLD_CODE_PREFIX: &str = "wm2:";
+/// What a World code with the whole history, as written before checkpoints,
+/// starts with. Such codes still open.
+pub const WORLD_CODE_PREFIX_V1: &str = "wm1:";
+/// The newest code format this World Machine reads.
+const NEWEST_FORMAT: u32 = 2;
 /// The file a World code is saved in.
 pub const WORLD_CODE_SUFFIX: &str = ".worldcode";
 /// The largest World a code will unpack to, so a hostile code cannot fill
@@ -69,7 +82,7 @@ impl fmt::Display for WorldCodeError {
         match self {
             Self::NotACode => write!(
                 f,
-                "This is not a World code. A World code starts with {WORLD_CODE_PREFIX}"
+                "This is not a World code. A World code starts with wm, as in {WORLD_CODE_PREFIX}"
             ),
             Self::NewerFormat(prefix) => write!(
                 f,
@@ -116,23 +129,42 @@ impl From<HostError> for WorldCodeError {
     }
 }
 
-/// The code for a World document: its archive, and its name if it has one.
-/// Anything else the file keeps about it (where it came from, its summary
-/// line) stays behind.
+/// The code for a World document: where it stands and its latest season,
+/// and its name if it has one. Anything else the file keeps about it (where
+/// it came from, its summary line, the history before the season) stays
+/// behind.
 pub fn encode_world_code(document: &WorldDocument) -> Result<String, WorldCodeError> {
+    let (mut archive, checkpoint) = match &document.archive.checkpoint {
+        // Already a code's document, as a visit's is: it goes on as it is.
+        Some(checkpoint) if checkpoint.fit(&document.archive) == Some(CheckpointFit::Before) => {
+            (document.archive.clone(), checkpoint.clone())
+        }
+        _ => {
+            let checkpoint = document.settled_checkpoint().into_owned();
+            let whole = &document.archive;
+            let archive = WorldArchive {
+                format: whole.format.clone(),
+                format_version: whole.format_version,
+                pack: whole.pack.clone(),
+                world_time: whole.world_time,
+                events: whole.events[checkpoint.events..].to_vec(),
+                pending: whole.pending.clone(),
+                checkpoint: None,
+            };
+            (archive, checkpoint)
+        }
+    };
+    // A checkpoint of nothing says nothing, so it is left out.
+    archive.checkpoint = Some(checkpoint).filter(|checkpoint| checkpoint.events > 0);
     let shared = WorldDocument {
-        archive: document.archive.clone(),
+        archive,
         metadata: WorldDocumentMetadata {
             display_title: document.metadata.display_title.clone(),
             ..WorldDocumentMetadata::default()
         },
     };
-    let pretty = shared
-        .to_json_pretty()
-        .map_err(|error| WorldCodeError::Unwritable(error.to_string()))?;
-    let value: serde_json::Value = serde_json::from_str(&pretty)
-        .map_err(|error| WorldCodeError::Unwritable(error.to_string()))?;
-    let json = serde_json::to_vec(&value)
+    let json = shared
+        .to_compact_json()
         .map_err(|error| WorldCodeError::Unwritable(error.to_string()))?;
     let mut encoder = DeflateEncoder::new(Vec::new(), Compression::best());
     encoder.write_all(&json)?;
@@ -161,7 +193,10 @@ pub fn decode_world_code(text: &str) -> Result<WorldDocument, WorldCodeError> {
         .chars()
         .filter(|character| !character.is_whitespace())
         .collect::<String>();
-    let Some(body) = code.strip_prefix(WORLD_CODE_PREFIX) else {
+    let Some(body) = code
+        .strip_prefix(WORLD_CODE_PREFIX)
+        .or_else(|| code.strip_prefix(WORLD_CODE_PREFIX_V1))
+    else {
         return Err(newer_or_not_a_code(&code));
     };
     let (data, sum) = body.rsplit_once('.').ok_or(WorldCodeError::Damaged)?;
@@ -188,8 +223,7 @@ pub fn decode_world_code(text: &str) -> Result<WorldDocument, WorldCodeError> {
 /// line can be told apart from a path.
 pub fn looks_like_world_code(text: &str) -> bool {
     let text = text.trim_start();
-    text.starts_with(WORLD_CODE_PREFIX)
-        || world_code_format(text).is_some_and(|version| version > 1)
+    world_code_format(text).is_some_and(|version| version >= 1)
 }
 
 /// Saves a code as a `.worldcode` file: the code and a newline.
@@ -223,7 +257,9 @@ fn world_code_format(code: &str) -> Option<u32> {
 
 fn newer_or_not_a_code(code: &str) -> WorldCodeError {
     match world_code_format(code) {
-        Some(version) if version > 1 => WorldCodeError::NewerFormat(format!("wm{version}:")),
+        Some(version) if version > NEWEST_FORMAT => {
+            WorldCodeError::NewerFormat(format!("wm{version}:"))
+        }
         _ => WorldCodeError::NotACode,
     }
 }
@@ -232,12 +268,14 @@ impl DurableWorldSession {
     /// This World's code, as it stands now. Reads the live session only;
     /// the World's file is not touched.
     pub fn world_code(&self) -> Result<String, WorldCodeError> {
-        let archive = required_archive(self.session.as_ref())
+        let mut archive = required_archive(self.session.as_ref())
             .map_err(|error| WorldCodeError::Unwritable(error.to_string()))?;
+        archive.checkpoint = self.checkpoint.clone();
         let document = WorldDocument {
             archive,
             metadata: WorldDocumentMetadata {
                 display_title: self.metadata.display_title.clone(),
+                display_calendar: self.metadata.display_calendar.clone(),
                 ..WorldDocumentMetadata::default()
             },
         };
@@ -292,15 +330,32 @@ impl WorldVisit {
         self.session.snapshot()
     }
 
-    /// The archive the visit was opened from: the World's start and
-    /// history, as recorded.
+    /// The archive the visit was opened from: the history the code
+    /// carries, which for a `wm2:` code is only what came after its
+    /// checkpoint, and that checkpoint.
     pub fn archive(&self) -> &WorldArchive {
         &self.archive
     }
 
+    /// Where the World stood before the history the code carries, if the
+    /// code does not carry all of it.
+    pub fn checkpoint(&self) -> Option<&ArchivedCheckpoint> {
+        self.archive.checkpoint.as_ref()
+    }
+
     /// The visit's own code, the same World as the code it came from.
     pub fn world_code(&self) -> Result<String, WorldCodeError> {
-        world_code_for_archive(self.archive.clone(), self.name.clone())
+        let mut document = WorldDocument::new(self.archive.clone());
+        document.metadata.display_title = self.name.clone();
+        document.metadata.display_calendar =
+            self.session
+                .snapshot()
+                .calendar
+                .map(|calendar| world_document::DocumentCalendar {
+                    unit: calendar.unit,
+                    length: calendar.length,
+                });
+        encode_world_code(&document)
     }
 
     /// A visit is looked at, never played: every intent is refused, and the
@@ -327,6 +382,7 @@ mod tests {
             world_time: 0,
             events: Vec::new(),
             pending: Vec::new(),
+            checkpoint: None,
         };
         WorldDocument::new(archive).with_display_title("Harbor Town")
     }
@@ -335,7 +391,7 @@ mod tests {
     fn a_code_decodes_to_the_same_document() {
         let document = document();
         let code = encode_world_code(&document).unwrap();
-        assert!(code.starts_with("wm1:"), "{code}");
+        assert!(code.starts_with("wm2:"), "{code}");
         assert!(looks_like_world_code(&code));
         assert_eq!(decode_world_code(&code).unwrap(), document);
         // Wrapped over lines by a chat window, it still opens.

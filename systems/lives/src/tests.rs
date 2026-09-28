@@ -493,3 +493,239 @@ fn a_return_brings_a_keepsake_from_someone_who_likes_you() {
     assert!(last.note.contains("best in years"), "{last:?}");
     assert!(!last.what.contains('{'));
 }
+
+/// What the book, the letter box and the daily round find through the
+/// World's index of its history is what reading every event finds, on
+/// every period of a long World, with letters and keepsakes along the
+/// way, and again on the World rebuilt from its history.
+#[test]
+fn the_index_finds_what_reading_every_event_finds() {
+    let (mut world, registry) = world();
+    greet(&mut world, &registry, &cast()).unwrap();
+    for day in 0..200 {
+        pass(&mut world, &registry);
+        if day % 9 == 0 {
+            leave_keepsake(&mut world, &registry, &cast(), "").unwrap();
+        }
+        remember_a_year(&mut world, &registry, &cast(), 60).unwrap();
+        scanned::compare(&world, &cast()).unwrap();
+    }
+    assert!(!keepsakes(&world).is_empty());
+    assert!(!letters(&world).is_empty());
+    let replayed = world.replay().unwrap();
+    assert_eq!(replayed.state(), world.state());
+    scanned::compare(&replayed, &cast()).unwrap();
+    assert_eq!(keepsakes(&replayed), keepsakes(&world));
+    assert_eq!(letters(&replayed), letters(&world));
+    assert_eq!(met(&replayed), met(&world));
+}
+
+/// What was said is noted one entry a period, not one a line, and only
+/// for as long as it is remembered; a World from before, with a note a
+/// line, is still heard.
+#[test]
+fn what_was_said_is_noted_a_period_at_a_time() {
+    let (mut world, _) = play(200, true);
+    let notes = world.state().entity(NOTES).unwrap();
+    let keys = |prefix: &str| {
+        notes
+            .components
+            .keys()
+            .filter(|key| key.starts_with(prefix))
+            .count()
+    };
+    assert_eq!(keys("lives.heard."), 0);
+    let periods = keys(SAID);
+    assert!(
+        periods > 0 && periods as u64 <= HEARD_PERIODS + 30,
+        "{periods}"
+    );
+    let heard = Heard::of(world.state(), &cast());
+    assert!(!heard.said.is_empty());
+    // Each period's lines are kept in order, to be looked up.
+    assert!(heard.said.iter().all(|(_, lines)| lines.is_sorted()));
+    assert!(heard.said.windows(2).all(|pair| pair[0].0 > pair[1].0));
+    for hash in [
+        0,
+        1,
+        (1 << (6 * SAID_CODE)) - 1,
+        short_hash::<SAID_CODE>(line_hash("Long shift with Ben.")),
+    ] {
+        assert_eq!(code_hash(&hash_code::<SAID_CODE>(hash)), hash);
+    }
+    // A World from before noted a period's lines in longer hashes.
+    let line = "A line said in a World from before, in its longer hashes.";
+    let older = std::str::from_utf8(&hash_code::<SAID_BEFORE_CODE>(
+        short_hash::<SAID_BEFORE_CODE>(line_hash(line)),
+    ))
+    .unwrap()
+    .to_string();
+    let state = applied(
+        world.state(),
+        vec![StateChange::SetComponent {
+            entity: NOTES,
+            key: format!("{SAID_BEFORE}{}", heard.now - 5),
+            value: older.into(),
+        }],
+    );
+    assert!(!heard.lately(line));
+    assert_eq!(Heard::of(&state, &cast()).when(line), Some(heard.now - 5));
+    // A World from before notes each line by itself.
+    let line = "A line said in a World from before.";
+    assert!(!heard.lately(line));
+    let now = heard.now;
+    let state = applied(
+        world.state(),
+        vec![StateChange::SetComponent {
+            entity: NOTES,
+            key: heard_key(line),
+            value: (now as i64 - 3).into(),
+        }],
+    );
+    let before = Heard::of(&state, &cast());
+    assert!(before.lately(line));
+    assert_eq!(before.when(line), Some(now - 3));
+    // Said again now, the latest counts.
+    let mut moves = Moves::default();
+    remember_saying(&mut moves, &before, line);
+    remember_saying(&mut moves, &before, line);
+    assert_eq!(moves.changes.len(), 1);
+    let state = applied(&state, moves.changes);
+    assert_eq!(Heard::of(&state, &cast()).when(line), Some(now));
+    // Everything noted is forgotten in time.
+    let registry = world_registry();
+    for _ in 0..HEARD_PERIODS + 31 {
+        let target = world.world_time() + 10;
+        world.advance_to(&registry, target).unwrap();
+        let _ = world.execute(&registry, &ActionRequest::new("lives_forget"));
+    }
+    let notes = world.state().entity(NOTES).unwrap();
+    assert!(!notes.components.keys().any(|key| key.starts_with(SAID)));
+    // A World from before's notes of lines are forgotten in time too.
+    let stale = HEARD_PERIODS + 1;
+    let state = applied(
+        world.state(),
+        vec![StateChange::SetComponent {
+            entity: NOTES,
+            key: format!("{SAID_BEFORE}{}", period(world.state(), &cast()) - stale),
+            value: "AAAAAAA".into(),
+        }],
+    );
+    let mut world = World::from_history(state, &[]).unwrap();
+    world
+        .execute(&registry, &ActionRequest::new("lives_forget"))
+        .unwrap();
+    let notes = world.state().entity(NOTES).unwrap();
+    assert!(!notes
+        .components
+        .keys()
+        .any(|key| key.starts_with(SAID_BEFORE)));
+}
+
+/// A state with some changes made to it, as an event would make them.
+fn applied(state: &WorldState, changes: Vec<StateChange>) -> WorldState {
+    let event = Event {
+        id: EventId::new(1),
+        kind: "noted".into(),
+        world_time: state.world_time(),
+        actor: None,
+        targets: Vec::new(),
+        caused_by: Vec::new(),
+        payload: Default::default(),
+        changes,
+    };
+    World::from_history(state.clone(), &[event])
+        .unwrap()
+        .state()
+        .clone()
+}
+
+fn world_registry() -> ActionRegistry {
+    world().1
+}
+
+/// When a line was last said, and whether lately, looked up by number
+/// among the periods still remembered, is what reading every note's codes
+/// finds; and a line filled in is filled in as filling every slot does.
+#[test]
+fn heard_is_what_reading_every_note_finds() {
+    let (world, _) = play(200, true);
+    let mut lines = world
+        .events()
+        .iter()
+        .filter_map(|event| match event.payload.get("said") {
+            Some(Value::Text(said)) => Some(said.clone()),
+            _ => None,
+        })
+        .collect::<BTreeSet<_>>();
+    assert!(lines.len() > 50, "{}", lines.len());
+    let names = ["Ann", "Ben", "the mill", ""];
+    for activity in cast().activities {
+        for line in activity.said.iter().chain([&activity.told]) {
+            for (a, b) in names.iter().zip(names.iter().rev()) {
+                let words = [("place", *a), ("other", *b), ("friend", *a), ("name", *b)];
+                let filled = fill(line, &words);
+                assert_eq!(filled, fill_every_slot(line, &words));
+                lines.insert(filled);
+            }
+        }
+    }
+    // A World from before's longer codes are read beside the new ones.
+    let now = period(world.state(), &cast());
+    let older = lines
+        .iter()
+        .take(5)
+        .map(|line| {
+            std::str::from_utf8(&hash_code::<SAID_BEFORE_CODE>(
+                short_hash::<SAID_BEFORE_CODE>(line_hash(line)),
+            ))
+            .unwrap()
+            .to_string()
+        })
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect::<String>();
+    let with_older = applied(
+        world.state(),
+        vec![StateChange::SetComponent {
+            entity: NOTES,
+            key: format!("{SAID_BEFORE}{}", now - 100),
+            value: older.into(),
+        }],
+    );
+    for state in [world.state(), &with_older] {
+        let heard = Heard::of(state, &cast());
+        assert!(heard.said.iter().any(|(at, _)| now - at >= HEARD_PERIODS));
+        let (mut found, mut recent) = (0, 0);
+        for line in &lines {
+            let when = heard.when_by_reading_every_note(line);
+            assert_eq!(heard.when(line), when, "{line}");
+            let lately = when.is_some_and(|at| now.saturating_sub(at) < HEARD_PERIODS);
+            assert_eq!(heard.lately(line), lately, "{line}");
+            found += usize::from(when.is_some());
+            recent += usize::from(lately);
+        }
+        assert!(found > recent && recent > 0, "{found} {recent}");
+    }
+}
+
+#[test]
+fn codes_are_sorted_as_sorting_sorts_them() {
+    let mut seed = 7_u64;
+    let numbers = (0..5_000)
+        .map(|at| {
+            seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+            // Some alike at the top, some at the ends of the range.
+            match at % 50 {
+                0 => 0,
+                1 => u64::MAX,
+                2 => seed & 0xffff,
+                _ => seed,
+            }
+        })
+        .collect::<Vec<_>>();
+    let mut sorted = numbers.clone();
+    sorted.sort_unstable();
+    assert_eq!(sort_codes(numbers), sorted);
+    assert!(sort_codes(Vec::new()).is_empty());
+}

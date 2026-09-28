@@ -251,18 +251,11 @@ fn asker(command_id: &str) -> Option<SelectionId> {
 
 pub(crate) fn available_commands(world: &World) -> Vec<ProjectionCommand> {
     let mut commands = Vec::new();
-    let has_order_loss = world
-        .events()
-        .iter()
-        .any(|event| event.kind == "order_lost");
-    let has_dismissal = world
-        .events()
-        .iter()
-        .any(|event| event.kind == "worker_dismissed");
-    let has_retention = world
-        .events()
-        .iter()
-        .any(|event| event.kind == "worker_retained");
+    // Asked of the World's index of its history, not by reading all of it.
+    let index = world.history_index();
+    let has_order_loss = !index.of_kind("order_lost").is_empty();
+    let has_dismissal = !index.of_kind("worker_dismissed").is_empty();
+    let has_retention = !index.of_kind("worker_retained").is_empty();
     let jonas_is_temp = component_text(world, JONAS, JOB).as_deref() == Some("bakery_temp");
 
     if has_order_loss && !has_dismissal && !has_retention && jonas_is_temp {
@@ -420,6 +413,17 @@ pub(crate) fn repair_offer_is_open(world: &World) -> bool {
 const BEATS_PER_BRIEFING: usize = 8;
 
 fn society_briefing(world: &World, since_event_count: Option<usize>) -> BriefingProjection {
+    briefing_from(world, since_event_count, true)
+}
+
+/// The briefing, found through the World's index of its history when
+/// `indexed`, else by reading it event by event, as a reference for tests:
+/// the two are the same briefing.
+pub(crate) fn briefing_from(
+    world: &World,
+    since_event_count: Option<usize>,
+    indexed: bool,
+) -> BriefingProjection {
     let start = since_event_count.unwrap_or(0).min(world.events().len());
     let relevant_events = if since_event_count.is_some() {
         &world.events()[start..]
@@ -433,39 +437,67 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
     // The most recent occurrence stands for the rest; how many there were is
     // what the Status counters are for.
     let mut told = std::collections::BTreeSet::<String>::new();
-    let beats = relevant_events
-        .iter()
-        .rev()
-        .filter_map(|event| {
-            let title = narrated_title(world, event)?;
-            // People's lives are told one line each; the town's machinery
-            // one line a kind.
-            let told_as = if lives::is_news(event) {
-                title.clone()
-            } else {
-                event.kind.clone()
-            };
-            if !told.insert(told_as) {
-                return None;
+    let everyday = |event: &Event| crate::story::is_storylet(event);
+    let beat = |event: &Event, title: String| BriefingItem {
+        selection: Some(SelectionId::Event(event.id)),
+        title,
+        // The headline is the news; when it happened is the history's to
+        // show, and an event number is nobody's.
+        detail: String::new(),
+        kind: BriefingItemKind::Beat,
+        tone: tone_for_event(event),
+    };
+    // Over the whole history, the town's own beats are each kind's newest
+    // telling, found through the World's index of its history; with enough
+    // of them nothing older is read, however long the World has lived.
+    let own = (indexed && since_event_count.is_none()).then(|| own_beats(world, &everyday));
+    let mut beats = Vec::new();
+    match &own {
+        Some(own) if own.len() >= BEATS_PER_BRIEFING => {
+            for (event, title) in own.iter().take(BEATS_PER_BRIEFING) {
+                beats.push((*event, beat(event, title.clone())));
             }
-            Some((
-                event,
-                BriefingItem {
-                    selection: Some(SelectionId::Event(event.id)),
-                    title,
-                    // The headline is the news; when it happened is the
-                    // history's to show, and an event number is nobody's.
-                    detail: String::new(),
-                    kind: BriefingItemKind::Beat,
-                    tone: tone_for_event(event),
-                },
-            ))
-        })
-        .collect::<Vec<_>>();
+        }
+        _ => {
+            // Newest first, only as far back as it takes to find the beats
+            // kept: once the town's own life has filled the briefing, or
+            // every one of its beats and the storyteller's that fill the
+            // room left are found, nothing older would be kept.
+            let own_total = own.as_ref().map(Vec::len);
+            let (mut own_beats, mut everyday_beats) = (0, 0);
+            for event in relevant_events.iter().rev() {
+                if own_beats >= BEATS_PER_BRIEFING
+                    || own_total.is_some_and(|total| {
+                        own_beats >= total && everyday_beats >= BEATS_PER_BRIEFING - total
+                    })
+                {
+                    break;
+                }
+                let Some(title) = narrated_title(world, event) else {
+                    continue;
+                };
+                // People's lives are told one line each; the town's
+                // machinery one line a kind.
+                let told_as = if lives::is_news(event) {
+                    title.clone()
+                } else {
+                    event.kind.clone()
+                };
+                if !told.insert(told_as) {
+                    continue;
+                }
+                if everyday(event) {
+                    everyday_beats += 1;
+                } else {
+                    own_beats += 1;
+                }
+                beats.push((event, beat(event, title)));
+            }
+        }
+    }
     // What the town's own life did comes first; the small asks and turns
     // of the storyteller fill whatever room is left, so a fortnight of
     // wants and birthdays never crowds out the bakery closing.
-    let everyday = |event: &Event| crate::story::is_storylet(event);
     let mut kept = beats
         .iter()
         .filter(|(event, _)| !everyday(event))
@@ -509,10 +541,7 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
         if let Some(title) = lives::told(left) {
             // In its place in time, so nothing reads before its cause.
             let when = |item: &BriefingItem| match item.selection {
-                Some(SelectionId::Event(id)) => relevant_events
-                    .iter()
-                    .find(|event| event.id == id)
-                    .map(|event| event.world_time),
+                Some(SelectionId::Event(id)) => world.event(id).map(|event| event.world_time),
                 _ => None,
             };
             let at = items
@@ -532,7 +561,11 @@ fn society_briefing(world: &World, since_event_count: Option<usize>) -> Briefing
         }
     }
     let told = items.len();
-    let happened = narratable_count(world, relevant_events);
+    let happened = if indexed {
+        narratable_count(world, relevant_events)
+    } else {
+        narratable_count_of(world, relevant_events)
+    };
     if happened > told {
         items.push(BriefingItem {
             selection: None,
@@ -739,13 +772,118 @@ fn telling(world: &World, event: &Event) -> Telling {
 /// kind, matching what the beats themselves collapse to, so "3 more things
 /// happened" counts things rather than repetitions of one thing.
 fn narratable_count(world: &World, events: &[Event]) -> usize {
+    // Over the whole history, each kind that can be told is looked up in
+    // the World's index of its history, newest first, so a long-lived
+    // World is not read event by event.
+    if events.len() == world.events().len() {
+        let index = world.history_index();
+        return narrated_kinds()
+            .iter()
+            .filter(|kind| {
+                index
+                    .of_kind(kind)
+                    .iter()
+                    .rev()
+                    .filter_map(|id| world.event(*id))
+                    .any(|event| narrated_title(world, event).is_some())
+            })
+            .count();
+    }
+    narratable_count_of(world, events)
+}
+
+/// How many kinds of the `events` can be told, event by event.
+fn narratable_count_of(world: &World, events: &[Event]) -> usize {
     let mut kinds = std::collections::BTreeSet::new();
     for event in events {
-        if narrated_title(world, event).is_some() {
+        // A kind already counted needs no more of its events told.
+        if !kinds.contains(event.kind.as_str()) && narrated_title(world, event).is_some() {
             kinds.insert(event.kind.as_str());
         }
     }
     kinds.len()
+}
+
+/// The town's own beats over the whole history, newest first: of each kind
+/// that is not news, its newest telling, when that is not one of the
+/// storyteller's everyday moments. A kind is told once, by its newest
+/// telling, so an older one of the same kind would never be a beat.
+fn own_beats<'a>(world: &'a World, everyday: &dyn Fn(&Event) -> bool) -> Vec<(&'a Event, String)> {
+    let index = world.history_index();
+    let mut own = narrated_kinds()
+        .iter()
+        .filter(|kind| !lives::NEWS_KINDS.contains(kind))
+        .filter_map(|kind| {
+            index
+                .of_kind(kind)
+                .iter()
+                .rev()
+                .filter_map(|id| world.event(*id))
+                .find_map(|event| Some((event, narrated_title(world, event)?)))
+        })
+        .filter(|(event, _)| !everyday(event))
+        .collect::<Vec<_>>();
+    own.sort_by_key(|(event, _)| std::cmp::Reverse(event.id));
+    own
+}
+
+/// Every kind of Event [`narrated_title`] can tell: what the storyteller,
+/// lives, hands and the calendar tell, and the town's own table. Any other
+/// kind is the background hum.
+fn narrated_kinds() -> &'static std::collections::BTreeSet<&'static str> {
+    static KINDS: std::sync::OnceLock<std::collections::BTreeSet<&'static str>> =
+        std::sync::OnceLock::new();
+    KINDS.get_or_init(|| {
+        // hands::is_hands, and the calendar's one day told.
+        const HANDS: [&str; 9] = [
+            "built_by_hand",
+            "decorated_by_hand",
+            "planted_by_hand",
+            "moved_by_hand",
+            "gift_given",
+            "invited_out",
+            "plant_grew",
+            "undone_by_hand",
+            "enjoyed",
+        ];
+        const TABLE: [&str; 29] = [
+            "chapter_ended",
+            "festival_held",
+            "payroll_shortfall",
+            "support_repaid",
+            "fish_sold",
+            "boat_repaired",
+            "bakery_reopened_lean",
+            "bakery_reopened",
+            "bakery_closed",
+            "bread_budget_cut",
+            "income_disrupted",
+            "payroll_reserve_exhausted",
+            "backing_withdrawn",
+            "work_sought",
+            "jonas_taken_on",
+            "boat_sold",
+            "living_cost_unmet",
+            "hardship_began",
+            "hardship_eased",
+            "support_received",
+            "support_requested",
+            "worker_retained",
+            "worker_dismissed",
+            "order_lost",
+            "temporary_work_assigned",
+            "loan_requested",
+            "storm_started",
+            "counter_help_hired",
+            "situation_arose",
+        ];
+        HANDS
+            .into_iter()
+            .chain(TABLE)
+            .chain(lives::NEWS_KINDS)
+            .chain(crate::story::storylet_kinds())
+            .collect()
+    })
 }
 
 /// The "what is happening now" line every briefing opens with, so a return
@@ -1504,6 +1642,60 @@ fn capitalized(text: &str) -> String {
 #[cfg(test)]
 mod probe_parts {
     use super::*;
+
+    /// The briefing found through the World's index of its history is the
+    /// one found by reading every event, on each of a season's days.
+    #[test]
+    fn the_indexed_briefing_is_the_briefing() {
+        let mut society = crate::TinySociety::new().unwrap();
+        society.run_story().unwrap();
+        let mut branch = society.branch();
+        branch.begin_story().unwrap();
+        for day in 0..90 {
+            let world = branch.world();
+            assert_eq!(
+                briefing_from(world, None, true),
+                briefing_from(world, None, false),
+                "day {day}"
+            );
+            // What is open, read from the story's open storylets, is what
+            // asking after every storylet in the deck finds.
+            let deck = crate::story::deck();
+            let mut asked = deck
+                .storylets
+                .iter()
+                .filter_map(|s| Some((storylets::opened_at(world.state(), deck, s.id)?, s)))
+                .collect::<Vec<_>>();
+            asked.sort_by_key(|(at, storylet)| (*at, storylet.id));
+            let open = storylets::open(world.state(), deck);
+            assert_eq!(asked.len(), open.len(), "day {day}");
+            assert!(
+                asked
+                    .iter()
+                    .zip(&open)
+                    .all(|((_, a), b)| std::ptr::eq(*a, *b)),
+                "day {day}"
+            );
+            let snapshot = snapshot(world);
+            if let Some(choice) = snapshot
+                .choices()
+                .find(|c| c.question.is_some() && c.unavailable.is_none())
+            {
+                let _ = branch.invoke_projection_command(&choice.id.clone());
+            }
+            if day % 3 == 0 {
+                if let Some((_, deed, _)) = snapshot
+                    .deeds()
+                    .find(|(_, c, hand)| c.unavailable.is_none() && hand.verb != "Undo")
+                {
+                    let _ = branch.invoke_projection_command(&deed.id.clone());
+                }
+            }
+            branch
+                .invoke_projection_command(crate::story::WAIT_COMMAND)
+                .unwrap();
+        }
+    }
     #[test]
     #[ignore]
     fn probe_parts() {
@@ -1511,7 +1703,43 @@ mod probe_parts {
         society.run_story().unwrap();
         let mut branch = society.branch();
         branch.begin_story().unwrap();
-        for _ in 0..365 {
+        // `PROBE_DAYS` sets how long to play (a year by default), and
+        // `PROBE_AT` the days, comma-separated, to time a snapshot on.
+        let days = std::env::var("PROBE_DAYS")
+            .ok()
+            .and_then(|days| days.parse().ok())
+            .unwrap_or(365_usize);
+        let at = std::env::var("PROBE_AT")
+            .unwrap_or_default()
+            .split(',')
+            .filter_map(|day| day.trim().parse().ok())
+            .collect::<Vec<usize>>();
+        for day in 1..=days {
+            if at.contains(&day) {
+                // The projection alone, and as a session shows it, with
+                // what each choice would do.
+                let time = |take: &dyn Fn()| {
+                    let mut times = (0..7)
+                        .map(|_| {
+                            let started = std::time::Instant::now();
+                            take();
+                            started.elapsed()
+                        })
+                        .collect::<Vec<_>>();
+                    times.sort();
+                    times[3]
+                };
+                let alone = time(&|| {
+                    std::hint::black_box(snapshot(branch.world()));
+                });
+                let shown = time(&|| {
+                    std::hint::black_box(branch.projection_snapshot());
+                });
+                eprintln!(
+                    "day {day}: snapshot median {alone:?}, with previews {shown:?} ({} events)",
+                    branch.world().events().len()
+                );
+            }
             let snapshot = snapshot(branch.world());
             if let Some(c) = snapshot
                 .choices()
@@ -1524,11 +1752,26 @@ mod probe_parts {
                 .unwrap();
         }
         let world = branch.world();
-        macro_rules! t {
+        macro_rules! once {
             ($name:expr, $e:expr) => {{
                 let s = std::time::Instant::now();
                 let r = $e;
-                eprintln!("{:>14}: {:?}", $name, s.elapsed());
+                eprintln!("{:>14}: {:?} (once)", $name, s.elapsed());
+                r
+            }};
+        }
+        macro_rules! t {
+            ($name:expr, $e:expr) => {{
+                // The median of several takes, the first one discarded.
+                let mut times = Vec::new();
+                let mut r = $e;
+                for _ in 0..9 {
+                    let s = std::time::Instant::now();
+                    r = std::hint::black_box($e);
+                    times.push(s.elapsed());
+                }
+                times.sort();
+                eprintln!("{:>14}: {:?}", $name, times[4]);
                 r
             }};
         }
@@ -1536,6 +1779,7 @@ mod probe_parts {
         let cmds = t!("commands", available_commands(world));
         t!("talks", crate::talk::talks(world, &cmds));
         t!("briefing", society_briefing(world, None));
+        t!("narratable", narratable_count(world, world.events()));
         t!("timeline", told_timeline(world));
 
         t!("canvas", canvas_items(world));
@@ -1547,8 +1791,81 @@ mod probe_parts {
         t!("chapters", crate::story::chapters(world));
         t!("weather", crate::story::weather(world));
         t!("book", crate::book::book(world));
+        let cast = crate::life::cast();
+        t!("keepsakes", lives::keepsakes(world));
+        t!("possible", lives::possible_keepsakes(world, &cast));
+        t!("letters", lives::letters(world));
+        t!("writers", lives::letter_writers(world, &cast));
+        t!("firsts", lives::firsts(world));
+        t!("met", lives::met(world));
+        t!("to meet", lives::people_to_meet(world, &cast));
         let mut s = t!("snapshot", snapshot(world));
+        t!("with previews", crate::with_previews(world, s.clone()));
+        {
+            let actions = t!("registry", crate::build_action_registry().unwrap());
+            let mut sketch = world.sketch(world_projection::RECENT_EVENTS);
+            let mut story_only = sketch.clone();
+            once!(
+                "story tick",
+                crate::story::tick(&mut story_only, &actions, false).unwrap()
+            );
+            let cast = t!("cast_in", crate::life::cast_in(sketch.state()));
+            once!(
+                "lives tick",
+                lives::tick_with(
+                    &mut sketch,
+                    &actions,
+                    &cast,
+                    false,
+                    false,
+                    &crate::firsts::quiet_days()
+                )
+                .unwrap()
+            );
+            let kit = crate::handwork::kit(sketch.state());
+            once!(
+                "hands tick",
+                hands::tick(&mut sketch, &actions, &kit).unwrap()
+            );
+            let almanac = crate::almanac::almanac(sketch.state());
+            once!(
+                "calendar tick",
+                calendar::tick(&mut sketch, &actions, &almanac).unwrap()
+            );
+            t!("gauges", gauges(&sketch));
+            once!(
+                "years tick",
+                crate::years::tick(&mut sketch, &actions).unwrap()
+            );
+        }
+        t!("sketch", world.sketch(world_projection::RECENT_EVENTS));
+        t!("state clone", world.state().clone());
+        for command in s.commands.iter().filter(|command| command.hand.is_none()) {
+            // A sketch of the World and the choice made on it, as a
+            // preview makes it.
+            t!(command.id.as_str(), {
+                let mut copy = crate::TinySocietyBranch {
+                    world: world.sketch(world_projection::RECENT_EVENTS),
+                };
+                copy.invoke_projection_command(&command.id).is_ok()
+            });
+        }
         t!("tell", s.tell_events_as_history_does());
         eprintln!("events {}", world.events().len());
+        // What the lives System's notes hold of what was said.
+        let notes = world.state().entity(crate::life::cast().notes).unwrap();
+        let said = notes.components.iter().filter(|(key, _)| {
+            key.starts_with("lives.lines.")
+                || key.starts_with("lives.said.")
+                || key.starts_with("lives.heard.")
+        });
+        let (count, chars) = said.fold((0, 0), |(count, chars), (key, value)| {
+            let len = match value {
+                world_core::Value::Text(text) => text.len(),
+                _ => 8,
+            };
+            (count + 1, chars + key.len() + len)
+        });
+        eprintln!("heard notes: {count} entries, {chars} characters");
     }
 }

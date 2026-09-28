@@ -9,6 +9,7 @@ pub struct HistoryIndex {
     covered: usize,
     endpoints: BTreeMap<RelationId, (EntityId, EntityId)>,
     by_entity: BTreeMap<EntityId, Vec<EventId>>,
+    by_kind: BTreeMap<String, Vec<EventId>>,
     relations: BTreeMap<RelationId, RelationRecord>,
 }
 
@@ -30,6 +31,7 @@ impl HistoryIndex {
                 .map(|relation| (relation.id, (relation.from, relation.to)))
                 .collect(),
             by_entity: BTreeMap::new(),
+            by_kind: BTreeMap::new(),
             relations: baseline
                 .relations()
                 .map(|relation| {
@@ -60,6 +62,15 @@ impl HistoryIndex {
             .unwrap_or_default()
     }
 
+    /// The events of one kind, oldest first, so a System can find what it
+    /// recorded without reading the whole history.
+    pub fn of_kind(&self, kind: &str) -> &[EventId] {
+        self.by_kind
+            .get(kind)
+            .map(Vec::as_slice)
+            .unwrap_or_default()
+    }
+
     /// Every relation the World has had, each in its latest life.
     pub fn relations(&self) -> impl Iterator<Item = &RelationRecord> {
         self.relations.values()
@@ -67,6 +78,12 @@ impl HistoryIndex {
 
     pub(crate) fn read(&mut self, event: &Event) {
         self.covered += 1;
+        match self.by_kind.get_mut(event.kind.as_str()) {
+            Some(events) => events.push(event.id),
+            None => {
+                self.by_kind.insert(event.kind.clone(), vec![event.id]);
+            }
+        }
         let mut entities = BTreeSet::new();
         let mut relations = BTreeSet::new();
         for change in &event.changes {

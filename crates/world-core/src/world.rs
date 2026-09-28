@@ -1,7 +1,7 @@
 use crate::history::HistoryIndex;
 use crate::{
-    ActionError, ActionRegistry, ActionRequest, Event, EventId, ScheduleId, Scheduler, WorldState,
-    WorldStateError,
+    ActionError, ActionRegistry, ActionRequest, Event, EventId, ScheduleId, Scheduler, StateChange,
+    WorldState, WorldStateError,
 };
 use std::error::Error;
 use std::fmt;
@@ -10,8 +10,15 @@ use std::sync::{Arc, Mutex};
 #[derive(Clone, Debug, PartialEq)]
 pub struct World {
     baseline: WorldState,
+    /// Where the history the World keeps starts, when that is not its
+    /// baseline: a World opened from a checkpoint with only the events
+    /// after it.
+    settled: Option<Arc<Settled>>,
     state: WorldState,
-    events: Vec<Event>,
+    /// Shared between copies until one of them records more, so copying a
+    /// long-lived World (to try something on it, or to keep it) costs no
+    /// more than a young one.
+    events: Arc<Vec<Event>>,
     scheduler: Scheduler,
     next_event_id: u64,
     index: IndexCache,
@@ -52,6 +59,14 @@ impl fmt::Debug for IndexCache {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("IndexCache")
     }
+}
+
+/// The state a World's kept history starts from, and the id its first
+/// event may take.
+#[derive(Clone, Debug, PartialEq)]
+struct Settled {
+    state: WorldState,
+    next_event_id: u64,
 }
 
 /// Where a World stood, to go back to with [`World::rollback`].
@@ -133,8 +148,9 @@ impl World {
     pub fn new(initial_state: WorldState) -> Self {
         Self {
             baseline: initial_state.clone(),
+            settled: None,
             state: initial_state,
-            events: Vec::new(),
+            events: Arc::new(Vec::new()),
             scheduler: Scheduler::new(),
             next_event_id: 1,
             index: IndexCache::default(),
@@ -175,9 +191,10 @@ impl World {
             .0
             .lock()
             .unwrap_or_else(|poison| poison.into_inner());
-        let index = cached.get_or_insert_with(|| Arc::new(HistoryIndex::new(&self.baseline)));
+        let start = self.history_start();
+        let index = cached.get_or_insert_with(|| Arc::new(HistoryIndex::new(start)));
         if index.covered() > self.events.len() {
-            *index = Arc::new(HistoryIndex::new(&self.baseline));
+            *index = Arc::new(HistoryIndex::new(start));
         }
         if index.covered() < self.events.len() {
             let index = Arc::make_mut(index);
@@ -186,6 +203,19 @@ impl World {
             }
         }
         Arc::clone(index)
+    }
+
+    /// The recorded events of these kinds, oldest first, found through the
+    /// history index rather than by reading every event.
+    pub fn events_of_kind(&self, kinds: &[&str]) -> Vec<&Event> {
+        let index = self.history_index();
+        let mut ids = kinds
+            .iter()
+            .flat_map(|kind| index.of_kind(kind).iter().copied())
+            .collect::<Vec<_>>();
+        ids.sort_unstable();
+        ids.dedup();
+        ids.into_iter().filter_map(|id| self.event(id)).collect()
     }
 
     pub fn scheduler(&self) -> &Scheduler {
@@ -272,7 +302,7 @@ impl World {
 
         self.apply_event(&event)?;
         self.next_event_id += 1;
-        self.events.push(event);
+        Arc::make_mut(&mut self.events).push(event);
         Ok(self.events.last().expect("event was just appended"))
     }
 
@@ -285,8 +315,9 @@ impl World {
         let start = self.events.len().saturating_sub(recent);
         Self {
             baseline: self.baseline.clone(),
+            settled: self.settled.clone(),
             state: self.state.clone(),
-            events: self.events[start..].to_vec(),
+            events: Arc::new(self.events[start..].to_vec()),
             scheduler: self.scheduler.clone(),
             next_event_id: self.next_event_id,
             index: IndexCache::default(),
@@ -308,14 +339,16 @@ impl World {
     pub fn rollback(&mut self, checkpoint: Checkpoint) {
         self.state = checkpoint.state;
         self.scheduler = checkpoint.scheduler;
-        self.events.truncate(checkpoint.events);
+        if checkpoint.events < self.events.len() {
+            Arc::make_mut(&mut self.events).truncate(checkpoint.events);
+        }
         self.next_event_id = checkpoint.next_event_id;
         // Events recorded since may be recorded again differently.
         self.index.forget();
     }
 
     pub fn replay(&self) -> Result<Self, WorldError> {
-        let mut replayed = Self::from_history(self.baseline.clone(), &self.events)?;
+        let mut replayed = self.rebuilt(&self.events)?;
         replayed.state.set_world_time(self.world_time());
         replayed.scheduler = self.scheduler.clone();
         Ok(replayed)
@@ -323,17 +356,91 @@ impl World {
 
     pub fn fork_after(&self, event_count: usize) -> Result<Self, WorldError> {
         let end = event_count.min(self.events.len());
-        Self::from_history(self.baseline.clone(), &self.events[..end])
+        self.rebuilt(&self.events[..end])
+    }
+
+    /// The state the history the World keeps starts from: its baseline,
+    /// or the checkpoint it was opened from.
+    fn history_start(&self) -> &WorldState {
+        self.settled
+            .as_ref()
+            .map_or(&self.baseline, |settled| &settled.state)
+    }
+
+    /// This World rebuilt from where its kept history starts, with `events`.
+    fn rebuilt(&self, events: &[Event]) -> Result<Self, WorldError> {
+        let Some(settled) = &self.settled else {
+            return Self::from_history(self.baseline.clone(), events);
+        };
+        let mut world = Self::from_history(settled.state.clone(), events)?;
+        world.baseline = self.baseline.clone();
+        world.next_event_id = world.next_event_id.max(settled.next_event_id);
+        world.settled = Some(Arc::clone(settled));
+        Ok(world)
     }
 
     pub fn from_history(baseline: WorldState, events: &[Event]) -> Result<Self, WorldError> {
+        Self::resume(baseline, &[], 0, 0, events.to_vec(), 0)
+    }
+
+    /// Rebuilds a World from a checkpoint instead of from its start: the
+    /// baseline with `settled` applied is where the World stood after the
+    /// events before `events[from]`, whose own changes are not applied
+    /// again. `events` is the history the World keeps, all of it or only
+    /// what came after the checkpoint (`from` is then 0). The checkpoint's
+    /// world time is `settled_time`, and ids carry on from `settled_next_id`. Nothing is decided again: only recorded
+    /// changes are applied, so the World is the one its full replay gives
+    /// whenever `settled` sums up the events it stands for.
+    pub fn resume(
+        baseline: WorldState,
+        settled: &[StateChange],
+        settled_time: u64,
+        settled_next_id: u64,
+        events: Vec<Event>,
+        from: usize,
+    ) -> Result<Self, WorldError> {
         let mut world = Self::new(baseline);
-        for event in events {
-            world.apply_event(event)?;
-            world.events.push(event.clone());
+        for change in settled {
+            world.state.apply_change(change)?;
+        }
+        if settled_time > world.world_time() {
+            world.state.set_world_time(settled_time);
+        }
+        if from == 0 && (!settled.is_empty() || settled_next_id > 1) {
+            // The history kept starts at the checkpoint, so that is where
+            // replaying it starts too; the baseline stays what the World
+            // began with.
+            world.settled = Some(Arc::new(Settled {
+                state: world.state.clone(),
+                next_event_id: world.next_event_id,
+            }));
+        }
+        world.next_event_id = world.next_event_id.max(settled_next_id);
+        for (position, event) in events.iter().enumerate() {
+            if position >= from {
+                // A world being rebuilt is thrown away whole if any of its
+                // history does not apply, so each event can be applied in
+                // place rather than on a copy of the state.
+                world.apply_recorded(event)?;
+            }
             world.next_event_id = world.next_event_id.max(event.id.0 + 1);
         }
+        world.events = Arc::new(events);
         Ok(world)
+    }
+
+    fn apply_recorded(&mut self, event: &Event) -> Result<(), WorldError> {
+        if event.world_time < self.world_time() {
+            return Err(WorldError::TimeRegression {
+                current: self.world_time(),
+                requested: event.world_time,
+            });
+        }
+        self.state.set_world_time(event.world_time);
+        for change in &event.changes {
+            self.state.apply_change(change)?;
+        }
+        Ok(())
     }
 
     fn apply_event(&mut self, event: &Event) -> Result<(), WorldError> {
@@ -343,12 +450,10 @@ impl World {
                 requested: event.world_time,
             });
         }
-        let mut candidate = self.state.clone();
-        candidate.set_world_time(event.world_time);
-        for change in &event.changes {
-            candidate.apply_change(change)?;
-        }
-        self.state = candidate;
+        // All of the event's changes or none of them, without copying the
+        // whole state to try them on.
+        self.state.apply_all(&event.changes)?;
+        self.state.set_world_time(event.world_time);
         Ok(())
     }
 }
@@ -356,7 +461,9 @@ impl World {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Action, ActionError, Entity, EntityId, EventDraft, StateChange, Value};
+    use crate::{
+        Action, ActionError, Entity, EntityId, EventDraft, RelationId, StateChange, Value,
+    };
 
     struct TransferUnits;
 
@@ -779,5 +886,123 @@ mod tests {
             world.history_index().changes_of(EntityId::new(1)),
             fresh.history_index().changes_of(EntityId::new(1))
         );
+    }
+
+    #[test]
+    fn a_world_resumed_from_a_checkpoint_is_its_full_replay() {
+        let registry = registry();
+        let mut world = World::new(baseline());
+        for amount in [5, 7, 11, 13] {
+            world.advance_to(&registry, world.world_time() + 3).unwrap();
+            world.execute(&registry, &transfer(amount)).unwrap();
+        }
+        world.advance_to(&registry, 40).unwrap();
+        // The first two events, summed up as their net changes.
+        let settled = world.events()[..2]
+            .iter()
+            .flat_map(|event| event.changes.clone())
+            .collect::<Vec<_>>();
+        let settled_time = world.events()[1].world_time;
+
+        let mut full = World::resume(
+            world.baseline_state().clone(),
+            &settled,
+            settled_time,
+            3,
+            world.events().to_vec(),
+            2,
+        )
+        .unwrap();
+        full.advance_to(&registry, 40).unwrap();
+        assert_eq!(full.state(), world.state());
+        assert_eq!(full.events(), world.events());
+        assert_eq!(full.baseline_state(), world.baseline_state());
+
+        let mut tail = World::resume(
+            world.baseline_state().clone(),
+            &settled,
+            settled_time,
+            3,
+            world.events()[2..].to_vec(),
+            0,
+        )
+        .unwrap();
+        tail.advance_to(&registry, 40).unwrap();
+        assert_eq!(tail.state(), world.state());
+        assert_eq!(tail.events(), &world.events()[2..]);
+        assert_eq!(tail.baseline_state(), world.baseline_state());
+        assert_eq!(tail.fork_after(1).unwrap().events(), &world.events()[2..3]);
+        assert_eq!(
+            tail.fork_after(0).unwrap().state().entity(EntityId::new(1)),
+            world
+                .fork_after(2)
+                .unwrap()
+                .state()
+                .entity(EntityId::new(1))
+        );
+        // Its own replay starts where its history does.
+        assert_eq!(tail.replay().unwrap().state(), world.state());
+        let next = tail.execute(&registry, &transfer(1)).unwrap();
+        assert_eq!(next.id, EventId::new(5));
+    }
+
+    #[test]
+    fn an_event_that_does_not_apply_leaves_the_state_as_it_was() {
+        let mut world = World::new(baseline());
+        let before = world.state().clone();
+        let relation = crate::Relation::new(
+            RelationId::new(7),
+            "knows",
+            EntityId::new(1),
+            EntityId::new(2),
+        );
+        let event = Event {
+            id: EventId::new(1),
+            kind: "doomed".into(),
+            world_time: 5,
+            actor: None,
+            targets: Vec::new(),
+            caused_by: Vec::new(),
+            payload: Default::default(),
+            changes: vec![
+                StateChange::SetComponent {
+                    entity: EntityId::new(1),
+                    key: "units".into(),
+                    value: 1_i64.into(),
+                },
+                StateChange::RemoveComponent {
+                    entity: EntityId::new(2),
+                    key: "units".into(),
+                },
+                StateChange::CreateRelation(relation),
+                StateChange::CreateEntity(Entity::new(EntityId::new(3), "container")),
+                StateChange::RemoveEntity(EntityId::new(2)),
+                StateChange::SetComponent {
+                    entity: EntityId::new(99),
+                    key: "units".into(),
+                    value: 1_i64.into(),
+                },
+            ],
+        };
+        assert!(World::from_history(baseline(), std::slice::from_ref(&event)).is_err());
+        assert!(world.apply_event(&event).is_err());
+        assert_eq!(world.state(), &before);
+    }
+
+    #[test]
+    fn events_of_a_kind_are_found_without_reading_the_history() {
+        let registry = registry();
+        let mut world = World::new(baseline());
+        world.execute(&registry, &transfer(5)).unwrap();
+        world.execute(&registry, &transfer(6)).unwrap();
+        let found = world.events_of_kind(&["units_transferred", "nothing"]);
+        assert_eq!(found.len(), 2);
+        assert_eq!(found[0].id, EventId::new(1));
+        assert!(world.events_of_kind(&["nothing"]).is_empty());
+        let checkpoint = world.checkpoint();
+        world.execute(&registry, &transfer(7)).unwrap();
+        assert_eq!(world.events_of_kind(&["units_transferred"]).len(), 3);
+        world.rollback(checkpoint);
+        assert_eq!(world.events_of_kind(&["units_transferred"]).len(), 2);
     }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "pocket-universe"
-version = "0.29.0"
+version = "0.30.0"
 edition = "2021"
 license = "Apache-2.0"
 publish = false
@@ -18,6 +18,8 @@ world-projection = { path = "../../crates/world-projection" }
 
 
 [dev-dependencies]
+# The old full-history scans, to test what the index finds against.
+lives = { path = "../../systems/lives", features = ["scan-reference"] }
 world-gpui = { path = "../../crates/world-gpui" }
 world-compare = { path = "../../crates/world-compare" }
 world-library = { path = "../../crates/world-library" }

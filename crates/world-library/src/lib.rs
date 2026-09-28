@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use world_document::{DocumentError, WorldDocument, WorldDocumentMetadata};
 use world_host::{HostError, WorldRegistry, WorldSession};
-use world_persistence::{PersistenceError, WorldArchive, WorldPackRef};
+use world_persistence::{ArchivedCheckpoint, PersistenceError, WorldArchive, WorldPackRef};
 use world_projection::{ProjectionIntent, ProjectionSnapshot};
 
 pub use world_code::{
@@ -495,6 +495,9 @@ pub struct DurableWorldSession {
     target: WorldDocumentTarget,
     revision: DocumentRevision,
     metadata: WorldDocumentMetadata,
+    /// Where the World stood at the start of its latest season, carried on
+    /// from save to save, so each change replays only the season since.
+    checkpoint: Option<ArchivedCheckpoint>,
     session: Box<dyn WorldSession>,
 }
 
@@ -514,11 +517,13 @@ impl DurableWorldSession {
         let mut document = WorldDocument::new(archive);
         document.metadata.display_title = snapshot_display_title(&snapshot);
         describe_from_snapshot(&mut document.metadata, &snapshot);
+        document.settle_checkpoint();
         let revision = library.save_document_with_revision(&document_id, &document)?;
         Ok(Self {
             target: WorldDocumentTarget::Library(document_id),
             revision,
             metadata: document.metadata,
+            checkpoint: document.archive.checkpoint,
             session,
         })
     }
@@ -531,22 +536,24 @@ impl DurableWorldSession {
         let (document, revision) = library
             .load_document_with_revision(&document_id)?
             .ok_or_else(|| LibraryError::UnknownDocument(document_id.clone()))?;
-        let session = registry.open_archive(&document.archive)?;
+        let session = open_document(registry, &document)?;
         Ok(Self {
             target: WorldDocumentTarget::Library(document_id),
             revision,
             metadata: document.metadata,
+            checkpoint: document.archive.checkpoint,
             session,
         })
     }
 
     pub fn open_file(path: PathBuf, registry: &WorldRegistry) -> Result<Self, LibraryError> {
         let (document, revision) = read_document_file_with_revision(&path)?;
-        let session = registry.open_archive(&document.archive)?;
+        let session = open_document(registry, &document)?;
         Ok(Self {
             target: WorldDocumentTarget::File(path),
             revision,
             metadata: document.metadata,
+            checkpoint: document.archive.checkpoint,
             session,
         })
     }
@@ -560,13 +567,15 @@ impl DurableWorldSession {
         if library.contains(&document_id)? {
             return Err(LibraryError::DocumentAlreadyExists(document_id));
         }
-        let document = read_document_file(source)?;
-        let session = registry.open_archive(&document.archive)?;
+        let mut document = read_document_file(source)?;
+        let session = open_document(registry, &document)?;
+        document.settle_checkpoint();
         let revision = library.save_document_with_revision(&document_id, &document)?;
         Ok(Self {
             target: WorldDocumentTarget::Library(document_id),
             revision,
             metadata: document.metadata,
+            checkpoint: document.archive.checkpoint,
             session,
         })
     }
@@ -615,7 +624,7 @@ impl DurableWorldSession {
         library: &WorldLibrary,
     ) -> Result<ProjectionSnapshot, LibraryError> {
         let (document, revision) = self.target.load_with_revision(library)?;
-        let replacement = registry.open_archive(&document.archive)?;
+        let replacement = open_document(registry, &document)?;
         let snapshot = replacement.snapshot();
 
         // The file's own line is kept; everything else Home draws from is
@@ -628,6 +637,7 @@ impl DurableWorldSession {
         }
         self.revision = revision;
         self.metadata = metadata;
+        self.checkpoint = document.archive.checkpoint;
         self.session = replacement;
         Ok(snapshot)
     }
@@ -640,7 +650,8 @@ impl DurableWorldSession {
     ) -> Result<ProjectionSnapshot, LibraryError> {
         self.target.verify_revision(self.revision, library)?;
 
-        let current_archive = required_archive(self.session.as_ref())?;
+        let mut current_archive = required_archive(self.session.as_ref())?;
+        current_archive.checkpoint = self.checkpoint.clone();
         let before = self.session.snapshot();
         let mut candidate = registry.open_archive(&current_archive)?;
         let snapshot = candidate.handle(intent)?;
@@ -649,16 +660,19 @@ impl DurableWorldSession {
         next_metadata.display_title =
             next_display_title(self.metadata.display_title.as_deref(), &before, &snapshot);
         describe_from_snapshot(&mut next_metadata, &snapshot);
-        let next_document = WorldDocument {
+        let mut next_document = WorldDocument {
             archive: next_archive,
             metadata: next_metadata.clone(),
         };
+        next_document.archive.checkpoint = current_archive.checkpoint;
+        next_document.settle_checkpoint();
 
         self.target.verify_revision(self.revision, library)?;
         let next_revision = self.target.persist(&next_document, library)?;
 
         self.revision = next_revision;
         self.metadata = next_metadata;
+        self.checkpoint = next_document.archive.checkpoint;
         self.session = candidate;
         Ok(snapshot)
     }
@@ -1022,10 +1036,18 @@ fn read_document_file(path: &Path) -> Result<WorldDocument, LibraryError> {
 fn read_document_file_with_revision(
     path: &Path,
 ) -> Result<(WorldDocument, DocumentRevision), LibraryError> {
-    let json = fs::read_to_string(path)?;
-    let revision = DocumentRevision::from_bytes(json.as_bytes());
-    let document = WorldDocument::from_json(&json)?;
+    let bytes = fs::read(path)?;
+    let revision = DocumentRevision::from_bytes(&bytes);
+    let document = WorldDocument::from_bytes(&bytes)?;
     Ok((document, revision))
+}
+
+/// Opens a document's World, replaying only what came after its checkpoint.
+fn open_document(
+    registry: &WorldRegistry,
+    document: &WorldDocument,
+) -> Result<Box<dyn WorldSession>, LibraryError> {
+    Ok(registry.open_archive(&document.archive)?)
 }
 
 #[cfg(test)]
@@ -1045,9 +1067,9 @@ fn write_document_file(
     path: &Path,
     document: &WorldDocument,
 ) -> Result<DocumentRevision, LibraryError> {
-    let json = document.to_json_pretty()?;
-    let revision = DocumentRevision::from_bytes(json.as_bytes());
-    atomic_write(path, json.as_bytes())?;
+    let bytes = document.to_bytes()?;
+    let revision = DocumentRevision::from_bytes(&bytes);
+    atomic_write(path, &bytes)?;
     Ok(revision)
 }
 
@@ -1310,6 +1332,7 @@ mod tests {
             world_time: count,
             events: Vec::new(),
             pending: Vec::new(),
+            checkpoint: None,
         }
     }
 
@@ -1900,6 +1923,7 @@ mod tests {
                 world_time: 50,
                 events: Vec::new(),
                 pending: Vec::new(),
+                checkpoint: None,
             },
             metadata,
         };
@@ -2107,13 +2131,13 @@ mod tests {
         let mut unsupported = mock_archive(5);
         unsupported.pack = WorldPackRef::new("world-machine.missing", "1");
         write_archive_file(&external, &unsupported).unwrap();
-        let before = fs::read_to_string(&external).unwrap();
+        let before = fs::read(&external).unwrap();
 
         assert!(matches!(
             DurableWorldSession::open_file(external.clone(), &registry()),
             Err(LibraryError::Host(HostError::UnknownWorld(_)))
         ));
-        assert_eq!(fs::read_to_string(&external).unwrap(), before);
+        assert_eq!(fs::read(&external).unwrap(), before);
 
         let _ = fs::remove_dir_all(root);
     }

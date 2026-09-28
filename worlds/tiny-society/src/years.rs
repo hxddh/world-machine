@@ -1,11 +1,13 @@
 //! What changes as the harbour's years turn, so the second year is not the
 //! first again: Mia finishes school, Leo hands the pub to Sofia,
-//! newcomers settle for good, and each year adds one festival, chosen by
-//! what the harbour did the year before.
+//! newcomers settle for good, the school gets a second teacher, Leo
+//! retires to the quay and his boat passes to Mia, and in the years after,
+//! newcomers marry, move out and move in. Each year also adds one
+//! festival, chosen by what the harbour did the year before.
 
 use crate::almanac::YEAR_DAYS;
 use crate::story::STORY;
-use crate::{EVAN, HARBOR, JONAS, LEO, MARA, MIA, PUB, SCHOOL, SOFIA};
+use crate::{EMMA, EVAN, HARBOR, JONAS, LEO, MARA, MIA, PUB, SCHOOL, SOFIA};
 use calendar::Festival;
 use society_basic::JOB;
 use std::collections::BTreeMap;
@@ -110,6 +112,15 @@ pub(crate) const NEW_FESTIVALS: &[Festival] = &[
 
 const FESTIVALS_ADDED: &str = "years.festivals";
 const TURNED: &str = "years.turned";
+/// Whom someone married, on each of the two.
+const MARRIED: &str = "years.married";
+/// The name of Leo's old boat, on whoever has it now.
+const BOAT: &str = "years.boat";
+/// Leo's old boat.
+const LEOS_BOAT: &str = "Kittiwake";
+/// The first year of the harbour's later years, when its newcomers marry,
+/// move out and move in, one of these a year in turn.
+const LATER: u64 = 6;
 
 /// Which year of the harbour it is, counting the first as 1.
 pub(crate) fn year(state: &WorldState) -> u64 {
@@ -169,7 +180,7 @@ fn scores(state: &WorldState) -> [i64; 4] {
     let deck = crate::story::deck();
     let works = crate::story::WORKS
         .iter()
-        .filter(|work| storylets::finished(state, &deck, work.id))
+        .filter(|work| storylets::finished(state, deck, work.id))
         .count() as i64;
     let friends = crate::story::people_in(state)
         .into_iter()
@@ -267,6 +278,61 @@ fn turning(state: &WorldState, beat: &str) -> Option<Turning> {
                     .collect(),
             }
         }
+        "teacher" if year >= 4 => {
+            // A newcomer who tutored takes it on first, else the newcomer
+            // who came first.
+            let cast = crate::life::cast();
+            let newcomers = lives::arrivals(state, &cast)
+                .into_iter()
+                .chain([crate::story::ADA, crate::story::IVO])
+                .filter(|person| state.entity(*person).is_some() && !lives::gone(state, *person))
+                .collect::<Vec<_>>();
+            let who = newcomers
+                .iter()
+                .copied()
+                .find(|person| job(state, *person) == Some("tutor"))
+                .or_else(|| newcomers.first().copied())?;
+            let name = lives::first_name(state, who);
+            Turning {
+                who,
+                told: format!("{name} started teaching at the school beside Emma"),
+                said: "Two teachers now. Emma says I can have the little ones.".into(),
+                changes: vec![
+                    set(who, JOB, "teacher"),
+                    set(who, "location", Value::Entity(SCHOOL)),
+                    set(EMMA, "location", Value::Entity(SCHOOL)),
+                ],
+            }
+        }
+        "quay" if year >= 5 && job(state, LEO) == Some("retired") => {
+            let mut changes = vec![
+                set(LEO, "location", Value::Entity(HARBOR)),
+                set(MIA, BOAT, LEOS_BOAT),
+            ];
+            if state.relation(crate::model::LEO_PUB_JOB).is_some() {
+                changes.push(StateChange::RemoveRelation(crate::model::LEO_PUB_JOB));
+            }
+            Turning {
+                who: LEO,
+                told: format!("Leo retired to the quay, and his boat {LEOS_BOAT} passed to Mia"),
+                said: "I'll mend nets and tell lies about the fish. The boat's Mia's now.".into(),
+                changes,
+            }
+        }
+        _ if beat.starts_with("later_") => {
+            let for_year = beat.trim_start_matches("later_").parse::<u64>().ok()?;
+            if for_year < LATER || year < for_year {
+                return None;
+            }
+            // Marry, move out, move in, in turn; when this year's cannot
+            // happen, the next that can does.
+            let start = ((for_year - LATER) % 3) as usize;
+            (0..3).find_map(|offset| match (start + offset) % 3 {
+                0 => marriage(state),
+                1 => moving_out(state),
+                _ => moving_in(state),
+            })?
+        }
         _ if beat.starts_with("festival_") => {
             let for_year = beat.trim_start_matches("festival_").parse::<u64>().ok()?;
             if for_year < 2 || year < for_year {
@@ -305,6 +371,88 @@ fn turning(state: &WorldState, beat: &str) -> Option<Turning> {
     Some(turning)
 }
 
+/// The newcomers living here now, first come first: whoever came to stay
+/// since the harbour began.
+fn newcomers(state: &WorldState) -> Vec<EntityId> {
+    let cast = crate::life::cast();
+    [crate::story::ADA, crate::story::IVO]
+        .into_iter()
+        .chain(lives::arrivals(state, &cast))
+        .filter(|person| state.entity(*person).is_some() && !lives::gone(state, *person))
+        .collect()
+}
+
+fn married(state: &WorldState, person: EntityId) -> bool {
+    state
+        .entity(person)
+        .is_some_and(|entity| entity.component(MARRIED).is_some())
+}
+
+/// A couple of whom at least one is a newcomer marries: the couple who
+/// came first.
+fn marriage(state: &WorldState) -> Option<Turning> {
+    let newcomers = newcomers(state);
+    let (a, b) = newcomers.iter().copied().find_map(|a| {
+        let b = lives::partner(state, a)?;
+        (!married(state, a) && !married(state, b) && !lives::gone(state, b)).then_some((a, b))
+    })?;
+    let (an, bn) = (lives::first_name(state, a), lives::first_name(state, b));
+    Some(Turning {
+        who: a,
+        told: format!("{an} and {bn} were married at the old chapel"),
+        said: format!("{bn} said yes! Well, we both did."),
+        changes: vec![
+            set(a, MARRIED, Value::Entity(b)),
+            set(b, MARRIED, Value::Entity(a)),
+        ],
+    })
+}
+
+/// A newcomer on their own moves back to the mainland: the one who came
+/// last.
+fn moving_out(state: &WorldState) -> Option<Turning> {
+    let who = newcomers(state)
+        .into_iter()
+        .rev()
+        .find(|person| lives::partner(state, *person).is_none() && !married(state, *person))?;
+    let name = lives::first_name(state, who);
+    Some(Turning {
+        who,
+        told: format!("{name} moved back to the mainland"),
+        said: "I'll miss the gulls. Not the wind.".into(),
+        changes: vec![set(who, lives::GONE, true)],
+    })
+}
+
+/// Someone new moves into the harbour, when there is room.
+fn moving_in(state: &WorldState) -> Option<Turning> {
+    let cast = crate::life::cast();
+    if crate::story::people_in(state).len() >= cast.most_people {
+        return None;
+    }
+    let visitors = cast.visitors?;
+    let id = (visitors.first..visitors.first + visitors.room)
+        .map(EntityId::new)
+        .find(|id| state.entity(*id).is_none())?;
+    let taken = state
+        .entities()
+        .map(|entity| lives::first_name(state, entity.id))
+        .collect::<std::collections::BTreeSet<_>>();
+    let name = *visitors.names.iter().find(|name| !taken.contains(**name))?;
+    let (trade, job) = visitors.trades[(id.0 as usize) % visitors.trades.len()];
+    let mut entity = world_core::Entity::new(id, visitors.kind).with_component("name", name);
+    for (key, value) in (visitors.components)(name, job) {
+        entity = entity.with_component(key, value);
+    }
+    entity = entity.with_component("lives.newcomer", true);
+    Some(Turning {
+        who: id,
+        told: format!("{name}, a {trade}, moved into the harbour"),
+        said: format!("Hello! I'm {name}. I've taken the cottage by the well."),
+        changes: vec![StateChange::CreateEntity(entity)],
+    })
+}
+
 pub(crate) fn register_actions(registry: &mut ActionRegistry) -> Result<(), ActionError> {
     registry.register(YearTurns)
 }
@@ -328,7 +476,11 @@ impl Action for YearTurns {
         };
         let turning = turning(state, beat)
             .ok_or_else(|| ActionError::Invalid(format!("{beat} is not due")))?;
-        if state.entity(turning.who).is_none() {
+        let arriving = turning
+            .changes
+            .iter()
+            .any(|change| matches!(change, StateChange::CreateEntity(entity) if entity.id == turning.who));
+        if state.entity(turning.who).is_none() && !arriving {
             return Err(ActionError::Invalid("nobody to tell it".into()));
         }
         let mut draft = EventDraft::new("year_turned");
@@ -350,9 +502,10 @@ pub(crate) fn tick(
 ) -> Result<Vec<EventId>, WorldError> {
     let mut events = Vec::new();
     let year = year(world.state());
-    let beats = ["grown", "hands", "settled"]
+    let beats = ["grown", "hands", "settled", "teacher", "quay"]
         .into_iter()
         .map(String::from)
+        .chain((LATER..=year).map(|year| format!("later_{year}")))
         .chain((2..=year).map(|year| format!("festival_{year}")));
     for beat in beats {
         if turning(world.state(), &beat).is_some() {
@@ -363,6 +516,7 @@ pub(crate) fn tick(
             }
         }
     }
+    events.extend(crate::fishing::restock(world, actions));
     let cast = crate::life::cast();
     events.extend(lives::season_turns(
         world,
