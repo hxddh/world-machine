@@ -249,9 +249,9 @@ fn a_code_reopens_as_the_same_world() {
         started.elapsed()
     );
     assert!(code.starts_with("wm2:"));
-    // The plan's target is 50,000 characters. What is left over it is the
-    // lives System's memory of every line heard (see the v0.19 notes).
-    assert!(code.len() < 100_000, "{} characters", code.len());
+    // The plan's target: 50,000 characters. The largest part of it is the
+    // lives System's memory of the lines heard in its latest ninety days.
+    assert!(code.len() < 50_000, "{} characters", code.len());
 
     // It carries the latest season, where the World stands and what is
     // pending; the history before its checkpoint stays with the owner.

@@ -213,8 +213,11 @@ fn next_id(state: &WorldState, kit: &Kit) -> Option<EntityId> {
     (next < kit.first + kit.room).then(|| EntityId::new(next))
 }
 
+/// Where the count of what the player did in a period is kept.
+const DONE: &str = "hands.done.";
+
 fn done_key(period: u64) -> String {
-    format!("hands.done.{period}")
+    format!("{DONE}{period}")
 }
 
 /// How many more things the player can do this period.
@@ -527,6 +530,21 @@ impl Action for Does {
             key: done_key(now),
             value: (done + 1).into(),
         });
+        // Only this period's count is ever read: the counts of periods
+        // gone by are let go, so the notes do not grow with every day.
+        if let Some(notes) = state.entity(kit.notes) {
+            changes.extend(
+                notes
+                    .components
+                    .range::<str, _>((std::ops::Bound::Included(DONE), std::ops::Bound::Unbounded))
+                    .take_while(|(key, _)| key.starts_with(DONE))
+                    .filter(|(key, _)| **key != done_key(now))
+                    .map(|(key, _)| StateChange::RemoveComponent {
+                        entity: kit.notes,
+                        key: key.clone(),
+                    }),
+            );
+        }
         // What it would take to take this back, this period: what was
         // made, or where a moved thing stood before, and what it cost.
         let undo = match (verb, made_id) {

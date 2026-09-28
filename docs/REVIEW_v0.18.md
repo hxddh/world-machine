@@ -156,6 +156,22 @@ Each item names what changes, where, and the test that holds it.
 - notifications and widgets, which still wait on signing;
 - a bundled Chinese font, which macOS does not need (PingFang ships with it).
 
+## Progress in v0.19.0
+
+Seven of the eight items shipped; rodio waits for a Mac, as planned.
+
+| Item | Target | v0.19.0 |
+|---|---|---|
+| 1. Works keep moving | a work every ≤60 days, a rung asked within 45 | Tiny Society 41 and 3 days; Pocket Universe 53 and 27 |
+| 2. Pocket Universe years | second year ≥60% new lines | 70–75% |
+| 3. A third year | ≥55% new in every 120 days to day 1,080 | lowest 58% |
+| 4. Letters and quiet days | ≤2 letters a week, ≤4 quiet days in 120 | 2; Tiny Society 0, Pocket Universe ≤1 |
+| 5. Saves | three years under 3 MB, code under 50,000 characters | 2.09 MB; 48,020 characters (`wm2:`) |
+| 6. Snapshots | under 15 ms at three years | about 11 ms median, release, first snapshot after each day |
+| 7. World voice everywhere | `fm` voice and a model field | both; `fm` tested against recorded replies only |
+
+Still open: the "let the day pass" preview is now the largest part of a snapshot; resting and gathering lines are the most repeated in the third year; a code's visit tells only the latest season in History and the book.
+
 ## Sources
 
 - **CI runners:**

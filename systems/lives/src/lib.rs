@@ -291,6 +291,23 @@ fn pick<T>(items: &[T], seed: u64) -> Option<&T> {
 fn fill(template: &str, words: &[(&str, &str)]) -> String {
     let mut out = template.to_string();
     for (slot, word) in words {
+        // With no slot left, nothing more is filled in.
+        if !out.contains('{') {
+            break;
+        }
+        let marker = format!("{{{slot}}}");
+        if out.contains(&marker) {
+            out = out.replace(&marker, word);
+        }
+    }
+    out
+}
+
+/// [`fill`] as it was first written: the reference it is checked against.
+#[cfg(test)]
+fn fill_every_slot(template: &str, words: &[(&str, &str)]) -> String {
+    let mut out = template.to_string();
+    for (slot, word) in words {
         out = out.replace(&format!("{{{slot}}}"), word);
     }
     out
@@ -750,7 +767,6 @@ fn saying(
     let fresh = lines
         .iter()
         .filter(|line| !heard.lately(line))
-        .cloned()
         .collect::<Vec<_>>();
     let base = if fresh.is_empty() {
         lines
@@ -759,7 +775,9 @@ fn saying(
             .cloned()
             .unwrap_or_default()
     } else {
-        pick(&fresh, seed).cloned().unwrap_or_default()
+        pick(&fresh, seed)
+            .map(|line| (*line).clone())
+            .unwrap_or_default()
     };
     let tails = tails(state, person, seed);
     let tail = (seed / 7)
@@ -983,10 +1001,12 @@ const HEARD_PERIODS: u64 = 90;
 pub const ASKED_APART_PERIODS: u64 = 61;
 
 /// When lines were last said. Each period's lines are kept together in
-/// one note, `lives.said.<period>`, as a short hash of each line written
+/// one note, `lives.lines.<period>`, as a short hash of each line written
 /// in [`SAID_CODE`] characters, so the notes hold one entry a period
-/// rather than one a line. Worlds from before keep a note a line
-/// (`lives.heard.<hash>`) until those are forgotten; both are read.
+/// rather than one a line. Worlds from before keep their lines in longer
+/// hashes (`lives.said.<period>`, [`SAID_BEFORE_CODE`] characters) or in a
+/// note a line (`lives.heard.<hash>`) until those are forgotten; all are
+/// read.
 #[derive(Clone)]
 struct Heard<'a> {
     state: &'a WorldState,
@@ -996,33 +1016,122 @@ struct Heard<'a> {
     /// hashes of the lines said in it, in order, so a line is looked up
     /// rather than looked for.
     said: Vec<(u64, &'a [[u8; SAID_CODE]])>,
+    /// The same, as one list in order of the lines' codes: see
+    /// [`Heard::latest`].
+    latest: std::cell::OnceCell<Vec<u64>>,
+    /// The same, as a World from before noted them.
+    said_before: Vec<(u64, &'a [[u8; SAID_BEFORE_CODE]])>,
     /// Whether any line is still noted as a World from before noted it.
     before: bool,
 }
 
 /// Where a period's lines are noted.
-const SAID: &str = "lives.said.";
-/// How many characters a line's short hash takes: six bits each, so 42
+const SAID: &str = "lives.lines.";
+/// How many characters a line's short hash takes: six bits each, so 36
 /// bits. With a few thousand lines remembered at once, another line is
-/// taken for one of them about once in a billion askings.
-const SAID_CODE: usize = 7;
+/// taken for one of them about once in twenty million askings: over three
+/// years of a harbour's days, about one chance in ten that it ever
+/// happens, and then only a line said a little differently.
+const SAID_CODE: usize = 6;
+/// Where, and in how many characters, a World from before noted a
+/// period's lines.
+const SAID_BEFORE: &str = "lives.said.";
+const SAID_BEFORE_CODE: usize = 7;
 const SAID_DIGITS: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+
+/// Each period's note under `prefix`, the latest first, read as codes of
+/// `N` characters.
+fn said_notes<'a, const N: usize>(
+    state: &'a WorldState,
+    notes: EntityId,
+    prefix: &str,
+) -> Vec<(u64, &'a [[u8; N]])> {
+    let mut said = Vec::new();
+    if let Some(notes) = state.entity(notes) {
+        for (key, value) in notes
+            .components
+            .range::<str, _>((
+                std::ops::Bound::Included(prefix),
+                std::ops::Bound::Unbounded,
+            ))
+            .take_while(|(key, _)| key.starts_with(prefix))
+        {
+            let at = key.strip_prefix(prefix).and_then(|at| at.parse().ok());
+            if let (Some(at), Value::Text(lines)) = (at, value) {
+                said.push((at, lines.as_bytes().as_chunks::<N>().0));
+            }
+        }
+    }
+    said.sort_unstable_by_key(|(at, _)| std::cmp::Reverse(*at));
+    said
+}
+
+/// Each code character's place among [`SAID_DIGITS`] in the order of the
+/// characters themselves (not of the digits they stand for), so a code
+/// read as a number of these sorts as its characters do.
+const SAID_RANKS: [u8; 256] = {
+    let mut ranks = [0; 256];
+    let mut rank = 0;
+    let mut byte = 0;
+    while byte < 256 {
+        let mut digit = 0;
+        while digit < 64 {
+            if SAID_DIGITS[digit] as usize == byte {
+                ranks[byte] = rank;
+                rank += 1;
+            }
+            digit += 1;
+        }
+        byte += 1;
+    }
+    ranks
+};
+
+/// A code as one number of six bits a character, ordered as the codes'
+/// characters are.
+fn code_number<const N: usize>(code: &[u8; N]) -> u64 {
+    code.iter().fold(0, |number, digit| {
+        (number << 6) | u64::from(SAID_RANKS[usize::from(*digit)])
+    })
+}
+
+/// Bits of a [`Heard::latest`] entry that hold the period, below the code.
+const PERIOD_BITS: u32 = 64 - 6 * SAID_CODE as u32;
+
+/// Numbers whose top bits are evenly spread (codes are hashes), in order:
+/// dealt by their top bits into small piles, each put in order.
+fn sort_codes(numbers: Vec<u64>) -> Vec<u64> {
+    const PILE_BITS: u32 = 10;
+    let pile = |number: u64| (number >> (64 - PILE_BITS)) as usize;
+    let mut starts = vec![0_usize; (1 << PILE_BITS) + 1];
+    for number in &numbers {
+        starts[pile(*number) + 1] += 1;
+    }
+    for at in 1..starts.len() {
+        starts[at] += starts[at - 1];
+    }
+    let mut next = starts.clone();
+    let mut sorted = vec![0; numbers.len()];
+    for number in numbers {
+        let at = &mut next[pile(number)];
+        sorted[*at] = number;
+        *at += 1;
+    }
+    for piles in starts.windows(2) {
+        sorted[piles[0]..piles[1]].sort_unstable();
+    }
+    sorted
+}
+
+/// The latest period whose note holds `code`.
+fn noted_in<const N: usize>(said: &[(u64, &[[u8; N]])], code: &[u8; N]) -> Option<u64> {
+    said.iter()
+        .find(|(_, lines)| lines.binary_search(code).is_ok())
+        .map(|(at, _)| *at)
+}
 
 impl<'a> Heard<'a> {
     fn of(state: &'a WorldState, cast: &Cast) -> Self {
-        let mut said = Vec::new();
-        if let Some(notes) = state.entity(cast.notes) {
-            for (key, value) in notes
-                .components
-                .range::<str, _>((std::ops::Bound::Included(SAID), std::ops::Bound::Unbounded))
-                .take_while(|(key, _)| key.starts_with(SAID))
-            {
-                if let (Some(at), Value::Text(lines)) = (said_period(key), value) {
-                    said.push((at, lines.as_bytes().as_chunks::<SAID_CODE>().0));
-                }
-            }
-        }
-        said.sort_unstable_by_key(|(at, _)| std::cmp::Reverse(*at));
         let before = state.entity(cast.notes).is_some_and(|notes| {
             notes
                 .components
@@ -1037,30 +1146,99 @@ impl<'a> Heard<'a> {
             state,
             notes: cast.notes,
             now: period(state, cast),
-            said,
+            said: said_notes(state, cast.notes, SAID),
+            latest: std::cell::OnceCell::new(),
+            said_before: said_notes(state, cast.notes, SAID_BEFORE),
             before,
         }
     }
 
+    /// Every line noted in every period, as one number each, its code
+    /// above the period, in order: made the first time a line is looked
+    /// up, so that each line after is one search rather than one a period.
+    fn latest(&self) -> &[u64] {
+        self.latest.get_or_init(|| {
+            let latest = self
+                .said
+                .iter()
+                .flat_map(|(at, lines)| {
+                    lines
+                        .iter()
+                        .map(move |line| (code_number(line) << PERIOD_BITS) | at)
+                })
+                .collect::<Vec<_>>();
+            sort_codes(latest)
+        })
+    }
+
     /// The period a line was last said in, if it is remembered.
     fn when(&self, line: &str) -> Option<u64> {
-        let code = hash_code(short_hash(line));
-        let noted = self
+        let hash = line_hash(line);
+        let code = hash_code::<SAID_CODE>(short_hash::<SAID_CODE>(hash));
+        // A period too late to share a number with its code (hundreds of
+        // thousands of years of days) is looked for note by note.
+        let noted = if self
             .said
-            .iter()
-            .find(|(_, lines)| lines.binary_search(&code).is_ok())
-            .map(|(at, _)| *at);
+            .first()
+            .is_some_and(|(at, _)| *at >> PERIOD_BITS != 0)
+        {
+            noted_in(&self.said, &code)
+        } else {
+            let number = code_number(&code);
+            let latest = self.latest();
+            // The last entry for the code holds its latest period.
+            let after = latest.partition_point(|entry| entry >> PERIOD_BITS <= number);
+            after
+                .checked_sub(1)
+                .map(|last| latest[last])
+                .filter(|entry| entry >> PERIOD_BITS == number)
+                .map(|entry| entry & ((1 << PERIOD_BITS) - 1))
+        };
+        let noted_before = (!self.said_before.is_empty())
+            .then(|| {
+                noted_in(
+                    &self.said_before,
+                    &hash_code::<SAID_BEFORE_CODE>(short_hash::<SAID_BEFORE_CODE>(hash)),
+                )
+            })
+            .flatten();
         let before = self
             .before
             .then(|| integer(self.state, self.notes, &heard_key(line)))
             .flatten()
             .map(|at| at.max(0) as u64);
-        noted.max(before)
+        noted.max(noted_before).max(before)
     }
 
     fn lately(&self, line: &str) -> bool {
         self.when(line)
             .is_some_and(|at| self.now.saturating_sub(at) < HEARD_PERIODS)
+    }
+
+    /// [`Self::when`] as it was first written, reading every note's codes
+    /// as strings: the reference the faster reading is checked against.
+    #[cfg(test)]
+    fn when_by_reading_every_note(&self, line: &str) -> Option<u64> {
+        fn noted<const N: usize>(said: &[(u64, &[[u8; N]])], code: &[u8; N]) -> Option<u64> {
+            said.iter()
+                .find(|(_, lines)| lines.binary_search(code).is_ok())
+                .map(|(at, _)| *at)
+        }
+        let hash = line_hash(line);
+        let noted_now = noted(
+            &self.said,
+            &hash_code::<SAID_CODE>(short_hash::<SAID_CODE>(hash)),
+        );
+        let noted_before = noted(
+            &self.said_before,
+            &hash_code::<SAID_BEFORE_CODE>(short_hash::<SAID_BEFORE_CODE>(hash)),
+        );
+        let before = self
+            .before
+            .then(|| integer(self.state, self.notes, &heard_key(line)))
+            .flatten()
+            .map(|at| at.max(0) as u64);
+        noted_now.max(noted_before).max(before)
     }
 }
 
@@ -1078,15 +1256,16 @@ fn heard_key(line: &str) -> String {
     format!("{HEARD_BEFORE}{:016x}", line_hash(line))
 }
 
-/// A line's short hash: the best-mixed bits of its full one.
-fn short_hash(line: &str) -> u64 {
-    line_hash(line) >> (64 - 6 * SAID_CODE)
+/// A line's short hash in `N` characters: the best-mixed bits of its full
+/// one.
+fn short_hash<const N: usize>(line_hash: u64) -> u64 {
+    line_hash >> (64 - 6 * N)
 }
 
-fn hash_code(hash: u64) -> [u8; SAID_CODE] {
-    let mut code = [0; SAID_CODE];
+fn hash_code<const N: usize>(hash: u64) -> [u8; N] {
+    let mut code = [0; N];
     for (at, digit) in code.iter_mut().enumerate() {
-        *digit = SAID_DIGITS[((hash >> (6 * (SAID_CODE - 1 - at))) & 63) as usize];
+        *digit = SAID_DIGITS[((hash >> (6 * (N - 1 - at))) & 63) as usize];
     }
     code
 }
@@ -1107,8 +1286,12 @@ fn said_key(period: u64) -> String {
     format!("{SAID}{period}")
 }
 
+/// The period a note of lines is for, in either way of noting them.
 fn said_period(key: &str) -> Option<u64> {
-    key.strip_prefix(SAID)?.parse().ok()
+    key.strip_prefix(SAID)
+        .or_else(|| key.strip_prefix(SAID_BEFORE))?
+        .parse()
+        .ok()
 }
 
 /// Notes that a line was said this period: added to this period's note,
@@ -1116,7 +1299,7 @@ fn said_period(key: &str) -> Option<u64> {
 /// same event.
 fn remember_saying(moves: &mut Moves, heard: &Heard, said: &str) {
     let key = said_key(heard.now);
-    let code = hash_code(short_hash(said));
+    let code = hash_code::<SAID_CODE>(short_hash::<SAID_CODE>(line_hash(said)));
     // Kept in order, so the note is looked up rather than read through.
     let noted = |lines: &mut String| {
         let at = lines

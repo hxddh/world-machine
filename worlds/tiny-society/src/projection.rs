@@ -1854,10 +1854,11 @@ mod probe_parts {
         eprintln!("events {}", world.events().len());
         // What the lives System's notes hold of what was said.
         let notes = world.state().entity(crate::life::cast().notes).unwrap();
-        let said = notes
-            .components
-            .iter()
-            .filter(|(key, _)| key.starts_with("lives.said.") || key.starts_with("lives.heard."));
+        let said = notes.components.iter().filter(|(key, _)| {
+            key.starts_with("lives.lines.")
+                || key.starts_with("lives.said.")
+                || key.starts_with("lives.heard.")
+        });
         let (count, chars) = said.fold((0, 0), |(count, chars), (key, value)| {
             let len = match value {
                 world_core::Value::Text(text) => text.len(),
