@@ -173,6 +173,7 @@ mod tests {
                         question: None,
                         unavailable: None,
                         hand: None,
+                        preview: None,
                     },
                     ProjectionCommand {
                         id: "mock.right".into(),
@@ -185,6 +186,7 @@ mod tests {
                         question: None,
                         unavailable: None,
                         hand: None,
+                        preview: None,
                     },
                 ],
                 ..ProjectionSnapshot::default()

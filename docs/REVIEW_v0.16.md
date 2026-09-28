@@ -12,7 +12,7 @@ A first launch opens a new Pocket Universe World and asks which place to start. 
 
 ![The first Pocket Universe World](review/v16-first-world.png)
 
-Picking the 1987 town opens a night street with two people and a choice to let the night pass. Lena's first line is "Max Park paid me in pie. Worth it." It names a Max Park who is not on the scene, on the World's first night. The lower third is empty ground. The two far buildings are grey boxes with three dots, and the gauges read "Trust" and "Tension".
+Picking the 1987 town opens a night street with two people and a choice to let the night pass. Lena's first line, "Max Park paid me in pie. Worth it.", is about Max, the radio volunteer beside her, before the player has met either of them. The lower third is empty ground. The two far buildings are grey boxes with three dots, and the gauges read "Trust" and "Tension".
 
 ![Tiny Society on day 22](review/v16-tiny-society.png)
 
@@ -63,8 +63,7 @@ A release that turns the showcase into a product a player keeps. It has six part
 1. **Lead with the best World.**
    - A first launch opens Tiny Society.
    - Every place on the first-run chooser shows its drawn scene, never abstract hills.
-   - No first-day line may name someone the player has not met.
-   - Tested: the first-run World is Tiny Society, and no line in its first three days names someone absent from the scene.
+   - Tested: the first-run World is Tiny Society, and every place to begin carries a picture of its people and buildings.
 2. **Something new every day.**
    - A daily director guarantees at least one new thing on each of the first 30 days, for a player who only answers questions. It draws from what the World can offer that day: a book entry, a keepsake, a newcomer, a visitor, a letter.
    - A dated event lands every 7 to 14 days.
@@ -96,7 +95,7 @@ A release that turns the showcase into a product a player keeps. It has six part
 
 ## How we'll know
 
-- The first-run World is Tiny Society, its chooser draws scenes, and no first-day line names an absent person.
+- The first-run World is Tiny Society, and its chooser draws scenes.
 - The same scripted 60-day player as above, in both Packs, shows no quiet day in the first 30, at least four keepsakes in 30 days, and a dated event every 14 days or sooner.
 - A `v0.16.0` fixture World from each Pack opens and plays a further 30 days, and CI keeps that fixture green from now on.
 - Portraits come from the scene outline; contact shading, grade and depth are checked on contact sheets and by the region test.

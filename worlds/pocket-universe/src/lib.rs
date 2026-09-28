@@ -275,7 +275,7 @@ where
     fn with_previews(&self, mut snapshot: ProjectionSnapshot) -> ProjectionSnapshot {
         let before = snapshot.gauges.clone();
         if before.is_empty() {
-            return snapshot;
+            return self.with_beginnings(snapshot);
         }
         for command in &mut snapshot.commands {
             // A deed of the player's own hands is not a choice to weigh.
@@ -299,6 +299,35 @@ where
             if copy.invoke_projection_command(&command.id).is_ok() {
                 command.moves =
                     world_projection::gauge_moves(&before, &projection::gauges(&copy.world));
+            }
+        }
+        snapshot
+    }
+
+    /// Before a place is chosen, each place to begin is shown as it would
+    /// first stand, by beginning it on a copy: its people and buildings,
+    /// drawn the way its window will draw them.
+    fn with_beginnings(&self, mut snapshot: ProjectionSnapshot) -> ProjectionSnapshot {
+        for command in &mut snapshot.commands {
+            if command.scenery.is_none() {
+                continue;
+            }
+            let Ok(actions) = build_action_registry() else {
+                continue;
+            };
+            let mut copy = PocketUniverse {
+                world: self.world.sketch(world_projection::RECENT_EVENTS),
+                actions,
+                mind: PocketMind,
+                mind_profile: DETERMINISTIC_MIND_PROFILE.into(),
+                narrator: Box::new(narrator::NoNarrator),
+            };
+            if copy.invoke_projection_command(&command.id).is_ok() {
+                let begun = projection::snapshot(&copy.world);
+                command.preview = Some(Box::new(world_projection::Preview {
+                    canvas: begun.canvas,
+                    drawings: begun.drawings,
+                }));
             }
         }
         snapshot
@@ -2370,6 +2399,37 @@ fn anchor_pulse(seed: &str, generation: i64) -> String {
 mod tests {
     use super::*;
     use world_agent::MockAgentRuntime;
+
+    /// Every place to begin shows itself as it will first stand: its own
+    /// people and buildings, not a landscape alone.
+    #[test]
+    fn every_place_to_begin_is_shown_with_its_people() {
+        let universe = PocketUniverse::new().unwrap();
+        let snapshot = universe.projection_snapshot();
+        let beginnings = snapshot
+            .commands
+            .iter()
+            .filter(|command| command.scenery.is_some())
+            .collect::<Vec<_>>();
+        assert_eq!(beginnings.len(), 3);
+        for command in beginnings {
+            let preview = command.preview.as_ref().expect("a picture of the place");
+            let people = preview
+                .canvas
+                .items
+                .iter()
+                .filter(|item| item.kind == world_projection::CanvasItemKind::Actor)
+                .count();
+            assert!(people >= 2, "{} shows {people} people", command.id);
+            assert!(
+                preview.canvas.items.len() > people,
+                "{} shows no buildings",
+                command.id
+            );
+        }
+        // Showing a place does not begin it.
+        assert_eq!(universe.world().events().len(), 0);
+    }
 
     /// Everything a player reads in this World, over a first session and a
     /// return, speaks about the World and never about the engine.

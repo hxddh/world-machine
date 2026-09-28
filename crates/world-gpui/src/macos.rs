@@ -498,7 +498,26 @@ impl ProjectionView {
                         } else {
                             BEGINNING_SHORT
                         }))
-                        .child(ui::scenery_cover(&scenery, &command.id).size_full()),
+                        .child(match &command.preview {
+                            // The place as it will first stand, people and
+                            // all, drawn the way its window draws it.
+                            Some(preview) => crate::diorama::cover(
+                                Some(scenery),
+                                &preview
+                                    .canvas
+                                    .marks
+                                    .iter()
+                                    .map(|mark| mark.shape)
+                                    .collect::<Vec<_>>(),
+                                preview.canvas.items.clone(),
+                                preview.drawings.clone(),
+                            )
+                            .size_full()
+                            .into_any_element(),
+                            None => ui::scenery_cover(&scenery, &command.id)
+                                .size_full()
+                                .into_any_element(),
+                        }),
                 )
                 .child(
                     div()

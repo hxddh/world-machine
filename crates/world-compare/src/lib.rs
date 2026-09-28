@@ -991,6 +991,7 @@ mod tests {
                 question: None,
                 unavailable: None,
                 hand: None,
+                preview: None,
             }],
         );
 
@@ -1301,6 +1302,7 @@ mod tests {
                 question: None,
                 unavailable: None,
                 hand: None,
+                preview: None,
             }],
         );
         let right = snapshot(
@@ -1318,6 +1320,7 @@ mod tests {
                 question: None,
                 unavailable: None,
                 hand: None,
+                preview: None,
             }],
         );
 

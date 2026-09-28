@@ -343,6 +343,7 @@ pub(crate) fn commands(world: &World) -> Vec<world_projection::ProjectionCommand
                     at: Some(world_projection::SelectionId::Entity(deed.at)),
                     cost: deed.cost,
                 }),
+                preview: None,
             }
         })
         .chain(hands::can_undo(world.state(), &kit).map(|title| {
@@ -362,6 +363,7 @@ pub(crate) fn commands(world: &World) -> Vec<world_projection::ProjectionCommand
                     at: None,
                     cost: None,
                 }),
+                preview: None,
             }
         }))
         .collect()

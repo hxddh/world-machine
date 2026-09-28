@@ -181,7 +181,7 @@ pub enum Ears {
     Own,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ProjectionCommand {
     pub id: String,
     pub title: String,
@@ -213,6 +213,10 @@ pub struct ProjectionCommand {
     /// answer to anything: build a bench by the quay, give Mara a present.
     /// A screen offers these as things to do in the place, not as cards.
     pub hand: Option<Hand>,
+    /// The World this choice starts, as it would first stand: its people,
+    /// buildings and drawings, for a screen to draw the choice as a
+    /// picture of the place rather than a landscape alone.
+    pub preview: Option<Box<Preview>>,
 }
 
 /// Something the player does in the place with their own hands.
@@ -295,6 +299,13 @@ pub fn gauge_moves(before: &[Gauge], after: &[Gauge]) -> Vec<GaugeMove> {
 /// a Mars colony is red dust and a 1987 town is a street at night; a screen
 /// draws covers and the scene's backdrop from it. Art, not interface: the
 /// same in light and dark appearance.
+/// How a World a choice would start first stands.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Preview {
+    pub canvas: CanvasProjection,
+    pub drawings: Vec<Drawing>,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Scenery {
     pub sky_top: u32,
@@ -2474,6 +2485,7 @@ mod tests {
                 question: None,
                 unavailable: None,
                 hand: None,
+                preview: None,
             }],
             ..ProjectionSnapshot::default()
         };

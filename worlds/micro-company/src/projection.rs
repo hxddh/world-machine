@@ -58,6 +58,7 @@ fn commands(world: &World) -> Vec<ProjectionCommand> {
         title: "Run one company cycle".into(),
         detail: "Pay the burn, let Maya and Jon act, then see whether product, customers, runway, and working trust move together.".into(), effects: Vec::new(),
         scenery: None, asker: None, moves: Vec::new(), question: None, unavailable: None, hand: None,
+    preview: None,
 }]
 }
 

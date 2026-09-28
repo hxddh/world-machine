@@ -1293,7 +1293,7 @@ impl From<ProjectionCapabilitiesWire> for ProjectionCapabilities {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ProjectionCommandWire {
     pub id: String,
     pub title: String,
@@ -1317,6 +1317,18 @@ pub struct ProjectionCommandWire {
     /// Optional both ways: something done with the player's own hands.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hand: Option<HandWire>,
+    /// Optional both ways: the World this choice starts, as it first stands.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview: Option<PreviewWire>,
+}
+
+/// How a World a choice would start first stands.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct PreviewWire {
+    #[serde(default)]
+    pub canvas: CanvasProjectionWire,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub drawings: Vec<DrawingWire>,
 }
 
 /// Something the player does in the place with their own hands.
@@ -1445,6 +1457,10 @@ impl From<&ProjectionCommand> for ProjectionCommandWire {
                 at: hand.at.map(Into::into),
                 cost: hand.cost.clone(),
             }),
+            preview: command.preview.as_ref().map(|preview| PreviewWire {
+                canvas: (&preview.canvas).into(),
+                drawings: preview.drawings.iter().map(Into::into).collect(),
+            }),
         }
     }
 }
@@ -1481,6 +1497,18 @@ impl From<ProjectionCommandWire> for ProjectionCommand {
                     at: hand.at.map(Into::into),
                     cost: hand.cost,
                 }),
+            preview: command.preview.map(|preview| {
+                Box::new(world_projection::Preview {
+                    canvas: preview.canvas.into(),
+                    drawings: preview
+                        .drawings
+                        .into_iter()
+                        .map(Drawing::from)
+                        .filter(Drawing::is_drawable)
+                        .take(MOST_DRAWINGS)
+                        .collect(),
+                })
+            }),
             moves: command
                 .moves
                 .into_iter()
@@ -2428,6 +2456,7 @@ mod tests {
                 question: None,
                 unavailable: None,
                 hand: None,
+                preview: None,
             }],
             collection: CollectionProjection {
                 title: "Entities".into(),
@@ -2699,6 +2728,44 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn a_place_to_begin_crosses_with_its_picture() {
+        let person = world_projection::person_base("someone")
+            .with("someone", world_projection::short_hair());
+        let command = ProjectionCommand {
+            id: "begin".into(),
+            title: "Start a town".into(),
+            detail: String::new(),
+            effects: Vec::new(),
+            scenery: None,
+            moves: Vec::new(),
+            asker: None,
+            question: None,
+            unavailable: None,
+            hand: None,
+            preview: Some(Box::new(world_projection::Preview {
+                canvas: CanvasProjection {
+                    items: Vec::new(),
+                    links: Vec::new(),
+                    marks: vec![CanvasMark {
+                        label: "Well".into(),
+                        shape: world_projection::MarkShape::Well,
+                        selection: None,
+                    }],
+                },
+                drawings: vec![person],
+            })),
+        };
+        let json = serde_json::to_string(&ProjectionCommandWire::from(&command)).unwrap();
+        let back =
+            ProjectionCommand::from(serde_json::from_str::<ProjectionCommandWire>(&json).unwrap());
+        assert_eq!(back, command);
+        // From a Pack that never heard of pictures, a choice has none.
+        let older: ProjectionCommandWire =
+            serde_json::from_str(r#"{"id":"a","title":"A","detail":""}"#).unwrap();
+        assert!(ProjectionCommand::from(older).preview.is_none());
     }
 
     #[test]

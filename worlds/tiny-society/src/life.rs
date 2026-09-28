@@ -476,6 +476,7 @@ pub(crate) fn commands(world: &World) -> Vec<world_projection::ProjectionCommand
                     question: Some(question.clone()),
                     unavailable: answer.unavailable,
                     hand: None,
+                    preview: None,
                 })
         })
         .collect()

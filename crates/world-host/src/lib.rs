@@ -465,6 +465,7 @@ mod tests {
                     question: None,
                     unavailable: None,
                     hand: None,
+                    preview: None,
                 }],
                 ..ProjectionSnapshot::default()
             }

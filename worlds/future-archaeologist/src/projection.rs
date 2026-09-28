@@ -66,6 +66,7 @@ fn commands(world: &World) -> Vec<ProjectionCommand> {
             question: None,
             unavailable: None,
             hand: None,
+            preview: None,
         }]
     }
 }

@@ -57,6 +57,7 @@ impl WorldSession for MockSession {
                 question: None,
                 unavailable: None,
                 hand: None,
+                preview: None,
             }],
             ..ProjectionSnapshot::default()
         }

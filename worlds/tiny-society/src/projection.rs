@@ -276,6 +276,7 @@ pub(crate) fn available_commands(world: &World) -> Vec<ProjectionCommand> {
             question: None,
             unavailable: None,
             hand: None,
+            preview: None,
         });
     }
 
@@ -292,6 +293,7 @@ pub(crate) fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 crate::BAKERY_REOPEN_INVESTMENT
             ), effects: Vec::new(),
             scenery: None, asker: None, moves: Vec::new(), question: None, unavailable: None, hand: None,
+    preview: None,
 });
     }
 
@@ -306,6 +308,7 @@ pub(crate) fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 crate::recovery::LEAN_REOPEN_INVESTMENT
             ), effects: Vec::new(),
             scenery: None, asker: None, moves: Vec::new(), question: None, unavailable: None, hand: None,
+    preview: None,
 });
     }
 
@@ -318,6 +321,7 @@ pub(crate) fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 crate::social::SEA_FINCH_REPAIR_COST
             ), effects: Vec::new(),
             scenery: None, asker: None, moves: Vec::new(), question: None, unavailable: None, hand: None,
+    preview: None,
 });
     }
 
@@ -331,6 +335,7 @@ pub(crate) fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 crate::social::SEA_FINCH_REPAIR_COST
             ), effects: Vec::new(),
             scenery: None, asker: None, moves: Vec::new(), question: None, unavailable: None, hand: None,
+    preview: None,
 });
     }
 
@@ -343,6 +348,7 @@ pub(crate) fn available_commands(world: &World) -> Vec<ProjectionCommand> {
                 crate::livelihood::COUNTER_WAGE
             ), effects: Vec::new(),
             scenery: None, asker: None, moves: Vec::new(), question: None, unavailable: None, hand: None,
+    preview: None,
 });
     }
 
@@ -361,6 +367,7 @@ pub(crate) fn available_commands(world: &World) -> Vec<ProjectionCommand> {
         question: None,
         unavailable: None,
         hand: None,
+        preview: None,
     });
     // What the player can do with their own hands comes after every
     // card; a screen offers it apart from them.
