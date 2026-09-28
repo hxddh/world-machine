@@ -891,6 +891,9 @@ pub struct CalendarWire {
     pub season: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub coming: Option<String>,
+    /// Optional both ways: whether today is a festival day.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub festival_today: bool,
 }
 
 /// How a World looks from a distance, as `0xRRGGBB` colours.
@@ -1018,6 +1021,7 @@ impl From<&ProjectionSnapshot> for ProjectionSnapshotWire {
                 length: calendar.length,
                 season: calendar.season.clone(),
                 coming: calendar.coming.clone(),
+                festival_today: calendar.festival_today,
             }),
             gauges: snapshot
                 .gauges
@@ -1157,6 +1161,7 @@ impl TryFrom<ProjectionSnapshotWire> for ProjectionSnapshot {
                     length: calendar.length,
                     season: calendar.season.filter(|season| !season.trim().is_empty()),
                     coming: calendar.coming.filter(|coming| !coming.trim().is_empty()),
+                    festival_today: calendar.festival_today,
                 }),
             gauges: snapshot
                 .gauges

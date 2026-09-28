@@ -91,6 +91,7 @@ pub(crate) fn snapshot_since(
                 length: crate::persistence::WORLD_DAY_TICKS,
                 season: Some(calendar::season_name(world.state(), &almanac).into()),
                 coming: calendar::coming_up(world.state(), &almanac, 7),
+                festival_today: calendar::festival_today(world.state(), &almanac),
             }
         }),
         gauges: gauges(world),

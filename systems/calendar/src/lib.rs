@@ -581,6 +581,11 @@ pub fn turnout(event: &Event) -> Option<Turnout> {
 
 /// What is coming up, in a few words: "Midsummer Fair in 3 days",
 /// "Midsummer Fair today". Nothing if it is more than `within` days away.
+/// Whether a festival is held today.
+pub fn festival_today(state: &WorldState, almanac: &Almanac) -> bool {
+    upcoming(state, almanac).is_some_and(|(_, days)| days == 0)
+}
+
 pub fn coming_up(state: &WorldState, almanac: &Almanac, within: u64) -> Option<String> {
     let (festival, days) = upcoming(state, almanac)?;
     (days <= within).then(|| match days {

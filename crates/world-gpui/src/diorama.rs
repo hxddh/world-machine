@@ -951,6 +951,9 @@ pub fn frame(
     }
 }
 
+/// A curve's end and control point, in screen pixels.
+type Curve = ((f32, f32), (f32, f32));
+
 /// How much each layer moves with the camera, from the sky (least) to
 /// the ground under people's feet (fully).
 pub const PARALLAX: [f32; 4] = [0.06, 0.18, 0.4, 1.0];
@@ -1204,20 +1207,19 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window) {
     }
     // A fine line of ink along the top of each layer of land, darker the
     // nearer it is, so each reads against the one behind.
-    let rim =
-        |window: &mut Window, from: (f32, f32), curves: &[((f32, f32), (f32, f32))], ink: Hsla| {
-            let mut line = PathBuilder::stroke(px(1.4));
-            line.move_to(point(px(from.0), px(from.1)));
-            for (to, control) in curves {
-                line.curve_to(
-                    point(px(to.0), px(to.1)),
-                    point(px(control.0), px(control.1)),
-                );
-            }
-            if let Ok(path) = line.build() {
-                window.paint_path(path, ink);
-            }
-        };
+    let rim = |window: &mut Window, from: (f32, f32), curves: &[Curve], ink: Hsla| {
+        let mut line = PathBuilder::stroke(px(1.4));
+        line.move_to(point(px(from.0), px(from.1)));
+        for (to, control) in curves {
+            line.curve_to(
+                point(px(to.0), px(to.1)),
+                point(px(control.0), px(control.1)),
+            );
+        }
+        if let Ok(path) = line.build() {
+            window.paint_path(path, ink);
+        }
+    };
     let ridge_top = horizon - (frame.base - frame.horizon) * 0.35;
     let shift = -frame.pan * PARALLAX[2];
     let mut ridge = PathBuilder::fill();

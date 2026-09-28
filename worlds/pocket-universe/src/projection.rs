@@ -101,6 +101,7 @@ pub(crate) fn snapshot_since(
             length: crate::BACKGROUND_PERIOD,
             season: Some(calendar::season_name(world.state(), &almanac).into()),
             coming: calendar::coming_up(world.state(), &almanac, 7),
+            festival_today: calendar::festival_today(world.state(), &almanac),
         }),
         gauges: gauges(world),
         voices: crate::talk::voices(world),

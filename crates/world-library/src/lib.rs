@@ -991,6 +991,7 @@ fn summary(id: WorldDocumentId, document: &WorldDocument) -> WorldDocumentSummar
                 length: calendar.length,
                 coming: None,
                 season: None,
+                festival_today: false,
             }
         }),
         display_marks: document
@@ -1792,6 +1793,7 @@ mod tests {
                 length: 10,
                 coming: None,
                 season: None,
+                festival_today: false,
             }),
             canvas: world_projection::CanvasProjection {
                 marks: vec![world_projection::CanvasMark {

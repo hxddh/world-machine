@@ -577,6 +577,8 @@ pub struct Calendar {
     pub season: Option<String>,
     /// What is coming up soon, in a few words: "Lantern Night in 3 days".
     pub coming: Option<String>,
+    /// Whether today is a festival day, for music and the like to mark it.
+    pub festival_today: bool,
 }
 
 /// Words that describe the machinery rather than the World. A player never
@@ -2290,6 +2292,7 @@ mod tests {
             length: 10,
             coming: None,
             season: None,
+            festival_today: false,
         });
         assert_eq!(snapshot.moment_label(0), "The beginning");
         assert_eq!(snapshot.moment_label(10), "Sol 1");

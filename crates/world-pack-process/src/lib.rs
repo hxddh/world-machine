@@ -507,8 +507,7 @@ impl ProcessWorldSession {
             && pack
                 .descriptor
                 .carries_forward
-                .iter()
-                .any(|version| *version == archive.pack.version);
+                .contains(&archive.pack.version);
         if archive.pack != pack.descriptor.pack && !carried {
             return Err(HostError::session(format!(
                 "external Pack {}@{} cannot open archive {}@{}",
