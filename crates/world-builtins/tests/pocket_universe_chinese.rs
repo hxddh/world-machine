@@ -155,5 +155,7 @@ fn write_untranslated() {
         .map(|(text, _)| text)
         .collect::<Vec<_>>()
         .join("\n");
-    std::fs::write(path, text).unwrap();
+    std::fs::write(&path, text).unwrap();
+    let names = names.into_iter().collect::<Vec<_>>().join("\n");
+    std::fs::write(format!("{path}.names"), names).unwrap();
 }

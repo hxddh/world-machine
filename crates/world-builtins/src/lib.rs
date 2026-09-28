@@ -10,9 +10,10 @@ pub const ZH_HANS: [&str; 3] = [
     include_str!("../../../worlds/pocket-universe/locales/zh-Hans.tsv"),
 ];
 
-/// Every line Tiny Society's core residents can say of their own, in
-/// Simplified Chinese: their templates filled in every way, each word
-/// translated. Worked out from `ZH_HANS`, to install beside it.
+/// Every line the core residents of Tiny Society and Pocket Universe can
+/// say of their own, in Simplified Chinese: their templates filled in
+/// every way, each word translated. Worked out from `ZH_HANS`, to install
+/// beside it.
 pub fn zh_hans_voices() -> String {
     let catalog = ZH_HANS
         .iter()
@@ -21,7 +22,10 @@ pub fn zh_hans_voices() -> String {
             all
         });
     let mut out = String::new();
-    for (lines, slots) in tiny_society::voice_templates() {
+    let templates = tiny_society::voice_templates()
+        .into_iter()
+        .chain(pocket_universe::voice_templates());
+    for (lines, slots) in templates {
         // A line is shown a sentence at a time, so each of its sentences
         // is filled in on its own.
         let sentences = lines.iter().flat_map(|line| {
