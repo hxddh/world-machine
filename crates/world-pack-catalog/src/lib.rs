@@ -869,7 +869,7 @@ fn managed_pack_key(pack: &WorldPackRef) -> String {
     hasher.update(pack.id.as_bytes());
     hasher.update([0]);
     hasher.update(pack.version.as_bytes());
-    format!("{:x}", hasher.finalize())
+    lower_hex(&hasher.finalize())
 }
 
 fn managed_pack_dir(catalog_path: &Path, pack: &WorldPackRef) -> PathBuf {
@@ -1134,6 +1134,11 @@ impl fmt::Display for CatalogError {
 }
 
 impl Error for CatalogError {}
+
+/// A digest written as lowercase hexadecimal.
+fn lower_hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
 
 #[cfg(test)]
 mod tests {

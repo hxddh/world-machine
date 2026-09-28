@@ -6,7 +6,7 @@ license = "Apache-2.0"
 publish = false
 
 [dependencies]
-base64 = "0.22"
+base64 = "0.23"
 flate2 = "1"
 world-document = { path = "../world-document" }
 world-host = { path = "../world-host" }

@@ -21,16 +21,11 @@ use std::process::{Command, Stdio};
 
 const ENDPOINT: &str = "https://api.anthropic.com/v1/messages";
 const API_VERSION: &str = "2023-06-01";
-const MODEL: &str = "claude-opus-5";
 
 /// A narration is at most three lines and each is capped at one paragraph
 /// before the World will accept it, so the ceiling is deliberately low: there
 /// is nothing a longer answer could say that the World would keep.
 const MAX_TOKENS: u32 = 2048;
-
-/// Saying an already-decided fact in a World's own words is not hard thinking,
-/// and this runs while somebody is waiting to read it.
-const EFFORT: &str = "low";
 
 /// How long one narration may take before the World gives up and shows its
 /// table copy. A return should not hang on a network.
@@ -53,12 +48,14 @@ pub(crate) struct ApiRequest {
 /// Build the request for one return's worth of narration.
 pub(crate) fn build_request(facts: &[NarrationFacts], key: &str, body_path: &str) -> ApiRequest {
     let prompt = render_prompt(facts);
-    let body = serde_json::json!({
-        "model": MODEL,
-        "max_tokens": MAX_TOKENS,
-        "output_config": { "effort": EFFORT },
-        "messages": [{ "role": "user", "content": prompt }],
-    })
+    // The lines come back as JSON the API holds to a schema, so nothing has
+    // to be picked out of prose; the World still checks every line.
+    let body = world_voice::request_body(
+        &world_voice::model(),
+        MAX_TOKENS,
+        &prompt,
+        Some(lines_format()),
+    )
     .to_string();
 
     let mut config = String::new();
@@ -92,6 +89,21 @@ fn escape_config(value: &str) -> String {
     value.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
+/// The shape the narration comes back in: a list of lines, in order.
+fn lines_format() -> serde_json::Value {
+    serde_json::json!({
+        "type": "json_schema",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "lines": { "type": "array", "items": { "type": "string" } }
+            },
+            "required": ["lines"],
+            "additionalProperties": false
+        }
+    })
+}
+
 /// The narrated text out of a Messages API reply.
 ///
 /// Everything unexpected — an error object, a refusal, a shape that is not what
@@ -99,6 +111,10 @@ fn escape_config(value: &str) -> String {
 /// copy.
 pub(crate) fn narration_text(response: &str) -> Option<String> {
     let value: serde_json::Value = serde_json::from_str(response).ok()?;
+    // A model that declined has nothing to say, so the table copy stands.
+    if value.get("stop_reason").and_then(|reason| reason.as_str()) == Some("refusal") {
+        return None;
+    }
     // An error reply carries no content at all, so there is nothing separate to
     // check for: no text blocks means nothing to say, which means the table
     // copy stands.
@@ -109,6 +125,18 @@ pub(crate) fn narration_text(response: &str) -> Option<String> {
         .filter_map(|block| block.get("text").and_then(|text| text.as_str()))
         .collect::<Vec<_>>()
         .join("\n");
+    // Lines asked for as JSON are numbered the way the World reads them.
+    if let Ok(serde_json::Value::Object(object)) = serde_json::from_str(&text) {
+        let lines = object.get("lines")?.as_array()?;
+        let numbered = lines
+            .iter()
+            .filter_map(|line| line.as_str())
+            .enumerate()
+            .map(|(index, line)| format!("LINE {}: {}", index + 1, line.replace('\n', " ")))
+            .collect::<Vec<_>>()
+            .join("\n");
+        return (!numbered.trim().is_empty()).then_some(numbered);
+    }
     (!text.trim().is_empty()).then_some(text)
 }
 
@@ -269,9 +297,10 @@ mod tests {
     fn the_request_says_what_it_is_asking_for() {
         let request = build_request(&facts(), KEY, "/tmp/body.json");
         let body: serde_json::Value = serde_json::from_str(&request.body).unwrap();
-        assert_eq!(body["model"], MODEL);
+        assert_eq!(body["model"], world_voice::DEFAULT_MODEL);
         assert_eq!(body["max_tokens"], MAX_TOKENS);
-        assert_eq!(body["output_config"]["effort"], EFFORT);
+        assert_eq!(body["thinking"]["type"], "disabled");
+        assert_eq!(body["output_config"]["format"]["type"], "json_schema");
         assert_eq!(body["messages"][0]["role"], "user");
 
         for header in [
@@ -334,6 +363,22 @@ mod tests {
             parse_lines(&text, 2),
             vec![Some("one".to_owned()), Some("two".to_owned())]
         );
+    }
+
+    #[test]
+    fn lines_asked_for_as_json_are_read_in_order() {
+        let response = r#"{"type":"message","content":[{"type":"text","text":"{\"lines\":[\"one\",\"two\\nstill two\"]}"}]}"#;
+        let text = narration_text(response).unwrap();
+        assert_eq!(
+            parse_lines(&text, 2),
+            vec![Some("one".to_owned()), Some("two still two".to_owned())]
+        );
+    }
+
+    #[test]
+    fn a_refusal_leaves_the_table_copy() {
+        let response = r#"{"type":"message","stop_reason":"refusal","content":[{"type":"text","text":"LINE 1: no"}]}"#;
+        assert_eq!(narration_text(response), None);
     }
 
     #[test]

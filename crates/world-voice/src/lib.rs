@@ -17,13 +17,16 @@ use world_pi_rpc::{PiCommand, PiRpcTransport, ProcessPiRpcTransport};
 pub const VOICE_ENV: &str = "WORLD_MACHINE_POCKET_UNIVERSE_VOICE";
 pub const PI_PROGRAM_ENV: &str = "WORLD_MACHINE_PI_PROGRAM";
 pub const API_KEY_ENV: &str = "WORLD_MACHINE_ANTHROPIC_API_KEY";
+/// Which model answers, if not the default.
+pub const MODEL_ENV: &str = "WORLD_MACHINE_VOICE_MODEL";
 
 const ENDPOINT: &str = "https://api.anthropic.com/v1/messages";
 const API_VERSION: &str = "2023-06-01";
-const MODEL: &str = "claude-opus-5";
+/// A line or two in someone's own voice needs a fast, inexpensive model
+/// with no extended thinking.
+pub const DEFAULT_MODEL: &str = "claude-sonnet-5";
 /// An answer is a sentence or two; there is nothing longer worth keeping.
-const MAX_TOKENS: u32 = 1024;
-const EFFORT: &str = "low";
+const MAX_TOKENS: u32 = 300;
 /// Somebody is waiting for the answer.
 const TIMEOUT_SECONDS: u32 = 20;
 
@@ -135,15 +138,52 @@ fn escape_config(value: &str) -> String {
     value.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
+/// The model to ask: the one the environment names, or the default.
+pub fn model() -> String {
+    std::env::var(MODEL_ENV)
+        .ok()
+        .map(|model| model.trim().to_string())
+        .filter(|model| !model.is_empty())
+        .unwrap_or_else(|| DEFAULT_MODEL.to_string())
+}
+
+/// A request body for `model`: thinking turned off where the model allows
+/// it (a line of speech needs none), low effort where it does not.
+pub fn request_body(
+    model: &str,
+    max_tokens: u32,
+    prompt: &str,
+    format: Option<serde_json::Value>,
+) -> serde_json::Value {
+    let mut body = serde_json::json!({
+        "model": model,
+        "max_tokens": max_tokens,
+        "messages": [{ "role": "user", "content": prompt }],
+    });
+    let mut output = serde_json::Map::new();
+    if thinking_can_be_off(model) {
+        body["thinking"] = serde_json::json!({ "type": "disabled" });
+    } else {
+        output.insert("effort".into(), "low".into());
+    }
+    if let Some(format) = format {
+        output.insert("format".into(), format);
+    }
+    if !output.is_empty() {
+        body["output_config"] = serde_json::Value::Object(output);
+    }
+    body
+}
+
+/// Whether a model accepts `thinking: disabled`: Sonnet 5 and Opus 5 do;
+/// Opus 5.5 and Fable 5.1 always think.
+pub fn thinking_can_be_off(model: &str) -> bool {
+    matches!(model, "claude-sonnet-5" | "claude-opus-5")
+}
+
 /// The request for one prompt: the key only in the configuration.
 pub fn api_request(prompt: &str, key: &str, body_path: &str) -> ApiRequest {
-    let body = serde_json::json!({
-        "model": MODEL,
-        "max_tokens": MAX_TOKENS,
-        "output_config": { "effort": EFFORT },
-        "messages": [{ "role": "user", "content": prompt }],
-    })
-    .to_string();
+    let body = request_body(&model(), MAX_TOKENS, prompt, None).to_string();
     let config = format!(
         "url = \"{ENDPOINT}\"\nheader = \"x-api-key: {}\"\nheader = \"anthropic-version: {API_VERSION}\"\nheader = \"content-type: application/json\"\ndata-binary = \"@{body_path}\"\n",
         escape_config(key)
@@ -165,6 +205,10 @@ pub fn api_request(prompt: &str, key: &str, body_path: &str) -> ApiRequest {
 /// The text of a Messages API reply; nothing for an error or a refusal.
 pub fn reply_text(response: &str) -> Option<String> {
     let value: serde_json::Value = serde_json::from_str(response).ok()?;
+    // A model that declined to answer said nothing the World can use.
+    if value.get("stop_reason").and_then(|reason| reason.as_str()) == Some("refusal") {
+        return None;
+    }
     let text = value
         .get("content")?
         .as_array()?
@@ -281,6 +325,23 @@ mod tests {
             Some("MEANING: greet")
         );
         assert_eq!(reply_text(r#"{"type":"error","error":{}}"#), None);
+        assert_eq!(
+            reply_text(r#"{"stop_reason":"refusal","content":[{"type":"text","text":"no"}]}"#),
+            None
+        );
+    }
+
+    /// A line of speech is asked of a fast model with no extended thinking;
+    /// a model that always thinks is asked for low effort instead.
+    #[test]
+    fn the_request_turns_thinking_off_where_the_model_allows() {
+        let body = request_body(DEFAULT_MODEL, 300, "Hello", None);
+        assert_eq!(body["model"], "claude-sonnet-5");
+        assert_eq!(body["thinking"]["type"], "disabled");
+        assert!(body.get("output_config").is_none());
+        let body = request_body("claude-opus-5-5", 300, "Hello", None);
+        assert!(body.get("thinking").is_none());
+        assert_eq!(body["output_config"]["effort"], "low");
     }
 
     struct Canned(&'static str);

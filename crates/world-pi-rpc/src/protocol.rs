@@ -13,6 +13,20 @@ pub enum PiRpcProtocolError {
     MissingSuccessfulResponse,
     MissingDecisionText,
     InvalidDecisionFormat,
+    /// pi stopped before answering and said why: `code` is its own, such
+    /// as `auth.missing_api_key`.
+    Stopped {
+        code: String,
+        message: String,
+    },
+}
+
+impl PiRpcProtocolError {
+    /// Whether pi stopped because it has no key for its model, so a player
+    /// can be told to give it one.
+    pub fn is_missing_key(&self) -> bool {
+        matches!(self, Self::Stopped { code, .. } if code == "auth.missing_api_key")
+    }
 }
 
 impl fmt::Display for PiRpcProtocolError {
@@ -35,6 +49,10 @@ impl fmt::Display for PiRpcProtocolError {
                 f,
                 "Pi decision must be exactly one line: WORLD_ACTION:<action-name>"
             ),
+            Self::Stopped { code, message } if message.is_empty() => {
+                write!(f, "pi stopped: {code}")
+            }
+            Self::Stopped { code, message } => write!(f, "pi stopped ({code}): {message}"),
         }
     }
 }
@@ -88,6 +106,20 @@ impl PiRpcEventParser {
                 return Err(PiRpcProtocolError::ToolExecutionAttempt(tool));
             }
             "extension_ui_request" => return Err(PiRpcProtocolError::UiRequest),
+            // pi's last word before it exits without answering.
+            "error" => {
+                let text = |key: &str| {
+                    value
+                        .get(key)
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_owned()
+                };
+                return Err(PiRpcProtocolError::Stopped {
+                    code: text("code"),
+                    message: text("message"),
+                });
+            }
             "response" if value.get("command").and_then(Value::as_str) == Some("prompt") => {
                 if value.get("success").and_then(Value::as_bool) == Some(true) {
                     self.saw_success = true;

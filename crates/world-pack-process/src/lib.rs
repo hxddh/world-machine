@@ -395,7 +395,7 @@ fn read_command_image(path: &Path) -> Result<(Vec<u8>, String, fs::Permissions),
     })?;
     let mut hasher = Sha256::new();
     hasher.update(&bytes);
-    Ok((bytes, format!("{:x}", hasher.finalize()), permissions))
+    Ok((bytes, lower_hex(&hasher.finalize()), permissions))
 }
 
 fn write_launch_image(
@@ -462,7 +462,7 @@ fn sha256_file(path: &Path) -> Result<String, HostError> {
         }
         hasher.update(&buffer[..read]);
     }
-    Ok(format!("{:x}", hasher.finalize()))
+    Ok(lower_hex(&hasher.finalize()))
 }
 
 fn resolve_command(manifest_path: &Path, command: &str) -> Result<PathBuf, HostError> {
@@ -972,6 +972,11 @@ fn read_bounded_line(reader: &mut impl BufRead, max_bytes: usize) -> io::Result<
         }
     }
     String::from_utf8(bytes).map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+}
+
+/// A digest written as lowercase hexadecimal.
+fn lower_hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 #[cfg(test)]
