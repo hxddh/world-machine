@@ -1119,3 +1119,56 @@ fn every_card_fits_in_two_lines() {
             .unwrap();
     }
 }
+
+/// Something new every day for a month, for a player who only answers the
+/// first question on offer and makes something every third day: something
+/// to find in the book, something to keep, or a chapter's close, and at
+/// least four keepsakes in the month.
+#[test]
+fn something_new_every_day_for_a_month() {
+    let mut society = TinySociety::new().unwrap();
+    society.run_story().unwrap();
+    let mut branch = society.branch();
+    branch.begin_story().unwrap();
+    let news = |branch: &TinySocietyBranch| {
+        let snapshot = branch.projection_snapshot();
+        (
+            snapshot.book.iter().filter(|entry| entry.found).count()
+                + snapshot.keepsakes.len()
+                + snapshot.chapters.len(),
+            snapshot.keepsakes.len(),
+        )
+    };
+    let (mut before, _) = news(&branch);
+    let mut quiet = Vec::new();
+    for day in 1..=30 {
+        let snapshot = branch.projection_snapshot();
+        if let Some(answer) = snapshot
+            .commands
+            .iter()
+            .find(|command| command.question.is_some() && command.unavailable.is_none())
+        {
+            let _ = branch.invoke_projection_command(&answer.id.clone());
+        }
+        if day % 3 == 0 {
+            if let Some(deed) = snapshot
+                .commands
+                .iter()
+                .find(|command| command.hand.is_some() && command.unavailable.is_none())
+            {
+                let _ = branch.invoke_projection_command(&deed.id.clone());
+            }
+        }
+        branch
+            .invoke_projection_command(story::WAIT_COMMAND)
+            .unwrap();
+        let (now, _) = news(&branch);
+        if now <= before {
+            quiet.push(day);
+        }
+        before = now;
+    }
+    assert!(quiet.is_empty(), "nothing new on days {quiet:?}");
+    let (_, keepsakes) = news(&branch);
+    assert!(keepsakes >= 4, "{keepsakes} keepsakes in a month");
+}

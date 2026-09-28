@@ -231,8 +231,11 @@ fn said(world: &World, event: &Event) -> Option<(EntityId, String)> {
 /// chatter is left out; nobody scrolls back through it.
 pub(crate) fn voices(world: &World) -> Vec<Voice> {
     let latest = world.world_time();
-    world
-        .events()
+    // Only moments History can show are ever retold, so only they are read.
+    let events = world.events();
+    events[events
+        .len()
+        .saturating_sub(world_projection::TIMELINE_EVENTS)..]
         .iter()
         .filter(|event| !crate::projection::is_routine(&event.kind) || event.world_time == latest)
         .filter_map(|event| {

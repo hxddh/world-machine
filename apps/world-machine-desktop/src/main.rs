@@ -624,7 +624,7 @@ impl Render for WorldDocumentView {
         // The World in front plays its landscape's sound, if the player
         // wants sound; one behind stops.
         let sound_owner = cx.entity_id().as_u64();
-        let (palette, weather) = {
+        let (palette, weather, festival) = {
             let snapshot = self.projection.read(cx).snapshot();
             let palette = snapshot.scenery.map(|scenery| {
                 [
@@ -635,7 +635,14 @@ impl Render for WorldDocumentView {
                     scenery.sun,
                 ]
             });
-            (palette, snapshot.weather)
+            (
+                palette,
+                snapshot.weather,
+                snapshot
+                    .calendar
+                    .as_ref()
+                    .is_some_and(|calendar| calendar.festival_today),
+            )
         };
         let moment = world_machine_desktop::music::Moment {
             hour: world_gpui::scene::hour_now(),
@@ -649,6 +656,7 @@ impl Render for WorldDocumentView {
                 | world_projection::Weather::Dust => world_machine_desktop::music::Sky::Wet,
                 world_projection::Weather::Storm => world_machine_desktop::music::Sky::Storm,
             },
+            festival,
         };
         match (window.is_window_active(), palette) {
             (true, Some(palette)) => ambience::player::claim(sound_owner, palette, moment),
@@ -4074,6 +4082,7 @@ mod file_type_tests {
             length: 10,
             season: None,
             coming: None,
+            festival_today: false,
         };
         assert_eq!(
             world_card_meta("Ares Pocket Colony", "Pocket Universe", 50, Some(&sols)),

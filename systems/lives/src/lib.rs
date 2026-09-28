@@ -1708,6 +1708,45 @@ const GREETINGS: [&str; 3] = [
     "Welcome to the {settlement}! I'm {name}. Make yourself at home.",
 ];
 
+/// How someone introduces themselves once the player has been about a
+/// while: met on a quiet day, not on the first.
+const MEETINGS: [&str; 4] = [
+    "We haven't met properly. I'm {name}.",
+    "I'm {name}, by the way. I've seen you about.",
+    "Hello! I'm {name}. I hear you're new round here.",
+    "At last! I'm {name}. I've been meaning to say hello.",
+];
+
+/// How a letter to the player begins and ends.
+const LETTER_OPENINGS: [&str; 10] = [
+    "A few lines, since I didn't see you today.",
+    "Thought you'd like to know how things are.",
+    "Writing because it's quiet here.",
+    "I wanted to tell you something.",
+    "Just a note, nothing much.",
+    "Hello from me.",
+    "You weren't about, so I'm writing.",
+    "News, of a sort.",
+    "Couldn't find you, so here's a letter.",
+    "A quiet day. I thought of you.",
+];
+const LETTER_CLOSINGS: [&str; 8] = [
+    "Come by soon.",
+    "Yours, {name}.",
+    "See you around the {settlement}.",
+    "That's all. Take care.",
+    "Write back, if you like.",
+    "More when I see you.",
+    "Best, {name}.",
+    "Mind how you go.",
+];
+
+/// What a letter is, as something to keep.
+const LETTER: &str = "a letter from {name}";
+
+/// How many letters someone has written the player.
+const WROTE: &str = "lives.wrote";
+
 fn best_friend(state: &WorldState, person: EntityId) -> Option<EntityId> {
     cast_ids(state)
         .into_iter()
@@ -2815,7 +2854,12 @@ impl Action for Greets {
             ("name", first_name(state, who)),
             ("settlement", cast.settlement.to_string()),
         ];
-        let said = pick(&GREETINGS, mix(&[who.0, 7]))
+        let lines: &[&str] = if arg_text(request, "later").is_ok() {
+            &MEETINGS
+        } else {
+            &GREETINGS
+        };
+        let said = pick(lines, mix(&[who.0, 7]))
             .map(|line| fill_owned(line, &words))
             .unwrap_or_default();
         let mut draft = EventDraft::new("greeted");
@@ -2855,6 +2899,32 @@ impl Action for LeavesKeepsake {
             ("unit", cast.unit.to_string()),
         ];
         let welcome = arg_text(request, "welcome").is_ok();
+        if let Ok(what) = arg_text(request, "letter") {
+            // A letter on a quiet day: what came with it (the letter
+            // itself, or something small tucked in), and the letter.
+            if what.trim().is_empty() || why.trim().is_empty() {
+                return Err(ActionError::Invalid("an empty letter".into()));
+            }
+            let first = first_name(state, who);
+            let told = if what.starts_with("a letter from") {
+                format!("{first} wrote to you")
+            } else {
+                format!("{first} wrote to you, with {what}")
+            };
+            let mut draft = EventDraft::new("keepsake_left");
+            draft.actor = Some(who);
+            draft.targets = vec![who];
+            draft.payload.insert("keepsake".into(), what.into());
+            draft.payload.insert("told".into(), told.into());
+            draft.payload.insert("said".into(), why.into());
+            draft.payload.insert("letter".into(), true.into());
+            draft.changes.push(StateChange::SetComponent {
+                entity: who,
+                key: WROTE.into(),
+                value: (integer(state, who, WROTE).unwrap_or(0) + 1).into(),
+            });
+            return Ok(draft);
+        }
         let pool: &[&str] = if welcome { &WELCOME } else { &LEFT_FOR_YOU };
         let what = pick(pool, mix(&[who.0, period(state, &cast), 31]))
             .map(|what| fill_owned(what, &words))
@@ -3000,6 +3070,143 @@ pub fn leave_keepsake(
     Ok(world.execute(actions, &request).ok().map(|event| event.id))
 }
 
+/// A letter from someone, as something to keep.
+fn letter(state: &WorldState, person: EntityId) -> String {
+    fill_owned(LETTER, &[("name", first_name(state, person))])
+}
+
+/// Whether something new came the player's way since the last period's
+/// round of lives ended: something to keep, or someone met for the first
+/// time. What the player did after that round, and what this round
+/// brought, both count.
+fn something_new_lately(world: &World, cast: &Cast) -> bool {
+    let since = world.world_time().saturating_sub(cast.period);
+    let events = world.events();
+    let today = events.partition_point(|event| event.world_time <= since);
+    // The last period's round ends with its last life lived, situation
+    // put, warmth shared, or quiet-day meeting or letter.
+    let round_ended = events[..today]
+        .iter()
+        .rposition(|event| {
+            matches!(
+                event.kind.as_str(),
+                "lived" | "situation_came_up" | "warmed" | "greeted"
+            ) || event.payload.get("letter") == Some(&Value::Bool(true))
+        })
+        .map_or(0, |index| index + 1);
+    let (before, lately) = events.split_at(round_ended);
+    let kept = |event: &Event| {
+        event.kind == "keepsake_left"
+            || event.payload.get("kept") == Some(&Value::Bool(true))
+            || (event.kind == "situation_answered"
+                && event.payload.get("kind") == Some(&Value::Text("keepsake".into())))
+    };
+    if lately.iter().any(kept) {
+        return true;
+    }
+    let meets = |event: &&Event| {
+        matches!(
+            event.kind.as_str(),
+            "greeted" | "warmed" | "reacted" | "situation_came_up" | "keepsake_left"
+        )
+    };
+    let newly = lately
+        .iter()
+        .filter(meets)
+        .filter_map(|event| event.actor)
+        .collect::<BTreeSet<_>>();
+    if newly.is_empty() {
+        return false;
+    }
+    let known = before
+        .iter()
+        .filter(meets)
+        .filter_map(|event| event.actor)
+        .collect::<BTreeSet<_>>();
+    newly.iter().any(|person| !known.contains(person))
+}
+
+/// No day passes with nothing new: on a day that brought the player
+/// nothing to keep and nobody new, someone they have not met comes over
+/// to say hello, or, once they know everyone (or while they are away),
+/// someone writes to them. At most one a day; a World not yet begun is
+/// left alone.
+pub fn daily(
+    world: &mut World,
+    actions: &ActionRegistry,
+    cast: &Cast,
+    away: bool,
+) -> Result<Option<EventId>, WorldError> {
+    if !world.events().iter().any(|event| event.kind == "greeted")
+        || something_new_lately(world, cast)
+    {
+        return Ok(None);
+    }
+    let met = met(world);
+    let state = world.state();
+    let people = (cast.people)(world)
+        .into_iter()
+        .filter(|person| enrolled(state, *person) && !gone(state, *person))
+        .collect::<Vec<_>>();
+    if let Some(stranger) = people.iter().find(|person| !away && !met.contains(person)) {
+        let request = ActionRequest::new("lives_greets")
+            .actor(*stranger)
+            .arg("who", Value::Entity(*stranger))
+            .arg("later", "a quiet day");
+        return Ok(world.execute(actions, &request).ok().map(|event| event.id));
+    }
+    let now = period(state, cast);
+    // Whoever has written least, the fondest first: everyone writes once
+    // before anyone writes twice.
+    let Some(writer) = people.iter().copied().max_by_key(|person| {
+        (
+            -integer(state, *person, WROTE).unwrap_or(0),
+            regard(state, *person),
+            mix(&[person.0, now, 53]),
+        )
+    }) else {
+        return Ok(None);
+    };
+    let first = first_name(state, writer);
+    let words = [
+        ("name", first.clone()),
+        ("settlement", cast.settlement.to_string()),
+        ("gathering", name(state, cast.gathering)),
+        ("unit", cast.unit.to_string()),
+    ];
+    // Their first letter is a keepsake of its own; later ones bring
+    // something small they have not yet given, when there is one.
+    let kept = keepsakes(world)
+        .into_iter()
+        .map(|kept| kept.what)
+        .collect::<BTreeSet<_>>();
+    let own = letter(state, writer);
+    let what = if !kept.contains(&own) {
+        own
+    } else {
+        LEFT_FOR_YOU
+            .iter()
+            .map(|what| fill_owned(what, &words))
+            .find(|what| !kept.contains(what))
+            .unwrap_or(own)
+    };
+    let seed = mix(&[writer.0, now, 59]);
+    let opening = pick(&LETTER_OPENINGS, seed).copied().unwrap_or_default();
+    let closing = pick(&LETTER_CLOSINGS, seed >> 8)
+        .map(|line| fill_owned(line, &words))
+        .unwrap_or_default();
+    let news = said_today(world, writer)
+        .map(|line| format!(" {line}"))
+        .unwrap_or_default();
+    let note = format!("{opening}{news} {closing}");
+    let request = ActionRequest::new("lives_leaves_keepsake")
+        .actor(writer)
+        .arg("who", Value::Entity(writer))
+        .arg("why", note)
+        .arg("letter", what);
+    Ok(world.execute(actions, &request).ok().map(|event| event.id))
+}
+
 /// Something the player was given to keep: who gave it, what it is, what
 /// they said with it, and when.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -3071,6 +3278,12 @@ pub fn possible_keepsakes(world: &World, cast: &Cast) -> Vec<(String, String)> {
         all.push((
             what,
             format!("From {}, once you are close", first_name(state, person)),
+        ));
+    }
+    for person in (cast.people)(world) {
+        all.push((
+            letter(state, person),
+            "Written to you on a quiet day".to_string(),
         ));
     }
     let mut seen = BTreeSet::new();
@@ -3247,6 +3460,7 @@ pub fn tick_holding(
         }
     }
     if away {
+        events.extend(daily(world, actions, cast, true)?);
         return Ok(events);
     }
     let now = period(world.state(), cast) as i64;
@@ -3280,6 +3494,9 @@ pub fn tick_holding(
                 ActionRequest::new("lives_situation_opens").arg("situation", candidate.key());
             events.push(world.execute(actions, &request)?.id);
         }
+    }
+    if !hold {
+        events.extend(daily(world, actions, cast, false)?);
     }
     Ok(events)
 }

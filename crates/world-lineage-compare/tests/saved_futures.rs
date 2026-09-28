@@ -104,6 +104,7 @@ fn registry() -> WorldRegistry {
                     pack: pack(),
                     title: "Saved Future Test".into(),
                     description: "Generic saved Future comparison fixture".into(),
+                    carries_forward: Vec::new(),
                 },
                 || Ok(Box::new(MockSession::new(0))),
             )

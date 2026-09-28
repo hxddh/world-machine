@@ -173,6 +173,7 @@ mod tests {
                         question: None,
                         unavailable: None,
                         hand: None,
+                        preview: None,
                     },
                     ProjectionCommand {
                         id: "mock.right".into(),
@@ -185,6 +186,7 @@ mod tests {
                         question: None,
                         unavailable: None,
                         hand: None,
+                        preview: None,
                     },
                 ],
                 ..ProjectionSnapshot::default()
@@ -230,6 +232,7 @@ mod tests {
                         pack: WorldPackRef::new(MOCK_PACK, "1"),
                         title: "Strategy Document Mock".into(),
                         description: "Durable strategy adapter regression".into(),
+                        carries_forward: Vec::new(),
                     },
                     || Ok(Box::new(MockSession { count: 0 })),
                 )

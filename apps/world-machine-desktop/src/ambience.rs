@@ -227,12 +227,54 @@ const VOWELS: [(f32, f32); 5] = [
 /// A babble like Animal Crossing's: `syllables` short vowel sounds in the
 /// voice numbered `seed`, a touch of breath before some, falling a little
 /// over the line, or rising at the end of a question.
+/// Someone's own three notes, rung softly before they ask the player
+/// something, so a player hears who is asking before they read it: steps
+/// of the pentatonic scale above their voice's pitch, and how long each
+/// rings, the same person always the same.
+pub fn motif_of(seed: u32) -> [(f32, f32); 3] {
+    const STEPS: [f32; 6] = [0.0, 2.0, 4.0, 7.0, 9.0, 12.0];
+    let pick = |shift: u32| STEPS[((seed.rotate_left(shift) ^ (seed >> 7)) % 6) as usize];
+    let long = |shift: u32| if (seed >> shift) & 1 == 1 { 0.16 } else { 0.11 };
+    let first = pick(3);
+    let mut second = pick(11);
+    if second == first {
+        second = STEPS[(STEPS.iter().position(|step| *step == first).unwrap() + 2) % 6];
+    }
+    [(first, long(19)), (second, long(21)), (pick(27), 0.24)]
+}
+
+/// The motif, as samples: a soft chime a touch above their voice.
+fn chime(seed: u32) -> Vec<f32> {
+    let rate = SAMPLE_RATE as f32;
+    let tau = std::f32::consts::TAU;
+    let base = voice(seed).pitch * 4.0;
+    let mut out = Vec::new();
+    for (step, length) in motif_of(seed) {
+        let frequency = base * 2.0_f32.powf(step / 12.0);
+        let count = (length * rate) as usize;
+        let ring = (0.35 * rate) as usize;
+        let start = out.len();
+        out.resize(start + count.max(ring), 0.0);
+        for offset in 0..ring {
+            let t = offset as f32 / rate;
+            let envelope = (t / 0.004).min(1.0) * (-t / 0.12).exp();
+            let wave = (tau * frequency * t).sin() + 0.3 * (tau * frequency * 2.0 * t).sin();
+            out[start + offset] += 0.45 * envelope * wave;
+        }
+        out.truncate(start + count);
+    }
+    out.extend(std::iter::repeat_n(0.0, (0.06 * rate) as usize));
+    out
+}
+
 pub fn babble(seed: u32, syllables: u8, question: bool, variation: u8) -> Vec<i16> {
     let rate = SAMPLE_RATE as f32;
     let voice = voice(seed);
     let syllables = syllables.clamp(1, 12) as usize;
     let length = voice.syllable_seconds;
     let gap = length * 0.25;
+    // A question is announced by the asker's own three notes.
+    let lead = if question { chime(seed) } else { Vec::new() };
     let total = ((length + gap) * syllables as f32 * rate) as usize + (0.05 * rate) as usize;
     let mut samples = vec![0.0_f32; total];
     let mut dice = seed ^ (u32::from(variation) << 24) ^ 0x9e37_79b9 | 1;
@@ -287,9 +329,10 @@ pub fn babble(seed: u32, syllables: u8, question: bool, variation: u8) -> Vec<i1
         .iter()
         .fold(0.0_f32, |peak, sample| peak.max(sample.abs()));
     let gain = if peak > 0.0 { 0.38 / peak } else { 0.0 };
-    samples
-        .into_iter()
-        .map(|sample| ((sample * gain).clamp(-1.0, 1.0) * i16::MAX as f32) as i16)
+    lead.into_iter()
+        .map(|sample| sample * 0.38)
+        .chain(samples.into_iter().map(|sample| sample * gain))
+        .map(|sample| (sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16)
         .collect()
 }
 
@@ -751,6 +794,26 @@ mod tests {
             assert!(next < VARIATIONS);
             last = Some(next);
         }
+    }
+
+    #[test]
+    fn someone_asking_is_announced_by_their_own_three_notes() {
+        let motifs = (0..40_u32)
+            .map(|person| format!("{:?}", motif_of(person.wrapping_mul(0x9e37_79b9) ^ 0x1234)))
+            .collect::<std::collections::BTreeSet<_>>();
+        assert!(motifs.len() >= 30, "{} motifs for 40 people", motifs.len());
+        let seed = 0xabcd_1234;
+        let [(first, _), (second, _), _] = motif_of(seed);
+        assert_ne!(first, second, "a tune, not one note twice");
+        assert_eq!(
+            motif_of(seed),
+            motif_of(seed),
+            "the same person, the same notes"
+        );
+        // It comes before the question's babble, and a plain line has none.
+        let asked = babble(seed, 5, true, 0);
+        let said = babble(seed, 5, false, 0);
+        assert!(asked.len() > said.len() + SAMPLE_RATE as usize / 3);
     }
 
     #[test]

@@ -181,7 +181,7 @@ pub enum Ears {
     Own,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ProjectionCommand {
     pub id: String,
     pub title: String,
@@ -213,6 +213,10 @@ pub struct ProjectionCommand {
     /// answer to anything: build a bench by the quay, give Mara a present.
     /// A screen offers these as things to do in the place, not as cards.
     pub hand: Option<Hand>,
+    /// The World this choice starts, as it would first stand: its people,
+    /// buildings and drawings, for a screen to draw the choice as a
+    /// picture of the place rather than a landscape alone.
+    pub preview: Option<Box<Preview>>,
 }
 
 /// Something the player does in the place with their own hands.
@@ -295,6 +299,13 @@ pub fn gauge_moves(before: &[Gauge], after: &[Gauge]) -> Vec<GaugeMove> {
 /// a Mars colony is red dust and a 1987 town is a street at night; a screen
 /// draws covers and the scene's backdrop from it. Art, not interface: the
 /// same in light and dark appearance.
+/// How a World a choice would start first stands.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Preview {
+    pub canvas: CanvasProjection,
+    pub drawings: Vec<Drawing>,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Scenery {
     pub sky_top: u32,
@@ -566,6 +577,8 @@ pub struct Calendar {
     pub season: Option<String>,
     /// What is coming up soon, in a few words: "Lantern Night in 3 days".
     pub coming: Option<String>,
+    /// Whether today is a festival day, for music and the like to mark it.
+    pub festival_today: bool,
 }
 
 /// Words that describe the machinery rather than the World. A player never
@@ -665,6 +678,25 @@ impl ProjectionSnapshot {
                 }
             }
         }
+    }
+
+    /// Keep only the voices a screen can show: those of moments on the
+    /// timeline or retold on a return. A World that has spoken for a year
+    /// then carries a day's worth, not a year's.
+    pub fn keep_voices_in_view(&mut self) {
+        let shown: BTreeSet<SelectionId> = self
+            .timeline
+            .items
+            .iter()
+            .map(|item| item.id)
+            .chain(
+                self.briefing
+                    .iter()
+                    .flat_map(|briefing| briefing.items.iter())
+                    .filter_map(|item| item.selection),
+            )
+            .collect();
+        self.voices.retain(|voice| shown.contains(&voice.moment));
     }
 
     /// Every piece of text this snapshot can put in front of a player, so a
@@ -2168,6 +2200,43 @@ mod tests {
     use super::*;
     use world_core::{Entity, Event, EventId, StateChange, WorldState};
 
+    #[test]
+    fn only_voices_a_screen_can_show_are_kept() {
+        let voice = |id: u64| Voice {
+            moment: SelectionId::Event(EventId::new(id)),
+            speaker: SelectionId::Entity(EntityId::new(1)),
+            line: format!("line {id}"),
+        };
+        let mut snapshot = ProjectionSnapshot {
+            voices: (1..=5).map(voice).collect(),
+            timeline: TimelineProjection {
+                items: vec![TimelineItem {
+                    id: SelectionId::Event(EventId::new(4)),
+                    world_time: 0,
+                    title: String::new(),
+                    subtitle: String::new(),
+                    caused_by: Vec::new(),
+                    routine: false,
+                }],
+            },
+            briefing: Some(BriefingProjection {
+                eyebrow: String::new(),
+                title: String::new(),
+                items: vec![BriefingItem {
+                    selection: Some(SelectionId::Event(EventId::new(2))),
+                    title: String::new(),
+                    detail: String::new(),
+                    kind: BriefingItemKind::Beat,
+                    tone: Tone::Neutral,
+                }],
+                returned: true,
+            }),
+            ..ProjectionSnapshot::default()
+        };
+        snapshot.keep_voices_in_view();
+        assert_eq!(snapshot.voices, vec![voice(2), voice(4)]);
+    }
+
     fn sample_world() -> World {
         let mut state = WorldState::default();
         state
@@ -2223,6 +2292,7 @@ mod tests {
             length: 10,
             coming: None,
             season: None,
+            festival_today: false,
         });
         assert_eq!(snapshot.moment_label(0), "The beginning");
         assert_eq!(snapshot.moment_label(10), "Sol 1");
@@ -2474,6 +2544,7 @@ mod tests {
                 question: None,
                 unavailable: None,
                 hand: None,
+                preview: None,
             }],
             ..ProjectionSnapshot::default()
         };

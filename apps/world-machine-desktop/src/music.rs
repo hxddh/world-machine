@@ -10,6 +10,12 @@
 //! it: rain takes most of the plucks away, a storm leaves only the chords
 //! and a few low notes. A composer's stems can replace the layers later
 //! without anything else changing.
+//!
+//! The tunes remember themselves. Each World has a motif of its own, made
+//! from its colours and name, and the day layer plays it in phrases the way
+//! a song does: stated, answered, turned about, and stated again, so a
+//! player comes to know their World's tune. The evening hums it slowly. A
+//! festival day brings bells, a quicker step and the motif rung out.
 
 use crate::ambience::{Palette, SAMPLE_RATE};
 
@@ -39,6 +45,8 @@ pub enum Sky {
 pub struct Moment {
     pub hour: u32,
     pub sky: Sky,
+    /// A festival is held today.
+    pub festival: bool,
 }
 
 /// How loud each layer is at a moment: the base, the day layer and the
@@ -132,7 +140,7 @@ struct Note {
     voice: Voice,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 enum Voice {
     /// Slow in, slow out, a soft octave above.
     Pad,
@@ -140,19 +148,99 @@ enum Voice {
     Pluck,
     /// A soft, round tune with a slow vibrato.
     Hum,
+    /// A bright bell, for a festival.
+    Bell,
+    /// A soft brushed tap on the beat, for a festival.
+    Tap,
+}
+
+/// A World's own tune: steps along the pentatonic scale from where it
+/// starts, and how many beats each note lasts, four beats in all.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Motif {
+    pub steps: Vec<i32>,
+    pub beats: Vec<f32>,
+}
+
+/// The motif a World's palette plays: the same palette always the same
+/// tune, and different landscapes different tunes.
+pub fn motif(palette: Palette) -> Motif {
+    let mut dice = Dice::new(palette_seed(palette).rotate_left(11) ^ 0x6d2b_79f5);
+    // Four beats of five rhythms, all singable.
+    const RHYTHMS: [&[f32]; 6] = [
+        &[1.0, 0.5, 0.5, 1.0, 1.0],
+        &[0.5, 0.5, 1.0, 0.5, 0.5, 1.0],
+        &[1.5, 0.5, 1.0, 1.0],
+        &[1.0, 1.0, 0.5, 0.5, 1.0],
+        &[0.5, 0.5, 0.5, 0.5, 2.0],
+        &[1.0, 0.5, 0.5, 0.5, 0.5, 1.0],
+    ];
+    let beats = RHYTHMS[dice.pick(RHYTHMS.len())].to_vec();
+    let mut steps = Vec::with_capacity(beats.len());
+    let mut at = 0_i32;
+    for index in 0..beats.len() {
+        if index > 0 {
+            // Mostly steps, now and then a leap, never far from home.
+            let leap = if dice.next() < 0.25 { 2 } else { 1 };
+            let up = dice.next() < if at > 2 { 0.3 } else { 0.62 };
+            at += if up { leap } else { -leap };
+            at = at.clamp(-2, 5);
+        }
+        steps.push(at);
+    }
+    Motif { steps, beats }
+}
+
+/// A pentatonic step as a number of semitones above the root.
+fn pentatonic(step: i32) -> f32 {
+    let octave = step.div_euclid(PENTATONIC.len() as i32);
+    let degree = step.rem_euclid(PENTATONIC.len() as i32) as usize;
+    (octave * 12) as f32 + PENTATONIC[degree] as f32
+}
+
+/// The motif in one of the four places a phrase puts it: stated, answered
+/// a step higher and coming home, turned upside down, and stated again,
+/// ending on the root.
+fn phrase(motif: &Motif, bar: usize) -> Vec<(f32, f32)> {
+    let last = motif.steps.len() - 1;
+    motif
+        .steps
+        .iter()
+        .zip(&motif.beats)
+        .enumerate()
+        .map(|(index, (step, beats))| {
+            let step = match bar {
+                0 => *step,
+                1 if index == last => 0,
+                1 => step + 1,
+                2 => -step + 2,
+                _ if index == last => 0,
+                _ => *step,
+            };
+            (pentatonic(step), *beats)
+        })
+        .collect()
 }
 
 fn score(palette: Palette, moment: Moment) -> Vec<Note> {
     let [base, day, evening] = layers(moment);
     let root = root(palette) as f32;
+    let tune = motif(palette);
     let mut dice = Dice::new(palette_seed(palette) ^ moment.hour.wrapping_mul(0x85eb_ca6b));
-    let chords = if evening > day {
+    let chords = if evening > day && !moment.festival {
         EVENING_CHORDS
     } else {
         DAY_CHORDS
     };
-    // Brisk by day, slower in the evening and at night.
-    let beat = if day >= 0.5 { 0.75 } else { 1.0 };
+    // Brisk by day, slower in the evening and at night, quickest on a
+    // festival day.
+    let beat = if moment.festival {
+        0.6
+    } else if day >= 0.5 {
+        0.75
+    } else {
+        1.0
+    };
     let mut notes = Vec::new();
     for (index, chord) in chords.iter().enumerate() {
         let start = index as f32 * CHORD_SECONDS;
@@ -166,32 +254,64 @@ fn score(palette: Palette, moment: Moment) -> Vec<Note> {
             });
         }
     }
-    let beats = (LOOP_SECONDS as f32 / beat) as usize;
-    // The day layer: a note on some beats and some half beats, from the
-    // pentatonic scale two octaves up, walking rather than leaping.
+    // The day layer: the World's motif in a phrase over the four chords,
+    // each bar starting from its chord's root, with the hour's own
+    // passing notes between and a note left out now and then.
+    let day = if moment.festival { day.max(0.8) } else { day };
     if day > 0.02 {
-        let mut step = dice.pick(PENTATONIC.len());
-        for half in 0..beats * 2 {
-            let on_beat = half % 2 == 0;
-            let chance = if on_beat { 0.55 } else { 0.2 } * day.sqrt();
-            if dice.next() >= chance {
-                continue;
+        let octave = if moment.hour % 3 == 0 { 36.0 } else { 24.0 };
+        for (bar, chord) in chords.iter().enumerate() {
+            let mut at = bar as f32 * CHORD_SECONDS;
+            let bar_end = at + CHORD_SECONDS;
+            let home = chord[0] as f32;
+            for (pitch, beats) in phrase(&tune, bar) {
+                let length = beats * beat;
+                if dice.next() < 0.1 + 0.5 * (1.0 - day.sqrt()) && bar % 3 != 0 {
+                    at += length;
+                    continue;
+                }
+                if at < bar_end - 0.01 {
+                    notes.push(Note {
+                        start: at,
+                        pitch: root + octave + home + pitch,
+                        length: 1.2,
+                        level: day * 0.48,
+                        voice: Voice::Pluck,
+                    });
+                }
+                // A passing note on the off-beat, the hour's own.
+                if length >= beat && dice.next() < 0.35 * day {
+                    notes.push(Note {
+                        start: at + length / 2.0,
+                        pitch: root + octave + home + pitch + pentatonic(1),
+                        length: 0.8,
+                        level: day * 0.3,
+                        voice: Voice::Pluck,
+                    });
+                }
+                at += length;
             }
-            step = (step + PENTATONIC.len() + dice.pick(3) - 1) % PENTATONIC.len();
-            let octave = if dice.next() < 0.2 { 36.0 } else { 24.0 };
-            notes.push(Note {
-                start: half as f32 * beat / 2.0,
-                pitch: root + octave + PENTATONIC[step] as f32,
-                length: 1.2,
-                level: day * if on_beat { 0.5 } else { 0.34 },
-                voice: Voice::Pluck,
-            });
         }
     }
-    // The evening layer: a slow tune an octave up, two beats a note, some
-    // held longer, always on a note of the chord under it or next to one.
-    if evening > 0.02 {
+    // The evening layer: the motif hummed at half speed at the start and
+    // the end of the loop, and a slow tune on the chord between.
+    if evening > 0.02 && !moment.festival {
         let mut at = 0.0;
+        for (pitch, beats) in phrase(&tune, 0) {
+            let length = beats * beat * 2.0;
+            if at + length > CHORD_SECONDS * 2.0 {
+                break;
+            }
+            notes.push(Note {
+                start: at,
+                pitch: root + 12.0 + pitch,
+                length: length + 0.6,
+                level: evening * 0.3,
+                voice: Voice::Hum,
+            });
+            at += length;
+        }
+        let mut at = CHORD_SECONDS * 2.0;
         while at < LOOP_SECONDS as f32 - 0.01 {
             let length = beat * if dice.next() < 0.35 { 4.0 } else { 2.0 };
             let chord = chords[((at / CHORD_SECONDS) as usize).min(3)];
@@ -206,6 +326,34 @@ fn score(palette: Palette, moment: Moment) -> Vec<Note> {
                 });
             }
             at += length;
+        }
+    }
+    // A festival: the motif rung on bells at the start and again at the
+    // end, and a soft tap on every beat.
+    if moment.festival {
+        for bar in [0, 3] {
+            let mut at = bar as f32 * CHORD_SECONDS;
+            let home = chords[bar][0] as f32;
+            for (pitch, beats) in phrase(&tune, bar) {
+                notes.push(Note {
+                    start: at,
+                    pitch: root + 36.0 + home + pitch,
+                    length: 1.6,
+                    level: 0.3,
+                    voice: Voice::Bell,
+                });
+                at += beats * beat;
+            }
+        }
+        let beats = (LOOP_SECONDS as f32 / beat) as usize;
+        for index in 0..beats {
+            notes.push(Note {
+                start: index as f32 * beat,
+                pitch: 0.0,
+                length: 0.12,
+                level: if index % 2 == 0 { 0.16 } else { 0.1 },
+                voice: Voice::Tap,
+            });
         }
     }
     notes
@@ -240,6 +388,22 @@ pub fn compose(palette: Palette, moment: Moment) -> Vec<i16> {
                         + 0.35 * (-t / 0.08).exp() * (tau * frequency * 3.0 * t).sin()
                         + 0.12 * (tau * frequency * 5.4 * t).sin() * (-t / 0.05).exp();
                     (envelope, wave)
+                }
+                Voice::Bell => {
+                    let envelope = (t / 0.002).min(1.0) * (-t / 0.6).exp();
+                    let wave = (tau * frequency * t).sin()
+                        + 0.5 * (tau * frequency * 2.76 * t).sin() * (-t / 0.3).exp()
+                        + 0.25 * (tau * frequency * 5.4 * t).sin() * (-t / 0.15).exp();
+                    (envelope, wave)
+                }
+                Voice::Tap => {
+                    // Brushed: a short burst of the loop's own noise.
+                    let noise = ((first + offset) as u32)
+                        .wrapping_mul(0x9e37_79b9)
+                        .rotate_left(13)
+                        .wrapping_mul(0x85eb_ca6b);
+                    let white = noise as f32 / u32::MAX as f32 * 2.0 - 1.0;
+                    ((-t / 0.03).exp(), white)
                 }
                 Voice::Hum => {
                     let attack = (t / 0.25).min(1.0);
@@ -278,7 +442,7 @@ pub fn file_name(palette: Palette, moment: Moment) -> String {
     };
     let key = palette
         .iter()
-        .chain([&(moment.hour % 24), &sky])
+        .chain([&(moment.hour % 24), &sky, &u32::from(moment.festival)])
         .fold(0xcbf2_9ce4_8422_2325_u64, |hash, value| {
             (hash ^ u64::from(*value)).wrapping_mul(0x0100_0000_01b3)
         });
@@ -293,7 +457,75 @@ mod tests {
     const MARS: Palette = [0xe7b089, 0xf5d9bd, 0xc2663f, 0x8a3a22, 0xfff3dc];
 
     fn at(hour: u32, sky: Sky) -> Moment {
-        Moment { hour, sky }
+        Moment {
+            hour,
+            sky,
+            festival: false,
+        }
+    }
+
+    #[test]
+    fn each_world_has_a_tune_of_its_own_played_in_phrases() {
+        assert_ne!(motif(HARBOUR), motif(MARS), "two landscapes, two tunes");
+        let tunes = (0..40_u32)
+            .map(|index| {
+                let colour = 0x10_2030 + index * 0x05_0b13;
+                format!(
+                    "{:?}",
+                    motif([colour, colour ^ 0xffff, 0x7fa37a, colour >> 1, 0xfff1c9])
+                )
+            })
+            .collect::<std::collections::BTreeSet<_>>();
+        assert!(tunes.len() >= 30, "{} tunes for 40 places", tunes.len());
+        let tune = motif(HARBOUR);
+        assert_eq!(tune.beats.iter().sum::<f32>(), 4.0, "four beats a bar");
+        // Stated, then stated again: the phrase comes home.
+        let first = phrase(&tune, 0);
+        let last = phrase(&tune, 3);
+        assert_eq!(first[..first.len() - 1], last[..last.len() - 1]);
+        assert_eq!(last.last().unwrap().0, 0.0, "it ends on the root");
+        assert_ne!(first, phrase(&tune, 2), "and is turned about between");
+        // The day layer plays it: its notes at noon follow the motif's
+        // steps in the loop's first bar.
+        let noon = score(HARBOUR, at(12, Sky::Clear));
+        let plucks = noon
+            .iter()
+            .filter(|note| note.voice == Voice::Pluck && note.start < CHORD_SECONDS)
+            .filter(|note| note.length > 1.0)
+            .map(|note| note.pitch)
+            .collect::<Vec<_>>();
+        let heard = plucks
+            .windows(2)
+            .map(|pair| pair[1] - pair[0])
+            .collect::<Vec<_>>();
+        let written = first
+            .windows(2)
+            .map(|pair| pair[1].0 - pair[0].0)
+            .collect::<Vec<_>>();
+        assert_eq!(heard, written);
+    }
+
+    #[test]
+    fn a_festival_day_sounds_like_no_other() {
+        let festival = |hour| Moment {
+            hour,
+            sky: Sky::Clear,
+            festival: true,
+        };
+        for hour in [9, 14, 21] {
+            let plain = compose(HARBOUR, at(hour, Sky::Clear));
+            let feast = compose(HARBOUR, festival(hour));
+            assert_ne!(plain, feast, "{hour}");
+            assert_ne!(
+                file_name(HARBOUR, at(hour, Sky::Clear)),
+                file_name(HARBOUR, festival(hour))
+            );
+            assert!(score(HARBOUR, festival(hour))
+                .iter()
+                .any(|note| note.voice == Voice::Bell));
+            // Quicker, and brighter, whatever the hour.
+            assert!(brightness(&feast) > brightness(&plain) * 1.1, "{hour}");
+        }
     }
 
     /// Loudness of a loop, as a root mean square.

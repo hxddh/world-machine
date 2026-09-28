@@ -165,6 +165,7 @@ mod tests {
                         pack: WorldPackRef::new(MOCK_PACK, "1"),
                         title: "Background Mock".into(),
                         description: "Durable background transaction regression".into(),
+                        carries_forward: Vec::new(),
                     },
                     || Ok(Box::new(MockSession { count: 0 })),
                 )
@@ -187,6 +188,7 @@ mod tests {
                         pack: WorldPackRef::new(MOCK_PACK, "1"),
                         title: "Static Background Mock".into(),
                         description: "No-op durable background regression".into(),
+                        carries_forward: Vec::new(),
                     },
                     || Ok(Box::new(StaticSession { count: 0 })),
                 )

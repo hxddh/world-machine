@@ -83,6 +83,9 @@ pub struct WorldDescriptor {
     pub pack: WorldPackRef,
     pub title: String,
     pub description: String,
+    /// Earlier versions of this Pack whose Worlds this version opens and
+    /// carries on: a World saved by one of them is never left behind.
+    pub carries_forward: Vec<String>,
 }
 
 pub struct WorldRegistration {
@@ -159,6 +162,23 @@ impl WorldFamily {
 
     fn version(&self, version: &str) -> Option<&WorldRegistration> {
         self.registrations.get(version)
+    }
+
+    /// The version that opens a World saved by `version`: that version
+    /// itself, else the active version if it carries such Worlds forward,
+    /// else any registered version that does.
+    fn opener_for(&self, version: &str) -> Option<&WorldRegistration> {
+        self.version(version).or_else(|| {
+            std::iter::once(self.active())
+                .chain(self.registrations.values())
+                .find(|registration| {
+                    registration
+                        .descriptor
+                        .carries_forward
+                        .iter()
+                        .any(|carried| carried == version)
+                })
+        })
     }
 }
 
@@ -276,11 +296,13 @@ impl WorldRegistry {
             .map(|family| &family.active().descriptor)
     }
 
-    /// An exact registered Pack descriptor, including a historical compatible version.
+    /// The registered Pack descriptor that opens Worlds saved by `pack`: that
+    /// exact version, including a historical compatible one, or a version
+    /// that carries its Worlds forward.
     pub fn descriptor_for(&self, pack: &WorldPackRef) -> Option<&WorldDescriptor> {
         self.families
             .get(&pack.id)
-            .and_then(|family| family.version(&pack.version))
+            .and_then(|family| family.opener_for(&pack.version))
             .map(|registration| &registration.descriptor)
     }
 
@@ -348,7 +370,7 @@ impl WorldRegistry {
             .ok_or_else(|| HostError::UnknownWorld(archive.pack.id.clone()))?;
         let registration =
             family
-                .version(&archive.pack.version)
+                .opener_for(&archive.pack.version)
                 .ok_or_else(|| HostError::VersionMismatch {
                     expected: family.active().descriptor.pack.clone(),
                     found: archive.pack.clone(),
@@ -465,6 +487,7 @@ mod tests {
                     question: None,
                     unavailable: None,
                     hand: None,
+                    preview: None,
                 }],
                 ..ProjectionSnapshot::default()
             }
@@ -543,6 +566,7 @@ mod tests {
                 pack,
                 title: "Mock World".into(),
                 description: "A host registry test world".into(),
+                carries_forward: Vec::new(),
             },
             move || {
                 Ok(Box::new(MockSession {
@@ -639,12 +663,39 @@ mod tests {
         assert!(registry.descriptors().is_empty());
     }
 
+    #[test]
+    fn a_version_that_carries_earlier_worlds_forward_opens_them() {
+        let mut registry = WorldRegistry::new();
+        let mut carrier = openable_registration("mock.world", "2");
+        carrier.descriptor.carries_forward = vec!["1".into()];
+        registry.register(carrier).unwrap();
+        let old = WorldPackRef::new("mock.world", "1");
+        assert_eq!(
+            registry
+                .descriptor_for(&old)
+                .map(|d| d.pack.version.as_str()),
+            Some("2")
+        );
+        let session = registry
+            .open_archive(&archive("mock.world", "1", 7))
+            .unwrap();
+        assert_eq!(session.pack().version, "2");
+        // A version nothing carries is still refused.
+        assert!(registry
+            .open_archive(&archive("mock.world", "0", 7))
+            .is_err());
+        assert!(registry
+            .descriptor_for(&WorldPackRef::new("mock.world", "0"))
+            .is_none());
+    }
+
     fn invalid_registration() -> WorldRegistration {
         WorldRegistration::new(
             WorldDescriptor {
                 pack: WorldPackRef::new("invalid.world", ""),
                 title: "Invalid World".into(),
                 description: "A deliberately invalid descriptor".into(),
+                carries_forward: Vec::new(),
             },
             || {
                 Ok(Box::new(MockSession {
@@ -897,6 +948,7 @@ mod tests {
                 pack: WorldPackRef::new("broken.world", "1"),
                 title: "Broken World".into(),
                 description: "Archive output gate regression".into(),
+                carries_forward: Vec::new(),
             },
             || Ok(Box::new(InvalidArchiveSession)),
         );

@@ -14,7 +14,10 @@ use world_persistence::{PersistenceError, WorldArchive, WorldPackRef};
 use world_projection::ProjectionSnapshot;
 
 pub const TINY_SOCIETY_PACK_ID: &str = "world-machine.tiny-society";
-pub const TINY_SOCIETY_PACK_VERSION: &str = "0.10.0";
+pub const TINY_SOCIETY_PACK_VERSION: &str = "0.11.0";
+/// Earlier versions whose Worlds this version opens and carries on, so no
+/// update ever leaves a harbour behind.
+pub const CARRIES_FORWARD: &[&str] = &["0.10.0"];
 
 pub(crate) const WORLD_DAY_TICKS: u64 = 10;
 const MORNING_OFFSET_TICKS: u64 = 5;
@@ -45,7 +48,7 @@ impl TinySociety {
 
     pub fn resume_archive(archive: &WorldArchive) -> Result<Self, Box<dyn Error>> {
         let baseline = seed::seed_world()?;
-        let world = archive.restore(&tiny_society_pack_ref(), baseline)?;
+        let world = archive.restore_carried(&tiny_society_pack_ref(), CARRIES_FORWARD, baseline)?;
         restored_simulation(world)
     }
 

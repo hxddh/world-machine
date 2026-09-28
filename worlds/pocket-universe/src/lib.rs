@@ -15,6 +15,7 @@ mod speech;
 mod story;
 mod succession;
 mod talk;
+mod voices;
 
 use std::error::Error;
 use std::sync::Arc;
@@ -31,7 +32,10 @@ use world_persistence::{PersistenceError, WorldArchive, WorldPackRef};
 use world_projection::{ProjectionIntent, ProjectionSnapshot};
 
 pub const POCKET_UNIVERSE_PACK_ID: &str = "world-machine.pocket-universe";
-pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.27.0";
+pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.28.0";
+/// Earlier versions whose Worlds this version opens and carries on, so no
+/// update ever leaves a place behind.
+pub const CARRIES_FORWARD: &[&str] = &["0.27.0"];
 
 pub const SEED_MARS_COLONY_COMMAND: &str = "pocket-universe.seed-mars-colony";
 pub const SEED_1980S_TOWN_COMMAND: &str = "pocket-universe.seed-1980s-town";
@@ -48,6 +52,21 @@ pub const REACH_PRESSURE_COMMAND: &str = "pocket-universe.pressure-reach";
 pub const RECOVER_ANCHOR_COMMAND: &str = "pocket-universe.pressure-recover";
 pub const ENTRUST_LEGACY_COMMAND: &str = "pocket-universe.succession-entrust";
 pub const RELEASE_LEGACY_COMMAND: &str = "pocket-universe.succession-release";
+
+/// The residents' own lines as templates and what fills them, for showing
+/// every one of them in another language.
+pub type VoiceTemplates = Vec<(
+    &'static [&'static str],
+    &'static [(&'static str, &'static [&'static str])],
+)>;
+
+/// Every place's two residents' templates: Mars, Maple Street, Icebridge.
+pub fn voice_templates() -> VoiceTemplates {
+    voices::ALL
+        .iter()
+        .map(|voice| (voice.lines, voice.slots))
+        .collect()
+}
 
 /// How many of the latest events each of the pair is shown when deciding
 /// what to do: enough for any mind to know what just happened, and the same
@@ -275,7 +294,7 @@ where
     fn with_previews(&self, mut snapshot: ProjectionSnapshot) -> ProjectionSnapshot {
         let before = snapshot.gauges.clone();
         if before.is_empty() {
-            return snapshot;
+            return self.with_beginnings(snapshot);
         }
         for command in &mut snapshot.commands {
             // A deed of the player's own hands is not a choice to weigh.
@@ -299,6 +318,35 @@ where
             if copy.invoke_projection_command(&command.id).is_ok() {
                 command.moves =
                     world_projection::gauge_moves(&before, &projection::gauges(&copy.world));
+            }
+        }
+        snapshot
+    }
+
+    /// Before a place is chosen, each place to begin is shown as it would
+    /// first stand, by beginning it on a copy: its people and buildings,
+    /// drawn the way its window will draw them.
+    fn with_beginnings(&self, mut snapshot: ProjectionSnapshot) -> ProjectionSnapshot {
+        for command in &mut snapshot.commands {
+            if command.scenery.is_none() {
+                continue;
+            }
+            let Ok(actions) = build_action_registry() else {
+                continue;
+            };
+            let mut copy = PocketUniverse {
+                world: self.world.sketch(world_projection::RECENT_EVENTS),
+                actions,
+                mind: PocketMind,
+                mind_profile: DETERMINISTIC_MIND_PROFILE.into(),
+                narrator: Box::new(narrator::NoNarrator),
+            };
+            if copy.invoke_projection_command(&command.id).is_ok() {
+                let begun = projection::snapshot(&copy.world);
+                command.preview = Some(Box::new(world_projection::Preview {
+                    canvas: begun.canvas,
+                    drawings: begun.drawings,
+                }));
             }
         }
         snapshot
@@ -614,7 +662,11 @@ where
         mind_profile: impl Into<String>,
     ) -> Result<Self, Box<dyn Error>> {
         Ok(Self {
-            world: archive.restore(&pocket_universe_pack_ref(), baseline()?)?,
+            world: archive.restore_carried(
+                &pocket_universe_pack_ref(),
+                CARRIES_FORWARD,
+                baseline()?,
+            )?,
             actions: build_action_registry()?,
             mind,
             mind_profile: validate_mind_profile(mind_profile.into())?,
@@ -755,6 +807,7 @@ pub fn pocket_universe_descriptor() -> WorldDescriptor {
         title: "Pocket Universe".into(),
         description:
             "A tiny world that keeps living while you are away: begin it, let it grow, then come back to see what changed.".into(),
+        carries_forward: CARRIES_FORWARD.iter().map(|version| version.to_string()).collect(),
     }
 }
 
@@ -2370,6 +2423,37 @@ fn anchor_pulse(seed: &str, generation: i64) -> String {
 mod tests {
     use super::*;
     use world_agent::MockAgentRuntime;
+
+    /// Every place to begin shows itself as it will first stand: its own
+    /// people and buildings, not a landscape alone.
+    #[test]
+    fn every_place_to_begin_is_shown_with_its_people() {
+        let universe = PocketUniverse::new().unwrap();
+        let snapshot = universe.projection_snapshot();
+        let beginnings = snapshot
+            .commands
+            .iter()
+            .filter(|command| command.scenery.is_some())
+            .collect::<Vec<_>>();
+        assert_eq!(beginnings.len(), 3);
+        for command in beginnings {
+            let preview = command.preview.as_ref().expect("a picture of the place");
+            let people = preview
+                .canvas
+                .items
+                .iter()
+                .filter(|item| item.kind == world_projection::CanvasItemKind::Actor)
+                .count();
+            assert!(people >= 2, "{} shows {people} people", command.id);
+            assert!(
+                preview.canvas.items.len() > people,
+                "{} shows no buildings",
+                command.id
+            );
+        }
+        // Showing a place does not begin it.
+        assert_eq!(universe.world().events().len(), 0);
+    }
 
     /// Everything a player reads in this World, over a first session and a
     /// return, speaks about the World and never about the engine.

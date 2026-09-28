@@ -991,6 +991,7 @@ fn summary(id: WorldDocumentId, document: &WorldDocument) -> WorldDocumentSummar
                 length: calendar.length,
                 coming: None,
                 season: None,
+                festival_today: false,
             }
         }),
         display_marks: document
@@ -1238,6 +1239,7 @@ mod tests {
                     question: None,
                     unavailable: None,
                     hand: None,
+                    preview: None,
                 }],
                 ..ProjectionSnapshot::default()
             }
@@ -1278,6 +1280,7 @@ mod tests {
                         pack: WorldPackRef::new(MOCK_PACK, "1"),
                         title: "Mock World".into(),
                         description: "Durable session test".into(),
+                        carries_forward: Vec::new(),
                     },
                     || Ok(Box::new(MockSession { count: 0 })),
                 )
@@ -1790,6 +1793,7 @@ mod tests {
                 length: 10,
                 coming: None,
                 season: None,
+                festival_today: false,
             }),
             canvas: world_projection::CanvasProjection {
                 marks: vec![world_projection::CanvasMark {

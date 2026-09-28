@@ -2,6 +2,22 @@
 
 Releases live on the [Releases page](https://github.com/hxddh/world-machine/releases). `0.2.0` is the first release intended to be usable without reading the repository; the `v0.1.0-pre.N` tags below were its pre-releases.
 
+## v0.17.0 (2026-09-28)
+
+**Worlds from `v0.16.0` open and carry on.** For the first time a release keeps every World the last one saved: Tiny Society moves to `0.11.0` and Pocket Universe to `0.28.0`, and each opens its `0.10.0` and `0.27.0` Worlds with their whole history and goes on under the new rules. From now on no release may leave a World behind.
+
+The [v0.16 review](docs/REVIEW_v0.16.md) found `v0.16.0`'s craft in the wrong place and short-lived: a first launch opened the plainest World, more than half of a month's days brought nothing new, and eight of the last ten releases had thrown players' Worlds away. This release turns the showcase into a World you keep. Everything in it is still made by the program.
+
+- **You begin in Tiny Society.** A first launch opens the harbour, the World with the most craft. Pocket Universe's places are shown to choose from as they will first stand, people, buildings and all, drawn the way the window draws them, instead of bare hills.
+- **Something new every day.** On any day that brought you nothing to keep and nobody new, someone you have not met comes over to say hello, or, once you know everyone, someone writes to you: their first letter is a keepsake of its own, later ones bring something small, in their own words of the day. While you are away you come back to a letter. Both Packs are tested to bring something new on each of the first 30 days, with at least four keepsakes, to a player who only answers questions. Each Pocket Universe place gains a mid-year festival so a dated day comes at least every two weeks.
+- **Never lose a World.** A Pack version names the earlier versions it carries forward; the host, Home and a Pack process all open such a World with it. Its history is kept exactly as recorded, since every Event already holds what it changed, so nothing is decided again. Worlds saved by the real `v0.16.0` are kept as fixtures, and a test opens each, plays 30 more days and checks nothing was lost.
+- **A finished surface.** Soft contact shading under every building, thing and person; the foot of each wall darkened; a fine ink rim on each layer of land; a haze over the ridge; a colour grade that eases hour by hour (every hour its own); people standing at three depths, the nearer ones larger; grass, flowers, stones, a fence and a worn path in front of them, and reeds at the water; and scaffolding rising on what the place is still building, instead of a grey box.
+- **Portraits drawn as the scene draws them.** A question's card shows the person's own drawing (a bearded Jonas in his sou'wester, not a generic face), with their mood, and a mouth that moves while they ask.
+- **Music with memory.** Every World has a tune of its own, made from its colours, which the day plays in phrases (stated, answered, turned about, stated again, ending home) and the evening hums slowly. A festival day brings a quicker step, bells and a soft tap on every beat. Whoever asks you something is announced by three notes of their own.
+- **Pocket Universe at parity.** Its six core residents (Nia and Tomas on Mars, Lena and Max on Maple Street, Piko and Miri on the ice) each have a style sheet, 162 to 200 lines of their own, and five friendship moments and a keepsake that are theirs alone. Pocket Universe is shown in Chinese: 98.9% of what a year of its places shows is fully in Chinese; a test holds it at 95%.
+- **Lighter snapshots.** A snapshot carries only the voices a screen can show, not every one a World has kept: a year-old Tiny Society snapshot went from 19 ms to 14 ms on the machine this was built on.
+- **Pack protocol:** a choice may carry a `preview` of the World it starts, a descriptor `carries_forward` earlier versions, and a calendar says whether a festival is `festival_today`; all optional, so older Packs and apps send and ignore none.
+
 ## v0.16.0 (2026-09-28)
 
 **Worlds from `v0.15.0` do not open.** Tiny Society moves to `0.10.0` and Pocket Universe to `0.27.0`, because friendships, building and the start of a World all changed. Carrying older Worlds forward is out of scope by decision; start a new one.

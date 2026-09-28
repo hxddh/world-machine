@@ -1551,6 +1551,7 @@ fn storylet_commands(world: &World) -> Vec<world_projection::ProjectionCommand> 
                 }),
                 unavailable: (!unmet.is_empty()).then(|| "Not possible right now".to_string()),
                 hand: None,
+                preview: None,
             })
         })
         .collect()

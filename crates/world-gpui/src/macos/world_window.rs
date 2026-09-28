@@ -296,18 +296,37 @@ pub(crate) fn voices_now(snapshot: &ProjectionSnapshot) -> Vec<&world_projection
     voices.into_iter().map(|(_, voice)| voice).collect()
 }
 
-fn figure_of(snapshot: &ProjectionSnapshot, id: SelectionId) -> Figure {
-    let look = snapshot
-        .canvas
-        .items
-        .iter()
-        .find(|item| item.id == id)
-        .and_then(|item| item.look);
-    Figure::of(&id.stable_key(), look)
+/// How someone looks: the figure the app draws for them, their Pack's own
+/// drawing if it ships one, and how they feel.
+#[derive(Clone, Debug)]
+pub(crate) struct Likeness {
+    pub(crate) figure: Figure,
+    pub(crate) drawing: Option<world_projection::Drawing>,
+    pub(crate) mood: world_projection::Mood,
 }
 
-/// Someone's face, drawn as they are on the scene.
-pub(crate) fn portrait(figure: Figure, side: f32) -> Div {
+pub(crate) fn likeness_of(snapshot: &ProjectionSnapshot, id: SelectionId) -> Likeness {
+    let item = snapshot.canvas.items.iter().find(|item| item.id == id);
+    Likeness {
+        figure: Figure::of(&id.stable_key(), item.and_then(|item| item.look)),
+        drawing: item.and_then(|item| snapshot.drawing_of(item)).cloned(),
+        mood: item.and_then(|item| item.mood).unwrap_or_default(),
+    }
+}
+
+/// Whether a mouth is open now, for someone speaking: in bursts of a few
+/// syllables, then a pause.
+fn mouth_open() -> bool {
+    let seconds = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|since| since.as_secs_f32() % 60.0)
+        .unwrap_or(0.0);
+    seconds % 6.0 < 2.4 && (seconds * 5.0).fract() < 0.55
+}
+
+/// Someone's face, drawn as they are on the scene: the same drawing, the
+/// same mood, and speaking when `talking`.
+pub(crate) fn portrait(likeness: Likeness, side: f32, talking: bool) -> Div {
     div()
         .flex_shrink_0()
         .size(px(side))
@@ -316,7 +335,16 @@ pub(crate) fn portrait(figure: Figure, side: f32) -> Div {
         .child(
             canvas(
                 |_, _, _| (),
-                move |bounds, _, window, _| art::paint_portrait(window, bounds, &figure),
+                move |bounds, _, window, _| {
+                    art::paint_likeness(
+                        window,
+                        bounds,
+                        &likeness.figure,
+                        likeness.drawing.as_ref(),
+                        likeness.mood,
+                        talking && mouth_open(),
+                    )
+                },
             )
             .size_full(),
         )
@@ -1902,7 +1930,11 @@ impl ProjectionView {
                         .rounded(px(16.0))
                         .border_2()
                         .border_color(color(tokens::SURFACE))
-                        .child(portrait(figure_of(&self.snapshot, *person), 60.0)),
+                        .child(portrait(
+                            likeness_of(&self.snapshot, *person),
+                            60.0,
+                            position == 0,
+                        )),
                 );
             }
             stack
@@ -2343,7 +2375,7 @@ impl ProjectionView {
                     .flex()
                     .items_center()
                     .gap_3()
-                    .child(portrait(figure_of(&self.snapshot, who), 40.0))
+                    .child(portrait(likeness_of(&self.snapshot, who), 40.0, false))
                     .child(
                         div()
                             .flex_1()

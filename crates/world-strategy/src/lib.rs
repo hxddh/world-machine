@@ -229,6 +229,7 @@ mod tests {
                         question: None,
                         unavailable: None,
                         hand: None,
+                        preview: None,
                     },
                     ProjectionCommand {
                         id: "mock.fail".into(),
@@ -241,6 +242,7 @@ mod tests {
                         question: None,
                         unavailable: None,
                         hand: None,
+                        preview: None,
                     },
                 ],
                 ..ProjectionSnapshot::default()
@@ -302,6 +304,7 @@ mod tests {
                         pack,
                         title: "Strategy Mock".into(),
                         description: "Strategy harness isolation test".into(),
+                        carries_forward: Vec::new(),
                     },
                     || Err(HostError::session("factory is unused")),
                 )

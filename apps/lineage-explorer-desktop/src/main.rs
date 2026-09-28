@@ -179,6 +179,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 pack: WorldPackRef::new(PACK_ID, "1"),
                 title: "Lineage Demo".into(),
                 description: "Saved World comparison acceptance fixture".into(),
+                carries_forward: Vec::new(),
             },
             || Ok(Box::new(DemoSession { world_time: 0 })),
         )

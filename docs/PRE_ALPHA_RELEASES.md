@@ -79,6 +79,15 @@ python3 scripts/validate_release_package.py \
 
 The pre-release notes are rendered by `scripts/render_release_notes.py` from `release-manifest.json`. They lead with the not-notarized status and link `docs/INSTALL.md` at the release tag, so the first thing a downloader reads is how to get past Gatekeeper. The repository does not contain Apple Developer ID or notarization credentials, and the release entry must never present an ad-hoc-signed artifact as a normal notarized macOS release.
 
+## Keeping earlier Worlds opening
+
+No release may leave a player's World behind. When a release moves a Pack's version:
+
+1. Add the version it replaces to that Pack's `CARRIES_FORWARD` (`worlds/tiny-society/src/persistence.rs`, `worlds/pocket-universe/src/lib.rs`), keeping every earlier one listed.
+2. After the release is tagged, save a few Worlds with it and add them under `crates/world-builtins/tests/fixtures/<tag>/` (the `v0.16.0` fixtures were written by running the released code, not the current one). `carried_forward.rs` opens every fixture, plays on and checks its history is kept, so CI fails the day an earlier World stops opening.
+
+A change that cannot carry an earlier World forward (a changed starting state, a removed action a pending schedule still names) needs a migration in the Pack before it ships, not a note in the changelog.
+
 ## Publishing a release
 
 ```bash

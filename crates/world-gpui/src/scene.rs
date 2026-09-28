@@ -241,6 +241,21 @@ pub fn daylight_at(hour: u32) -> Daylight {
     }
 }
 
+/// The time of day now, in hours from midnight with the minutes as a
+/// fraction (13.5 is half past one), or the pinned hour on the hour.
+pub fn hour_of_day() -> f32 {
+    use chrono::Timelike;
+    if std::env::var("WORLD_MACHINE_HOUR")
+        .ok()
+        .and_then(|hour| hour.parse::<u32>().ok())
+        .is_some_and(|hour| hour < 24)
+    {
+        return hour_now() as f32;
+    }
+    let now = chrono::Local::now();
+    now.hour() as f32 + now.minute() as f32 / 60.0
+}
+
 /// The part of the day it is now, on this computer's clock. The hour can be
 /// pinned with `WORLD_MACHINE_HOUR` to look at a World by night in daytime.
 pub fn daylight_now() -> Daylight {

@@ -64,6 +64,7 @@ pub fn future_archaeologist_registration() -> WorldRegistration {
             description:
                 "Recover fragments from a future terminal without exposing the hidden ground truth."
                     .into(),
+            carries_forward: Vec::new(),
         },
         FutureArchaeologistSession::fresh,
     )

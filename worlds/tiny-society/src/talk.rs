@@ -238,7 +238,12 @@ pub(crate) fn voices(world: &World) -> Vec<Voice> {
     let latest = world.world_time();
     let mut spoken_now = std::collections::BTreeSet::new();
     let mut voices = Vec::new();
-    for event in world.events() {
+    // Only moments History can show are ever retold, so only they are read.
+    let events = world.events();
+    let recent = &events[events
+        .len()
+        .saturating_sub(world_projection::TIMELINE_EVENTS)..];
+    for event in recent {
         let story = crate::projection::narrated_title(world, event).is_some();
         if !story && event.world_time != latest {
             continue;

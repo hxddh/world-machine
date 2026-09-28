@@ -26,6 +26,7 @@ const MARS: &[Activity] = &[
             "{other} and I traced a leak for three hours.",
             "Maintenance at {place}. {other} hummed the whole time.",
             "Recalibrated the sensors with {other}. Twice.",
+            "{other} and I resealed the airlock. Held first time.",
         ],
         gives: &[],
     },
@@ -480,6 +481,20 @@ const ICE: &[Activity] = &[
         gives: &[],
     },
     Activity {
+        id: "lanterns",
+        need: Need::Purpose,
+        with: With::Anyone,
+        at: At::Gathering,
+        told: "{name} lit the lanterns with {other}",
+        said: &[
+            "Lit the lanterns with {other}. The ice glowed.",
+            "{other} and I trimmed every wick on the bridge.",
+            "{other} dropped a lantern. It bounced! Ice is kind.",
+            "Hung a new lantern with {other} at the far end.",
+        ],
+        gives: &[],
+    },
+    Activity {
         id: "sort_fish",
         need: Need::Money,
         with: With::Anyone,
@@ -630,6 +645,7 @@ const ICE: &[Activity] = &[
             "Built the finest stone nest on the ice.",
             "Found the perfect pebble. Perfect.",
             "{friend} admired my nest. As they should.",
+            "Tucked a feather in the nest. Cosy.",
         ],
         gives: &[],
     },
@@ -963,7 +979,11 @@ pub(crate) fn cast(state: &WorldState) -> Cast {
         visitors: Some(visitors),
         most_people: 8,
         most_open: 1,
-        voice: |_| None,
+        voice: match seed.as_str() {
+            "1980s-town" => crate::voices::town,
+            "penguin-civilization" => crate::voices::ice,
+            _ => crate::voices::mars,
+        },
     }
 }
 
@@ -1001,6 +1021,7 @@ pub(crate) fn commands(world: &World) -> Vec<world_projection::ProjectionCommand
                     question: Some(question.clone()),
                     unavailable: answer.unavailable,
                     hand: None,
+                    preview: None,
                 })
         })
         .collect()

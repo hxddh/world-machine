@@ -273,8 +273,9 @@ impl ProjectionView {
                 .find(|item| &item.label == name)
             {
                 Some(item) => world_window::portrait(
-                    crate::art::Figure::of(&item.id.stable_key(), item.look),
+                    world_window::likeness_of(&self.snapshot, item.id),
                     52.0,
+                    false,
                 ),
                 None => ui::avatar(name, 52.0),
             };
@@ -498,7 +499,26 @@ impl ProjectionView {
                         } else {
                             BEGINNING_SHORT
                         }))
-                        .child(ui::scenery_cover(&scenery, &command.id).size_full()),
+                        .child(match &command.preview {
+                            // The place as it will first stand, people and
+                            // all, drawn the way its window draws it.
+                            Some(preview) => crate::diorama::cover(
+                                Some(scenery),
+                                &preview
+                                    .canvas
+                                    .marks
+                                    .iter()
+                                    .map(|mark| mark.shape)
+                                    .collect::<Vec<_>>(),
+                                preview.canvas.items.clone(),
+                                preview.drawings.clone(),
+                            )
+                            .size_full()
+                            .into_any_element(),
+                            None => ui::scenery_cover(&scenery, &command.id)
+                                .size_full()
+                                .into_any_element(),
+                        }),
                 )
                 .child(
                     div()
@@ -1662,6 +1682,41 @@ mod focus_hierarchy_tests {
 
     fn entity_selection() -> SelectionId {
         SelectionId::Entity(Default::default())
+    }
+
+    #[test]
+    fn a_portrait_is_the_person_as_the_scene_draws_them() {
+        use world_projection::{CanvasItem, CanvasItemKind, Drawing, Mood};
+        let person =
+            world_projection::person_base("jonas").with("jonas", world_projection::short_hair());
+        let item = CanvasItem {
+            id: entity_selection(),
+            kind: CanvasItemKind::Actor,
+            label: "Jonas".into(),
+            detail: String::new(),
+            x: 0.0,
+            y: 0.0,
+            changes: Vec::new(),
+            shape: None,
+            at: None,
+            look: None,
+            drawing: Some(person.id.clone()),
+            stance: None,
+            standing: None,
+            mood: Some(Mood::Cross),
+            spot: None,
+        };
+        let mut snapshot = ProjectionSnapshot {
+            drawings: vec![
+                person.clone(),
+                Drawing::new("someone else", 0.4, Vec::new()),
+            ],
+            ..ProjectionSnapshot::default()
+        };
+        snapshot.canvas.items.push(item.clone());
+        let likeness = super::world_window::likeness_of(&snapshot, item.id);
+        assert_eq!(likeness.drawing.as_ref(), snapshot.drawing_of(&item));
+        assert_eq!(likeness.mood, Mood::Cross);
     }
 
     #[test]

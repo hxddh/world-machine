@@ -57,6 +57,7 @@ impl WorldSession for MockSession {
                 question: None,
                 unavailable: None,
                 hand: None,
+                preview: None,
             }],
             ..ProjectionSnapshot::default()
         }
@@ -91,6 +92,7 @@ fn registry() -> WorldRegistry {
                     pack: WorldPackRef::new(MOCK_PACK, "1"),
                     title: "Metadata Regression".into(),
                     description: "Document metadata transaction regression".into(),
+                    carries_forward: Vec::new(),
                 },
                 || Ok(Box::new(MockSession { count: 0 })),
             )

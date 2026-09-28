@@ -1149,3 +1149,58 @@ fn a_careful_player_finishes_every_goal_in_a_year() {
         assert!(unfinished.is_empty(), "{seed}: {unfinished:?}");
     }
 }
+
+/// Something new every period for a month in every place, for a player
+/// who only answers the first question on offer and makes something every
+/// third period: something to find in the book, something to keep, or a
+/// chapter's close, and at least four keepsakes in the month.
+#[test]
+fn something_new_every_period_for_a_month_in_every_place() {
+    for seed in [
+        MARS,
+        crate::SEED_1980S_TOWN_COMMAND,
+        crate::SEED_PENGUIN_CIVILIZATION_COMMAND,
+    ] {
+        let mut universe = PocketUniverse::new().unwrap();
+        universe.invoke_projection_command(seed).unwrap();
+        let news = |universe: &PocketUniverse<crate::PocketMind>| {
+            let snapshot = universe.projection_snapshot();
+            (
+                snapshot.book.iter().filter(|entry| entry.found).count()
+                    + snapshot.keepsakes.len()
+                    + snapshot.chapters.len(),
+                snapshot.keepsakes.len(),
+            )
+        };
+        let (mut before, _) = news(&universe);
+        let mut quiet = Vec::new();
+        for period in 1..=30 {
+            let snapshot = universe.projection_snapshot();
+            if let Some(answer) = snapshot.commands.iter().find(|command| {
+                command.question.is_some()
+                    && command.unavailable.is_none()
+                    && command.id != NUDGE_COMMAND
+            }) {
+                let _ = universe.invoke_projection_command(&answer.id.clone());
+            }
+            if period % 3 == 0 {
+                if let Some(deed) = snapshot
+                    .commands
+                    .iter()
+                    .find(|command| command.hand.is_some() && command.unavailable.is_none())
+                {
+                    let _ = universe.invoke_projection_command(&deed.id.clone());
+                }
+            }
+            universe.invoke_projection_command(NUDGE_COMMAND).unwrap();
+            let (now, _) = news(&universe);
+            if now <= before {
+                quiet.push(period);
+            }
+            before = now;
+        }
+        assert!(quiet.is_empty(), "{seed}: nothing new in periods {quiet:?}");
+        let (_, keepsakes) = news(&universe);
+        assert!(keepsakes >= 4, "{seed}: {keepsakes} keepsakes in a month");
+    }
+}

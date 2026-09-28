@@ -324,6 +324,19 @@ pub fn stage(snapshot: &ProjectionSnapshot, width: f32, height: f32) -> Stage {
             }
         }
     }
+    // A crowd stands at more than one depth: every other person in a row,
+    // and anyone standing on their own, a step nearer or further, so the
+    // place reads as ground rather than a line.
+    let step = figure_h * 0.2;
+    for (position, spot) in people.iter_mut().enumerate() {
+        let seed = art::seed_of(&items[spot.index].id.stable_key());
+        let depth = match position % 3 {
+            0 => 0.0,
+            1 => 1.0,
+            _ => 0.5,
+        } + (seed % 7) as f32 / 30.0;
+        spot.y = feet + step * depth;
+    }
     people.sort_by_key(|spot| spot.index);
 
     Stage {
@@ -636,6 +649,8 @@ struct ThingPaint {
 pub struct Frame {
     scenery: Scenery,
     daylight: Daylight,
+    /// The hour the light is graded for, 0 to 24.
+    hour: f32,
     seconds: f32,
     zoom: f32,
     horizon: f32,
@@ -843,11 +858,13 @@ pub fn frame(
         .map(|(spot, life)| {
             let item = &items[spot.index];
             let (x, y) = at(life.x, spot.y);
+            // Nearer is a little bigger.
+            let near = 1.0 + (spot.y - stage.feet) / stage.figure_h * 0.35;
             PersonPaint {
                 index: spot.index,
                 x,
                 y,
-                height: stage.figure_h * z,
+                height: stage.figure_h * z * near,
                 figure: Figure::of(&item.id.stable_key(), item.look),
                 pose: Pose {
                     bob: life.pose.bob * z,
@@ -900,9 +917,23 @@ pub fn frame(
 
     let near = art::hex(scenery.near);
     let water = near.h > 0.45 && near.h < 0.72 && near.s > 0.2;
+    // The light of this very hour when the frame is of now; the middle of
+    // its part of the day when it is pinned to another.
+    let hour = crate::scene::hour_of_day();
+    let hour = if crate::scene::daylight_at(hour as u32) == daylight {
+        hour
+    } else {
+        match daylight {
+            Daylight::Dawn => 6.5,
+            Daylight::Day => 13.0,
+            Daylight::Dusk => 19.5,
+            Daylight::Night => 23.0,
+        }
+    };
     Frame {
         scenery,
         daylight,
+        hour,
         seconds,
         zoom: z,
         horizon: at(0.0, stage.horizon).1,
@@ -920,6 +951,9 @@ pub fn frame(
     }
 }
 
+/// A curve's end and control point, in screen pixels.
+type Curve = ((f32, f32), (f32, f32));
+
 /// How much each layer moves with the camera, from the sky (least) to
 /// the ground under people's feet (fully).
 pub const PARALLAX: [f32; 4] = [0.06, 0.18, 0.4, 1.0];
@@ -934,6 +968,67 @@ pub fn grade(daylight: Daylight) -> ((u32, f32), (u32, f32)) {
         Daylight::Dusk => ((0xff9a5c, 0.20), (0x4a3070, 0.16)),
         Daylight::Night => ((0x9ab0ff, 0.06), (0x0a1030, 0.22)),
     }
+}
+
+/// The light an hour lays over the scene, eased from one part of the day
+/// into the next so no two hours look alike: the warm key light and the
+/// cool shade of [`grade`], each a colour and how strong it is.
+pub fn grade_at(hour: f32) -> ((u32, f32), (u32, f32)) {
+    // Where each part of the day's light is at its fullest.
+    const ANCHORS: [(f32, Daylight); 7] = [
+        (0.0, Daylight::Night),
+        (4.5, Daylight::Night),
+        (6.5, Daylight::Dawn),
+        (12.5, Daylight::Day),
+        (19.0, Daylight::Dusk),
+        (21.5, Daylight::Night),
+        (24.0, Daylight::Night),
+    ];
+    let hour = hour.rem_euclid(24.0);
+    let next = ANCHORS
+        .iter()
+        .position(|(at, _)| *at > hour)
+        .unwrap_or(ANCHORS.len() - 1)
+        .max(1);
+    let (from_at, from) = ANCHORS[next - 1];
+    let (to_at, to) = ANCHORS[next];
+    // Night to night still turns: the small hours are darkest at three.
+    let t = ((hour - from_at) / (to_at - from_at).max(0.01)).clamp(0.0, 1.0);
+    let t = ease(t);
+    let mix = |a: (u32, f32), b: (u32, f32), deep: f32| {
+        let channel = |shift: u32| {
+            let x = ((a.0 >> shift) & 0xff) as f32;
+            let y = ((b.0 >> shift) & 0xff) as f32;
+            ((x + (y - x) * t).round() as u32).min(255) << shift
+        };
+        (
+            channel(16) | channel(8) | channel(0),
+            a.1 + (b.1 - a.1) * t + deep,
+        )
+    };
+    let (warm_a, cool_a) = grade(from);
+    let (warm_b, cool_b) = grade(to);
+    // Through the night the dark deepens towards the small hours and the
+    // shade slowly turns from navy to the indigo before dawn.
+    let (night_deep, night_turn) = if from == Daylight::Night && to == Daylight::Night {
+        let into = if hour >= 21.5 {
+            hour - 21.5
+        } else {
+            hour + 2.5
+        } / 7.0;
+        (0.05 * (1.0 - (into * 2.0 - 1.0).abs()), into)
+    } else {
+        (0.0, 0.0)
+    };
+    let (cool, cool_alpha) = mix(cool_a, cool_b, night_deep);
+    let cool = if night_turn > 0.0 {
+        let blue = (cool & 0xff) as f32 + 40.0 * night_turn;
+        let red = ((cool >> 16) & 0xff) as f32 + 24.0 * night_turn;
+        (cool & 0x00ff00) | ((red.min(255.0) as u32) << 16) | blue.min(255.0) as u32
+    } else {
+        cool
+    };
+    (mix(warm_a, warm_b, 0.0), (cool, cool_alpha))
 }
 
 /// Paints a frame into `bounds`.
@@ -1110,6 +1205,21 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window) {
     if let Ok(path) = hills.build() {
         window.paint_path(path, distant);
     }
+    // A fine line of ink along the top of each layer of land, darker the
+    // nearer it is, so each reads against the one behind.
+    let rim = |window: &mut Window, from: (f32, f32), curves: &[Curve], ink: Hsla| {
+        let mut line = PathBuilder::stroke(px(1.4));
+        line.move_to(point(px(from.0), px(from.1)));
+        for (to, control) in curves {
+            line.curve_to(
+                point(px(to.0), px(to.1)),
+                point(px(control.0), px(control.1)),
+            );
+        }
+        if let Ok(path) = line.build() {
+            window.paint_path(path, ink);
+        }
+    };
     let ridge_top = horizon - (frame.base - frame.horizon) * 0.35;
     let shift = -frame.pan * PARALLAX[2];
     let mut ridge = PathBuilder::fill();
@@ -1128,6 +1238,21 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window) {
     if let Ok(path) = ridge.build() {
         window.paint_path(path, art::shade(far, -0.08));
     }
+    rim(
+        window,
+        (ox - 60.0 + shift, horizon + 6.0),
+        &[
+            (
+                (ox + width * 0.45 + shift, ridge_top + 10.0),
+                (ox + width * 0.2 + shift, ridge_top - 16.0),
+            ),
+            (
+                (ox + width + 60.0 + shift, horizon),
+                (ox + width * 0.78 + shift, ridge_top + 24.0),
+            ),
+        ],
+        art::shade(far, -0.35).opacity(0.35),
+    );
     // What the World has built stands along the ridge.
     let silhouette = art::shade(far, -0.3);
     let light = art::hex(scenery.sun);
@@ -1160,8 +1285,36 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window) {
             continue;
         }
         let share = *done as f32 / (*parts).max(1) as f32;
-        let ghost = gpui::white().opacity(0.28 + 0.4 * share);
+        let ghost = gpui::white().opacity(0.16 + 0.4 * share);
         crate::ui::paint_mark(window, bounds, *shape, ghost, light.opacity(0.4));
+        // Scaffolding stands where it will be: poles and boards, as high
+        // as it has got, so it reads as work under way, not a grey box.
+        let wood = art::hex(0x8a6a44).opacity(0.85);
+        let (left, top) = (ox + x - w / 2.0, oy + y - h);
+        let risen = h * (0.35 + 0.65 * share);
+        for pole in 0..3 {
+            let px0 = left + w * (0.08 + 0.42 * pole as f32);
+            art::line(window, (px0, oy + y), (px0, oy + y - risen), 1.4, wood);
+        }
+        let boards = 1 + (share * 3.0) as usize;
+        for board in 0..boards {
+            let by = oy + y - risen * (board as f32 + 1.0) / (boards as f32 + 0.3);
+            art::line(
+                window,
+                (left + w * 0.02, by),
+                (left + w * 0.98, by),
+                1.2,
+                wood,
+            );
+        }
+        art::line(
+            window,
+            (left + w * 0.08, oy + y),
+            (left + w * 0.5, oy + y - risen),
+            1.0,
+            wood.opacity(0.6),
+        );
+        let _ = top;
         let pip = (w * 0.09).clamp(3.0, 6.0);
         let gap = pip * 0.8;
         let row = *parts as f32 * pip + (*parts as f32 - 1.0) * gap;
@@ -1182,6 +1335,23 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window) {
             ));
         }
     }
+    // Air between here and the ridge: a pale haze laid over everything on
+    // it, thickest at the horizon.
+    let hills_haze = oy + frame.horizon - (frame.base - frame.horizon) * 0.7;
+    window.paint_quad(gpui::fill(
+        Bounds::new(
+            point(px(ox), px(hills_haze)),
+            size(
+                px(width),
+                px(horizon - hills_haze + (frame.base - frame.horizon) * 0.35),
+            ),
+        ),
+        linear_gradient(
+            180.0,
+            linear_color_stop(haze.opacity(0.0), 0.0),
+            linear_color_stop(haze.opacity(if night { 0.06 } else { 0.18 }), 1.0),
+        ),
+    ));
     let ground = art::shade(far, 0.16);
     let ground_top = horizon + (frame.base - frame.horizon) * 0.3;
     let mut field = PathBuilder::fill();
@@ -1196,6 +1366,15 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window) {
     if let Ok(path) = field.build() {
         window.paint_path(path, ground);
     }
+    rim(
+        window,
+        (ox, ground_top + 12.0),
+        &[(
+            (ox + width, ground_top),
+            (ox + width * 0.55, ground_top - 22.0),
+        )],
+        art::shade(ground, -0.3).opacity(0.3),
+    );
     let front_top = oy + frame.front;
     let near = darken(art::hex(scenery.near));
     let mut shore = PathBuilder::fill();
@@ -1210,6 +1389,16 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window) {
     if let Ok(path) = shore.build() {
         window.paint_path(path, near);
     }
+    rim(
+        window,
+        (ox, front_top + 8.0),
+        &[(
+            (ox + width, front_top - 4.0),
+            (ox + width * 0.5, front_top - 14.0),
+        )],
+        art::shade(near, -0.3).opacity(0.4),
+    );
+    paint_foreground(window, frame, ox, oy, width, height, ground, near);
     if frame.water {
         // The sea moves: short bright lines drifting and fading.
         let shimmer = gpui::white().opacity(if night { 0.12 } else { 0.28 });
@@ -1304,6 +1493,48 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window) {
             );
         }
     }
+    // Where anything meets the ground the light cannot reach: a soft dark
+    // under every building, thing and person, sun or no sun.
+    let contact = gpui::black().opacity(if night { 0.22 } else { 0.16 });
+    for building in &frame.buildings {
+        let (x, base) = (ox + building.x, oy + building.base);
+        art::ellipse(
+            window,
+            x,
+            base,
+            building.w * 0.62,
+            building.h * 0.07,
+            contact.opacity(contact.a * 0.6),
+        );
+        art::ellipse(
+            window,
+            x,
+            base,
+            building.w * 0.5,
+            building.h * 0.035,
+            contact,
+        );
+    }
+    for thing in &frame.things {
+        art::ellipse(
+            window,
+            ox + thing.x,
+            oy + thing.base,
+            thing.w * 0.5,
+            thing.w * 0.07,
+            contact,
+        );
+    }
+    for person in &frame.people {
+        art::ellipse(
+            window,
+            ox + person.x,
+            oy + person.y,
+            person.height * 0.2,
+            person.height * 0.045,
+            contact,
+        );
+    }
     let lit_windows = matches!(frame.daylight, Daylight::Dusk | Daylight::Night);
     for building in &frame.buildings {
         if let Some(glow) = building.glow {
@@ -1334,6 +1565,22 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window) {
                 &building.palette,
             ),
         }
+        // The foot of a wall is darker, where the ground holds the light
+        // back.
+        window.paint_quad(gpui::fill(
+            Bounds::new(
+                point(
+                    px(ox + building.x - building.w * 0.46),
+                    px(oy + building.base - building.h * 0.14),
+                ),
+                size(px(building.w * 0.92), px(building.h * 0.14)),
+            ),
+            linear_gradient(
+                180.0,
+                linear_color_stop(gpui::black().opacity(0.0), 0.0),
+                linear_color_stop(gpui::black().opacity(0.14), 1.0),
+            ),
+        ));
         // A lit chimney smokes: puffs rising and thinning, bent by the wind.
         if building.shape == MarkShape::House && weather != Weather::Storm {
             let chimney_x = ox + building.x - building.w / 2.0 + building.w * 0.67;
@@ -1432,7 +1679,7 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window) {
     }
     // The hour's light over everything: warm from the upper left, cool
     // low down, and the edges a touch darker, so the middle reads first.
-    let ((warm, warm_alpha), (cool, cool_alpha)) = grade(frame.daylight);
+    let ((warm, warm_alpha), (cool, cool_alpha)) = grade_at(frame.hour);
     window.paint_quad(gpui::fill(
         bounds,
         linear_gradient(
@@ -1461,6 +1708,164 @@ pub fn paint(frame: &Frame, bounds: Bounds<Pixels>, window: &mut Window) {
     }
     paint_weather(window, frame, ox, oy, width, height, k);
     let _ = frame.zoom;
+}
+
+/// What grows and lies about in front of the people, in the colours of
+/// the ground it is on: tufts, flowers, stones and fence posts along the
+/// strip before the foreground, and reeds at a water's edge. The same
+/// place always has the same ones, and they move with the camera.
+#[allow(clippy::too_many_arguments)]
+fn paint_foreground(
+    window: &mut Window,
+    frame: &Frame,
+    ox: f32,
+    oy: f32,
+    width: f32,
+    height: f32,
+    ground: Hsla,
+    near: Hsla,
+) {
+    // A cover is too small for grass: at that size it reads as dust.
+    if height < 360.0 {
+        return;
+    }
+    let seed0 = frame.scenery.near ^ frame.scenery.far.rotate_left(7);
+    let mut seed = seed0 | 1;
+    let mut next = || {
+        seed ^= seed << 13;
+        seed ^= seed >> 17;
+        seed ^= seed << 5;
+        seed
+    };
+    let t = frame.seconds;
+    let front = oy + frame.front;
+    let strip_top = oy + frame.base + (frame.front - frame.base) * 0.55;
+    let k = (height / 848.0).clamp(0.3, 1.3) * frame.zoom.max(0.5);
+    let span = width + 200.0;
+    let place = |value: u32| {
+        let x = (value % 10_000) as f32 / 10_000.0 * span - frame.pan;
+        ox - 100.0 + x.rem_euclid(span)
+    };
+    // A worn path winds along the strip, where people have walked.
+    let path_ink = art::shade(ground, 0.1);
+    let mid = strip_top + (front - strip_top) * 0.45;
+    let bend = -frame.pan * 0.2;
+    let mut path = PathBuilder::fill();
+    path.move_to(point(px(ox - 20.0), px(mid + 10.0 * k)));
+    path.curve_to(
+        point(px(ox + width * 0.55), px(mid - 4.0 * k)),
+        point(px(ox + width * 0.25 + bend), px(mid + 18.0 * k)),
+    );
+    path.curve_to(
+        point(px(ox + width + 20.0), px(mid + 6.0 * k)),
+        point(px(ox + width * 0.8 + bend), px(mid - 16.0 * k)),
+    );
+    path.line_to(point(px(ox + width + 20.0), px(mid + 20.0 * k)));
+    path.curve_to(
+        point(px(ox + width * 0.55), px(mid + 10.0 * k)),
+        point(px(ox + width * 0.8 + bend), px(mid - 2.0 * k)),
+    );
+    path.curve_to(
+        point(px(ox - 20.0), px(mid + 24.0 * k)),
+        point(px(ox + width * 0.25 + bend), px(mid + 32.0 * k)),
+    );
+    path.close();
+    if let Ok(built) = path.build() {
+        window.paint_path(built, path_ink.opacity(0.7));
+    }
+    let blade = art::shade(ground, -0.22);
+    let flower_inks = [0xf2d0e0_u32, 0xfff2b0, 0xffffff, 0xd8c8f2];
+    // Tufts of grass, swaying a little.
+    for _ in 0..70 {
+        let x = place(next());
+        let y = strip_top + (next() % 1000) as f32 / 1000.0 * (front - strip_top);
+        let tall = (9.0 + (next() % 8) as f32) * k;
+        let sway = (t * 1.4 + x * 0.05).sin() * 1.5 * k;
+        for lean in [-1.0_f32, 0.0, 1.0] {
+            art::line(
+                window,
+                (x + lean * 2.0 * k, y),
+                (
+                    x + lean * 4.0 * k + sway,
+                    y - tall * (1.0 - lean.abs() * 0.25),
+                ),
+                1.3 * k,
+                blade,
+            );
+        }
+    }
+    // Flowers and stones.
+    for _ in 0..26 {
+        let x = place(next());
+        let y = strip_top + (next() % 1000) as f32 / 1000.0 * (front - strip_top);
+        if next() % 3 == 0 {
+            art::ellipse(window, x, y, 5.0 * k, 3.0 * k, art::shade(ground, -0.35));
+            art::ellipse(
+                window,
+                x - 1.0 * k,
+                y - 1.0 * k,
+                3.0 * k,
+                1.6 * k,
+                art::shade(ground, 0.12),
+            );
+        } else {
+            let ink = art::hex(flower_inks[(next() % 4) as usize]);
+            art::line(window, (x, y), (x, y - 10.0 * k), 1.2 * k, blade);
+            art::circle(window, x, y - 10.5 * k, 3.4 * k, ink);
+            art::circle(window, x, y - 10.5 * k, 1.3 * k, art::hex(0xe8b040));
+        }
+    }
+    // A short run of fence posts at one side.
+    let fence_x = place(next());
+    let post = art::shade(ground, -0.45);
+    for index in 0..4 {
+        let x = fence_x + index as f32 * 24.0 * k;
+        art::rect(window, x, strip_top - 6.0 * k, 4.0 * k, 20.0 * k, 1.0, post);
+    }
+    art::line(
+        window,
+        (fence_x, strip_top + 1.0 * k),
+        (fence_x + 76.0 * k, strip_top + 1.0 * k),
+        1.4 * k,
+        post,
+    );
+    // Reeds where the land meets the water.
+    if frame.water {
+        let reed = art::shade(near, 0.25);
+        for _ in 0..18 {
+            let x = place(next());
+            let tall = (10.0 + (next() % 8) as f32) * k;
+            let sway = (t * 1.1 + x * 0.03).sin() * 2.0 * k;
+            art::line(
+                window,
+                (x, front + 4.0),
+                (x + sway, front + 4.0 - tall),
+                1.2 * k,
+                reed,
+            );
+        }
+    } else {
+        // On dry ground the foreground itself has stones and grass too.
+        let bottom = oy + height;
+        for _ in 0..16 {
+            let x = place(next());
+            let y = front + 10.0 + (next() % 1000) as f32 / 1000.0 * (bottom - front - 14.0);
+            if next() % 2 == 0 {
+                art::ellipse(window, x, y, 7.0 * k, 4.0 * k, art::shade(near, -0.25));
+            } else {
+                for lean in [-1.0_f32, 1.0] {
+                    art::line(
+                        window,
+                        (x, y),
+                        (x + lean * 4.0 * k, y - 9.0 * k),
+                        1.4 * k,
+                        art::shade(near, 0.2),
+                    );
+                }
+            }
+        }
+    }
+    let _ = seed0;
 }
 
 /// Where the sun (or the moon) stands for the light of the hour, as
@@ -1629,6 +2034,19 @@ pub fn cover(
 mod tests {
     use super::*;
     use world_projection::{CanvasItem, CanvasItemKind, CanvasProjection};
+
+    #[test]
+    fn every_hour_has_a_light_of_its_own() {
+        let grades = (0..24)
+            .map(|hour| format!("{:?}", grade_at(hour as f32)))
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(grades.len(), 24, "{grades:?}");
+        // And it turns smoothly: half past is between the hours either side.
+        let ((_, noon), _) = grade_at(12.0);
+        let ((_, dusk), _) = grade_at(19.0);
+        let ((_, between), _) = grade_at(15.5);
+        assert!(between > noon.min(dusk) && between < noon.max(dusk));
+    }
 
     fn entity(id: u64) -> SelectionId {
         SelectionId::from_stable_key(&format!("entity-{id}")).expect("an entity key")
