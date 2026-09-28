@@ -2,6 +2,31 @@
 
 Releases live on the [Releases page](https://github.com/hxddh/world-machine/releases). `0.2.0` is the first release intended to be usable without reading the repository; the `v0.1.0-pre.N` tags below were its pre-releases.
 
+## v0.19.0 (2026-09-28)
+
+**Worlds from `v0.18.0` do not open.** Tiny Society moves to `0.13.0` and Pocket Universe to `0.30.0`: letters, firsts and what people have heard are now kept differently, and an older World would open with an empty letter box and book. Start a new World.
+
+The [v0.18 review](docs/REVIEW_v0.18.md) played three years of each Pack. The second year held; the third did not: from about day 400 the harbour's ladder of works stalled on one rung, letters came almost every day, a quiet day came once a week, and a three-year World was a 30 MB file. This release keeps a World going for three years, makes it small, and moves everything the app is built on to its latest stable version. Everything in it is still made by the program.
+
+- **Works keep moving.** A question that builds towards an unfinished work is asked whenever no such question is open, whatever else people want, so the ladder no longer waits behind a want. Measured over 1,080 days by a warm player: in Tiny Society a work finishes at least every 41 days and no rung waits more than 3 days to be asked (it stalled for 709 days before); in each Pocket Universe place a work finishes at least every 53 days and no rung waits more than 27.
+- **A third year, and more.**
+  - **Tiny Society:** in year four the school gets a second teacher; in year five Leo retires to the quay and his boat, the Kittiwake, passes to Mia; from year six newcomers marry, move back to the mainland, or move in. A fourth round of the ladder hangs lamps and bunting on each work. The mainland fish market restocks when it runs low, so the harbour fund can always pay for the next part. At least 58% of what people say is new in every 120 days up to day 1,080.
+  - **Pocket Universe has years of its own.** On Ares, Ines takes over the greenhouse and the relay crew rotates; on Maple Street, Lena gets the arcade's keys and Ray's kid starts at the high school; on Icebridge, Tuk fledges and Piko passes the lantern on. Each year adds a festival chosen by the one before (twelve new ones), and each place's ladder gains two rounds, "light up" and "add on". 70–75% of what people say in the second year is new.
+- **Fewer letters, no quiet days.** Letters come at most twice a week, each with fresh news from the year or a memory of the writer's own. A day that would bring nothing instead brings a first: a corner of the place you have not seen, someone's first word on something they have never mentioned, or an evening two people spent together; firsts never run out. The book has a Firsts shelf. Over 1,080 days: at most 2 letters in any week and no quiet days in Tiny Society, at most one in any 120 days in each Pocket Universe place.
+- **Saves a tenth the size.**
+  - A World file is written in a compact form and compressed: a year of Tiny Society went from 9.6 MB to 0.7 MB, three years from 30 MB to about 2 MB. Every save also keeps a checkpoint of the World each season; opening from it is exactly the same World as replaying the whole history, which stays in the file.
+  - **World codes** now start with `wm2:` and carry the latest season's checkpoint and the events since: about SNAPCODE characters at three years, instead of a whole history. `wm1:` codes still open.
+  - **Pack protocol v4:** opening a World may carry its checkpoint. A Pack that speaks v3 or older still opens a whole saved World; a code it cannot open says it needs a newer Pack. A Pack installed into the catalog keeps the protocol it declared.
+- **Snapshots at three years.** History is read by kind through an index, not event by event: letters, keepsakes, firsts, the book and the briefing no longer walk three years of events. A three-year snapshot takes about SNAPMS ms in release on the machine this was built on, down from 28–53 ms.
+- **This Mac's own model.** On macOS 27, **Settings** offers the model built into the Mac (through its `fm` program) as the World voice, once the app has checked it works: free, offline, and held to the same rules as any other model's answers; anything it will not or cannot answer leaves the World's own words. Pocket Universe narrates returns with it too. **Settings** also has a field for the Claude model a key uses (default `claude-sonnet-5`).
+- **Latest everything.**
+  - GPUI from Zed v1.21.0, Rust 1.98.1, current crates (sha2 0.11, base64 0.23), macOS 15 and 26 CI runners.
+  - **A window nobody can see draws nothing:** the World window and the strip stop drawing and keep no clock while covered, minimised or on a sleeping display, and draw at once when shown.
+  - **Cards spring in** and the strip's letter drops with a small bounce; Reduce Motion stills both.
+  - **VoiceOver:** every button, answer, list, tab and region now carries a role and a name. Before, elements with only a label were not exposed at all.
+  - **Chinese speech** never starts a line with closing punctuation.
+  - The World voice turns thinking off where the model allows it, reads a refusal as no answer, and Pocket Universe's narrator gets its lines back as structured JSON.
+
 ## v0.18.0 (2026-09-28)
 
 **Worlds from `v0.17.0` do not open.** Tiny Society moves to `0.12.0` and Pocket Universe to `0.29.0`. Keeping earlier Worlds working is out of scope by decision: the carry-forward machinery is removed; start a new World.

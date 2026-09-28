@@ -674,6 +674,7 @@ mod tests {
             world_time,
             events: vec![],
             pending: vec![],
+            checkpoint: None,
         }
     }
 

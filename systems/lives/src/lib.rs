@@ -22,8 +22,13 @@
 mod voice;
 
 mod host;
+mod quiet;
+#[cfg(any(test, feature = "scan-reference"))]
+#[doc(hidden)]
+pub mod scanned;
 mod suggest;
 pub use host::{host_guest, MOST_GUEST_TEXT};
+pub use quiet::{firsts, firsts_count, welcome_back, Corner, QuietDays, Subject};
 use std::collections::{BTreeMap, BTreeSet};
 pub use suggest::{can_suggest, suggestion_request, Idea, IDEAS, SUGGEST_REST};
 pub use voice::{keepsake_of, own_lines, restyle, scene_of, Scene, Voice};
@@ -977,25 +982,80 @@ const HEARD_PERIODS: u64 = 90;
 /// no more than six.
 pub const ASKED_APART_PERIODS: u64 = 61;
 
-/// When lines were last said, kept one small note per line.
-#[derive(Clone, Copy)]
+/// When lines were last said. Each period's lines are kept together in
+/// one note, `lives.said.<period>`, as a short hash of each line written
+/// in [`SAID_CODE`] characters, so the notes hold one entry a period
+/// rather than one a line. Worlds from before keep a note a line
+/// (`lives.heard.<hash>`) until those are forgotten; both are read.
+#[derive(Clone)]
 struct Heard<'a> {
     state: &'a WorldState,
     notes: EntityId,
     now: u64,
+    /// Each period's note, the latest first: the period, and the short
+    /// hashes of the lines said in it, in order, so a line is looked up
+    /// rather than looked for.
+    said: Vec<(u64, &'a [[u8; SAID_CODE]])>,
+    /// Whether any line is still noted as a World from before noted it.
+    before: bool,
 }
+
+/// Where a period's lines are noted.
+const SAID: &str = "lives.said.";
+/// How many characters a line's short hash takes: six bits each, so 42
+/// bits. With a few thousand lines remembered at once, another line is
+/// taken for one of them about once in a billion askings.
+const SAID_CODE: usize = 7;
+const SAID_DIGITS: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
 impl<'a> Heard<'a> {
     fn of(state: &'a WorldState, cast: &Cast) -> Self {
+        let mut said = Vec::new();
+        if let Some(notes) = state.entity(cast.notes) {
+            for (key, value) in notes
+                .components
+                .range::<str, _>((std::ops::Bound::Included(SAID), std::ops::Bound::Unbounded))
+                .take_while(|(key, _)| key.starts_with(SAID))
+            {
+                if let (Some(at), Value::Text(lines)) = (said_period(key), value) {
+                    said.push((at, lines.as_bytes().as_chunks::<SAID_CODE>().0));
+                }
+            }
+        }
+        said.sort_unstable_by_key(|(at, _)| std::cmp::Reverse(*at));
+        let before = state.entity(cast.notes).is_some_and(|notes| {
+            notes
+                .components
+                .range::<str, _>((
+                    std::ops::Bound::Included(HEARD_BEFORE),
+                    std::ops::Bound::Unbounded,
+                ))
+                .next()
+                .is_some_and(|(key, _)| key.starts_with(HEARD_BEFORE))
+        });
         Heard {
             state,
             notes: cast.notes,
             now: period(state, cast),
+            said,
+            before,
         }
     }
 
+    /// The period a line was last said in, if it is remembered.
     fn when(&self, line: &str) -> Option<u64> {
-        integer(self.state, self.notes, &heard_key(line)).map(|at| at.max(0) as u64)
+        let code = hash_code(short_hash(line));
+        let noted = self
+            .said
+            .iter()
+            .find(|(_, lines)| lines.binary_search(&code).is_ok())
+            .map(|(at, _)| *at);
+        let before = self
+            .before
+            .then(|| integer(self.state, self.notes, &heard_key(line)))
+            .flatten()
+            .map(|at| at.max(0) as u64);
+        noted.max(before)
     }
 
     fn lately(&self, line: &str) -> bool {
@@ -1004,15 +1064,93 @@ impl<'a> Heard<'a> {
     }
 }
 
-fn heard_key(line: &str) -> String {
-    let hash = line.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
+fn line_hash(line: &str) -> u64 {
+    line.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
         (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
-    });
-    format!("lives.heard.{hash:016x}")
+    })
 }
 
+/// Where a World from before noted each line.
+const HEARD_BEFORE: &str = "lives.heard.";
+
+/// A line's note in a World from before: one entry a line.
+fn heard_key(line: &str) -> String {
+    format!("{HEARD_BEFORE}{:016x}", line_hash(line))
+}
+
+/// A line's short hash: the best-mixed bits of its full one.
+fn short_hash(line: &str) -> u64 {
+    line_hash(line) >> (64 - 6 * SAID_CODE)
+}
+
+fn hash_code(hash: u64) -> [u8; SAID_CODE] {
+    let mut code = [0; SAID_CODE];
+    for (at, digit) in code.iter_mut().enumerate() {
+        *digit = SAID_DIGITS[((hash >> (6 * (SAID_CODE - 1 - at))) & 63) as usize];
+    }
+    code
+}
+
+/// A short hash from its characters, the other way from [`hash_code`].
+#[cfg(test)]
+fn code_hash(code: &[u8]) -> u64 {
+    code.iter().fold(0, |hash, digit| {
+        let value = SAID_DIGITS
+            .iter()
+            .position(|known| known == digit)
+            .unwrap_or(0) as u64;
+        (hash << 6) | value
+    })
+}
+
+fn said_key(period: u64) -> String {
+    format!("{SAID}{period}")
+}
+
+fn said_period(key: &str) -> Option<u64> {
+    key.strip_prefix(SAID)?.parse().ok()
+}
+
+/// Notes that a line was said this period: added to this period's note,
+/// once, whether it is already in the World's notes or earlier in the
+/// same event.
 fn remember_saying(moves: &mut Moves, heard: &Heard, said: &str) {
-    moves.set(heard.notes, &heard_key(said), heard.now as i64);
+    let key = said_key(heard.now);
+    let code = hash_code(short_hash(said));
+    // Kept in order, so the note is looked up rather than read through.
+    let noted = |lines: &mut String| {
+        let at = lines
+            .as_bytes()
+            .as_chunks::<SAID_CODE>()
+            .0
+            .binary_search(&code);
+        if let Err(at) = at {
+            lines.insert_str(
+                at * SAID_CODE,
+                std::str::from_utf8(&code).expect("the digits are ASCII"),
+            );
+        }
+    };
+    let pending = moves.changes.iter_mut().find_map(|change| match change {
+        StateChange::SetComponent {
+            entity,
+            key: noted,
+            value: Value::Text(lines),
+        } if *entity == heard.notes && *noted == key => Some(lines),
+        _ => None,
+    });
+    if let Some(lines) = pending {
+        noted(lines);
+        return;
+    }
+    let mut lines = text(heard.state, heard.notes, &key)
+        .unwrap_or_default()
+        .to_string();
+    let before = lines.len();
+    noted(&mut lines);
+    if lines.len() != before {
+        moves.set(heard.notes, &key, lines);
+    }
 }
 
 /// One of several ways to say something, whichever was said longest ago.
@@ -2971,19 +3109,47 @@ pub fn remember_a_year(
     cast: &Cast,
     year: u64,
 ) -> Result<Option<EventId>, WorldError> {
+    let Some((who, told)) = remembered(world, cast, year) else {
+        return Ok(None);
+    };
+    let request = ActionRequest::new("lives_remembers_year")
+        .actor(who)
+        .arg("who", Value::Entity(who))
+        .arg("then", told);
+    Ok(world.execute(actions, &request).ok().map(|event| event.id))
+}
+
+/// Who remembers what of the day `year` periods ago. Events are recorded
+/// in time order, so that day's are found by looking, not by reading the
+/// whole history.
+fn remembered(world: &World, cast: &Cast, year: u64) -> Option<(EntityId, String)> {
+    let (from, to) = a_year_ago(world, cast, year)?;
+    let events = world.events();
+    let first = events.partition_point(|event| event.world_time < from);
+    let last = first + events[first..].partition_point(|event| event.world_time < to);
+    memory_of(world, cast, &events[first..last])
+}
+
+/// The world times of the day `year` periods ago, if there was one.
+fn a_year_ago(world: &World, cast: &Cast, year: u64) -> Option<(u64, u64)> {
+    let now = period(world.state(), cast);
+    if year == 0 || now < year {
+        return None;
+    }
+    let span = cast.period.max(1);
+    let from = (now - year) * span;
+    Some((from, from + span))
+}
+
+/// Who remembers what, of the events of a day a year ago.
+fn memory_of<'a>(
+    world: &World,
+    cast: &Cast,
+    day: impl IntoIterator<Item = &'a Event>,
+) -> Option<(EntityId, String)> {
     let state = world.state();
     let now = period(state, cast);
-    if year == 0 || now < year {
-        return Ok(None);
-    }
-    let then = now - year;
-    let span = cast.period.max(1);
-    let from = then * span;
-    let to = from + span;
-    let pick = world
-        .events()
-        .iter()
-        .filter(|event| (from..to).contains(&event.world_time))
+    day.into_iter()
         // Something worth remembering: not a rest on a bench, a day's
         // errands or a letter, but friendships, answers, the year's turns,
         // festivals, things made and outings.
@@ -3018,15 +3184,7 @@ pub fn remember_a_year(
                 })?;
             Some((who, told))
         })
-        .max_by_key(|(who, told)| mix(&[who.0, told.len() as u64, now]));
-    let Some((who, told)) = pick else {
-        return Ok(None);
-    };
-    let request = ActionRequest::new("lives_remembers_year")
-        .actor(who)
-        .arg("who", Value::Entity(who))
-        .arg("then", told);
-    Ok(world.execute(actions, &request).ok().map(|event| event.id))
+        .max_by_key(|(who, told)| mix(&[who.0, told.len() as u64, now]))
 }
 
 /// Someone leaves the player something while they are away.
@@ -3073,6 +3231,9 @@ impl Action for LeavesKeepsake {
                 key: WROTE.into(),
                 value: (integer(state, who, WROTE).unwrap_or(0) + 1).into(),
             });
+            draft
+                .changes
+                .extend(quiet::letter_notes(state, &cast, who, request));
             return Ok(draft);
         }
         // What is left for the player goes round everything there is to
@@ -3183,8 +3344,7 @@ pub fn react_to(
         .arg("deed", event.kind.clone())
         .arg("thing", name(state, *thing))
         .arg("place", Value::Entity(*place));
-    let first =
-        keepsakes(world).is_empty() && !world.events().iter().any(|event| event.kind == "reacted");
+    let first = !happened(world, "reacted") && keepsakes(world).is_empty();
     let reaction = world.execute(actions, &request).ok().map(|event| event.id);
     // The player's first deed earns them something to keep at once, from
     // whoever saw it: their first minutes end with a keepsake in hand.
@@ -3207,7 +3367,7 @@ pub fn greet(
     actions: &ActionRegistry,
     cast: &Cast,
 ) -> Result<Option<EventId>, WorldError> {
-    if world.events().iter().any(|event| event.kind == "greeted") {
+    if happened(world, "greeted") {
         return Ok(None);
     }
     let people = (cast.people)(world);
@@ -3301,29 +3461,45 @@ pub struct Letter {
     pub world_time: u64,
 }
 
-/// Every letter the player has been written, oldest first.
+/// The kinds of event a letter comes in.
+const LETTER_KINDS: [&str; 2] = ["letter_written", "guest_visited"];
+
+/// Whether an event of this kind has ever been recorded, asked of the
+/// World's index of its history rather than by reading it.
+fn happened(world: &World, kind: &str) -> bool {
+    !world.history_index().of_kind(kind).is_empty()
+}
+
+/// The letter an event brings, if it brings one.
+fn letter_of(event: &Event) -> Option<Letter> {
+    if !LETTER_KINDS.contains(&event.kind.as_str()) {
+        return None;
+    }
+    // A guest's letter is passed on by whoever welcomed them.
+    let key = if event.kind == "guest_visited" {
+        "note"
+    } else {
+        "said"
+    };
+    Some(Letter {
+        from: event.actor?,
+        note: match event.payload.get(key) {
+            Some(Value::Text(text)) => text.clone(),
+            _ => String::new(),
+        },
+        event: event.id,
+        world_time: event.world_time,
+    })
+}
+
+/// Every letter the player has been written, oldest first: found through
+/// the World's index of its history by kind, so asking costs the same
+/// however long the World has lived.
 pub fn letters(world: &World) -> Vec<Letter> {
     world
-        .events()
-        .iter()
-        .filter(|event| matches!(event.kind.as_str(), "letter_written" | "guest_visited"))
-        .filter_map(|event| {
-            // A guest's letter is passed on by whoever welcomed them.
-            let key = if event.kind == "guest_visited" {
-                "note"
-            } else {
-                "said"
-            };
-            Some(Letter {
-                from: event.actor?,
-                note: match event.payload.get(key) {
-                    Some(Value::Text(text)) => text.clone(),
-                    _ => String::new(),
-                },
-                event: event.id,
-                world_time: event.world_time,
-            })
-        })
+        .events_of_kind(&LETTER_KINDS)
+        .into_iter()
+        .filter_map(letter_of)
         .collect()
 }
 
@@ -3331,9 +3507,8 @@ pub fn letters(world: &World) -> Vec<Letter> {
 /// their letter, and whether they have yet.
 pub fn letter_writers(world: &World, cast: &Cast) -> Vec<(String, bool)> {
     let wrote = world
-        .events()
-        .iter()
-        .filter(|event| event.kind == "letter_written")
+        .events_of_kind(&["letter_written"])
+        .into_iter()
         .filter_map(|event| event.actor)
         .collect::<BTreeSet<_>>();
     let state = world.state();
@@ -3351,18 +3526,18 @@ pub const KEEPSAKES_A_WEEK: usize = 3;
 /// for, so a week never holds more than [`KEEPSAKES_A_WEEK`].
 pub fn room_for_keepsake(world: &World, cast: &Cast) -> bool {
     let since = world.world_time().saturating_sub(cast.period * 7);
-    keepsakes(world)
-        .iter()
-        .filter(|kept| kept.world_time > since)
-        .count()
-        < KEEPSAKES_A_WEEK - 1
+    // Only the week's tail of the history is read.
+    let events = world.events();
+    let from = events.partition_point(|event| event.world_time <= since);
+    events[from..].iter().filter_map(keepsake_of_event).count() < KEEPSAKES_A_WEEK - 1
 }
 
 /// Whether something new came the player's way since the last period's
 /// round of lives ended: something to keep, or someone met for the first
 /// time. What the player did after that round, and what this round
-/// brought, both count.
-fn something_new_lately(world: &World, cast: &Cast) -> bool {
+/// brought, both count; kept `strict`ly, only what this period has brought
+/// counts, and someone already spoken to is not met anew.
+fn something_new_lately(world: &World, cast: &Cast, strict: bool) -> bool {
     let since = world.world_time().saturating_sub(cast.period);
     let events = world.events();
     let today = events.partition_point(|event| event.world_time <= since);
@@ -3375,8 +3550,17 @@ fn something_new_lately(world: &World, cast: &Cast) -> bool {
                 event.kind.as_str(),
                 "lived" | "situation_came_up" | "warmed" | "greeted"
             ) || event.payload.get("letter") == Some(&Value::Bool(true))
+                || event.payload.get("first") == Some(&Value::Bool(true))
         })
         .map_or(0, |index| index + 1);
+    // Kept strictly, only what this period itself has brought so far
+    // counts: whatever else came after the last round (the rest of that
+    // day, and what the player did before this one) was that day's news.
+    let round_ended = if strict {
+        events.partition_point(|event| event.world_time < world.world_time())
+    } else {
+        round_ended
+    };
     let (before, lately) = events.split_at(round_ended);
     let kept = |event: &Event| {
         event.kind == "keepsake_left"
@@ -3407,11 +3591,21 @@ fn something_new_lately(world: &World, cast: &Cast) -> bool {
     if newly.is_empty() {
         return false;
     }
-    let known = before
+    let mut known = before
         .iter()
         .filter(meets)
         .filter_map(|event| event.actor)
         .collect::<BTreeSet<_>>();
+    // Kept strictly, someone the player has already spoken to is not met
+    // for the first time when they ask something.
+    if strict {
+        known.extend(
+            before
+                .iter()
+                .filter(|event| event.kind == "spoken")
+                .filter_map(|event| event.targets.first().copied()),
+        );
+    }
     newly.iter().any(|person| !known.contains(person))
 }
 
@@ -3426,8 +3620,21 @@ pub fn daily(
     cast: &Cast,
     away: bool,
 ) -> Result<Option<EventId>, WorldError> {
-    if !world.events().iter().any(|event| event.kind == "greeted")
-        || something_new_lately(world, cast)
+    daily_with(world, actions, cast, away, &QuietDays::default())
+}
+
+/// A quiet day as [`daily`] keeps it, within a Pack's own limits: with a
+/// most letters a week, the other quiet days bring a small first instead
+/// (see [`QuietDays`]).
+pub fn daily_with(
+    world: &mut World,
+    actions: &ActionRegistry,
+    cast: &Cast,
+    away: bool,
+    quiet: &QuietDays,
+) -> Result<Option<EventId>, WorldError> {
+    if !happened(world, "greeted")
+        || something_new_lately(world, cast, quiet.letters_a_week.is_some())
     {
         return Ok(None);
     }
@@ -3443,6 +3650,9 @@ pub fn daily(
             .arg("who", Value::Entity(*stranger))
             .arg("later", "a quiet day");
         return Ok(world.execute(actions, &request).ok().map(|event| event.id));
+    }
+    if let Some(most) = quiet.letters_a_week {
+        return quiet::quiet_day(world, actions, cast, away, quiet, most, &people);
     }
     let now = period(state, cast);
     // Whoever has written least, the fondest first: everyone writes once
@@ -3491,32 +3701,49 @@ pub struct Keepsake {
     pub world_time: u64,
 }
 
-/// Everything the player has been given to keep, oldest first.
+/// The kinds of event something to keep comes in: what someone leaves,
+/// an answer that gives something, a guest's gift, and what a garden the
+/// player planted grew. A System that marks something else as given to
+/// keep (`"kept": true`) adds its kind here.
+const KEPT_KINDS: [&str; 4] = [
+    "keepsake_left",
+    "situation_answered",
+    "guest_visited",
+    "enjoyed",
+];
+
+/// The keepsake an event gives the player, if it gives one.
+fn keepsake_of_event(event: &Event) -> Option<Keepsake> {
+    let kept = event.kind == "keepsake_left"
+        || (event.kind == "situation_answered"
+            && event.payload.get("kind") == Some(&Value::Text("keepsake".into())))
+        // Anything any System marks as given to keep: what a garden the
+        // player planted grew, say.
+        || event.payload.get("kept") == Some(&Value::Bool(true));
+    if !kept {
+        return None;
+    }
+    let text = |key: &str| match event.payload.get(key) {
+        Some(Value::Text(text)) => Some(text.clone()),
+        _ => None,
+    };
+    Some(Keepsake {
+        from: event.actor?,
+        what: text("keepsake")?,
+        note: text("said").unwrap_or_default(),
+        event: event.id,
+        world_time: event.world_time,
+    })
+}
+
+/// Everything the player has been given to keep, oldest first: found
+/// through the World's index of its history by kind, so asking costs the
+/// same however long the World has lived.
 pub fn keepsakes(world: &World) -> Vec<Keepsake> {
     world
-        .events()
-        .iter()
-        .filter(|event| {
-            event.kind == "keepsake_left"
-                || (event.kind == "situation_answered"
-                    && event.payload.get("kind") == Some(&Value::Text("keepsake".into())))
-                // Anything any System marks as given to keep: what a
-                // garden the player planted grew, say.
-                || event.payload.get("kept") == Some(&Value::Bool(true))
-        })
-        .filter_map(|event| {
-            let text = |key: &str| match event.payload.get(key) {
-                Some(Value::Text(text)) => Some(text.clone()),
-                _ => None,
-            };
-            Some(Keepsake {
-                from: event.actor?,
-                what: text("keepsake")?,
-                note: text("said").unwrap_or_default(),
-                event: event.id,
-                world_time: event.world_time,
-            })
-        })
+        .events_of_kind(&KEPT_KINDS)
+        .into_iter()
+        .filter_map(keepsake_of_event)
         .collect()
 }
 
@@ -3610,21 +3837,35 @@ fn next_names(state: &WorldState, cast: &Cast, count: usize) -> Vec<&'static str
         .collect()
 }
 
+/// The kinds of event in which the player meets someone.
+const MET_KINDS: [&str; 6] = [
+    "greeted",
+    "warmed",
+    "reacted",
+    "situation_came_up",
+    "keepsake_left",
+    "spoken",
+];
+
+/// Whom the player meets in an event, if anyone.
+fn met_in(event: &Event) -> Option<EntityId> {
+    match event.kind.as_str() {
+        "greeted" | "warmed" | "reacted" | "situation_came_up" | "keepsake_left" => event.actor,
+        "spoken" => event.targets.first().copied(),
+        _ => None,
+    }
+}
+
 /// Everyone the player has met: who came over, asked the player
 /// something, said what they made of something, left them something, or
-/// was spoken to. One pass over the World's history.
+/// was spoken to. Found through the World's index of its history by kind,
+/// not by reading all of it.
 pub fn met(world: &World) -> BTreeSet<EntityId> {
-    let mut met = BTreeSet::new();
-    for event in world.events() {
-        match event.kind.as_str() {
-            "greeted" | "warmed" | "reacted" | "situation_came_up" | "keepsake_left" => {
-                met.extend(event.actor);
-            }
-            "spoken" => met.extend(event.targets.first().copied()),
-            _ => {}
-        }
-    }
-    met
+    world
+        .events_of_kind(&MET_KINDS)
+        .into_iter()
+        .filter_map(met_in)
+        .collect()
 }
 
 /// Lines said long enough ago are forgotten, so the notes stay small.
@@ -3649,8 +3890,16 @@ impl Action for Forgets {
             .components
             .iter()
             .filter(|(key, value)| {
-                key.starts_with("lives.heard.")
-                    && matches!(value, Value::Integer(at) if now.saturating_sub((*at).max(0) as u64) >= HEARD_PERIODS)
+                // A period's lines, or, in a World from before, a line's.
+                let at = match said_period(key) {
+                    Some(at) => at,
+                    None if key.starts_with(HEARD_BEFORE) => match value {
+                        Value::Integer(at) => (*at).max(0) as u64,
+                        _ => return false,
+                    },
+                    None => return false,
+                };
+                now.saturating_sub(at) >= HEARD_PERIODS
             })
             .map(|(key, _)| key.clone())
             .collect::<Vec<_>>();
@@ -3687,6 +3936,7 @@ pub fn register_actions(
     registry.register(Remembers)?;
     registry.register(suggest::Suggests(cast))?;
     registry.register(host::Hosts(cast))?;
+    registry.register(quiet::Firsts(cast))?;
     Ok(())
 }
 
@@ -3728,6 +3978,19 @@ pub fn tick_holding(
     away: bool,
     hold: bool,
 ) -> Result<Vec<EventId>, WorldError> {
+    tick_with(world, actions, cast, away, hold, &QuietDays::default())
+}
+
+/// One period of everyone's lives, as [`tick_holding`], with quiet days
+/// kept as the Pack asks ([`QuietDays`]).
+pub fn tick_with(
+    world: &mut World,
+    actions: &ActionRegistry,
+    cast: &Cast,
+    away: bool,
+    hold: bool,
+    quiet: &QuietDays,
+) -> Result<Vec<EventId>, WorldError> {
     let mut events = Vec::new();
     let people = living(world, cast);
     for person in &people {
@@ -3764,7 +4027,7 @@ pub fn tick_holding(
         }
     }
     if away {
-        events.extend(daily(world, actions, cast, true)?);
+        events.extend(daily_with(world, actions, cast, true, quiet)?);
         return Ok(events);
     }
     let now = period(world.state(), cast) as i64;
@@ -3804,7 +4067,7 @@ pub fn tick_holding(
         }
     }
     if !hold {
-        events.extend(daily(world, actions, cast, false)?);
+        events.extend(daily_with(world, actions, cast, false, quiet)?);
     }
     Ok(events)
 }
@@ -3839,6 +4102,8 @@ pub fn is_life(event: &Event) -> bool {
             | "year_remembered"
             | "suggestion_held"
             | "guest_visited"
+            | "first_mentioned"
+            | "corner_shown"
     )
 }
 
@@ -3869,16 +4134,20 @@ pub fn said(event: &Event) -> Option<(EntityId, String)> {
 /// life, which is told as it happens, but changes between people and the
 /// situations put to the player.
 pub fn is_news(event: &Event) -> bool {
-    matches!(
-        event.kind.as_str(),
-        "bond_changed"
-            | "situation_came_up"
-            | "situation_answered"
-            | "situation_lapsed"
-            | "year_turned"
-            | "suggestion_held"
-    )
+    NEWS_KINDS.contains(&event.kind.as_str())
 }
+
+/// The kinds of moment [`is_news`] counts as news.
+pub const NEWS_KINDS: [&str; 8] = [
+    "bond_changed",
+    "situation_came_up",
+    "situation_answered",
+    "situation_lapsed",
+    "year_turned",
+    "suggestion_held",
+    "first_mentioned",
+    "corner_shown",
+];
 
 /// What changed between people since a moment: who became friends, who
 /// fell out, who got together or parted, who came and who left. Newest

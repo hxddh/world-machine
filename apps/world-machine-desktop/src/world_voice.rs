@@ -1,7 +1,8 @@
 //! What this app tells the Worlds it launches about how to speak.
 //!
 //! A World speaks in its own words only when somebody has both turned the voice
-//! on and told the app which local program to write with. Everything about that
+//! on and told the app how to reach a model: a local program, an API key, or
+//! the model built into macOS (`/usr/bin/fm`). Everything about that
 //! decision lives here rather than in the main view: which settings are read,
 //! what a Pack is told, and the rule that a Pack given nothing behaves exactly
 //! as it always has.
@@ -14,8 +15,10 @@ use world_pack_process::ProcessPackSource;
 const VOICE_SETTING: &str = "WORLD_MACHINE_POCKET_UNIVERSE_VOICE";
 const PROGRAM_SETTING: &str = "WORLD_MACHINE_PI_PROGRAM";
 const KEY_SETTING: &str = "WORLD_MACHINE_ANTHROPIC_API_KEY";
+const MODEL_SETTING: &str = ::world_voice::MODEL_ENV;
 const VOICE_LOCAL_MODEL: &str = "pi";
 const VOICE_API: &str = "api";
+const VOICE_ON_DEVICE: &str = "fm";
 
 /// The settings every Pack this app launches is given.
 ///
@@ -30,14 +33,22 @@ pub(crate) fn pack_settings() -> Vec<(String, String)> {
     let Ok(settings) = app_settings::load(&root) else {
         return Vec::new();
     };
-    settings_for(settings.configured_voice(key_store::load()))
+    let model = ::world_voice::model_or(settings.voice_model.as_deref());
+    settings_for(settings.configured_voice(key_store::load()), &model)
 }
 
-/// What a configured voice tells a Pack. Separated from reading the settings so
-/// the mapping can be checked without a keychain or a settings file.
-pub(crate) fn settings_for(voice: Option<ConfiguredVoice>) -> Vec<(String, String)> {
+/// What a configured voice tells a Pack, and which Claude model a key asks.
+/// Separated from reading the settings so the mapping can be checked without
+/// a keychain or a settings file.
+///
+/// This Mac's own model needs nothing but its name: a Pack runs `fm` itself
+/// and keeps its own words whenever it gives no answer.
+pub(crate) fn settings_for(voice: Option<ConfiguredVoice>, model: &str) -> Vec<(String, String)> {
     match voice {
         None => Vec::new(),
+        Some(ConfiguredVoice::OnDevice) => {
+            vec![(VOICE_SETTING.to_string(), VOICE_ON_DEVICE.to_string())]
+        }
         Some(ConfiguredVoice::Program(program)) => vec![
             (VOICE_SETTING.to_string(), VOICE_LOCAL_MODEL.to_string()),
             (PROGRAM_SETTING.to_string(), program),
@@ -45,6 +56,7 @@ pub(crate) fn settings_for(voice: Option<ConfiguredVoice>) -> Vec<(String, Strin
         Some(ConfiguredVoice::Key(key)) => vec![
             (VOICE_SETTING.to_string(), VOICE_API.to_string()),
             (KEY_SETTING.to_string(), key),
+            (MODEL_SETTING.to_string(), model.to_string()),
         ],
     }
 }
@@ -64,7 +76,14 @@ pub(crate) fn voice_on() -> bool {
 pub(crate) fn ask_model(prompt: &str) -> Option<String> {
     let root = app_settings::application_support_root().ok()?;
     let settings = app_settings::load(&root).ok()?;
-    let mut completion = model_for(settings.configured_voice(key_store::load()))?.completion()?;
+    let voice = settings.configured_voice(key_store::load());
+    // This Mac's own model is asked only once it has been found working; its
+    // probe is run here, off the window's thread, at most once a run.
+    if voice == Some(ConfiguredVoice::OnDevice) && !::world_voice::fm::status().is_ready() {
+        return None;
+    }
+    let mut completion =
+        model_for(voice)?.completion_with_model(settings.voice_model.as_deref())?;
     completion.complete(prompt)
 }
 
@@ -73,6 +92,9 @@ pub(crate) fn model_for(voice: Option<ConfiguredVoice>) -> Option<::world_voice:
     match voice? {
         ConfiguredVoice::Program(program) => Some(::world_voice::Voice::Pi(program)),
         ConfiguredVoice::Key(key) => Some(::world_voice::Voice::Api(key)),
+        ConfiguredVoice::OnDevice => Some(::world_voice::Voice::Fm(
+            ::world_voice::fm::PROGRAM.to_string(),
+        )),
     }
 }
 
@@ -115,16 +137,31 @@ mod tests {
             model_for(Some(ConfiguredVoice::Key("sk-ant-test".into()))),
             Some(::world_voice::Voice::Api("sk-ant-test".into()))
         );
+        assert_eq!(
+            model_for(Some(ConfiguredVoice::OnDevice)),
+            Some(::world_voice::Voice::Fm("/usr/bin/fm".into()))
+        );
+    }
+
+    #[test]
+    fn this_macs_own_model_is_named_to_a_pack_with_nothing_else() {
+        assert_eq!(
+            settings_for(Some(ConfiguredVoice::OnDevice), "claude-sonnet-5"),
+            vec![(VOICE_SETTING.to_string(), "fm".to_string())]
+        );
     }
 
     #[test]
     fn a_voice_with_nothing_behind_it_tells_a_pack_nothing() {
-        assert!(settings_for(None).is_empty());
+        assert!(settings_for(None, "claude-sonnet-5").is_empty());
     }
 
     #[test]
     fn each_way_of_reaching_a_model_is_named_to_the_pack() {
-        let program = settings_for(Some(ConfiguredVoice::Program("/usr/local/bin/pi".into())));
+        let program = settings_for(
+            Some(ConfiguredVoice::Program("/usr/local/bin/pi".into())),
+            "claude-sonnet-5",
+        );
         assert_eq!(
             program,
             vec![
@@ -133,12 +170,19 @@ mod tests {
             ]
         );
 
-        let key = settings_for(Some(ConfiguredVoice::Key("sk-ant-test".into())));
+        let key = settings_for(
+            Some(ConfiguredVoice::Key("sk-ant-test".into())),
+            "claude-opus-5-5",
+        );
         assert_eq!(
             key,
             vec![
                 (VOICE_SETTING.to_string(), "api".to_string()),
                 (KEY_SETTING.to_string(), "sk-ant-test".to_string()),
+                (
+                    "WORLD_MACHINE_VOICE_MODEL".to_string(),
+                    "claude-opus-5-5".to_string()
+                ),
             ]
         );
         assert!(

@@ -58,6 +58,7 @@ impl PackServer {
         envelope: PackRequestEnvelope,
     ) -> (PackResponseEnvelope, bool) {
         let request_id = envelope.request_id;
+        let protocol_version = envelope.protocol_version;
         let (response, shutdown) = match self.handle(envelope.request) {
             Ok(step) => step,
             Err(error) => (
@@ -67,7 +68,15 @@ impl PackServer {
                 false,
             ),
         };
-        (PackResponseEnvelope::new(request_id, response), shutdown)
+        // Answered in the protocol it was asked in, so a host that knows
+        // this Pack by an older manifest still reads it.
+        let mut envelope = PackResponseEnvelope::new(request_id, response);
+        let latest = envelope.protocol_version;
+        envelope.protocol_version = protocol_version;
+        if envelope.validate().is_err() {
+            envelope.protocol_version = latest;
+        }
+        (envelope, shutdown)
     }
 
     fn handle(&mut self, request: PackRequest) -> Result<(PackResponse, bool), PackServerError> {
@@ -432,6 +441,7 @@ mod tests {
                 world_time: self.world_time,
                 events: Vec::new(),
                 pending: Vec::new(),
+                checkpoint: None,
             }))
         }
     }
@@ -529,6 +539,7 @@ mod tests {
             world_time: 9,
             events: Vec::new(),
             pending: Vec::new(),
+            checkpoint: None,
         };
         let input = [
             request(1, PackRequest::Open { archive }),

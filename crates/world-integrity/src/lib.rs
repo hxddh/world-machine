@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
-use world_persistence::{WorldArchive, WORLD_ARCHIVE_FORMAT, WORLD_ARCHIVE_VERSION};
+use world_persistence::{CheckpointFit, WorldArchive, WORLD_ARCHIVE_FORMAT, WORLD_ARCHIVE_VERSION};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ArchiveIntegritySummary {
@@ -117,6 +117,14 @@ pub fn check_archive(
         }
     }
 
+    // A history that keeps only what came after a checkpoint may name
+    // events the checkpoint sums up.
+    let settled = archive
+        .checkpoint
+        .as_ref()
+        .filter(|checkpoint| checkpoint.fit(archive) == Some(CheckpointFit::Before))
+        .map_or(0, |checkpoint| checkpoint.last_event);
+
     let mut previous_time = None;
     for (position, event) in archive.events.iter().enumerate() {
         if event.kind.trim().is_empty() {
@@ -142,6 +150,7 @@ pub fn check_archive(
 
         for cause_id in &event.caused_by {
             match positions.get(cause_id) {
+                None if *cause_id <= settled => {}
                 None => {
                     return Err(ArchiveIntegrityError::MissingEventCause {
                         event_id: event.id,
@@ -172,7 +181,7 @@ pub fn check_archive(
             });
         }
         for cause_id in &pending.request.caused_by {
-            if !positions.contains_key(cause_id) {
+            if !positions.contains_key(cause_id) && *cause_id > settled {
                 return Err(ArchiveIntegrityError::MissingPendingCause {
                     index,
                     cause_id: *cause_id,
@@ -331,6 +340,7 @@ mod tests {
             world_time,
             events: Vec::new(),
             pending: Vec::new(),
+            checkpoint: None,
         }
     }
 
@@ -357,5 +367,33 @@ mod tests {
                 caused_by,
             },
         }
+    }
+
+    #[test]
+    fn a_history_after_a_checkpoint_may_name_what_it_sums_up() {
+        let mut tail = archive(9);
+        tail.events = vec![event(8, "later", 8, vec![3]), event(9, "last", 9, vec![8])];
+        tail.pending = vec![pending(10, "repair", vec![2])];
+        assert!(matches!(
+            check_archive(&tail),
+            Err(ArchiveIntegrityError::MissingEventCause { cause_id: 3, .. })
+        ));
+
+        let checkpoint = world_persistence::ArchivedCheckpoint {
+            events: 7,
+            last_event: 7,
+            world_time: 7,
+            changes: Vec::new(),
+        };
+        tail.checkpoint = Some(checkpoint);
+        let summary = check_archive(&tail).unwrap();
+        assert_eq!(summary.event_count, 2);
+
+        // Nothing after the checkpoint may be missing.
+        tail.events[1].caused_by = vec![8, 99];
+        assert!(matches!(
+            check_archive(&tail),
+            Err(ArchiveIntegrityError::MissingEventCause { cause_id: 99, .. })
+        ));
     }
 }

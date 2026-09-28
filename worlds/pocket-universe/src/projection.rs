@@ -104,11 +104,7 @@ pub(crate) fn snapshot_since(
 fn toned(world: &World, mut briefing: BriefingProjection) -> BriefingProjection {
     for item in &mut briefing.items {
         let told = match item.selection {
-            Some(SelectionId::Event(id)) => world
-                .events()
-                .iter()
-                .find(|event| event.id == id)
-                .and_then(crate::story::tone),
+            Some(SelectionId::Event(id)) => world.event(id).and_then(crate::story::tone),
             _ => None,
         };
         if let Some(tone) = told {

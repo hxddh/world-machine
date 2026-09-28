@@ -13,6 +13,9 @@ use std::io::Write as _;
 use std::process::{Command, Stdio};
 use world_pi_rpc::{PiCommand, PiRpcTransport, ProcessPiRpcTransport};
 
+pub mod fm;
+pub use fm::{FmCompletion, FmStatus};
+
 /// Told to a Pack whose World should speak in a model's words.
 pub const VOICE_ENV: &str = "WORLD_MACHINE_POCKET_UNIVERSE_VOICE";
 pub const PI_PROGRAM_ENV: &str = "WORLD_MACHINE_PI_PROGRAM";
@@ -41,6 +44,8 @@ pub enum Voice {
     None,
     Pi(String),
     Api(String),
+    /// The model built into macOS 27, through its `fm` program.
+    Fm(String),
 }
 
 impl Voice {
@@ -55,13 +60,14 @@ impl Voice {
         match voice.unwrap_or("none") {
             "none" => Ok(Voice::None),
             "pi" => Ok(Voice::Pi(program.unwrap_or("pi").to_string())),
+            "fm" => Ok(Voice::Fm(fm::PROGRAM.to_string())),
             "api" => key
                 .map(str::trim)
                 .filter(|key| !key.is_empty())
                 .map(|key| Voice::Api(key.to_string()))
                 .ok_or_else(|| format!("{VOICE_ENV}=api needs a key in {API_KEY_ENV}")),
             other => Err(format!(
-                "unsupported {VOICE_ENV} value {other:?}; expected none, pi or api"
+                "unsupported {VOICE_ENV} value {other:?}; expected none, pi, api or fm"
             )),
         }
     }
@@ -89,6 +95,18 @@ impl Voice {
                 PiCommand::decision_only(program.clone()),
             )))),
             Voice::Api(key) => Some(Box::new(ApiCompletion::new(key.clone()))),
+            Voice::Fm(program) => Some(Box::new(FmCompletion::new(program.clone()))),
+        }
+    }
+
+    /// The same, with the Claude model named in Settings (the environment's
+    /// [`MODEL_ENV`] still wins); only an API voice has a model to name.
+    pub fn completion_with_model(&self, chosen: Option<&str>) -> Option<Box<dyn Completion>> {
+        match self {
+            Voice::Api(key) => Some(Box::new(
+                ApiCompletion::new(key.clone()).with_model(model_or(chosen)),
+            )),
+            other => other.completion(),
         }
     }
 
@@ -100,6 +118,7 @@ impl Voice {
                 ProcessPiRpcTransport::new(PiCommand::decision_only(program.clone())),
             )))),
             Voice::Api(key) => Some(Box::new(ModelListener(ApiCompletion::new(key.clone())))),
+            Voice::Fm(program) => Some(Box::new(ModelListener(FmCompletion::new(program.clone())))),
         }
     }
 }
@@ -118,11 +137,26 @@ impl<T: PiRpcTransport + Send> Completion for PiCompletion<T> {
 /// argument another process could read.
 pub struct ApiCompletion {
     key: String,
+    model: String,
 }
 
 impl ApiCompletion {
+    /// Asks the environment's model, or the default.
     pub fn new(key: impl Into<String>) -> Self {
-        Self { key: key.into() }
+        Self {
+            key: key.into(),
+            model: model(),
+        }
+    }
+
+    /// Asks `model` instead.
+    pub fn with_model(mut self, model: impl Into<String>) -> Self {
+        self.model = model.into();
+        self
+    }
+
+    pub fn model(&self) -> &str {
+        &self.model
     }
 }
 
@@ -140,11 +174,25 @@ fn escape_config(value: &str) -> String {
 
 /// The model to ask: the one the environment names, or the default.
 pub fn model() -> String {
-    std::env::var(MODEL_ENV)
-        .ok()
-        .map(|model| model.trim().to_string())
-        .filter(|model| !model.is_empty())
-        .unwrap_or_else(|| DEFAULT_MODEL.to_string())
+    model_or(None)
+}
+
+/// The model to ask when the player chose one: the environment's
+/// [`MODEL_ENV`] still wins, then the player's choice, then the default.
+pub fn model_or(chosen: Option<&str>) -> String {
+    pick_model(std::env::var(MODEL_ENV).ok().as_deref(), chosen)
+}
+
+/// The first of the environment's model and the player's that says
+/// anything, or the default.
+pub fn pick_model(environment: Option<&str>, chosen: Option<&str>) -> String {
+    [environment, chosen]
+        .into_iter()
+        .flatten()
+        .map(str::trim)
+        .find(|model| !model.is_empty())
+        .unwrap_or(DEFAULT_MODEL)
+        .to_string()
 }
 
 /// A request body for `model`: thinking turned off where the model allows
@@ -183,7 +231,12 @@ pub fn thinking_can_be_off(model: &str) -> bool {
 
 /// The request for one prompt: the key only in the configuration.
 pub fn api_request(prompt: &str, key: &str, body_path: &str) -> ApiRequest {
-    let body = request_body(&model(), MAX_TOKENS, prompt, None).to_string();
+    api_request_for(&model(), prompt, key, body_path)
+}
+
+/// The same, asking `model`.
+pub fn api_request_for(model: &str, prompt: &str, key: &str, body_path: &str) -> ApiRequest {
+    let body = request_body(model, MAX_TOKENS, prompt, None).to_string();
     let config = format!(
         "url = \"{ENDPOINT}\"\nheader = \"x-api-key: {}\"\nheader = \"anthropic-version: {API_VERSION}\"\nheader = \"content-type: application/json\"\ndata-binary = \"@{body_path}\"\n",
         escape_config(key)
@@ -222,8 +275,8 @@ pub fn reply_text(response: &str) -> Option<String> {
 
 impl Completion for ApiCompletion {
     fn complete(&mut self, prompt: &str) -> Option<String> {
-        let body = BodyFile::write(prompt, &self.key)?;
-        let request = api_request(prompt, &self.key, body.path.to_str()?);
+        let body = BodyFile::write(&self.model, prompt, &self.key)?;
+        let request = api_request_for(&self.model, prompt, &self.key, body.path.to_str()?);
         let mut child = Command::new("curl")
             .args(&request.args)
             .stdin(Stdio::piped())
@@ -244,26 +297,40 @@ impl Completion for ApiCompletion {
     }
 }
 
-/// The request body on disk, readable only by this user, removed after.
-struct BodyFile {
-    path: std::path::PathBuf,
+/// A file on disk for another program to read (a request body, a
+/// schema), readable only by this user, removed after.
+pub(crate) struct BodyFile {
+    pub(crate) path: std::path::PathBuf,
 }
 
 impl BodyFile {
-    fn write(prompt: &str, key: &str) -> Option<Self> {
-        use std::time::{SystemTime, UNIX_EPOCH};
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .ok()?
-            .as_nanos();
-        let path = std::env::temp_dir().join(format!(
-            "world-machine-voice-{}-{nonce}.json",
-            std::process::id()
-        ));
-        let request = api_request(prompt, key, path.to_str()?);
-        write_private(&path, request.body.as_bytes())?;
+    fn write(model: &str, prompt: &str, key: &str) -> Option<Self> {
+        let path = private_temp_path("voice")?;
+        let request = api_request_for(model, prompt, key, path.to_str()?);
+        Self::at(path, request.body.as_bytes())
+    }
+
+    /// `bytes` in a new file at `path`, readable only by this user.
+    pub(crate) fn at(path: std::path::PathBuf, bytes: &[u8]) -> Option<Self> {
+        write_private(&path, bytes)?;
         Some(Self { path })
     }
+}
+
+/// A fresh path in the temporary directory for a file of this process's.
+pub(crate) fn private_temp_path(what: &str) -> Option<std::path::PathBuf> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()?
+        .as_nanos();
+    let sequence = SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    Some(std::env::temp_dir().join(format!(
+        "world-machine-{what}-{}-{nonce}-{sequence}.json",
+        std::process::id()
+    )))
 }
 
 impl Drop for BodyFile {
@@ -311,6 +378,10 @@ mod tests {
         );
         assert!(Voice::from_env(Some("api"), None, Some("  ")).is_err());
         assert!(Voice::from_env(Some("shout"), None, None).is_err());
+        assert_eq!(
+            Voice::from_env(Some("fm"), Some("/usr/local/bin/pi"), None),
+            Ok(Voice::Fm("/usr/bin/fm".into()))
+        );
         assert!(Voice::None.listener().is_none());
     }
 
@@ -342,6 +413,23 @@ mod tests {
         let body = request_body("claude-opus-5-5", 300, "Hello", None);
         assert!(body.get("thinking").is_none());
         assert_eq!(body["output_config"]["effort"], "low");
+    }
+
+    /// The environment's model wins, then the player's choice, then the
+    /// default; blank names say nothing.
+    #[test]
+    fn the_model_is_the_environments_then_the_players_then_the_default() {
+        assert_eq!(pick_model(None, None), DEFAULT_MODEL);
+        assert_eq!(pick_model(None, Some(" claude-opus-5 ")), "claude-opus-5");
+        assert_eq!(
+            pick_model(Some("claude-fable-5-1"), Some("claude-opus-5")),
+            "claude-fable-5-1"
+        );
+        assert_eq!(pick_model(Some("  "), Some("")), DEFAULT_MODEL);
+        let completion = ApiCompletion::new("sk-ant-test").with_model("claude-opus-5-5");
+        assert_eq!(completion.model(), "claude-opus-5-5");
+        let request = api_request_for(completion.model(), "Hello", "sk", "/tmp/body.json");
+        assert!(request.body.contains("\"model\":\"claude-opus-5-5\""));
     }
 
     struct Canned(&'static str);

@@ -764,6 +764,57 @@ fn time_a_year_old_world() {
     });
 }
 
+/// What the book, the letter box and the daily round find through the
+/// World's index of its history is what reading every event finds, all
+/// through a year in which the player answers, plants and makes things:
+/// on the World the year left, on that World replayed, and on the World
+/// as it stood at fifty points along the way.
+#[test]
+fn the_index_finds_what_reading_every_event_finds_for_a_year() {
+    let mut universe = a_year_of(crate::SEED_1980S_TOWN_COMMAND, 0, true);
+    for day in 0..365_usize {
+        let snapshot = projection::snapshot(universe.world());
+        let answer = snapshot
+            .commands
+            .iter()
+            .find(|command| {
+                command.question.is_some()
+                    && command.unavailable.is_none()
+                    && command.id != NUDGE_COMMAND
+            })
+            .map(|command| command.id.clone());
+        let deeds = snapshot
+            .deeds()
+            .filter(|(_, command, hand)| command.unavailable.is_none() && hand.verb != "Undo")
+            .map(|(_, command, _)| command.id.clone())
+            .collect::<Vec<_>>();
+        if let Some(answer) = answer {
+            let _ = universe.invoke_projection_command(&answer);
+        }
+        if day % 3 == 0 && !deeds.is_empty() {
+            let _ = universe.invoke_projection_command(&deeds[day / 3 % deeds.len()]);
+        }
+        universe.invoke_projection_command(NUDGE_COMMAND).unwrap();
+    }
+    let world = universe.world();
+    let check = |world: &world_core::World| {
+        lives::scanned::compare(world, &crate::life::cast(world.state())).unwrap();
+    };
+    check(world);
+    let replayed = world.replay().unwrap();
+    assert_eq!(replayed.state(), world.state());
+    check(&replayed);
+    let events = world.events().len();
+    for at in (1..=50).map(|at| events * at / 50) {
+        check(&world.fork_after(at).unwrap());
+    }
+    let kept = lives::keepsakes(world);
+    assert!(kept.iter().any(|kept| world
+        .event(kept.event)
+        .is_some_and(|event| event.kind == "enjoyed")));
+    assert!(!lives::letters(world).is_empty());
+}
+
 /// Plays `periods` periods of a seed, planting on the first if `plant`,
 /// answering nothing.
 fn a_year_of(seed: &str, periods: usize, plant: bool) -> PocketUniverse {
@@ -1291,4 +1342,257 @@ fn no_question_is_asked_more_than_six_times_a_year() {
             "{seed}: asked too often: {too_often:#?}"
         );
     }
+}
+
+/// What a warm player's day brought, as the long runs read it.
+pub(crate) struct Day {
+    /// Every line said on the day.
+    pub(crate) lines: Vec<String>,
+    /// How many of those lines had never been heard before.
+    pub(crate) new_lines: usize,
+    /// Goals and works finished by the day's end, in the deck's order.
+    pub(crate) finished: Vec<bool>,
+    /// The works (by goal) asked for on the day.
+    pub(crate) asked: Vec<String>,
+    /// Letters written to the player on the day.
+    pub(crate) letters: usize,
+    /// Whether the day brought nothing new, as Tiny Society's long run
+    /// counts it: nothing found for the book (a first is), nothing to
+    /// keep, no letter and no chapter's close.
+    pub(crate) quiet: bool,
+}
+
+/// A warm player's `days` in a place, as the Tiny Society second-year
+/// player plays: each day they answer the first question on offer, every
+/// third day they make something (something not yet made, if they can),
+/// and they let the day pass. Read cheaply, without a whole snapshot a
+/// day, so three years stay quick.
+pub(crate) fn warm(seed: &str, days: usize) -> (PocketUniverse, Vec<Day>) {
+    let mut universe = PocketUniverse::new().unwrap();
+    universe.invoke_projection_command(seed).unwrap();
+    let deck = story::deck();
+    let mut heard = std::collections::BTreeSet::new();
+    let news = |world: &world_core::World| {
+        crate::book::book(world)
+            .iter()
+            .filter(|entry| entry.found)
+            .count()
+            + lives::keepsakes(world).len()
+            + lives::letters(world).len()
+            + storylets::chapters_ended(world).len()
+    };
+    let mut before = news(universe.world());
+    let mut out = Vec::new();
+    for day in 1..=days {
+        let world = universe.world();
+        let now = world.world_time();
+        let events = world.events();
+        let today = events.partition_point(|event| event.world_time < now);
+        let today = &events[today..];
+        let ids = today
+            .iter()
+            .map(|event| event.id)
+            .collect::<std::collections::BTreeSet<_>>();
+        let lines = talk::voices(world)
+            .into_iter()
+            .filter(|voice| matches!(voice.moment, SelectionId::Event(id) if ids.contains(&id)))
+            .map(|voice| voice.line)
+            .collect::<Vec<_>>();
+        let new_lines = lines
+            .iter()
+            .filter(|line| heard.insert((*line).clone()))
+            .count();
+        let asked = today
+            .iter()
+            .filter(|event| event.kind == "situation_arose")
+            .filter_map(|event| match event.payload.get("storylet") {
+                Some(world_core::Value::Text(id)) => id.strip_prefix("work_").map(str::to_string),
+                _ => None,
+            })
+            .collect();
+        let letters = today
+            .iter()
+            .filter(|event| event.kind == "letter_written")
+            .count();
+        let now_news = news(world);
+        let quiet = now_news <= before;
+        before = now_news;
+        out.push(Day {
+            lines,
+            new_lines,
+            finished: deck
+                .goals
+                .iter()
+                .map(|goal| storylets::finished(world.state(), &deck, goal.id))
+                .collect(),
+            asked,
+            letters,
+            quiet,
+        });
+
+        let commands = story::commands(world);
+        let answer = commands
+            .iter()
+            .find(|command| command.question.is_some() && command.unavailable.is_none())
+            .map(|command| command.id.clone());
+        let deed = (day % 3 == 0).then(|| {
+            let made = hands::ever_made(world);
+            let kit = crate::handwork::kit(world.state());
+            let unmade = kit
+                .things
+                .iter()
+                .filter(|thing| !made.contains(thing.id))
+                .map(|thing| thing.name)
+                .collect::<std::collections::BTreeSet<_>>();
+            let hands = crate::handwork::commands(world)
+                .into_iter()
+                .chain(crate::life::suggestions(world))
+                .filter(|command| command.unavailable.is_none())
+                .filter(|command| {
+                    command
+                        .hand
+                        .as_ref()
+                        .is_some_and(|hand| hand.verb != "Undo")
+                })
+                .collect::<Vec<_>>();
+            hands
+                .iter()
+                .find(|command| unmade.contains(command.hand.as_ref().unwrap().thing.as_str()))
+                .or(hands.first())
+                .map(|command| command.id.clone())
+        });
+        if let Some(answer) = answer {
+            let _ = universe.invoke_projection_command(&answer);
+        }
+        if let Some(Some(deed)) = deed {
+            let _ = universe.invoke_projection_command(&deed);
+        }
+        if let Err(error) = universe.invoke_projection_command(NUDGE_COMMAND) {
+            panic!("{seed}: day {day} would not pass: {error}");
+        }
+    }
+    (universe, out)
+}
+
+/// Three years of the v0.19 bars, days counted from the first: nine of
+/// each place's years.
+pub(crate) const THREE_YEARS: usize = 1_080;
+
+/// The v0.19 bars over three years of a warm player, in one place: a work
+/// finishes at least every 60 days, no rung of the ladder waits more than
+/// 45 days to be asked, at most two letters in any seven days, and at
+/// most four quiet days in any 120.
+fn three_years(seed: &str) {
+    let (universe, days) = warm(seed, THREE_YEARS);
+    let deck = story::deck();
+    let goals = deck.goals.iter().map(|goal| goal.id).collect::<Vec<_>>();
+
+    // The day each goal and work was finished.
+    let finished_on = |goal: usize| days.iter().position(|day| day.finished[goal]);
+    let mut finishes = (0..goals.len()).filter_map(finished_on).collect::<Vec<_>>();
+    finishes.sort_unstable();
+    let mut gaps = Vec::new();
+    let mut last = 0;
+    for day in finishes.iter().copied().chain([days.len()]) {
+        gaps.push((last, day - last));
+        last = day;
+    }
+    let longest = gaps.iter().max_by_key(|(_, gap)| *gap).copied().unwrap();
+
+    // How long each rung waited to be asked: from the day it could be
+    // asked (the rung before it finished) or last was, until it is asked
+    // again, while it stands unfinished.
+    let mut longest_wait = (String::new(), 0, 0);
+    for (index, goal) in goals.iter().enumerate().skip(3) {
+        let open_from = if index == 3 {
+            (0..3)
+                .filter_map(finished_on)
+                .max()
+                .filter(|_| (0..3).all(|g| finished_on(g).is_some()))
+        } else {
+            finished_on(index - 1)
+        };
+        let Some(open_from) = open_from else {
+            continue;
+        };
+        let until = finished_on(index).unwrap_or(days.len());
+        let mut since = open_from;
+        for (at, day) in days.iter().enumerate().take(until).skip(open_from) {
+            if day.asked.iter().any(|asked| asked == goal) {
+                since = at;
+            }
+            if at - since > longest_wait.1 {
+                longest_wait = (goal.to_string(), at - since, since);
+            }
+        }
+    }
+
+    let most_letters = days
+        .windows(7)
+        .map(|week| week.iter().map(|day| day.letters).sum::<usize>())
+        .max()
+        .unwrap_or(0);
+    let most_quiet = days
+        .windows(120)
+        .map(|window| window.iter().filter(|day| day.quiet).count())
+        .max()
+        .unwrap_or(0);
+    eprintln!(
+        "{seed}: {} of {} goals finished; longest without a finish {} days from day {}; \
+         longest a rung waited to be asked {} days ({} from day {}); \
+         most letters in 7 days {most_letters}; most quiet days in 120 {most_quiet}; \
+         {} letters and {} firsts in all",
+        finishes.len(),
+        goals.len(),
+        longest.1,
+        longest.0,
+        longest_wait.1,
+        longest_wait.0,
+        longest_wait.2,
+        days.iter().map(|day| day.letters).sum::<usize>(),
+        lives::firsts(universe.world()).len(),
+    );
+    assert!(
+        longest.1 <= 60,
+        "{seed}: {} days without a work finished, from day {} (finished on {finishes:?})",
+        longest.1,
+        longest.0
+    );
+    assert!(
+        longest_wait.1 <= 45,
+        "{seed}: {} waited {} days to be asked, from day {}",
+        longest_wait.0,
+        longest_wait.1,
+        longest_wait.2
+    );
+    assert!(
+        most_letters <= 2,
+        "{seed}: {most_letters} letters in a week"
+    );
+    assert!(
+        most_quiet <= 4,
+        "{seed}: {most_quiet} quiet days in 120 (on days {:?})",
+        days.iter()
+            .enumerate()
+            .filter(|(_, day)| day.quiet)
+            .map(|(at, _)| at + 1)
+            .collect::<Vec<_>>()
+    );
+    let world = universe.world();
+    assert_eq!(world.replay().unwrap().state(), world.state());
+}
+
+#[test]
+fn three_years_on_mars_keep_moving() {
+    three_years(MARS);
+}
+
+#[test]
+fn three_years_on_maple_street_keep_moving() {
+    three_years(crate::SEED_1980S_TOWN_COMMAND);
+}
+
+#[test]
+fn three_years_on_icebridge_keep_moving() {
+    three_years(crate::SEED_PENGUIN_CIVILIZATION_COMMAND);
 }

@@ -493,3 +493,112 @@ fn a_return_brings_a_keepsake_from_someone_who_likes_you() {
     assert!(last.note.contains("best in years"), "{last:?}");
     assert!(!last.what.contains('{'));
 }
+
+/// What the book, the letter box and the daily round find through the
+/// World's index of its history is what reading every event finds, on
+/// every period of a long World, with letters and keepsakes along the
+/// way, and again on the World rebuilt from its history.
+#[test]
+fn the_index_finds_what_reading_every_event_finds() {
+    let (mut world, registry) = world();
+    greet(&mut world, &registry, &cast()).unwrap();
+    for day in 0..200 {
+        pass(&mut world, &registry);
+        if day % 9 == 0 {
+            leave_keepsake(&mut world, &registry, &cast(), "").unwrap();
+        }
+        remember_a_year(&mut world, &registry, &cast(), 60).unwrap();
+        scanned::compare(&world, &cast()).unwrap();
+    }
+    assert!(!keepsakes(&world).is_empty());
+    assert!(!letters(&world).is_empty());
+    let replayed = world.replay().unwrap();
+    assert_eq!(replayed.state(), world.state());
+    scanned::compare(&replayed, &cast()).unwrap();
+    assert_eq!(keepsakes(&replayed), keepsakes(&world));
+    assert_eq!(letters(&replayed), letters(&world));
+    assert_eq!(met(&replayed), met(&world));
+}
+
+/// What was said is noted one entry a period, not one a line, and only
+/// for as long as it is remembered; a World from before, with a note a
+/// line, is still heard.
+#[test]
+fn what_was_said_is_noted_a_period_at_a_time() {
+    let (mut world, _) = play(200, true);
+    let notes = world.state().entity(NOTES).unwrap();
+    let keys = |prefix: &str| {
+        notes
+            .components
+            .keys()
+            .filter(|key| key.starts_with(prefix))
+            .count()
+    };
+    assert_eq!(keys("lives.heard."), 0);
+    let periods = keys(SAID);
+    assert!(
+        periods > 0 && periods as u64 <= HEARD_PERIODS + 30,
+        "{periods}"
+    );
+    let heard = Heard::of(world.state(), &cast());
+    assert!(!heard.said.is_empty());
+    // Each period's lines are kept in order, to be looked up.
+    assert!(heard.said.iter().all(|(_, lines)| lines.is_sorted()));
+    assert!(heard.said.windows(2).all(|pair| pair[0].0 > pair[1].0));
+    for hash in [0, 1, (1 << 42) - 1, short_hash("Long shift with Ben.")] {
+        assert_eq!(code_hash(&hash_code(hash)), hash);
+    }
+    // A World from before notes each line by itself.
+    let line = "A line said in a World from before.";
+    assert!(!heard.lately(line));
+    let now = heard.now;
+    let state = applied(
+        world.state(),
+        vec![StateChange::SetComponent {
+            entity: NOTES,
+            key: heard_key(line),
+            value: (now as i64 - 3).into(),
+        }],
+    );
+    let before = Heard::of(&state, &cast());
+    assert!(before.lately(line));
+    assert_eq!(before.when(line), Some(now - 3));
+    // Said again now, the latest counts.
+    let mut moves = Moves::default();
+    remember_saying(&mut moves, &before, line);
+    remember_saying(&mut moves, &before, line);
+    assert_eq!(moves.changes.len(), 1);
+    let state = applied(&state, moves.changes);
+    assert_eq!(Heard::of(&state, &cast()).when(line), Some(now));
+    // Everything noted is forgotten in time.
+    let registry = world_registry();
+    for _ in 0..HEARD_PERIODS + 31 {
+        let target = world.world_time() + 10;
+        world.advance_to(&registry, target).unwrap();
+        let _ = world.execute(&registry, &ActionRequest::new("lives_forget"));
+    }
+    let notes = world.state().entity(NOTES).unwrap();
+    assert!(!notes.components.keys().any(|key| key.starts_with(SAID)));
+}
+
+/// A state with some changes made to it, as an event would make them.
+fn applied(state: &WorldState, changes: Vec<StateChange>) -> WorldState {
+    let event = Event {
+        id: EventId::new(1),
+        kind: "noted".into(),
+        world_time: state.world_time(),
+        actor: None,
+        targets: Vec::new(),
+        caused_by: Vec::new(),
+        payload: Default::default(),
+        changes,
+    };
+    World::from_history(state.clone(), &[event])
+        .unwrap()
+        .state()
+        .clone()
+}
+
+fn world_registry() -> ActionRegistry {
+    world().1
+}

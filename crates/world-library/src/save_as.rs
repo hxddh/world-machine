@@ -19,7 +19,8 @@ impl DurableWorldSession {
         &mut self,
         destination: PathBuf,
     ) -> Result<ProjectionSnapshot, LibraryError> {
-        let archive = required_archive(self.session.as_ref())?;
+        let mut archive = required_archive(self.session.as_ref())?;
+        archive.checkpoint = self.checkpoint.clone();
         let document = WorldDocument {
             archive,
             metadata: self.metadata.clone(),
@@ -40,9 +41,9 @@ fn write_new_document_file(
         return Err(LibraryError::ExportDestinationExists(path.to_path_buf()));
     }
 
-    let json = document.to_json_pretty()?;
-    let revision = DocumentRevision::from_bytes(json.as_bytes());
-    atomic_write_new(path, json.as_bytes())?;
+    let bytes = document.to_bytes()?;
+    let revision = DocumentRevision::from_bytes(&bytes);
+    atomic_write_new(path, &bytes)?;
     Ok(revision)
 }
 
@@ -141,6 +142,7 @@ mod tests {
             world_time: count,
             events: Vec::new(),
             pending: Vec::new(),
+            checkpoint: None,
         }
     }
 
@@ -182,6 +184,7 @@ mod tests {
             target: WorldDocumentTarget::File(path),
             revision,
             metadata: WorldDocumentMetadata::default(),
+            checkpoint: None,
             session: Box::new(MockSession { count }),
         }
     }

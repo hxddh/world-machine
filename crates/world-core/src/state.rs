@@ -1,4 +1,4 @@
-use crate::{Entity, EntityId, Relation, RelationId, StateChange};
+use crate::{Entity, EntityId, Relation, RelationId, StateChange, Value};
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
@@ -8,6 +8,14 @@ pub struct WorldState {
     world_time: u64,
     entities: BTreeMap<EntityId, Entity>,
     relations: BTreeMap<RelationId, Relation>,
+}
+
+/// How to put back one change [`WorldState::apply_all`] made.
+enum Undo {
+    Entity(EntityId, Option<Entity>),
+    Relation(RelationId, Option<Relation>),
+    Component(EntityId, String, Option<Value>),
+    Property(RelationId, String, Option<Value>),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -76,6 +84,134 @@ impl WorldState {
         }
         self.relations.insert(relation.id, relation);
         Ok(())
+    }
+
+    /// Applies every change or none: when one does not apply, those before
+    /// it are undone, so the state is as it was. Only what the changes
+    /// touch is kept aside to undo, never the whole state.
+    pub(crate) fn apply_all(&mut self, changes: &[StateChange]) -> Result<(), WorldStateError> {
+        let mut undo = Vec::new();
+        for change in changes {
+            if let Err(error) = self.apply_undoable(change, &mut undo) {
+                while let Some(step) = undo.pop() {
+                    self.undo(step);
+                }
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
+
+    fn apply_undoable(
+        &mut self,
+        change: &StateChange,
+        undo: &mut Vec<Undo>,
+    ) -> Result<(), WorldStateError> {
+        match change {
+            StateChange::RemoveEntity(id) => {
+                let entity = self
+                    .entities
+                    .remove(id)
+                    .ok_or(WorldStateError::EntityNotFound(*id))?;
+                let (gone, kept) = std::mem::take(&mut self.relations)
+                    .into_iter()
+                    .partition(|(_, relation)| relation.from == *id || relation.to == *id);
+                self.relations = kept;
+                undo.push(Undo::Entity(entity.id, Some(entity)));
+                for (_, relation) in gone {
+                    undo.push(Undo::Relation(relation.id, Some(relation)));
+                }
+            }
+            StateChange::SetComponent { entity, key, value } => {
+                let target = self
+                    .entities
+                    .get_mut(entity)
+                    .ok_or(WorldStateError::EntityNotFound(*entity))?;
+                let before = target.components.insert(key.clone(), value.clone());
+                undo.push(Undo::Component(*entity, key.clone(), before));
+            }
+            StateChange::RemoveComponent { entity, key } => {
+                let target = self
+                    .entities
+                    .get_mut(entity)
+                    .ok_or(WorldStateError::EntityNotFound(*entity))?;
+                let before = target.components.remove(key);
+                undo.push(Undo::Component(*entity, key.clone(), before));
+            }
+            StateChange::RemoveRelation(id) => {
+                let relation = self
+                    .relations
+                    .remove(id)
+                    .ok_or(WorldStateError::RelationNotFound(*id))?;
+                undo.push(Undo::Relation(*id, Some(relation)));
+            }
+            StateChange::SetRelationProperty {
+                relation,
+                key,
+                value,
+            } => {
+                let target = self
+                    .relations
+                    .get_mut(relation)
+                    .ok_or(WorldStateError::RelationNotFound(*relation))?;
+                let before = target.properties.insert(key.clone(), value.clone());
+                undo.push(Undo::Property(*relation, key.clone(), before));
+            }
+            StateChange::RemoveRelationProperty { relation, key } => {
+                let target = self
+                    .relations
+                    .get_mut(relation)
+                    .ok_or(WorldStateError::RelationNotFound(*relation))?;
+                let before = target.properties.remove(key);
+                undo.push(Undo::Property(*relation, key.clone(), before));
+            }
+            StateChange::CreateEntity(entity) => {
+                self.apply_change(change)?;
+                undo.push(Undo::Entity(entity.id, None));
+            }
+            StateChange::CreateRelation(relation) => {
+                self.apply_change(change)?;
+                undo.push(Undo::Relation(relation.id, None));
+            }
+        }
+        Ok(())
+    }
+
+    fn undo(&mut self, step: Undo) {
+        match step {
+            Undo::Entity(id, before) => match before {
+                Some(entity) => {
+                    self.entities.insert(id, entity);
+                }
+                None => {
+                    self.entities.remove(&id);
+                }
+            },
+            Undo::Relation(id, before) => match before {
+                Some(relation) => {
+                    self.relations.insert(id, relation);
+                }
+                None => {
+                    self.relations.remove(&id);
+                }
+            },
+            Undo::Component(id, key, before) => {
+                if let Some(entity) = self.entities.get_mut(&id) {
+                    match before {
+                        Some(value) => entity.components.insert(key, value),
+                        None => entity.components.remove(&key),
+                    };
+                }
+            }
+            Undo::Property(id, key, before) => {
+                if let Some(relation) = self.relations.get_mut(&id) {
+                    match before {
+                        Some(value) => relation.properties.insert(key, value),
+                        None => relation.properties.remove(&key),
+                    };
+                }
+            }
+        }
     }
 
     pub(crate) fn apply_change(&mut self, change: &StateChange) -> Result<(), WorldStateError> {

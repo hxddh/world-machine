@@ -41,11 +41,14 @@ impl DurableWorldSession {
 
         self.target.verify_revision(self.revision, library)?;
 
-        let current_archive = required_archive(self.session.as_ref())?;
+        let mut current_archive = required_archive(self.session.as_ref())?;
+        current_archive.checkpoint = self.checkpoint.clone();
         let before = self.session.snapshot();
         let mut candidate = registry.open_archive(&current_archive)?;
         let snapshot = candidate.advance_background(periods)?;
-        let next_archive = required_archive(candidate.as_ref())?;
+        let mut next_archive = required_archive(candidate.as_ref())?;
+        // The checkpoint travels with the World, not with what it did.
+        next_archive.checkpoint = current_archive.checkpoint.clone();
 
         if next_archive == current_archive {
             return Ok(None);
@@ -55,15 +58,17 @@ impl DurableWorldSession {
         next_metadata.display_title =
             next_display_title(self.metadata.display_title.as_deref(), &before, &snapshot);
         crate::describe_from_snapshot(&mut next_metadata, &snapshot);
-        let next_document = WorldDocument {
+        let mut next_document = WorldDocument {
             archive: next_archive,
             metadata: next_metadata.clone(),
         };
+        next_document.settle_checkpoint();
         self.target.verify_revision(self.revision, library)?;
         let next_revision = self.target.persist(&next_document, library)?;
 
         self.revision = next_revision;
         self.metadata = next_metadata;
+        self.checkpoint = next_document.archive.checkpoint;
         self.session = candidate;
         Ok(Some(snapshot))
     }
@@ -208,6 +213,7 @@ mod tests {
             world_time: count,
             events: Vec::new(),
             pending: Vec::new(),
+            checkpoint: None,
         }
     }
 
@@ -229,6 +235,7 @@ mod tests {
             target: WorldDocumentTarget::File(path),
             revision,
             metadata: WorldDocumentMetadata::default(),
+            checkpoint: None,
             session: Box::new(MockSession { count }),
         }
     }
@@ -260,6 +267,9 @@ mod tests {
         fs::create_dir_all(&root).unwrap();
         let path = root.join("Static.world");
         let mut session = opened_external(path.clone(), 5);
+        // As a World file carries it: its checkpoint does not make it a
+        // different World.
+        session.checkpoint = Some(world_persistence::ArchivedCheckpoint::default());
         let registry = static_registry();
         let library = WorldLibrary::new(root.join("library"));
         let revision = session.revision;

@@ -1043,14 +1043,8 @@ pub fn latest_made_since(world: &World, since: u64) -> Option<String> {
 /// whether or not it still stands.
 pub fn ever_made(world: &World) -> std::collections::BTreeSet<String> {
     world
-        .events()
-        .iter()
-        .filter(|event| {
-            matches!(
-                event.kind.as_str(),
-                "built_by_hand" | "decorated_by_hand" | "planted_by_hand"
-            )
-        })
+        .events_of_kind(&["built_by_hand", "decorated_by_hand", "planted_by_hand"])
+        .into_iter()
         .filter_map(|event| match event.payload.get("deed") {
             Some(Value::Text(deed)) => parse(deed).map(|(_, what, _, _)| what.to_string()),
             _ => None,

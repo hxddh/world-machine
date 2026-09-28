@@ -292,7 +292,37 @@ pub fn opened_at(state: &WorldState, deck: &Deck, id: &str) -> Option<u64> {
 }
 
 /// The storylets open now, oldest first.
+///
+/// Only an open storylet has an opening time on the story, so this reads
+/// those few rather than asking after every storylet in the deck.
 pub fn open<'a>(state: &WorldState, deck: &'a Deck) -> Vec<&'a Storylet> {
+    const OPEN: &str = "story.open.";
+    let Some(story) = state.entity(deck.story) else {
+        return Vec::new();
+    };
+    let mut open = story
+        .components
+        .range::<str, _>((std::ops::Bound::Included(OPEN), std::ops::Bound::Unbounded))
+        .take_while(|(key, _)| key.starts_with(OPEN))
+        .filter_map(|(key, value)| match value {
+            Value::Integer(at) => Some((&key[OPEN.len()..], (*at).max(0) as u64)),
+            _ => None,
+        })
+        .flat_map(|(id, at)| {
+            deck.storylets
+                .iter()
+                .filter(move |storylet| storylet.id == id)
+                .map(move |storylet| (at, storylet))
+        })
+        .collect::<Vec<_>>();
+    open.sort_by_key(|(at, storylet)| (*at, storylet.id));
+    open.into_iter().map(|(_, storylet)| storylet).collect()
+}
+
+/// [`open`] as it was first written, asking after every storylet in the
+/// deck: the reference the faster reading is checked against.
+#[cfg(test)]
+fn open_by_asking<'a>(state: &WorldState, deck: &'a Deck) -> Vec<&'a Storylet> {
     let mut open = deck
         .storylets
         .iter()
@@ -1120,6 +1150,34 @@ pub struct Reading {
     pub hold: bool,
 }
 
+/// The fewest periods between two storylets let in by the goals' lane.
+const GOAL_LANE_GAP: u64 = 6;
+
+/// Whether any of a storylet's choices builds toward a goal.
+fn builds(storylet: &Storylet) -> bool {
+    storylet
+        .choices
+        .iter()
+        .flat_map(|choice| choice.outcome.effects.iter())
+        .any(|effect| matches!(effect, Effect::Advance(_)))
+}
+
+/// Which goal a storylet builds toward, if any of its choices advances one
+/// not yet finished: its place in the deck's goals, so the deck's order
+/// decides which comes first.
+pub fn advances_goal(state: &WorldState, deck: &Deck, storylet: &Storylet) -> Option<usize> {
+    storylet
+        .choices
+        .iter()
+        .flat_map(|choice| choice.outcome.effects.iter())
+        .filter_map(|effect| match effect {
+            Effect::Advance(goal) => deck.goals.iter().position(|spec| spec.id == *goal),
+            _ => None,
+        })
+        .filter(|at| !finished(state, deck, deck.goals[*at].id))
+        .min()
+}
+
 fn eases_pinned(storylet: &Storylet, pinned: &[Pinned]) -> bool {
     storylet.eases.iter().any(|ease| {
         pinned
@@ -1205,6 +1263,29 @@ pub fn tick(
             .iter()
             .any(|storylet| eases_pinned(storylet, &reading.pinned));
         let wants_open = open_now.iter().any(|storylet| storylet.want);
+        // Goals have a lane of their own: while nothing building toward
+        // one is open, whatever advances an unfinished goal is let in,
+        // whatever wants are open, so the World's works keep moving.
+        let goal_open = open_now
+            .iter()
+            .any(|storylet| advances_goal(state, deck, storylet).is_some());
+        // The lane is a way through for a goal that has been waiting, not a
+        // queue: once something for a goal has come up, the rest of the
+        // deck has its turn for a few periods before the lane opens again.
+        let goal_lately = deck
+            .storylets
+            .iter()
+            .filter(|storylet| builds(storylet))
+            .filter_map(|storylet| recently_raised(state, deck, storylet.id).last().copied())
+            .max()
+            .is_some_and(|last| period < last.saturating_add(GOAL_LANE_GAP));
+        let goal_lane = |storylet: &Storylet| {
+            if goal_open || goal_lately {
+                None
+            } else {
+                advances_goal(state, deck, storylet)
+            }
+        };
         // A first-time question is let in at most every few periods, so
         // the rest of the deck is heard without crowding the World's own
         // story.
@@ -1222,6 +1303,10 @@ pub fn tick(
             if storylet.want && !wants_open {
                 score += 50;
             }
+            // The earlier a goal stands in the deck, the sooner it comes.
+            if let Some(at) = goal_lane(storylet) {
+                score += 50 + deck.goals.len().saturating_sub(at) as u64;
+            }
             // What has never come up is favoured, so the whole deck is
             // heard, not only its heaviest few.
             if times_raised(state, deck, storylet.id) == 0 {
@@ -1230,8 +1315,8 @@ pub fn tick(
             score * 1_000 + mix(&[period, text_hash(storylet.id)]) % 997
         };
         // Past the first, only what cannot wait, what the World needs,
-        // someone's want when nobody has one open, or what has never come
-        // up.
+        // someone's want when nobody has one open, the next part of a goal
+        // when nothing is building toward one, or what has never come up.
         let needed = |storylet: &Storylet| {
             if reading.away && !open_now.is_empty() {
                 return storylet.timely;
@@ -1240,6 +1325,7 @@ pub fn tick(
                 || storylet.timely
                 || (!easing && eases_pinned(storylet, &reading.pinned))
                 || (storylet.want && !wants_open)
+                || goal_lane(storylet).is_some()
                 // Once the first chapter has told the World's own
                 // story, what has never come up may take a free place, so
                 // nothing in the deck waits forever behind the rest.
@@ -1442,6 +1528,27 @@ mod tests {
         for _ in 0..12 {
             pass(&mut world, &actions);
             assert!(!open(world.state(), &deck()).is_empty());
+        }
+    }
+
+    #[test]
+    fn what_is_open_is_what_asking_after_every_storylet_finds() {
+        let (mut world, actions) = world();
+        let deck = deck();
+        for period in 0..40 {
+            let (theirs, ours) = (
+                open_by_asking(world.state(), &deck),
+                open(world.state(), &deck),
+            );
+            assert_eq!(theirs.len(), ours.len(), "period {period}");
+            assert!(
+                theirs.iter().zip(&ours).all(|(a, b)| std::ptr::eq(*a, *b)),
+                "period {period}"
+            );
+            if period % 3 == 1 {
+                let _ = world.execute(&actions, &choose_request("market", "sell"));
+            }
+            pass(&mut world, &actions);
         }
     }
 
@@ -1752,6 +1859,83 @@ mod tests {
         assert!(open(world.state(), &deck()).is_empty());
         tick(&mut world, &actions, &deck(), &reading()).unwrap();
         assert!(!open(world.state(), &deck()).is_empty());
+    }
+
+    /// Ann's year with a long visit on her mind as well: a want that
+    /// builds nothing and stays open a long while.
+    fn busy_deck() -> Deck {
+        let mut deck = deck();
+        deck.storylets.push(Storylet {
+            id: "visit",
+            asker: ANN,
+            want: true,
+            requires: Vec::new(),
+            choices: vec![Choice {
+                id: "go",
+                requires: Vec::new(),
+                refuses: false,
+                outcome: Outcome {
+                    event: "visited",
+                    effects: Vec::new(),
+                },
+            }],
+            lapse: Outcome {
+                event: "visit_put_off",
+                effects: Vec::new(),
+            },
+            lasts: 30,
+            rests: 0,
+            weight: 9,
+            eases: Vec::new(),
+            timely: false,
+        });
+        deck.most_open = 3;
+        deck
+    }
+
+    #[test]
+    fn a_goal_keeps_moving_whatever_wants_are_open() {
+        let mut state = WorldState::default();
+        state
+            .seed_entity(Entity::new(ANN, "person").with_component("coins", 20_i64))
+            .unwrap();
+        let mut actions = ActionRegistry::new();
+        register_actions(&mut actions, busy_deck).unwrap();
+        let mut world = World::new(state);
+        let deck = busy_deck();
+        world
+            .execute(&actions, &ActionRequest::new("story_begins"))
+            .unwrap();
+        // The roof has come up once and been mended.
+        let arises = ActionRequest::new("storylet_arises")
+            .actor(ANN)
+            .arg("storylet", "roof");
+        world.execute(&actions, &arises).unwrap();
+        world
+            .execute(&actions, &choose_request("roof", "mend"))
+            .unwrap();
+        tick(&mut world, &actions, &deck, &reading()).unwrap();
+        let ids = |world: &World| {
+            open(world.state(), &deck)
+                .iter()
+                .map(|storylet| storylet.id)
+                .collect::<Vec<_>>()
+        };
+        assert!(ids(&world).contains(&"visit"), "{:?}", ids(&world));
+        // The visit stays open, a want nobody has answered, and still the
+        // roof comes up again once it has rested.
+        let mut asked_again = false;
+        for _ in 0..(GOAL_LANE_GAP + 2) {
+            let next = world.world_time() + 10;
+            world.advance_to(&actions, next).unwrap();
+            tick(&mut world, &actions, &deck, &reading()).unwrap();
+            let now = ids(&world);
+            assert!(now.contains(&"visit"), "{now:?}");
+            asked_again |= now.contains(&"roof");
+        }
+        assert!(asked_again, "the roof waited behind the visit");
+        assert!(advances_goal(world.state(), &deck, &deck.storylets[0]).is_some());
+        assert!(advances_goal(world.state(), &deck, &deck.storylets[3]).is_none());
     }
 
     #[test]

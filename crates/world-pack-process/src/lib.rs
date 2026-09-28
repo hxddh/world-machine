@@ -17,9 +17,9 @@ use world_host::{
 use world_pack_protocol::{
     decode_response, encode_request, EarsWire, PackDescriptor, PackManifest, PackRequest,
     PackRequestEnvelope, PackResponse, PackRuntimeManifest, ProjectionIntentWire,
-    PACK_PROTOCOL_VERSION_V3,
+    PACK_PROTOCOL_VERSION_V3, PACK_PROTOCOL_VERSION_V4,
 };
-use world_persistence::{WorldArchive, WorldPackRef};
+use world_persistence::{CheckpointFit, WorldArchive, WorldPackRef};
 use world_projection::{ProjectionIntent, ProjectionSnapshot, SelectionId};
 
 pub const PACK_MANIFEST_SUFFIX: &str = ".world-pack.json";
@@ -501,7 +501,24 @@ impl ProcessWorldSession {
         Self::start(pack, None)
     }
 
-    fn open(pack: ProcessPack, archive: WorldArchive) -> Result<Self, HostError> {
+    fn open(pack: ProcessPack, mut archive: WorldArchive) -> Result<Self, HostError> {
+        if archive.checkpoint.is_some() && pack.protocol_version < PACK_PROTOCOL_VERSION_V4 {
+            // A Pack before v4 cannot restore from a checkpoint. It can
+            // replay a whole history, only more slowly; a history that keeps
+            // only what came after the checkpoint (a World code's) it
+            // cannot open at all.
+            let whole = archive
+                .checkpoint
+                .as_ref()
+                .is_some_and(|checkpoint| checkpoint.fit(&archive) == Some(CheckpointFit::Within));
+            if !whole {
+                return Err(HostError::session(format!(
+                    "this World needs a newer {} Pack (protocol v{PACK_PROTOCOL_VERSION_V4}); the installed one speaks v{}",
+                    pack.descriptor.title, pack.protocol_version
+                )));
+            }
+            archive.checkpoint = None;
+        }
         if archive.pack != pack.descriptor.pack {
             return Err(HostError::session(format!(
                 "external Pack {}@{} cannot open archive {}@{}",
@@ -1303,6 +1320,7 @@ mod tests {
             world_time: 7,
             events: Vec::new(),
             pending: Vec::new(),
+            checkpoint: None,
         };
         let responses = vec![
             response_line(
@@ -1380,6 +1398,7 @@ mod tests {
             world_time: 3,
             events: Vec::new(),
             pending: Vec::new(),
+            checkpoint: None,
         };
         write_fixture_process(
             &runtime,
@@ -1430,6 +1449,7 @@ mod tests {
             world_time: 4,
             events: Vec::new(),
             pending: Vec::new(),
+            checkpoint: None,
         };
         write_fixture_process(
             &runtime,
@@ -1480,6 +1500,7 @@ mod tests {
             world_time: 3,
             events: Vec::new(),
             pending: Vec::new(),
+            checkpoint: None,
         };
         let mut changed = original.clone();
         changed.events.push(ArchivedEvent {
@@ -1678,6 +1699,7 @@ mod tests {
                 changes: Vec::new(),
             }],
             pending: Vec::new(),
+            checkpoint: None,
         };
         let frame = prepare_request_frame(
             pack.protocol_version,

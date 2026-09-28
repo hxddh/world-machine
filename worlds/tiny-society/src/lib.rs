@@ -4,6 +4,7 @@ mod behaviors;
 mod book;
 mod drawings;
 mod drift;
+mod firsts;
 mod fishing;
 mod handwork;
 mod hardship;
@@ -135,11 +136,15 @@ impl TinySocietyBranch {
             .map(|told| format!("{told}."))
             .unwrap_or_default();
         let actions = build_action_registry()?;
-        Ok(
-            lives::leave_keepsake(&mut self.world, &actions, &life::cast(), &why)?
-                .into_iter()
-                .collect(),
-        )
+        Ok(lives::welcome_back(
+            &mut self.world,
+            &actions,
+            &life::cast(),
+            &why,
+            &firsts::quiet_days(),
+        )?
+        .into_iter()
+        .collect())
     }
 
     /// Starts the storyteller. A new World opens on the place, and its
@@ -603,5 +608,7 @@ fn build_action_registry() -> Result<ActionRegistry, Box<dyn Error>> {
 mod density;
 #[cfg(test)]
 mod friendship;
+#[cfg(test)]
+mod long_run;
 #[cfg(test)]
 mod tests;

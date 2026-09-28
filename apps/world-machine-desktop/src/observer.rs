@@ -302,6 +302,7 @@ mod tests {
             world_time: time,
             events: Vec::new(),
             pending: Vec::new(),
+            checkpoint: None,
         }
     }
 

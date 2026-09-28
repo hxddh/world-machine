@@ -10,7 +10,7 @@ use world_core::{StateChange, Value, WorldState};
 /// Days in the harbour's year.
 pub(crate) const YEAR_DAYS: u64 = crate::story::SEASON_DAYS * 4;
 
-const FESTIVALS: &[Festival] = &[
+pub(crate) const FESTIVALS: &[Festival] = &[
     Festival {
         id: "spring_clean",
         name: "Spring Clean",

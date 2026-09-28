@@ -1034,12 +1034,13 @@ fn the(label: &str) -> String {
 }
 
 /// Every rung, in order: every work once, then each mended, then each
-/// decorated, so there is always one under way.
+/// decorated, lit up and added on to, so there is always one under way,
+/// three years on.
 fn ladder() -> &'static [Rung] {
     static LADDER: OnceLock<Vec<Rung>> = OnceLock::new();
     LADDER.get_or_init(|| {
         let mut rungs = Vec::new();
-        for round in 0..3 {
+        for round in 0..5 {
             for work in WORKS {
                 let the = the(work.label);
                 rungs.push(match round {
@@ -1059,7 +1060,7 @@ fn ladder() -> &'static [Rung] {
                         line: leak(format!("A few repairs and {the} is good as new.")),
                         parts: 2,
                     },
-                    _ => Rung {
+                    2 => Rung {
                         id: leak(format!("{}_decorated", work.id)),
                         label: leak(format!("Decorate {the}")),
                         work,
@@ -1067,11 +1068,36 @@ fn ladder() -> &'static [Rung] {
                         line: leak(format!("A bit of colour and {the} will feel like ours.")),
                         parts: 2,
                     },
+                    3 => Rung {
+                        id: leak(format!("{}_lit", work.id)),
+                        label: leak(format!("Light up {the}")),
+                        work,
+                        told: leak(format!("{the} could do with some light")),
+                        line: leak(format!("A few lamps and {the} will glow all night.")),
+                        parts: 2,
+                    },
+                    _ => Rung {
+                        id: leak(format!("{}_extended", work.id)),
+                        label: leak(format!("Add on to {the}")),
+                        work,
+                        told: leak(format!("{the} is bursting at the seams")),
+                        line: leak(format!("A bit more room and {the} will hold everyone.")),
+                        parts: 2,
+                    },
                 });
             }
         }
         rungs
     })
+}
+
+/// How many rungs of the ladder of works are finished.
+pub(crate) fn works_finished(state: &world_core::WorldState) -> i64 {
+    let deck = deck();
+    ladder()
+        .iter()
+        .filter(|rung| storylets::finished(state, &deck, rung.id))
+        .count() as i64
 }
 
 /// The works as storylets: each asked for once the one before is done,
@@ -1694,13 +1720,18 @@ pub(crate) fn tick(
         chapter_ending: Box::new(chapter_ending),
         hold: waiting_for_the_player(world),
     };
+    // What the year has turned to (someone takes something on, or a new
+    // festival joins the year) comes first, so the day's round of lives
+    // knows whether the day has already brought something new.
+    events.extend(crate::years::tick(world, actions)?);
     let cast = crate::life::cast(world.state());
-    events.extend(lives::tick_holding(
+    events.extend(lives::tick_with(
         world,
         actions,
         &cast,
         away,
         reading.hold,
+        &crate::firsts::quiet_days(world.state()),
     )?);
     let kit = crate::handwork::kit(world.state());
     events.extend(hands::tick(world, actions, &kit)?);

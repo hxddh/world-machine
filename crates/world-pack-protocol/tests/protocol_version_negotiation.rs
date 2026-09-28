@@ -2,12 +2,14 @@ use world_pack_protocol::{
     decode_request, decode_response, encode_request, encode_response, PackDescriptor, PackManifest,
     PackRequest, PackRequestEnvelope, PackResponse, PackResponseEnvelope, PACK_PROTOCOL_VERSION,
     PACK_PROTOCOL_VERSION_V1, PACK_PROTOCOL_VERSION_V2, PACK_PROTOCOL_VERSION_V3,
+    PACK_PROTOCOL_VERSION_V4,
 };
 use world_persistence::WorldPackRef;
 
 #[test]
-fn latest_protocol_is_v3_while_v1_and_v2_remain_supported() {
-    assert_eq!(PACK_PROTOCOL_VERSION, PACK_PROTOCOL_VERSION_V3);
+fn latest_protocol_is_v4_while_v1_to_v3_remain_supported() {
+    assert_eq!(PACK_PROTOCOL_VERSION, PACK_PROTOCOL_VERSION_V4);
+    assert_eq!(PACK_PROTOCOL_VERSION_V4, 4);
     assert_eq!(PACK_PROTOCOL_VERSION_V3, 3);
     assert_eq!(PACK_PROTOCOL_VERSION_V1, 1);
     assert_eq!(PACK_PROTOCOL_VERSION_V2, 2);
@@ -18,7 +20,7 @@ fn latest_protocol_is_v3_while_v1_and_v2_remain_supported() {
         "fixture",
     );
     let latest = PackManifest::process(descriptor, "runtime", Vec::new());
-    assert_eq!(latest.protocol_version, PACK_PROTOCOL_VERSION_V3);
+    assert_eq!(latest.protocol_version, PACK_PROTOCOL_VERSION_V4);
     assert!(latest.validate().is_ok());
 
     let mut v1 = latest.clone();
@@ -29,8 +31,12 @@ fn latest_protocol_is_v3_while_v1_and_v2_remain_supported() {
     v2.protocol_version = PACK_PROTOCOL_VERSION_V2;
     assert!(v2.validate().is_ok());
 
+    let mut v3 = latest.clone();
+    v3.protocol_version = PACK_PROTOCOL_VERSION_V3;
+    assert!(v3.validate().is_ok());
+
     let mut unsupported = latest;
-    unsupported.protocol_version = PACK_PROTOCOL_VERSION_V3 + 1;
+    unsupported.protocol_version = PACK_PROTOCOL_VERSION_V4 + 1;
     assert!(unsupported.validate().is_err());
 }
 
@@ -40,6 +46,7 @@ fn request_and_response_envelopes_accept_known_versions_but_reject_unknown_ones(
         PACK_PROTOCOL_VERSION_V1,
         PACK_PROTOCOL_VERSION_V2,
         PACK_PROTOCOL_VERSION_V3,
+        PACK_PROTOCOL_VERSION_V4,
     ] {
         let request = PackRequestEnvelope::for_version(version, 7, PackRequest::Describe)
             .expect("supported request version");
@@ -56,7 +63,7 @@ fn request_and_response_envelopes_accept_known_versions_but_reject_unknown_ones(
         assert_eq!(decoded_response.response, PackResponse::Ok);
     }
 
-    let unsupported = PACK_PROTOCOL_VERSION_V3 + 1;
+    let unsupported = PACK_PROTOCOL_VERSION_V4 + 1;
     assert!(PackRequestEnvelope::for_version(unsupported, 1, PackRequest::Describe).is_err());
     assert!(PackResponseEnvelope::for_version(unsupported, 1, PackResponse::Ok).is_err());
 }
@@ -86,4 +93,50 @@ fn hearing_through_the_app_needs_v3() {
     assert!(
         PackRequestEnvelope::for_version(PACK_PROTOCOL_VERSION_V3, 1, said(EarsWire::Own)).is_ok()
     );
+}
+
+/// A Pack before v4 would pass over an archive's checkpoint and replay the
+/// wrong history, so it is never handed one.
+#[test]
+fn opening_from_a_checkpoint_needs_v4() {
+    use world_persistence::{
+        ArchivedCheckpoint, WorldArchive, WORLD_ARCHIVE_FORMAT, WORLD_ARCHIVE_VERSION,
+    };
+    let mut archive = WorldArchive {
+        format: WORLD_ARCHIVE_FORMAT.into(),
+        format_version: WORLD_ARCHIVE_VERSION,
+        pack: WorldPackRef::new("fixture.negotiation", "1"),
+        world_time: 9,
+        events: Vec::new(),
+        pending: Vec::new(),
+        checkpoint: None,
+    };
+    for version in [
+        PACK_PROTOCOL_VERSION_V1,
+        PACK_PROTOCOL_VERSION_V2,
+        PACK_PROTOCOL_VERSION_V3,
+        PACK_PROTOCOL_VERSION_V4,
+    ] {
+        let open = PackRequest::Open {
+            archive: archive.clone(),
+        };
+        assert!(PackRequestEnvelope::for_version(version, 1, open).is_ok());
+    }
+    archive.checkpoint = Some(ArchivedCheckpoint {
+        events: 3,
+        last_event: 3,
+        world_time: 8,
+        changes: Vec::new(),
+    });
+    let open = PackRequest::Open { archive };
+    for version in [
+        PACK_PROTOCOL_VERSION_V1,
+        PACK_PROTOCOL_VERSION_V2,
+        PACK_PROTOCOL_VERSION_V3,
+    ] {
+        assert!(PackRequestEnvelope::for_version(version, 1, open.clone()).is_err());
+    }
+    let envelope = PackRequestEnvelope::for_version(PACK_PROTOCOL_VERSION_V4, 1, open).unwrap();
+    let decoded = decode_request(&encode_request(&envelope).unwrap()).unwrap();
+    assert_eq!(decoded, envelope, "the checkpoint travels with the archive");
 }

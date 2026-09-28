@@ -943,7 +943,7 @@ fn festive(state: &WorldState) -> i64 {
 }
 
 /// How many gardens the player planted have grown.
-fn grown(state: &WorldState) -> i64 {
+pub(crate) fn grown(state: &WorldState) -> i64 {
     hands::made(state)
         .into_iter()
         .filter(|fixture| {
@@ -980,6 +980,17 @@ fn held(state: &WorldState, festival: &Festival, turnout: Turnout, grown: i64) -
     changes
 }
 
+/// A place's own festivals, before its years add any.
+#[cfg(test)]
+pub(crate) fn festivals_of(seed: &str) -> &'static [Festival] {
+    match seed {
+        "mars-colony" => MARS,
+        "1980s-town" => TOWN,
+        "penguin-civilization" => ICE,
+        _ => &[],
+    }
+}
+
 pub(crate) fn almanac(state: &WorldState) -> Almanac {
     Almanac {
         notes: EntityId::new(1001),
@@ -988,12 +999,15 @@ pub(crate) fn almanac(state: &WorldState) -> Almanac {
         period: crate::BACKGROUND_PERIOD,
         year: YEAR,
         seasons: ["Spring", "Summer", "Autumn", "Winter"],
-        festivals: match seed(state) {
-            "mars-colony" => MARS,
-            "1980s-town" => TOWN,
-            "penguin-civilization" => ICE,
-            _ => &[],
-        },
+        festivals: crate::years::festivals(
+            state,
+            match seed(state) {
+                "mars-colony" => MARS,
+                "1980s-town" => TOWN,
+                "penguin-civilization" => ICE,
+                _ => &[],
+            },
+        ),
         people: crate::life::people_in,
         festive,
         grown,

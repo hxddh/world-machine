@@ -11,6 +11,7 @@ use world_pack_server::{manifest_for_current_exe, serve_stdio, write_current_exe
 use world_pi_rpc::{PiCommand, ProcessPiRpcTransport};
 
 mod api_voice;
+mod fm_voice;
 mod voice;
 
 const VOICE_ENV: &str = "WORLD_MACHINE_POCKET_UNIVERSE_VOICE";
@@ -59,6 +60,9 @@ enum Voice {
     /// A key the observer gave the app. The only voice whose requests leave
     /// the machine, so it exists only when a key was actually handed over.
     Api(String),
+    /// The model built into macOS 27, through its `fm` program: offline,
+    /// and chosen only once the app found it working.
+    Fm,
 }
 
 impl Selection {
@@ -74,9 +78,10 @@ impl Selection {
                 Some(key) => Voice::Api(key.to_owned()),
                 None => return Err(format!("{VOICE_ENV}=api needs a key in {API_KEY_ENV}")),
             },
+            "fm" => Voice::Fm,
             other => {
                 return Err(format!(
-                    "unsupported {VOICE_ENV} value {other:?}; expected none, pi or api"
+                    "unsupported {VOICE_ENV} value {other:?}; expected none, pi, api or fm"
                 ))
             }
         };
@@ -92,6 +97,7 @@ impl Selection {
                 world_voice::Voice::Pi(env::var(PI_PROGRAM_ENV).unwrap_or_else(|_| "pi".into()))
             }
             Voice::Api(key) => world_voice::Voice::Api(key.clone()),
+            Voice::Fm => world_voice::Voice::Fm(world_voice::fm::PROGRAM.into()),
         };
         let ears: pocket_universe::ListenerFactory =
             Arc::new(move || speaking.listener_or_own_ears());
@@ -100,6 +106,9 @@ impl Selection {
             Voice::Pi => Some(narrator_factory(pi_command())),
             Voice::Api(key) => Some(Arc::new(move || {
                 Box::new(api_voice::ApiNarrator::new(key.clone()))
+            })),
+            Voice::Fm => Some(Arc::new(|| {
+                Box::new(fm_voice::FmNarrator::new(world_voice::fm::PROGRAM))
             })),
         };
         Ok(match voice {
@@ -128,7 +137,11 @@ mod tests {
 
     #[test]
     fn each_voice_can_be_chosen() {
-        for (voice, expected) in [(None, Voice::None), (Some("pi"), Voice::Pi)] {
+        for (voice, expected) in [
+            (None, Voice::None),
+            (Some("pi"), Voice::Pi),
+            (Some("fm"), Voice::Fm),
+        ] {
             let selection = Selection::from_env(voice, None).unwrap();
             assert_eq!(selection.voice, expected, "{voice:?}");
         }
@@ -163,6 +176,11 @@ mod tests {
         assert_eq!(shipped.voice, Voice::None);
         // And it builds a Pack without needing any program to exist.
         assert!(shipped.registration().is_ok());
+        // This Mac's own model builds one too, with no program checked yet.
+        assert!(Selection::from_env(Some("fm"), None)
+            .unwrap()
+            .registration()
+            .is_ok());
     }
 
     #[test]

@@ -60,6 +60,16 @@ pub(crate) fn book(world: &World) -> Vec<BookEntry> {
             "Comes on a quiet day".into(),
         ));
     }
+    // Firsts: each small first of a quiet day, once it has come.
+    for first in lives::firsts(world) {
+        book.push(entry(
+            "Firsts",
+            first,
+            true,
+            None,
+            "Comes on a quiet day".into(),
+        ));
+    }
     // People: everyone here, and strangers who might come to stay.
     let met = lives::met(world);
     for (name, person) in lives::people_to_meet(world, &cast) {

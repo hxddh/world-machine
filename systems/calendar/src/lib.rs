@@ -528,9 +528,8 @@ fn mixing(state: &WorldState, people: &[EntityId], turnout: Turnout) -> Vec<Stat
 /// The festivals that have been held at least once, by id.
 pub fn held(world: &world_core::World) -> std::collections::BTreeSet<String> {
     world
-        .events()
-        .iter()
-        .filter(|event| event.kind == "festival_held")
+        .events_of_kind(&["festival_held"])
+        .into_iter()
         .filter_map(|event| match event.payload.get("festival") {
             Some(Value::Text(id)) => Some(id.clone()),
             _ => None,

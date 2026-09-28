@@ -3,6 +3,7 @@ mod book;
 #[cfg(test)]
 mod density;
 mod drawings;
+mod firsts;
 mod handwork;
 mod life;
 pub mod narrator;
@@ -11,6 +12,7 @@ mod speech;
 mod story;
 mod talk;
 mod voices;
+mod years;
 
 use std::error::Error;
 use std::sync::Arc;
@@ -23,7 +25,7 @@ use world_persistence::{PersistenceError, WorldArchive, WorldPackRef};
 use world_projection::{ProjectionIntent, ProjectionSnapshot};
 
 pub const POCKET_UNIVERSE_PACK_ID: &str = "world-machine.pocket-universe";
-pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.29.0";
+pub const POCKET_UNIVERSE_PACK_VERSION: &str = "0.30.0";
 
 pub const SEED_MARS_COLONY_COMMAND: &str = "pocket-universe.seed-mars-colony";
 pub const SEED_1980S_TOWN_COMMAND: &str = "pocket-universe.seed-1980s-town";
@@ -577,6 +579,7 @@ fn build_action_registry() -> Result<ActionRegistry, ActionError> {
     actions.register(SeedPenguinCivilization)?;
     narrator::register_actions(&mut actions)?;
     story::register_actions(&mut actions)?;
+    years::register_actions(&mut actions)?;
     Ok(actions)
 }
 

@@ -223,7 +223,7 @@ impl WorldMachineHome {
             .unwrap_or_default();
         if !looks_like_world_code(&text) {
             self.status = Some(HomeStatus::error(
-                "There is no World code on the clipboard. Copy one (it starts with wm1:) and try again",
+                "There is no World code on the clipboard. Copy one (it starts with wm) and try again",
             ));
             cx.notify();
             return;

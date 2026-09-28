@@ -125,6 +125,7 @@ mod tests {
             world_time,
             events: Vec::new(),
             pending: Vec::new(),
+            checkpoint: None,
         }
     }
 

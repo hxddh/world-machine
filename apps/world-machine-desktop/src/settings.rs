@@ -52,6 +52,12 @@ struct SettingsView {
     contrast: Option<bool>,
     source: VoiceSource,
     program: Option<String>,
+    /// The Claude model chosen for an API key, if not the default.
+    voice_model: Option<String>,
+    model_input: Entity<TextInput>,
+    /// Whether this Mac's own model (`/usr/bin/fm`) answers; `None` while
+    /// that is still being found out, off this window's thread.
+    on_device: Option<::world_voice::FmStatus>,
     status: Option<SharedString>,
 }
 
@@ -59,6 +65,21 @@ impl SettingsView {
     fn new(cx: &mut Context<Self>) -> Self {
         let key_input = cx.new(|cx| TextInput::new("Paste an API key…", cx));
         cx.observe(&key_input, |_, _, cx| cx.notify()).detach();
+        let model_input = cx.new(|cx| TextInput::new(::world_voice::DEFAULT_MODEL, cx));
+        cx.observe(&model_input, |_, _, cx| cx.notify()).detach();
+        // Asking `fm` once can take as long as loading its model, so it is
+        // done in the background and remembered for the rest of the run.
+        cx.spawn(async move |this, cx| {
+            let status = cx
+                .background_executor()
+                .spawn(async { ::world_voice::fm::status().clone() })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.on_device = Some(status);
+                cx.notify();
+            });
+        })
+        .detach();
         let mut view = Self {
             key_input,
             key_stored: false,
@@ -70,6 +91,9 @@ impl SettingsView {
             contrast: None,
             source: VoiceSource::Program,
             program: None,
+            voice_model: None,
+            model_input,
+            on_device: ::world_voice::fm::status_if_known().cloned(),
             status: None,
         };
         view.reload();
@@ -93,6 +117,7 @@ impl SettingsView {
                 self.contrast = settings.increase_contrast;
                 self.source = settings.world_voice_source.unwrap_or_default();
                 self.program = settings.pi_program.map(|path| path.display().to_string());
+                self.voice_model = settings.voice_model;
             }
             None => {
                 self.voice_on = false;
@@ -103,6 +128,7 @@ impl SettingsView {
                 self.contrast = None;
                 self.source = VoiceSource::Program;
                 self.program = None;
+                self.voice_model = None;
             }
         }
     }
@@ -258,6 +284,31 @@ impl SettingsView {
         .detach();
     }
 
+    /// Keeps the Claude model typed in; an empty field goes back to the
+    /// default.
+    fn save_model(&mut self, cx: &mut Context<Self>) {
+        let typed = self.model_input.read(cx).text().to_owned();
+        self.apply(
+            move || {
+                let root =
+                    app_settings::application_support_root().map_err(|error| error.to_string())?;
+                app_settings::save_voice_model(&root, Some(typed))
+                    .map_err(|error| error.to_string())
+            },
+            cx,
+        );
+        self.model_input.update(cx, |input, cx| input.clear(cx));
+    }
+
+    /// Whether this Mac's own model is offered: only where it answers, or
+    /// where it was chosen before, so it can be chosen away from.
+    fn offers_on_device(&self) -> bool {
+        self.on_device
+            .as_ref()
+            .is_some_and(::world_voice::FmStatus::is_ready)
+            || self.source == VoiceSource::OnDevice
+    }
+
     fn forget_key(&mut self, cx: &mut Context<Self>) {
         self.apply(key_store::clear, cx);
     }
@@ -290,6 +341,17 @@ impl SettingsView {
                     )
                 }
             }
+            VoiceSource::OnDevice => match &self.on_device {
+                Some(::world_voice::FmStatus::Ready) => {
+                    ("ready", "On, through this Mac's own model.".into())
+                }
+                None => ("incomplete", "On, checking this Mac's own model…".into()),
+                Some(_) => (
+                    "incomplete",
+                    "On, but this Mac's own model is not available, so Worlds still read from the app's copy."
+                        .into(),
+                ),
+            },
         }
     }
 }
@@ -438,6 +500,8 @@ impl Render for SettingsView {
         );
 
         let mut page = div()
+            .id("settings-page")
+            .overflow_y_scroll()
             .size_full()
             .p_6()
             .flex()
@@ -487,7 +551,21 @@ impl Render for SettingsView {
                             .on_click(
                                 cx.listener(|this, _, _, cx| this.set_source(VoiceSource::Key, cx)),
                             ),
-                        ),
+                        )
+                        .when(self.offers_on_device(), |tiles| {
+                            tiles.child(
+                                source_tile(
+                                    "world-voice-on-device",
+                                    "◎",
+                                    "This Mac's own model",
+                                    "Stays on this Mac · free, and needs no key".to_string(),
+                                    matches!(source, VoiceSource::OnDevice),
+                                )
+                                .on_click(cx.listener(
+                                    |this, _, _, cx| this.set_source(VoiceSource::OnDevice, cx),
+                                )),
+                            )
+                        }),
                 );
             if matches!(source, VoiceSource::Program) {
                 let label = if self.program.is_some() {
@@ -521,12 +599,48 @@ impl Render for SettingsView {
                         .on_click(cx.listener(|this, _, _, cx| this.forget_key(cx))),
                     );
                 }
+                let model = ::world_voice::model_or(self.voice_model.as_deref());
+                let model_note = if std::env::var(::world_voice::MODEL_ENV)
+                    .is_ok_and(|model| !model.trim().is_empty())
+                {
+                    format!("Model: {model}, set by WORLD_MACHINE_VOICE_MODEL")
+                } else {
+                    format!("Model: {model}")
+                };
                 sources = sources
                     .child(div().w_full().child(self.key_input.clone()))
                     .child(actions)
                     .child(ui::caption(
                         "The key goes into your login keychain, never into a file.",
-                    ));
+                    ))
+                    .child(ui::section_label("Claude model"))
+                    .child(
+                        div()
+                            .flex()
+                            .gap_2()
+                            .items_center()
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w(px(0.0))
+                                    .child(self.model_input.clone()),
+                            )
+                            .child(
+                                ui::button(
+                                    "world-voice-save-model",
+                                    "Save model",
+                                    ui::ButtonKind::Secondary,
+                                )
+                                .on_click(cx.listener(|this, _, _, cx| this.save_model(cx))),
+                            ),
+                    )
+                    .child(ui::caption(model_note))
+                    .child(ui::caption("An empty field goes back to the default."));
+            }
+            if matches!(source, VoiceSource::OnDevice) {
+                sources = sources.child(ui::caption(
+                    "Apple's model answers what people say to you, through /usr/bin/fm. When it cannot, they answer in the World's own words.",
+                ));
             }
             page = page.child(sources);
         }

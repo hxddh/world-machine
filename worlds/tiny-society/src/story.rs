@@ -1490,7 +1490,7 @@ pub(crate) const WORKS: &[Work] = {
 
 /// A made-up text for the life of the program: each different one is
 /// kept once, however often the deck is dealt.
-fn leak(text: String) -> &'static str {
+pub(crate) fn leak(text: String) -> &'static str {
     static KEPT: std::sync::OnceLock<std::sync::Mutex<std::collections::BTreeSet<&'static str>>> =
         std::sync::OnceLock::new();
     let mut kept = KEPT
@@ -1508,7 +1508,7 @@ fn leak(text: String) -> &'static str {
 /// The works as storylets: each asked for once the one before it is
 /// done, the first once the pier and the lamp are.
 /// One rung of the ladder of works: a work built, then painted, then
-/// planted round, each round after the one before.
+/// planted round, then lit up, each round after the one before.
 pub(crate) struct Rung {
     pub id: &'static str,
     pub label: &'static str,
@@ -1517,8 +1517,9 @@ pub(crate) struct Rung {
     line: &'static str,
 }
 
-/// How many times the ladder goes round the works.
-const ROUNDS: usize = 3;
+/// How many times the ladder goes round the works: built, painted,
+/// planted round, then lit up with lamps and bunting.
+const ROUNDS: usize = 4;
 
 /// Every rung of the ladder, in order: every work once, then each
 /// painted, then each planted round, so there is always one under way.
@@ -1544,13 +1545,22 @@ pub(crate) fn ladder() -> &'static [Rung] {
                         told: leak(format!("It's time to paint {the}")),
                         line: leak(format!("A lick of paint and {the} will look new again.")),
                     },
-                    _ => Rung {
+                    2 => Rung {
                         id: leak(format!("{}_flowers", work.id)),
                         label: leak(format!("Flowers round {the}")),
                         work,
                         told: leak(format!("Flowers would brighten {the}")),
                         line: leak(format!(
                             "Something growing round {the}. That's all it needs."
+                        )),
+                    },
+                    _ => Rung {
+                        id: leak(format!("{}_lit", work.id)),
+                        label: leak(format!("Lamps and bunting on {the}")),
+                        work,
+                        told: leak(format!("Let's light up {the}")),
+                        line: leak(format!(
+                            "A few lamps and a string of bunting on {the}. It'll glow at night."
                         )),
                     },
                 });
@@ -1561,7 +1571,7 @@ pub(crate) fn ladder() -> &'static [Rung] {
 }
 
 /// "A bandstand on the square" as "the bandstand on the square".
-fn the(label: &str) -> String {
+pub(crate) fn the(label: &str) -> String {
     let rest = label
         .strip_prefix("A ")
         .or_else(|| label.strip_prefix("An "))
@@ -1600,7 +1610,7 @@ fn works() -> Vec<Spec> {
             lasts: 3,
             // A part every fortnight or so, so a work takes a month or
             // more and the ladder lasts past a year.
-            rests: 12,
+            rests: 20,
             weight: 4,
             eases: vec![up("spirits")],
             timely: false,
@@ -1664,7 +1674,15 @@ fn specs() -> &'static [Spec] {
     })
 }
 
-pub(crate) fn deck() -> Deck {
+/// The storyteller's deck. It is the same every time, so it is made once:
+/// the whole deck is cloned out of the specs otherwise, and people, talks,
+/// goals and the weather each ask for it.
+pub(crate) fn deck() -> &'static Deck {
+    static DECK: OnceLock<Deck> = OnceLock::new();
+    DECK.get_or_init(made_deck)
+}
+
+fn made_deck() -> Deck {
     Deck {
         story: STORY,
         story_name: "The harbour's year",
@@ -1705,8 +1723,8 @@ pub(crate) fn deck() -> Deck {
 pub(crate) fn register_actions(
     actions: &mut ActionRegistry,
 ) -> Result<(), world_core::ActionError> {
-    storylets::register_actions(actions, deck)?;
-    lives::register_actions(actions, |_| crate::life::cast())?;
+    storylets::register_actions(actions, || deck().clone())?;
+    lives::register_actions(actions, crate::life::cast_in)?;
     hands::register_actions(actions, crate::handwork::kit)?;
     conversation::register_actions(actions, crate::speech::kit)?;
     calendar::register_actions(actions, crate::almanac::almanac)?;
@@ -1870,10 +1888,10 @@ fn chapter_line(event: &Event) -> Option<&'static str> {
 fn chapter_ending(world: &World) -> (String, String) {
     let deck = deck();
     let (_, started) = storylets::chapter(world.state(), &deck);
-    let lived = world
-        .events()
+    // Events are recorded in time order, so the chapter's are the tail.
+    let events = world.events();
+    let lived = events[events.partition_point(|event| event.world_time < started)..]
         .iter()
-        .filter(|event| event.world_time >= started)
         .collect::<Vec<_>>();
     let mut title = None;
     let mut lines = Vec::<String>::new();
@@ -2182,12 +2200,14 @@ pub(crate) fn tick(
     // What the year brings comes first, so the day's round of lives knows
     // whether the day has already brought something new.
     events.extend(crate::years::tick(world, actions)?);
-    events.extend(lives::tick_holding(
+    let cast = crate::life::cast_in(world.state());
+    events.extend(lives::tick_with(
         world,
         actions,
-        &crate::life::cast(),
+        &cast,
         away,
         reading.hold,
+        &crate::firsts::quiet_days(),
     )?);
     let kit = crate::handwork::kit(world.state());
     events.extend(hands::tick(world, actions, &kit)?);
@@ -2245,6 +2265,16 @@ fn command_id(storylet: &str, choice: &str) -> String {
 /// The choice a command makes, if it is one of the storyteller's.
 pub(crate) fn parse_command(command_id: &str) -> Option<(&str, &str)> {
     command_id.strip_prefix(STORY_COMMAND)?.split_once('.')
+}
+
+/// The kinds of Event a storylet's moments are recorded as: coming up,
+/// each answer's and letting it go.
+pub(crate) fn storylet_kinds() -> impl Iterator<Item = &'static str> {
+    specs().iter().flat_map(|spec| {
+        std::iter::once("situation_arose")
+            .chain(spec.answers.iter().map(|answer| answer.said.event))
+            .chain(std::iter::once(spec.lapse.event))
+    })
 }
 
 fn find(storylet: &str) -> Option<&'static Spec> {
