@@ -152,8 +152,9 @@ impl TinySocietyBranch {
     pub fn begin_story(&mut self) -> Result<Vec<EventId>, Box<dyn Error>> {
         let actions = build_action_registry()?;
         let mut events = story::tick(&mut self.world, &actions, false)?;
-        // Someone comes over to say hello.
+        // Someone comes over to say hello, and the first question follows.
         events.extend(lives::greet(&mut self.world, &actions, &life::cast())?);
+        events.extend(story::first_question(&mut self.world, &actions)?);
         Ok(events)
     }
 

@@ -3938,8 +3938,10 @@ version = "0.30.0"
 dependencies = [
  "pocket-universe",
  "serde_json",
+ "world-document",
  "world-host",
  "world-pack-catalog",
+ "world-pack-protocol",
  "world-pack-server",
  "world-persistence",
  "world-pi-rpc",
@@ -5438,6 +5440,7 @@ dependencies = [
 name = "tiny-society-pack"
 version = "0.13.0"
 dependencies = [
+ "serde_json",
  "tiny-society",
  "world-document",
  "world-host",
@@ -5446,6 +5449,7 @@ dependencies = [
  "world-pack-process",
  "world-pack-protocol",
  "world-pack-server",
+ "world-persistence",
  "world-projection",
  "world-voice",
 ]
@@ -6740,7 +6744,7 @@ dependencies = [
 
 [[package]]
 name = "world-machine-desktop"
-version = "0.19.0"
+version = "0.19.1"
 dependencies = [
  "gpui",
  "gpui_platform",
@@ -6807,6 +6811,8 @@ dependencies = [
 name = "world-pack-protocol"
 version = "0.1.0"
 dependencies = [
+ "base64 0.23.1",
+ "flate2",
  "serde",
  "serde_json",
  "world-core",

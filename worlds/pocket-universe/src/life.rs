@@ -504,6 +504,7 @@ const ICE: &[Activity] = &[
             "Carved new steps in the ice.",
             "Swept snow off the bridge all morning.",
             "{friend} held the ice while I carved. Teamwork.",
+            "Chipped the old ice off the rails. Shiny now.",
         ],
         gives: &[],
     },

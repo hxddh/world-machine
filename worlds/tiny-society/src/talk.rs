@@ -258,7 +258,10 @@ pub(crate) fn voices(world: &World) -> Vec<Voice> {
         .len()
         .saturating_sub(world_projection::TIMELINE_EVENTS)..];
     for event in recent {
-        let story = crate::projection::narrated_title(world, event).is_some();
+        // What someone makes of the player's deed is said to them, and
+        // heard even from someone who has already spoken today.
+        let story =
+            crate::projection::narrated_title(world, event).is_some() || event.kind == "reacted";
         if !story && event.world_time != latest {
             continue;
         }
@@ -268,11 +271,17 @@ pub(crate) fn voices(world: &World) -> Vec<Voice> {
         if !story && !spoken_now.insert(speaker) {
             continue;
         }
-        voices.push(Voice {
+        let voice = Voice {
             moment: SelectionId::Event(event.id),
             speaker: SelectionId::Entity(speaker),
             line,
-        });
+        };
+        // A newcomer hears hello before anything else said that day.
+        if event.kind == "greeted" && event.world_time == latest {
+            voices.insert(0, voice);
+        } else {
+            voices.push(voice);
+        }
     }
     voices
 }

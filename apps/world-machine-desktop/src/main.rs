@@ -74,7 +74,9 @@ use world_machine_desktop::window_state::{self, StoredWindowBounds};
 #[cfg(target_os = "macos")]
 use world_pack_bundle::PACK_BUNDLE_SUFFIX;
 #[cfg(target_os = "macos")]
-use world_pack_catalog::{InstalledPack, PackAvailability, PackCatalog, PackInstallPreview};
+use world_pack_catalog::{
+    InstalledPack, PackAvailability, PackCatalog, PackInstallPreview, PackRefresh,
+};
 #[cfg(target_os = "macos")]
 use world_persistence::WorldPackRef;
 #[cfg(target_os = "macos")]
@@ -903,7 +905,8 @@ impl WorldMachineHome {
     /// same trust as the app binary; the catalog still pins their exact
     /// content on install and the durable probe still runs before activation.
     /// User-supplied `.worldpack` files keep the explicit review flow.
-    /// Packs that are already in the catalog, enabled or not, are left alone.
+    /// Packs that are already in the catalog, enabled or not, keep that state;
+    /// only their program is brought up to the one this app ships.
     /// One background request to the Releases API; a newer stable version
     /// becomes a banner on Home. Silent on failure, off with
     /// WORLD_MACHINE_NO_UPDATE_CHECK=1.
@@ -981,6 +984,7 @@ impl WorldMachineHome {
         let packs = self.included_packs.clone();
         for pack in packs {
             if self.included_pack_is_installed(&pack.pack) {
+                self.refresh_included_pack(&pack);
                 continue;
             }
             let Some(catalog) = self.pack_catalog.as_mut() else {
@@ -1035,6 +1039,38 @@ impl WorldMachineHome {
             }
         }
         cx.notify();
+    }
+
+    /// An included Pack keeps its version when its program is fixed (the
+    /// Worlds made with it are stamped with that version), so a catalog that
+    /// installed it from an earlier copy of the app would keep the earlier
+    /// program. Where the program or manifest this app ships differs, it
+    /// replaces the installed one, which stays enabled and active as it was.
+    fn refresh_included_pack(&mut self, pack: &included_packs::IncludedPack) {
+        let Some(catalog) = self.pack_catalog.as_mut() else {
+            return;
+        };
+        match catalog.refresh_bundle(&pack.path) {
+            Ok(PackRefresh::Replaced(installed)) => {
+                diagnostics::info(format!(
+                    "included pack {} @ {} replaced with the program this app ships",
+                    installed.pack.id, installed.pack.version
+                ));
+                if let Err(error) = self.rebuild_registry() {
+                    self.status = Some(HomeStatus::error(format!(
+                        "{} was updated, but Registry rebuild failed: {error}",
+                        pack.title
+                    )));
+                }
+            }
+            Ok(PackRefresh::Unchanged | PackRefresh::NotInstalled) => {}
+            Err(error) => {
+                self.status = Some(HomeStatus::error(format!(
+                    "Could not update {}: {error}",
+                    pack.title
+                )));
+            }
+        }
     }
 
     fn install_pack(&mut self, cx: &mut Context<Self>) {

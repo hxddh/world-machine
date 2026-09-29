@@ -46,6 +46,17 @@ pub enum PackApproval {
     ExplicitInstall,
 }
 
+/// What [`PackCatalog::refresh_bundle`] did.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum PackRefresh {
+    /// No Pack of that id and version is installed.
+    NotInstalled,
+    /// The installed copy is the bundle's (or was not installed from one).
+    Unchanged,
+    /// The installed copy was replaced with the bundle's.
+    Replaced(InstalledPack),
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PackAvailability {
     Ready,
@@ -577,17 +588,39 @@ impl PackCatalog {
     }
 
     fn materialize_managed_bundle(&self, bundle: PackBundle) -> Result<ProcessPack, CatalogError> {
-        let descriptor = bundle.manifest().descriptor.clone();
-        let protocol_version = bundle.manifest().protocol_version;
-        let program_name = bundle.program_name().to_owned();
-        let final_dir = managed_pack_dir(&self.path, &descriptor.pack);
+        let pack = bundle.manifest().descriptor.pack.clone();
+        let final_dir = managed_pack_dir(&self.path, &pack);
         if final_dir.try_exists().map_err(|error| CatalogError::Io {
             operation: "check managed Pack destination",
             path: final_dir.clone(),
             message: error.to_string(),
         })? {
-            return Err(CatalogError::ManagedDestinationExists(descriptor.pack));
+            return Err(CatalogError::ManagedDestinationExists(pack));
         }
+        let stage = self.stage_managed_bundle(bundle)?;
+        let store = managed_store_root(&self.path);
+        let result = (|| {
+            fs::rename(&stage, &final_dir).map_err(|error| CatalogError::Io {
+                operation: "publish managed Pack",
+                path: final_dir.clone(),
+                message: error.to_string(),
+            })?;
+            sync_directory(&store);
+            ProcessPack::load(final_dir.join("pack.world-pack.json")).map_err(process_error)
+        })();
+
+        if result.is_err() {
+            let _ = fs::remove_dir_all(&stage);
+            let _ = fs::remove_dir_all(&final_dir);
+        }
+        result
+    }
+
+    /// The bundle's program and managed manifest, written into a new
+    /// staging directory in the managed store, which is returned.
+    fn stage_managed_bundle(&self, bundle: PackBundle) -> Result<PathBuf, CatalogError> {
+        let manifest = bundle.manifest().clone();
+        let program_name = bundle.program_name().to_owned();
         let store = managed_store_root(&self.path);
         fs::create_dir_all(&store).map_err(|error| CatalogError::Io {
             operation: "create managed Pack store",
@@ -608,16 +641,8 @@ impl PackCatalog {
                 .extract_program(&staged_program)
                 .map_err(bundle_error)?;
 
-            // The copy speaks the protocol the Pack declared, not the newest.
-            let mut managed_manifest =
-                PackManifest::process(descriptor.clone(), program_name.clone(), Vec::new());
-            managed_manifest.protocol_version = protocol_version;
+            let manifest_json = managed_manifest_json(&manifest, &program_name)?;
             let manifest_path = stage.join("pack.world-pack.json");
-            let mut manifest_json = managed_manifest
-                .to_json_pretty()
-                .map_err(|error| CatalogError::Json(error.to_string()))?
-                .into_bytes();
-            manifest_json.push(b'\n');
             let mut manifest_file = OpenOptions::new()
                 .create_new(true)
                 .write(true)
@@ -635,22 +660,122 @@ impl PackCatalog {
                     path: manifest_path.clone(),
                     message: error.to_string(),
                 })?;
-            drop(manifest_file);
+            Ok(())
+        })();
+        match result {
+            Ok(()) => Ok(stage),
+            Err(error) => {
+                let _ = fs::remove_dir_all(&stage);
+                Err(error)
+            }
+        }
+    }
 
+    /// Bring an installed Pack's managed copy up to the `.worldpack` it was
+    /// installed from, when they differ, keeping its identity (id and
+    /// version) and whether it is enabled and active.
+    ///
+    /// This is for the Packs an app ships inside itself: their version stays
+    /// the one the Worlds made with them are stamped with, while a fix to
+    /// their program still reaches a machine that installed them from an
+    /// earlier copy of the app. The bundle carries the app's own trust, so
+    /// the replacement is not reviewed again. A Pack installed from a
+    /// developer manifest is left as it is.
+    pub fn refresh_bundle(
+        &mut self,
+        bundle_path: impl AsRef<Path>,
+    ) -> Result<PackRefresh, CatalogError> {
+        let bundle_path = bundle_path.as_ref();
+        let source_path = bundle_path
+            .canonicalize()
+            .map_err(|error| CatalogError::Io {
+                operation: "resolve Pack bundle",
+                path: bundle_path.to_path_buf(),
+                message: error.to_string(),
+            })?;
+        let bundle = PackBundle::open(&source_path).map_err(bundle_error)?;
+        let manifest = bundle.manifest().clone();
+        let pack = manifest.descriptor.pack.clone();
+        let Some(index) = self.entries.iter().position(|entry| entry.pack == pack) else {
+            return Ok(PackRefresh::NotInstalled);
+        };
+        let entry = self.entries[index].clone();
+        if !entry.managed {
+            return Ok(PackRefresh::Unchanged);
+        }
+        let manifest_sha256 = sha256_hex(&managed_manifest_json(&manifest, bundle.program_name())?);
+        let final_dir = managed_pack_dir(&self.path, &pack);
+        let same = entry.command_sha256 == bundle.header().program_sha256
+            && entry.manifest_sha256 == manifest_sha256
+            && entry.command_path == final_dir.join(bundle.program_name())
+            && self.verified_pack(&entry).is_ok();
+        if same {
+            return Ok(PackRefresh::Unchanged);
+        }
+
+        let expected_program_sha256 = bundle.header().program_sha256.clone();
+        let stage = self.stage_managed_bundle(bundle)?;
+        let store = managed_store_root(&self.path);
+        let nonce = TEMP_NONCE.fetch_add(1, Ordering::Relaxed);
+        let replaced = store.join(format!(".replaced-{}-{nonce}.tmp", process::id()));
+        let had_copy = final_dir.try_exists().unwrap_or(false);
+        if had_copy {
+            if let Err(error) = fs::rename(&final_dir, &replaced) {
+                let _ = fs::remove_dir_all(&stage);
+                return Err(CatalogError::Io {
+                    operation: "set aside replaced managed Pack",
+                    path: final_dir,
+                    message: error.to_string(),
+                });
+            }
+        }
+        let result = (|| {
             fs::rename(&stage, &final_dir).map_err(|error| CatalogError::Io {
                 operation: "publish managed Pack",
                 path: final_dir.clone(),
                 message: error.to_string(),
             })?;
             sync_directory(&store);
-            ProcessPack::load(final_dir.join("pack.world-pack.json")).map_err(process_error)
+            let managed =
+                ProcessPack::load(final_dir.join("pack.world-pack.json")).map_err(process_error)?;
+            let identity = managed.current_pin().map_err(process_error)?;
+            if identity.command_sha256() != expected_program_sha256 {
+                return Err(reviewed_content_changed(
+                    &pack,
+                    "executable changed while it was copied into the managed store",
+                ));
+            }
+            let refreshed = InstalledPack {
+                title: managed.descriptor.title.clone(),
+                description: managed.descriptor.description.clone(),
+                manifest_path: managed.manifest_path.clone(),
+                command_path: managed.command.clone(),
+                manifest_sha256: identity.manifest_sha256().into(),
+                command_sha256: identity.command_sha256().into(),
+                ..entry.clone()
+            };
+            let mut entries = self.entries.clone();
+            entries[index] = refreshed.clone();
+            self.commit(entries)?;
+            Ok(refreshed)
         })();
-
-        if result.is_err() {
-            let _ = fs::remove_dir_all(&stage);
-            let _ = fs::remove_dir_all(&final_dir);
+        match result {
+            Ok(refreshed) => {
+                let _ = fs::remove_dir_all(&replaced);
+                sync_directory(&store);
+                Ok(PackRefresh::Replaced(refreshed))
+            }
+            Err(error) => {
+                // Put the copy the catalog still names back where it was.
+                let _ = fs::remove_dir_all(&stage);
+                if had_copy {
+                    let _ = fs::remove_dir_all(&final_dir);
+                    let _ = fs::rename(&replaced, &final_dir);
+                }
+                sync_directory(&store);
+                Err(error)
+            }
         }
-        result
     }
 
     fn materialize_managed_pack(&self, source: &ProcessPack) -> Result<ProcessPack, CatalogError> {
@@ -879,6 +1004,28 @@ fn managed_pack_key(pack: &WorldPackRef) -> String {
 
 fn managed_pack_dir(catalog_path: &Path, pack: &WorldPackRef) -> PathBuf {
     managed_store_root(catalog_path).join(managed_pack_key(pack))
+}
+
+/// The manifest a managed copy of a bundle keeps: the bundle's own, run
+/// from the copied program. It speaks the protocol the Pack declared, not
+/// the newest.
+fn managed_manifest_json(
+    manifest: &PackManifest,
+    program_name: &str,
+) -> Result<Vec<u8>, CatalogError> {
+    let mut managed_manifest =
+        PackManifest::process(manifest.descriptor.clone(), program_name, Vec::new());
+    managed_manifest.protocol_version = manifest.protocol_version;
+    let mut json = managed_manifest
+        .to_json_pretty()
+        .map_err(|error| CatalogError::Json(error.to_string()))?
+        .into_bytes();
+    json.push(b'\n');
+    Ok(json)
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    lower_hex(&Sha256::digest(bytes))
 }
 
 fn managed_program_name(source: &Path) -> String {
@@ -1381,6 +1528,173 @@ mod tests {
         fs::remove_file(&program).unwrap();
         assert!(catalog.trusted_source().is_ok());
         assert!(installed.command_path.exists());
+    }
+
+    /// A Pack an app ships inside itself keeps its version when its program
+    /// is fixed: a catalog that installed the earlier program takes the new
+    /// one in its place, keeping whether it is enabled and active, and keeps
+    /// the protocol the bundle declares.
+    #[test]
+    fn refreshing_from_a_changed_bundle_replaces_the_copy_at_the_same_version() {
+        use world_pack_bundle::{portable_process_manifest, write_bundle, write_program_bundle};
+        use world_pack_protocol::{PACK_PROTOCOL_VERSION, PACK_PROTOCOL_VERSION_V4};
+
+        let root = temp_dir("bundle-refresh");
+        let descriptor =
+            PackDescriptor::new(pack("fixture.included", "0.13.0"), "Included", "fixture");
+        let bundle_path = root.join("included.worldpack");
+        let program = root.join("included-runtime");
+
+        // What an earlier app shipped: a program that speaks v4.
+        fs::write(&program, b"#!/bin/sh\necho before\n").unwrap();
+        let mut earlier = portable_process_manifest(descriptor.clone(), "program").unwrap();
+        earlier.protocol_version = PACK_PROTOCOL_VERSION_V4;
+        write_bundle(&bundle_path, earlier, &program).unwrap();
+        let mut catalog = PackCatalog::open(root.join("catalog.json")).unwrap();
+        assert_eq!(
+            catalog.refresh_bundle(&bundle_path).unwrap(),
+            PackRefresh::NotInstalled
+        );
+        let before = catalog.install_bundle(&bundle_path).unwrap();
+        assert!(before.enabled && before.active);
+        assert_eq!(
+            ProcessPack::load(&before.manifest_path)
+                .unwrap()
+                .protocol_version,
+            PACK_PROTOCOL_VERSION_V4,
+            "the managed copy keeps the protocol the bundle declares"
+        );
+        assert_eq!(
+            catalog.refresh_bundle(&bundle_path).unwrap(),
+            PackRefresh::Unchanged
+        );
+
+        // What this app ships: the same id and version, a fixed program.
+        fs::write(&program, b"#!/bin/sh\necho after\n").unwrap();
+        fs::remove_file(&bundle_path).unwrap();
+        write_program_bundle(&bundle_path, descriptor, &program).unwrap();
+        let PackRefresh::Replaced(after) = catalog.refresh_bundle(&bundle_path).unwrap() else {
+            panic!("the changed program replaces the installed one");
+        };
+        assert_eq!(after.pack, before.pack);
+        assert_ne!(after.command_sha256, before.command_sha256);
+        assert_ne!(after.manifest_sha256, before.manifest_sha256);
+        assert_eq!(
+            (after.enabled, after.active),
+            (before.enabled, before.active)
+        );
+        assert_eq!(after.command_path, before.command_path);
+        assert_eq!(
+            fs::read(&after.command_path).unwrap(),
+            fs::read(&program).unwrap()
+        );
+        let managed = ProcessPack::load(&after.manifest_path).unwrap();
+        assert_eq!(managed.protocol_version, PACK_PROTOCOL_VERSION);
+        assert_eq!(catalog.entries(), std::slice::from_ref(&after));
+
+        // It holds on reopening, launches under the new pins, and leaves no
+        // staging or set-aside copies behind.
+        let reopened = PackCatalog::open(root.join("catalog.json")).unwrap();
+        assert_eq!(reopened.entries(), std::slice::from_ref(&after));
+        assert!(reopened.trusted_source().is_ok());
+        let leftovers = fs::read_dir(managed_store_root(reopened.path()))
+            .unwrap()
+            .filter(|entry| {
+                entry
+                    .as_ref()
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .ends_with(".tmp")
+            })
+            .count();
+        assert_eq!(leftovers, 0);
+        let mut catalog = reopened;
+        assert_eq!(
+            catalog.refresh_bundle(&bundle_path).unwrap(),
+            PackRefresh::Unchanged
+        );
+
+        // A disabled one stays disabled.
+        catalog.set_enabled(&after.pack, false).unwrap();
+        fs::write(&program, b"#!/bin/sh\necho again\n").unwrap();
+        fs::remove_file(&bundle_path).unwrap();
+        write_program_bundle(
+            &bundle_path,
+            PackDescriptor::new(pack("fixture.included", "0.13.0"), "Included", "fixture"),
+            &program,
+        )
+        .unwrap();
+        let PackRefresh::Replaced(again) = catalog.refresh_bundle(&bundle_path).unwrap() else {
+            panic!("replaced again");
+        };
+        assert!(!again.enabled && !again.active);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    /// A managed copy whose files were changed on disk is put back to the
+    /// bundle's, even though the catalog's digests still name the bundle's.
+    #[test]
+    fn refreshing_repairs_a_tampered_managed_copy() {
+        use world_pack_bundle::write_program_bundle;
+
+        let root = temp_dir("bundle-repair");
+        let program = root.join("included-runtime");
+        fs::write(&program, b"#!/bin/sh\necho kept\n").unwrap();
+        let descriptor = PackDescriptor::new(pack("fixture.repair", "1"), "Repair", "fixture");
+        let bundle_path = root.join("repair.worldpack");
+        write_program_bundle(&bundle_path, descriptor, &program).unwrap();
+        let mut catalog = PackCatalog::open(root.join("catalog.json")).unwrap();
+        let installed = catalog.install_bundle(&bundle_path).unwrap();
+        fs::write(&installed.command_path, b"tampered").unwrap();
+        assert!(catalog.trusted_source().is_err());
+
+        let PackRefresh::Replaced(repaired) = catalog.refresh_bundle(&bundle_path).unwrap() else {
+            panic!("the tampered copy is replaced");
+        };
+        assert_eq!(repaired, installed, "the same identity and digests");
+        assert!(catalog.trusted_source().is_ok());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    /// A Pack installed from a developer manifest is not the bundle's to
+    /// replace.
+    #[test]
+    fn refreshing_leaves_a_developer_install_alone() {
+        use world_pack_bundle::write_program_bundle;
+
+        let root = temp_dir("bundle-developer");
+        let manifest_path = write_pack(&root, "fixture.developer", "v1");
+        let mut catalog = PackCatalog::open(root.join("catalog.json")).unwrap();
+        let installed = catalog.install_manifest(&manifest_path).unwrap();
+        let mut unmanaged = installed.clone();
+        unmanaged.managed = false;
+        unmanaged.manifest_path = manifest_path.canonicalize().unwrap();
+        unmanaged.command_path = root
+            .join("fixture.developer-v1-runtime.sh")
+            .canonicalize()
+            .unwrap();
+        catalog.commit(vec![unmanaged.clone()]).unwrap();
+
+        let program = root.join("other-runtime");
+        fs::write(&program, b"other").unwrap();
+        let bundle_path = root.join("developer.worldpack");
+        write_program_bundle(
+            &bundle_path,
+            PackDescriptor::new(
+                pack("fixture.developer", "v1"),
+                "fixture.developer",
+                "fixture",
+            ),
+            &program,
+        )
+        .unwrap();
+        assert_eq!(
+            catalog.refresh_bundle(&bundle_path).unwrap(),
+            PackRefresh::Unchanged
+        );
+        assert_eq!(catalog.entries(), std::slice::from_ref(&unmanaged));
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

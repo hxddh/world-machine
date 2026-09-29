@@ -2181,6 +2181,8 @@ pub(crate) fn tick(
         .into_iter()
         .find(|gauge| gauge.id == "money")
         .map_or(0.5, |gauge| gauge.value);
+    // Spirits at an end are a turning point, even as they ease a step.
+    let at_end = spirits(world).abs() >= 5 || !(0.02..=0.98).contains(&money);
     let mut settled = Vec::new();
     if spirits(world).abs() >= 5 {
         settled.push(
@@ -2192,7 +2194,7 @@ pub(crate) fn tick(
     let reading = Reading {
         pinned: pinned(world),
         away,
-        at_end: spirits(world).abs() >= 5 || !(0.02..=0.98).contains(&money),
+        at_end,
         chapter_ending: Box::new(chapter_ending),
         hold: waiting_for_the_player(world),
     };
@@ -2236,12 +2238,25 @@ fn waiting_for_the_player(world: &World) -> bool {
 }
 
 /// Once the player has done something of their own in a new harbour, the
-/// first question comes straight after.
+/// first question comes straight after, if it has not come already.
 pub(crate) fn after_first_deed(
     world: &mut World,
     actions: &ActionRegistry,
 ) -> Result<Vec<EventId>, WorldError> {
-    if storylets::anything_raised(world.state(), deck()) || waiting_for_the_player(world) {
+    if waiting_for_the_player(world) {
+        return Ok(Vec::new());
+    }
+    first_question(world, actions)
+}
+
+/// The first question, if nothing has been asked yet: a new harbour opens
+/// on it, just after the hello, so the player has something to answer
+/// from the start.
+pub(crate) fn first_question(
+    world: &mut World,
+    actions: &ActionRegistry,
+) -> Result<Vec<EventId>, WorldError> {
+    if storylets::anything_raised(world.state(), deck()) {
         return Ok(Vec::new());
     }
     let money = crate::projection::gauges(world)
@@ -2433,7 +2448,8 @@ pub(crate) fn told(world: &World, event: &Event) -> Option<String> {
         };
         return Some(format!("The chapter closed: {title}"));
     }
-    if lives::is_news(event) {
+    // Being greeted is the first thing that happens to a newcomer.
+    if lives::is_news(event) || event.kind == "greeted" {
         return lives::told(event);
     }
     if hands::is_hands(event) {

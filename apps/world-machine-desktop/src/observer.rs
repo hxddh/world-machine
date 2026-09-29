@@ -9,9 +9,9 @@ use world_observer::{CatchUpPolicy, ObserverKey, ObserverStore};
 /// The cap used to be seven periods, from when a World had a fixed amount of
 /// story in it and burning through it unattended was the risk. Eras removed
 /// that ceiling, so the cap now says something simpler and truer: a World lives
-/// through at most a week of its own time while you are away. A day away moves
-/// it four periods; a week away moves it a week; a month away still moves it a
-/// week, because a return should be readable rather than exhaustive.
+/// through at most a week of your absence. A day away moves it four periods; a
+/// week away moves it 28; a month away still moves it 28, because a return
+/// should be readable rather than exhaustive.
 const DEFAULT_SECONDS_PER_PERIOD: u64 = 6 * 60 * 60;
 const DEFAULT_MAX_PERIODS: u64 = 4 * 7;
 const OBSERVER_DIRECTORY: &str = "Observer";

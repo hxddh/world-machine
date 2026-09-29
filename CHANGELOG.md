@@ -2,6 +2,17 @@
 
 Releases live on the [Releases page](https://github.com/hxddh/world-machine/releases). `0.2.0` is the first release intended to be usable without reading the repository; the `v0.1.0-pre.N` tags below were its pre-releases.
 
+## v0.19.1 (2026-09-29)
+
+**Worlds from `v0.19.0` open and carry on.** Tiny Society stays `0.13.0` and Pocket Universe `0.30.0`; the fixed Pack programs replace the installed ones in place.
+
+- **Long Worlds open again.** A World's whole history went to its Pack as one uncompressed message capped at 16 MB, so a Tiny Society World stopped opening at about day 660 (about five months of real use) and Maple Street at day 1,020. **Pack protocol v5** sends it compact and compressed: three years of Tiny Society is 2.8 MB, ten years 9.9 MB, under a 64 MB limit; a three-year World opens through its Pack in about 0.8 s and saves in about 0.4 s. A Pack that speaks v4 still opens a World that fits and says plainly when one does not. Tests now open, play and save a World larger than the old limit through the real Pack program.
+- **Fixed Packs arrive.** An included Pack whose program differs from the one the app ships is replaced in place, keeping its version, whether it is enabled, and every World made with it.
+- **The first minute says hello.** A new World opens with its first greeting (Leo's "Oh, a new face!") before anything else is said, then a first question once it has been heard; the story so far no longer says you were away. The first-minute tests check the greeting itself: 5 s in Tiny Society and 13 s in Pocket Universe, the first choice at 20 s and 29 s, the first keepsake at 29 s and 38 s.
+- **Fixed:** in Tiny Society, spirits at their lowest never brought a chapter's end forward, so a town could sit at its lowest for more than a week.
+- **CI** now runs the interface's 71 tests and clippy on it and the app, and builds the app on a Mac whenever any crate, System or World changes.
+- **Docs:** a World catches up at most 28 periods a return (a week away), not seven; opening a three-year World from a click takes 300–360 ms on the machine this was measured on.
+
 ## v0.19.0 (2026-09-28)
 
 **Worlds from `v0.18.0` do not open.** Tiny Society moves to `0.13.0` and Pocket Universe to `0.30.0`: letters, firsts and what people have heard are now kept differently, and an older World would open with an empty letter box and book. Start a new World.

@@ -102,20 +102,29 @@ pub(crate) fn voices(world: &World) -> Vec<Voice> {
     let latest = world.world_time();
     // Only moments History can show are ever retold, so only they are read.
     let events = world.events();
-    events[events
+    let mut voices = Vec::new();
+    for event in events[events
         .len()
         .saturating_sub(world_projection::TIMELINE_EVENTS)..]
         .iter()
         .filter(|event| !crate::projection::is_routine(&event.kind) || event.world_time == latest)
-        .filter_map(|event| {
-            let (speaker, line) = said(world, event)?;
-            Some(Voice {
-                moment: SelectionId::Event(event.id),
-                speaker: SelectionId::Entity(speaker),
-                line,
-            })
-        })
-        .collect()
+    {
+        let Some((speaker, line)) = said(world, event) else {
+            continue;
+        };
+        let voice = Voice {
+            moment: SelectionId::Event(event.id),
+            speaker: SelectionId::Entity(speaker),
+            line,
+        };
+        // A newcomer hears hello before anything else said that day.
+        if event.kind == "greeted" && event.world_time == latest {
+            voices.insert(0, voice);
+        } else {
+            voices.push(voice);
+        }
+    }
+    voices
 }
 
 /// What someone would ask for, among the choices on offer now, and how

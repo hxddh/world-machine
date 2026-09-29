@@ -47,6 +47,7 @@ const ACTIVITIES: &[Activity] = &[
             "Extra hours at {place}. It all adds up.",
             "Swept out {place} after everyone left.",
             "Did the books at {place}. They nearly balance.",
+            "Mopped the floor at {place} before I went home.",
         ],
         gives: &[],
     },

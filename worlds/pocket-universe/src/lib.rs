@@ -297,11 +297,12 @@ impl PocketUniverse {
             .world
             .execute(&self.actions, &ActionRequest::new(action).actor(UNIVERSE))?
             .id;
-        // A World that has just begun opens on its first question, and
-        // someone comes over to say hello.
+        // A World that has just begun: someone comes over to say hello,
+        // and the first question follows.
         story::tick(&mut self.world, &self.actions, false)?;
         let cast = life::cast(self.world.state());
         lives::greet(&mut self.world, &self.actions, &cast)?;
+        story::first_question(&mut self.world, &self.actions)?;
         Ok(event)
     }
 

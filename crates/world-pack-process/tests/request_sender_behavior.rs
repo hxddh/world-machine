@@ -9,7 +9,8 @@ use world_pack_process::{ProcessPack, ProcessPackSource, DEFAULT_MAX_REQUEST_BYT
 use world_pack_protocol::{
     encode_request, encode_response, PackDescriptor, PackManifest, PackRequest,
     PackRequestEnvelope, PackResponse, PackResponseEnvelope, ProjectionCapabilitiesWire,
-    ProjectionIntentWire, ProjectionSnapshotWire,
+    ProjectionIntentWire, ProjectionSnapshotWire, PACK_FRAME_LIMIT_BEFORE_V5,
+    PACK_PROTOCOL_VERSION_V4,
 };
 use world_persistence::WorldPackRef;
 use world_projection::ProjectionIntent;
@@ -48,33 +49,56 @@ fn snapshot(world_time: u64, title: &str) -> ProjectionSnapshotWire {
     }
 }
 
+/// The fixture speaks v4, whose frames stop at 16 MiB: the ceiling is
+/// enforced the same way at v5's larger one, and a smaller one keeps these
+/// tests quick.
+const CEILING: usize = PACK_FRAME_LIMIT_BEFORE_V5;
+
+fn manifest() -> PackManifest {
+    const { assert!(CEILING <= DEFAULT_MAX_REQUEST_BYTES) };
+    let mut manifest = PackManifest::process(descriptor(), "runtime.sh", Vec::new());
+    manifest.protocol_version = PACK_PROTOCOL_VERSION_V4;
+    manifest
+}
+
 fn response_line(request_id: u64, response: PackResponse) -> String {
-    encode_response(&PackResponseEnvelope::new(request_id, response)).unwrap()
+    encode_response(
+        &PackResponseEnvelope::for_version(PACK_PROTOCOL_VERSION_V4, request_id, response).unwrap(),
+    )
+    .unwrap()
 }
 
 fn exact_limit_handle_command(request_id: u64) -> String {
-    let empty = encode_request(&PackRequestEnvelope::new(
-        request_id,
-        PackRequest::Handle {
-            intent: ProjectionIntentWire::InvokeCommand {
-                command: String::new(),
+    let empty = encode_request(
+        &PackRequestEnvelope::for_version(
+            PACK_PROTOCOL_VERSION_V4,
+            request_id,
+            PackRequest::Handle {
+                intent: ProjectionIntentWire::InvokeCommand {
+                    command: String::new(),
+                },
             },
-        },
-    ))
+        )
+        .unwrap(),
+    )
     .unwrap();
     let empty_frame_bytes = empty.len() + 1;
-    assert!(empty_frame_bytes < DEFAULT_MAX_REQUEST_BYTES);
-    let command = "x".repeat(DEFAULT_MAX_REQUEST_BYTES - empty_frame_bytes);
-    let exact = encode_request(&PackRequestEnvelope::new(
-        request_id,
-        PackRequest::Handle {
-            intent: ProjectionIntentWire::InvokeCommand {
-                command: command.clone(),
+    assert!(empty_frame_bytes < CEILING);
+    let command = "x".repeat(CEILING - empty_frame_bytes);
+    let exact = encode_request(
+        &PackRequestEnvelope::for_version(
+            PACK_PROTOCOL_VERSION_V4,
+            request_id,
+            PackRequest::Handle {
+                intent: ProjectionIntentWire::InvokeCommand {
+                    command: command.clone(),
+                },
             },
-        },
-    ))
+        )
+        .unwrap(),
+    )
     .unwrap();
-    assert_eq!(exact.len() + 1, DEFAULT_MAX_REQUEST_BYTES);
+    assert_eq!(exact.len() + 1, CEILING);
     command
 }
 
@@ -128,7 +152,7 @@ fn exact_physical_request_ceiling_is_dispatched_and_correlated() {
             ),
         ],
     );
-    let manifest = PackManifest::process(descriptor(), "runtime.sh", Vec::new());
+    let manifest = manifest();
     let manifest_path = root.join("fixture.world-pack.json");
     fs::write(&manifest_path, manifest.to_json_pretty().unwrap()).unwrap();
 
@@ -176,7 +200,7 @@ fn oversized_multibyte_request_is_local_nonfatal_and_does_not_consume_request_id
             ),
         ],
     );
-    let manifest = PackManifest::process(descriptor(), "runtime.sh", Vec::new());
+    let manifest = manifest();
     let manifest_path = root.join("fixture.world-pack.json");
     fs::write(&manifest_path, manifest.to_json_pretty().unwrap()).unwrap();
 
@@ -191,9 +215,9 @@ fn oversized_multibyte_request_is_local_nonfatal_and_does_not_consume_request_id
     // bytes. Character-counting would accept this request; byte-counting must
     // reject it locally once the JSON envelope pushes the physical frame over
     // the existing 16 MiB Pack request ceiling.
-    let oversized = "é".repeat(DEFAULT_MAX_REQUEST_BYTES / 2);
-    assert!(oversized.chars().count() < DEFAULT_MAX_REQUEST_BYTES);
-    assert!(oversized.len() >= DEFAULT_MAX_REQUEST_BYTES);
+    let oversized = "é".repeat(CEILING / 2);
+    assert!(oversized.chars().count() < CEILING);
+    assert!(oversized.len() >= CEILING);
     let error = session
         .handle(ProjectionIntent::InvokeCommand(oversized))
         .unwrap_err();

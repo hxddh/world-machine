@@ -377,7 +377,7 @@ before   an unattended World stalls at period 18 and never moves again
 after    the same World reaches its third era by period 60, on its own
 
 before   catch-up capped at 7 periods — a week away equalled two days away
-after    capped at one week of World time, and a return that crossed eras says so
+after    capped at 28 periods (a week away, at one period per six hours), and a return that crossed eras says so
 ```
 
 ### The measurement this phase exists because of

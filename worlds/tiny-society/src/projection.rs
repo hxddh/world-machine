@@ -622,7 +622,9 @@ pub(crate) fn briefing_from(
         title: if since_event_count.is_some() {
             "While you were away".into()
         } else {
-            "Life happened while you were away".into()
+            // Not a return: a newcomer has not been away, and a World
+            // opened again tells its story whole.
+            "The story so far".into()
         },
         items,
         returned: since_event_count.is_some(),
@@ -846,7 +848,7 @@ fn narrated_kinds() -> &'static std::collections::BTreeSet<&'static str> {
             "undone_by_hand",
             "enjoyed",
         ];
-        const TABLE: [&str; 29] = [
+        const TABLE: [&str; 30] = [
             "chapter_ended",
             "festival_held",
             "payroll_shortfall",
@@ -876,6 +878,8 @@ fn narrated_kinds() -> &'static std::collections::BTreeSet<&'static str> {
             "storm_started",
             "counter_help_hired",
             "situation_arose",
+            // Being greeted is the first thing that happens to a newcomer.
+            "greeted",
         ];
         HANDS
             .into_iter()

@@ -24,27 +24,15 @@ jobs:
       - uses: dorny/paths-filter@v4
         id: filter
         with:
+          # The app depends on every crate in the workspace (the kernel,
+          # every System, both Worlds and their Packs), so a change to any
+          # of them is a change to the app.
           filters: |
             gpui:
-              - 'crates/world-gpui/**'
-              - 'crates/world-pack-protocol/**'
-              - 'crates/world-pack-bundle/**'
-              - 'crates/world-pack-process/**'
-              - 'crates/world-pack-catalog/**'
-              - 'crates/world-pack-server/**'
-              - 'crates/world-projection/**'
-              - 'crates/world-compare/**'
-              - 'crates/world-document/**'
-              - 'crates/world-host/**'
-              - 'crates/world-builtins/**'
-              - 'crates/world-library/**'
-              - 'crates/world-core/**'
-              - 'crates/world-persistence/**'
-              - 'apps/tiny-society-pack/**'
-              - 'apps/pocket-universe-pack/**'
-              - 'apps/world-machine-desktop/**'
-              - 'worlds/tiny-society/**'
-              - 'worlds/pocket-universe/**'
+              - 'crates/**'
+              - 'systems/**'
+              - 'worlds/**'
+              - 'apps/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'rust-toolchain.toml'
@@ -70,8 +58,10 @@ jobs:
       - name: Check the app icon
         run: python3 ./scripts/check-app-icon.py
       - run: cargo fmt --all -- --check
-      - run: cargo clippy --workspace --exclude world-gpui --exclude world-machine-desktop --all-targets -- -D warnings
-      - run: cargo test --workspace --exclude world-gpui --exclude world-machine-desktop
+      # world-gpui builds and tests on Linux: its golden pictures are drawn
+      # by a CPU rasteriser. Only the desktop app is macOS-gated.
+      - run: cargo clippy --workspace --exclude world-machine-desktop --all-targets -- -D warnings
+      - run: cargo test --workspace --exclude world-machine-desktop
       - name: Verify external Pack conformance command
         run: |
           mkdir -p target/pack-check
@@ -85,13 +75,15 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.98.1
+        with:
+          components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: gpui-macos
       - run: cargo test -p world-library
       - run: cargo test -p tiny-society-pack
       - run: cargo test -p pocket-universe-pack
-      - run: cargo check -p world-gpui
+      - run: cargo clippy -p world-gpui -p world-machine-desktop --all-targets -- -D warnings
       - run: cargo test -p world-machine-desktop
       - name: Build and validate World Machine.app
         run: bash apps/world-machine-desktop/macos/build-app.sh

@@ -2,13 +2,14 @@ use world_pack_protocol::{
     decode_request, decode_response, encode_request, encode_response, PackDescriptor, PackManifest,
     PackRequest, PackRequestEnvelope, PackResponse, PackResponseEnvelope, PACK_PROTOCOL_VERSION,
     PACK_PROTOCOL_VERSION_V1, PACK_PROTOCOL_VERSION_V2, PACK_PROTOCOL_VERSION_V3,
-    PACK_PROTOCOL_VERSION_V4,
+    PACK_PROTOCOL_VERSION_V4, PACK_PROTOCOL_VERSION_V5,
 };
 use world_persistence::WorldPackRef;
 
 #[test]
-fn latest_protocol_is_v4_while_v1_to_v3_remain_supported() {
-    assert_eq!(PACK_PROTOCOL_VERSION, PACK_PROTOCOL_VERSION_V4);
+fn latest_protocol_is_v5_while_v1_to_v4_remain_supported() {
+    assert_eq!(PACK_PROTOCOL_VERSION, PACK_PROTOCOL_VERSION_V5);
+    assert_eq!(PACK_PROTOCOL_VERSION_V5, 5);
     assert_eq!(PACK_PROTOCOL_VERSION_V4, 4);
     assert_eq!(PACK_PROTOCOL_VERSION_V3, 3);
     assert_eq!(PACK_PROTOCOL_VERSION_V1, 1);
@@ -20,7 +21,7 @@ fn latest_protocol_is_v4_while_v1_to_v3_remain_supported() {
         "fixture",
     );
     let latest = PackManifest::process(descriptor, "runtime", Vec::new());
-    assert_eq!(latest.protocol_version, PACK_PROTOCOL_VERSION_V4);
+    assert_eq!(latest.protocol_version, PACK_PROTOCOL_VERSION_V5);
     assert!(latest.validate().is_ok());
 
     let mut v1 = latest.clone();
@@ -35,8 +36,12 @@ fn latest_protocol_is_v4_while_v1_to_v3_remain_supported() {
     v3.protocol_version = PACK_PROTOCOL_VERSION_V3;
     assert!(v3.validate().is_ok());
 
+    let mut v4 = latest.clone();
+    v4.protocol_version = PACK_PROTOCOL_VERSION_V4;
+    assert!(v4.validate().is_ok());
+
     let mut unsupported = latest;
-    unsupported.protocol_version = PACK_PROTOCOL_VERSION_V4 + 1;
+    unsupported.protocol_version = PACK_PROTOCOL_VERSION_V5 + 1;
     assert!(unsupported.validate().is_err());
 }
 
@@ -47,6 +52,7 @@ fn request_and_response_envelopes_accept_known_versions_but_reject_unknown_ones(
         PACK_PROTOCOL_VERSION_V2,
         PACK_PROTOCOL_VERSION_V3,
         PACK_PROTOCOL_VERSION_V4,
+        PACK_PROTOCOL_VERSION_V5,
     ] {
         let request = PackRequestEnvelope::for_version(version, 7, PackRequest::Describe)
             .expect("supported request version");
@@ -63,7 +69,7 @@ fn request_and_response_envelopes_accept_known_versions_but_reject_unknown_ones(
         assert_eq!(decoded_response.response, PackResponse::Ok);
     }
 
-    let unsupported = PACK_PROTOCOL_VERSION_V4 + 1;
+    let unsupported = PACK_PROTOCOL_VERSION_V5 + 1;
     assert!(PackRequestEnvelope::for_version(unsupported, 1, PackRequest::Describe).is_err());
     assert!(PackResponseEnvelope::for_version(unsupported, 1, PackResponse::Ok).is_err());
 }

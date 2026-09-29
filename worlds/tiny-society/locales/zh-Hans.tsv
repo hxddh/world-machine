@@ -224,6 +224,7 @@ Probably a cat.	多半是只猫。
 Extra hours at {place}.	在{place}加了班。
 It all adds up.	积少成多。
 Swept out {place} after everyone left.	大家都走后，把{place}打扫了一遍。
+Mopped the floor at {place} before I went home.	回家前把{place}的地拖了一遍。
 Did the books at {place}.	在{place}对了账。
 They nearly balance.	差不多能对上。
 {name} ran errands for {other}	{name}帮{other}跑腿
@@ -454,7 +455,7 @@ One small thing happened, and nothing stood out.	发生了一件小事，没什�
 {count} small things happened, and nothing stood out.	发生了{count}件小事，没什么特别的。
 Society Today	小镇今日
 While you were away	你不在的这段时间
-Life happened while you were away	你不在的时候，生活照常继续
+The story so far	故事至此
 The bakery could not cover	面包房撑不下去了
 The bakery could not pay {name}	面包房付不出{name}的工资
 Jonas repaid Leo after returning to sea	乔纳斯重返大海后还清了莱奥的钱

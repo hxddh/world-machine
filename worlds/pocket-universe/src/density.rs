@@ -351,9 +351,10 @@ fn choices_change_and_come_back(seed: &str) -> (usize, usize) {
     followed
 }
 
-/// The v0.15 bar: a new World opens on the place, not a card. The first
-/// deed can be done at once, someone nearby says what they make of it,
-/// and the first question comes straight after.
+/// The v0.15 bar, as v0.19.1 keeps it: a new World opens on the place and
+/// its first question, asked just after the hello. The first deed can be
+/// done at once, someone nearby says what they make of it, and the
+/// question still waits.
 #[test]
 fn a_new_world_opens_on_the_place() {
     let mut registry = world_host::WorldRegistry::new();
@@ -380,9 +381,8 @@ fn a_new_world_opens_on_the_place() {
             ))
             .unwrap();
         assert!(
-            questions(&opened).is_empty(),
-            "{seed}: {:?}",
-            questions(&opened)
+            !questions(&opened).is_empty(),
+            "{seed}: no question as it opens"
         );
         let deed = opened
             .commands
@@ -1110,11 +1110,46 @@ fn a_first_session_greets_offers_and_gives_in_time_in_every_place() {
                 seed.into(),
             ))
             .unwrap();
+        // The hello the World records, not any line with "I'm " in it,
+        // among what people say as it opens (a new World is the same
+        // World every time).
+        let recorded = {
+            let mut universe = PocketUniverse::new().unwrap();
+            universe.invoke_projection_command(seed).unwrap();
+            let greeted = universe
+                .world()
+                .events()
+                .iter()
+                .find(|event| event.kind == "greeted")
+                .unwrap_or_else(|| panic!("{seed}: nobody greets the newcomer"))
+                .clone();
+            let (who, line) = lives::said(&greeted).expect("the greeting is said");
+            world_projection::Voice {
+                moment: world_projection::SelectionId::Event(greeted.id),
+                speaker: world_projection::SelectionId::Entity(who),
+                line,
+            }
+        };
         let greeting = opened
             .voices
             .iter()
-            .find(|voice| voice.line.contains("I'm "))
+            .find(|voice| **voice == recorded)
             .unwrap_or_else(|| panic!("{seed}: nobody says hello: {:?}", opened.voices));
+        // Nobody has been away, and something is asked from the start.
+        let briefing = opened.briefing.as_ref().expect("a briefing");
+        assert!(!briefing.returned, "{seed}");
+        assert!(
+            !briefing.title.to_lowercase().contains("away"),
+            "{seed}: {}",
+            briefing.title
+        );
+        assert!(
+            opened
+                .commands
+                .iter()
+                .any(|command| command.question.is_some()),
+            "{seed}: a new World opens on its first question"
+        );
         // It is said now, and first: the window shows what is said now,
         // news before everyday talk, in order.
         let now = |voice: &world_projection::Voice| {
@@ -1138,9 +1173,11 @@ fn a_first_session_greets_offers_and_gives_in_time_in_every_place() {
             .take_while(|voice| *voice != greeting)
             .map(turn)
             .sum();
+        assert_eq!(before, 0.0, "{seed}: the hello is the first thing said");
         clock += before;
         clock += 3.0;
         assert!(clock <= 20.0, "{seed}: greeted at {clock} s");
+        println!("{seed}: greeted at {clock} s");
         clock += read(&greeting.line);
         let deed = opened
             .commands
@@ -1151,6 +1188,7 @@ fn a_first_session_greets_offers_and_gives_in_time_in_every_place() {
             .clone();
         clock += 12.0;
         assert!(clock <= 60.0, "{seed}: first choice at {clock} s");
+        println!("{seed}: first choice at {clock} s");
         let after = session
             .handle(world_projection::ProjectionIntent::InvokeCommand(deed))
             .unwrap();
@@ -1160,6 +1198,7 @@ fn a_first_session_greets_offers_and_gives_in_time_in_every_place() {
             .unwrap_or_else(|| panic!("{seed}: a keepsake for the first deed"));
         clock += 3.0 + read(&keepsake.what) + read(&keepsake.note);
         assert!(clock <= 300.0, "{seed}: first keepsake at {clock} s");
+        println!("{seed}: first keepsake at {clock} s");
     }
 }
 
