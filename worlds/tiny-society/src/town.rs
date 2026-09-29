@@ -107,6 +107,7 @@ pub(crate) fn residents(state: &WorldState) -> Vec<EntityId> {
         .into_iter()
         .chain([ADA, IVO])
         .chain(lives::arrivals(state, &crate::life::cast()))
+        .chain(lives::born_here(state, &crate::life::cast()))
         .filter(|id| state.entity(*id).is_some() && !lives::gone(state, *id))
         .collect()
 }
@@ -117,7 +118,7 @@ pub(crate) fn households(state: &WorldState) -> BTreeMap<EntityId, Vec<EntityId>
     days::households(
         &residents(state),
         |person| lives::partner(state, person),
-        |_| None,
+        |person| lives::lives_with(state, person),
     )
 }
 
@@ -317,6 +318,15 @@ pub(crate) fn season_on(day: u64) -> (Season, Option<GroundCover>, bool) {
 }
 
 /// Whether today is a festival.
+/// Whether a snapshot is of a festival day.
+#[cfg(test)]
+pub(crate) fn festival_today_of(snapshot: &world_projection::ProjectionSnapshot) -> bool {
+    snapshot
+        .calendar
+        .as_ref()
+        .is_some_and(|calendar| calendar.festival_today)
+}
+
 pub(crate) fn festival_today(state: &WorldState) -> bool {
     calendar::festival_today(state, &crate::almanac::almanac(state))
 }
@@ -352,8 +362,14 @@ fn work_of(
 ) -> Option<SelectionId> {
     let job = text(state, person, society_basic::JOB);
     match job {
-        Some("unemployed") => return None,
+        Some("unemployed" | "retired") => return None,
         Some("student") => return Some(SelectionId::Entity(SCHOOL)),
+        // A child of the harbour goes to school by day once old enough,
+        // and a baby stays at home.
+        Some("child") => {
+            return (crate::kin::stage(state, person) != Some(lives::Stage::Baby))
+                .then_some(SelectionId::Entity(SCHOOL))
+        }
         _ => {}
     }
     let tied = state
@@ -795,6 +811,74 @@ mod tests {
             let snapshot = branch.projection_snapshot();
             look(day, branch.world(), &snapshot);
         }
+    }
+
+    /// Who is out of doors at an hour: the share of the residents drawn on
+    /// the scene whose day has them outside then.
+    pub(crate) fn outdoors(snapshot: &world_projection::ProjectionSnapshot, hour: u8) -> f32 {
+        let people = snapshot
+            .canvas
+            .items
+            .iter()
+            .filter(|item| item.kind == CanvasItemKind::Actor)
+            .collect::<Vec<_>>();
+        let out = people
+            .iter()
+            .filter(|item| {
+                let day = item
+                    .day
+                    .iter()
+                    .map(|stop| days::Stop {
+                        from_hour: stop.from_hour,
+                        at: stop.at,
+                        inside: stop.inside,
+                    })
+                    .collect::<Vec<_>>();
+                days::stop_at(&day, hour).is_some_and(|stop| !stop.inside)
+            })
+            .count();
+        out as f32 / people.len().max(1) as f32
+    }
+
+    fn check_outdoors(day: usize, snapshot: &world_projection::ProjectionSnapshot) {
+        for hour in [10, 12, 15, 17] {
+            let out = outdoors(snapshot, hour);
+            assert!(
+                out >= 0.6,
+                "day {day}, {hour}:00: only {:.0}% outside",
+                out * 100.0
+            );
+        }
+        let out = outdoors(snapshot, 23);
+        assert!(out <= 0.3, "day {day}, 23:00: {:.0}% outside", out * 100.0);
+    }
+
+    /// By day the harbour is out and about (at work, at school, on the
+    /// square), and by night it is home.
+    #[test]
+    fn the_harbour_is_out_by_day_and_home_by_night() {
+        play(60, |day, _, snapshot| {
+            if day % 30 == 0 && !crate::town::festival_today_of(snapshot) {
+                check_outdoors(day, snapshot);
+            }
+        });
+    }
+
+    /// The same, a year and three years on, children and elders among them.
+    #[test]
+    #[ignore]
+    fn the_harbour_is_out_by_day_and_home_by_night_for_three_years() {
+        play(1_080, |day, _, snapshot| {
+            if [360, 1_080].contains(&day) {
+                eprintln!(
+                    "day {day}: outside at 10/12/15/17/23: {:?}",
+                    [10, 12, 15, 17, 23].map(|hour| outdoors(snapshot, hour))
+                );
+                if !crate::town::festival_today_of(snapshot) {
+                    check_outdoors(day, snapshot);
+                }
+            }
+        });
     }
 
     /// A hundred and twenty days of the warm player: everyone has a home,

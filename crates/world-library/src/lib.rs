@@ -737,6 +737,16 @@ impl DurableWorldSession {
         Ok(self.session.hearing(to, words)?)
     }
 
+    /// A story the World tells about itself: a legend, one of its moments
+    /// or a year's almanac; changes nothing, and `None` for a World without
+    /// that story.
+    pub fn story(
+        &self,
+        request: world_projection::StoryRequest,
+    ) -> Result<Option<world_projection::StoryPage>, LibraryError> {
+        Ok(self.session.story(request)?)
+    }
+
     pub fn metadata(&self) -> &WorldDocumentMetadata {
         &self.metadata
     }
@@ -979,6 +989,7 @@ fn cast_from_document(
                 skin: figure.skin,
                 carries,
                 bird: figure.bird,
+                ..Look::default()
             });
             Some(CanvasItem {
                 id: SelectionId::from_stable_key(&figure.id)?,
@@ -1178,6 +1189,7 @@ fn summary_of(id: WorldDocumentId, document: &DocumentSummary) -> WorldDocumentS
                 coming: None,
                 season: None,
                 festival_today: false,
+                year: None,
             }
         }),
         display_marks: document
@@ -2093,6 +2105,7 @@ mod tests {
                 coming: None,
                 season: None,
                 festival_today: false,
+                year: None,
             }),
             canvas: world_projection::CanvasProjection {
                 marks: vec![world_projection::CanvasMark {
@@ -2138,6 +2151,7 @@ mod tests {
                             skin: Some(0xc68a5f),
                             carries: Some(world_projection::Carry::Tool),
                             bird: false,
+                            ..world_projection::Look::default()
                         }),
                         drawing: None,
                         stance: None,

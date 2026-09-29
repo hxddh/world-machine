@@ -47,6 +47,12 @@ pub struct Deck {
     pub pressures: Vec<&'static str>,
     /// How many storylets may be open at once.
     pub most_open: usize,
+    /// How much rarer a storylet grows each time it comes round: after its
+    /// `n`th time it rests at least `rarer * (n - 1)²` periods, so a
+    /// second storm follows the first as it always did, a third waits
+    /// longer, and a fourth longer still. What builds toward an unfinished
+    /// goal keeps its own pace. Nought keeps every storylet to its own rest.
+    pub rarer: u64,
 }
 
 /// Someone with something on their mind.
@@ -195,6 +201,9 @@ pub enum Condition {
     Pressure(&'static str),
     /// This chapter has at most this many periods left to run.
     ChapterEnding(u64),
+    /// A storylet has come up before this time: an answer only a place
+    /// that remembers the last time can give.
+    RaisedBefore(&'static str),
 }
 
 /// Something a World is building toward, part by part.
@@ -391,6 +400,7 @@ fn holds(state: &WorldState, deck: &Deck, condition: &Condition) -> bool {
         Condition::ChapterEnding(left) => period + left >= chapter_ends(state, deck),
         Condition::Present(entity) => state.entity(*entity).is_some(),
         Condition::Absent(entity) => state.entity(*entity).is_none(),
+        Condition::RaisedBefore(id) => times_raised(state, deck, id) >= 2,
     }
 }
 
@@ -494,14 +504,49 @@ pub fn can_arise(state: &WorldState, deck: &Deck, storylet: &Storylet) -> bool {
         None => true,
     };
     rested
+        && rested_from_before(state, deck, storylet)
         && !asked_enough_this_year(state, deck, storylet.id)
         && all_hold(state, deck, &storylet.requires)
+}
+
+/// Whether a storylet that has come round before has rested as long as
+/// coming round again asks ([`Deck::rarer`]).
+fn rested_from_before(state: &WorldState, deck: &Deck, storylet: &Storylet) -> bool {
+    let times = times_raised(state, deck, storylet.id).max(0) as u64;
+    // What builds toward a goal not yet finished comes round part by part,
+    // as it always has.
+    // A want nobody answered last time did not really happen: the asker
+    // asks again at their own pace.
+    let unanswered = storylet.want && last_outcome(state, deck, storylet.id) == Some("lapse");
+    if deck.rarer == 0 || times < 2 || unanswered || advances_goal(state, deck, storylet).is_some()
+    {
+        return true;
+    }
+    let Some(last) = integer(state, deck.story, &key("last", storylet.id)) else {
+        return true;
+    };
+    let rest = deck.rarer * (times - 1) * (times - 1);
+    state.world_time() >= (last.max(0) as u64).saturating_add(rest * deck.period)
 }
 
 /// Whether a storylet could come up now if it did not have to rest first:
 /// what the storyteller brings forward when nothing at all is open.
 fn can_arise_early(state: &WorldState, deck: &Deck, storylet: &Storylet) -> bool {
     opened_at(state, deck, storylet.id).is_none()
+        && rested_from_before(state, deck, storylet)
+        && !asked_enough_this_year(state, deck, storylet.id)
+        && all_hold(state, deck, &storylet.requires)
+}
+
+/// The most times a storylet grown rare is brought forward regardless.
+const RAREST: i64 = 4;
+
+/// Whether a storylet could come up now if neither its rest nor how rare
+/// it has grown held it back: what comes forward when nothing else can.
+fn can_arise_rare(state: &WorldState, deck: &Deck, storylet: &Storylet) -> bool {
+    // Never past its fourth time this way: rare stays rare.
+    times_raised(state, deck, storylet.id) < RAREST
+        && opened_at(state, deck, storylet.id).is_none()
         && !asked_enough_this_year(state, deck, storylet.id)
         && all_hold(state, deck, &storylet.requires)
 }
@@ -979,9 +1024,14 @@ impl Action for Arises {
         let deck = self.0.get();
         let storylet = find(&deck, arg_text(request, "storylet")?)?;
         // Brought forward before it has rested, when nothing else is open.
+        let rare = request.args.get("rare") == Some(&Value::Bool(true));
         let early = request.args.get("early") == Some(&Value::Bool(true))
-            && can_arise_early(state, &deck, storylet);
-        if !early && !can_arise(state, &deck, storylet) {
+            && (can_arise_early(state, &deck, storylet)
+                || (rare && can_arise_rare(state, &deck, storylet)));
+        if !early
+            && !can_arise(state, &deck, storylet)
+            && !(rare && can_arise_rare(state, &deck, storylet))
+        {
             return Err(ActionError::Invalid(format!(
                 "{} cannot come up now",
                 storylet.id
@@ -1491,12 +1541,34 @@ pub fn tick(
             .iter()
             .filter(|storylet| can_arise(state, deck, storylet) && needed(storylet))
             .max_by_key(|storylet| (score(storylet), storylet.id));
+        // With nothing open and everything grown rare, the least often
+        // heard of what has rested, rather than nothing to decide.
+        let rare = pick.is_none() && open_now.is_empty() && !reading.away;
+        let pick = pick.or_else(|| {
+            deck.storylets
+                .iter()
+                .filter(|_| rare)
+                // What has never come up keeps its own pace, above.
+                .filter(|storylet| times_raised(state, deck, storylet.id) > 0)
+                .filter(|storylet| {
+                    can_arise_rare(state, deck, storylet)
+                        && integer(state, deck.story, &key("last", storylet.id)).is_none_or(
+                            |last| {
+                                state.world_time()
+                                    >= (last.max(0) as u64)
+                                        .saturating_add(storylet.rests * deck.period)
+                            },
+                        )
+                })
+                .min_by_key(|storylet| (times_raised(state, deck, storylet.id), storylet.id))
+        });
         let Some(pick) = pick else {
             break;
         };
         let request = ActionRequest::new("storylet_arises")
             .actor(pick.asker)
-            .arg("storylet", pick.id);
+            .arg("storylet", pick.id)
+            .arg("rare", rare);
         events.push(world.execute(actions, &request)?.id);
     }
     Ok(events)
@@ -1659,6 +1731,7 @@ mod tests {
                 to: 10,
             }],
             most_open: 2,
+            rarer: 0,
         }
     }
 
@@ -2106,6 +2179,67 @@ mod tests {
             pass(&mut world, &actions);
         }
         assert!(times_raised(world.state(), &deck(), "market") >= 2);
+    }
+
+    #[test]
+    fn what_came_round_before_grows_rarer_and_remembers() {
+        // Market day, in a deck that forgets and in one that remembers.
+        let market_days = |rarer: u64| {
+            let mut state = WorldState::default();
+            state
+                .seed_entity(Entity::new(ANN, "person").with_component("coins", 10_i64))
+                .unwrap();
+            let mut actions = ActionRegistry::new();
+            let source: fn() -> Deck = if rarer == 0 { deck } else { rare_deck };
+            register_actions(&mut actions, source).unwrap();
+            let mut world = World::new(state);
+            world
+                .execute(&actions, &ActionRequest::new("story_begins"))
+                .unwrap();
+            let mut came = Vec::new();
+            for day in 0..120 {
+                let next = world.world_time() + 10;
+                world.advance_to(&actions, next).unwrap();
+                for id in tick(&mut world, &actions, &source(), &reading()).unwrap() {
+                    let event = world.event(id).unwrap();
+                    if event.kind == "situation_arose"
+                        && event.payload.get("storylet") == Some(&Value::Text("market".into()))
+                    {
+                        came.push(day);
+                    }
+                }
+            }
+            (world, came)
+        };
+        let (_, forgets) = market_days(0);
+        let (world, remembers) = market_days(6);
+        // It comes round every third day in a deck that forgets; in one
+        // that remembers, the third time waits at least its rest, and it
+        // comes only when nothing else could (this deck is tiny).
+        assert!(
+            remembers[2] - remembers[1] >= 6,
+            "{remembers:?} {forgets:?}"
+        );
+        assert!(
+            remembers.last() > forgets.last(),
+            "{remembers:?} {forgets:?}"
+        );
+        assert_eq!(remembers[..2], forgets[..2]);
+        // Whether it came before is something an answer can ask.
+        assert!(holds(
+            world.state(),
+            &rare_deck(),
+            &Condition::RaisedBefore("market")
+        ));
+        assert!(!holds(
+            world.state(),
+            &rare_deck(),
+            &Condition::RaisedBefore("roof_never")
+        ));
+    }
+
+    fn rare_deck() -> Deck {
+        Deck { rarer: 6, ..deck() }
     }
 
     #[test]

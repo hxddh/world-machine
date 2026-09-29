@@ -62,6 +62,7 @@ pub(crate) fn look(id: EntityId) -> Option<Look> {
         skin: Some(skin),
         carries,
         bird: false,
+        ..Look::default()
     })
 }
 

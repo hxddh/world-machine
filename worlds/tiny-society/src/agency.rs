@@ -35,6 +35,10 @@ struct Town {
     /// Works finished: the pier, the lamp, the ladder's and the harbour's
     /// own.
     works: usize,
+    /// Which works those are.
+    built: BTreeSet<String>,
+    /// Things the player made by hand that stand there.
+    made: usize,
     /// Who lives there.
     people: BTreeSet<String>,
     /// Money in the town, the mainland market's aside.
@@ -44,9 +48,17 @@ struct Town {
     opinion: i64,
     /// Couples walking out together.
     couples: usize,
+    /// Couples the town has seen in three years: together now, or until
+    /// one of them died or left.
+    ever: usize,
+    /// Who is walking out with whom, by name.
+    pairs: BTreeSet<(String, String)>,
     /// Newcomers who came to stay, and those of them who left again.
     arrived: BTreeSet<String>,
     left: BTreeSet<String>,
+    /// Who was born, and who died, by name.
+    born: BTreeSet<String>,
+    died: BTreeSet<String>,
 }
 
 fn play(player: Player, days: usize) -> Town {
@@ -142,6 +154,14 @@ fn town(world: &world_core::World) -> Town {
             .iter()
             .filter(|goal| goal.finished())
             .count(),
+        built: story::goals(world)
+            .into_iter()
+            .filter(|goal| goal.finished())
+            .map(|goal| goal.id)
+            .collect(),
+        made: world
+            .events_of_kind(&["built_by_hand", "decorated_by_hand", "planted_by_hand"])
+            .len(),
         people: people
             .iter()
             .map(|person| lives::name(state, *person))
@@ -162,6 +182,27 @@ fn town(world: &world_core::World) -> Town {
             })
             .count()
             / 2,
+        ever: state
+            .entities()
+            .filter_map(|entity| {
+                let other = ["lives.partner", "lives.was_with"]
+                    .into_iter()
+                    .find_map(|key| match entity.component(key) {
+                        Some(Value::Entity(other)) => Some(*other),
+                        _ => None,
+                    })?;
+                Some((entity.id.min(other), entity.id.max(other)))
+            })
+            .collect::<BTreeSet<_>>()
+            .len(),
+        pairs: people
+            .iter()
+            .filter_map(|person| {
+                let other = lives::partner(state, *person).filter(|p| people.contains(p))?;
+                let (a, b) = (lives::name(state, *person), lives::name(state, other));
+                Some((a.clone().min(b.clone()), a.max(b)))
+            })
+            .collect(),
         arrived: came
             .iter()
             .map(|person| lives::name(state, *person))
@@ -170,6 +211,22 @@ fn town(world: &world_core::World) -> Town {
             .iter()
             .filter(|person| lives::gone(state, **person))
             .map(|person| lives::name(state, *person))
+            .collect(),
+        born: world
+            .events_of_kind(&["born"])
+            .into_iter()
+            .filter_map(|event| match event.payload.get("name") {
+                Some(Value::Text(name)) => Some(name.clone()),
+                _ => None,
+            })
+            .collect(),
+        died: world
+            .events_of_kind(&["died"])
+            .into_iter()
+            .filter_map(|event| match event.payload.get("who") {
+                Some(Value::Entity(who)) => Some(lives::name(state, *who)),
+                _ => None,
+            })
             .collect(),
     }
 }
@@ -210,7 +267,7 @@ fn four_players_make_four_towns_in_three_years() {
     let towns = towns(1_080);
     for (player, town) in &towns {
         eprintln!(
-            "{player:?}: {} works, {} people ({} came, {} left: {:?}), money {}, mean opinion {:.2}, {} couples; {:?}",
+            "{player:?}: {} works, {} people ({} came, {} left or died: {:?}), money {}, mean opinion {:.2}, {} couples; {:?}",
             town.works,
             town.people.len(),
             town.arrived.len(),
@@ -221,12 +278,29 @@ fn four_players_make_four_towns_in_three_years() {
             town.couples,
             town.people
         );
+        eprintln!(
+            "  {} couples ever; born {:?}; died {:?}",
+            town.ever, town.born, town.died
+        );
     }
-    all_differ(&towns, "number of works", |town| town.works);
+    // Who is born and who dies depends on the player too.
+    all_differ(&towns, "births and deaths", |town| {
+        (town.born.clone(), town.died.clone())
+    });
+    // What each town built: its works, and what the player made there by
+    // hand. A town nobody answers and one whose player only makes things
+    // may finish the same works of their own accord; they still differ in
+    // what stands there.
+    all_differ(&towns, "works", |town| {
+        (town.works, town.built.clone(), town.made)
+    });
     all_differ(&towns, "people", |town| town.people.clone());
     all_differ(&towns, "money", |town| town.money);
     all_differ(&towns, "mean opinion", |town| town.opinion);
-    all_differ(&towns, "number of couples", |town| town.couples);
+    // Now that people die, a couple can end without parting, and two
+    // towns can hold as many couples as each other: the town's couples
+    // are told by who is together, and how many it has seen.
+    all_differ(&towns, "couples", |town| (town.pairs.clone(), town.ever));
     // Who comes and who goes depends on the player.
     all_differ(&towns, "comings and goings", |town| {
         (town.arrived.clone(), town.left.clone())

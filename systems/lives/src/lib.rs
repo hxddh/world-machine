@@ -21,6 +21,14 @@
 
 mod voice;
 
+pub mod generations;
+pub use generations::{
+    age_of, awaiting_memorial, born_here, children, grown, grown_here, lives_with, looks_of,
+    memorial_request, parents, Kin, KinWords, Memorial, Stage,
+};
+
+mod answers;
+pub use answers::answer_label;
 mod host;
 mod quiet;
 #[cfg(any(test, feature = "scan-reference"))]
@@ -179,6 +187,9 @@ pub struct Cast {
     /// How someone speaks, for the people the Pack gives a voice; anyone
     /// else speaks from their traits.
     pub voice: fn(EntityId) -> Option<&'static Voice>,
+    /// How the place keeps its generations (ages, births and deaths), if
+    /// it does.
+    pub kin: Option<&'static Kin>,
 }
 
 /// Traits someone can have, and the ones that grate on each other.
@@ -547,8 +558,12 @@ impl Moves {
 fn enrolment(state: &WorldState, cast: &Cast, person: EntityId, others: &[EntityId]) -> Moves {
     let mut moves = Moves::default();
     let seed = mix(&[person.0, 7]);
+    let inherited = text(state, person, generations::NATURE)
+        .filter(|nature| !nature.is_empty())
+        .map(str::to_string);
     let traits = (cast.traits)(person)
         .map(|[a, b]| format!("{a} {b}"))
+        .or(inherited)
         .unwrap_or_else(|| {
             let a = TRAITS[(seed % TRAITS.len() as u64) as usize];
             let b = TRAITS[((seed / 11 + 3) % TRAITS.len() as u64) as usize];
@@ -998,20 +1013,46 @@ impl Action for Lives {
         let (mut said, base) = saying(state, &cast, person, activity, &words, seed, &heard);
         if quarrel {
             told.push_str(", and they had words");
-            let topic = pick(cast.topics, seed / 19).copied().unwrap_or("nothing");
-            // Said in words nobody has used lately, like any other line.
-            let mut options = [
-                format!("{other_name} and I had words over {topic}."),
-                format!("Don't mention {topic} to {other_name}. Just don't."),
-                format!("{other_name} and I fell out over {topic}. It'll blow over."),
-                format!("Me and {other_name}, shouting about {topic}. Silly."),
-            ];
-            options.rotate_left((seed / 23 % 4) as usize);
-            said = options
-                .iter()
-                .find(|line| !heard.lately(line))
-                .cloned()
-                .unwrap_or_else(|| options[0].clone());
+            // Said in words nobody has used lately, like any other line:
+            // over something else, if every way of saying this one was.
+            let quarrel_over = |topic: &str| {
+                let mut options = [
+                    format!("{other_name} and I had words over {topic}."),
+                    format!("Don't mention {topic} to {other_name}. Just don't."),
+                    format!("{other_name} and I fell out over {topic}. It'll blow over."),
+                    format!("Me and {other_name}, shouting about {topic}. Silly."),
+                ];
+                options.rotate_left((seed / 23 % 4) as usize);
+                options
+            };
+            let first = pick(cast.topics, seed / 19).copied().unwrap_or("nothing");
+            let (topic, line) = (0..cast.topics.len().clamp(1, 6))
+                .filter_map(|offset| {
+                    let topic = pick(cast.topics, seed / 19 + offset as u64)
+                        .copied()
+                        .unwrap_or("nothing");
+                    let line = quarrel_over(topic)
+                        .into_iter()
+                        .find(|line| !heard.lately(line))?;
+                    Some((topic, line))
+                })
+                .next()
+                .unwrap_or_else(|| (first, quarrel_over(first)[0].clone()));
+            if let Some(other) = with {
+                moves.set(person, ROW, format!("{other}:{topic}"));
+                moves.set(other, ROW, format!("{person}:{topic}"));
+            }
+            said = line;
+        }
+        // Someone close to one who died lately speaks of them.
+        let mut remembers = None;
+        if !quarrel {
+            if let Some((who, lines)) = generations::remembering(state, &cast, person, seed / 31) {
+                if let Some(line) = lines.iter().find(|line| !heard.lately(line)) {
+                    said = line.clone();
+                    remembers = Some(who);
+                }
+            }
         }
         if let Some(voice) = (cast.voice)(person) {
             said = restyle(voice, &said, seed / 29);
@@ -1019,6 +1060,9 @@ impl Action for Lives {
         remember_saying(&mut moves, &heard, &said);
         remember_saying(&mut moves, &heard, &base);
         let mut draft = EventDraft::new("lived");
+        if let Some(who) = remembers {
+            draft.payload.insert("remembers".into(), Value::Entity(who));
+        }
         draft.actor = Some(person);
         draft.targets = with.into_iter().collect();
         draft.payload.insert("activity".into(), activity.id.into());
@@ -1383,17 +1427,78 @@ fn pick_line(options: &[String], heard: &Heard, person: EntityId) -> String {
         .unwrap_or_default()
 }
 
-/// How two people stand, from what each thinks of the other.
-fn standing(state: &WorldState, a: EntityId, b: EntityId) -> &'static str {
+/// How two people stand, from what each thinks of the other and how they
+/// stood before: a friendship or a feud, once made, holds through an
+/// ordinary bad week or good one, and ends only when it has truly gone.
+fn standing(state: &WorldState, a: EntityId, b: EntityId, was: &str) -> &'static str {
     let (ab, ba) = (opinion(state, a, b), opinion(state, b, a));
     if partner(state, a) == Some(b) {
-        "partners"
-    } else if ab <= -20 || ba <= -20 {
-        "foes"
-    } else if ab >= 30 && ba >= 30 {
-        "friends"
-    } else {
-        ""
+        return "partners";
+    }
+    let feud = ab <= -25 || ba <= -25;
+    let friends = ab >= 32 && ba >= 32;
+    match was {
+        "friends" if ab <= -45 || ba <= -45 => "foes",
+        "friends" if ab >= 10 || ba >= 10 => "friends",
+        "foes" if ab < 5 || ba < 5 => "foes",
+        "foes" if friends => "friends",
+        "friends" | "foes" => "",
+        _ if feud => "foes",
+        _ if friends => "friends",
+        _ => "",
+    }
+}
+
+/// The fewest periods a friendship or a feud stands before it can change.
+const BOND_HOLDS: i64 = 90;
+/// The fewest periods between two changes in how anyone stands with
+/// anyone: each is a thing people talk about, not the weather.
+const BOND_GAP: i64 = 6;
+/// Whom someone last had words with, and over what: `"<id>:<topic>"`.
+const ROW: &str = "lives.row";
+/// The changes in how people stand of the last [`BOND_HOLDS`] periods, on
+/// the notes, as `"<a>.<b>.<period>"` with `a` the lower id: kept this
+/// short so a World's saves and codes stay small.
+const BONDS_LATELY: &str = "lives.bonds_lately";
+
+/// The changes in how people stand lately: each pair and when.
+fn bonds_lately(state: &WorldState, cast: &Cast) -> Vec<(u64, u64, i64)> {
+    match state
+        .entity(cast.notes)
+        .and_then(|notes| notes.component(BONDS_LATELY))
+    {
+        Some(Value::List(items)) => items
+            .iter()
+            .filter_map(|item| {
+                let Value::Text(item) = item else {
+                    return None;
+                };
+                let mut parts = item.split('.');
+                Some((
+                    parts.next()?.parse().ok()?,
+                    parts.next()?.parse().ok()?,
+                    parts.next()?.parse().ok()?,
+                ))
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// Why two people's standing changed, in words.
+fn because(state: &WorldState, a: EntityId, b: EntityId, bond: &str) -> String {
+    let row = text(state, a, ROW)
+        .and_then(|row| row.split_once(':'))
+        .filter(|(with, _)| *with == b.to_string())
+        .map(|(_, topic)| topic.to_string());
+    let (an, bn) = (first_name(state, a), first_name(state, b));
+    match (bond, row) {
+        ("fell_out", Some(row)) => format!("It came to a head over {row}."),
+        ("fell_out", None) => format!("Too many cross words with {bn}."),
+        ("made_up", Some(row)) => format!("They let {row} go at last."),
+        ("made_up", None) => "Time mended it.".into(),
+        ("drifted", _) => "They stopped making time for each other.".into(),
+        _ => format!("{an} and {bn} kept finding each other's company."),
     }
 }
 
@@ -1419,9 +1524,25 @@ impl Action for Bonds {
         let a = arg_entity(request, "a")?;
         let b = arg_entity(request, "b")?;
         let was = text(state, a, &bond_key(b)).unwrap_or("");
-        let now = standing(state, a, b);
+        let now = standing(state, a, b, was);
         if was == now {
             return Err(ActionError::Invalid("nothing has changed".into()));
+        }
+        // A friendship or a feud holds a while, and the place has one
+        // change of heart at a time. Partners are told as they happen.
+        let today = period(state, &cast) as i64;
+        if now != "partners" && was != "partners" {
+            let lately = bonds_lately(state, &cast);
+            let pair = (a.0.min(b.0), a.0.max(b.0));
+            if lately
+                .iter()
+                .any(|(x, y, at)| (*x, *y) == pair && today - at < BOND_HOLDS)
+            {
+                return Err(ActionError::Invalid("too soon".into()));
+            }
+            if lately.iter().any(|(_, _, at)| today - at < BOND_GAP) {
+                return Err(ActionError::Invalid("one at a time".into()));
+            }
         }
         let (an, bn) = (name(state, a), name(state, b));
         let (kind, told, said) = match (was, now) {
@@ -1506,6 +1627,9 @@ impl Action for Bonds {
         let mut draft = EventDraft::new("bond_changed");
         draft.actor = Some(a);
         draft.targets = vec![b];
+        draft
+            .payload
+            .insert("because".into(), because(state, a, b, kind).into());
         draft.payload.insert("bond".into(), kind.into());
         draft.payload.insert("told".into(), told.into());
         draft.payload.insert("said".into(), said.into());
@@ -1517,6 +1641,21 @@ impl Action for Bonds {
                 value: now.into(),
             });
         }
+        let mut lately = bonds_lately(state, &cast)
+            .into_iter()
+            .filter(|(_, _, at)| today - at < BOND_HOLDS)
+            .map(|(x, y, at)| Value::Text(format!("{x}.{y}.{at}")))
+            .collect::<Vec<_>>();
+        lately.push(Value::Text(format!(
+            "{}.{}.{today}",
+            a.0.min(b.0),
+            a.0.max(b.0)
+        )));
+        draft.changes.push(StateChange::SetComponent {
+            entity: cast.notes,
+            key: BONDS_LATELY.into(),
+            value: Value::List(lately),
+        });
         Ok(draft)
     }
 }
@@ -1761,6 +1900,7 @@ pub fn candidates(world: &World, cast: &Cast) -> Vec<Candidate> {
                 ));
             }
             if ab >= 45
+                && generations::may_court(state, cast, a, b)
                 && partner(state, a).is_none()
                 && partner(state, b).is_none()
                 && !heartsore(state, a, now)
@@ -2018,9 +2158,7 @@ fn words_for(
                 let seed = mix(&[b.0, candidate.topic, 17]);
                 words.push((
                     "b",
-                    stranger_name(state, cast, candidate.topic)
-                        .unwrap_or("A stranger")
-                        .into(),
+                    stranger_at_door(state, cast, candidate).unwrap_or_else(|| "A stranger".into()),
                 ));
                 let (trade, _) = pick(visitors.trades, seed / 7)
                     .copied()
@@ -2482,6 +2620,13 @@ impl Action for Opens {
             Value::from(period(state, &cast) as i64),
         );
         map.insert("prompt".to_string(), Value::from(situation.prompt));
+        // A stranger at the door keeps the name they gave, whoever else
+        // comes to stay while they wait.
+        if candidate.kind == Kind::Visitor {
+            if let Some(stranger) = stranger_name(state, &cast, candidate.topic) {
+                map.insert("stranger".to_string(), Value::from(stranger));
+            }
+        }
         draft.changes.push(StateChange::SetComponent {
             entity: cast.notes,
             key: open_key(key),
@@ -2932,7 +3077,9 @@ fn outcome(
                 .or_else(|| next_visitor(state, cast))
                 .ok_or_else(|| ActionError::Invalid("no room for anyone".into()))?;
             let seed = mix(&[visitor.0, candidate.topic, 17]);
-            let visitor_name = stranger_name(state, cast, candidate.topic).unwrap_or("A stranger");
+            let visitor_name =
+                stranger_at_door(state, cast, candidate).unwrap_or_else(|| "A stranger".into());
+            let visitor_name = visitor_name.as_str();
             let (_, job) = pick(visitors.trades, seed / 7)
                 .copied()
                 .unwrap_or(("traveller", "traveller"));
@@ -3884,6 +4031,7 @@ impl Action for Matches {
             .iter()
             .flat_map(|a| people.iter().map(move |b| (*a, *b)))
             .filter(|(a, b)| a.0 < b.0 && !(cast.kept)(*a, *b) && !(cast.kept)(*b, *a))
+            .filter(|(a, b)| generations::may_court(state, &cast, *a, *b))
             .map(|(a, b)| {
                 let fond = opinion(state, a, b).min(opinion(state, b, a));
                 (fond, mix(&[a.0, b.0, now]), a, b)
@@ -4369,6 +4517,37 @@ fn stranger_name(state: &WorldState, cast: &Cast, seed: u64) -> Option<&'static 
     pick(&next_names(state, cast, 3), mix(&[seed, 29])).copied()
 }
 
+/// The names of strangers waiting at the door for an answer.
+pub fn waiting_strangers(state: &WorldState, cast: &Cast) -> Vec<String> {
+    open(state, cast)
+        .into_iter()
+        .filter_map(
+            |(key, _)| match open_map(state, cast, &key)?.get("stranger") {
+                Some(Value::Text(name)) => Some(name.clone()),
+                _ => None,
+            },
+        )
+        .collect()
+}
+
+/// The name of the stranger at the door in a situation: the one they gave
+/// when it came up, while nobody has taken it since; otherwise (a
+/// situation opened by an older World) the next name free.
+fn stranger_at_door(state: &WorldState, cast: &Cast, candidate: &Candidate) -> Option<String> {
+    let given = open_map(state, cast, &candidate.key()).and_then(|map| match map.get("stranger") {
+        Some(Value::Text(name)) => Some(name.clone()),
+        _ => None,
+    });
+    let free = |name: &str| {
+        !state
+            .entities()
+            .any(|entity| entity.component("name") == Some(&Value::Text(name.into())))
+    };
+    given
+        .filter(|name| free(name))
+        .or_else(|| stranger_name(state, cast, candidate.topic).map(str::to_string))
+}
+
 /// The names the next `count` newcomers will have: the visitors' names in
 /// order, less any anyone here or gone has had.
 fn next_names(state: &WorldState, cast: &Cast, count: usize) -> Vec<&'static str> {
@@ -4382,6 +4561,7 @@ fn next_names(state: &WorldState, cast: &Cast, count: usize) -> Vec<&'static str
         .filter(|id| state.entity(*id).is_some())
         .chain(cast_ids(state))
         .flat_map(|id| [name(state, id), first_name(state, id)])
+        .chain(waiting_strangers(state, cast))
         .collect::<BTreeSet<_>>();
     visitors
         .names
@@ -4493,6 +4673,7 @@ pub fn register_actions(
     registry.register(suggest::Suggests(cast))?;
     registry.register(host::Hosts(cast))?;
     registry.register(quiet::Firsts(cast))?;
+    generations::register_actions(registry, cast)?;
     Ok(())
 }
 
@@ -4582,6 +4763,8 @@ pub fn tick_with(
             events.push(event.id);
         }
     }
+    // Births and deaths, growing up and growing old.
+    events.extend(generations::tick(world, actions, cast)?);
     if away {
         events.extend(daily_with(world, actions, cast, true, quiet)?);
         return Ok(events);
@@ -4660,6 +4843,14 @@ pub fn is_life(event: &Event) -> bool {
             | "guest_visited"
             | "first_mentioned"
             | "corner_shown"
+            | "born"
+            | "came_of_age"
+            | "left_home"
+            | "retired"
+            | "died"
+            | "heirloom_passed"
+            | "memorial_placed"
+            | "anniversary_kept"
     )
 }
 
@@ -4694,8 +4885,16 @@ pub fn is_news(event: &Event) -> bool {
 }
 
 /// The kinds of moment [`is_news`] counts as news.
-pub const NEWS_KINDS: [&str; 8] = [
+pub const NEWS_KINDS: [&str; 16] = [
     "bond_changed",
+    "born",
+    "came_of_age",
+    "left_home",
+    "retired",
+    "died",
+    "heirloom_passed",
+    "memorial_placed",
+    "anniversary_kept",
     "situation_came_up",
     "situation_answered",
     "situation_lapsed",
@@ -4716,7 +4915,7 @@ pub fn news_since(world: &World, since: u64) -> Vec<String> {
         .rev()
         .take_while(|event| event.world_time >= since)
         .filter(|event| match event.kind.as_str() {
-            "bond_changed" => true,
+            "bond_changed" | "born" | "came_of_age" | "retired" | "died" | "left_home" => true,
             "situation_answered" | "situation_lapsed" => matches!(
                 (event.payload.get("kind"), event.payload.get("answer")),
                 (Some(Value::Text(kind)), Some(Value::Text(answer)))

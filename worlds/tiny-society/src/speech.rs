@@ -191,7 +191,8 @@ pub(crate) fn mood_of(
     use world_projection::Mood;
     let state = world.state();
     if !lives::enrolled(state, who) {
-        return None;
+        // A child of the harbour, too young for its everyday life, is happy.
+        return (!lives::parents(state, who).is_empty()).then_some(Mood::Happy);
     }
     if askers.contains(&who) {
         return Some(Mood::Thinking);

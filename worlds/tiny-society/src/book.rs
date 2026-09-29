@@ -17,6 +17,8 @@ fn entry(
         found,
         shape,
         hint,
+        moment: None,
+        cast: Vec::new(),
     }
 }
 
@@ -79,7 +81,14 @@ pub(crate) fn book(world: &World) -> Vec<BookEntry> {
         } else {
             "Might come to stay".to_string()
         };
-        book.push(entry("People", name, found, None, hint));
+        let mut met = entry("People", name, found, None, hint);
+        // Someone met is drawn with their own face.
+        met.cast = person
+            .filter(|_| found)
+            .map(world_projection::SelectionId::Entity)
+            .into_iter()
+            .collect();
+        book.push(met);
     }
     // Things made with the player's own hands.
     let made = hands::ever_made(world);

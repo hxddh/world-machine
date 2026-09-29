@@ -99,6 +99,10 @@ pub struct Figure {
     pub skin: Hsla,
     pub carries: Option<Carry>,
     pub bird: bool,
+    /// How old they look.
+    pub age: crate::age::Age,
+    /// Whether their back has bent with the years.
+    pub stoop: bool,
 }
 
 impl Figure {
@@ -106,12 +110,19 @@ impl Figure {
         let seed = seed_of(key);
         let look = look.unwrap_or_default();
         let pick = |list: &[u32], salt: u32| list[((seed >> salt) as usize) % list.len()];
+        let hair = hex(look.hair.unwrap_or_else(|| pick(&HAIR, 7)));
         Self {
             clothes: hex(look.clothes.unwrap_or_else(|| pick(&CLOTHES, 0))),
-            hair: hex(look.hair.unwrap_or_else(|| pick(&HAIR, 7))),
+            hair: if crate::age::look_grey(&look) {
+                crate::age::greyed(hair)
+            } else {
+                hair
+            },
             skin: hex(look.skin.unwrap_or_else(|| pick(&SKIN, 13))),
             carries: look.carries,
             bird: look.bird,
+            age: crate::age::Age::of(&look),
+            stoop: crate::age::look_stoop(&look),
         }
     }
 }
@@ -524,18 +535,18 @@ pub fn paint_portrait(window: &mut dyn Brush, bounds: Bounds<gpui::Pixels>, figu
     rect(window, x, y, w, h, w.min(h) * 0.24, backdrop);
     // The figure drawn large enough that its head fills the upper half,
     // standing below the frame so only head and shoulders show.
-    let height = h * 1.7;
-    let feet = y + h * 1.62;
-    paint_figure(
+    crate::age::paint_bust(
         window,
-        x + w / 2.0,
-        feet,
-        height,
+        (x, y, w, h),
+        h * 1.7,
+        y + h * 1.62,
         &Figure {
             carries: None,
             ..*figure
         },
-        Pose::default(),
+        None,
+        world_projection::Stance::Standing,
+        world_projection::Mood::Content,
     );
 }
 
@@ -576,19 +587,15 @@ pub fn paint_likeness(
     } else {
         world_projection::Stance::Standing
     };
-    paint_drawing(
+    crate::age::paint_bust(
         window,
-        x + w / 2.0,
-        base,
-        height * drawing.aspect,
+        (x, y, w, h),
         height,
-        drawing,
-        &Inks::of_person(figure),
+        base,
+        figure,
+        Some(drawing),
         stance,
         mood,
-        0.0,
-        0.0,
-        1.0,
     );
 }
 

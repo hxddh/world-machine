@@ -112,6 +112,13 @@ const NEWS_LEADS: [&str; 4] = [
     "You'll have heard, but {told}.",
 ];
 
+/// How a letter with no news tells of the writer's own day.
+const EVERYDAY_LEADS: [&str; 3] = [
+    "Not much news, only this: {told}.",
+    "Life goes on here: {told}.",
+    "All quiet this week. Only that {told}.",
+];
+
 const MEMORY_LEADS: [&str; 4] = [
     "I was thinking today about when {told}.",
     "I still smile about the time {told}.",
@@ -577,10 +584,26 @@ fn letter_body(world: &World, cast: &Cast, writer: EntityId) -> Option<(String, 
         cast,
         writer,
         world.events_of_kind(&MEMORABLE).into_iter(),
-    )?;
-    let lead = pick(&MEMORY_LEADS, seed)?;
-    let body = fill_owned(lead, &[("told", inside(&memory))]);
-    Some((body, request.arg("recalled", memory)))
+    );
+    if let Some(memory) = memory {
+        let lead = pick(&MEMORY_LEADS, seed)?;
+        let body = fill_owned(lead, &[("told", inside(&memory))]);
+        return Some((body, request.arg("recalled", memory)));
+    }
+    // With no news and nothing yet to look back on, what the writer did
+    // with their own day, which is news of a kind.
+    let since = world.world_time().saturating_sub(NEWS_PERIODS * span);
+    let everyday = world
+        .events()
+        .iter()
+        .rev()
+        .take_while(|event| event.world_time >= since)
+        .filter(|event| event.kind == "lived" && event.actor == Some(writer))
+        .find_map(crate::told)
+        .filter(|told| !told_news.contains(told))?;
+    let lead = pick(&EVERYDAY_LEADS, seed / 3)?;
+    let body = fill_owned(lead, &[("told", inside(&everyday))]);
+    Some((body, request.arg("news", everyday)))
 }
 
 /// The changes a letter's news or memory makes to the notes.

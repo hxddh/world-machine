@@ -43,6 +43,7 @@ pub(crate) fn look(world: &World, id: EntityId) -> Option<Look> {
         skin: Some(skin),
         carries: Some(carries),
         bird: false,
+        ..Look::default()
     };
     let bird = |scarf: u32, carries: Option<Carry>| Look {
         clothes: Some(scarf),
@@ -50,6 +51,7 @@ pub(crate) fn look(world: &World, id: EntityId) -> Option<Look> {
         skin: None,
         carries,
         bird: true,
+        ..Look::default()
     };
     Some(match (seed_id(world), id) {
         ("mars-colony", SLOT_B) => look(0x2f7f86, 0x2b1d14, 0xc68a5f, Carry::Tool),

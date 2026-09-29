@@ -18,12 +18,14 @@ use world_host::{
 use world_pack_protocol::{
     decode_response, encode_open_request, encode_open_request_deflated, encode_request,
     pack_frame_limit, EarsWire, PackDescriptor, PackManifest, PackRequest, PackRequestEnvelope,
-    PackResponse, PackRuntimeManifest, ProjectionIntentWire, ProtocolEncodeError, PACK_FRAME_LIMIT,
-    PACK_PROTOCOL_VERSION_V3, PACK_PROTOCOL_VERSION_V4, PACK_PROTOCOL_VERSION_V5,
-    PACK_PROTOCOL_VERSION_V6,
+    PackResponse, PackRuntimeManifest, ProjectionIntentWire, ProtocolEncodeError, StoryPageWire,
+    StoryRequestWire, PACK_FRAME_LIMIT, PACK_PROTOCOL_VERSION_V3, PACK_PROTOCOL_VERSION_V4,
+    PACK_PROTOCOL_VERSION_V5, PACK_PROTOCOL_VERSION_V6, PACK_PROTOCOL_VERSION_V7,
 };
 use world_persistence::{CheckpointFit, WorldArchive, WorldPackRef};
-use world_projection::{ProjectionIntent, ProjectionSnapshot, SelectionId};
+use world_projection::{
+    ProjectionIntent, ProjectionSnapshot, SelectionId, StoryPage, StoryRequest,
+};
 
 pub const PACK_MANIFEST_SUFFIX: &str = ".world-pack.json";
 /// The most a request frame may hold. A Pack before v5 reads no more than
@@ -645,6 +647,20 @@ impl WorldSession for ProcessWorldSession {
         }
     }
 
+    fn story(&self, request: StoryRequest) -> Result<Option<StoryPage>, HostError> {
+        // A Pack from before stories has none to tell.
+        if !self.speaks_v7() {
+            return Ok(None);
+        }
+        let response = self.client.borrow_mut().request(PackRequest::Story {
+            request: StoryRequestWire::from(&request),
+        })?;
+        match response {
+            PackResponse::Story { page } => Ok(page.and_then(StoryPageWire::into_page)),
+            response => Err(unexpected_response("story", &response)),
+        }
+    }
+
     fn advance_background(&mut self, periods: u64) -> Result<ProjectionSnapshot, HostError> {
         let snapshot = self.request_snapshot(PackRequest::Advance { periods }, "advance")?;
         self.snapshot = snapshot.clone();
@@ -709,6 +725,10 @@ impl ProcessWorldSession {
         self.client.borrow().protocol_version >= PACK_PROTOCOL_VERSION_V6
     }
 
+    fn speaks_v7(&self) -> bool {
+        self.client.borrow().protocol_version >= PACK_PROTOCOL_VERSION_V7
+    }
+
     fn archive_from(&self, response: PackResponse) -> Result<Option<WorldArchive>, HostError> {
         let archive = match response {
             PackResponse::Archive { archive } => archive,
@@ -756,6 +776,7 @@ fn response_kind(response: &PackResponse) -> &'static str {
         PackResponse::Archive { .. } => "archive",
         PackResponse::Hearing { .. } => "hearing",
         PackResponse::Checkpointed { .. } => "checkpointed",
+        PackResponse::Story { .. } => "story",
         PackResponse::Ok => "ok",
         PackResponse::Error { .. } => "error",
     }
@@ -1530,7 +1551,7 @@ mod tests {
         ];
         write_fixture_process(&runtime, &responses);
         let manifest = PackManifest::process(descriptor(), "runtime.sh", Vec::new());
-        assert_eq!(manifest.protocol_version, PACK_PROTOCOL_VERSION_V6);
+        assert!(manifest.protocol_version >= PACK_PROTOCOL_VERSION_V6);
         let manifest_path = root.join("fixture.world-pack.json");
         fs::write(&manifest_path, manifest.to_json_pretty().unwrap()).unwrap();
         let pack = ProcessPack::load(manifest_path).unwrap();

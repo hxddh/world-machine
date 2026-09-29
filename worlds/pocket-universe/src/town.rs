@@ -159,13 +159,17 @@ fn role(state: &WorldState, person: EntityId) -> Option<&str> {
 
 /// Whether someone is a child of the place, who lives with a couple.
 fn is_child(state: &WorldState, person: EntityId) -> bool {
-    role(state, person) == Some("chick")
+    matches!(role(state, person), Some("chick" | "child"))
 }
 
 /// Who lives together, by the household's first member: couples share a
 /// home, and each chick lives with a couple, taken in turn.
 pub(crate) fn households(state: &WorldState) -> BTreeMap<EntityId, Vec<EntityId>> {
-    let people = crate::life::people_in(state);
+    let cast = crate::life::cast(state);
+    let people = crate::life::people_in(state)
+        .into_iter()
+        .chain(lives::children(state, &cast))
+        .collect::<Vec<_>>();
     let couples = people
         .iter()
         .copied()
@@ -181,6 +185,9 @@ pub(crate) fn households(state: &WorldState) -> BTreeMap<EntityId, Vec<EntityId>
         &people,
         |person| lives::partner(state, person),
         |person| {
+            if let Some(parent) = lives::lives_with(state, person) {
+                return Some(parent);
+            }
             let at = children.iter().position(|child| *child == person)?;
             (!couples.is_empty()).then(|| couples[at % couples.len()])
         },
@@ -888,10 +895,48 @@ mod tests {
                     assert_eq!(canvas.districts.len(), 3);
                     assert!(canvas.season.is_some());
                     check(seed, day, &bars(universe.world(), &snapshot));
+                    if !festival {
+                        // Out and about by day, home by night.
+                        for hour in [10, 12, 15, 17, 23] {
+                            let out = outdoors(&snapshot, hour);
+                            assert!(
+                                if hour == 23 { out <= 0.3 } else { out >= 0.6 },
+                                "{seed} day {day}, {hour}:00: {:.0}% outside",
+                                out * 100.0
+                            );
+                        }
+                    }
                 }
             }
             assert!(festivals * 12 >= days, "{seed}: {festivals} festivals");
         }
+    }
+
+    /// The share of the people on the scene whose day has them outside at
+    /// an hour.
+    fn outdoors(snapshot: &ProjectionSnapshot, hour: u8) -> f32 {
+        let people = snapshot
+            .canvas
+            .items
+            .iter()
+            .filter(|item| item.kind == CanvasItemKind::Actor)
+            .collect::<Vec<_>>();
+        let out = people
+            .iter()
+            .filter(|item| {
+                let day = item
+                    .day
+                    .iter()
+                    .map(|stop| days::Stop {
+                        from_hour: stop.from_hour,
+                        at: stop.at,
+                        inside: stop.inside,
+                    })
+                    .collect::<Vec<_>>();
+                days::stop_at(&day, hour).is_some_and(|stop| !stop.inside)
+            })
+            .count();
+        out as f32 / people.len().max(1) as f32
     }
 
     #[test]

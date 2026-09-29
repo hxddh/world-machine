@@ -2,7 +2,9 @@ use crate::{tiny_society_pack_ref, TinySociety, TinySocietyBranch, VisitCursor};
 use std::sync::Arc;
 use world_host::{HostError, WorldDescriptor, WorldRegistration, WorldSession};
 use world_persistence::WorldArchive;
-use world_projection::{Ears, ProjectionIntent, ProjectionSnapshot, SelectionId};
+use world_projection::{
+    Ears, ProjectionIntent, ProjectionSnapshot, SelectionId, StoryPage, StoryRequest,
+};
 
 /// Makes the listener each session hears the player's words with.
 pub type ListenerFactory = Arc<dyn Fn() -> Box<dyn conversation::Listener> + Send + Sync>;
@@ -104,6 +106,10 @@ impl WorldSession for TinySocietySession {
         }
         self.background_cursor = None;
         Ok(self.snapshot())
+    }
+
+    fn story(&self, request: StoryRequest) -> Result<Option<StoryPage>, HostError> {
+        Ok(self.branch.story(request))
     }
 
     fn hearing(&self, to: SelectionId, words: &str) -> Result<Option<String>, HostError> {

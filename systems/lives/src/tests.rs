@@ -146,6 +146,7 @@ fn cast() -> Cast {
         most_people: 8,
         most_open: 2,
         voice: |_| None,
+        kin: None,
     }
 }
 
@@ -728,4 +729,357 @@ fn codes_are_sorted_as_sorting_sorts_them() {
     sorted.sort_unstable();
     assert_eq!(sort_codes(numbers), sorted);
     assert!(sort_codes(Vec::new()).is_empty());
+}
+
+// ---- Generations ------------------------------------------------------------
+
+const KIN_WORDS: KinWords = KinWords {
+    born: &["{a} and {b} had a baby: {name}"],
+    born_said: &["Welcome, {name}."],
+    came_of_age: &["{name} came of age as a {trade}"],
+    came_of_age_said: &["Grown!"],
+    left_home: &["{name} moved out"],
+    left_home_said: &["My own door."],
+    retired: &["{name} retired"],
+    retired_said: &["Feet up."],
+    died: &["{name} died peacefully, at {age}"],
+    died_said: &["We'll miss {name}."],
+    heirloom: &["{name}'s {heirloom} passed to {heir}"],
+    heirloom_said: &["I'll keep the {heirloom}."],
+    memorial_by_player: &["You put up {memorial}"],
+    memorial_by_town: &["The village put up {memorial}"],
+    memorial_said: &["For {name}."],
+    anniversary: &["{heir} remembered {name}"],
+    anniversary_said: &["A year since {name}."],
+    remember: &[
+        "I miss {name}.",
+        "{name} would have liked this.",
+        "Thinking of {name}.",
+    ],
+};
+
+/// Ann is ninety, Ben seventeen, Cat and Dan a couple of thirty.
+fn test_age(_: &WorldState, id: EntityId) -> Option<u64> {
+    Some(match id.0 {
+        1 => 90,
+        2 => 17,
+        3 | 4 => 30,
+        5 => 66,
+        _ => return None,
+    })
+}
+
+static TEST_KIN: Kin = Kin {
+    year: 12,
+    age_at_start: test_age,
+    born_at: |_, _| None,
+    youngest: 20,
+    spread: 30,
+    child_at: 2,
+    teen_at: 13,
+    grown_at: 18,
+    elder_at: 65,
+    grey_at: 55,
+    stoop_at: 75,
+    fertile_until: 44,
+    retire_at: 67,
+    frail_at: 80,
+    first_child: 300,
+    room: 20,
+    names: &["Pip", "Wren"],
+    kind: "person",
+    newborn: |_, _, _| vec![("job".into(), Value::from("child"))],
+    job_key: "job",
+    retired_job: "retired",
+    learning: &["child", "student"],
+    trades: &[("miller", "miller")],
+    keeps: |_| false,
+    births_now: |_| true,
+    busy: |_, _| false,
+    birth_odds: 3_000,
+    frailty: 400,
+    apart: 2,
+    most_children: 2,
+    heirlooms: &["pocket watch"],
+    memorials: &[
+        Memorial {
+            shape: "bench",
+            named: "{name}'s bench",
+        },
+        Memorial {
+            shape: "stone",
+            named: "{name}'s stone",
+        },
+    ],
+    first_memorial: 400,
+    memorial_at: QUAY,
+    memorial_wait: 3,
+    mourning: 12,
+    words: &KIN_WORDS,
+};
+
+fn kin_people(world: &World) -> Vec<EntityId> {
+    let mut people = people(world);
+    people.extend(grown_here(world.state(), &cast()));
+    people
+}
+
+fn kin_cast() -> Cast {
+    Cast {
+        people: kin_people,
+        // Everyone stays, so the old grow old here.
+        stays: |id| id.0 <= 6,
+        kin: Some(&TEST_KIN),
+        ..cast()
+    }
+}
+
+fn kin_world() -> (World, ActionRegistry) {
+    let (world, _) = world();
+    let mut state = world.state().clone();
+    for id in PEOPLE {
+        let entity = state.entity(EntityId::new(id)).unwrap().clone();
+        let entity = entity.with_component("job", if id == 2 { "student" } else { "miller" });
+        state = {
+            let mut next = WorldState::default();
+            for other in state.entities() {
+                next.seed_entity(if other.id == entity.id {
+                    entity.clone()
+                } else {
+                    other.clone()
+                })
+                .unwrap();
+            }
+            next
+        };
+    }
+    let mut registry = ActionRegistry::new();
+    register_actions(&mut registry, |_| kin_cast()).unwrap();
+    (World::new(state), registry)
+}
+
+fn kin_pass(world: &mut World, registry: &ActionRegistry) {
+    let target = world.world_time() + 10;
+    world.advance_to(registry, target).unwrap();
+    tick(world, registry, &kin_cast(), false).unwrap();
+}
+
+fn of_kind<'a>(world: &'a World, kind: &str) -> Vec<&'a Event> {
+    world.events().iter().filter(|e| e.kind == kind).collect()
+}
+
+#[test]
+fn ages_come_from_who_people_are_and_go_up_with_the_year() {
+    let (mut world, registry) = kin_world();
+    let cast = kin_cast();
+    let state = world.state();
+    assert_eq!(age_of(state, &cast, &TEST_KIN, EntityId::new(1)), 90);
+    assert_eq!(age_of(state, &cast, &TEST_KIN, EntityId::new(3)), 30);
+    // Someone the Pack does not name is given an age from who they are,
+    // the same every time.
+    let six = age_of(state, &cast, &TEST_KIN, EntityId::new(6));
+    assert!((20..50).contains(&six), "{six}");
+    let (stage, grey, stoop) = looks_of(state, &cast, EntityId::new(1)).unwrap();
+    assert_eq!((stage, grey, stoop), (Stage::Elder, true, true));
+    assert_eq!(
+        looks_of(state, &cast, EntityId::new(2)).unwrap().0,
+        Stage::Teen
+    );
+    for _ in 0..TEST_KIN.year {
+        kin_pass(&mut world, &registry);
+    }
+    let state = world.state();
+    assert_eq!(age_of(state, &cast, &TEST_KIN, EntityId::new(3)), 31);
+    assert_eq!(age_of(state, &cast, &TEST_KIN, EntityId::new(6)), six + 1);
+}
+
+#[test]
+fn a_fond_couple_may_have_a_child_who_takes_after_both() {
+    let (mut world, registry) = kin_world();
+    let (cat, dan) = (EntityId::new(3), EntityId::new(4));
+    kin_pass(&mut world, &registry);
+    // Cat and Dan get together, and are fond of each other.
+    let mut changes = Vec::new();
+    for (x, y) in [(cat, dan), (dan, cat)] {
+        changes.push(StateChange::SetComponent {
+            entity: x,
+            key: PARTNER.into(),
+            value: Value::Entity(y),
+        });
+        changes.push(StateChange::SetComponent {
+            entity: x,
+            key: opinion_key(y),
+            value: 90.into(),
+        });
+    }
+    let mut state = world.state().clone();
+    for change in changes {
+        if let StateChange::SetComponent { entity, key, value } = change {
+            let e = state
+                .entity(entity)
+                .unwrap()
+                .clone()
+                .with_component(key, value);
+            let mut next = WorldState::default();
+            for other in state.entities() {
+                next.seed_entity(if other.id == entity {
+                    e.clone()
+                } else {
+                    other.clone()
+                })
+                .unwrap();
+            }
+            state = next;
+        }
+    }
+    let mut world = World::new(state);
+    let mut born = None;
+    for _ in 0..200 {
+        kin_pass(&mut world, &registry);
+        // Nobody may force it: an unfond couple has none.
+        if let Some(event) = of_kind(&world, "born").first() {
+            born = Some((*event).clone());
+            break;
+        }
+    }
+    let born = born.expect("a fond couple had a child in 200 periods");
+    let child = born.targets[0];
+    let state = world.state();
+    assert_eq!(parents(state, child), vec![cat, dan]);
+    assert_eq!(lives_with(state, child), Some(cat));
+    assert!(told(&born).is_some_and(|told| told.contains("Cat") && !told.contains('{')));
+    // A trait from each parent, joining their life only once grown.
+    let nature = text(state, child, generations::NATURE).unwrap().to_string();
+    assert!(!nature.is_empty());
+    assert!(!kin_people(&world).contains(&child));
+    assert_eq!(looks_of(state, &kin_cast(), child).unwrap().0, Stage::Baby);
+    // They cannot have another straight away.
+    assert!(generations::birth_odds(state, &kin_cast(), cat, dan).is_none());
+    let replayed = world.replay().unwrap();
+    assert_eq!(replayed.state(), world.state());
+}
+
+#[test]
+fn someone_comes_of_age_takes_a_trade_and_the_old_retire() {
+    let (mut world, registry) = kin_world();
+    for _ in 0..(TEST_KIN.year * 2 + 2) {
+        kin_pass(&mut world, &registry);
+    }
+    let came = of_kind(&world, "came_of_age");
+    assert_eq!(came.len(), 1, "Ben comes of age once");
+    assert_eq!(came[0].actor, Some(EntityId::new(2)));
+    assert_eq!(text(world.state(), EntityId::new(2), "job"), Some("miller"));
+    // Eve turns 67 and retires in time.
+    for _ in 0..60 {
+        kin_pass(&mut world, &registry);
+    }
+    assert!(of_kind(&world, "retired")
+        .iter()
+        .any(|event| event.actor == Some(EntityId::new(5))));
+    assert_eq!(
+        text(world.state(), EntityId::new(5), "job"),
+        Some("retired")
+    );
+}
+
+#[test]
+fn a_death_is_gentle_and_remembered() {
+    let (mut world, registry) = kin_world();
+    let ann = EntityId::new(1);
+    for _ in 0..40 {
+        kin_pass(&mut world, &registry);
+        if gone(world.state(), ann) {
+            break;
+        }
+    }
+    let died = of_kind(&world, "died");
+    assert_eq!(died.len(), 1, "Ann, at ninety, dies in her sleep");
+    let died = died[0].clone();
+    assert_eq!(died.payload.get("who"), Some(&Value::Entity(ann)));
+    assert!(told(&died).is_some_and(|told| told.contains("peacefully")));
+    // Her heirloom goes to someone close, because of it.
+    let heirloom = of_kind(&world, "heirloom_passed");
+    assert_eq!(heirloom.len(), 1);
+    assert_eq!(heirloom[0].caused_by, vec![died.id]);
+    let heir = heirloom[0].actor.unwrap();
+    assert_eq!(
+        text(world.state(), heir, generations::HEIRLOOM),
+        Some("pocket watch")
+    );
+    // The player may place her bench; left alone, the village does.
+    assert_eq!(awaiting_memorial(world.state()), vec![ann]);
+    for _ in 0..TEST_KIN.memorial_wait + 1 {
+        kin_pass(&mut world, &registry);
+    }
+    let memorial = of_kind(&world, "memorial_placed");
+    assert_eq!(memorial.len(), 1);
+    assert_eq!(
+        memorial[0].payload.get("by"),
+        Some(&Value::Text("town".into()))
+    );
+    assert_eq!(memorial[0].caused_by, vec![died.id]);
+    assert!(awaiting_memorial(world.state()).is_empty());
+    // Those close speak of her for a season, and a year on someone keeps
+    // the day.
+    for _ in 0..TEST_KIN.year {
+        kin_pass(&mut world, &registry);
+    }
+    assert!(world
+        .events()
+        .iter()
+        .any(|event| event.payload.get("remembers") == Some(&Value::Entity(ann))));
+    assert_eq!(of_kind(&world, "anniversary_kept").len(), 1);
+    // Nobody who is gone lives a day.
+    assert!(!world.events().iter().any(|event| event.kind == "lived"
+        && event.actor == Some(ann)
+        && event.world_time > died.world_time));
+    assert_eq!(world.replay().unwrap().state(), world.state());
+}
+
+#[test]
+fn the_player_places_a_memorial_where_they_choose() {
+    let (mut world, registry) = kin_world();
+    let ann = EntityId::new(1);
+    while !gone(world.state(), ann) {
+        kin_pass(&mut world, &registry);
+    }
+    let event = world
+        .execute(&registry, &memorial_request(ann, true, Some(37)))
+        .unwrap()
+        .clone();
+    assert_eq!(event.payload.get("by"), Some(&Value::Text("player".into())));
+    let Some(Value::Entity(memorial)) = event.payload.get("memorial") else {
+        panic!("no memorial");
+    };
+    let bench = world.state().entity(*memorial).unwrap();
+    assert_eq!(
+        bench.component(generations::SPOT),
+        Some(&Value::Integer(37))
+    );
+    assert_eq!(
+        bench.component("name"),
+        Some(&Value::Text("Ann's bench".into()))
+    );
+    // Only once.
+    assert!(world
+        .execute(&registry, &memorial_request(ann, true, None))
+        .is_err());
+}
+
+#[test]
+fn friendships_and_feuds_hold_and_change_one_at_a_time() {
+    let (world, _) = play(400, true);
+    let changes = world
+        .events()
+        .iter()
+        .filter(|event| event.kind == "bond_changed")
+        .collect::<Vec<_>>();
+    assert!(!changes.is_empty());
+    for pair in changes.windows(2) {
+        let gap = (pair[1].world_time - pair[0].world_time) / 10;
+        assert!(gap as i64 >= BOND_GAP, "{gap} periods apart");
+    }
+    for event in &changes {
+        assert!(matches!(event.payload.get("because"), Some(Value::Text(why)) if !why.is_empty()));
+    }
 }

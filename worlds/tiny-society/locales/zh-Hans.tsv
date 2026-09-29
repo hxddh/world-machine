@@ -4067,3 +4067,272 @@ Home	家
 # v0.21: whole sentences, with the same named slots as the lines they
 # are made from. People keep their names in Latin letters everywhere.
 {} and {last} settled in the harbour for good	{}和{last}在港口定居下来了
+# v0.22: legends, moments and almanacs. Whole sentences with named slots.
+because you said “{answer}”	因为你说了“{answer}”
+because you answered {a}	因为你回应了{a}
+because nobody answered	因为没有人回应
+at {festival}	在{festival}上
+after {what}	在{what}之后
+after the storm	在那场风暴之后
+after the great storm	在那场大风暴之后
+Moments	难忘时刻
+{a} and {b}'s wedding	{a}和{b}的婚礼
+{a} and {b}'s party	{a}和{b}的派对
+{a} and {b}	{a}和{b}
+{a} is born	{a}出生了
+{a} comes of age	{a}长大成人
+{a} hands it on	{a}交棒了
+{a}'s farewell	{a}的告别
+In memory of {a}	纪念{a}
+The storm	风暴
+{a} comes to stay	{a}来定居了
+{a}'s new start	{a}的新开始
+{work}, finished at last	{work}终于完工了
+{a} and {b} had been walking out a long while.	{a}和{b}已经交往很久了。
+{a} and {b} wanted everyone there.	{a}和{b}想让大家都来。
+Tables were carried out and lights were hung.	桌子搬了出来，灯也挂了起来。
+Nobody went home early.	没有人早早回家。
+They talked about it for weeks.	大家谈论了好几个星期。
+{a} kept finding reasons to be wherever {b} was.	{a}总能找到理由待在{b}身边。
+Everyone had noticed but the two of them.	除了他们俩，大家都看出来了。
+They were seen everywhere together after that.	从那以后，到处都能看到他们俩在一起。
+{b} smiled for a week.	{b}笑了整整一个星期。
+{a} had been thinking about it for a while.	{a}已经考虑这件事有一阵子了。
+It had been coming for a long time.	这一天早晚会来。
+It suited {a} well.	这很适合{a}。
+Nobody could remember it any other way.	谁也想不起从前是什么样子了。
+{a} was a child here once.	{a}曾经是这里的一个孩子。
+{a} had a trade of their own now.	{a}现在有了自己的手艺。
+{a} had worked every day for years.	{a}多年来每天都在干活。
+{a} took the long way home, for once.	{a}难得地绕远路回了家。
+{a} packed a bag and left the rest.	{a}收拾好一个包，其余的都留下了。
+Everyone knew {a}, and {a} knew everyone.	大家都认识{a}，{a}也认识每一个人。
+A lamp stayed lit in one window until morning.	有一扇窗里的灯一直亮到天明。
+Everyone came by with something small.	大家都带着一点小东西来看望。
+The wind got up in the afternoon.	下午起风了。
+By morning the sea was calm again.	到了早上，海面又平静了。
+Everyone came out to see what was left.	大家都出来看看还剩下什么。
+It was only a plan once.	它曾经只是一个计划。
+Everyone put something in, a part at a time.	大家一点一点地出力。
+Now it is there for everyone.	现在它属于每一个人。
+Nobody wanted to go home.	谁都不想回家。
+They talked about it for days.	大家谈论了好几天。
+Someone new was asking about a room.	有个新来的人在打听住处。
+By the end of the week everyone knew {a}'s name.	不到一个星期，大家都知道了{a}的名字。
+# v0.22: the harbour's own words for its moments and almanac.
+The old chapel was swept and full of flowers.	老教堂打扫得干干净净，摆满了鲜花。
+The harbour danced on the quay till late.	港口的人们在码头上跳舞，一直跳到深夜。
+Everyone said they had never seen a happier pair.	大家都说从没见过这么幸福的一对。
+{a} and {b} wanted the whole harbour there.	{a}和{b}想让整个港口的人都来。
+Tables were carried out and lamps were hung.	桌子搬了出来，灯也挂了起来。
+The harbour waited all night for news.	整个港口彻夜等着消息。
+The harbour had someone new to meet.	港口又有了一位新朋友。
+{a} grew up by the water.	{a}在海边长大。
+The harbour watched {a} go to work like everyone else.	港口的人们看着{a}像大家一样去上工。
+{a} knew every job in the harbour by heart.	港口的每样活儿{a}都了如指掌。
+{a} had time at last to sit on the quay.	{a}终于有空坐在码头上了。
+{a} looked round the harbour one more time.	{a}又环顾了一遍港口。
+The harbour kept a place for {a}.	港口一直为{a}留着位置。
+Someone still waves at the ferry, just in case.	还有人朝渡船挥手，以防万一。
+{a} was one of the harbour's own.	{a}是港口自己的人。
+The harbour remembered {a}.	港口记住了{a}。
+The boats stayed in that day.	那天船都没有出海。
+The sky over the harbour went dark.	港口上空暗了下来。
+The harbour walked round it twice.	港口的人们绕着它走了两圈。
+Everyone came down to the water.	大家都来到了水边。
+The lanterns were out early.	灯笼早早就挂了出来。
+A stranger came in on the ferry.	一个陌生人坐渡船来了。
+The harbour had one more neighbour.	港口又多了一位邻居。
+The harbour's year {n}	港口的第{n}年
+{a} and {b} walk out	{a}和{b}开始交往
+after they had words	在他们拌了嘴之后
+after a day spent together	在一起度过一天之后
+# v0.22: the harbour's generations, as legends and moments tell them.
+{a} and {b} had a baby: {name}	{a}和{b}有了一个宝宝：{name}
+A baby for {a} and {b}: little {name}	{a}和{b}添了个宝宝：小{name}
+{name} was born to {a} and {b}	{name}出生了，是{a}和{b}的孩子
+{name} came of age and took up the trade of {trade}	{name}长大成人，做起了{trade}这门手艺
+{name} is grown now, with a trade of their own: {trade}	{name}如今长大了，有了自己的手艺：{trade}
+{name} moved into a home of their own	{name}搬进了自己的家
+{name} left home for a cottage of their own	{name}离开家，住进了自己的小屋
+{name} put down their tools and retired	{name}放下工具，退休了
+{name} retired after years as a {trade}	{name}当了多年{trade}之后退休了
+{name} died peacefully in their sleep, at {age}	{name}在睡梦中安详离世，享年{age}岁
+{name} slipped away quietly in the night, at {age}	{name}在夜里静静地走了，享年{age}岁
+{name}'s {heirloom} passed to {heir}	{name}的{heirloom}传给了{heir}
+You put up {memorial} where you chose	你在自己选的地方立起了{memorial}
+{memorial} stands where you put it	{memorial}立在你放的地方
+The harbour put up {memorial}	港口立起了{memorial}
+Everyone chipped in for {memorial}	大家一起凑钱立起了{memorial}
+{heir} remembered {name} on the day	{heir}在那天想起了{name}
+{heir} left flowers for {name}	{heir}给{name}献了花
+{name}'s bench	{name}的长椅
+{name}'s stone	{name}的纪念石
+teacher	教师
+nurse	护士
+fisher	渔夫
+gardener	园丁
+bakery assistant	面包店帮手
+pocket watch	怀表
+brass compass	黄铜罗盘
+knitted shawl	针织披肩
+sea chest	航海箱
+fiddle	小提琴
+recipe book	食谱
+telescope	望远镜
+tin of buttons	一罐纽扣
+after {name} died	在{name}去世之后
+after {name} came of age	在{name}长大成人之后
+after {name} retired	在{name}退休之后
+after {name} left home	在{name}离家自立之后
+# v0.22 lives: why two people's standing changed, and letters with no news.
+It came to a head over {row}.	为了{row}，事情终于闹僵了。
+Too many cross words with {name}.	和{name}吵得太多了。
+They let {row} go at last.	他们终于把{row}的事放下了。
+Time mended it.	时间抚平了一切。
+They stopped making time for each other.	他们不再为彼此腾出时间了。
+{a} and {b} kept finding each other's company.	{a}和{b}总是凑到一块儿。
+Not much news, only this: {told}.	没什么新鲜事，就这一件：{told}。
+Life goes on here: {told}.	这边的日子照常过：{told}。
+All quiet this week. Only that {told}.	这个星期很平静。只是{told}。
+{told} again	又一次：{told}
+{told} once more	再一次：{told}
+# v0.22 lives: births, growing up, growing old, and remembering. Whole sentences with named slots.
+{a} and {b} had a baby: {name}	{a}和{b}有了一个孩子：{name}
+A baby for {a} and {b}: little {name}	{a}和{b}添了个宝宝：小{name}
+{name} was born to {a} and {b}	{name}出生了，是{a}和{b}的孩子
+Ten fingers, ten toes, and a proper set of lungs.	十根手指，十根脚趾，嗓门还挺响。
+We've a baby! Come and see {name}.	我们有宝宝了！快来看看{name}。
+{name}'s asleep at last. So is half the harbour.	{name}终于睡着了。半个港口也跟着睡了。
+{name} came of age and took up the trade of {trade}	{name}长大成人，做起了{trade}这门手艺
+{name} is grown now, with a trade of their own: {trade}	{name}如今长大了，有了自己的手艺：{trade}
+Grown up, they tell me. I don't feel it.	他们说我长大了。我可一点没觉得。
+My own wages at last!	终于有自己的工钱了！
+First day at work tomorrow. Don't laugh.	明天第一天上工。别笑我。
+{name} moved into a home of their own	{name}搬进了自己的家
+{name} left home for a cottage of their own	{name}离开家，住进了自己的小屋
+My own front door! I keep opening it.	我自己的前门！我忍不住一遍遍地开。
+Everyone cried. So did I, a bit.	大家都哭了。我也哭了一点。
+{name} put down their tools and retired	{name}放下工具，退休了
+{name} retired after a lifetime's work	{name}辛苦了一辈子，退休了
+No more early starts. I'll miss them, oddly.	再也不用早起了。说来奇怪，我会想念的。
+Time for the garden, and a bench in the sun.	该去侍弄花园，在阳光下的长椅上坐坐了。
+{name} died peacefully in their sleep, at {age}	{name}在睡梦中安详离世，享年{age}岁
+{name} slipped away quietly in the night, at {age}	{name}在夜里静静地走了，享年{age}岁
+{name} had a good long life. The harbour won't be the same.	{name}这一生过得长久又好。港口再也不会是老样子了。
+I keep thinking I'll see {name} on the quay.	我总觉得还会在码头上看见{name}。
+{name} went peacefully. That's all anyone could ask.	{name}走得很安详。谁也求不来更多了。
+{name}'s {heirloom} passed to {heir}	{name}的{heirloom}传给了{heir}
+{name} wanted me to have the {heirloom}. I'll look after it.	{name}想让我留着这{heirloom}。我会好好保管。
+The {heirloom} was {name}'s. Now it's mine to keep.	这{heirloom}是{name}的。现在由我来留着。
+You put up {memorial} where you chose	你在自己选的地方立起了{memorial}
+{memorial} stands where you put it	{memorial}立在你选的地方
+The harbour put up {memorial}	港口立起了{memorial}
+Everyone chipped in for {memorial}	大家凑钱立起了{memorial}
+{name} would have sat there every evening.	{name}要是还在，每天傍晚都会坐在那儿。
+Now there's somewhere to say hello to {name}.	现在有个地方可以跟{name}打声招呼了。
+{heir} remembered {name} on the day	{heir}在那一天想起了{name}
+{heir} left flowers for {name}	{heir}给{name}送了花
+It's {name}'s day. I've put the kettle on for two.	今天是{name}的日子。我烧了够两个人喝的水。
+{name} would have laughed at us all, moping.	{name}要是看见我们这副愁眉苦脸的样子，准会笑话我们。
+I still hear {name} whistling on the quay.	我好像还能听见{name}在码头上吹口哨。
+{name} would have loved today.	{name}要是在，一定会喜欢今天。
+I miss {name}. Silly things, mostly.	我想念{name}。多半是些小事。
+Found one of {name}'s old notes in my coat.	在外套里翻出一张{name}以前写的字条。
+Still set out a cup for {name}, some mornings.	有些早上，我还是会给{name}摆一只杯子。
+{name} always said the tide knows best.	{name}总说潮水最懂。
+Walked {name}'s old way to the quay.	走了{name}以前常走的那条路去码头。
+{name}'s bench	{name}的纪念长椅
+{name}'s stone	{name}的纪念石
+A bench for {name}	为{name}立一张纪念长椅
+Put it wherever they'd have liked to sit	放在他们生前喜欢坐的地方
+pocket watch	怀表
+brass compass	黄铜罗盘
+knitted shawl	针织披肩
+sea chest	航海箱
+fiddle	小提琴
+recipe book	食谱
+telescope	望远镜
+tin of buttons	纽扣罐
+fisher	渔夫
+gardener	园丁
+nurse	护士
+teacher	教师
+tutor	家庭教师
+We know the drill	我们知道该怎么做
+Everyone did this last time. Nothing spent.	上次大家都做过。一分钱也不用花。
+The harbour knew what to do, having weathered a great storm before	港口经历过一场大风暴，知道该怎么做
+Same as last time. Boats up, shutters down.	和上次一样。船拖上岸，百叶窗关好。
+The harbour met the great storm like old hands.	港口像老手一样迎接了这场大风暴。
+The storm we were ready for	我们早有准备的那场风暴
+# v0.22: moments named with who and what.
+A lamp stayed lit in {b}'s window until morning.	{b}家的窗里，一盏灯一直亮到天明。
+By morning {a} was out counting what the storm had left.	天一亮，{a}就出门清点风暴留下了什么。
+By the end of {season}, all {count} of them had a door of their own.	到了{season}末，他们{count}个人都有了自己的家门。
+By the end of {season}, everyone in the harbour knew {a}.	到了{season}末，港口里人人都认识了{a}。
+By the end of {season}, {a} and {b} were seen everywhere together.	到了{season}末，到处都能看到{a}和{b}在一起。
+By the end of {season}, {a} had the little ones reading.	到了{season}末，{a}已经教会小家伙们读书了。
+Everyone knew {a}, and {a} knew everyone, for {age} years.	{age}年来，大家都认识{a}，{a}也认识每一个人。
+Nobody left {place} before {a} and {b} did.	{a}和{b}走之前，谁也没有离开{place}。
+The boats stayed in the day after {a} died.	{a}去世后的第二天，船都没有出海。
+The ferry took {a} away in the {season} light.	渡船在{season}的光里载着{a}远去。
+The wind got up in the afternoon, and {a} ran to warn the boats.	下午起风了，{a}跑去提醒船家。
+The {season} sky over the harbour went dark, and {a} watched it come.	港口上空{season}的天暗了下来，{a}看着它压过来。
+{a} and {b} asked the whole harbour to {place}.	{a}和{b}请整个港口的人都来{place}。
+{a} and {b} came out of the old chapel arm in arm.	{a}和{b}挽着手走出了老教堂。
+{a} and {b} carried tables into {place} all afternoon.	{a}和{b}一下午都在往{place}搬桌子。
+{a} and {b} danced at {place} till the lamps went out.	{a}和{b}在{place}跳舞，一直跳到灯灭。
+{a} and {b} danced on the quay till the lamps went out.	{a}和{b}在码头上跳舞，一直跳到灯灭。
+{a} and {b} had been walking out since {season}.	{a}和{b}从{season}起就在交往了。
+{a} asked {b} on the quay, and {b} said yes before the question was done.	{a}在码头上向{b}求婚，话还没说完，{b}就答应了。
+{a} came home from the first day as a {trade} too tired to talk.	{a}当{trade}的第一天回到家，累得话都说不出来。
+{a} came in on the ferry in {season}, with one bag.	{a}在{season}坐渡船来了，只带了一个包。
+{a} grew up running along the quay.	{a}是在码头上跑着长大的。
+{a} had a key to a door in the harbour before the week was out.	不到一个星期，{a}就在港口有了一把自己的钥匙。
+{a} had been asking for {work} since {season}.	{a}从{season}起就一直想要{work}。
+{a} had been hearing the little ones read since {season}.	{a}从{season}起就在听小家伙们念书。
+{a} had been helping at {place} since {season}.	{a}从{season}起就在{place}帮忙。
+{a} had been sleeping on borrowed beds since {season}.	{a}从{season}起就一直借别人的床睡。
+{a} had been sweet on {b} since {season}.	{a}从{season}起就喜欢上了{b}。
+{a} had kept a bag packed by the door since {season}.	{a}从{season}起就在门边放着一个收拾好的包。
+{a} had time at last to sit on the quay in the {season} sun.	{a}终于有空坐在码头上晒{season}的太阳了。
+{a} had worked as a {trade} every day for years.	{a}多年来每天都在当{trade}。
+{a} hands it on	{a}交棒了
+{a} helped sweep the quay clear before breakfast.	{a}在早饭前帮着把码头扫干净。
+{a} is born	{a}出生了
+{a} kept finding reasons to be wherever {b} was.	{a}总能找到理由待在{b}身边。
+{a} knew every job at {place} by heart.	{place}的每样活儿{a}都了如指掌。
+{a} lived to {age}, most of it by the harbour.	{a}活到了{age}岁，大半辈子都在港口。
+{a} looked round {place} one more time.	{a}又环顾了一遍{place}。
+{a} packed one bag in {season} and left the rest behind.	{a}在{season}收拾了一个包，其余的都留下了。
+{a} put in the first part of {work} with their own hands.	{work}的第一部分是{a}亲手做的。
+{a} settles for good	{a}定居下来
+{a} slept through the whole harbour's visit.	整个港口的人来看望时，{a}一直在睡。
+{a} spent all day getting {place} ready for {festival}.	{a}花了一整天把{place}布置好，迎接{festival}。
+{a} starts teaching	{a}开始教书
+{a} talked about {festival} for days.	{a}把{festival}念叨了好几天。
+{a} took the long way home along the quay, for once.	{a}难得地沿着码头绕远路回了家。
+{a} unpacked the bag at last, and so did the others.	{a}终于打开了包，其他人也是。
+{a} walked home from {place} with chalk on every sleeve.	{a}从{place}走回家，袖子上全是粉笔灰。
+{a} walked round {work} twice, just to look.	{a}绕着{work}走了两圈，只为看看。
+{a} was a child at {place} once.	{a}小时候就在{place}。
+{a} was asking round the harbour for a room in {season}.	{a}在{season}满港口打听住处。
+{a} was the first down to {place} for {festival}.	{a}第一个来到{place}过{festival}。
+{a} was the first to try out {work}.	{a}第一个试了试{work}。
+{a} was the last to leave {place} after {festival}.	{festival}过后，{a}最后一个离开{place}。
+{a} went to work as a {trade} the next morning.	第二天一早，{a}就去当{trade}了。
+{a}'s window at {place} stayed dark that night.	那天晚上，{a}在{place}的窗户一直是黑的。
+{b} carried {a} along the quay for everyone to see.	{b}抱着{a}沿码头走，让大家都看看。
+{b} kept a light in the window for {a}.	{b}为{a}在窗前留了一盏灯。
+{b} smiled for a week, and {a} for longer.	{b}笑了一个星期，{a}笑得更久。
+{b} waited all night for news of {a}.	{b}彻夜等着{a}的消息。
+spring	春天
+summer	夏天
+autumn	秋天
+winter	冬天
+{name} worked at {place} from day {day}	{name}从第{day}天起在{place}工作
+Finished at last: {work}.	终于完工了：{work}。
+{a} went to work at {place} the next morning, grown at last.	第二天一早，终于长大的{a}去{place}上工了。
+By morning the harbour was out counting what the storm had left.	天一亮，港口的人们就出门清点风暴留下了什么。
+The {season} sky over the harbour went dark.	港口上空{season}的天暗了下来。
+net mender	补网匠

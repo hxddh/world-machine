@@ -330,6 +330,15 @@ impl WorldVisit {
         self.session.snapshot()
     }
 
+    /// A story the visited World tells: a legend, a moment or an almanac.
+    /// Asking changes nothing, so a visitor may ask as freely as the owner.
+    pub fn story(
+        &self,
+        request: world_projection::StoryRequest,
+    ) -> Result<Option<world_projection::StoryPage>, WorldCodeError> {
+        Ok(self.session.story(request)?)
+    }
+
     /// The archive the visit was opened from: the history the code
     /// carries, which for a `wm2:` code is only what came after its
     /// checkpoint, and that checkpoint.

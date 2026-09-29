@@ -81,6 +81,7 @@ pub(crate) fn snapshot_since(
             season: Some(calendar::season_name(world.state(), &almanac).into()),
             coming: calendar::coming_up(world.state(), &almanac, 7),
             festival_today: calendar::festival_today(world.state(), &almanac),
+            year: Some(crate::almanac::YEAR),
         }),
         gauges: gauges(world),
         voices: crate::talk::voices(world),
@@ -93,7 +94,14 @@ pub(crate) fn snapshot_since(
         keepsakes: crate::life::keepsakes(world),
         letters: crate::life::letters(world),
         book: crate::book::book(world),
+        moments: Vec::new(),
+        almanac: None,
     };
+    // The place's moments: the latest few, and every one in the book.
+    let moments = crate::moments::moments(world);
+    snapshot.almanac = crate::almanac_page::new_year(world, &moments);
+    snapshot.book.extend(crate::moments::book_entries(&moments));
+    snapshot.moments = world_projection::latest_moments(&moments);
     snapshot.tell_events_as_history_does();
     snapshot.keep_voices_in_view();
     snapshot
@@ -472,7 +480,7 @@ fn canvas(world: &World) -> CanvasProjection {
                         .then_some(world_projection::MarkShape::Rover)
                 }),
                 at: whereabouts(world, entity),
-                look: crate::talk::look(world, *id),
+                look: crate::kin::look(world, *id),
                 drawing: crate::drawings::drawing_of(
                     world,
                     *id,
@@ -490,8 +498,10 @@ fn canvas(world: &World) -> CanvasProjection {
         })
         .collect();
     // Strangers who came to stay, and whoever the place's years brought.
+    let cast = crate::life::cast(world.state());
     for (index, id) in crate::life::newcomers(world.state())
         .into_iter()
+        .chain(lives::born_here(world.state(), &cast))
         .filter(|id| !lives::gone(world.state(), *id))
         .enumerate()
     {
@@ -508,7 +518,7 @@ fn canvas(world: &World) -> CanvasProjection {
             changes: Vec::new(),
             shape: None,
             at: whereabouts(world, entity),
-            look: crate::talk::look(world, id),
+            look: crate::kin::look(world, id),
             drawing: crate::drawings::drawing_of(world, id, true),
             stance: crate::drawings::stance_of(world, id),
             standing: crate::speech::standing_of(world, id),

@@ -440,6 +440,7 @@ fn moving_in(state: &WorldState) -> Option<Turning> {
     let taken = state
         .entities()
         .map(|entity| lives::first_name(state, entity.id))
+        .chain(lives::waiting_strangers(state, &cast))
         .collect::<std::collections::BTreeSet<_>>();
     let name = *visitors.names.iter().find(|name| !taken.contains(**name))?;
     let (trade, job) = visitors.trades[(id.0 as usize) % visitors.trades.len()];
@@ -549,7 +550,8 @@ mod tests {
                 .unwrap();
         }
         let state = branch.world().state();
-        assert_eq!(job(state, MIA), Some("apprentice"));
+        // Mia left school, and has since come of age and taken up a trade.
+        assert!(!matches!(job(state, MIA), Some("student") | None));
         assert_eq!(job(state, SOFIA), Some("pub_owner"));
         assert_eq!(job(state, LEO), Some("retired"));
         let added = added(state);

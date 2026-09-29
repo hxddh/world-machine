@@ -1264,49 +1264,10 @@ fn newcomers_wanted(state: &WorldState, place: Place) -> usize {
 /// colony's couples.
 fn arrive_turning(state: &WorldState, place: Place, turn: Turn, n: u64) -> Option<Turning> {
     match turn {
-        Turn::Thaw => {
-            // Every couple hatches a chick, while there is room.
-            let people = crate::life::people_in(state);
-            let couples = people
-                .iter()
-                .filter(|person| {
-                    lives::partner(state, **person).is_some_and(|other| other.0 > person.0)
-                })
-                .count()
-                .min(room(state))
-                .min(2);
-            if couples == 0 {
-                return None;
-            }
-            let born = newcomers(state, &vec!["chick"; couples])?;
-            let names = born
-                .iter()
-                .map(|(_, name, _)| name.clone())
-                .collect::<Vec<_>>();
-            let changes = born
-                .into_iter()
-                .flat_map(|(_, _, changes)| changes)
-                .collect();
-            let told = match names.as_slice() {
-                [one] => format!("A chick hatched in the colony: {one}"),
-                [one, two] => format!("Two chicks hatched in the colony: {one} and {two}"),
-                _ => return None,
-            };
-            Some(Turning {
-                who: SLOT_E,
-                told,
-                said: nth(
-                    &[
-                        "Tiny and grey and already hungry. Welcome!",
-                        "Listen to that peeping! The whole floe can hear it.",
-                        "New fluff on the ice. I'm in love.",
-                    ],
-                    n,
-                )
-                .to_string(),
-                changes,
-            })
-        }
+        // Chicks hatch to the colony's couples in the thaw as births of
+        // their own ([`crate::kin`]), each in its own time, not all at once
+        // with the year's turn.
+        Turn::Thaw => None,
         _ => {
             let wanted = newcomers_wanted(state, place);
             if wanted == 0 {
@@ -1589,7 +1550,9 @@ fn stores_turning(state: &WorldState, place: Place, n: u64) -> Option<Turning> {
             _ => 0,
         })
     .clamp(0, 100);
-    let by = (target - stores(state)) / 2;
+    // Halfway, rounded away from where they stand.
+    let gap = target - stores(state);
+    let by = (gap + gap.signum()) / 2;
     let (who, told, said) = match place {
         Place::Ares => {
             let (cargo, line) = nth(

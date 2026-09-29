@@ -63,6 +63,22 @@ fn tiny_society_can_be_installed_and_run_as_a_real_external_pack() {
     let advanced = session.advance_background(1).unwrap();
     assert!(advanced.world_time >= initial.world_time);
 
+    // Its stories are asked for across the boundary too (v7).
+    let mara = world_projection::SelectionId::Entity(tiny_society::MARA);
+    match session
+        .story(world_projection::StoryRequest::Legend(mara))
+        .unwrap()
+    {
+        Some(world_projection::StoryPage::Legend(legend)) => assert_eq!(legend.title, "Mara"),
+        other => panic!("no legend: {other:?}"),
+    }
+    assert_eq!(
+        session
+            .story(world_projection::StoryRequest::Almanac(1))
+            .unwrap(),
+        None
+    );
+
     let archive = session.archive().unwrap().unwrap();
     assert_eq!(archive.pack, session.pack());
     drop(session);

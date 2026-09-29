@@ -13,7 +13,10 @@ use world_theme::tokens;
 
 use crate::scene;
 
+mod stories;
 mod world_window;
+#[cfg(test)]
+pub(crate) use stories::{moment_strip, strip_layout};
 #[cfg(test)]
 pub(crate) use world_window::{pointer_hint, postcard_paper, zoom_button, Caret};
 pub use world_window::{scene_share, speech_pages, words_at_rest, RESTING_WORD_LIMIT};
@@ -56,6 +59,8 @@ pub struct ProjectionView {
     /// What the host does to show this World as a strip along the edge of
     /// the screen, if it can.
     strip: Option<ShowStrip>,
+    /// The stories open or just come: presentation only.
+    reading: stories::Reading,
 }
 
 /// What the host does to show a World as a strip.
@@ -78,6 +83,7 @@ impl ProjectionView {
             looking: Default::default(),
             revision: 0,
             strip: None,
+            reading: Default::default(),
         };
         view.looking.answer = view.first_available_answer();
         view
@@ -785,6 +791,34 @@ impl ProjectionView {
         let selection = self.selected?;
         let inspector = self.snapshot.inspector(selection)?;
         let mut panel = inspector_panel(inspector);
+        // Someone's, somewhere's or something's life, as the World tells it.
+        let told = matches!(selection, SelectionId::Entity(_))
+            && self.controller.is_some()
+            && self
+                .snapshot
+                .canvas
+                .items
+                .iter()
+                .any(|item| item.id == selection);
+        if told {
+            let words = if self
+                .snapshot
+                .canvas
+                .items
+                .iter()
+                .any(|item| item.id == selection && item.kind == CanvasItemKind::Actor)
+            {
+                "Their story"
+            } else {
+                "Its story"
+            };
+            panel =
+                panel.child(div().child(
+                    ui::button("inspector-story", words, ButtonKind::Secondary).on_click(
+                        cx.listener(move |this, _, _, cx| this.open_legend(selection, cx)),
+                    ),
+                ));
+        }
 
         if let SelectionId::Entity(entity) = selection {
             let relations = self.snapshot.relations_for_entity(entity);

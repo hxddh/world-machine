@@ -2119,6 +2119,7 @@ fn make_deck() -> Deck {
             })
             .collect(),
         most_open: 3,
+        rarer: 60,
     }
 }
 
@@ -2864,6 +2865,49 @@ fn storylet_of(event: &Event) -> Option<&'static Spec> {
     }
 }
 
+/// How one of the storyteller's questions was settled, when `event`
+/// settles one: the words of the answer the player chose, as they were
+/// offered, or `None` inside when nobody answered in time. For legends:
+/// "because you said …".
+pub(crate) fn answer_words(world: &World, event: &Event) -> Option<Option<String>> {
+    let spec = storylet_of(event)?;
+    let said = outcome_of(event)?;
+    if std::ptr::eq(said, &spec.lapse) {
+        return Some(None);
+    }
+    let answer = spec
+        .answers
+        .iter()
+        .find(|answer| std::ptr::eq(&answer.said, said))?;
+    Some(Some(
+        fill(world, answer.title).trim_end_matches('.').to_string(),
+    ))
+}
+
+/// Whether `event` is an answer that turned the asker down.
+pub(crate) fn answer_refuses(event: &Event) -> bool {
+    let Some(spec) = storylet_of(event) else {
+        return false;
+    };
+    spec.answers
+        .iter()
+        .any(|answer| answer.refuses && answer.said.event == event.kind)
+}
+
+/// The Events these storylets' answers and lapses are recorded as.
+pub(crate) fn outcome_kinds(storylets: &[&str]) -> Vec<&'static str> {
+    specs()
+        .iter()
+        .filter(|spec| storylets.contains(&spec.storylet.id))
+        .flat_map(|spec| {
+            spec.answers
+                .iter()
+                .map(|answer| answer.said.event)
+                .chain([spec.lapse.event])
+        })
+        .collect()
+}
+
 fn outcome_of(event: &Event) -> Option<&'static Said> {
     let spec = storylet_of(event)?;
     if event.kind == "situation_arose" {
@@ -2901,7 +2945,13 @@ pub(crate) fn told(world: &World, event: &Event) -> Option<String> {
     }
     let spec = storylet_of(event)?;
     if event.kind == "situation_arose" {
-        return Some(fill(world, spec.told));
+        // Told against the times it came before.
+        let told = fill(world, spec.told);
+        return Some(match event.payload.get("times") {
+            Some(Value::Integer(2)) => format!("{told} again"),
+            Some(Value::Integer(times)) if *times > 2 => format!("{told} once more"),
+            _ => told,
+        });
     }
     Some(fill(world, outcome_of(event)?.told))
 }
@@ -5004,6 +5054,7 @@ pub(crate) fn fixture_shape(world: &World, shape: &str) -> world_projection::Mar
         ("planter", _) => MarkShape::Planter,
         ("statue", _) => MarkShape::Statue,
         ("postbox", _) => MarkShape::Postbox,
+        ("stone", _) => MarkShape::Statue,
         _ => MarkShape::Parcel,
     }
 }
@@ -5032,7 +5083,11 @@ pub(crate) fn fixtures(world: &World) -> Vec<world_projection::CanvasItem> {
                 shape: Some(fixture_shape(world, &text("shape"))),
                 at,
                 look: None,
-                drawing: crate::drawings::fixture_drawing(world, &text("shape")),
+                drawing: if fixture.component(lives::generations::MEMORIAL_OF).is_some() {
+                    crate::drawings::memorial_drawing(world, &text("shape"))
+                } else {
+                    crate::drawings::fixture_drawing(world, &text("shape"))
+                },
                 stance: None,
                 standing: None,
                 mood: None,
@@ -5043,7 +5098,10 @@ pub(crate) fn fixtures(world: &World) -> Vec<world_projection::CanvasItem> {
                 px: None,
                 home: None,
                 day: Vec::new(),
-                built: None,
+                built: match fixture.component("built") {
+                    Some(Value::Integer(day)) => Some((*day).max(0) as u32),
+                    _ => None,
+                },
             }
         })
         .collect()

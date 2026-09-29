@@ -1,6 +1,6 @@
 # Known issues
 
-Current as of `v0.21.0` in the [changelog](../CHANGELOG.md). Report anything else with **Help → Report a Problem…** in the app.
+Current as of `v0.22.0` in the [changelog](../CHANGELOG.md). Report anything else with **Help → Report a Problem…** in the app.
 
 ## Installation
 
@@ -46,6 +46,11 @@ Current as of `v0.21.0` in the [changelog](../CHANGELOG.md). Report anything els
 - **Text size, contrast and VoiceOver are unverified on a Mac.** Text from 100% to 200% is checked by tests on speech paging only; how every window lays out at 200%, what Increase Contrast looks like, and what VoiceOver reads have not been seen on a Mac.
 
 - **The new look and sound are unseen and unheard on a Mac.** The painted scene is measured on Linux: the window's longest frame in a three-year benchmark is 10.5–12.4 ms, and a full background repaint takes 125–250 ms off the window's thread, faded in when ready. The zoomed-out overview of a three-year World took 27–47 ms a frame in a debug preview and has not been measured in release. Sound goes through CoreAudio via `cpal`, which has been compiled but never run on a Mac; the app logs the buffer the device grants and its delay on first sound. Bluetooth output adds 100–200 ms that no setting can remove. Nobody has listened to the new sound yet; `cargo test -p world-sound --release --test bars write_sounds -- --ignored` with `WORLD_MACHINE_SOUNDS=dir` writes it to files.
+- **The core residents never die.** Tiny Society's eight and Pocket Universe's six are the ones who ask questions, host and speak at festivals, so they grow old and retire but do not die by chance. Deaths fall on newcomers who grew old. In a three-year Tiny Society World that means 2 deaths.
+- **A legend gives a cause for about half its lines.** A cause is shown only when it is a real, earlier Event: an answer you gave, a festival or a storm. A friendship made or lost says why in its own words. Everyday beats with no such cause are shown without one.
+- **Moment strips are saved with `screencapture`,** like Photo and postcards, so saving one needs Screen Recording and has not been tried on a Mac. Nobody has seen the ages, the legend page, the strips or the almanac on a Mac; they were checked on Linux.
+- **A town at noon looks thin in any one view.** Everyone is outside by day, but spread along a panorama four and a half screens wide, so one screen holds three or four people.
+- **One Pocket Universe long test fails as it did in `v0.21.0`:** a scripted careful player finishes only 2 of the 4 parts of Ares's landing pad in a year.
 - **Homes and works cannot be inspected.** They are drawn and named, but clicking one opens nothing, because they are worked out for the picture rather than recorded in the World.
 - **A visitor on a World code does not see when works were built,** since a code carries only its latest season.
 
