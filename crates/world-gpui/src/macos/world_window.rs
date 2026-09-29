@@ -73,6 +73,10 @@ const RISE_SECONDS: f32 = 1.1;
 #[derive(Default)]
 pub(crate) struct Looking {
     pub(crate) started: Option<Instant>,
+    /// When this window first showed the World's own moment (as it opened,
+    /// or as the player chose where it begins), until the player's next
+    /// turn: a question waits while the first thing said then is heard.
+    pub(crate) opening: Option<Instant>,
     pub(crate) turn_at: Option<Instant>,
     pub(crate) card: usize,
     /// Which answer on a question's card the player is leaning toward.
@@ -308,6 +312,21 @@ fn capitalized(phrase: &str) -> String {
 
 fn first_name(name: &str) -> String {
     name.split_whitespace().next().unwrap_or(name).to_string()
+}
+
+/// How long a question's card waits as a World opens: while the first
+/// thing said is heard, so a newcomer is greeted before they are asked
+/// anything. Nothing waits when the first card asks nothing, or nobody
+/// speaks.
+pub(crate) fn question_waits(snapshot: &ProjectionSnapshot) -> f32 {
+    let asks = card_order(snapshot)
+        .first()
+        .and_then(|card| snapshot.commands.get(card[0]))
+        .is_some_and(|command| command.question.is_some());
+    match voices_now(snapshot).first() {
+        Some(voice) if asks => LINE_SECONDS * speech_pages(&voice.line).len() as f32,
+        _ => 0.0,
+    }
 }
 
 /// What was said at the latest moment, the story before the everyday.
@@ -671,6 +690,13 @@ impl ProjectionView {
             crate::Cue::Turn
         });
         self.looking.turn_at = Some(Instant::now());
+        // Choosing where a World begins opens it; any other turn is the
+        // player's own, and nothing waits for it.
+        self.looking.opening = self
+            .before_turn
+            .as_ref()
+            .is_some_and(is_beginning)
+            .then(Instant::now);
         self.looking.card = 0;
         self.looking.answer = self.first_available_answer();
         self.looking.card_back = false;
@@ -849,6 +875,7 @@ impl ProjectionView {
             Ok(snapshot) => {
                 self.snapshot = snapshot;
                 self.revision += 1;
+                self.looking.opening = None;
                 self.looking.answered = None;
                 self.looking.said_at = Some(Instant::now());
                 self.status = None;
@@ -1292,6 +1319,13 @@ impl ProjectionView {
         if self.controller.is_none() || is_beginning(&self.snapshot) || self.retelling.is_some() {
             return None;
         }
+        if self
+            .looking
+            .opening
+            .is_some_and(|at| since(Some(at)) < question_waits(&self.snapshot))
+        {
+            return None;
+        }
         let answers = self.card_answers();
         let answer = answers.get(self.looking.answer.min(answers.len().saturating_sub(1)))?;
         self.snapshot.commands.get(*answer)
@@ -1323,7 +1357,11 @@ impl ProjectionView {
             .get_or_insert_with(|| cx.focus_handle())
             .clone();
         if self.looking.started.is_none() {
-            self.looking.started = Some(Instant::now());
+            let now = Instant::now();
+            self.looking.started = Some(now);
+            if !is_beginning(&self.snapshot) {
+                self.looking.opening = Some(now);
+            }
             window.focus(&focus, cx);
         }
         let seconds = since(self.looking.started);
@@ -1403,7 +1441,8 @@ impl ProjectionView {
                 .map(|voice| LINE_SECONDS * speech_pages(&voice.line).len() as f32)
                 .collect::<Vec<_>>();
             let round = lengths.iter().sum::<f32>();
-            let mut left = seconds % round;
+            // As a World opens, from the first thing said.
+            let mut left = since(self.looking.opening.or(self.looking.started)) % round;
             let mut chosen = None;
             for (voice, length) in speaking.iter().zip(&lengths) {
                 if left < *length {
@@ -3479,6 +3518,51 @@ mod tests {
 
     fn someone() -> SelectionId {
         SelectionId::from_stable_key("entity-7").expect("an entity key")
+    }
+
+    /// As a World opens on a question, the card waits while the first
+    /// thing said (a hello) is heard; a card that asks nothing does not.
+    #[test]
+    fn a_question_waits_for_the_first_thing_said_as_a_world_opens() {
+        use world_projection::{Question, TimelineItem, Voice};
+        let moment = SelectionId::from_stable_key("event-3").expect("an event key");
+        let command = |question: Option<Question>| ProjectionCommand {
+            id: "ask".into(),
+            title: "Timber for the pier".into(),
+            detail: String::new(),
+            effects: Vec::new(),
+            scenery: None,
+            asker: Some(someone()),
+            moves: Vec::new(),
+            question,
+            unavailable: None,
+            hand: None,
+            preview: None,
+        };
+        let mut snapshot = ProjectionSnapshot {
+            world_time: 20,
+            voices: vec![Voice {
+                moment,
+                speaker: someone(),
+                line: "Oh, a new face! I'm Leo. Welcome to the harbour.".into(),
+            }],
+            commands: vec![command(Some(Question {
+                id: "pier".into(),
+                prompt: "Will you find timber for the pier?".into(),
+            }))],
+            ..ProjectionSnapshot::default()
+        };
+        snapshot.timeline.items.push(TimelineItem {
+            id: moment,
+            world_time: 20,
+            title: "Leo came over to say hello".into(),
+            subtitle: String::new(),
+            caused_by: Vec::new(),
+            routine: false,
+        });
+        assert_eq!(question_waits(&snapshot), LINE_SECONDS);
+        snapshot.commands = vec![command(None)];
+        assert_eq!(question_waits(&snapshot), 0.0, "only a question waits");
     }
 
     fn a_full_drawer() -> ProjectionSnapshot {

@@ -215,6 +215,17 @@ Each item names its bar. The measured value today is in brackets.
 - **Whether 1.0 goes on sale.** Plans 5–7 assume yes. If it stays free on GitHub, 7 shrinks to the diary study.
 - **A Mac to test on**, or a person with one, for plan 5 and the playtests.
 
+## What v0.19.1 did
+
+- **Long Worlds:** a three-year Tiny Society World opens (0.8 s) and saves (0.4 s) through the real Pack program, with 2.8 MB on the wire instead of 29.9 MB. Ten years takes 9.9 MB under a 64 MB limit.
+- **First minute:**
+  - A new World opens with Leo's greeting first, at 5 s (13 s in Pocket Universe), then a first question.
+  - The tests check the greeting itself.
+- **CI:** it runs world-gpui's tests and clippy on the interface and the app. The macOS job builds on any crate, System or World change.
+- **Docs:** the drifted documentation is corrected.
+
+Everything else in the 1.0 plan is still open.
+
 ## Sources
 
 - RimWorld 1.0 release (2018-10-17): https://ludeon.com/blog/2018/10/rimworld-1-0-released/

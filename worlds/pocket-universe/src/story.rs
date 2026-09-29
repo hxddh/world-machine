@@ -1763,15 +1763,25 @@ fn waiting_for_the_player(world: &World) -> bool {
 }
 
 /// Once the player has done something of their own in a new World, the
-/// first question comes straight after.
+/// first question comes straight after, if it has not come already.
 pub(crate) fn after_first_deed(
     world: &mut World,
     actions: &ActionRegistry,
 ) -> Result<Vec<EventId>, WorldError> {
-    if seed_id(world) == "unseeded"
-        || storylets::anything_raised(world.state(), &deck())
-        || waiting_for_the_player(world)
-    {
+    if waiting_for_the_player(world) {
+        return Ok(Vec::new());
+    }
+    first_question(world, actions)
+}
+
+/// The first question, if nothing has been asked yet: a new World opens on
+/// it, just after the hello, so the player has something to answer from
+/// the start.
+pub(crate) fn first_question(
+    world: &mut World,
+    actions: &ActionRegistry,
+) -> Result<Vec<EventId>, WorldError> {
+    if seed_id(world) == "unseeded" || storylets::anything_raised(world.state(), &deck()) {
         return Ok(Vec::new());
     }
     let reading = Reading {

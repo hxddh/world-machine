@@ -488,7 +488,7 @@ mod tests {
                 .briefing
                 .expect("reopened Tiny Society has a briefing")
                 .title,
-            "Life happened while you were away"
+            "The story so far"
         );
     }
 
@@ -517,7 +517,7 @@ mod tests {
                 .briefing
                 .expect("Tiny Society has a briefing after interaction")
                 .title,
-            "Life happened while you were away"
+            "The story so far"
         );
     }
 }

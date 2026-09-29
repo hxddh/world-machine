@@ -45,12 +45,15 @@ fn brightness(colour: u32) -> f32 {
 }
 
 fn hue(colour: u32) -> f32 {
+    // A grey has no hue: all three channels are the same byte. Compared as
+    // bytes, exactly, rather than as floats within some epsilon.
+    let bytes = [16, 8, 0].map(|shift| (colour >> shift) & 0xff);
+    if bytes[0] == bytes[1] && bytes[1] == bytes[2] {
+        return 0.0;
+    }
     let (r, g, b) = (channel(colour, 16), channel(colour, 8), channel(colour, 0));
     let max = r.max(g).max(b);
     let min = r.min(g).min(b);
-    if max - min < f32::EPSILON {
-        return 0.0;
-    }
     let h = if max == r {
         ((g - b) / (max - min)).rem_euclid(6.0)
     } else if max == g {
