@@ -27,6 +27,61 @@ pub trait WorldSession {
     fn archive(&self) -> Result<Option<WorldArchive>, HostError> {
         Ok(None)
     }
+
+    /// Where the World stands now, to come back to with [`Self::rollback`]
+    /// should what happens next not be kept: a host that saves after every
+    /// change tries it on the session itself, and goes back if the save
+    /// fails, rather than trying it on a World opened again. `None` for a
+    /// session that cannot go back, which the host then does not ask to.
+    ///
+    /// Everything the session shows goes back with it; a checkpoint is
+    /// taken before a change and used, if at all, before the next one.
+    fn checkpoint(&mut self) -> Result<Option<SessionCheckpoint>, HostError> {
+        Ok(None)
+    }
+
+    /// Goes back to where [`Self::checkpoint`] said the session stood,
+    /// forgetting everything since.
+    fn rollback(&mut self, checkpoint: SessionCheckpoint) -> Result<(), HostError> {
+        let _ = checkpoint;
+        Err(HostError::session(
+            "this World cannot go back to a checkpoint",
+        ))
+    }
+
+    /// The World's archive with only the events after its first `from`: all
+    /// a host that has saved those before needs to save it again. A session
+    /// that can tell it so answers without writing out its whole history.
+    fn archive_since(&self, from: usize) -> Result<Option<WorldArchive>, HostError> {
+        Ok(self.archive()?.map(|mut archive| {
+            archive.events.drain(..from.min(archive.events.len()));
+            archive
+        }))
+    }
+}
+
+/// Where a session stood, as [`WorldSession::checkpoint`] took it: only the
+/// session that took it knows what it holds.
+pub struct SessionCheckpoint(Box<dyn std::any::Any + Send>);
+
+impl SessionCheckpoint {
+    pub fn new(mark: impl std::any::Any + Send) -> Self {
+        Self(Box::new(mark))
+    }
+
+    /// What the session kept, if it is of the kind it keeps.
+    pub fn into_inner<T: std::any::Any>(self) -> Result<T, HostError> {
+        self.0
+            .downcast::<T>()
+            .map(|mark| *mark)
+            .map_err(|_| HostError::session("a checkpoint from another session"))
+    }
+}
+
+impl fmt::Debug for SessionCheckpoint {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("SessionCheckpoint")
+    }
 }
 
 struct IntegrityCheckedSession {
@@ -67,6 +122,20 @@ impl WorldSession for IntegrityCheckedSession {
         }
         Ok(archive)
     }
+
+    fn checkpoint(&mut self) -> Result<Option<SessionCheckpoint>, HostError> {
+        self.inner.checkpoint()
+    }
+
+    fn rollback(&mut self, checkpoint: SessionCheckpoint) -> Result<(), HostError> {
+        self.inner.rollback(checkpoint)
+    }
+
+    /// Only what came after the events already saved: whoever saved those
+    /// checks that these follow on from them.
+    fn archive_since(&self, from: usize) -> Result<Option<WorldArchive>, HostError> {
+        self.inner.archive_since(from)
+    }
 }
 
 fn integrity_checked(session: Box<dyn WorldSession>) -> Box<dyn WorldSession> {
@@ -77,6 +146,14 @@ pub type SessionFactory =
     Box<dyn Fn() -> Result<Box<dyn WorldSession>, HostError> + Send + Sync + 'static>;
 pub type ArchiveOpener =
     Box<dyn Fn(&WorldArchive) -> Result<Box<dyn WorldSession>, HostError> + Send + Sync + 'static>;
+pub type OwnedArchiveOpener =
+    Box<dyn Fn(WorldArchive) -> Result<Box<dyn WorldSession>, HostError> + Send + Sync + 'static>;
+pub type DeflatedArchiveOpener = Box<
+    dyn Fn(&WorldArchive, &[u8]) -> Result<Box<dyn WorldSession>, HostError>
+        + Send
+        + Sync
+        + 'static,
+>;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct WorldDescriptor {
@@ -89,6 +166,8 @@ pub struct WorldRegistration {
     pub descriptor: WorldDescriptor,
     factory: SessionFactory,
     opener: Option<ArchiveOpener>,
+    owned_opener: Option<OwnedArchiveOpener>,
+    deflated_opener: Option<DeflatedArchiveOpener>,
 }
 
 impl WorldRegistration {
@@ -100,6 +179,8 @@ impl WorldRegistration {
             descriptor,
             factory: Box::new(factory),
             opener: None,
+            owned_opener: None,
+            deflated_opener: None,
         }
     }
 
@@ -114,8 +195,55 @@ impl WorldRegistration {
         self
     }
 
+    /// How the Pack opens an archive it may keep, such as with
+    /// `WorldArchive::into_world`: a long history then becomes the World's
+    /// without a copy of it being made and let go of. The Pack still needs
+    /// [`Self::with_archive_opener`] for archives it is only lent.
+    pub fn with_owned_archive_opener(
+        mut self,
+        opener: impl Fn(WorldArchive) -> Result<Box<dyn WorldSession>, HostError>
+            + Send
+            + Sync
+            + 'static,
+    ) -> Self {
+        self.owned_opener = Some(Box::new(opener));
+        self
+    }
+
+    /// How the Pack opens an archive it can be handed as a World file keeps
+    /// it: the archive's compact JSON, deflated, found in the file the
+    /// archive was just read from. A Pack in a process of its own is handed
+    /// that as it is, rather than the archive written and deflated again.
+    pub fn with_deflated_archive_opener(
+        mut self,
+        opener: impl Fn(&WorldArchive, &[u8]) -> Result<Box<dyn WorldSession>, HostError>
+            + Send
+            + Sync
+            + 'static,
+    ) -> Self {
+        self.deflated_opener = Some(Box::new(opener));
+        self
+    }
+
     fn create(&self) -> Result<Box<dyn WorldSession>, HostError> {
         (self.factory)()
+    }
+
+    /// Opens an archive the caller hands over, giving it back if the Pack
+    /// only read it.
+    fn open_owned_archive(
+        &self,
+        archive: WorldArchive,
+        deflated: Option<&[u8]>,
+    ) -> Result<(Box<dyn WorldSession>, Option<WorldArchive>), HostError> {
+        if let Some(opener) = &self.owned_opener {
+            return Ok((opener(archive)?, None));
+        }
+        let session = match (&self.deflated_opener, deflated) {
+            (Some(opener), Some(deflated)) => opener(&archive, deflated)?,
+            _ => self.open_archive(&archive)?,
+        };
+        Ok((session, Some(archive)))
     }
 
     fn open_archive(&self, archive: &WorldArchive) -> Result<Box<dyn WorldSession>, HostError> {
@@ -341,20 +469,47 @@ impl WorldRegistry {
     }
 
     pub fn open_archive(&self, archive: &WorldArchive) -> Result<Box<dyn WorldSession>, HostError> {
+        let registration = self.registration_for(archive)?;
+        let session = registration.open_archive(archive)?;
+        Ok(integrity_checked(session))
+    }
+
+    /// [`Self::open_archive`], handing the archive over: a Pack that can
+    /// keep it takes it, and the archive comes back when the Pack only read
+    /// it, for the caller to let go of when it suits.
+    pub fn open_owned_archive(
+        &self,
+        archive: WorldArchive,
+    ) -> Result<(Box<dyn WorldSession>, Option<WorldArchive>), HostError> {
+        self.open_owned_archive_deflated(archive, None)
+    }
+
+    /// [`Self::open_owned_archive`] for an archive just read from a World
+    /// file, with the file's compact JSON as it keeps it deflated, which a
+    /// Pack that is handed archives so can be handed as it is. The caller
+    /// vouches that it reads as `archive`.
+    pub fn open_owned_archive_deflated(
+        &self,
+        archive: WorldArchive,
+        deflated: Option<&[u8]>,
+    ) -> Result<(Box<dyn WorldSession>, Option<WorldArchive>), HostError> {
+        let registration = self.registration_for(&archive)?;
+        let (session, archive) = registration.open_owned_archive(archive, deflated)?;
+        Ok((integrity_checked(session), archive))
+    }
+
+    fn registration_for(&self, archive: &WorldArchive) -> Result<&WorldRegistration, HostError> {
         check_archive(archive)?;
         let family = self
             .families
             .get(&archive.pack.id)
             .ok_or_else(|| HostError::UnknownWorld(archive.pack.id.clone()))?;
-        let registration =
-            family
-                .version(&archive.pack.version)
-                .ok_or_else(|| HostError::VersionMismatch {
-                    expected: family.active().descriptor.pack.clone(),
-                    found: archive.pack.clone(),
-                })?;
-        let session = registration.open_archive(archive)?;
-        Ok(integrity_checked(session))
+        family
+            .version(&archive.pack.version)
+            .ok_or_else(|| HostError::VersionMismatch {
+                expected: family.active().descriptor.pack.clone(),
+                found: archive.pack.clone(),
+            })
     }
 }
 
@@ -676,6 +831,72 @@ mod tests {
             pending: vec![],
             checkpoint: None,
         }
+    }
+
+    #[test]
+    fn a_pack_that_keeps_archives_is_handed_them_and_others_give_them_back() {
+        let mut registry = WorldRegistry::new();
+        registry
+            .register(openable_registration("mock.lent", "1"))
+            .unwrap();
+        let keeping_pack = WorldPackRef::new("mock.kept", "1");
+        registry
+            .register(
+                openable_registration("mock.kept", "1").with_owned_archive_opener(move |archive| {
+                    Ok(Box::new(MockSession {
+                        pack: keeping_pack.clone(),
+                        count: archive.world_time as usize + 100,
+                    }))
+                }),
+            )
+            .unwrap();
+
+        let (lent, back) = registry
+            .open_owned_archive(archive("mock.lent", "1", 4))
+            .unwrap();
+        assert_eq!(lent.snapshot().title, "Mock 4");
+        assert_eq!(back, Some(archive("mock.lent", "1", 4)));
+
+        let (kept, back) = registry
+            .open_owned_archive(archive("mock.kept", "1", 4))
+            .unwrap();
+        assert_eq!(kept.snapshot().title, "Mock 104");
+        assert_eq!(back, None);
+        // Lent, the same Pack reads it as before.
+        let read = registry
+            .open_archive(&archive("mock.kept", "1", 4))
+            .unwrap();
+        assert_eq!(read.snapshot().title, "Mock 4");
+
+        // A Pack handed archives deflated is handed them so when there is
+        // a file to hand over, and lent them when there is not.
+        let deflated_pack = WorldPackRef::new("mock.deflated", "1");
+        registry
+            .register(
+                openable_registration("mock.deflated", "1").with_deflated_archive_opener(
+                    move |archive, deflated| {
+                        Ok(Box::new(MockSession {
+                            pack: deflated_pack.clone(),
+                            count: archive.world_time as usize + deflated.len() * 1000,
+                        }))
+                    },
+                ),
+            )
+            .unwrap();
+        let (handed, back) = registry
+            .open_owned_archive_deflated(archive("mock.deflated", "1", 4), Some(b"zz"))
+            .unwrap();
+        assert_eq!(handed.snapshot().title, "Mock 2004");
+        assert_eq!(back, Some(archive("mock.deflated", "1", 4)));
+        let (lent, _) = registry
+            .open_owned_archive(archive("mock.deflated", "1", 4))
+            .unwrap();
+        assert_eq!(lent.snapshot().title, "Mock 4");
+
+        // What the Host checks, it checks either way.
+        assert!(registry
+            .open_owned_archive(archive("mock.missing", "1", 4))
+            .is_err());
     }
 
     #[test]

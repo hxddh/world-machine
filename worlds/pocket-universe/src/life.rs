@@ -13,6 +13,12 @@ pub(crate) const LIVES: EntityId = EntityId::new(38);
 
 /// The first id a stranger who comes to stay takes.
 pub(crate) const FIRST_VISITOR: u64 = 40;
+/// How many strangers, and how many of the place's own newcomers, can
+/// ever arrive.
+pub(crate) const VISITOR_ROOM: u64 = 200;
+/// The first id someone the place's own years bring takes: born there, or
+/// off the shuttle.
+pub(crate) const FIRST_BORN: u64 = 2000;
 
 const MARS: &[Activity] = &[
     Activity {
@@ -776,13 +782,24 @@ fn home(_: &WorldState, _: EntityId) -> Option<EntityId> {
     None
 }
 
-fn visitor(_: &str, job: &str) -> Vec<(String, Value)> {
+pub(crate) fn visitor(_: &str, job: &str) -> Vec<(String, Value)> {
     vec![
         ("role".into(), Value::from(job)),
         ("location".into(), Value::Entity(SLOT_A)),
         ("works_at".into(), Value::Entity(SLOT_C)),
         ("newcomer".into(), Value::from(true)),
     ]
+}
+
+/// The most people the place has room for: some to begin with, and more
+/// as its works go up.
+pub(crate) fn most_people(state: &WorldState) -> usize {
+    let base = match crate::places::Place::of(state) {
+        Some(crate::places::Place::Ares) => 8,
+        Some(crate::places::Place::Maple) => 9,
+        _ => 10,
+    };
+    (base + crate::story::works_finished(state).max(0) as usize / 6).min(12)
 }
 
 /// Everyone living in the World now: the pair, whoever came to stay, less
@@ -793,11 +810,26 @@ pub(crate) fn people(world: &World) -> Vec<EntityId> {
 
 /// Everyone living there now, read straight from the state.
 pub(crate) fn people_in(state: &WorldState) -> Vec<EntityId> {
-    let cast = cast(state);
     [SLOT_B, SLOT_E, NEWCOMER]
         .into_iter()
-        .chain(lives::arrivals(state, &cast))
-        .filter(|id| state.entity(*id).is_some() && !lives::gone(state, *id))
+        .filter(|id| state.entity(*id).is_some())
+        .chain(newcomers(state))
+        .filter(|id| !lives::gone(state, *id))
+        .collect()
+}
+
+/// Everyone who ever came to live here after the place began, gone or
+/// not, first come first: strangers the place took in, and those the
+/// place's own years brought (born, or off the shuttle).
+pub(crate) fn newcomers(state: &WorldState) -> Vec<EntityId> {
+    let taken = |id: u64| {
+        (FIRST_VISITOR..FIRST_VISITOR + VISITOR_ROOM).contains(&id)
+            || (FIRST_BORN..FIRST_BORN + VISITOR_ROOM).contains(&id)
+    };
+    state
+        .entities()
+        .map(|entity| entity.id)
+        .filter(|id| taken(id.0))
         .collect()
 }
 
@@ -851,10 +883,13 @@ pub(crate) fn cast(state: &WorldState) -> Cast {
             "money",
             Visitors {
                 first: FIRST_VISITOR,
-                room: 200,
+                room: VISITOR_ROOM,
                 names: &[
                     "Donna", "Ricky", "Tanya", "Walt", "Keisha", "Eddie", "Joanie", "Mikey",
-                    "Carla", "Dwayne",
+                    "Carla", "Dwayne", "Stacy", "Kevin", "Brenda", "Tony", "Lisa", "Marcus",
+                    "Wendy", "Rodney", "Tina", "Duane", "Sheila", "Jimmy", "Denise", "Troy",
+                    "Angie", "Curtis", "Patty", "Lamar", "Heather", "Vince", "Rosa", "Gary",
+                    "Yolanda", "Scott", "Debbie", "Andre", "Kim", "Terry", "Shawn", "Nicole",
                 ],
                 trades: &[
                     ("mechanic", "mechanic"),
@@ -908,9 +943,13 @@ pub(crate) fn cast(state: &WorldState) -> Cast {
             "fish",
             Visitors {
                 first: FIRST_VISITOR,
-                room: 200,
+                room: VISITOR_ROOM,
                 names: &[
                     "Pip", "Olo", "Nessa", "Brr", "Kiki", "Umi", "Flo", "Wob", "Tiki", "Snow",
+                    "Nib", "Tolo", "Suki", "Frost", "Puff", "Dot", "Ploo", "Yuki", "Bibi", "Momo",
+                    "Taku", "Lumi", "Kip", "Noa", "Skip", "Fizz", "Oona", "Bo", "Tuft", "Minnow",
+                    "Sleet", "Ripple", "Squall", "Drift", "Pebble", "Hush", "Wren", "Nuk", "Tay",
+                    "Zuzu",
                 ],
                 trades: &[
                     ("fisher", "fisher"),
@@ -964,7 +1003,7 @@ pub(crate) fn cast(state: &WorldState) -> Cast {
             "supplies",
             Visitors {
                 first: FIRST_VISITOR,
-                room: 200,
+                room: VISITOR_ROOM,
                 names: &[
                     "Yusuf Adeyemi",
                     "Sasha Petrov",
@@ -974,6 +1013,36 @@ pub(crate) fn cast(state: &WorldState) -> Cast {
                     "Dmitri Sokol",
                     "Amara Obi",
                     "Freya Lund",
+                    "Kofi Mensah",
+                    "Elena Ruiz",
+                    "Hiro Tanaka",
+                    "Nadia Haddad",
+                    "Ravi Kapoor",
+                    "Greta Nilsson",
+                    "Tariq Bashir",
+                    "Chloe Martin",
+                    "Mateo Silva",
+                    "Ada Nwosu",
+                    "Jonas Berg",
+                    "Leila Karimi",
+                    "Pavel Novak",
+                    "Sun Li",
+                    "Marisol Vega",
+                    "Ibrahim Diallo",
+                    "Hanna Virtanen",
+                    "Kai Keawe",
+                    "Zofia Nowak",
+                    "Arjun Mehta",
+                    "Ingrid Dahl",
+                    "Tomasz Kral",
+                    "Wanjiru Kamau",
+                    "Felix Braun",
+                    "Rosa Delgado",
+                    "Emeka Okafor",
+                    "Mira Stein",
+                    "Diego Castro",
+                    "Aiko Mori",
+                    "Omar Farouk",
                 ],
                 trades: &[
                     ("geologist", "geologist"),
@@ -995,6 +1064,40 @@ pub(crate) fn cast(state: &WorldState) -> Cast {
             },
         ),
     };
+    // Each of the place's own years brings its own: what people fall out
+    // over and go out to, who comes asking and from where, and what they
+    // do with their days.
+    let (activities, topics, outings, visitors, short_of) = match crate::places::Place::of(state) {
+        Some(place) => {
+            let now = crate::places::period(state);
+            let year = in_year(place, now, activities, topics, outings, visitors);
+            // What someone runs short of, and how someone leaves, as people
+            // say it these weeks.
+            let (short, ways) = words_of(place);
+            let turn = (now / 60) as usize;
+            (
+                year.activities,
+                year.topics,
+                year.outings,
+                Visitors {
+                    trades: year.trades,
+                    origins: year.origins,
+                    way_out: if now < 60 {
+                        visitors.way_out
+                    } else {
+                        ways[turn % ways.len()]
+                    },
+                    ..visitors
+                },
+                if now < 60 {
+                    short_of
+                } else {
+                    short[turn % short.len()]
+                },
+            )
+        }
+        None => (activities, topics, outings, visitors, short_of),
+    };
     Cast {
         notes: LIVES,
         period: crate::BACKGROUND_PERIOD,
@@ -1014,9 +1117,18 @@ pub(crate) fn cast(state: &WorldState) -> Cast {
         activities,
         topics,
         outings,
-        fund: None,
+        fund: Some(lives::Fund {
+            entity: UNIVERSE,
+            key: crate::years::STORES,
+            name: match seed.as_str() {
+                "1980s-town" => "the street fund",
+                "penguin-civilization" => "the fish vault",
+                _ => "the stores",
+            },
+            amount: 10,
+        }),
         visitors: Some(visitors),
-        most_people: 8,
+        most_people: most_people(state),
         most_open: 2,
         voice: match seed.as_str() {
             "1980s-town" => crate::voices::town,
@@ -1024,6 +1136,161 @@ pub(crate) fn cast(state: &WorldState) -> Cast {
             _ => crate::voices::mars,
         },
     }
+}
+
+/// What someone in each place runs short of, and the ways out of it, as
+/// they are said from one season to the next.
+fn words_of(place: crate::places::Place) -> (&'static [&'static str], &'static [&'static str]) {
+    match place {
+        crate::places::Place::Ares => (
+            &[
+                "supplies",
+                "rations",
+                "spare parts",
+                "battery charge",
+                "clean water",
+                "air filters",
+            ],
+            &[
+                "the supply shuttle",
+                "the next shuttle",
+                "the Tharsis convoy",
+                "the return flight",
+                "the trade rover",
+                "the orbital hop",
+            ],
+        ),
+        crate::places::Place::Maple => (
+            &[
+                "money",
+                "quarters",
+                "gas money",
+                "rent money",
+                "lunch money",
+                "bus fare",
+            ],
+            &[
+                "the Greyhound",
+                "the night train",
+                "Night Bus 6 to the city",
+                "the interstate",
+                "a friend's van",
+                "the morning train",
+            ],
+        ),
+        crate::places::Place::Ice => (
+            &[
+                "fish",
+                "herring",
+                "krill",
+                "sprats",
+                "squid",
+                "good fishing",
+            ],
+            &[
+                "the next ice floe",
+                "the migrating flocks",
+                "the whale road",
+                "a drifting berg",
+                "the south current",
+                "the thaw channel",
+            ],
+        ),
+    }
+}
+
+/// What a place's people draw on in one of its own years.
+struct InYear {
+    activities: &'static [Activity],
+    topics: &'static [&'static str],
+    outings: &'static [&'static str],
+    trades: &'static [(&'static str, &'static str)],
+    origins: &'static [&'static str],
+}
+
+/// What a place's people draw on in its `year`th own year: the first year
+/// what the place always had; after it, that year's own, with the year
+/// before's still about and half of what the place always did, in turn.
+fn in_year(
+    place: crate::places::Place,
+    now: u64,
+    activities: &'static [Activity],
+    topics: &'static [&'static str],
+    outings: &'static [&'static str],
+    visitors: Visitors,
+) -> &'static InYear {
+    use std::collections::BTreeMap;
+    use std::sync::{Mutex, OnceLock};
+    type Years = BTreeMap<(crate::places::Place, u64, u64), &'static InYear>;
+    static YEARS: OnceLock<Mutex<Years>> = OnceLock::new();
+    let year = crate::places::era_at(place, now);
+    // Which month of its own year it is: what people fall out over and go
+    // out to changes month by month.
+    let month = crate::places::era_began(place, now).map_or(0, |began| (now - began) / 30);
+    let key = (
+        place,
+        crate::eras::era(place, year).map_or(0, |_| {
+            (year - 1) % crate::eras::eras(place).len() as u64 + 1
+        }),
+        month,
+    );
+    let mut years = YEARS
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    years.entry(key).or_insert_with(|| {
+        let leak = |all: Vec<&'static str>| -> &'static [&'static str] {
+            Box::leak(all.into_boxed_slice())
+        };
+        let made = match crate::eras::era(place, key.1) {
+            None => InYear {
+                activities,
+                topics,
+                outings,
+                trades: visitors.trades,
+                origins: visitors.origins,
+            },
+            Some(this) => {
+                let before = crate::eras::era(place, key.1 - 1);
+                // This year's own, last year's, and everything the place
+                // always did.
+                let mut acts = this.activities.to_vec();
+                acts.extend(
+                    before
+                        .map_or(&[][..], |before| before.activities)
+                        .iter()
+                        .copied(),
+                );
+                acts.extend(activities.iter().copied());
+                let mut outs = this.outings.to_vec();
+                outs.extend(
+                    before
+                        .map_or(&[][..], |before| before.outings)
+                        .iter()
+                        .copied(),
+                );
+                let mut trades = this.trades.to_vec();
+                trades.extend(visitors.trades.iter().copied());
+                let mut origins = this.origins.to_vec();
+                origins.extend(visitors.origins.iter().copied());
+                // Five of the year's topics at a time, moving on a month
+                // at a time.
+                let window = |all: &[&'static str], size: usize| {
+                    (0..size.min(all.len()))
+                        .map(|at| all[(key.2 as usize * 2 + at) % all.len()])
+                        .collect::<Vec<_>>()
+                };
+                InYear {
+                    activities: Box::leak(acts.into_boxed_slice()),
+                    topics: leak(window(this.topics, 5)),
+                    outings: leak(window(&outs, 3)),
+                    trades: Box::leak(trades.into_boxed_slice()),
+                    origins: leak(origins),
+                }
+            }
+        };
+        Box::leak(Box::new(made))
+    })
 }
 
 const LIFE_COMMAND: &str = "pocket-universe.life.";
@@ -1046,12 +1313,9 @@ pub(crate) fn commands(world: &World) -> Vec<world_projection::ProjectionCommand
                 id: format!("life.{}", situation.key),
                 prompt: situation.prompt.clone(),
             };
-            // Nobody here keeps a common fund to throw a party from.
-            let party = situation.key.starts_with("party.");
             situation
                 .answers
                 .into_iter()
-                .filter(move |answer| !(party && answer.id == "party"))
                 .map(move |answer| world_projection::ProjectionCommand {
                     id: format!("{LIFE_COMMAND}{}.{}", situation.key, answer.id),
                     title: answer.title,
@@ -1072,15 +1336,125 @@ pub(crate) fn commands(world: &World) -> Vec<world_projection::ProjectionCommand
 /// What people have given the player to keep, oldest first, for the
 /// drawer.
 pub(crate) fn keepsakes(world: &World) -> Vec<world_projection::Keepsake> {
+    let works = crate::story::works_done(world.state());
     lives::keepsakes(world)
         .into_iter()
         .map(|kept| world_projection::Keepsake {
             from: world_projection::SelectionId::Entity(kept.from),
-            what: kept.what,
+            what: world
+                .event(kept.event)
+                .and_then(|event| harvested(world, event, &works))
+                .unwrap_or(kept.what),
             note: kept.note,
             moment: world_projection::SelectionId::Event(kept.event),
         })
         .collect()
+}
+
+/// What each place's gardens give, as the people who bring it say it:
+/// not any garden's basket, but the place's own.
+fn produce(place: crate::places::Place) -> &'static [&'static str] {
+    match place {
+        crate::places::Place::Ares => &[
+            "a handful of dwarf wheat",
+            "a bowl of cherry tomatoes",
+            "three perfect radishes",
+            "a bunch of basil",
+            "a bag of green beans",
+            "a sprig of mint",
+            "a head of lettuce",
+            "a jar of pickled peppers",
+            "a punnet of strawberries",
+            "a bundle of chives",
+            "a sack of fresh flour",
+            "two small potatoes",
+            "a cucumber, a bit bent",
+            "a posy of marigolds",
+            "a bag of snap peas",
+            "a jar of greenhouse honey",
+            "a tray of sprouted lentils",
+            "a bunch of spring onions",
+            "a handful of peanuts",
+            "a bag of red lettuce",
+            "a jar of sun-dried tomatoes",
+            "a fistful of sweet peas",
+        ],
+        crate::places::Place::Maple => &[
+            "a bag of tomatoes",
+            "a bunch of sunflowers",
+            "a zucchini the size of a bat",
+            "a jar of strawberry jam",
+            "a bowl of blueberries",
+            "a basket of sweet corn",
+            "a bunch of zinnias",
+            "a pumpkin for the porch",
+            "a bag of green beans",
+            "a jar of dill pickles",
+            "a handful of cherry tomatoes",
+            "a bunch of radishes",
+            "a rhubarb pie",
+            "a bouquet of daisies",
+            "a bag of snap peas",
+            "a jar of salsa",
+        ],
+        crate::places::Place::Ice => &[
+            "a strand of sweet kelp",
+            "a bundle of sea lettuce",
+            "a clump of moss for your nest",
+            "a shell full of krill",
+            "a sprig of snow flower",
+            "a pebble with lichen on it",
+            "a coil of dried kelp",
+            "a handful of sea grapes",
+            "a posy of tundra flowers",
+            "a sprat, still flapping",
+            "a scoop of fresh snow for drinking",
+            "a string of sea beads",
+            "a bundle of dune grass",
+            "a limpet shell of salt",
+            "a sweet kelp bulb",
+            "a tuft of soft moss",
+        ],
+    }
+}
+
+/// What a garden the player planted gave, in the place's own words: the
+/// next of its produce each time it gives, and what it grew in.
+fn harvested(
+    world: &World,
+    event: &world_core::Event,
+    works: &[&'static crate::works::Work],
+) -> Option<String> {
+    if event.kind != "enjoyed"
+        || event.payload.get("effect") != Some(&Value::Text("harvest".into()))
+    {
+        return None;
+    }
+    let place = crate::places::Place::of(world.state())?;
+    let state = world.state();
+    let thing = *event.targets.first()?;
+    state.entity(thing)?;
+    let what = lives::name(state, thing).to_lowercase();
+    let produce = produce(place);
+    let turn = event.world_time / crate::BACKGROUND_PERIOD / 7 + thing.0;
+    let produce = produce[(turn % produce.len() as u64) as usize];
+    // Grown in the shelter of the latest work the place had finished when
+    // the year it was grown in began, if any: fixed once that year began,
+    // so a keepsake always reads as it did when it was given.
+    let year = crate::places::era_at(place, event.world_time / crate::BACKGROUND_PERIOD);
+    let finished = crate::years::works_at_year(state, year).unwrap_or(0);
+    Some(
+        match finished
+            .checked_sub(1)
+            .and_then(|last| works.get(last).copied())
+        {
+            Some(work) => format!(
+                "{produce} from your {what} by {}",
+                crate::story::the_work(work)
+            ),
+            None => format!("{produce} from your {what}"),
+        },
+    )
 }
 
 /// Letters the player has been written, oldest first, for the letter box.

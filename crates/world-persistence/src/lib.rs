@@ -15,7 +15,20 @@ pub const WORLD_ARCHIVE_VERSION: u32 = 1;
 pub const WORLD_ARCHIVE_COMPACT_VERSION: u32 = 2;
 
 mod compact;
+mod fast;
+mod history;
+mod read;
 use compact::{CompactChanges, CompactEvents, Keys};
+pub use history::{ArchiveHead, CompactHistory, HistoryMark};
+
+/// An archive read with its history as the JSON writes it: the archive, the
+/// raw JSON of a named field beside it, and the history to write on from
+/// when it is written as World Machine writes a compact archive.
+pub type KeptArchive = (
+    WorldArchive,
+    Option<Box<serde_json::value::RawValue>>,
+    Option<CompactHistory>,
+);
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct WorldPackRef {
@@ -74,9 +87,69 @@ impl WorldArchive {
 
     /// Reads an archive written in either encoding.
     pub fn from_json(json: &str) -> Result<Self, PersistenceError> {
-        let value: serde_json::Value =
-            serde_json::from_str(json).map_err(PersistenceError::Json)?;
-        Self::from_json_value(&value)
+        Self::from_json_slice(json.as_bytes())
+    }
+
+    /// Reads an archive written in either encoding from its JSON text, as
+    /// [`Self::from_json_value`] reads it from a parsed JSON value. A compact
+    /// archive as World Machine writes it is read straight into the archive,
+    /// without the cost of the value.
+    pub fn from_json_slice(json: &[u8]) -> Result<Self, PersistenceError> {
+        Ok(read::archive_from_slice(json, None)?.0)
+    }
+
+    /// [`Self::from_json_slice`], also handing back the raw JSON of the
+    /// top-level field `extra` when there is one, such as a World
+    /// document's own metadata alongside its archive.
+    pub fn from_json_slice_with(
+        json: &[u8],
+        extra: &str,
+    ) -> Result<(Self, Option<Box<serde_json::value::RawValue>>), PersistenceError> {
+        read::archive_from_slice(json, Some(extra))
+    }
+
+    /// [`Self::from_json_slice_with`], also handing back the history as the
+    /// JSON writes it, to write on from as the World records more; `None`
+    /// when it is not written as World Machine writes a compact archive.
+    pub fn from_json_slice_kept(json: &[u8], extra: &str) -> Result<KeptArchive, PersistenceError> {
+        read::archive_kept(json, Some(extra))
+    }
+
+    /// What the archive says about its World beside its history.
+    pub fn head(&self) -> ArchiveHead<'_> {
+        ArchiveHead {
+            pack: &self.pack,
+            world_time: self.world_time,
+            pending: &self.pending,
+        }
+    }
+
+    /// The archive of the events a World recorded after its first `from`,
+    /// with where it stands and what it has pending: what a World saved
+    /// after every change writes after what it wrote before.
+    pub fn capture_since(
+        pack: WorldPackRef,
+        world: &World,
+        from: usize,
+    ) -> Result<Self, PersistenceError> {
+        validate_pack(&pack)?;
+        let events = world.events();
+        Ok(Self {
+            format: WORLD_ARCHIVE_FORMAT.into(),
+            format_version: WORLD_ARCHIVE_VERSION,
+            pack,
+            world_time: world.world_time(),
+            events: events[from.min(events.len())..]
+                .iter()
+                .map(ArchivedEvent::from)
+                .collect(),
+            pending: world
+                .scheduler()
+                .pending()
+                .map(ArchivedScheduledAction::from)
+                .collect(),
+            checkpoint: None,
+        })
     }
 
     pub fn restore(
@@ -84,6 +157,31 @@ impl WorldArchive {
         expected_pack: &WorldPackRef,
         baseline: WorldState,
     ) -> Result<World, PersistenceError> {
+        let start = self.start(expected_pack)?;
+        let events = self.events.iter().map(Event::from).collect::<Vec<_>>();
+        self.resume(start, baseline, events)
+    }
+
+    /// [`Self::restore`], taking the archive: its history becomes the
+    /// World's rather than being copied into it, each event let go of as
+    /// the World takes it, so opening a long history holds it once in
+    /// memory rather than twice, and does not free one copy after.
+    pub fn into_world(
+        mut self,
+        expected_pack: &WorldPackRef,
+        baseline: WorldState,
+    ) -> Result<World, PersistenceError> {
+        let start = self.start(expected_pack)?;
+        let events = std::mem::take(&mut self.events)
+            .into_iter()
+            .map(Event::from)
+            .collect::<Vec<_>>();
+        self.resume(start, baseline, events)
+    }
+
+    /// Where restoring starts: checks the archive can be restored for the
+    /// Pack, and reads its checkpoint, while its events are still here.
+    fn start(&self, expected_pack: &WorldPackRef) -> Result<Start, PersistenceError> {
         self.validate_header()?;
         validate_pack(expected_pack)?;
         if &self.pack != expected_pack {
@@ -92,33 +190,39 @@ impl WorldArchive {
                 found: self.pack.clone(),
             });
         }
-
-        let events = self.events.iter().map(Event::from).collect::<Vec<_>>();
-        let checkpoint = self
+        Ok(self
             .checkpoint
             .as_ref()
-            .and_then(|checkpoint| Some((checkpoint.fit(self)?, checkpoint)));
-        let mut world = match checkpoint {
-            Some((fit, checkpoint)) => {
-                let settled = checkpoint
-                    .changes
-                    .iter()
-                    .map(StateChange::from)
-                    .collect::<Vec<_>>();
-                let from = match fit {
+            .and_then(|checkpoint| {
+                let from = match checkpoint.fit(self)? {
                     CheckpointFit::Within => checkpoint.events,
                     CheckpointFit::Before => 0,
                 };
-                World::resume(
-                    baseline,
-                    &settled,
-                    checkpoint.world_time,
-                    checkpoint.last_event + 1,
-                    events,
+                Some(Start::Checkpoint {
+                    settled: checkpoint.changes.iter().map(StateChange::from).collect(),
+                    world_time: checkpoint.world_time,
+                    next_event_id: checkpoint.last_event + 1,
                     from,
-                )
-            }
-            None => World::from_history(baseline, &events),
+                })
+            })
+            .unwrap_or(Start::Beginning))
+    }
+
+    fn resume(
+        &self,
+        start: Start,
+        baseline: WorldState,
+        events: Vec<Event>,
+    ) -> Result<World, PersistenceError> {
+        let mut world = match start {
+            Start::Checkpoint {
+                settled,
+                world_time,
+                next_event_id,
+                from,
+            } => World::resume(baseline, &settled, world_time, next_event_id, events, from),
+            // What `World::from_history` does, without a copy of the events.
+            Start::Beginning => World::resume(baseline, &[], 0, 0, events, 0),
         }
         .map_err(PersistenceError::World)?;
 
@@ -174,10 +278,18 @@ impl WorldArchive {
             events: CompactEvents {
                 events: &self.events,
                 keys: &keys,
+                previous: None,
             },
             extra,
         };
-        serde_json::to_vec(&written).map_err(PersistenceError::Json)
+        // About what a lived World's events take each, so a long history
+        // is written without being copied as it grows.
+        let mut json = Vec::with_capacity(
+            512 + 320 * self.events.len()
+                + checkpoint.map_or(0, |checkpoint| 48 * checkpoint.changes.len()),
+        );
+        serde_json::to_writer(&mut json, &written).map_err(PersistenceError::Json)?;
+        Ok(json)
     }
 
     /// Reads an archive in either encoding from a parsed JSON object:
@@ -221,6 +333,18 @@ impl WorldArchive {
         }
         validate_pack(&self.pack)
     }
+}
+
+/// Where a World is restored from: its first event, or a checkpoint.
+enum Start {
+    Beginning,
+    Checkpoint {
+        settled: Vec<StateChange>,
+        world_time: u64,
+        next_event_id: u64,
+        /// The first of the archive's events after the checkpoint.
+        from: usize,
+    },
 }
 
 fn validate_pack(pack: &WorldPackRef) -> Result<(), PersistenceError> {
@@ -289,7 +413,7 @@ struct CompactArchiveOut<'a> {
     world_time: u64,
     pending: &'a [ArchivedScheduledAction],
     #[serde(skip_serializing_if = "<[_]>::is_empty")]
-    keys: &'a [&'a str],
+    keys: &'a [std::borrow::Cow<'a, str>],
     #[serde(skip_serializing_if = "Option::is_none")]
     checkpoint: Option<CompactCheckpoint<'a, 'a>>,
     events: CompactEvents<'a, 'a>,
@@ -467,8 +591,10 @@ enum Target {
 /// The changes that come to the same as `changes` applied in order: a
 /// value set on something created along the way is folded into its
 /// creation, and a value set again, or on something removed or created
-/// anew, is left out. Every creation and removal is kept, so every change
-/// kept meets the same World it met in the full run.
+/// anew, is left out. Something both created and removed along the way is
+/// left out altogether, with everything folded into it, since a World keeps
+/// no trace of what it removed. Every other creation and removal is kept, so
+/// every change kept meets the same World it met in the full run.
 fn settle(changes: impl Iterator<Item = ArchivedStateChange>) -> Vec<ArchivedStateChange> {
     let mut out: Vec<Option<ArchivedStateChange>> = Vec::new();
     // Where the live creation of each thing is, while nothing has removed it.
@@ -494,15 +620,21 @@ fn settle(changes: impl Iterator<Item = ArchivedStateChange>) -> Vec<ArchivedSta
             ArchivedStateChange::RemoveEntity { entity } => {
                 let target = Target::Entity(*entity);
                 forget(&mut out, &mut written, target);
-                created.remove(&target);
-                out.push(Some(change));
+                match created.remove(&target) {
+                    // Made and gone again along the way: neither is kept.
+                    Some(at) => out[at] = None,
+                    None => out.push(Some(change)),
+                }
                 continue;
             }
             ArchivedStateChange::RemoveRelation { relation } => {
                 let target = Target::Relation(*relation);
                 forget(&mut out, &mut written, target);
-                created.remove(&target);
-                out.push(Some(change));
+                match created.remove(&target) {
+                    // Made and gone again along the way: neither is kept.
+                    Some(at) => out[at] = None,
+                    None => out.push(Some(change)),
+                }
                 continue;
             }
             ArchivedStateChange::SetComponent { entity, key, .. }
@@ -584,11 +716,7 @@ impl From<&Event> for ArchivedEvent {
             actor: event.actor.map(|id| id.0),
             targets: event.targets.iter().map(|id| id.0).collect(),
             caused_by: event.caused_by.iter().map(|id| id.0).collect(),
-            payload: event
-                .payload
-                .iter()
-                .map(|(key, value)| (key.clone(), ArchivedValue::from(value)))
-                .collect(),
+            payload: convert_map(&event.payload, |value| ArchivedValue::from(value)),
             changes: event
                 .changes
                 .iter()
@@ -607,12 +735,124 @@ impl From<&ArchivedEvent> for Event {
             actor: event.actor.map(EntityId::new),
             targets: event.targets.iter().copied().map(EntityId::new).collect(),
             caused_by: event.caused_by.iter().copied().map(EventId::new).collect(),
-            payload: event
-                .payload
-                .iter()
-                .map(|(key, value)| (key.clone(), Value::from(value)))
-                .collect(),
+            payload: convert_map(&event.payload, |value| Value::from(value)),
             changes: event.changes.iter().map(StateChange::from).collect(),
+        }
+    }
+}
+
+impl From<ArchivedEvent> for Event {
+    fn from(event: ArchivedEvent) -> Self {
+        Self {
+            id: EventId::new(event.id),
+            kind: event.kind,
+            world_time: event.world_time,
+            actor: event.actor.map(EntityId::new),
+            targets: event.targets.into_iter().map(EntityId::new).collect(),
+            caused_by: event.caused_by.into_iter().map(EventId::new).collect(),
+            payload: values_into(event.payload),
+            changes: event.changes.into_iter().map(StateChange::from).collect(),
+        }
+    }
+}
+
+fn values_into(values: BTreeMap<String, ArchivedValue>) -> BTreeMap<String, Value> {
+    if values.len() <= SMALL_MAP {
+        let mut out = BTreeMap::new();
+        for (key, value) in values {
+            out.insert(key, Value::from(value));
+        }
+        return out;
+    }
+    values
+        .into_iter()
+        .map(|(key, value)| (key, Value::from(value)))
+        .collect()
+}
+
+/// As many entries as one node of a B-tree holds.
+const SMALL_MAP: usize = 11;
+
+/// A map converted value by value. One that fits in a single node of a
+/// B-tree, as nearly every map in a history does, is built by inserting in
+/// order, which asks for no memory beyond the node; a larger one all at
+/// once, which packs its nodes full.
+fn convert_map<A, B>(
+    values: &BTreeMap<String, A>,
+    convert: impl Fn(&A) -> B,
+) -> BTreeMap<String, B> {
+    if values.len() <= SMALL_MAP {
+        let mut out = BTreeMap::new();
+        for (key, value) in values {
+            out.insert(key.clone(), convert(value));
+        }
+        return out;
+    }
+    values
+        .iter()
+        .map(|(key, value)| (key.clone(), convert(value)))
+        .collect()
+}
+
+impl From<ArchivedStateChange> for StateChange {
+    fn from(change: ArchivedStateChange) -> Self {
+        match change {
+            ArchivedStateChange::CreateEntity { entity } => Self::CreateEntity(Entity {
+                id: EntityId::new(entity.id),
+                kind: entity.kind,
+                components: values_into(entity.components),
+            }),
+            ArchivedStateChange::RemoveEntity { entity } => {
+                Self::RemoveEntity(EntityId::new(entity))
+            }
+            ArchivedStateChange::SetComponent { entity, key, value } => Self::SetComponent {
+                entity: EntityId::new(entity),
+                key,
+                value: Value::from(value),
+            },
+            ArchivedStateChange::RemoveComponent { entity, key } => Self::RemoveComponent {
+                entity: EntityId::new(entity),
+                key,
+            },
+            ArchivedStateChange::CreateRelation { relation } => Self::CreateRelation(Relation {
+                id: RelationId::new(relation.id),
+                kind: relation.kind,
+                from: EntityId::new(relation.from),
+                to: EntityId::new(relation.to),
+                properties: values_into(relation.properties),
+            }),
+            ArchivedStateChange::RemoveRelation { relation } => {
+                Self::RemoveRelation(RelationId::new(relation))
+            }
+            ArchivedStateChange::SetRelationProperty {
+                relation,
+                key,
+                value,
+            } => Self::SetRelationProperty {
+                relation: RelationId::new(relation),
+                key,
+                value: Value::from(value),
+            },
+            ArchivedStateChange::RemoveRelationProperty { relation, key } => {
+                Self::RemoveRelationProperty {
+                    relation: RelationId::new(relation),
+                    key,
+                }
+            }
+        }
+    }
+}
+
+impl From<ArchivedValue> for Value {
+    fn from(value: ArchivedValue) -> Self {
+        match value {
+            ArchivedValue::Null => Self::Null,
+            ArchivedValue::Bool(value) => Self::Bool(value),
+            ArchivedValue::Integer(value) => Self::Integer(value),
+            ArchivedValue::Text(value) => Self::Text(value),
+            ArchivedValue::Entity(value) => Self::Entity(EntityId::new(value)),
+            ArchivedValue::List(values) => Self::List(values.into_iter().map(Self::from).collect()),
+            ArchivedValue::Map(values) => Self::Map(values_into(values)),
         }
     }
 }
@@ -746,11 +986,7 @@ impl From<&Entity> for ArchivedEntity {
         Self {
             id: entity.id.0,
             kind: entity.kind.clone(),
-            components: entity
-                .components
-                .iter()
-                .map(|(key, value)| (key.clone(), ArchivedValue::from(value)))
-                .collect(),
+            components: convert_map(&entity.components, |value| ArchivedValue::from(value)),
         }
     }
 }
@@ -760,11 +996,7 @@ impl From<&ArchivedEntity> for Entity {
         Self {
             id: EntityId::new(entity.id),
             kind: entity.kind.clone(),
-            components: entity
-                .components
-                .iter()
-                .map(|(key, value)| (key.clone(), Value::from(value)))
-                .collect(),
+            components: convert_map(&entity.components, |value| Value::from(value)),
         }
     }
 }
@@ -785,11 +1017,7 @@ impl From<&Relation> for ArchivedRelation {
             kind: relation.kind.clone(),
             from: relation.from.0,
             to: relation.to.0,
-            properties: relation
-                .properties
-                .iter()
-                .map(|(key, value)| (key.clone(), ArchivedValue::from(value)))
-                .collect(),
+            properties: convert_map(&relation.properties, |value| ArchivedValue::from(value)),
         }
     }
 }
@@ -801,11 +1029,7 @@ impl From<&ArchivedRelation> for Relation {
             kind: relation.kind.clone(),
             from: EntityId::new(relation.from),
             to: EntityId::new(relation.to),
-            properties: relation
-                .properties
-                .iter()
-                .map(|(key, value)| (key.clone(), Value::from(value)))
-                .collect(),
+            properties: convert_map(&relation.properties, |value| Value::from(value)),
         }
     }
 }
@@ -831,12 +1055,7 @@ impl From<&Value> for ArchivedValue {
             Value::Text(value) => Self::Text(value.clone()),
             Value::Entity(value) => Self::Entity(value.0),
             Value::List(values) => Self::List(values.iter().map(Self::from).collect()),
-            Value::Map(values) => Self::Map(
-                values
-                    .iter()
-                    .map(|(key, value)| (key.clone(), Self::from(value)))
-                    .collect(),
-            ),
+            Value::Map(values) => Self::Map(convert_map(values, |value| Self::from(value))),
         }
     }
 }
@@ -850,12 +1069,7 @@ impl From<&ArchivedValue> for Value {
             ArchivedValue::Text(value) => Self::Text(value.clone()),
             ArchivedValue::Entity(value) => Self::Entity(EntityId::new(*value)),
             ArchivedValue::List(values) => Self::List(values.iter().map(Self::from).collect()),
-            ArchivedValue::Map(values) => Self::Map(
-                values
-                    .iter()
-                    .map(|(key, value)| (key.clone(), Self::from(value)))
-                    .collect(),
-            ),
+            ArchivedValue::Map(values) => Self::Map(convert_map(values, |value| Self::from(value))),
         }
     }
 }
@@ -873,11 +1087,7 @@ impl From<&ActionRequest> for ArchivedActionRequest {
         Self {
             actor: request.actor.map(|id| id.0),
             action: request.action.clone(),
-            args: request
-                .args
-                .iter()
-                .map(|(key, value)| (key.clone(), ArchivedValue::from(value)))
-                .collect(),
+            args: convert_map(&request.args, |value| ArchivedValue::from(value)),
             caused_by: request.caused_by.iter().map(|id| id.0).collect(),
         }
     }
@@ -888,11 +1098,7 @@ impl From<&ArchivedActionRequest> for ActionRequest {
         Self {
             actor: request.actor.map(EntityId::new),
             action: request.action.clone(),
-            args: request
-                .args
-                .iter()
-                .map(|(key, value)| (key.clone(), Value::from(value)))
-                .collect(),
+            args: convert_map(&request.args, |value| Value::from(value)),
             caused_by: request
                 .caused_by
                 .iter()
@@ -1006,6 +1212,7 @@ mod tests {
         let json = archive.to_json_pretty().unwrap();
         let decoded = WorldArchive::from_json(&json).unwrap();
         let mut restored = decoded.restore(&pack, baseline()).unwrap();
+        assert_eq!(decoded.into_world(&pack, baseline()).unwrap(), restored);
 
         assert_eq!(restored.world_time(), 10);
         assert_eq!(restored.events(), world.events());
@@ -1348,6 +1555,11 @@ mod tests {
             let restored = whole.restore(&pack, start.clone()).unwrap();
             assert_eq!(restored.state(), full.state());
             assert_eq!(restored.events(), full.events());
+            // Taken rather than read, the same World.
+            assert_eq!(
+                whole.clone().into_world(&pack, start.clone()).unwrap(),
+                restored
+            );
             let mut tail = whole.clone();
             tail.events = archive.events[covered..].to_vec();
             if covered > 0 {
@@ -1356,6 +1568,10 @@ mod tests {
             let restored = tail.restore(&pack, start.clone()).unwrap();
             assert_eq!(restored.state(), full.state());
             assert_eq!(restored.events(), &full.events()[covered..]);
+            assert_eq!(
+                tail.clone().into_world(&pack, start.clone()).unwrap(),
+                restored
+            );
 
             // It reads back as written, in either encoding.
             let json = tail.to_compact_json(&serde_json::Map::new()).unwrap();
@@ -1371,6 +1587,234 @@ mod tests {
             .map(|event| event.changes.len())
             .sum::<usize>();
         assert!(carried.unwrap().changes.len() < changes);
+    }
+
+    /// Read from its text and from a parsed JSON value, the same archive,
+    /// or refused by both; and read by the reader made for the compact
+    /// encoding, when it reads it, the same archive again.
+    fn read_both_ways(json: &str) -> Option<WorldArchive> {
+        let from_value = serde_json::from_str::<serde_json::Value>(json)
+            .map_err(PersistenceError::Json)
+            .and_then(|value| WorldArchive::from_json_value(&value));
+        // The reader made for the compact encoding reads only what it reads
+        // as the JSON value reader does.
+        if let Some((fast, _)) = fast::archive(json, Some("document")) {
+            match (fast.validate_header(), &from_value) {
+                (Ok(()), Ok(value)) => assert_eq!(&fast, value, "{json}"),
+                (Err(_), Err(_)) => {}
+                (fast, value) => panic!("{json}\nfast: {fast:?}\nfrom a value: {value:?}"),
+            }
+        }
+        let from_text = WorldArchive::from_json_slice(json.as_bytes());
+        match (from_text, from_value) {
+            (Ok(text), Ok(value)) => {
+                assert_eq!(text, value, "{json}");
+                Some(text)
+            }
+            (Err(_), Err(_)) => None,
+            (text, value) => panic!("{json}\nread from text: {text:?}\nfrom a value: {value:?}"),
+        }
+    }
+
+    #[test]
+    fn an_archive_reads_the_same_from_its_text_as_from_a_json_value() {
+        let (start, events) = busy_history();
+        let world = World::from_history(start, &events).unwrap();
+        let mut archive =
+            WorldArchive::capture(WorldPackRef::new("test.counter", "1"), &world).unwrap();
+        archive.events.extend(
+            [
+                event(20, 8, every_kind_of_change()),
+                event(21, 8, Vec::new()),
+            ]
+            .iter()
+            .map(ArchivedEvent::from),
+        );
+        archive.pending.push(ArchivedScheduledAction {
+            world_time: 9,
+            request: ArchivedActionRequest::from(
+                &ActionRequest::new("add_units")
+                    .actor(EntityId::new(1))
+                    .arg("odd", every_kind_of_value()),
+            ),
+        });
+        archive.checkpoint = Some(ArchivedCheckpoint::covering(&archive.events[..4]));
+        let mut extra = serde_json::Map::new();
+        extra.insert("document".into(), serde_json::json!({"display_title": "A"}));
+        let compact = String::from_utf8(archive.to_compact_json(&extra).unwrap()).unwrap();
+        assert_eq!(read_both_ways(&compact), Some(archive.clone()));
+        // As World Machine writes it, the reader made for it reads it.
+        assert_eq!(
+            fast::archive(&compact, Some("document")).map(|(archive, _)| archive),
+            Some(archive.clone())
+        );
+        let (read, document) =
+            WorldArchive::from_json_slice_with(compact.as_bytes(), "document").unwrap();
+        assert_eq!(read, archive);
+        assert_eq!(document.unwrap().get(), r#"{"display_title":"A"}"#);
+
+        // Written in another order, with the keys last, it still reads.
+        let value: serde_json::Value = serde_json::from_str(&compact).unwrap();
+        let mut reordered = String::from("{");
+        let object = value.as_object().unwrap();
+        let mut names = object.keys().cloned().collect::<Vec<_>>();
+        names.sort_by_key(|name| name == "keys");
+        for (at, name) in names.iter().enumerate() {
+            if at > 0 {
+                reordered.push(',');
+            }
+            reordered.push_str(&format!("{:?}:{}", name, object[name]));
+        }
+        reordered.push('}');
+        assert!(reordered.ends_with("]}") && reordered.contains(",\"keys\":["));
+        assert_eq!(read_both_ways(&reordered), Some(archive.clone()));
+
+        // Tagged, pretty or not.
+        let tagged = archive.to_json_pretty().unwrap();
+        assert_eq!(read_both_ways(&tagged), Some(archive.clone()));
+        let tagged = serde_json::to_string(&archive).unwrap();
+        assert_eq!(read_both_ways(&tagged), Some(archive.clone()));
+
+        // Damaged, in many ways: both readers refuse the same ones.
+        let breakages = [
+            ("\"t\":", "\"t\":-"),
+            ("\"k\":\"", "\"k\":1,\"q\":\""),
+            ("[\"s\",", "[\"s\",-1,"),
+            ("[\"e+\",", "[\"e+\",1,"),
+            ("[\"r+\",", "[\"r+\",\"x\","),
+            ("[\"e-\",", "[\"e-\",1,"),
+            ("{\"#\":", "{\"#\":-"),
+            ("{\"{}\":", "{\"{}\":1,\"z\":"),
+            ("\"format_version\":2", "\"format_version\":1"),
+            ("\"format_version\":2", "\"format_version\":2.0"),
+            ("\"keys\":[", "\"keys\":[1,"),
+            ("\"last_event\":", "\"last_event\":\"x\",\"z\":"),
+            ("\"changes\":[", "\"changes\":[[],"),
+            ("\"events\":[", "\"events\":[{},"),
+            (
+                "\"events\":[",
+                "\"events\":[{\"k\":\"a\",\"t\":1,\"p\":[]},",
+            ),
+            ("\"pending\":[", "\"pending\":[1,"),
+            ("\"world_time\":", "\"world_time\":-"),
+            ("{", "["),
+        ];
+        for (find, replace) in breakages {
+            assert!(compact.contains(find), "{find}");
+            for at in compact.match_indices(find).map(|(at, _)| at).take(40) {
+                let mut bad = compact.clone();
+                bad.replace_range(at..at + find.len(), replace);
+                let _ = read_both_ways(&bad);
+            }
+        }
+    }
+
+    /// Damaged at random, byte by byte: whatever reads, reads the same by
+    /// every reader, and whatever does not, reads by none.
+    #[test]
+    fn a_randomly_damaged_archive_reads_the_same_by_every_reader() {
+        let (start, events) = busy_history();
+        let world = World::from_history(start, &events).unwrap();
+        let mut archive =
+            WorldArchive::capture(WorldPackRef::new("test.counter", "1"), &world).unwrap();
+        archive
+            .events
+            .push(ArchivedEvent::from(&event(30, 9, every_kind_of_change())));
+        archive.checkpoint = Some(ArchivedCheckpoint::covering(&archive.events[..3]));
+        let mut extra = serde_json::Map::new();
+        extra.insert("document".into(), serde_json::json!({"a": [1.5, "\\x"]}));
+        let compact = archive.to_compact_json(&extra).unwrap();
+        let alphabet = b"{}[]\",:#0123456789-.eE ntfrux+\\";
+        let mut seed: u64 = 0x5eed;
+        let mut next = move |bound: usize| {
+            seed = seed
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            (seed >> 33) as usize % bound
+        };
+        let mut read = 0;
+        for _ in 0..3_000 {
+            let mut bad = compact.clone();
+            for _ in 0..1 + next(3) {
+                let at = next(bad.len());
+                let byte = alphabet[next(alphabet.len())];
+                match next(3) {
+                    0 => bad[at] = byte,
+                    1 => bad.insert(at, byte),
+                    _ => {
+                        bad.remove(at);
+                    }
+                }
+            }
+            if let Ok(text) = std::str::from_utf8(&bad) {
+                read += usize::from(read_both_ways(text).is_some());
+            }
+        }
+        // Some damage still reads (a changed digit is another number).
+        assert!(read > 100, "{read}");
+    }
+
+    /// A history written event by event, from its start or from what an
+    /// archive wrote, writes the archive that writing it whole does.
+    #[test]
+    fn a_history_written_as_it_grows_writes_the_same_archive() {
+        let (start, events) = busy_history();
+        let world = World::from_history(start, &events).unwrap();
+        let mut archive =
+            WorldArchive::capture(WorldPackRef::new("test.counter", "1"), &world).unwrap();
+        archive
+            .events
+            .push(ArchivedEvent::from(&event(30, 9, every_kind_of_change())));
+        archive.world_time = 9;
+        let checkpoint = ArchivedCheckpoint::covering(&archive.events[..3]);
+        let mut extra = serde_json::Map::new();
+        extra.insert("document".into(), serde_json::json!({"display_title": "A"}));
+        let head = WorldArchive::head;
+        let whole = archive
+            .to_compact_json_with(Some(&checkpoint), &extra)
+            .unwrap();
+
+        // Written a few events at a time.
+        let mut history = CompactHistory::default();
+        for events in archive.events.chunks(2) {
+            history.push(events);
+        }
+        assert_eq!(history.len(), archive.events.len());
+        let grown = history
+            .to_compact_json(head(&archive), Some(&checkpoint), &extra)
+            .unwrap();
+        let mut expected = archive.clone();
+        expected.checkpoint = Some(checkpoint.clone());
+        assert_eq!(WorldArchive::from_json_slice(&grown).unwrap(), expected);
+
+        // From what the whole archive wrote, on to events recorded after.
+        let (read, document, kept) =
+            WorldArchive::from_json_slice_kept(&whole, "document").unwrap();
+        assert_eq!(read, expected);
+        assert_eq!(document.unwrap().get(), r#"{"display_title":"A"}"#);
+        let mut kept = kept.expect("written as World Machine writes");
+        assert_eq!(
+            kept.to_compact_json(head(&archive), Some(&checkpoint), &extra)
+                .unwrap(),
+            whole,
+            "written as it was read, to the byte"
+        );
+        let mark = kept.mark();
+        let later = ArchivedEvent::from(&event(31, 10, every_kind_of_change()));
+        kept.push(std::slice::from_ref(&later));
+        let mut longer = expected.clone();
+        longer.events.push(later);
+        longer.world_time = 10;
+        let written = kept
+            .to_compact_json(head(&longer), Some(&checkpoint), &extra)
+            .unwrap();
+        assert_eq!(WorldArchive::from_json_slice(&written).unwrap(), longer);
+        kept.rewind(mark);
+        assert_eq!(
+            kept.to_compact_json(head(&archive), Some(&checkpoint), &extra)
+                .unwrap(),
+            whole
+        );
     }
 
     #[test]

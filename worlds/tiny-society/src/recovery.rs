@@ -28,7 +28,7 @@ pub(crate) fn reopen_lean(branch: &mut TinySocietyBranch) -> Result<Vec<EventId>
     let reopened = branch
         .world
         .execute(
-            &actions,
+            actions,
             &ActionRequest::new("reopen_bakery_lean")
                 .actor(MARA)
                 .caused_by(closure),

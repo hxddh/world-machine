@@ -1,0 +1,3032 @@
+//! What each of a place's own years brings that the years before did
+//! not: what people fall out over and ask each other out to, who comes
+//! asking for a room and from where, what they do with their days, the
+//! corners of the place they show the player and what they speak of.
+//! Maple Street moves from 1988 into the nineties: Walkmans, the mall,
+//! grunge, the internet and a ten-year reunion. Ares lives through its
+//! second dome, a great storm, meeting Tharsis, its cadets, the ice mine,
+//! a long winter, its first trees and its settlers. Icebridge has the year
+//! of the big catch, the whales, the long night, the leopard seal, the
+//! early thaw, the new floe, its songs and the aurora storms.
+//!
+//! Only words: the `lives` System does the living.
+
+use crate::places::Place;
+use crate::{SLOT_A, SLOT_C, SLOT_D};
+use lives::{Activity, At, Corner, Need, Subject, With};
+
+/// One of a place's own years, as it differs from the years before.
+pub(crate) struct Era {
+    pub(crate) topics: &'static [&'static str],
+    pub(crate) outings: &'static [&'static str],
+    pub(crate) trades: &'static [(&'static str, &'static str)],
+    pub(crate) origins: &'static [&'static str],
+    pub(crate) activities: &'static [Activity],
+    pub(crate) corners: &'static [Corner],
+    pub(crate) subjects: &'static [Subject],
+}
+
+/// A place's own years after its first, in order.
+pub(crate) fn eras(place: Place) -> &'static [Era] {
+    match place {
+        Place::Ares => ARES,
+        Place::Maple => MAPLE,
+        Place::Ice => ICE,
+    }
+}
+
+/// What the place's `n`th own year brings (the first is 0, and brings
+/// only what the place always had). Past the last written, the years
+/// come round again from the second.
+pub(crate) fn era(place: Place, n: u64) -> Option<&'static Era> {
+    let eras = eras(place);
+    (n >= 1 && !eras.is_empty()).then(|| &eras[((n - 1) % eras.len() as u64) as usize])
+}
+
+const ARES: &[Era] = &[
+    Era {
+        topics: &[
+            "the new bunk list",
+            "who cleans the air filters",
+            "the shuttle mail",
+            "a dented helmet",
+            "the last jar of jam",
+            "the dust in the mess",
+            "the dome's thermostat",
+            "who sits by the skylight",
+            "a lost glove",
+            "the rover's playlist",
+        ],
+        outings: &[
+            "watch the shuttle launch from the ridge",
+            "drive the rover out to the dunes",
+            "eat supper in the airlock with the door open to the stars",
+        ],
+        trades: &[("cook", "cook"), ("electrician", "electrician")],
+        origins: &["the Hellas outpost", "a research ship"],
+        activities: &[
+            Activity {
+                id: "filter_duty",
+                need: Need::Money,
+                with: With::Workmate,
+                at: At::Work,
+                told: "{name} cleaned air filters at {place} with {other}",
+                said: &[
+                    "{other} and I pulled a kilo of dust out of one filter.",
+                    "Filter duty with {other}. We both sneezed for an hour.",
+                    "{other} swears the filters breed dust at night.",
+                    "Clean filters, clean air. {other} took the credit.",
+                    "Changed every filter at {place} with {other}. Breathing's easier.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "letter_reading",
+                need: Need::Rest,
+                with: With::Alone,
+                at: At::Home,
+                told: "{name} read the letters the shuttle brought",
+                said: &[
+                    "Read my mother's letter four times. She sent a pressed leaf.",
+                    "A letter from Earth. It smells like paper. Real paper.",
+                    "My sister had a baby. I found out from a letter two months late.",
+                    "{friend} read me the funny bits of their letters too.",
+                    "Wrote back six pages. The shuttle's gone. It'll wait.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "dome_cards",
+                need: Need::Company,
+                with: With::Anyone,
+                at: At::Gathering,
+                told: "{name} played cards in the new dome with {other}",
+                said: &[
+                    "{other} and I played cards till the lights dimmed for night.",
+                    "{other} cheats at cards. Openly. Proudly.",
+                    "Poker for ration bars with {other}. I'm rich in oat bars.",
+                    "The new dome echoes. {other} sang between hands.",
+                    "Taught {other} a card game from home. They beat me at it.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "rover_training",
+                need: Need::Purpose,
+                with: With::Anyone,
+                at: At::Work,
+                told: "{name} trained the new crew on the rover with {other}",
+                said: &[
+                    "{other} drove the rover into a ditch. Gently.",
+                    "Taught {other} to read the dust. Left means trouble.",
+                    "Rover training with {other}. We only got lost twice.",
+                    "{other} parked the rover perfectly. First try. Show-off.",
+                    "Showed {other} the old tracks to the crater. They're still there.",
+                ],
+                gives: &[],
+            },
+        ],
+        corners: &[
+            Corner {
+                place: SLOT_A,
+                name: "the new dome's skylight",
+                said: "At night you can see both moons at once from here.",
+            },
+            Corner {
+                place: SLOT_C,
+                name: "the seedling shelf",
+                said: "Every new crop starts here. I talk to them. It helps.",
+            },
+            Corner {
+                place: SLOT_D,
+                name: "the rover's logbook",
+                said: "Every trip since the first. Some of the entries are poems.",
+            },
+        ],
+        subjects: &[
+            Subject {
+                about: "the shuttle",
+                said: &[
+                    "Every window I think about going home. Then I don't.",
+                    "The pilot waves every time. I wave back. Every time.",
+                ],
+            },
+            Subject {
+                about: "Earth",
+                said: &[
+                    "I miss rain most. Not the sea. Rain.",
+                    "From here Earth's just a bright star. Hard to believe.",
+                ],
+            },
+            Subject {
+                about: "the new dome",
+                said: &[
+                    "It's bigger than it needs to be. On purpose.",
+                    "We argued for weeks about the colour. It's grey.",
+                ],
+            },
+        ],
+    },
+    Era {
+        topics: &[
+            "the storm rota",
+            "the battery ration",
+            "who left the hatch unlatched",
+            "a snoring bunkmate",
+            "the storm forecast",
+            "the last dry socks",
+            "the storm snacks",
+            "who kept the log",
+            "a cracked visor",
+            "the sandbags",
+        ],
+        outings: &[
+            "watch the storm roll in from the observation blister",
+            "walk the dunes after the storm",
+            "dig out the old lander together",
+        ],
+        trades: &[
+            ("meteorologist", "meteorologist"),
+            ("solar technician", "solar technician"),
+        ],
+        origins: &["the Elysium station", "a stranded survey team"],
+        activities: &[
+            Activity {
+                id: "storm_prep",
+                need: Need::Money,
+                with: With::Workmate,
+                at: At::Work,
+                told: "{name} storm-proofed {place} with {other}",
+                said: &[
+                    "{other} and I taped every seam at {place}. Twice.",
+                    "Sandbags on the windward side with {other}. My back says no.",
+                    "{other} checked the seals while I held the torch.",
+                    "Storm shutters down. {other} says we're ready. We're not.",
+                    "Tied down everything that could fly with {other}.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "storm_sleep",
+                need: Need::Rest,
+                with: With::Alone,
+                at: At::Home,
+                told: "{name} slept through the worst of the storm",
+                said: &[
+                    "The storm howled all night. I slept like a stone.",
+                    "Woke up and the window was brown. Went back to sleep.",
+                    "The walls hummed with the wind. Better than music.",
+                    "{friend} made me tea at three in the morning. The storm was loud.",
+                    "Dreamed of calm skies. Woke to dust. Still nice.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "storm_stories",
+                need: Need::Company,
+                with: With::Anyone,
+                at: At::Gathering,
+                told: "{name} told stories with {other} while the storm blew",
+                said: &[
+                    "{other} told a ghost story. The storm did the sound effects.",
+                    "Stuck inside with {other} for six sols. We're still friends.",
+                    "{other} and I played every board game we own. Twice.",
+                    "Candles in the mess while the power saved. {other} sang.",
+                    "{other} and I counted the gusts. Lost count at nine hundred.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "storm_watch",
+                need: Need::Purpose,
+                with: With::Friend,
+                at: At::Quiet,
+                told: "{name} kept the storm watch with {other}",
+                said: &[
+                    "Storm watch with {other}. We read the wind gauge every hour.",
+                    "{other} spotted the storm's edge before the instruments did.",
+                    "Kept the log through the night with {other}. All green.",
+                    "{other} and I watched the storm light up with static. Beautiful.",
+                    "The storm's passing. {other} and I shook hands on it.",
+                ],
+                gives: &[],
+            },
+        ],
+        corners: &[
+            Corner {
+                place: SLOT_A,
+                name: "the storm cellar",
+                said: "Six bunks, a lamp and a crate of biscuits. Enough.",
+            },
+            Corner {
+                place: SLOT_C,
+                name: "the wind gauge on the greenhouse roof",
+                said: "It spun so fast in the storm it sang.",
+            },
+            Corner {
+                place: SLOT_D,
+                name: "the rover's storm tarp",
+                said: "Patched eleven times. Each patch has a name.",
+            },
+        ],
+        subjects: &[
+            Subject {
+                about: "the big storm",
+                said: &[
+                    "Forty sols of brown sky. I thought I'd forget the sun.",
+                    "We lost the old antenna. Found it a kilometre away.",
+                ],
+            },
+            Subject {
+                about: "static",
+                said: &[
+                    "In a dust storm your hair stands up. Everyone's hair.",
+                    "I got a shock off the door handle. The whole storm long.",
+                ],
+            },
+            Subject {
+                about: "the sun",
+                said: &[
+                    "When it came back after the storm, we all went outside. In suits.",
+                    "The sun's smaller here. You love it more.",
+                ],
+            },
+        ],
+    },
+    Era {
+        topics: &[
+            "what to trade with Tharsis",
+            "the radio schedule",
+            "a message that went unanswered",
+            "who speaks for the habitat",
+            "the Tharsis accent",
+            "the trade rover's route",
+            "the Tharsis cheese",
+            "a bad trade",
+            "the convoy's schedule",
+            "who drives the trade rover",
+        ],
+        outings: &[
+            "ride along on the trade run to Tharsis",
+            "listen to the Tharsis radio show together",
+            "climb the ridge to wave at the Tharsis convoy",
+        ],
+        trades: &[("radio operator", "radio operator"), ("trader", "trader")],
+        origins: &["Tharsis", "the Tharsis trade convoy"],
+        activities: &[
+            Activity {
+                id: "trade_loading",
+                need: Need::Money,
+                with: With::Workmate,
+                at: At::Work,
+                told: "{name} loaded the trade rover with {other}",
+                said: &[
+                    "Loaded forty sacks of wheat with {other}. Tharsis sends pipes back.",
+                    "{other} and I packed the trade crates. Labelled in two languages.",
+                    "{other} haggled with Tharsis over the radio. We won. I think.",
+                    "The trade rover's heavy. {other} sat on the crates to close them.",
+                    "Counted the Tharsis goods with {other}. Someone sent us cheese.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "radio_listen",
+                need: Need::Rest,
+                with: With::Alone,
+                at: At::Quiet,
+                told: "{name} listened to Tharsis radio at {place}",
+                said: &[
+                    "Tharsis radio plays old songs. I know all the words.",
+                    "Fell asleep to the Tharsis weather report. Soothing.",
+                    "The Tharsis DJ said hello to Ares. I cheered alone.",
+                    "{friend} and I have a favourite Tharsis show now.",
+                    "Static, then music. Someone else is out here. Nice.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "tharsis_visitors",
+                need: Need::Company,
+                with: With::Anyone,
+                at: At::Gathering,
+                told: "{name} hosted the Tharsis traders with {other}",
+                said: &[
+                    "The Tharsis traders brought a song. {other} learned it by supper.",
+                    "{other} gave the traders a tour. They loved the greenhouse.",
+                    "Supper for fourteen with {other}. We ran out of chairs.",
+                    "{other} traded jokes with the Tharsis crew. Theirs are worse.",
+                    "The traders stayed an extra sol. {other} didn't mind at all.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "route_mapping",
+                need: Need::Purpose,
+                with: With::Friend,
+                at: At::Work,
+                told: "{name} mapped the trade route with {other}",
+                said: &[
+                    "{other} and I marked every rock on the way to Tharsis.",
+                    "Mapped the canyon shortcut with {other}. Saves a whole sol.",
+                    "{other} named a crater after me. It's a small crater.",
+                    "The trade map's done. {other} framed it.",
+                    "{other} says the route's safe. I believe it.",
+                ],
+                gives: &[],
+            },
+        ],
+        corners: &[
+            Corner {
+                place: SLOT_A,
+                name: "the radio corner",
+                said: "We talk to Tharsis every evening at seven. Sometimes they talk back.",
+            },
+            Corner {
+                place: SLOT_C,
+                name: "the trade shelf",
+                said: "Tharsis cheese, Tharsis socks, one Tharsis poem.",
+            },
+            Corner {
+                place: SLOT_D,
+                name: "the rover's trade flag",
+                said: "We fly it so Tharsis knows we're friendly.",
+            },
+        ],
+        subjects: &[
+            Subject {
+                about: "Tharsis",
+                said: &[
+                    "They've got forty people and a piano. A piano!",
+                    "Their mayor calls us the neighbours. I like that.",
+                ],
+            },
+            Subject {
+                about: "trading",
+                said: &[
+                    "Wheat for pipes, songs for cheese. Fair's fair.",
+                    "I've never bargained before. I'm very bad at it.",
+                ],
+            },
+            Subject {
+                about: "the radio",
+                said: &[
+                    "A voice from over the horizon. It still gives me chills.",
+                    "I know the Tharsis operator's laugh better than her face.",
+                ],
+            },
+        ],
+    },
+    Era {
+        topics: &[
+            "the cadets' exam results",
+            "who teaches the cadets",
+            "a cadet's prank",
+            "the suit sizes",
+            "the training schedule",
+            "an old hand's war stories",
+            "a cadet's lost manual",
+            "the drill sergeant voice",
+            "the cadets' music",
+            "who gets the top bunk",
+        ],
+        outings: &[
+            "take the cadets on their first night drive",
+            "picnic at the crater rim with the cadets",
+            "watch the cadets' first solo walk",
+        ],
+        trades: &[
+            ("instructor", "instructor"),
+            ("quartermaster", "quartermaster"),
+        ],
+        origins: &["the training ship", "the orbital academy"],
+        activities: &[
+            Activity {
+                id: "cadet_drills",
+                need: Need::Money,
+                with: With::Workmate,
+                at: At::Work,
+                told: "{name} ran drills with the cadets and {other}",
+                said: &[
+                    "Airlock drills with {other} and the cadets. Nine seconds!",
+                    "{other} timed the suit-up drill. Nobody's fast enough. Yet.",
+                    "A cadet put their helmet on backwards. {other} didn't laugh. Much.",
+                    "Drilled the cadets with {other} till dinner. They'll be good.",
+                    "{other} taught the cadets knots. I taught them patience.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "quiet_study",
+                need: Need::Rest,
+                with: With::Alone,
+                at: At::Quiet,
+                told: "{name} studied the old manuals at {place}",
+                said: &[
+                    "Read the old manual cover to cover. Found a doodle on page ninety.",
+                    "Studying at {place}. It's quiet till the cadets find me.",
+                    "Relearned everything I forgot. There was a lot.",
+                    "{friend} quizzed me on the manual. I passed. Barely.",
+                    "Fell asleep on the manual. Woke with a diagram on my cheek.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "cadet_supper",
+                need: Need::Company,
+                with: With::Anyone,
+                at: At::Gathering,
+                told: "{name} ate supper with the cadets and {other}",
+                said: &[
+                    "The cadets asked {other} a hundred questions over supper.",
+                    "{other} told the cadets about the first landing. They were silent.",
+                    "Supper with the cadets and {other}. So loud. So good.",
+                    "A cadet cooked. {other} was brave. I was braver.",
+                    "{other} and I got the cadets singing. Off key.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "mentoring",
+                need: Need::Purpose,
+                with: With::Anyone,
+                at: At::Work,
+                told: "{name} mentored a cadet with {other}",
+                said: &[
+                    "My cadet fixed a seal alone today. {other} saw. I'm proud.",
+                    "{other} and I wrote the cadets' reports. All good ones.",
+                    "Taught a cadet to read the sky. {other} taught them to read me.",
+                    "{other} says I'm a natural teacher. I'm a natural worrier.",
+                    "A cadet thanked me. {other} pretended not to notice me tear up.",
+                ],
+                gives: &[],
+            },
+        ],
+        corners: &[
+            Corner {
+                place: SLOT_A,
+                name: "the cadets' bunk room",
+                said: "Posters on every wall. It looks like a student dorm. It is.",
+            },
+            Corner {
+                place: SLOT_C,
+                name: "the practice beds",
+                said: "The cadets grow radishes here. Mostly they grow mistakes.",
+            },
+            Corner {
+                place: SLOT_D,
+                name: "the training rover",
+                said: "Every dent on it is a lesson learned.",
+            },
+        ],
+        subjects: &[
+            Subject {
+                about: "the cadets",
+                said: &[
+                    "They're so young. Were we that young?",
+                    "One of them wants my job. Good. Let them.",
+                ],
+            },
+            Subject {
+                about: "exams",
+                said: &[
+                    "I failed my first suit exam. Nobody knows that.",
+                    "The exam's harder than Mars. Mars is fair.",
+                ],
+            },
+            Subject {
+                about: "teaching",
+                said: &[
+                    "You learn a thing properly when you teach it.",
+                    "My old teacher would laugh to see me now.",
+                ],
+            },
+        ],
+    },
+    Era {
+        topics: &[
+            "the ice mine shifts",
+            "a flooded tunnel",
+            "who gets the warm suit",
+            "the water allowance",
+            "the drill's noise",
+            "a found fossil",
+            "the bath queue",
+            "a leaking pipe",
+            "the ice caves' map",
+            "muddy boots",
+        ],
+        outings: &[
+            "explore the ice caves under the mine",
+            "take a bath with the new water, one each",
+            "watch the ice glitter under the lamps",
+        ],
+        trades: &[("miner", "miner"), ("water engineer", "water engineer")],
+        origins: &["the polar station", "a mining ship"],
+        activities: &[
+            Activity {
+                id: "mine_shift",
+                need: Need::Money,
+                with: With::Workmate,
+                at: At::Work,
+                told: "{name} worked a shift in the ice mine with {other}",
+                said: &[
+                    "{other} and I cut two tonnes of ice. My arms are jelly.",
+                    "Mine shift with {other}. The ice glows blue down there.",
+                    "{other} found a bubble of old air in the ice. Very old air.",
+                    "The drill jammed. {other} unjammed it with a song. Somehow.",
+                    "Hauled ice with {other} till the carts were full.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "hot_bath",
+                need: Need::Rest,
+                with: With::Alone,
+                at: At::Home,
+                told: "{name} had a hot bath from the new water",
+                said: &[
+                    "A real bath. First in three years. I cried a bit.",
+                    "Five minutes of hot water. The best five minutes on Mars.",
+                    "Bath night. {friend} got the water after me. Sorry.",
+                    "Soaked till I wrinkled. Worth every drop.",
+                    "Hot water, clean hair. I feel like a new person.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "ice_caves",
+                need: Need::Company,
+                with: With::Friend,
+                at: At::Quiet,
+                told: "{name} explored the ice caves with {other}",
+                said: &[
+                    "{other} and I found a cave shaped like a cathedral.",
+                    "Our lamps made the whole cave sparkle. {other} went quiet.",
+                    "{other} shouted and the cave shouted back.",
+                    "Crawled through a tunnel with {other}. Came out laughing.",
+                    "{other} carved our initials in the ice. Very small.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "water_plan",
+                need: Need::Purpose,
+                with: With::Anyone,
+                at: At::Work,
+                told: "{name} planned the new water pipes with {other}",
+                said: &[
+                    "{other} and I drew the pipes on the wall. Then on paper.",
+                    "Water to every room by next window. {other} promised.",
+                    "{other} worked out the pressure. I nodded wisely.",
+                    "Laid the first pipe with {other}. It leaked. Then it didn't.",
+                    "{other} and I named the pipes after old rivers on Earth.",
+                ],
+                gives: &[],
+            },
+        ],
+        corners: &[
+            Corner {
+                place: SLOT_A,
+                name: "the new wash room",
+                said: "Hot water, two taps, one queue. Always a queue.",
+            },
+            Corner {
+                place: SLOT_C,
+                name: "the ice-melt tank",
+                said: "Every drop in the greenhouse started as ice down the mine.",
+            },
+            Corner {
+                place: SLOT_D,
+                name: "the ice cart",
+                said: "It's slow, it squeaks, and we'd be thirsty without it.",
+            },
+        ],
+        subjects: &[
+            Subject {
+                about: "the ice mine",
+                said: &[
+                    "It's cold, dark and the most important place on Ares.",
+                    "There's ice down there older than the dinosaurs.",
+                ],
+            },
+            Subject {
+                about: "water",
+                said: &[
+                    "On Earth I left the tap running. I think of that a lot.",
+                    "Every glass of water here has a story.",
+                ],
+            },
+            Subject {
+                about: "fossils",
+                said: &[
+                    "We found something in the ice. Might be nothing. Might be everything.",
+                    "If there was ever life here, it's hiding very well.",
+                ],
+            },
+        ],
+    },
+    Era {
+        topics: &[
+            "the heating ration",
+            "the winter menu",
+            "who hogs the heater",
+            "a frozen pipe",
+            "the long dark shifts",
+            "the winter blues",
+            "the soup recipe",
+            "a borrowed blanket",
+            "the frost on the window",
+            "who ate the last roll",
+        ],
+        outings: &[
+            "watch the winter frost form on the dome",
+            "have a midwinter feast by lamplight",
+            "walk out to see the frozen CO2 on the rocks",
+        ],
+        trades: &[("heating engineer", "heating engineer"), ("baker", "baker")],
+        origins: &["the southern outpost", "a winter relief crew"],
+        activities: &[
+            Activity {
+                id: "heater_repair",
+                need: Need::Money,
+                with: With::Workmate,
+                at: At::Work,
+                told: "{name} kept the heaters running at {place} with {other}",
+                said: &[
+                    "{other} and I fixed the heater at two in the morning. Heroes.",
+                    "Heater rounds with {other}. Every room, every hour.",
+                    "{other} wrapped the pipes in old blankets. It worked.",
+                    "Frost on the inside of the window. {other} and I sealed it.",
+                    "Fixed the heat exchanger with {other}. Warm again.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "blanket_day",
+                need: Need::Rest,
+                with: With::Alone,
+                at: At::Home,
+                told: "{name} spent the day under blankets",
+                said: &[
+                    "Three blankets and a book. Winter can do its worst.",
+                    "Stayed in bed with cocoa. The dome's cold, I'm not.",
+                    "{friend} knitted me socks. They're lumpy. I love them.",
+                    "Napped by the heater like a cat.",
+                    "Watched the frost grow on the window all afternoon.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "midwinter_cooking",
+                need: Need::Company,
+                with: With::Anyone,
+                at: At::Gathering,
+                told: "{name} cooked a winter stew with {other}",
+                said: &[
+                    "{other} and I made stew from everything left. It was good!",
+                    "Baked bread with {other}. The whole habitat came to smell it.",
+                    "{other} invented a soup. We'll never make it again. Delicious.",
+                    "Cooking with {other} keeps us warm. And fed.",
+                    "{other} burned the rolls. We ate them anyway. Crunchy.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "winter_rounds",
+                need: Need::Purpose,
+                with: With::Friend,
+                at: At::Work,
+                told: "{name} checked on everyone through the long night with {other}",
+                said: &[
+                    "{other} and I knocked on every door. Everyone's warm.",
+                    "Brought tea round with {other}. Nobody said no.",
+                    "{other} noticed someone was low. We sat with them.",
+                    "Night rounds with {other}. The habitat's asleep and safe.",
+                    "{other} and I left a note on every bunk. Just: hang on.",
+                ],
+                gives: &[],
+            },
+        ],
+        corners: &[
+            Corner {
+                place: SLOT_A,
+                name: "the warmest corner of the mess",
+                said: "Right above the heat pipe. First come, first warm.",
+            },
+            Corner {
+                place: SLOT_C,
+                name: "the winter lamps",
+                said: "They keep the wheat thinking it's summer.",
+            },
+            Corner {
+                place: SLOT_D,
+                name: "the rover's heater",
+                said: "Best heater on Ares. Everyone sits in the rover to warm up.",
+            },
+        ],
+        subjects: &[
+            Subject {
+                about: "winter",
+                said: &[
+                    "A Martian winter lasts half a year. You learn to like soup.",
+                    "The frost on the dome looks like ferns.",
+                ],
+            },
+            Subject {
+                about: "the long dark",
+                said: &[
+                    "It's the not-knowing that's hard. When it'll end.",
+                    "We all got a bit closer this winter. Had to.",
+                ],
+            },
+            Subject {
+                about: "bread",
+                said: &[
+                    "There's nothing like bread when it's cold out.",
+                    "My grandmother's recipe works on Mars. She'd be amazed.",
+                ],
+            },
+        ],
+    },
+    Era {
+        topics: &[
+            "the new trees",
+            "the terraforming test",
+            "who waters the trees",
+            "the moss experiment",
+            "the oxygen readings",
+            "a trampled seedling",
+            "the tree names",
+            "who planted the crooked tree",
+            "the moss count",
+            "a spilled seed tray",
+        ],
+        outings: &[
+            "visit the moss test plot at dawn",
+            "plant a tree together in the big dome",
+            "walk the new garden path",
+        ],
+        trades: &[
+            ("forester", "forester"),
+            ("soil scientist", "soil scientist"),
+        ],
+        origins: &["the terraforming project", "a greenhouse ship"],
+        activities: &[
+            Activity {
+                id: "tree_planting",
+                need: Need::Money,
+                with: With::Workmate,
+                at: At::Work,
+                told: "{name} planted trees in the big dome with {other}",
+                said: &[
+                    "{other} and I planted six trees. Real trees, on Mars.",
+                    "Dug holes with {other} all morning. The trees went in by lunch.",
+                    "{other} named every tree. I'm not allowed to forget them.",
+                    "A tree's taller than me now. {other} measured.",
+                    "Watered the saplings with {other}. One has a leaf!",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "moss_watch",
+                need: Need::Rest,
+                with: With::Alone,
+                at: At::Quiet,
+                told: "{name} sat with the moss plot at {place}",
+                said: &[
+                    "The moss is growing outside. Outside! In the open air!",
+                    "Sat by the moss plot. It's green against the red. Unbelievable.",
+                    "Counted the moss patches. Nine. Yesterday it was eight.",
+                    "{friend} says I watch the moss like it's television.",
+                    "Just me and a bit of green. Mars is changing.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "garden_walk",
+                need: Need::Company,
+                with: With::Friend,
+                at: At::Quiet,
+                told: "{name} walked in the dome garden with {other}",
+                said: &[
+                    "{other} and I walked under actual leaves. We didn't talk. Didn't need to.",
+                    "The garden smells of Earth. {other} closed their eyes.",
+                    "{other} found a ladybird. Someone brought ladybirds!",
+                    "Sat on the grass with {other}. Grass!",
+                    "{other} picked me a flower. I pressed it in the log.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "seed_library",
+                need: Need::Purpose,
+                with: With::Anyone,
+                at: At::Work,
+                told: "{name} sorted the seed library with {other}",
+                said: &[
+                    "{other} and I catalogued two hundred kinds of seed.",
+                    "Sent seeds to Tharsis with {other}. They'll grow there too.",
+                    "{other} found a seed packet from the first landing. Still good.",
+                    "Labelled every drawer with {other}. In pencil, in case.",
+                    "The seed library's the colony's future. {other} says so. So do I.",
+                ],
+                gives: &[],
+            },
+        ],
+        corners: &[
+            Corner {
+                place: SLOT_A,
+                name: "the first tree",
+                said: "Planted by everyone, one shovel each. It leans a bit.",
+            },
+            Corner {
+                place: SLOT_C,
+                name: "the moss window",
+                said: "From here you can watch the moss grow outside. Slowly.",
+            },
+            Corner {
+                place: SLOT_D,
+                name: "the seed drawers in the rover",
+                said: "We plant as we drive. Mars will be green by the tracks.",
+            },
+        ],
+        subjects: &[
+            Subject {
+                about: "the trees",
+                said: &[
+                    "I'll be old when they're tall. That's all right.",
+                    "Trees on Mars. My grandmother wouldn't believe it.",
+                ],
+            },
+            Subject {
+                about: "green",
+                said: &[
+                    "After years of red, green hurts your eyes. In a good way.",
+                    "I dream in green now.",
+                ],
+            },
+            Subject {
+                about: "the future",
+                said: &[
+                    "Somebody will be born here one day. Under those trees.",
+                    "We won't see Mars green. Our grandchildren might.",
+                ],
+            },
+        ],
+    },
+    Era {
+        topics: &[
+            "the family quarters",
+            "the new school timetable",
+            "who's the oldest settler",
+            "the anniversary plaque",
+            "the Ares flag design",
+            "the settlers' vote",
+            "the anniversary speech",
+            "the family quarters' noise",
+            "a child's drawing on the wall",
+            "the school bell",
+        ],
+        outings: &[
+            "go to the anniversary dance",
+            "visit the first landing site together",
+            "watch the new families arrive",
+        ],
+        trades: &[
+            ("schoolteacher", "schoolteacher"),
+            ("architect", "architect"),
+        ],
+        origins: &["a settler ship", "a family from Earth"],
+        activities: &[
+            Activity {
+                id: "family_quarters",
+                need: Need::Money,
+                with: With::Workmate,
+                at: At::Work,
+                told: "{name} built family quarters with {other}",
+                said: &[
+                    "{other} and I put up walls for the new families. Pink, they asked.",
+                    "Built bunk beds with {other}. Small ones. For children.",
+                    "{other} installed a real front door. With a doorbell.",
+                    "The quarters are done. {other} and I tested every bed.",
+                    "A family moved in today. {other} and I carried their boxes.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "anniversary_quiet",
+                need: Need::Rest,
+                with: With::Alone,
+                at: At::Quiet,
+                told: "{name} sat by the landing stone at {place}",
+                said: &[
+                    "Sat by the landing stone. Thought of the first sol.",
+                    "Read the names on the plaque. Every one of us.",
+                    "It's been years. It feels like weeks.",
+                    "{friend} brought me tea at the stone. We didn't talk.",
+                    "Quiet sol. Just me, the stone and all those memories.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "anniversary_dance",
+                need: Need::Company,
+                with: With::Anyone,
+                at: At::Gathering,
+                told: "{name} danced at the anniversary with {other}",
+                said: &[
+                    "{other} and I danced to the song from the first landing.",
+                    "Anniversary dance with {other}. Low gravity is good for spins.",
+                    "{other} gave a speech. Nobody expected it to be funny. It was.",
+                    "Danced with {other} till the lights dimmed for night.",
+                    "{other} wore their old flight suit. Still fits. Nearly.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "settler_school",
+                need: Need::Purpose,
+                with: With::Anyone,
+                at: At::Work,
+                told: "{name} taught at the settlers' school with {other}",
+                said: &[
+                    "{other} and I taught the children where water comes from. The mine!",
+                    "A child asked {other} what rain is. We tried to explain.",
+                    "School day with {other}. The children drew the habitat. Perfectly.",
+                    "{other} taught fractions with ration bars. Very popular.",
+                    "The children call me teacher. {other} says I blushed.",
+                ],
+                gives: &[],
+            },
+        ],
+        corners: &[
+            Corner {
+                place: SLOT_A,
+                name: "the family room",
+                said: "Toys on the floor, drawings on the walls. It's a home now.",
+            },
+            Corner {
+                place: SLOT_C,
+                name: "the children's garden bed",
+                said: "They planted it in rows. Crooked rows. Perfect rows.",
+            },
+            Corner {
+                place: SLOT_D,
+                name: "the Ares flag on the rover",
+                said: "We voted on the design. Red and green. Obviously.",
+            },
+        ],
+        subjects: &[
+            Subject {
+                about: "the settlers",
+                said: &[
+                    "They brought a piano. We have a piano now.",
+                    "Families on Mars. Children's laughter in the corridors.",
+                ],
+            },
+            Subject {
+                about: "the first landing",
+                said: &[
+                    "I was so scared. Nobody knew. Now you do.",
+                    "We had one dome and a lot of hope.",
+                ],
+            },
+            Subject {
+                about: "home",
+                said: &[
+                    "Earth's where I was born. Ares is where I live.",
+                    "I stopped counting the sols. That's when I knew.",
+                ],
+            },
+        ],
+    },
+];
+
+const MAPLE: &[Era] = &[
+    Era {
+        topics: &["a scratched Walkman tape", "who gets the Nintendo first", "the Friday night movie", "a borrowed denim jacket", "the new girl at school", "the phone bill"],
+        outings: &["see the new movie at the Rialto", "ride the Ferris wheel at the county fair", "rent a canoe on the lake"],
+        trades: &[("video store clerk", "video store clerk"), ("aerobics teacher", "aerobics teacher")],
+        origins: &["Des Moines", "a farm upstate"],
+        activities: &[
+            Activity {
+                id: "tape_shift",
+                need: Need::Money,
+                with: With::Workmate,
+                at: At::Work,
+                told: "{name} worked a shift at {place} with {other}",
+                said: &[
+                    "Rewound forty tapes with {other}. My thumbs hurt.",
+                    "{other} and I sold out of popcorn by eight.",
+                    "Worked the till at {place}. {other} did the voices.",
+                    "Stacked the new releases with {other}. Die Hard's already gone.",
+                    "{other} taught me the late-fee speech. I'm terrible at it.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "walkman_walk",
+                need: Need::Rest,
+                with: With::Alone,
+                at: At::Quiet,
+                told: "{name} walked round {place} with a Walkman on",
+                said: &[
+                    "Walked the whole loop with my Walkman. Side A twice.",
+                    "Batteries died halfway round {place}. Hummed the rest.",
+                    "New mixtape from {friend}. Every song's a good one.",
+                    "Sat on the wall at {place} and listened to the whole album.",
+                    "Rewound my favourite song so many times the tape's stretched.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "nintendo_night",
+                need: Need::Company,
+                with: With::Friend,
+                at: At::Home,
+                told: "{name} played Nintendo with {other} all evening",
+                said: &[
+                    "{other} and I got to world 8. Then the power went.",
+                    "Two controllers, one pizza, {other}. Perfect night.",
+                    "{other} blew on the cartridge and it worked. Science.",
+                    "Lost to {other} eleven times. Won once. I'm counting it.",
+                    "{other} knows every secret warp. Every single one.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "letter_club",
+                need: Need::Purpose,
+                with: With::Anyone,
+                at: At::Gathering,
+                told: "{name} wrote letters to a pen pal at {place} with {other}",
+                said: &[
+                    "Wrote to my pen pal in France. {other} drew the stamps.",
+                    "{other} is writing to someone in Japan. I'm jealous.",
+                    "Four pages to my pen pal. {other} says that's too many.",
+                    "Got a letter back from Brazil! {other} read it twice.",
+                    "{other} and I sent our pen pals a mixtape each.",
+                ],
+                gives: &[],
+            },
+        ],
+        corners: &[
+            Corner {
+                place: SLOT_A,
+                name: "the video shelf at the back",
+                said: "The horror tapes are up high. Kids can't reach. In theory.",
+            },
+            Corner {
+                place: SLOT_C,
+                name: "the request line phone",
+                said: "It rings all night on Fridays. Mostly the same three songs.",
+            },
+            Corner {
+                place: SLOT_D,
+                name: "the back window of the night bus",
+                said: "Best view of the whole street going by.",
+            },
+        ],
+        subjects: &[
+            Subject {
+                about: "the county fair",
+                said: &["The Ferris wheel stops at the top. On purpose, I swear.", "I won a goldfish once. He lived nine years."],
+            },
+            Subject {
+                about: "my Walkman",
+                said: &["It's held together with tape. The sticky kind and the music kind.", "I'd give up my bike before my Walkman."],
+            },
+            Subject {
+                about: "the Rialto",
+                said: &["The balcony seats squeak. Everyone knows who's up there.", "Old Mr Lutz has run the projector for thirty years."],
+            },
+        ],
+    },
+    Era {
+        topics: &["a Game Boy left in the rain", "the news from Berlin", "who drives to the lake", "a broken curfew", "the prom date", "the last of the hairspray"],
+        outings: &["watch the fireworks from the water tower", "drive out to the quarry at night", "go bowling on dollar night"],
+        trades: &[("bowling alley manager", "bowling alley manager"), ("hairdresser", "hairdresser")],
+        origins: &["Cleveland", "a town by the Great Lakes"],
+        activities: &[
+            Activity {
+                id: "salon_shift",
+                need: Need::Money,
+                with: With::Workmate,
+                at: At::Work,
+                told: "{name} worked at {place} with {other}",
+                said: &[
+                    "{other} and I went through two cans of hairspray before noon.",
+                    "Swept up at {place}. {other} sang the whole time.",
+                    "{other} gave a perm that could stop traffic.",
+                    "Double shift with {other}. My feet have opinions.",
+                    "Counted tips with {other}. Enough for a movie. Almost.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "gameboy_break",
+                need: Need::Rest,
+                with: With::Alone,
+                at: At::Quiet,
+                told: "{name} played a Game Boy at {place}",
+                said: &[
+                    "Tetris at {place} till the screen went dim.",
+                    "Got the long block right when I needed it. Once.",
+                    "Played Tetris on the bus. Missed my stop.",
+                    "{friend} beat my score. I'm taking it personally.",
+                    "Just me, {place} and the little beeping blocks.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "bowling_night",
+                need: Need::Company,
+                with: With::Anyone,
+                at: At::Gathering,
+                told: "{name} went bowling with {other}",
+                said: &[
+                    "{other} bowled a strike and did a dance about it.",
+                    "Rented shoes with {other}. They were still warm.",
+                    "{other} and I got the gutter-ball prize.",
+                    "Dollar night with {other}. Cheapest fun in town.",
+                    "{other} keeps score in pen. No mercy.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "wall_news",
+                need: Need::Purpose,
+                with: With::Friend,
+                at: At::Home,
+                told: "{name} watched the news from Berlin with {other}",
+                said: &[
+                    "{other} and I watched them climb the Wall on TV. We cried.",
+                    "History's happening. {other} made popcorn.",
+                    "Taped the news for my grandkids. {other} says I'm dramatic.",
+                    "{other} says the whole world's changing. Feels like it.",
+                    "Stayed up late with {other} watching the crowds sing.",
+                ],
+                gives: &[],
+            },
+        ],
+        corners: &[
+            Corner {
+                place: SLOT_A,
+                name: "the Tetris machine",
+                said: "It's rigged. The long block never comes. Never.",
+            },
+            Corner {
+                place: SLOT_C,
+                name: "the tape library",
+                said: "Every show we ever did, on the shelf. Some of them are awful.",
+            },
+            Corner {
+                place: SLOT_A,
+                name: "the photo booth",
+                said: "Four pictures for a dollar. Everybody's been in here with somebody.",
+            },
+        ],
+        subjects: &[
+            Subject {
+                about: "Berlin",
+                said: &["I never thought I'd see that wall come down.", "My grandpa was born there. He called me, crying."],
+            },
+            Subject {
+                about: "the prom",
+                said: &["I wore a dress with sleeves like parachutes.", "My date stepped on my feet all night. Still the best night."],
+            },
+            Subject {
+                about: "the bowling alley",
+                said: &["The shoes smell. Everyone agrees. Nobody minds.", "Lane six is warped. Locals know."],
+            },
+        ],
+    },
+    Era {
+        topics: &["the new mall", "a cancelled TV show", "who ate the leftover lasagne", "the car radio station", "a lost library book", "the arcade's new prices"],
+        outings: &["walk round the new mall", "see the Christmas lights on Elm Street", "go ice skating on the pond"],
+        trades: &[("mall security guard", "mall security guard"), ("pizza delivery driver", "pizza delivery driver")],
+        origins: &["Tucson", "a navy base in Virginia"],
+        activities: &[
+            Activity {
+                id: "mall_job",
+                need: Need::Money,
+                with: With::Workmate,
+                at: At::Work,
+                told: "{name} worked the food court with {other}",
+                said: &[
+                    "{other} and I served two hundred pretzels. I dream in pretzels.",
+                    "Mall shift with {other}. Same song on the speakers eleven times.",
+                    "{other} got us free samples from the cookie stand.",
+                    "Folded sweaters with {other} till closing.",
+                    "The escalator broke. {other} and I pretended it was stairs.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "mall_wander",
+                need: Need::Rest,
+                with: With::Friend,
+                at: At::Quiet,
+                told: "{name} wandered the new mall with {other}",
+                said: &[
+                    "{other} and I sat by the fountain and threw pennies.",
+                    "Tried on sunglasses with {other}. Bought none.",
+                    "Walked the whole mall with {other} twice. Didn't buy a thing.",
+                    "{other} and I rode the glass elevator up and down.",
+                    "The mall smells like cinnamon. {other} says that's on purpose.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "lights_walk",
+                need: Need::Company,
+                with: With::Anyone,
+                at: At::Quiet,
+                told: "{name} looked at the Christmas lights with {other}",
+                said: &[
+                    "{other} and I counted the reindeer on every lawn. Forty-one.",
+                    "The Hendersons' house blinks in time to music. {other} loved it.",
+                    "Walked Elm Street with {other}. Cocoa in paper cups.",
+                    "{other} says our street needs more lights. Fair point.",
+                    "Lights, snow and {other}. Best walk of the year.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "library_help",
+                need: Need::Purpose,
+                with: With::Alone,
+                at: At::Work,
+                told: "{name} helped out at the library",
+                said: &[
+                    "Shelved two carts of books. Found a letter from 1962 in one.",
+                    "Read to the little kids at story time. They wanted the scary one.",
+                    "Fixed the card catalogue. Nobody will notice. I will.",
+                    "Stamped due dates all afternoon. Thunk, thunk, thunk.",
+                    "Found the lost book behind the radiator. Case closed.",
+                ],
+                gives: &[],
+            },
+        ],
+        corners: &[
+            Corner {
+                place: SLOT_A,
+                name: "the change machine's secret",
+                said: "Kick it low on the left and it gives an extra quarter. Don't tell.",
+            },
+            Corner {
+                place: SLOT_D,
+                name: "the driver's radio",
+                said: "Frank lets you pick the station after midnight.",
+            },
+            Corner {
+                place: SLOT_C,
+                name: "the old studio clock",
+                said: "It's four minutes fast. Every show starts early.",
+            },
+        ],
+        subjects: &[
+            Subject {
+                about: "the mall",
+                said: &["It's got a fountain inside. Inside!", "Half the street works there now."],
+            },
+            Subject {
+                about: "Christmas",
+                said: &["We put the tree up the day after Thanksgiving. Every year.", "I still leave cookies out. For the tradition."],
+            },
+            Subject {
+                about: "the library",
+                said: &["I've read every book in the teen section. Twice.", "The librarian knows everyone's secrets. From their late books."],
+            },
+        ],
+    },
+    Era {
+        topics: &["the cable bill", "a band T-shirt", "who gets the good parking spot", "the new video store", "a dented bumper", "grunge"],
+        outings: &["go to a real concert in the city", "drive to the coast for the weekend", "watch the meteor shower from the field"],
+        trades: &[("cable installer", "cable installer"), ("record store owner", "record store owner")],
+        origins: &["Seattle", "a small town in Oregon"],
+        activities: &[
+            Activity {
+                id: "cable_job",
+                need: Need::Money,
+                with: With::Workmate,
+                at: At::Work,
+                told: "{name} ran cable with {other}",
+                said: &[
+                    "{other} and I wired up six houses. Everyone wants MTV.",
+                    "Crawled under a porch with {other}. Found a cat. Kept the cat.",
+                    "{other} climbed the pole. I held the ladder and prayed.",
+                    "Fifty-seven channels and nothing on, says {other}.",
+                    "Long day with {other}. Every house had a dog.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "flannel_nap",
+                need: Need::Rest,
+                with: With::Alone,
+                at: At::Home,
+                told: "{name} lay around in flannel listening to records",
+                said: &[
+                    "Flannel, records, the whole afternoon. Grunge is comfortable.",
+                    "Listened to the new album three times. Still don't get it. Love it.",
+                    "{friend} lent me a record. I'm never giving it back.",
+                    "Lay on the floor and let the record play out.",
+                    "It rained. I let it. Records and a blanket.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "garage_band",
+                need: Need::Company,
+                with: With::Friend,
+                at: At::Gathering,
+                told: "{name} jammed with {other} in a garage",
+                said: &[
+                    "{other} and I wrote a song. It's loud. It's about the bus.",
+                    "Three chords and {other} on drums. We're a band now.",
+                    "The neighbours banged on the door. {other} took it as applause.",
+                    "{other} broke a string mid-song and kept going.",
+                    "Jammed with {other} till the garage light blew.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "recycling",
+                need: Need::Purpose,
+                with: With::Anyone,
+                at: At::Quiet,
+                told: "{name} started a recycling drive with {other}",
+                said: &[
+                    "{other} and I sorted cans behind {place}. Four hundred!",
+                    "Recycling bins on every corner now. {other} painted them.",
+                    "{other} says we can save the planet one can at a time.",
+                    "Collected newspapers with {other}. A mountain of them.",
+                    "Took the cans in with {other}. Twelve dollars for the fund.",
+                ],
+                gives: &[],
+            },
+        ],
+        corners: &[
+            Corner {
+                place: SLOT_A,
+                name: "the jukebox in the corner",
+                said: "It only plays the B-sides now. Somebody rewired it. Me.",
+            },
+            Corner {
+                place: SLOT_C,
+                name: "the roof of the station",
+                said: "You can hear three states' stations up here at night.",
+            },
+            Corner {
+                place: SLOT_D,
+                name: "the bus shelter's graffiti",
+                said: "Every name on here went on to do something. Mostly.",
+            },
+        ],
+        subjects: &[
+            Subject {
+                about: "grunge",
+                said: &["Nobody irons anything any more. I love it.", "My mother thinks my flannel shirts are a phase."],
+            },
+            Subject {
+                about: "cable TV",
+                said: &["There's a channel that's just the weather. All day.", "We used to have four channels. Now I can't choose."],
+            },
+            Subject {
+                about: "the coast",
+                said: &["I'd never seen the ocean till last summer.", "The sea's bigger than it looks on TV. Much bigger."],
+            },
+        ],
+    },
+    Era {
+        topics: &["the Olympics on TV", "a pager going off in church", "who's the best dancer", "the class ring", "a spoiled season finale", "the new stoplight"],
+        outings: &["watch the Olympics at the diner", "take the train to the city", "go camping by the river"],
+        trades: &[("paramedic", "paramedic"), ("dance teacher", "dance teacher")],
+        origins: &["Barcelona", "a trailer park out by the highway"],
+        activities: &[
+            Activity {
+                id: "pager_shift",
+                need: Need::Money,
+                with: With::Workmate,
+                at: At::Work,
+                told: "{name} was on call with {other}",
+                said: &[
+                    "My pager went off four times. {other} ate my fries each time.",
+                    "On call all night with {other}. Nobody called. Classic.",
+                    "{other} and I fixed the diner's freezer at midnight.",
+                    "{other} taught me the pager codes. 143 means I love you.",
+                    "Worked till two with {other}. The coffee gave up before we did.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "olympics",
+                need: Need::Rest,
+                with: With::Anyone,
+                at: At::Gathering,
+                told: "{name} watched the Olympics with {other} at {place}",
+                said: &[
+                    "{other} and I cheered for a country we can't find on a map.",
+                    "Gymnastics at {place}. {other} tried a cartwheel. Ow.",
+                    "{other} knows every swimmer's name. Every one.",
+                    "The whole diner stood up for the relay. {other} spilled a shake.",
+                    "Gold medal! {other} and I hugged strangers.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "line_dancing",
+                need: Need::Company,
+                with: With::Friend,
+                at: At::Gathering,
+                told: "{name} went line dancing with {other}",
+                said: &[
+                    "{other} and I learned the whole dance. Then forgot it.",
+                    "Line dancing with {other}. I went left. Everyone went right.",
+                    "{other} has boots now. Real ones. With spurs.",
+                    "Danced with {other} till the band packed up.",
+                    "{other} yee-hawed. I'll never forget it.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "first_aid",
+                need: Need::Purpose,
+                with: With::Anyone,
+                at: At::Gathering,
+                told: "{name} taught a first-aid class with {other}",
+                said: &[
+                    "Taught CPR with {other}. The dummy's called Stan.",
+                    "{other} bandaged my whole arm for practice. It's still on.",
+                    "Six people learned the Heimlich. {other} was the choking one.",
+                    "{other} and I made first-aid kits for every house.",
+                    "First-aid class full. {other} brought cookies. For morale.",
+                ],
+                gives: &[],
+            },
+        ],
+        corners: &[
+            Corner {
+                place: SLOT_A,
+                name: "the high-score initials",
+                said: "Three letters, top of the board, two years running. Guess whose.",
+            },
+            Corner {
+                place: SLOT_C,
+                name: "the transmitter room",
+                said: "It hums like a fridge. Don't touch the big red switch.",
+            },
+            Corner {
+                place: SLOT_D,
+                name: "the depot's coffee pot",
+                said: "It's never been washed. The drivers say that's the secret.",
+            },
+        ],
+        subjects: &[
+            Subject {
+                about: "the Olympics",
+                said: &["I wanted to be a gymnast. I was a very bendy kid.", "I cried at the opening ceremony. All those flags."],
+            },
+            Subject {
+                about: "pagers",
+                said: &["Mine beeps and my heart stops. Every time.", "Everyone's got one now. Even the dentist."],
+            },
+            Subject {
+                about: "the river",
+                said: &["We used to swing off the rope into it. Still could.", "There's a catfish down there as big as a canoe. Swear it."],
+            },
+        ],
+    },
+    Era {
+        topics: &["the dinosaur movie", "the family computer", "who hogs the phone line", "a floppy disk", "the new zip code", "the diner's new menu"],
+        outings: &["see the dinosaur movie on opening night", "go to the science museum", "fly kites on the hill"],
+        trades: &[("computer teacher", "computer teacher"), ("museum guide", "museum guide")],
+        origins: &["San Jose", "a college town in Ohio"],
+        activities: &[
+            Activity {
+                id: "computer_lab",
+                need: Need::Money,
+                with: With::Workmate,
+                at: At::Work,
+                told: "{name} set up computers with {other}",
+                said: &[
+                    "{other} and I got the printer working. It screams.",
+                    "Installed a game on every computer. {other} says it's educational.",
+                    "{other} typed eighty words a minute. I did eight.",
+                    "Carried monitors all day with {other}. They weigh a ton.",
+                    "{other} knows what all the beeps mean. I just nod.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "kite_hill",
+                need: Need::Rest,
+                with: With::Friend,
+                at: At::Quiet,
+                told: "{name} flew a kite on the hill with {other}",
+                said: &[
+                    "{other}'s kite went so high we lost it. Worth it.",
+                    "Lay on the hill with {other} and watched the clouds.",
+                    "Kite stuck in a tree. {other} climbed. I supervised.",
+                    "{other} made a kite out of a trash bag. Flew better than mine.",
+                    "Windy day, good kite, good company.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "dino_movie",
+                need: Need::Company,
+                with: With::Anyone,
+                at: At::Gathering,
+                told: "{name} saw the dinosaur movie with {other}",
+                said: &[
+                    "{other} screamed at the water glass scene. The water glass!",
+                    "Saw it twice with {other}. The T. rex was better the second time.",
+                    "{other} wants to be a palaeontologist now. Fair enough.",
+                    "Line round the block. {other} brought chairs.",
+                    "{other} did the raptor noise all the way home.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "science_fair",
+                need: Need::Purpose,
+                with: With::Anyone,
+                at: At::Gathering,
+                told: "{name} judged the science fair with {other}",
+                said: &[
+                    "Nine volcanoes at the science fair. {other} judged by explosion.",
+                    "{other} and I gave first prize to a potato clock.",
+                    "A kid built a robot. It fell over. {other} clapped anyway.",
+                    "Judged the science fair with {other}. Everybody got a ribbon.",
+                    "{other} asked every kid a question. Every single kid.",
+                ],
+                gives: &[],
+            },
+        ],
+        corners: &[
+            Corner {
+                place: SLOT_A,
+                name: "the new computer in the office",
+                said: "It does the books now. I still check them by hand.",
+            },
+            Corner {
+                place: SLOT_C,
+                name: "the call-in board",
+                said: "Every request since '88, pinned up. It's a history of the street.",
+            },
+            Corner {
+                place: SLOT_D,
+                name: "the lost property box",
+                said: "Umbrellas, mittens, one trumpet. Nobody's claimed the trumpet.",
+            },
+        ],
+        subjects: &[
+            Subject {
+                about: "dinosaurs",
+                said: &["I had a dinosaur phase. It never really ended.", "They found a bone in the quarry once. A cow's, but still."],
+            },
+            Subject {
+                about: "computers",
+                said: &["My nephew says we'll all have one. I don't believe him.", "I played a game where you die of dysentery. Educational."],
+            },
+            Subject {
+                about: "kites",
+                said: &["My dad made me one from newspaper. It flew.", "There's a kite in the big oak from 1979. Still there."],
+            },
+        ],
+    },
+    Era {
+        topics: &["the internet", "an email that went to everyone", "the dial-up noise", "the coffee place that replaced the diner booth", "a fax that never came", "the new area code"],
+        outings: &["go to the new coffee house", "see a band at the old theatre", "take the ferry across the lake"],
+        trades: &[("web designer", "web designer"), ("barista", "barista")],
+        origins: &["Austin", "a bigger city out west"],
+        activities: &[
+            Activity {
+                id: "coffee_shift",
+                need: Need::Money,
+                with: With::Workmate,
+                at: At::Work,
+                told: "{name} worked at the coffee house with {other}",
+                said: &[
+                    "{other} and I made a hundred lattes. I don't know what a latte is.",
+                    "{other} drew a heart in the foam. Customer cried.",
+                    "Coffee house shift with {other}. The poetry night ran long.",
+                    "Burned my hand on the steamer. {other} laughed, then helped.",
+                    "{other} knows everyone's order. Everyone's.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "modem_wait",
+                need: Need::Rest,
+                with: With::Alone,
+                at: At::Home,
+                told: "{name} waited for the internet to connect",
+                said: &[
+                    "The modem screeched for a whole minute. Then I was online.",
+                    "Downloaded a picture. It took all evening. It's a cat.",
+                    "Someone picked up the phone and cut me off. Again.",
+                    "Chatted with a stranger in Norway. {friend} says be careful.",
+                    "I have an email address now. Nobody writes to it.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "open_mic",
+                need: Need::Company,
+                with: With::Friend,
+                at: At::Gathering,
+                told: "{name} went to open mic night with {other}",
+                said: &[
+                    "{other} read a poem about the night bus. Standing ovation.",
+                    "Open mic with {other}. Someone played the spoons.",
+                    "{other} sang. Badly. Bravely.",
+                    "Snapped instead of clapping. {other} says that's the rule.",
+                    "{other} and I stayed till the last beatnik left.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "street_website",
+                need: Need::Purpose,
+                with: With::Anyone,
+                at: At::Work,
+                told: "{name} made a page for Maple Street on the internet with {other}",
+                said: &[
+                    "{other} and I put Maple Street on the internet. It's blue and it blinks.",
+                    "Our page has a visitor counter. Eleven! Nine were {other}.",
+                    "{other} scanned a photo of the arcade. It took an hour.",
+                    "Wrote the street's history for the page with {other}.",
+                    "Someone in Australia signed our guestbook. {other} screamed.",
+                ],
+                gives: &[],
+            },
+        ],
+        corners: &[
+            Corner {
+                place: SLOT_A,
+                name: "the arcade's first home computer",
+                said: "It runs the prize counter now. It thinks it's 1980.",
+            },
+            Corner {
+                place: SLOT_C,
+                name: "the old turntable",
+                said: "Everything's CDs now. This one still spins on Sundays.",
+            },
+            Corner {
+                place: SLOT_D,
+                name: "the new bus route map",
+                said: "Night Bus 6 goes out to the new houses now. All the way.",
+            },
+        ],
+        subjects: &[
+            Subject {
+                about: "the internet",
+                said: &["It's like a library where everyone's shouting.", "My mother emailed me. From the next room."],
+            },
+            Subject {
+                about: "coffee",
+                said: &["There are nine sizes of coffee now. Nine.", "I miss diner coffee. The bad kind. The good bad kind."],
+            },
+            Subject {
+                about: "the ferry",
+                said: &["The ferryman's been doing it forty years. He whistles.", "Halfway across, the town looks like a toy."],
+            },
+        ],
+    },
+    Era {
+        topics: &["the old arcade machines", "a mobile phone at the dinner table", "who remembers 1987 right", "the reunion guest list", "a time capsule letter", "the arcade's future"],
+        outings: &["go to the ten-year reunion", "dig out the old roller skates", "drive the old loop one more time"],
+        trades: &[("mobile phone salesman", "mobile phone salesman"), ("retro game collector", "retro game collector")],
+        origins: &["Chicago", "right here, a long time ago"],
+        activities: &[
+            Activity {
+                id: "arcade_fix",
+                need: Need::Money,
+                with: With::Workmate,
+                at: At::Work,
+                told: "{name} fixed old arcade machines with {other}",
+                said: &[
+                    "{other} and I got the old racing game running. Smells like 1987.",
+                    "New joystick, old cabinet. {other} did the wiring.",
+                    "The kids think the old machines are retro now. {other} feels ancient.",
+                    "Fixed three machines with {other}. Played them all. Quality control.",
+                    "{other} found a quarter from 1964 inside a machine.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "old_photos",
+                need: Need::Rest,
+                with: With::Friend,
+                at: At::Home,
+                told: "{name} looked through old photos with {other}",
+                said: &[
+                    "{other} and I found the photo from the first Bike Race. Look at our hair!",
+                    "Old photos with {other}. We were so young. And so permed.",
+                    "{other} cried at the prom pictures. So did I.",
+                    "Found a picture of the street in 1987. Everything's different. Nothing is.",
+                    "{other} labelled every photo. Names, dates, bad jokes.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "reunion_plans",
+                need: Need::Company,
+                with: With::Anyone,
+                at: At::Gathering,
+                told: "{name} planned the reunion with {other}",
+                said: &[
+                    "{other} and I found everyone from the class but two.",
+                    "Reunion planning with {other}. The theme is 'We Survived'.",
+                    "{other} wants a DJ. I want K-88. K-88 it is.",
+                    "Made name tags with {other}. With our old yearbook photos.",
+                    "{other} and I laughed so hard at the old yearbook.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "street_history",
+                need: Need::Purpose,
+                with: With::Alone,
+                at: At::Work,
+                told: "{name} wrote down the street's history",
+                said: &[
+                    "Wrote down everything since '87. Filled a whole notebook.",
+                    "Asked the old-timers about the street. They talked for hours.",
+                    "Found the arcade's first receipt. Forty cents. For everything.",
+                    "Every house has a story. I'm getting them all down.",
+                    "The history's done. It's mostly about parties.",
+                ],
+                gives: &[],
+            },
+        ],
+        corners: &[
+            Corner {
+                place: SLOT_A,
+                name: "the first quarter ever spent here",
+                said: "Framed behind the counter. 1987. It still owes me a game.",
+            },
+            Corner {
+                place: SLOT_C,
+                name: "the anniversary tape",
+                said: "Every first song of every year, on one tape.",
+            },
+            Corner {
+                place: SLOT_D,
+                name: "the old bus stop sign",
+                said: "They put up a new one. I kept this one.",
+            },
+        ],
+        subjects: &[
+            Subject {
+                about: "1987",
+                said: &["Everything happened that year. Everything.", "I had so much hair in 1987."],
+            },
+            Subject {
+                about: "mobile phones",
+                said: &["A phone in your pocket. Who'd you even call?", "The arcade's the only place with no phones ringing. Keep it that way."],
+            },
+            Subject {
+                about: "growing up",
+                said: &["I blinked and everyone had jobs and mortgages.", "The kids now think we were always this old."],
+            },
+        ],
+    },
+    Era {
+        topics: &["the new superstore out on the highway", "a burned CD", "who gets the arcade when Lena retires", "the ten-year photo", "a pager message nobody understood", "the arcade's closing time"],
+        outings: &["drive out to the superstore just to look", "watch the comet from the ball field", "go to the old drive-in's last night"],
+        trades: &[("superstore manager", "superstore manager"), ("comet chaser", "comet chaser")],
+        origins: &["a suburb that didn't exist last year", "across the country"],
+        activities: &[
+            Activity {
+                id: "superstore_shift",
+                need: Need::Money,
+                with: With::Workmate,
+                at: At::Work,
+                told: "{name} worked a shift at the superstore with {other}",
+                said: &[
+                    "{other} and I stacked cereal boxes as tall as the arcade.",
+                    "The superstore's so big {other} got lost in garden supplies.",
+                    "{other} and I wore the name tags. Mine's spelled wrong.",
+                    "Rode the carts down aisle nine with {other}. We were fired. Almost.",
+                    "Worked the registers with {other}. Beep, beep, beep, all day.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "comet_watch",
+                need: Need::Rest,
+                with: With::Alone,
+                at: At::Quiet,
+                told: "{name} lay in the field watching the comet",
+                said: &[
+                    "Lay in the field and watched the comet. It has a tail. A real tail.",
+                    "The comet was there again tonight. Like an old friend.",
+                    "{friend} brought binoculars. The comet got closer.",
+                    "Fell asleep under the comet. Dreamed of space.",
+                    "The whole street was out looking up. I was the last to go in.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "last_drive_in",
+                need: Need::Company,
+                with: With::Friend,
+                at: At::Quiet,
+                told: "{name} went to the drive-in's last night with {other}",
+                said: &[
+                    "{other} and I watched the last movie at the drive-in. We cried at the credits.",
+                    "The drive-in's closing. {other} brought the same blanket as in '87.",
+                    "{other} honked the horn at the end. Everyone did.",
+                    "Popcorn, {other}, one last double feature.",
+                    "{other} took a piece of the old screen home. For luck.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "arcade_future",
+                need: Need::Purpose,
+                with: With::Anyone,
+                at: At::Gathering,
+                told: "{name} talked about the arcade's future with {other}",
+                said: &[
+                    "{other} and I made a plan to keep the arcade open. It involves pizza.",
+                    "{other} says kids still want to play together, not alone at home.",
+                    "Wrote a list with {other} of every reason the arcade matters. It's long.",
+                    "{other} wants a retro night. Old machines, old prices.",
+                    "{other} and I agreed. The arcade stays. Whatever it takes.",
+                ],
+                gives: &[],
+            },
+        ],
+        corners: &[
+            Corner {
+                place: SLOT_A,
+                name: "the retro corner",
+                said: "All the old machines, together. The kids call it the museum.",
+            },
+            Corner {
+                place: SLOT_C,
+                name: "the old studio window",
+                said: "You can see the whole street from here. I've watched it grow up.",
+            },
+            Corner {
+                place: SLOT_D,
+                name: "the last night bus timetable",
+                said: "Night Bus 6 still runs. Every night since 1987.",
+            },
+        ],
+        subjects: &[
+            Subject {
+                about: "the comet",
+                said: &["It comes once in a lifetime. Maybe twice, if you're lucky.", "Everyone looked up at the same time. That was the best part."],
+            },
+            Subject {
+                about: "the superstore",
+                said: &["It's got everything. It hasn't got anything, if you know what I mean.", "I miss the corner store. It knew my name."],
+            },
+            Subject {
+                about: "the arcade",
+                said: &["Ten years of quarters. Must be a million by now.", "Everyone who grew up here learned to lose at that arcade."],
+            },
+        ],
+    },
+];
+
+const ICE: &[Era] = &[
+    Era {
+        topics: &[
+            "the biggest fish",
+            "who fishes the new hole",
+            "a fish dropped on the bridge",
+            "the vault's count",
+            "a squabble over a sprat",
+            "the fishing songs",
+        ],
+        outings: &[
+            "fish the new hole at dawn",
+            "float on a berg to watch the fish run",
+            "share a herring on the tallest berg",
+        ],
+        trades: &[
+            ("net mender", "net mender"),
+            ("fish counter", "fish counter"),
+        ],
+        origins: &["the herring grounds", "a floe to the east"],
+        activities: &[
+            Activity {
+                id: "big_catch",
+                need: Need::Money,
+                with: With::Workmate,
+                at: At::Work,
+                told: "{name} hauled in the big catch at {place} with {other}",
+                said: &[
+                    "{other} and I caught so many fish the vault groaned.",
+                    "Fishing with {other}. The herring practically jumped in.",
+                    "{other} caught a fish as long as a flipper. Longer.",
+                    "Hauled fish with {other} till our beaks ached.",
+                    "Stacked the catch at {place} with {other}. A mountain of silver.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "full_belly",
+                need: Need::Rest,
+                with: With::Alone,
+                at: At::Home,
+                told: "{name} slept off a big fish supper",
+                said: &[
+                    "Ate six herring. Slept like a seal.",
+                    "Too full to waddle. Napped where I sat.",
+                    "{friend} saved me the fattest fish. Then I slept.",
+                    "Full belly, warm feathers, quiet ice. Bliss.",
+                    "Dreamed of more fish. Woke up hungry. Typical.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "fish_tales",
+                need: Need::Company,
+                with: With::Anyone,
+                at: At::Gathering,
+                told: "{name} swapped fish tales with {other}",
+                said: &[
+                    "{other}'s fish gets bigger every time the story's told.",
+                    "Swapped fish stories with {other}. Mine are true. Mostly.",
+                    "{other} says a fish winked at them. I believe it.",
+                    "Fish tales with {other} till the aurora came out.",
+                    "{other} acted out the whole catch. Flipper by flipper.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "vault_count",
+                need: Need::Purpose,
+                with: With::Friend,
+                at: At::Work,
+                told: "{name} counted the fish vault with {other}",
+                said: &[
+                    "{other} and I counted every fish. Twice. Different answers.",
+                    "The vault's fuller than it's ever been. {other} danced.",
+                    "Scratched the count on the vault wall with {other}.",
+                    "{other} says we'll eat well all winter. I say so too.",
+                    "Sorted the fish by size with {other}. Very satisfying.",
+                ],
+                gives: &[],
+            },
+        ],
+        corners: &[
+            Corner {
+                place: SLOT_C,
+                name: "the deep end of the vault",
+                said: "The oldest fish are at the back. Nobody wants those.",
+            },
+            Corner {
+                place: SLOT_A,
+                name: "the fish-drying line",
+                said: "Every fish on the line is someone's catch. Mine's the big one.",
+            },
+            Corner {
+                place: SLOT_D,
+                name: "the council's fish ledger",
+                said: "Scratched in ice. Every catch since the first thaw.",
+            },
+        ],
+        subjects: &[
+            Subject {
+                about: "herring",
+                said: &[
+                    "A good herring is better than a pebble. Almost.",
+                    "They swim in circles when they're scared. Like me.",
+                ],
+            },
+            Subject {
+                about: "the fish run",
+                said: &[
+                    "The sea goes silver when the fish run.",
+                    "I count the days to the run like other birds count to spring.",
+                ],
+            },
+            Subject {
+                about: "big catches",
+                said: &[
+                    "My grandfather caught a fish so big it caught him back.",
+                    "A full vault makes the whole colony kinder.",
+                ],
+            },
+        ],
+    },
+    Era {
+        topics: &[
+            "the whales' song",
+            "who saw the whale first",
+            "a splash that soaked the council",
+            "swimming too close to the whales",
+            "the whale-watching spot",
+            "a lost feather in the wake",
+        ],
+        outings: &[
+            "watch the whales from the edge of the floe",
+            "swim out to hear the whales sing",
+            "ride the whale's wake together",
+        ],
+        trades: &[
+            ("whale watcher", "whale watcher"),
+            ("song keeper", "song keeper"),
+        ],
+        origins: &["the whale road", "a floe the whales passed"],
+        activities: &[
+            Activity {
+                id: "whale_duty",
+                need: Need::Money,
+                with: With::Workmate,
+                at: At::Work,
+                told: "{name} kept the whale watch at {place} with {other}",
+                said: &[
+                    "{other} and I counted four whales. One waved. I swear.",
+                    "Whale watch with {other}. The sea steamed when they breathed.",
+                    "{other} warned the fishers off the whales' path. Just in time.",
+                    "Stood watch with {other} till the whales went under.",
+                    "The whales stayed all day. {other} and I stayed too.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "whale_song",
+                need: Need::Rest,
+                with: With::Alone,
+                at: At::Quiet,
+                told: "{name} lay on the ice listening to the whales at {place}",
+                said: &[
+                    "Lay flat on the ice. The whales sang right through it.",
+                    "The whale song hummed in my belly all afternoon.",
+                    "{friend} says the whales sing about us. I hope nicely.",
+                    "Fell asleep to the whales. Best sleep in months.",
+                    "Listened to the whales till I couldn't tell their song from the wind.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "whale_swim",
+                need: Need::Company,
+                with: With::Friend,
+                at: At::Quiet,
+                told: "{name} swam near the whales with {other}",
+                said: &[
+                    "Swam alongside a whale with {other}. It was so big. So gentle.",
+                    "{other} touched a whale. A whale! On the flipper!",
+                    "The whale looked at {other} and me. We looked back.",
+                    "{other} and I rode a whale's wave all the way to the floe.",
+                    "Swam with {other} in the whales' shadow. Cool and blue.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "whale_songs",
+                need: Need::Purpose,
+                with: With::Anyone,
+                at: At::Gathering,
+                told: "{name} made a song about the whales with {other}",
+                said: &[
+                    "{other} and I made up a whale song. The chicks sing it now.",
+                    "Taught the whale song to the colony with {other}. Very deep.",
+                    "{other} added a verse about the big splash.",
+                    "The whale song has nine verses now. {other} wants ten.",
+                    "Sang the whale song with {other} at the edge. A whale sang back.",
+                ],
+                gives: &[],
+            },
+        ],
+        corners: &[
+            Corner {
+                place: SLOT_A,
+                name: "the whale bench on the edge",
+                said: "Best seat for whales. Bring a fish, it's a long wait.",
+            },
+            Corner {
+                place: SLOT_C,
+                name: "the old whale rib",
+                said: "It's been here longer than the colony. We lean on it.",
+            },
+            Corner {
+                place: SLOT_D,
+                name: "the council's whale stone",
+                said: "Scratch a mark every time the whales come. Look how many.",
+            },
+        ],
+        subjects: &[
+            Subject {
+                about: "the whales",
+                said: &[
+                    "They're so big the sea rises when they come up.",
+                    "A whale looked me in the eye once. I've never forgotten.",
+                ],
+            },
+            Subject {
+                about: "singing",
+                said: &[
+                    "Everyone in the colony sings. Some of us well.",
+                    "The best songs are the ones we made up ourselves.",
+                ],
+            },
+            Subject {
+                about: "the deep",
+                said: &[
+                    "Down in the deep it's dark and quiet and full of fish.",
+                    "I dove deeper than anyone once. Nobody saw. It counts.",
+                ],
+            },
+        ],
+    },
+    Era {
+        topics: &[
+            "the huddle rota",
+            "who gets the middle of the huddle",
+            "a lantern left to go out",
+            "the long night stories",
+            "a cold foot",
+            "the oil ration",
+        ],
+        outings: &[
+            "watch the stars in the long night",
+            "tell stories by the last lantern",
+            "huddle on the ridge to watch the aurora",
+        ],
+        trades: &[
+            ("lamp oil keeper", "lamp oil keeper"),
+            ("night singer", "night singer"),
+        ],
+        origins: &["the dark side of the berg", "a colony that lost its lights"],
+        activities: &[
+            Activity {
+                id: "lamp_rounds",
+                need: Need::Money,
+                with: With::Workmate,
+                at: At::Work,
+                told: "{name} kept the lamps lit at {place} with {other}",
+                said: &[
+                    "{other} and I refilled every lantern on the bridge. Twice.",
+                    "Lamp rounds with {other}. The bridge glows like a necklace.",
+                    "{other} trimmed the wicks. I carried the oil. Teamwork.",
+                    "A lamp blew out. {other} relit it in the wind.",
+                    "Kept the lamps going with {other} through the whole dark.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "dark_nap",
+                need: Need::Rest,
+                with: With::Alone,
+                at: At::Home,
+                told: "{name} slept through the long dark",
+                said: &[
+                    "It's dark all day. I'm sleeping all day. Fair.",
+                    "Tucked my beak under my wing and slept till the stars moved.",
+                    "{friend} woke me for a fish, then let me sleep again.",
+                    "Dreamed of the sun. It's coming back. Slowly.",
+                    "Slept warm in the middle of the huddle. Lucky me.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "great_huddle_talk",
+                need: Need::Company,
+                with: With::Anyone,
+                at: At::Gathering,
+                told: "{name} kept warm in the huddle with {other}",
+                said: &[
+                    "{other} and I shuffled round the huddle all night. Warm and slow.",
+                    "Huddled next to {other}, who hums in their sleep.",
+                    "{other} told the whole huddle a story. Nobody slept.",
+                    "Took my turn on the cold edge with {other}. Then back to the middle.",
+                    "{other} kept my feet warm. I kept their beak warm. Fair trade.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "night_songs",
+                need: Need::Purpose,
+                with: With::Friend,
+                at: At::Gathering,
+                told: "{name} sang the long night songs with {other}",
+                said: &[
+                    "{other} and I sang the old songs to keep the dark away.",
+                    "Every verse of the long night song, with {other}. Forty-two.",
+                    "{other} taught the chicks the night song. They sang it wrong. Sweetly.",
+                    "Sang with {other} till the dark felt smaller.",
+                    "The whole colony joined in. {other} conducted with a fish.",
+                ],
+                gives: &[],
+            },
+        ],
+        corners: &[
+            Corner {
+                place: SLOT_A,
+                name: "the last lantern",
+                said: "It never goes out. We take turns. Always.",
+            },
+            Corner {
+                place: SLOT_C,
+                name: "the oil cask",
+                said: "Seal oil for the lamps. It smells. It glows. Worth it.",
+            },
+            Corner {
+                place: SLOT_D,
+                name: "the council's night chair",
+                said: "Whoever keeps watch sits here. It's the coldest seat.",
+            },
+        ],
+        subjects: &[
+            Subject {
+                about: "the long night",
+                said: &[
+                    "Weeks without the sun. You learn who your friends are.",
+                    "The stars are so bright in the long night they hum.",
+                ],
+            },
+            Subject {
+                about: "the huddle",
+                said: &[
+                    "In the huddle nobody's alone. That's the whole point.",
+                    "I've been in the middle and on the edge. The middle's better.",
+                ],
+            },
+            Subject {
+                about: "lanterns",
+                said: &[
+                    "A lantern in the dark means someone's thinking of you.",
+                    "My mother kept the bridge lanterns. Now I do.",
+                ],
+            },
+        ],
+    },
+    Era {
+        topics: &[
+            "the seal sightings",
+            "who dives first",
+            "the seal watch",
+            "a close call at the fishing hole",
+            "swimming in pairs",
+            "the seal's name",
+        ],
+        outings: &[
+            "dive together, keeping watch for each other",
+            "climb the lookout to watch for the seal",
+            "sit on the high ice where no seal can reach",
+        ],
+        trades: &[("lookout", "lookout"), ("swim teacher", "swim teacher")],
+        origins: &["a floe the seal chased them from", "the far shelf"],
+        activities: &[
+            Activity {
+                id: "seal_watch_duty",
+                need: Need::Money,
+                with: With::Workmate,
+                at: At::Work,
+                told: "{name} kept the seal watch at {place} with {other}",
+                said: &[
+                    "{other} and I watched the water all day. No seal. Good.",
+                    "Seal watch with {other}. Every ripple made us jump.",
+                    "{other} spotted the seal's head. We squawked the alarm.",
+                    "Watched the fishers dive with {other}. All came back.",
+                    "The seal gave up and left. {other} and I cheered.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "high_ice",
+                need: Need::Rest,
+                with: With::Alone,
+                at: At::Quiet,
+                told: "{name} rested on the high ice at {place}",
+                said: &[
+                    "Rested up high where nothing can reach me. Lovely.",
+                    "Sat on the high ice and watched the water. Calm today.",
+                    "{friend} says I'm too careful. I'm alive, aren't I?",
+                    "Napped on the highest ledge. Woke up braver.",
+                    "Up here the wind's cold but the worry's gone.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "buddy_swim",
+                need: Need::Company,
+                with: With::Friend,
+                at: At::Work,
+                told: "{name} swam in a pair with {other}",
+                said: &[
+                    "{other} and I dove together. Eyes open, flippers ready.",
+                    "Swam in a pair with {other}. We came back with fish and nerves.",
+                    "{other} watched my back. I watched their tail.",
+                    "Buddy swim with {other}. We're getting good at this.",
+                    "{other} and I agreed on a signal. Two flaps means swim.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "swim_lessons",
+                need: Need::Purpose,
+                with: With::Anyone,
+                at: At::Gathering,
+                told: "{name} taught safe swimming with {other}",
+                said: &[
+                    "{other} and I taught the young ones to swim in pairs.",
+                    "Swim lesson with {other}. Every chick knows the alarm now.",
+                    "{other} played the seal. The chicks swam away beautifully.",
+                    "Taught escape turns with {other}. Quick left, quick right.",
+                    "{other} says the young ones are faster than us now. True.",
+                ],
+                gives: &[],
+            },
+        ],
+        corners: &[
+            Corner {
+                place: SLOT_A,
+                name: "the alarm shell",
+                said: "Blow it and everyone's out of the water in a flash.",
+            },
+            Corner {
+                place: SLOT_C,
+                name: "the safe fishing hole",
+                said: "The seal can't reach this one. We checked. Carefully.",
+            },
+            Corner {
+                place: SLOT_D,
+                name: "the seal chart",
+                said: "Every sighting, scratched on the council stone.",
+            },
+        ],
+        subjects: &[
+            Subject {
+                about: "the leopard seal",
+                said: &[
+                    "It has a smile like a crack in the ice. Not a nice smile.",
+                    "It's just hungry. Everyone's just hungry.",
+                ],
+            },
+            Subject {
+                about: "courage",
+                said: &[
+                    "Brave isn't not being scared. It's diving anyway.",
+                    "The bravest penguin I know is also the most careful.",
+                ],
+            },
+            Subject {
+                about: "swimming",
+                said: &[
+                    "In the water I'm fast and graceful. On land, less so.",
+                    "I learned to swim by falling in. Most of us did.",
+                ],
+            },
+        ],
+    },
+    Era {
+        topics: &[
+            "the early thaw",
+            "who moves nests first",
+            "a cracked span",
+            "the new edge of the floe",
+            "slush",
+            "the council's ice survey",
+        ],
+        outings: &[
+            "drift on a loose floe for an afternoon",
+            "watch the ice crack from the ridge",
+            "swim through the new channels",
+        ],
+        trades: &[
+            ("ice surveyor", "ice surveyor"),
+            ("nest builder", "nest builder"),
+        ],
+        origins: &["a floe that broke away", "the melting shelf"],
+        activities: &[
+            Activity {
+                id: "ice_survey",
+                need: Need::Money,
+                with: With::Workmate,
+                at: At::Work,
+                told: "{name} tested the ice at {place} with {other}",
+                said: &[
+                    "{other} and I tapped every span. Three sound hollow.",
+                    "Tested the ice with {other}. It's thinner than last year.",
+                    "{other} marked the thin ice with pebbles. Don't step there.",
+                    "Surveyed the floe with {other}. It's smaller. Still ours.",
+                    "{other} fell through a thin patch. Just to the knees. We laughed after.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "drift_rest",
+                need: Need::Rest,
+                with: With::Alone,
+                at: At::Quiet,
+                told: "{name} drifted on a loose floe at {place}",
+                said: &[
+                    "Drifted on a floe all afternoon. It brought me back. Mostly.",
+                    "The early thaw means warm sun. I'm not complaining.",
+                    "{friend} waved from the shore. I waved from the floe.",
+                    "Lay on the slushy ice and let the sun do its work.",
+                    "Drifting's the best kind of lazy.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "nest_moving",
+                need: Need::Company,
+                with: With::Anyone,
+                at: At::Work,
+                told: "{name} moved nests to firmer ice with {other}",
+                said: &[
+                    "{other} and I moved forty pebbles to the new nest spot.",
+                    "Moving day with {other}. Every pebble counted, every egg safe.",
+                    "{other} carried the eggs. I carried the pebbles. And the worry.",
+                    "The new nests are on solid ice. {other} checked with a stomp.",
+                    "Helped {other} build a nest. It's the best one. Don't tell the others.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "bridge_mending",
+                need: Need::Purpose,
+                with: With::Friend,
+                at: At::Work,
+                told: "{name} mended the cracked spans with {other}",
+                said: &[
+                    "{other} and I packed snow into the cracks. The bridge holds.",
+                    "Mended two spans with {other}. The bridge creaks less.",
+                    "{other} found driftwood for the worst span. Clever.",
+                    "The bridge is patched with {other}'s wood and my stubbornness.",
+                    "{other} and I crossed the mended bridge first. Carefully.",
+                ],
+                gives: &[],
+            },
+        ],
+        corners: &[
+            Corner {
+                place: SLOT_A,
+                name: "the crack in the middle span",
+                said: "It opened in the thaw. We watch it like a hawk. A penguin hawk.",
+            },
+            Corner {
+                place: SLOT_C,
+                name: "the melt pool",
+                said: "The thaw made a pool. The chicks think it's for them.",
+            },
+            Corner {
+                place: SLOT_D,
+                name: "the council's ice map",
+                said: "Every thaw we redraw it. It gets smaller.",
+            },
+        ],
+        subjects: &[
+            Subject {
+                about: "the thaw",
+                said: &[
+                    "The ice sings when it cracks. A sad song.",
+                    "Every thaw the floe's a little smaller. We manage.",
+                ],
+            },
+            Subject {
+                about: "nests",
+                said: &[
+                    "A good nest takes forty pebbles and a lot of love.",
+                    "I've built eleven nests. This one's the best.",
+                ],
+            },
+            Subject {
+                about: "change",
+                said: &[
+                    "The ice changes. So do we. That's being a colony.",
+                    "My grandmother's floe is sea now. She'd shrug.",
+                ],
+            },
+        ],
+    },
+    Era {
+        topics: &[
+            "who moves to the new floe",
+            "the new floe's name",
+            "the long swim between floes",
+            "the council's seat on the new floe",
+            "homesickness",
+            "the ferry berg",
+        ],
+        outings: &[
+            "explore the new floe together",
+            "swim the channel between the floes",
+            "watch the sunset from the new floe's ridge",
+        ],
+        trades: &[("ferry pilot", "ferry pilot"), ("floe scout", "floe scout")],
+        origins: &["the new floe", "a colony across the water"],
+        activities: &[
+            Activity {
+                id: "floe_settling",
+                need: Need::Money,
+                with: With::Workmate,
+                at: At::Work,
+                told: "{name} helped settle the new floe with {other}",
+                said: &[
+                    "{other} and I marked out the new floe's fishing holes.",
+                    "Carried pebbles across to the new floe with {other}. Many trips.",
+                    "{other} dug the first shelter on the new floe. It's snug.",
+                    "The new floe has a name now. {other} chose it. It's silly. I love it.",
+                    "Worked the new floe with {other} till the tide turned.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "between_floes",
+                need: Need::Rest,
+                with: With::Alone,
+                at: At::Quiet,
+                told: "{name} floated in the channel between floes at {place}",
+                said: &[
+                    "Floated between the floes. Home on both sides.",
+                    "The channel's calm. I lay on my back and watched the sky.",
+                    "{friend} swam past and splashed me. Then floated too.",
+                    "Halfway between old and new. A good place to think.",
+                    "The water's warmer between the floes. Nobody knows why.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "floe_visit",
+                need: Need::Company,
+                with: With::Friend,
+                at: At::Gathering,
+                told: "{name} visited friends on the new floe with {other}",
+                said: &[
+                    "{other} and I swam over for supper on the new floe.",
+                    "Visited the new floe with {other}. They've got a better slide.",
+                    "{other} misses the old floe. I showed them the new sunset.",
+                    "Supper across the water with {other}. We swam home full.",
+                    "{other} and I raced back from the new floe. Tie.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "floe_council",
+                need: Need::Purpose,
+                with: With::Anyone,
+                at: At::Gathering,
+                told: "{name} held a council for both floes with {other}",
+                said: &[
+                    "{other} and I got both floes to agree on one fish count.",
+                    "Council across two floes with {other}. Lots of shouting across water.",
+                    "{other} proposed a bridge between the floes. Everyone cheered.",
+                    "Voted with {other} at the double council. We're one colony.",
+                    "{other} gave a speech about home. Both floes went quiet.",
+                ],
+                gives: &[],
+            },
+        ],
+        corners: &[
+            Corner {
+                place: SLOT_A,
+                name: "the view of the new floe",
+                said: "From here you can see both homes at once.",
+            },
+            Corner {
+                place: SLOT_C,
+                name: "the ferry berg's mooring",
+                said: "The berg drifts back and forth. We ride it for free.",
+            },
+            Corner {
+                place: SLOT_D,
+                name: "the double council ring",
+                said: "Half the stones on each floe. We shout across.",
+            },
+        ],
+        subjects: &[
+            Subject {
+                about: "the new floe",
+                said: &[
+                    "It's flatter than ours. Better for sliding.",
+                    "Half my family lives there now. I visit every day.",
+                ],
+            },
+            Subject {
+                about: "homesickness",
+                said: &[
+                    "You can miss a place that's right across the water.",
+                    "Home's where your pebbles are.",
+                ],
+            },
+            Subject {
+                about: "the channel",
+                said: &[
+                    "The channel's where the two floes shake hands.",
+                    "I swim it twice a day. My flippers are strong now.",
+                ],
+            },
+        ],
+    },
+    Era {
+        topics: &[
+            "the song contest",
+            "who sings the high part",
+            "a song about someone",
+            "the colony anthem",
+            "a verse that went too far",
+            "the song circle's order",
+        ],
+        outings: &[
+            "sing at the song circle together",
+            "make up a song on the berg",
+            "listen to the old ones sing at dusk",
+        ],
+        trades: &[("choir leader", "choir leader"), ("drummer", "drummer")],
+        origins: &["a singing colony far south", "the song road"],
+        activities: &[
+            Activity {
+                id: "choir_practice",
+                need: Need::Money,
+                with: With::Workmate,
+                at: At::Work,
+                told: "{name} practised with the choir at {place} with {other}",
+                said: &[
+                    "{other} and I practised the anthem nine times. Nearly there.",
+                    "Choir practice with {other}. The low notes rattle the ice.",
+                    "{other} kept time with a flipper. I kept losing it.",
+                    "Sang the harmony with {other}. It worked! Once!",
+                    "{other} says we're ready. The choir says otherwise.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "hum_alone",
+                need: Need::Rest,
+                with: With::Alone,
+                at: At::Quiet,
+                told: "{name} hummed old songs alone at {place}",
+                said: &[
+                    "Hummed every song I know at {place}. Took all afternoon.",
+                    "Made up a tune. Forgot it. Made up another.",
+                    "{friend} heard me humming and joined in. Softly.",
+                    "Sang to the sea. The sea didn't mind.",
+                    "Humming's how I rest. Always has been.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "song_circle",
+                need: Need::Company,
+                with: With::Anyone,
+                at: At::Gathering,
+                told: "{name} sang in the song circle with {other}",
+                said: &[
+                    "{other} sang a verse about me. It was nice. Mostly.",
+                    "Song circle with {other}. Everyone took a verse.",
+                    "{other} and I sang a duet. The gulls left.",
+                    "The song went round the circle and came back new.",
+                    "{other} can hold a note longer than anyone. Showed off all night.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "song_writing",
+                need: Need::Purpose,
+                with: With::Friend,
+                at: At::Home,
+                told: "{name} wrote a new song for the colony with {other}",
+                said: &[
+                    "{other} and I wrote a song about the bridge. Nine verses.",
+                    "{other} found the rhyme for 'herring'. I'm still amazed.",
+                    "New song with {other}. It's about all of us.",
+                    "{other} wants the song sad. I want it funny. It's both.",
+                    "Taught our new song to the chicks with {other}. They sing it everywhere.",
+                ],
+                gives: &[],
+            },
+        ],
+        corners: &[
+            Corner {
+                place: SLOT_A,
+                name: "the echo spot under the bridge",
+                said: "Sing here and the bridge sings back.",
+            },
+            Corner {
+                place: SLOT_C,
+                name: "the song stones",
+                said: "Tap them and each one sings a different note.",
+            },
+            Corner {
+                place: SLOT_D,
+                name: "the council's song book",
+                said: "Scratched in ice. Every song the colony ever made.",
+            },
+        ],
+        subjects: &[
+            Subject {
+                about: "songs",
+                said: &[
+                    "A colony without songs is just a lot of birds.",
+                    "Every penguin has a call of their own. Mine's a bit squeaky.",
+                ],
+            },
+            Subject {
+                about: "the choir",
+                said: &[
+                    "We're not good. We're loud. That counts.",
+                    "I sing the low part. Somebody has to.",
+                ],
+            },
+            Subject {
+                about: "the old songs",
+                said: &[
+                    "The old songs are about the ice. The new ones are about us.",
+                    "My grandmother knew a hundred songs. I know twelve.",
+                ],
+            },
+        ],
+    },
+    Era {
+        topics: &[
+            "the aurora storms",
+            "who stays up to watch",
+            "a lantern put out for the dark",
+            "the colours of the sky",
+            "a sleepless week",
+            "the aurora legends",
+        ],
+        outings: &[
+            "stay up all night for the aurora storm",
+            "lie on the ice under the green sky",
+            "count the colours from the tallest berg",
+        ],
+        trades: &[
+            ("sky watcher", "sky watcher"),
+            ("legend teller", "legend teller"),
+        ],
+        origins: &["the far north ice", "a colony that follows the lights"],
+        activities: &[
+            Activity {
+                id: "sky_log",
+                need: Need::Money,
+                with: With::Workmate,
+                at: At::Work,
+                told: "{name} logged the aurora storms at {place} with {other}",
+                said: &[
+                    "{other} and I scratched down every colour. Eleven tonight.",
+                    "Logged the aurora with {other}. The sky went purple at midnight.",
+                    "{other} says tonight was the brightest ever. I agree.",
+                    "Stayed up logging with {other}. Our eyes are full of green.",
+                    "{other} drew the aurora on the ice. It almost moved.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "aurora_nap",
+                need: Need::Rest,
+                with: With::Alone,
+                at: At::Home,
+                told: "{name} slept all day after the aurora storm",
+                said: &[
+                    "Up all night for the lights. Asleep all day. Worth it.",
+                    "Dreamed in green and pink.",
+                    "{friend} woke me for the second show. Glad they did.",
+                    "Too tired to fish. Too happy to care.",
+                    "Slept with my beak pointed at the sky. Just in case.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "aurora_party",
+                need: Need::Company,
+                with: With::Anyone,
+                at: At::Gathering,
+                told: "{name} watched the aurora storm with {other}",
+                said: &[
+                    "{other} and I lay on our backs and watched the sky dance.",
+                    "The whole sky went green. {other} gasped. So did I.",
+                    "{other} says the lights are old penguins waving.",
+                    "Watched the aurora storm with {other}. We forgot the cold.",
+                    "{other} and I named the colours. Fish-green is my favourite.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "legend_night",
+                need: Need::Purpose,
+                with: With::Friend,
+                at: At::Gathering,
+                told: "{name} told aurora legends to the chicks with {other}",
+                said: &[
+                    "{other} and I told the chicks the lights are a great fish swimming.",
+                    "Legend night with {other}. The chicks believed every word.",
+                    "{other} made the legend scary. I made it end well.",
+                    "Told the old aurora tale with {other}. My grandmother's version.",
+                    "{other} and I made up a new legend. The chicks want it every night.",
+                ],
+                gives: &[],
+            },
+        ],
+        corners: &[
+            Corner {
+                place: SLOT_A,
+                name: "the aurora ledge",
+                said: "Lie here and the whole sky is yours.",
+            },
+            Corner {
+                place: SLOT_C,
+                name: "the dark spot by the vault",
+                said: "No lanterns here. Best place for the lights.",
+            },
+            Corner {
+                place: SLOT_D,
+                name: "the aurora record",
+                said: "Every storm, every colour. The council's proudest ice.",
+            },
+        ],
+        subjects: &[
+            Subject {
+                about: "the aurora",
+                said: &[
+                    "The lights crackle if you listen. Nobody believes me.",
+                    "I've seen a thousand auroras. Every one's new.",
+                ],
+            },
+            Subject {
+                about: "legends",
+                said: &[
+                    "Every legend has a bit of truth. Usually a fish.",
+                    "I'll be a legend one day. A small one.",
+                ],
+            },
+            Subject {
+                about: "the sky",
+                said: &[
+                    "The sky's bigger here than anywhere.",
+                    "Look up long enough and you forget you're a bird who can't fly.",
+                ],
+            },
+        ],
+    },
+    Era {
+        topics: &[
+            "the great migration",
+            "who leads the swim",
+            "the route south",
+            "a chick too small to travel",
+            "the waypoint berg",
+            "the return date",
+        ],
+        outings: &[
+            "swim out to meet the migrating flocks",
+            "rest on the waypoint berg together",
+            "watch the last of the flocks go by",
+        ],
+        trades: &[
+            ("route finder", "route finder"),
+            ("flock guide", "flock guide"),
+        ],
+        origins: &[
+            "the great migration",
+            "a colony on the far side of the world",
+        ],
+        activities: &[
+            Activity {
+                id: "route_scouting",
+                need: Need::Money,
+                with: With::Workmate,
+                at: At::Work,
+                told: "{name} scouted the migration route at {place} with {other}",
+                said: &[
+                    "{other} and I found the currents the flocks use. Fast water!",
+                    "Scouted south with {other}. The sea goes on forever.",
+                    "{other} marked the waypoint berg with a pebble tower.",
+                    "Counted the flocks passing with {other}. Thousands.",
+                    "{other} says the route is safe this year. The currents agree.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "waypoint_rest",
+                need: Need::Rest,
+                with: With::Alone,
+                at: At::Quiet,
+                told: "{name} rested on the waypoint berg at {place}",
+                said: &[
+                    "Rested on the waypoint berg. Half the world's penguins passed me.",
+                    "The berg drifts slowly. I drift with it.",
+                    "{friend} saved me the sunny side of the berg.",
+                    "Slept on the berg under strange stars.",
+                    "Just me and the sea and a thousand passing strangers.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "flock_greeting",
+                need: Need::Company,
+                with: With::Anyone,
+                at: At::Gathering,
+                told: "{name} greeted the passing flocks with {other}",
+                said: &[
+                    "{other} and I sang the colony song to every flock that passed.",
+                    "A flock stopped to rest with us. {other} shared the fish.",
+                    "{other} made friends with a penguin from the far side of the world.",
+                    "Traded songs with the passing flocks. {other} learned four.",
+                    "{other} waved at every single flock. Every one.",
+                ],
+                gives: &[],
+            },
+            Activity {
+                id: "migration_map",
+                need: Need::Purpose,
+                with: With::Friend,
+                at: At::Home,
+                told: "{name} drew the migration map with {other}",
+                said: &[
+                    "{other} and I scratched the whole route into the ice.",
+                    "The migration map has every current and every berg. {other} is proud.",
+                    "{other} added where the whales sing. Important.",
+                    "Taught the chicks to read the map with {other}.",
+                    "{other} says the map will outlast us all. Good.",
+                ],
+                gives: &[],
+            },
+        ],
+        corners: &[
+            Corner {
+                place: SLOT_A,
+                name: "the migration map",
+                said: "Every current, every berg, every place a flock stopped.",
+            },
+            Corner {
+                place: SLOT_C,
+                name: "the travellers' vault shelf",
+                said: "Fish for passing flocks. Take one, leave a song.",
+            },
+            Corner {
+                place: SLOT_D,
+                name: "the council's welcome stone",
+                said: "Every flock that rested here scratched a mark.",
+            },
+        ],
+        subjects: &[
+            Subject {
+                about: "the migration",
+                said: &[
+                    "A thousand thousand penguins, all going the same way.",
+                    "One day I'll go with them. Just to see.",
+                ],
+            },
+            Subject {
+                about: "the far side of the world",
+                said: &[
+                    "They say the ice there is blue as the sky.",
+                    "A penguin from there told me they sing our songs backwards.",
+                ],
+            },
+            Subject {
+                about: "staying",
+                said: &[
+                    "Everyone passes through. We're the ones who stay.",
+                    "Staying is its own kind of journey.",
+                ],
+            },
+        ],
+    },
+];

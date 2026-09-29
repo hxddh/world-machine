@@ -66,6 +66,7 @@ pub(crate) const BY_DRIFT: &str = "drift";
 pub(crate) fn register_actions(registry: &mut ActionRegistry) -> Result<(), ActionError> {
     registry.register(WithdrawBacking)?;
     registry.register(SellSeaFinch)?;
+    registry.register(MendSeaFinchTogether)?;
     Ok(())
 }
 
@@ -307,6 +308,74 @@ impl Action for SellSeaFinch {
             },
         ];
         record_decider(&mut draft, request);
+        Ok(draft)
+    }
+}
+
+/// With Leo's backing gone, the whole harbour mends Sea Finch together
+/// instead: no money changes hands, Evan shows everyone how, and it costs
+/// everyone a week of evenings. Jonas goes back to sea.
+struct MendSeaFinchTogether;
+
+impl Action for MendSeaFinchTogether {
+    fn name(&self) -> &'static str {
+        "mend_sea_finch_together"
+    }
+
+    fn evaluate(
+        &self,
+        state: &WorldState,
+        _request: &ActionRequest,
+    ) -> Result<EventDraft, ActionError> {
+        if !sea_finch_can_be_sold(state) {
+            return Err(ActionError::Invalid(
+                "Sea Finch is not waiting to be mended or sold".into(),
+            ));
+        }
+        if text_component(state, JONAS, society_basic::JOB)? != "unemployed"
+            || state.relation(crate::model::JONAS_HARBOR_JOB).is_some()
+        {
+            return Err(ActionError::Invalid("Jonas is not free to fish".into()));
+        }
+        let mut draft = EventDraft::new("boat_mended_together");
+        draft.actor = Some(JONAS);
+        draft.targets = vec![JONAS, crate::EVAN, JONAS_BOAT, crate::HARBOR];
+        draft.changes = vec![
+            StateChange::SetComponent {
+                entity: JONAS_BOAT,
+                key: CONDITION.into(),
+                value: "sound".into(),
+            },
+            StateChange::CreateRelation(world_core::Relation::new(
+                crate::model::JONAS_HARBOR_JOB,
+                "works_at",
+                JONAS,
+                crate::HARBOR,
+            )),
+            StateChange::SetComponent {
+                entity: JONAS,
+                key: society_basic::JOB.into(),
+                value: "fisher".into(),
+            },
+            StateChange::SetComponent {
+                entity: JONAS,
+                key: society_basic::EMPLOYER.into(),
+                value: crate::HARBOR.into(),
+            },
+        ];
+        // A week of everyone's evenings, for those the System looks after.
+        for who in crate::talk::RESIDENTS {
+            if let Some(Value::Integer(tired)) = state
+                .entity(who)
+                .and_then(|entity| entity.component(lives::Need::Rest.key()))
+            {
+                draft.changes.push(StateChange::SetComponent {
+                    entity: who,
+                    key: lives::Need::Rest.key().into(),
+                    value: (tired + 10).clamp(0, 100).into(),
+                });
+            }
+        }
         Ok(draft)
     }
 }

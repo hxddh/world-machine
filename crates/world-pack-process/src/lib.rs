@@ -12,12 +12,15 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::thread;
 use std::time::{Duration, Instant};
 use world_host::{
-    HostError, WorldDescriptor, WorldPackSource, WorldRegistration, WorldRegistry, WorldSession,
+    HostError, SessionCheckpoint, WorldDescriptor, WorldPackSource, WorldRegistration,
+    WorldRegistry, WorldSession,
 };
 use world_pack_protocol::{
-    decode_response, encode_request, pack_frame_limit, EarsWire, PackDescriptor, PackManifest,
-    PackRequest, PackRequestEnvelope, PackResponse, PackRuntimeManifest, ProjectionIntentWire,
-    PACK_FRAME_LIMIT, PACK_PROTOCOL_VERSION_V3, PACK_PROTOCOL_VERSION_V4, PACK_PROTOCOL_VERSION_V5,
+    decode_response, encode_open_request, encode_open_request_deflated, encode_request,
+    pack_frame_limit, EarsWire, PackDescriptor, PackManifest, PackRequest, PackRequestEnvelope,
+    PackResponse, PackRuntimeManifest, ProjectionIntentWire, ProtocolEncodeError, PACK_FRAME_LIMIT,
+    PACK_PROTOCOL_VERSION_V3, PACK_PROTOCOL_VERSION_V4, PACK_PROTOCOL_VERSION_V5,
+    PACK_PROTOCOL_VERSION_V6,
 };
 use world_persistence::{CheckpointFit, WorldArchive, WorldPackRef};
 use world_projection::{ProjectionIntent, ProjectionSnapshot, SelectionId};
@@ -285,12 +288,17 @@ impl ProcessPack {
         };
         let create_pack = self.clone();
         let open_pack = self.clone();
+        let deflated_pack = self.clone();
         WorldRegistration::new(descriptor, move || {
             ProcessWorldSession::create(create_pack.clone())
                 .map(|session| Box::new(session) as Box<dyn WorldSession>)
         })
         .with_archive_opener(move |archive| {
-            ProcessWorldSession::open(open_pack.clone(), archive.clone())
+            ProcessWorldSession::open(open_pack.clone(), archive, None)
+                .map(|session| Box::new(session) as Box<dyn WorldSession>)
+        })
+        .with_deflated_archive_opener(move |archive, deflated| {
+            ProcessWorldSession::open(deflated_pack.clone(), archive, Some(deflated))
                 .map(|session| Box::new(session) as Box<dyn WorldSession>)
         })
     }
@@ -429,7 +437,10 @@ fn write_launch_image(
                 path.display()
             ))
         })?;
-    if let Err(error) = file.write_all(bytes).and_then(|_| file.sync_all()) {
+    // Not synced to disk: the image is run from here at once and never
+    // needed again, and syncing costs every launch (on a Mac, a full flush
+    // of the disk's cache).
+    if let Err(error) = file.write_all(bytes) {
         let _ = fs::remove_file(&path);
         return Err(HostError::session(format!(
             "could not write approved Pack launch image {}: {error}",
@@ -507,7 +518,15 @@ impl ProcessWorldSession {
         Self::start(pack, None)
     }
 
-    fn open(pack: ProcessPack, mut archive: WorldArchive) -> Result<Self, HostError> {
+    /// Opens `archive` in a new Pack process; with `deflated`, its compact
+    /// JSON as the World file it was read from keeps it, which a Pack on v5
+    /// is handed as it is.
+    fn open(
+        pack: ProcessPack,
+        archive: &WorldArchive,
+        deflated: Option<&[u8]>,
+    ) -> Result<Self, HostError> {
+        let mut without_checkpoint = None;
         if archive.checkpoint.is_some() && pack.protocol_version < PACK_PROTOCOL_VERSION_V4 {
             // A Pack before v4 cannot restore from a checkpoint. It can
             // replay a whole history, only more slowly; a history that keeps
@@ -516,15 +535,18 @@ impl ProcessWorldSession {
             let whole = archive
                 .checkpoint
                 .as_ref()
-                .is_some_and(|checkpoint| checkpoint.fit(&archive) == Some(CheckpointFit::Within));
+                .is_some_and(|checkpoint| checkpoint.fit(archive) == Some(CheckpointFit::Within));
             if !whole {
                 return Err(HostError::session(format!(
                     "this World needs a newer {} Pack (protocol v{PACK_PROTOCOL_VERSION_V4}); the installed one speaks v{}",
                     pack.descriptor.title, pack.protocol_version
                 )));
             }
-            archive.checkpoint = None;
+            let mut whole = archive.clone();
+            whole.checkpoint = None;
+            without_checkpoint = Some(whole);
         }
+        let archive = without_checkpoint.as_ref().unwrap_or(archive);
         if archive.pack != pack.descriptor.pack {
             return Err(HostError::session(format!(
                 "external Pack {}@{} cannot open archive {}@{}",
@@ -534,10 +556,16 @@ impl ProcessWorldSession {
                 archive.pack.version
             )));
         }
-        Self::start(pack, Some(archive))
+        let deflated = deflated.filter(|_| {
+            without_checkpoint.is_none() && pack.protocol_version >= PACK_PROTOCOL_VERSION_V5
+        });
+        Self::start(pack, Some((archive, deflated)))
     }
 
-    fn start(pack: ProcessPack, archive: Option<WorldArchive>) -> Result<Self, HostError> {
+    fn start(
+        pack: ProcessPack,
+        archive: Option<(&WorldArchive, Option<&[u8]>)>,
+    ) -> Result<Self, HostError> {
         let mut client = ProcessClient::spawn(&pack)?;
         let described = match client.request(PackRequest::Describe)? {
             PackResponse::Descriptor { descriptor } => descriptor,
@@ -554,7 +582,7 @@ impl ProcessWorldSession {
         }
 
         let response = match archive {
-            Some(archive) => client.request(PackRequest::Open { archive })?,
+            Some((archive, deflated)) => client.open(archive, deflated)?,
             None => client.request(PackRequest::Create)?,
         };
         let snapshot = snapshot_response("create/open", response)?;
@@ -623,8 +651,65 @@ impl WorldSession for ProcessWorldSession {
         Ok(snapshot)
     }
 
+    fn checkpoint(&mut self) -> Result<Option<SessionCheckpoint>, HostError> {
+        if !self.speaks_v6() {
+            return Ok(None);
+        }
+        match self.client.borrow_mut().request(PackRequest::Checkpoint)? {
+            PackResponse::Checkpointed { kept } => Ok(kept.then(|| {
+                SessionCheckpoint::new(ProcessMark {
+                    snapshot: self.snapshot.clone(),
+                })
+            })),
+            response => Err(unexpected_response("checkpoint", &response)),
+        }
+    }
+
+    fn rollback(&mut self, checkpoint: SessionCheckpoint) -> Result<(), HostError> {
+        let mark = checkpoint.into_inner::<ProcessMark>()?;
+        match self.client.borrow_mut().request(PackRequest::Rollback)? {
+            PackResponse::Ok => {
+                self.snapshot = mark.snapshot;
+                Ok(())
+            }
+            response => Err(unexpected_response("rollback", &response)),
+        }
+    }
+
+    fn archive_since(&self, from: usize) -> Result<Option<WorldArchive>, HostError> {
+        if !self.speaks_v6() {
+            return Ok(self.archive()?.map(|mut archive| {
+                archive.events.drain(..from.min(archive.events.len()));
+                archive
+            }));
+        }
+        let response = self
+            .client
+            .borrow_mut()
+            .request(PackRequest::ArchiveSince { events: from })?;
+        self.archive_from(response)
+    }
+
     fn archive(&self) -> Result<Option<WorldArchive>, HostError> {
         let response = self.client.borrow_mut().request(PackRequest::Archive)?;
+        self.archive_from(response)
+    }
+}
+
+/// What the host keeps of a Pack process's World at a checkpoint: the Pack
+/// keeps the rest.
+struct ProcessMark {
+    snapshot: ProjectionSnapshot,
+}
+
+impl ProcessWorldSession {
+    /// Whether the Pack speaks a protocol with `checkpoint`, `rollback` and
+    /// `archive_since`.
+    fn speaks_v6(&self) -> bool {
+        self.client.borrow().protocol_version >= PACK_PROTOCOL_VERSION_V6
+    }
+
+    fn archive_from(&self, response: PackResponse) -> Result<Option<WorldArchive>, HostError> {
         let archive = match response {
             PackResponse::Archive { archive } => archive,
             response => return Err(unexpected_response("archive", &response)),
@@ -670,6 +755,7 @@ fn response_kind(response: &PackResponse) -> &'static str {
         PackResponse::Snapshot { .. } => "snapshot",
         PackResponse::Archive { .. } => "archive",
         PackResponse::Hearing { .. } => "hearing",
+        PackResponse::Checkpointed { .. } => "checkpointed",
         PackResponse::Ok => "ok",
         PackResponse::Error { .. } => "error",
     }
@@ -681,18 +767,59 @@ fn prepare_request_frame(
     request: PackRequest,
     max_request_bytes: usize,
 ) -> Result<Vec<u8>, HostError> {
-    if max_request_bytes == 0 || max_request_bytes > DEFAULT_MAX_REQUEST_BYTES {
-        return Err(HostError::session(format!(
-            "external Pack max request bytes must be between 1 and the {DEFAULT_MAX_REQUEST_BYTES}-byte production ceiling"
-        )));
-    }
-    // A Pack reads no more than its protocol lets it.
-    let max_request_bytes = max_request_bytes.min(pack_frame_limit(protocol_version));
+    check_max_request_bytes(max_request_bytes)?;
     let opens = matches!(request, PackRequest::Open { .. });
     let envelope = PackRequestEnvelope::for_version(protocol_version, request_id, request)
         .map_err(|error| HostError::session(format!("invalid Pack protocol version: {error}")))?;
     let encoded = encode_request(&envelope)
         .map_err(|error| HostError::session(format!("could not encode Pack request: {error}")))?;
+    finish_frame(protocol_version, encoded, opens, max_request_bytes)
+}
+
+/// The frame of an `open` request for an archive the host keeps, as
+/// [`prepare_request_frame`] makes it for `PackRequest::Open`.
+fn prepare_open_frame(
+    protocol_version: u32,
+    request_id: u64,
+    archive: &WorldArchive,
+    deflated: Option<&[u8]>,
+    max_request_bytes: usize,
+) -> Result<Vec<u8>, HostError> {
+    check_max_request_bytes(max_request_bytes)?;
+    let encoded = match deflated {
+        Some(deflated) => {
+            encode_open_request_deflated(protocol_version, request_id, archive, deflated)
+        }
+        None => encode_open_request(protocol_version, request_id, archive),
+    }
+    .map_err(|error| match error {
+        ProtocolEncodeError::Protocol(error) => {
+            HostError::session(format!("invalid Pack protocol version: {error}"))
+        }
+        ProtocolEncodeError::Json(error) => {
+            HostError::session(format!("could not encode Pack request: {error}"))
+        }
+    })?;
+    finish_frame(protocol_version, encoded, true, max_request_bytes)
+}
+
+fn check_max_request_bytes(max_request_bytes: usize) -> Result<(), HostError> {
+    if max_request_bytes == 0 || max_request_bytes > DEFAULT_MAX_REQUEST_BYTES {
+        return Err(HostError::session(format!(
+            "external Pack max request bytes must be between 1 and the {DEFAULT_MAX_REQUEST_BYTES}-byte production ceiling"
+        )));
+    }
+    Ok(())
+}
+
+fn finish_frame(
+    protocol_version: u32,
+    encoded: String,
+    opens: bool,
+    max_request_bytes: usize,
+) -> Result<Vec<u8>, HostError> {
+    // A Pack reads no more than its protocol lets it.
+    let max_request_bytes = max_request_bytes.min(pack_frame_limit(protocol_version));
     let frame_bytes = encoded
         .len()
         .checked_add(1)
@@ -791,6 +918,33 @@ impl ProcessClient {
             request,
             self.max_request_bytes,
         )?;
+        self.exchange(request_id, frame, carries_history)
+    }
+
+    /// Opens `archive` in the Pack without a copy of it, handing it over
+    /// as `deflated` when there is that.
+    fn open(
+        &mut self,
+        archive: &WorldArchive,
+        deflated: Option<&[u8]>,
+    ) -> Result<PackResponse, HostError> {
+        let request_id = self.next_request_id;
+        let frame = prepare_open_frame(
+            self.protocol_version,
+            request_id,
+            archive,
+            deflated,
+            self.max_request_bytes,
+        )?;
+        self.exchange(request_id, frame, true)
+    }
+
+    fn exchange(
+        &mut self,
+        request_id: u64,
+        frame: Vec<u8>,
+        carries_history: bool,
+    ) -> Result<PackResponse, HostError> {
         let next_request_id = request_id
             .checked_add(1)
             .ok_or_else(|| HostError::session("external Pack request id overflow"))?;
@@ -1325,6 +1479,77 @@ mod tests {
             "a Pack carries no settings unless the host gives it some"
         );
 
+        let _ = fs::remove_dir_all(root);
+    }
+
+    /// On v6 a change is tried on the Pack process that has the World open,
+    /// and gone back from there: no process is started for it.
+    #[cfg(unix)]
+    #[test]
+    fn a_v6_pack_marks_changes_and_goes_back_in_the_same_process() {
+        let root = temp_dir("checkpoint");
+        let runtime = root.join("runtime.sh");
+        let archive = WorldArchive {
+            format: WORLD_ARCHIVE_FORMAT.into(),
+            format_version: WORLD_ARCHIVE_VERSION,
+            pack: descriptor().pack.clone(),
+            world_time: 7,
+            events: Vec::new(),
+            pending: Vec::new(),
+            checkpoint: None,
+        };
+        let mut later = archive.clone();
+        later.world_time = 8;
+        let responses = vec![
+            response_line(
+                1,
+                PackResponse::Descriptor {
+                    descriptor: descriptor(),
+                },
+            ),
+            response_line(
+                2,
+                PackResponse::Snapshot {
+                    snapshot: wire_snapshot(7, "Opened"),
+                },
+            ),
+            response_line(3, PackResponse::Checkpointed { kept: true }),
+            response_line(
+                4,
+                PackResponse::Snapshot {
+                    snapshot: wire_snapshot(8, "Changed"),
+                },
+            ),
+            response_line(
+                5,
+                PackResponse::Archive {
+                    archive: Some(later.clone()),
+                },
+            ),
+            response_line(6, PackResponse::Ok),
+        ];
+        write_fixture_process(&runtime, &responses);
+        let manifest = PackManifest::process(descriptor(), "runtime.sh", Vec::new());
+        assert_eq!(manifest.protocol_version, PACK_PROTOCOL_VERSION_V6);
+        let manifest_path = root.join("fixture.world-pack.json");
+        fs::write(&manifest_path, manifest.to_json_pretty().unwrap()).unwrap();
+        let pack = ProcessPack::load(manifest_path).unwrap();
+        let source = ProcessPackSource::from_packs(vec![pack]);
+        let mut registry = WorldRegistry::new();
+        registry.install_source(&source).unwrap();
+
+        let mut session = registry.open_archive(&archive).unwrap();
+        let mark = session
+            .checkpoint()
+            .unwrap()
+            .expect("a v6 Pack keeps marks");
+        let changed = session
+            .handle(ProjectionIntent::InvokeCommand("fixture.act".into()))
+            .unwrap();
+        assert_eq!(changed.title, "Changed");
+        assert_eq!(session.archive_since(0).unwrap(), Some(later));
+        session.rollback(mark).unwrap();
+        assert_eq!(session.snapshot().title, "Opened");
         let _ = fs::remove_dir_all(root);
     }
 

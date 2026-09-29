@@ -10,7 +10,9 @@ use crate::model::{CONDITION, MAINLAND_MARKET, OPERATING_STATUS};
 use crate::{BAKERY, EMMA, EVAN, HARBOR, JONAS, JONAS_BOAT, LEO, MARA, MIA, NOAH, SOFIA};
 use society_basic::{CASH, JOB};
 use std::sync::OnceLock;
-use storylets::{Choice, Condition, Deck, Ease, Effect, Goal, Outcome, Pinned, Reading, Storylet};
+use storylets::{
+    text_hash, Choice, Condition, Deck, Ease, Effect, Goal, Outcome, Pinned, Reading, Storylet,
+};
 use world_core::{ActionRegistry, EntityId, Event, EventId, Value, World, WorldError};
 
 /// The entity the storyteller keeps its notes on.
@@ -39,6 +41,9 @@ struct Said {
     chapter: Option<&'static str>,
     /// What the chapter is called, when this is how its climax went.
     title: Option<&'static str>,
+    /// The Event whose leavings this leaves, when it is another answer's
+    /// outcome reached another way.
+    behind: Option<&'static str>,
 }
 
 struct Answer {
@@ -114,6 +119,7 @@ fn said(
         remembered: None,
         chapter: None,
         title: None,
+        behind: None,
     }
 }
 
@@ -234,22 +240,123 @@ fn down(gauge: &'static str) -> Ease {
     Ease { gauge, up: false }
 }
 
+/// How everyone doing it together is offered, in turn.
+const TOGETHER: [(&str, &str); 4] = [
+    (
+        "Everyone helps",
+        "No money spent. It costs everyone an evening.",
+    ),
+    (
+        "Ask the neighbours",
+        "Nothing spent, but it's a long day for everyone.",
+    ),
+    (
+        "All pitch in",
+        "No money changes hands. Everyone's tired after.",
+    ),
+    (
+        "Make do together",
+        "Nothing spent. Everyone gives up a day to it.",
+    ),
+];
+
+/// A way to get what a paid answer gets without the money: the whole
+/// harbour does it together, and is worn out after. Money it would have
+/// moved stays where it is; what it needs besides money it still needs.
+fn together(paid: &Answer, turn: usize) -> Answer {
+    let (title, detail) = TOGETHER[turn % TOGETHER.len()];
+    let effects = paid
+        .said
+        .effects
+        .iter()
+        .filter(|effect| !matches!(effect, Effect::Add { key, .. } if *key == CASH))
+        .cloned()
+        .chain(crate::talk::RESIDENTS.map(|who| Effect::Add {
+            entity: who,
+            key: lives::Need::Rest.key(),
+            by: 8,
+            min: 0,
+            max: 100,
+        }))
+        .collect();
+    Answer {
+        id: "together",
+        title,
+        detail,
+        requires: paid
+            .requires
+            .iter()
+            .filter(|condition| !matches!(condition, Condition::AtLeast(_, key, _) if *key == CASH))
+            .cloned()
+            .collect(),
+        refuses: false,
+        said: Said {
+            event: leak(format!("{}_together", paid.said.event)),
+            told: leak(format!(
+                "Everyone pitched in, and {}",
+                match paid.said.told.split_once(' ') {
+                    Some(("The" | "A" | "An" | "Work", _)) => lowered(paid.said.told),
+                    _ => paid.said.told.to_string(),
+                }
+            )),
+            line: paid.said.line,
+            effects,
+            remembered: paid.said.remembered,
+            chapter: paid.said.chapter,
+            title: paid.said.title,
+            behind: Some(paid.said.behind.unwrap_or(paid.said.event)),
+        },
+    }
+}
+
 fn spec(
     id: &'static str,
     shape: Shape,
     (told, line): (&'static str, &'static str),
-    answers: Vec<Answer>,
+    mut answers: Vec<Answer>,
     lapse: Said,
 ) -> Spec {
-    let outcome = |said: &Said| Outcome {
+    // Turning down a want, or letting it lapse, is remembered: a harbour
+    // let down often enough starts things of its own.
+    let want = shape.want;
+    let outcome = |said: &Said, let_down: bool| Outcome {
         event: said.event,
         effects: said
             .effects
             .iter()
             .cloned()
-            .chain(leaves_behind(said.event))
+            .chain(leaves_behind(said.behind.unwrap_or(said.event)))
+            .chain(let_down.then(|| initiative(1)))
             .collect(),
     };
+    // Every question has at least two answers that change something and
+    // cost nothing, so being short of money never leaves only one.
+    let free_and_changing =
+        answers
+            .iter()
+            .filter(|answer| {
+                !answer.requires.iter().any(
+                    |condition| matches!(condition, Condition::AtLeast(_, key, _) if *key == CASH),
+                ) && !outcome(&answer.said, want && answer.refuses)
+                    .effects
+                    .is_empty()
+            })
+            .count();
+    if free_and_changing < 2 {
+        let paid = answers.iter().position(|answer| {
+            answer
+                .requires
+                .iter()
+                .any(|condition| matches!(condition, Condition::AtLeast(_, key, _) if *key == CASH))
+        });
+        if let Some(paid) = paid {
+            let turn = text_hash(id) as usize;
+            let together = together(&answers[paid], turn);
+            // Offered straight after what costs money, the same thing got
+            // another way.
+            answers.insert(paid + 1, together);
+        }
+    }
     let mut requires = shape.requires;
     requires.extend(settled_by(id));
     Spec {
@@ -263,11 +370,11 @@ fn spec(
                 .map(|answer| Choice {
                     id: answer.id,
                     requires: answer.requires.clone(),
-                    outcome: outcome(&answer.said),
+                    outcome: outcome(&answer.said, want && answer.refuses),
                     refuses: answer.refuses,
                 })
                 .collect(),
-            lapse: outcome(&lapse),
+            lapse: outcome(&lapse, want),
             lasts: shape.lasts,
             rests: shape.rests,
             weight: shape.weight,
@@ -1106,6 +1213,26 @@ fn calendar() -> Vec<Spec> {
                     .remembered("Did you see Sea Finch fly?"),
                 ),
                 other(
+                    "dinghies",
+                    "Race the dinghies instead",
+                    "Nothing spent. Evan's dinghy against the school's raft.",
+                    said(
+                        "regatta_dinghies",
+                        "The harbour raced its dinghies at the regatta",
+                        "Evan's dinghy won by a nose!",
+                        [
+                            mood(1),
+                            Effect::Add {
+                                entity: MIA,
+                                key: lives::Need::Company.key(),
+                                by: -15,
+                                min: 0,
+                                max: 100,
+                            },
+                        ],
+                    ),
+                ),
+                other(
                     "watch",
                     "Just watch",
                     "Nothing ventured.",
@@ -1201,8 +1328,10 @@ fn calendar() -> Vec<Spec> {
             ),
         ),
     ];
-    // Everyone's birthday is their own, in their own words.
-    for (id, who, at, [asks, party, card, forgotten]) in [
+    // Everyone's birthday is their own, in their own words, and how the
+    // harbour marks it is a real choice: a party out of the fund, a present
+    // from it, a cake from a friend, or a card from everyone.
+    for (id, who, at, [asks, party, card, forgotten], [gift, cake]) in [
         (
             "birthday_jonas",
             JONAS,
@@ -1212,6 +1341,10 @@ fn calendar() -> Vec<Spec> {
                 "Cake and a pint. Can't argue with that.",
                 "A card! Even Noah signed.",
                 "Birthday. Nobody noticed.",
+            ],
+            [
+                "A new knife for the gutting? You shouldn't have.",
+                "Mara's cake, shaped like a fish. I'm touched.",
             ],
         ),
         (
@@ -1224,6 +1357,10 @@ fn calendar() -> Vec<Spec> {
                 "Everyone signed. There's flour on it already.",
                 "Nobody remembered. Typical.",
             ],
+            [
+                "A proper apron, with pockets. From everyone?",
+                "Somebody else baked for me. Sofia, you angel.",
+            ],
         ),
         (
             "birthday_leo",
@@ -1234,6 +1371,10 @@ fn calendar() -> Vec<Spec> {
                 "Best birthday the Anchor's seen!",
                 "I'll pin your card over the bar.",
                 "Birthday, and I served the drinks myself.",
+            ],
+            [
+                "A pipe, from the whole harbour. I'm speechless.",
+                "Mara's walnut cake. She remembered.",
             ],
         ),
         (
@@ -1246,6 +1387,10 @@ fn calendar() -> Vec<Spec> {
                 "The children drew on the card too.",
                 "Not even the children remembered.",
             ],
+            [
+                "A fountain pen! My old one's all blots.",
+                "A cake with the alphabet in icing. Mara, honestly.",
+            ],
         ),
         (
             "birthday_mia",
@@ -1256,6 +1401,10 @@ fn calendar() -> Vec<Spec> {
                 "Best birthday ever!",
                 "A card from everyone! Even Emma!",
                 "Nobody remembered. Nobody.",
+            ],
+            [
+                "A real pocketknife! Evan's going to show me how.",
+                "A cake with a candle for every year. I blew them all out!",
             ],
         ),
         (
@@ -1268,6 +1417,10 @@ fn calendar() -> Vec<Spec> {
                 "A card. Very kind. Very kind.",
                 "My birthday came and went.",
             ],
+            [
+                "A new logbook. Leather. From the fund? Goodness.",
+                "Seed cake, my favourite. How did Mara know?",
+            ],
         ),
         (
             "birthday_evan",
@@ -1278,6 +1431,10 @@ fn calendar() -> Vec<Spec> {
                 "Now that was a party.",
                 "A card! I'll make a frame for it.",
                 "Forgot my own birthday, and so did everyone.",
+            ],
+            [
+                "A new plane, sharp as anything. Thank you.",
+                "Mara made me a cake shaped like a boat. It floated, nearly.",
             ],
         ),
         (
@@ -1290,8 +1447,34 @@ fn calendar() -> Vec<Spec> {
                 "You all signed it. Thank you.",
                 "Nobody remembered. I'm fine. Really.",
             ],
+            [
+                "Silk ribbon for the stall! Everyone chipped in?",
+                "Mara's lemon cake. I said I wanted nothing. I lied.",
+            ],
         ),
     ] {
+        let baker = if who == MARA { SOFIA } else { MARA };
+        let fond = |of: EntityId, to: EntityId, by: i64| Effect::Add {
+            entity: of,
+            key: leak(format!("lives.opinion.{to}")),
+            by,
+            min: -100,
+            max: 100,
+        };
+        let need = |need: lives::Need, by: i64| Effect::Add {
+            entity: who,
+            key: need.key(),
+            by,
+            min: 0,
+            max: 100,
+        };
+        let regard = |by: i64| Effect::Add {
+            entity: who,
+            key: lives::REGARD,
+            by,
+            min: -100,
+            max: 100,
+        };
         days.push(spec(
             id,
             day(who, YEAR, at * 3),
@@ -1300,28 +1483,83 @@ fn calendar() -> Vec<Spec> {
                 yes(
                     "party",
                     "A party at the pub",
-                    "Leo spends 20 on cake and a round.",
-                    vec![has(LEO, 20)],
+                    "The harbour fund pays Leo 20 for cake and a round. Everyone comes.",
+                    vec![has(HARBOR, 20)],
                     said(
                         "birthday_party",
                         "{name} had a birthday party",
                         party,
-                        spend(LEO, 20).into_iter().chain([mood(1)]),
+                        pay(HARBOR, LEO, 20)
+                            .into_iter()
+                            .chain([mood(1), need(lives::Need::Company, -30)])
+                            .chain(
+                                crate::talk::RESIDENTS
+                                    .into_iter()
+                                    .filter(|other| *other != who)
+                                    .map(|other| fond(other, who, 3)),
+                            ),
                     )
                     .remembered("Thanks again for the party."),
+                ),
+                yes(
+                    "gift",
+                    "A present from the fund",
+                    "The harbour fund pays 15 for something they've wanted.",
+                    vec![has(HARBOR, 15)],
+                    said(
+                        "birthday_gift",
+                        "{name} unwrapped a present from the harbour",
+                        gift,
+                        spend(HARBOR, 15).into_iter().chain([regard(8)]),
+                    )
+                    .remembered("I use your present every day."),
+                ),
+                other(
+                    "cake",
+                    if who == MARA {
+                        "A cake from Sofia"
+                    } else {
+                        "A cake from Mara"
+                    },
+                    "Nothing spent. A long evening at the oven, and a friend made.",
+                    said(
+                        "birthday_cake",
+                        if who == MARA {
+                            "Sofia baked {name} a birthday cake"
+                        } else {
+                            "Mara baked {name} a birthday cake"
+                        },
+                        cake,
+                        [
+                            fond(who, baker, 8),
+                            fond(baker, who, 4),
+                            Effect::Add {
+                                entity: baker,
+                                key: lives::Need::Rest.key(),
+                                by: 10,
+                                min: 0,
+                                max: 100,
+                            },
+                        ],
+                    ),
                 ),
                 other(
                     "card",
                     "A card from everyone",
-                    "Nothing spent. A kind thought.",
-                    said("birthday_card", "{name} got a card from everyone", card, []),
+                    "Nothing spent. A kind thought, and it's noticed.",
+                    said(
+                        "birthday_card",
+                        "{name} got a card from everyone",
+                        card,
+                        [regard(4), need(lives::Need::Company, -10)],
+                    ),
                 ),
             ],
             said(
                 "birthday_forgotten",
                 "{name}'s birthday was forgotten",
                 forgotten,
-                [mood(-1)],
+                [mood(-1), regard(-4)],
             ),
         ));
     }
@@ -1340,6 +1578,9 @@ pub(crate) struct Work {
     cost: i64,
     told: &'static str,
     line: &'static str,
+    /// What comes of it the second time round, once every work is built:
+    /// what it is called, what is asked, and what its champion says.
+    again: (&'static str, &'static str, &'static str),
 }
 
 pub(crate) const WORKS: &[Work] = {
@@ -1354,6 +1595,11 @@ pub(crate) const WORKS: &[Work] = {
             cost: 50,
             told: "Sofia wants a bandstand for summer nights",
             line: "Music on the square every Saturday. Picture it.",
+            again: (
+                "The bandstand painted red and gold",
+                "Sofia wants the bandstand painted red and gold",
+                "Red and gold, like a proper seaside bandstand.",
+            ),
         },
         Work {
             id: "sea_wall",
@@ -1364,6 +1610,11 @@ pub(crate) const WORKS: &[Work] = {
             cost: 50,
             told: "Jonas wants a sea wall before the storms",
             line: "One more winter like the last and the point's gone.",
+            again: (
+                "Steps down the sea wall",
+                "Jonas wants steps down the sea wall",
+                "Steps down to the rocks, so the children stop climbing.",
+            ),
         },
         Work {
             id: "school_garden",
@@ -1374,6 +1625,11 @@ pub(crate) const WORKS: &[Work] = {
             cost: 30,
             told: "Emma wants a garden for the school",
             line: "The children should see things grow.",
+            again: (
+                "A shed for the school garden",
+                "Emma wants a shed for the school garden",
+                "The spades live in my classroom. It has to stop.",
+            ),
         },
         Work {
             id: "harbour_clock",
@@ -1384,6 +1640,11 @@ pub(crate) const WORKS: &[Work] = {
             cost: 60,
             told: "Noah wants the harbour clock going again",
             line: "Stopped at ten past four since before I was born.",
+            again: (
+                "A chime for the harbour clock",
+                "Noah wants the harbour clock to chime the hours",
+                "A clock that strikes the hour. Like a real town.",
+            ),
         },
         Work {
             id: "boathouse",
@@ -1394,6 +1655,11 @@ pub(crate) const WORKS: &[Work] = {
             cost: 45,
             told: "Evan wants a boathouse for the winter",
             line: "Somewhere dry to mend the boats.",
+            again: (
+                "A slipway down from the boathouse",
+                "Evan wants a slipway down from the boathouse",
+                "No more dragging hulls over the shingle.",
+            ),
         },
         Work {
             id: "fountain",
@@ -1404,6 +1670,11 @@ pub(crate) const WORKS: &[Work] = {
             cost: 50,
             told: "Mia wants a fountain on the square",
             line: "A fountain! With a fish that spits!",
+            again: (
+                "A stone rim round the fountain",
+                "Mia wants a stone rim round the fountain to sit on",
+                "Somewhere to sit and dangle your hands in.",
+            ),
         },
         Work {
             id: "fishers_statue",
@@ -1414,6 +1685,11 @@ pub(crate) const WORKS: &[Work] = {
             cost: 60,
             told: "Mara wants a statue of the first fishers",
             line: "They built this place. They deserve a stone.",
+            again: (
+                "A plaque with the first fishers' names",
+                "Mara wants the first fishers' names on a plaque",
+                "Their names, so nobody forgets them.",
+            ),
         },
         Work {
             id: "new_well",
@@ -1424,6 +1700,11 @@ pub(crate) const WORKS: &[Work] = {
             cost: 40,
             told: "Leo wants a new well by the cottages",
             line: "The old one tastes of iron.",
+            again: (
+                "A little roof over the well",
+                "Leo wants a little roof over the new well",
+                "Rain in the bucket's no good to anyone.",
+            ),
         },
         Work {
             id: "postbox",
@@ -1434,6 +1715,11 @@ pub(crate) const WORKS: &[Work] = {
             cost: 30,
             told: "Emma wants a postbox so the children can write",
             line: "Letters to the mainland, from us!",
+            again: (
+                "The postbox painted red",
+                "Emma wants the postbox painted red",
+                "A postbox should be red. Everyone knows that.",
+            ),
         },
         Work {
             id: "birdhouses",
@@ -1444,6 +1730,11 @@ pub(crate) const WORKS: &[Work] = {
             cost: 20,
             told: "Mia wants birdhouses along the lane",
             line: "The swallows need houses too.",
+            again: (
+                "A bird table by the birdhouses",
+                "Mia wants a bird table to go with the birdhouses",
+                "The robins need somewhere to eat.",
+            ),
         },
         Work {
             id: "signposts",
@@ -1454,6 +1745,11 @@ pub(crate) const WORKS: &[Work] = {
             cost: 25,
             told: "Sofia wants signposts for the visitors",
             line: "Half of them end up in the harbour looking for the pub.",
+            again: (
+                "A map board by the pier",
+                "Sofia wants a map board for the visitors",
+                "One big map, and nobody asks me the way again.",
+            ),
         },
         Work {
             id: "quay_planters",
@@ -1464,6 +1760,11 @@ pub(crate) const WORKS: &[Work] = {
             cost: 25,
             told: "Mara wants flowers along the quay",
             line: "A bit of colour for market day.",
+            again: (
+                "Window boxes on the quay houses",
+                "Mara wants window boxes on the quay houses",
+                "Every sill on the quay in flower.",
+            ),
         },
         Work {
             id: "school_swings",
@@ -1474,6 +1775,11 @@ pub(crate) const WORKS: &[Work] = {
             cost: 35,
             told: "Mia wants swings by the school",
             line: "Real swings. Not a rope on a tree.",
+            again: (
+                "A slide beside the school swings",
+                "Mia wants a slide beside the school swings",
+                "A slide! The tallest one on the island.",
+            ),
         },
         Work {
             id: "lighthouse_paint",
@@ -1484,6 +1790,847 @@ pub(crate) const WORKS: &[Work] = {
             cost: 45,
             told: "Jonas wants the lighthouse painted",
             line: "Ships can't see it for the peeling.",
+            again: (
+                "A brighter lamp in the lighthouse",
+                "Jonas wants a brighter lamp in the lighthouse",
+                "Fresh paint, old bulb. Let's finish the job.",
+            ),
+        },
+    ]
+};
+
+/// The works of the harbour's later years, once every first work has been
+/// built and come round again: new things, not another coat on old ones.
+pub(crate) const LATER_WORKS: &[Work] = {
+    use world_projection::MarkShape as M;
+    const ONCE: (&str, &str, &str) = ("", "", "");
+    &[
+        Work {
+            id: "lifeboat_station",
+            label: "A lifeboat station on the point",
+            shape: M::House,
+            champion: JONAS,
+            parts: 3,
+            cost: 60,
+            told: "Jonas wants a lifeboat station on the point",
+            line: "Next time a boat's in trouble, we'll be ready.",
+            again: ONCE,
+        },
+        Work {
+            id: "village_hall",
+            label: "A hall for dances and meetings",
+            shape: M::House,
+            champion: NOAH,
+            parts: 3,
+            cost: 60,
+            told: "Noah wants a hall for the whole harbour",
+            line: "Somewhere to meet that isn't the pub. No offence, Leo.",
+            again: ONCE,
+        },
+        Work {
+            id: "bathing_huts",
+            label: "Striped bathing huts on the beach",
+            shape: M::Tent,
+            champion: SOFIA,
+            parts: 2,
+            cost: 40,
+            told: "Sofia wants bathing huts on the beach",
+            line: "Striped huts, all in a row. Picture it!",
+            again: ONCE,
+        },
+        Work {
+            id: "orchard",
+            label: "An orchard on the hill",
+            shape: M::Tree,
+            champion: EMMA,
+            parts: 3,
+            cost: 35,
+            told: "Emma wants an orchard on the hill",
+            line: "Apples for every child in the school, one day.",
+            again: ONCE,
+        },
+        Work {
+            id: "smokehouse",
+            label: "A smokehouse for the catch",
+            shape: M::House,
+            champion: MARA,
+            parts: 2,
+            cost: 45,
+            told: "Mara wants a smokehouse for the catch",
+            line: "Smoked mackerel on the bakery counter. Think of it.",
+            again: ONCE,
+        },
+        Work {
+            id: "footbridge",
+            label: "A footbridge over the stream",
+            shape: M::Bridge,
+            champion: EVAN,
+            parts: 2,
+            cost: 50,
+            told: "Evan wants a footbridge over the stream",
+            line: "Wet boots every morning. Not any more.",
+            again: ONCE,
+        },
+        Work {
+            id: "telescope",
+            label: "A telescope on the cliff",
+            shape: M::Tower,
+            champion: MIA,
+            parts: 2,
+            cost: 45,
+            told: "Mia wants a telescope on the cliff",
+            line: "I want to see Saturn's rings. Properly.",
+            again: ONCE,
+        },
+        Work {
+            id: "cliff_path",
+            label: "A path along the cliffs",
+            shape: M::Signpost,
+            champion: LEO,
+            parts: 2,
+            cost: 35,
+            told: "Leo wants a proper path along the cliffs",
+            line: "The best view on the island, and you need goat's legs to reach it.",
+            again: ONCE,
+        },
+        Work {
+            id: "fish_market",
+            label: "A fish market on the quay",
+            shape: M::Stall,
+            champion: JONAS,
+            parts: 2,
+            cost: 45,
+            told: "Jonas wants a fish market on the quay",
+            line: "Sell it fresh off the boat, where folk can see it.",
+            again: ONCE,
+        },
+        Work {
+            id: "bread_oven",
+            label: "An oven everyone can bake in",
+            shape: M::House,
+            champion: MARA,
+            parts: 2,
+            cost: 40,
+            told: "Mara wants an oven the whole harbour can use",
+            line: "Sunday loaves for anyone who brings their own dough.",
+            again: ONCE,
+        },
+        Work {
+            id: "chapel_bell",
+            label: "A bell for the chapel tower",
+            shape: M::Tower,
+            champion: NOAH,
+            parts: 2,
+            cost: 55,
+            told: "Noah wants a bell for the chapel tower",
+            line: "The tower's been silent fifty years. Long enough.",
+            again: ONCE,
+        },
+        Work {
+            id: "puppet_theatre",
+            label: "A puppet theatre for the school",
+            shape: M::Tent,
+            champion: EMMA,
+            parts: 2,
+            cost: 30,
+            told: "Emma wants a puppet theatre for the school",
+            line: "The children have written a play. It needs a stage.",
+            again: ONCE,
+        },
+        Work {
+            id: "glasshouse",
+            label: "A glasshouse for winter greens",
+            shape: M::Garden,
+            champion: MARA,
+            parts: 2,
+            cost: 50,
+            told: "Mara wants a glasshouse for winter greens",
+            line: "Lettuce in January. Imagine the faces.",
+            again: ONCE,
+        },
+        Work {
+            id: "rowing_club",
+            label: "A rowing club by the slipway",
+            shape: M::Boat,
+            champion: EVAN,
+            parts: 2,
+            cost: 45,
+            told: "Evan wants a rowing club by the slipway",
+            line: "Four oars, one boat, and every Sunday morning.",
+            again: ONCE,
+        },
+        Work {
+            id: "duck_pond",
+            label: "A duck pond on the green",
+            shape: M::Fountain,
+            champion: MIA,
+            parts: 2,
+            cost: 30,
+            told: "Mia wants a duck pond on the green",
+            line: "Ducks! We need ducks. Everyone needs ducks.",
+            again: ONCE,
+        },
+        Work {
+            id: "cottages",
+            label: "New cottages for newcomers",
+            shape: M::House,
+            champion: EVAN,
+            parts: 3,
+            cost: 70,
+            told: "Evan wants cottages for the newcomers",
+            line: "Folk keep coming. They'll need roofs.",
+            again: ONCE,
+        },
+        Work {
+            id: "beacon",
+            label: "A beacon on the hill",
+            shape: M::Lamp,
+            champion: JONAS,
+            parts: 2,
+            cost: 40,
+            told: "Jonas wants a beacon on the hill",
+            line: "Lit on feast nights, and on nights a boat is late.",
+            again: ONCE,
+        },
+        Work {
+            id: "ferry_shelter",
+            label: "A shelter for the ferry queue",
+            shape: M::Tent,
+            champion: NOAH,
+            parts: 2,
+            cost: 35,
+            told: "Noah wants a shelter where folk wait for the ferry",
+            line: "Nobody should wait for the ferry in the rain.",
+            again: ONCE,
+        },
+        Work {
+            id: "picnic_tables",
+            label: "Picnic tables on the green",
+            shape: M::Bench,
+            champion: SOFIA,
+            parts: 1,
+            cost: 25,
+            told: "Sofia wants picnic tables on the green",
+            line: "Summer lunches outside. Tables, please, not laps.",
+            again: ONCE,
+        },
+        Work {
+            id: "sundial",
+            label: "A sundial in the school yard",
+            shape: M::Statue,
+            champion: EMMA,
+            parts: 1,
+            cost: 20,
+            told: "Emma wants a sundial in the school yard",
+            line: "A clock that runs on sunshine. What a lesson.",
+            again: ONCE,
+        },
+        Work {
+            id: "dovecote",
+            label: "A dovecote behind the bakery",
+            shape: M::Birdhouse,
+            champion: MARA,
+            parts: 1,
+            cost: 20,
+            told: "Mara wants a dovecote behind the bakery",
+            line: "White doves on the bakery roof. Very grand.",
+            again: ONCE,
+        },
+        Work {
+            id: "seal_hide",
+            label: "A hide for watching the seals",
+            shape: M::House,
+            champion: MIA,
+            parts: 2,
+            cost: 35,
+            told: "Mia wants a hide for watching the seals",
+            line: "They're shy. We need somewhere to sit very still.",
+            again: ONCE,
+        },
+        Work {
+            id: "herb_garden",
+            label: "A herb garden by the pub",
+            shape: M::Garden,
+            champion: LEO,
+            parts: 2,
+            cost: 25,
+            told: "Leo wants a herb garden by the pub",
+            line: "Fresh mint for the summer punch. Don't tell the brewery.",
+            again: ONCE,
+        },
+        Work {
+            id: "maypole",
+            label: "A maypole on the green",
+            shape: M::Flag,
+            champion: SOFIA,
+            parts: 1,
+            cost: 20,
+            told: "Sofia wants a maypole on the green",
+            line: "Ribbons, a fiddle and everyone going round.",
+            again: ONCE,
+        },
+        Work {
+            id: "tide_gauge",
+            label: "A tide board at the harbour mouth",
+            shape: M::Signpost,
+            champion: NOAH,
+            parts: 1,
+            cost: 25,
+            told: "Noah wants a tide board at the harbour mouth",
+            line: "So every skipper knows the water before they leave.",
+            again: ONCE,
+        },
+        Work {
+            id: "reading_room",
+            label: "A reading room above the pub",
+            shape: M::Shop,
+            champion: LEO,
+            parts: 2,
+            cost: 40,
+            told: "Leo wants a reading room above the pub",
+            line: "Books upstairs, beer downstairs. Civilised.",
+            again: ONCE,
+        },
+        Work {
+            id: "boat_yard",
+            label: "A yard for building boats",
+            shape: M::Boat,
+            champion: EVAN,
+            parts: 3,
+            cost: 60,
+            told: "Evan wants a proper yard for building boats",
+            line: "The first boat built here in forty years. That's the plan.",
+            again: ONCE,
+        },
+        Work {
+            id: "mural",
+            label: "A painted map on the harbour wall",
+            shape: M::Bunting,
+            champion: SOFIA,
+            parts: 1,
+            cost: 20,
+            told: "Sofia wants the harbour painted on the harbour wall",
+            line: "Every house, every boat, every one of us. Painted big.",
+            again: ONCE,
+        },
+        Work {
+            id: "lookout_tower",
+            label: "A lookout tower on the headland",
+            shape: M::Tower,
+            champion: NOAH,
+            parts: 2,
+            cost: 50,
+            told: "Noah wants a lookout tower on the headland",
+            line: "See a storm an hour sooner. That's an hour to haul the boats.",
+            again: ONCE,
+        },
+        Work {
+            id: "sea_pool",
+            label: "A sea pool in the rocks",
+            shape: M::Fountain,
+            champion: MIA,
+            parts: 2,
+            cost: 45,
+            told: "Mia wants a sea pool built into the rocks",
+            line: "The tide fills it twice a day. Free swimming for ever.",
+            again: ONCE,
+        },
+        Work {
+            id: "net_loft",
+            label: "A new net loft over the quay",
+            shape: M::House,
+            champion: JONAS,
+            parts: 2,
+            cost: 50,
+            told: "Jonas wants a new net loft over the quay",
+            line: "The old one leans. One more gale and it lies down.",
+            again: ONCE,
+        },
+        Work {
+            id: "school_library",
+            label: "A library corner for the school",
+            shape: M::Shop,
+            champion: EMMA,
+            parts: 2,
+            cost: 35,
+            told: "Emma wants a proper library corner for the school",
+            line: "Every child should have a shelf of their own to choose from.",
+            again: ONCE,
+        },
+        Work {
+            id: "tea_rooms",
+            label: "Tea rooms on the pier",
+            shape: M::Shop,
+            champion: SOFIA,
+            parts: 2,
+            cost: 50,
+            told: "Sofia wants tea rooms at the end of the pier",
+            line: "Scones, a pot of tea and the whole sea to look at.",
+            again: ONCE,
+        },
+        Work {
+            id: "bread_cart",
+            label: "A bread cart for the far cottages",
+            shape: M::Stall,
+            champion: MARA,
+            parts: 1,
+            cost: 30,
+            told: "Mara wants a cart to take bread to the far cottages",
+            line: "Old Mrs Pell can't walk to the bakery any more. The bread can walk to her.",
+            again: ONCE,
+        },
+        Work {
+            id: "pub_terrace",
+            label: "A terrace on the front of the pub",
+            shape: M::Bench,
+            champion: LEO,
+            parts: 2,
+            cost: 45,
+            told: "Leo wants a terrace on the front of the pub",
+            line: "Summer evenings outside, with the sea right there.",
+            again: ONCE,
+        },
+        Work {
+            id: "workshop",
+            label: "A workshop anyone can use",
+            shape: M::House,
+            champion: EVAN,
+            parts: 2,
+            cost: 50,
+            told: "Evan wants a workshop anyone on the island can use",
+            line: "Tools on the wall, a bench for everyone. Mend your own chair.",
+            again: ONCE,
+        },
+        Work {
+            id: "gull_gate",
+            label: "A gate to keep the gulls off the bins",
+            shape: M::Signpost,
+            champion: NOAH,
+            parts: 1,
+            cost: 20,
+            told: "Noah wants a gate to keep the gulls off the bins",
+            line: "They've learned to lift the lids. I've seen it.",
+            again: ONCE,
+        },
+        Work {
+            id: "paddling_pool",
+            label: "A paddling pool for the little ones",
+            shape: M::Fountain,
+            champion: EMMA,
+            parts: 1,
+            cost: 25,
+            told: "Emma wants a paddling pool for the little ones",
+            line: "The sea's too cold for the smallest. A warm pool, in the sun.",
+            again: ONCE,
+        },
+        Work {
+            id: "lantern_walk",
+            label: "Lanterns along the harbour wall",
+            shape: M::Lantern,
+            champion: SOFIA,
+            parts: 2,
+            cost: 35,
+            told: "Sofia wants lanterns all along the harbour wall",
+            line: "Walk home at night by lantern light. Every night, not just feast nights.",
+            again: ONCE,
+        },
+        Work {
+            id: "bandstand_roof",
+            label: "A roof for the bandstand",
+            shape: M::Tent,
+            champion: LEO,
+            parts: 1,
+            cost: 30,
+            told: "Leo wants a roof on the bandstand",
+            line: "The fiddles don't like the rain. Neither does the fiddler.",
+            again: ONCE,
+        },
+        Work {
+            id: "herring_shed",
+            label: "A shed for salting herring",
+            shape: M::House,
+            champion: JONAS,
+            parts: 2,
+            cost: 40,
+            told: "Jonas wants a shed for salting the herring",
+            line: "My gran salted herring all winter. We can again.",
+            again: ONCE,
+        },
+        Work {
+            id: "wind_break",
+            label: "A windbreak for the school yard",
+            shape: M::Planter,
+            champion: MIA,
+            parts: 1,
+            cost: 25,
+            told: "Mia wants a windbreak for the school yard",
+            line: "At break the wind blows the little ones over. Honestly.",
+            again: ONCE,
+        },
+        Work {
+            id: "chapel_windows",
+            label: "New windows in the old chapel",
+            shape: M::Tower,
+            champion: MARA,
+            parts: 2,
+            cost: 50,
+            told: "Mara wants new windows in the old chapel",
+            line: "Coloured glass, like my gran remembered. The light on the floor.",
+            again: ONCE,
+        },
+        Work {
+            id: "jetty_ladder",
+            label: "A ladder down the jetty for swimmers",
+            shape: M::Pier,
+            champion: EVAN,
+            parts: 1,
+            cost: 20,
+            told: "Evan wants a ladder down the jetty for swimmers",
+            line: "Getting in is easy. Getting out is the trick.",
+            again: ONCE,
+        },
+    ]
+};
+
+/// What the harbour's people make for themselves, without being asked
+/// and without the fund, when the player keeps saying not now: small
+/// things, a part at a time, slower than what the fund pays for.
+pub(crate) struct OwnWork {
+    pub id: &'static str,
+    pub label: &'static str,
+    pub shape: world_projection::MarkShape,
+    champion: EntityId,
+    helper: EntityId,
+    /// What comes up: who is making what.
+    told: &'static str,
+    line: &'static str,
+    /// What the fund would put in, if asked.
+    cost: i64,
+}
+
+/// How many parts each of the harbour's own works takes.
+const OWN_PARTS: i64 = 2;
+
+/// Where the harbour's readiness to get on with things by itself is kept:
+/// each want turned down or let lapse adds to it, each of its own works
+/// takes from it.
+pub(crate) const INITIATIVE: &str = "story.initiative";
+/// How much the harbour must have been let down before it starts
+/// something of its own.
+const INITIATIVE_TO_START: i64 = 3;
+
+fn initiative(by: i64) -> Effect {
+    Effect::Add {
+        entity: STORY,
+        key: INITIATIVE,
+        by,
+        min: 0,
+        max: 12,
+    }
+}
+
+pub(crate) const OWN_WORKS: &[OwnWork] = {
+    use world_projection::MarkShape as M;
+    &[
+        OwnWork {
+            id: "own_driftwood_bench",
+            label: "A driftwood bench on the shingle",
+            shape: M::Bench,
+            champion: EVAN,
+            helper: JONAS,
+            told: "Evan and Jonas are making a bench out of driftwood",
+            line: "Found two planks on the tide line. Watch this.",
+            cost: 15,
+        },
+        OwnWork {
+            id: "own_rope_swing",
+            label: "A rope swing on the old oak",
+            shape: M::Swing,
+            champion: MIA,
+            helper: EVAN,
+            told: "Mia and Evan are hanging a rope swing on the old oak",
+            line: "If nobody's building swings, we'll hang our own.",
+            cost: 10,
+        },
+        OwnWork {
+            id: "own_painted_stones",
+            label: "Painted stones along the path",
+            shape: M::Planter,
+            champion: EMMA,
+            helper: MIA,
+            told: "Emma's class is painting stones for the path",
+            line: "Thirty children, thirty stones, and a lot of paint.",
+            cost: 10,
+        },
+        OwnWork {
+            id: "own_notice_board",
+            label: "A notice board outside the pub",
+            shape: M::Signpost,
+            champion: LEO,
+            helper: SOFIA,
+            told: "Leo and Sofia are putting up a notice board",
+            line: "Somewhere to pin what's on. We'll do it ourselves.",
+            cost: 15,
+        },
+        OwnWork {
+            id: "own_herb_bed",
+            label: "A herb bed behind the bakery",
+            shape: M::Garden,
+            champion: MARA,
+            helper: EMMA,
+            told: "Mara and Emma are digging a herb bed",
+            line: "Thyme, sage and a bit of patience.",
+            cost: 10,
+        },
+        OwnWork {
+            id: "own_cairn",
+            label: "A cairn on the point",
+            shape: M::Statue,
+            champion: JONAS,
+            helper: NOAH,
+            told: "Jonas and Noah are raising a cairn on the point",
+            line: "A stone for every boat that came home. We'll carry them up.",
+            cost: 10,
+        },
+        OwnWork {
+            id: "own_window_boxes",
+            label: "Window boxes on the cottages",
+            shape: M::Planter,
+            champion: SOFIA,
+            helper: MARA,
+            told: "Sofia and Mara are knocking up window boxes",
+            line: "Old fish crates, a bit of soil. Who needs the fund?",
+            cost: 15,
+        },
+        OwnWork {
+            id: "own_bait_shed",
+            label: "A bait shed by the slipway",
+            shape: M::House,
+            champion: JONAS,
+            helper: EVAN,
+            told: "Jonas and Evan are putting up a bait shed",
+            line: "Nobody asked. We're building it anyway.",
+            cost: 20,
+        },
+        OwnWork {
+            id: "own_sandpit",
+            label: "A sandpit by the school",
+            shape: M::Garden,
+            champion: EMMA,
+            helper: EVAN,
+            told: "Emma and Evan are making a sandpit for the little ones",
+            line: "Sand's free. The beach is right there.",
+            cost: 10,
+        },
+        OwnWork {
+            id: "own_bird_table",
+            label: "A bird table on the green",
+            shape: M::Birdhouse,
+            champion: MIA,
+            helper: NOAH,
+            told: "Mia and Noah are making a bird table",
+            line: "Noah's got the wood. I've got the crumbs.",
+            cost: 10,
+        },
+        OwnWork {
+            id: "own_stepping_stones",
+            label: "Stepping stones over the stream",
+            shape: M::Bridge,
+            champion: EVAN,
+            helper: LEO,
+            told: "Evan and Leo are laying stepping stones over the stream",
+            line: "Big flat ones. Nobody falls in twice.",
+            cost: 15,
+        },
+        OwnWork {
+            id: "own_book_box",
+            label: "A book swap box by the quay",
+            shape: M::Postbox,
+            champion: EMMA,
+            helper: SOFIA,
+            told: "Emma and Sofia are making a book swap box",
+            line: "Take a book, leave a book. The honest way.",
+            cost: 10,
+        },
+        OwnWork {
+            id: "own_flag_line",
+            label: "A line of flags across the lane",
+            shape: M::Bunting,
+            champion: LEO,
+            helper: MIA,
+            told: "Leo and Mia are sewing flags for the lane",
+            line: "Old shirts make grand flags. Don't ask whose.",
+            cost: 10,
+        },
+        OwnWork {
+            id: "own_net_rack",
+            label: "A drying rack for the nets",
+            shape: M::Flag,
+            champion: JONAS,
+            helper: MARA,
+            told: "Jonas and Mara are building a rack to dry the nets",
+            line: "Nets on the rack, not on the bakery wall. Mara's orders.",
+            cost: 15,
+        },
+        OwnWork {
+            id: "own_wildflowers",
+            label: "Wildflowers on the cliff path",
+            shape: M::Garden,
+            champion: MARA,
+            helper: NOAH,
+            told: "Mara and Noah are sowing wildflowers along the cliff path",
+            line: "A pocket of seed and a windy day. That's all it takes.",
+            cost: 10,
+        },
+        OwnWork {
+            id: "own_fire_pit",
+            label: "A fire pit on the beach",
+            shape: M::Lantern,
+            champion: LEO,
+            helper: JONAS,
+            told: "Leo and Jonas are digging a fire pit on the beach",
+            line: "Stones in a ring, and the summer nights are ours.",
+            cost: 10,
+        },
+        OwnWork {
+            id: "own_hen_house",
+            label: "A hen house behind the school",
+            shape: M::House,
+            champion: EMMA,
+            helper: MARA,
+            told: "Emma and Mara are building a hen house for the school",
+            line: "Eggs for the bakery, lessons for the children.",
+            cost: 20,
+        },
+        OwnWork {
+            id: "own_lookout",
+            label: "A lookout seat on the headland",
+            shape: M::Bench,
+            champion: NOAH,
+            helper: EVAN,
+            told: "Noah and Evan are making a lookout seat on the headland",
+            line: "A seat to watch the boats come in. I'll carry the tools.",
+            cost: 15,
+        },
+        OwnWork {
+            id: "own_jar_lanterns",
+            label: "Jam-jar lanterns up the lane",
+            shape: M::Lantern,
+            champion: SOFIA,
+            helper: EMMA,
+            told: "Sofia and Emma are hanging jam-jar lanterns up the lane",
+            line: "A candle in every jar. The lane will twinkle.",
+            cost: 10,
+        },
+        OwnWork {
+            id: "own_shell_path",
+            label: "A shell path to the chapel",
+            shape: M::Planter,
+            champion: MIA,
+            helper: SOFIA,
+            told: "Mia and Sofia are laying a path of shells to the chapel",
+            line: "Every shell on the beach is ours for the picking.",
+            cost: 10,
+        },
+        OwnWork {
+            id: "own_boat_planter",
+            label: "An old boat full of flowers",
+            shape: M::Boat,
+            champion: JONAS,
+            helper: MIA,
+            told: "Jonas and Mia are filling an old boat with flowers",
+            line: "She won't float again, but she'll bloom.",
+            cost: 10,
+        },
+        OwnWork {
+            id: "own_skittle_alley",
+            label: "A skittle alley behind the pub",
+            shape: M::Stall,
+            champion: LEO,
+            helper: EVAN,
+            told: "Leo and Evan are laying a skittle alley behind the pub",
+            line: "Nine pins and a bowl. Old-fashioned fun.",
+            cost: 15,
+        },
+        OwnWork {
+            id: "own_weathervane",
+            label: "A tin weathervane on the net loft",
+            shape: M::Flag,
+            champion: NOAH,
+            helper: MIA,
+            told: "Noah and Mia are cutting a weathervane out of tin",
+            line: "A fish that points into the wind. Mia's drawing.",
+            cost: 10,
+        },
+        OwnWork {
+            id: "own_story_chair",
+            label: "A storytelling chair in the school",
+            shape: M::Bench,
+            champion: EMMA,
+            helper: LEO,
+            told: "Emma and Leo are carving a storytelling chair",
+            line: "Whoever sits in it has to tell a story. School rules.",
+            cost: 15,
+        },
+        OwnWork {
+            id: "own_bee_hives",
+            label: "Two beehives on the hill",
+            shape: M::Birdhouse,
+            champion: MARA,
+            helper: JONAS,
+            told: "Mara and Jonas are setting up beehives on the hill",
+            line: "Honey for the bakery, if the bees agree.",
+            cost: 20,
+        },
+        OwnWork {
+            id: "own_kite_hill",
+            label: "Kites for the children on the hill",
+            shape: M::Flag,
+            champion: SOFIA,
+            helper: NOAH,
+            told: "Sofia and Noah are making kites for the children",
+            line: "Brown paper, string and a good wind. Up they go.",
+            cost: 10,
+        },
+        OwnWork {
+            id: "own_tide_pools",
+            label: "Name boards for the rock pools",
+            shape: M::Signpost,
+            champion: MIA,
+            helper: JONAS,
+            told: "Mia and Jonas are naming the rock pools",
+            line: "Every pool gets a name and a board. Crab Castle's mine.",
+            cost: 10,
+        },
+        OwnWork {
+            id: "own_quay_mosaic",
+            label: "A pebble mosaic on the quay",
+            shape: M::Planter,
+            champion: EVAN,
+            helper: SOFIA,
+            told: "Evan and Sofia are setting a pebble mosaic in the quay",
+            line: "A great big fish in pebbles. You'll see it from the ferry.",
+            cost: 15,
+        },
+        OwnWork {
+            id: "own_music_shed",
+            label: "A practice shed for the band",
+            shape: M::House,
+            champion: LEO,
+            helper: EMMA,
+            told: "Leo and Emma are fixing up a shed for the band to practise in",
+            line: "Somewhere the fiddles can be as loud as they like.",
+            cost: 20,
+        },
+        OwnWork {
+            id: "own_apple_press",
+            label: "An apple press on the green",
+            shape: M::Well,
+            champion: NOAH,
+            helper: MARA,
+            told: "Noah and Mara are building an apple press",
+            line: "Every windfall on the island, into cider or juice.",
+            cost: 15,
         },
     ]
 };
@@ -1505,10 +2652,8 @@ pub(crate) fn leak(text: String) -> &'static str {
     made
 }
 
-/// The works as storylets: each asked for once the one before it is
-/// done, the first once the pier and the lamp are.
-/// One rung of the ladder of works: a work built, then painted, then
-/// planted round, then lit up, each round after the one before.
+/// One rung of the ladder of works: a work built, then built on once
+/// more, then the later years' works, each after the one before.
 pub(crate) struct Rung {
     pub id: &'static str,
     pub label: &'static str,
@@ -1517,52 +2662,69 @@ pub(crate) struct Rung {
     line: &'static str,
 }
 
-/// How many times the ladder goes round the works: built, painted,
-/// planted round, then lit up with lamps and bunting.
-const ROUNDS: usize = 4;
-
-/// Every rung of the ladder, in order: every work once, then each
-/// painted, then each planted round, so there is always one under way.
+/// Every rung of the ladder, in order: every first work once, then each
+/// built on once more, then the works of the later years, so there is
+/// always one under way.
 pub(crate) fn ladder() -> &'static [Rung] {
     static LADDER: std::sync::OnceLock<Vec<Rung>> = std::sync::OnceLock::new();
     LADDER.get_or_init(|| {
+        let first = WORKS.iter().map(|work| Rung {
+            id: work.id,
+            label: work.label,
+            work,
+            told: work.told,
+            line: work.line,
+        });
+        let again = WORKS.iter().map(|work| Rung {
+            id: leak(format!("{}_painted", work.id)),
+            label: work.again.0,
+            work,
+            told: work.again.1,
+            line: work.again.2,
+        });
+        let later = LATER_WORKS.iter().map(|work| Rung {
+            id: work.id,
+            label: work.label,
+            work,
+            told: work.told,
+            line: work.line,
+        });
+        first.chain(again).chain(later).collect()
+    })
+}
+
+/// The rungs the ladder had before the later years' works: flowers round
+/// every work, then lamps and bunting on it. Nothing asks for them now,
+/// but a World that began them keeps what it built, and its history is
+/// still told.
+fn retired_rungs() -> &'static [Rung] {
+    static RETIRED: std::sync::OnceLock<Vec<Rung>> = std::sync::OnceLock::new();
+    RETIRED.get_or_init(|| {
         let mut rungs = Vec::new();
-        for round in 0..ROUNDS {
+        for (round, name) in [(2, "flowers"), (3, "lit")] {
             for work in WORKS {
                 let the = the(work.label);
-                rungs.push(match round {
-                    0 => Rung {
-                        id: work.id,
-                        label: work.label,
-                        work,
-                        told: work.told,
-                        line: work.line,
-                    },
-                    1 => Rung {
-                        id: leak(format!("{}_painted", work.id)),
-                        label: leak(format!("Paint {the}")),
-                        work,
-                        told: leak(format!("It's time to paint {the}")),
-                        line: leak(format!("A lick of paint and {the} will look new again.")),
-                    },
-                    2 => Rung {
-                        id: leak(format!("{}_flowers", work.id)),
-                        label: leak(format!("Flowers round {the}")),
-                        work,
-                        told: leak(format!("Flowers would brighten {the}")),
-                        line: leak(format!(
-                            "Something growing round {the}. That's all it needs."
-                        )),
-                    },
-                    _ => Rung {
-                        id: leak(format!("{}_lit", work.id)),
-                        label: leak(format!("Lamps and bunting on {the}")),
-                        work,
-                        told: leak(format!("Let's light up {the}")),
-                        line: leak(format!(
+                let (label, told, line) = if round == 2 {
+                    (
+                        format!("Flowers round {the}"),
+                        format!("Flowers would brighten {the}"),
+                        format!("Something growing round {the}. That's all it needs."),
+                    )
+                } else {
+                    (
+                        format!("Lamps and bunting on {the}"),
+                        format!("Let's light up {the}"),
+                        format!(
                             "A few lamps and a string of bunting on {the}. It'll glow at night."
-                        )),
-                    },
+                        ),
+                    )
+                };
+                rungs.push(Rung {
+                    id: leak(format!("{}_{name}", work.id)),
+                    label: leak(label),
+                    work,
+                    told: leak(told),
+                    line: leak(line),
                 });
             }
         }
@@ -1585,32 +2747,172 @@ pub(crate) fn the(label: &str) -> String {
     format!("the {lower}")
 }
 
+fn lowered(label: &str) -> String {
+    let mut chars = label.chars();
+    chars
+        .next()
+        .map(|first| first.to_lowercase().chain(chars).collect::<String>())
+        .unwrap_or_default()
+}
+
+/// What whoever asked for a work says as a part of it is built, one of
+/// these in turn along the ladder, so it is not the same every time.
+const PART_LINES: [&str; 12] = [
+    "Coming along nicely.",
+    "Another part done. Look at that.",
+    "Getting there, bit by bit.",
+    "You can see what it'll be now.",
+    "Stood back and had a look. Not bad.",
+    "Sawdust everywhere. Always a good sign.",
+    "The best bit's still to come.",
+    "One more step. I can feel it.",
+    "Nearly looks like the drawing.",
+    "My back aches. Worth it.",
+    "It's taking shape, isn't it?",
+    "Half the harbour came to watch today.",
+];
+
+/// What they still say about it in the days after.
+const PART_REMEMBERED: [&str; 6] = [
+    "It's coming along, what we're building.",
+    "I walk past it twice a day just to look.",
+    "The children ask every morning if it's done.",
+    "Every part we build, the harbour stands taller.",
+    "I dream about it, you know. The finished thing.",
+    "People stop and stare. I love that.",
+];
+
+/// What someone says when they got on with one of the harbour's own
+/// works without waiting to be asked.
+const OWN_LAPSE_LINES: [&str; 6] = [
+    "Didn't wait to be asked.",
+    "We just got on with it.",
+    "Nobody said no, so we said yes.",
+    "An evening's work, and look.",
+    "Borrowed a saw and got started.",
+    "If you want a thing done, do it yourself.",
+];
+
+/// What whoever asked for a work says as it is opened with a party.
+const OPENING_LINES: [&str; 6] = [
+    "Speeches, cake and everyone in their best!",
+    "Bunting up and the whole harbour here!",
+    "A ribbon, a pair of scissors and a cheer!",
+    "I said a few words. Well, a lot of words.",
+    "The children cut the ribbon. Twice.",
+    "Everyone came. Even the gulls.",
+];
+
+/// What they say as people just start using it.
+const IN_USE_LINES: [&str; 6] = [
+    "No fuss. We just started.",
+    "Used it twice already today.",
+    "Folk found it before I'd put the tools away.",
+    "Best opening is using it, I say.",
+    "It's as if it was always there.",
+    "Somebody's sitting in it already.",
+];
+
+/// Once a work on the ladder is finished, whoever asked for it asks how it
+/// should be opened.
+fn opening(rung: &Rung, index: usize) -> Spec {
+    use Condition::{Finished, Unmarked};
+    let the = the(rung.label);
+    let named = {
+        let mut chars = the.chars();
+        chars
+            .next()
+            .map(|first| first.to_uppercase().chain(chars).collect::<String>())
+            .unwrap_or_default()
+    };
+    let opened: &'static str = leak(format!("opened_{}", rung.id));
+    spec(
+        leak(format!("open_{}", rung.id)),
+        Shape {
+            asker: rung.work.champion,
+            want: false,
+            // Only a work built since openings began is opened: one a World
+            // finished long before is not asked about all over again.
+            requires: vec![
+                Finished(rung.id),
+                Condition::Marked(worked_on(rung.id), 0),
+                Unmarked(opened),
+            ],
+            lasts: 3,
+            rests: 30,
+            weight: 6,
+            eases: Vec::new(),
+            timely: true,
+        },
+        (
+            leak(format!("The harbour finished {the}")),
+            leak(format!("We've finished {the}! How shall we open it?")),
+        ),
+        vec![
+            yes(
+                "party",
+                "Open it with a party",
+                "The harbour fund pays 20 for bunting and cake.",
+                vec![has(HARBOR, 20)],
+                said(
+                    leak(format!("{}_opened", rung.id)),
+                    leak(format!("The harbour opened {the} with a party")),
+                    OPENING_LINES[index % OPENING_LINES.len()],
+                    spend(HARBOR, 20).into_iter().chain([mood(2), mark(opened)]),
+                ),
+            ),
+            other(
+                "use",
+                "Just start using it",
+                "Nothing spent. It's there to be used.",
+                said(
+                    leak(format!("{}_in_use", rung.id)),
+                    leak(format!("Folk started using {the}")),
+                    IN_USE_LINES[index % IN_USE_LINES.len()],
+                    [mood(1), mark(opened)],
+                ),
+            ),
+        ],
+        said(
+            leak(format!("{}_opened_quietly", rung.id)),
+            leak(format!("{named} opened without any fuss")),
+            "It just sort of opened.",
+            [mark(opened)],
+        ),
+    )
+}
+
+/// The mark a part of a work built leaves, so that once it is finished it
+/// can be opened.
+fn worked_on(rung: &str) -> &'static str {
+    leak(format!("worked_on_{rung}"))
+}
+
 fn works() -> Vec<Spec> {
-    use Condition::{Finished, Unfinished};
+    use Condition::{Finished, Marked, Unfinished};
     let mut specs = Vec::new();
     let ladder = ladder();
-    for (index, rung) in ladder.iter().enumerate() {
+    let retired = retired_rungs();
+    for (index, rung) in ladder.iter().chain(retired).enumerate() {
         let work = rung.work;
         let before = if index == 0 {
             vec![Finished("pier"), Finished("lamp")]
-        } else {
+        } else if index < ladder.len() {
             vec![Finished(ladder[index - 1].id)]
+        } else {
+            // Retired: never asked for again.
+            vec![Marked("retired_ladder", 0)]
         };
-        let lower = {
-            let mut chars = rung.label.chars();
-            chars
-                .next()
-                .map(|first| first.to_lowercase().chain(chars).collect::<String>())
-                .unwrap_or_default()
-        };
+        let lower = lowered(rung.label);
         let shape = Shape {
             asker: work.champion,
             want: true,
             requires: [vec![Unfinished(rung.id)], before].concat(),
             lasts: 3,
-            // A part every fortnight or so, so a work takes a month or
-            // more and the ladder lasts past a year.
-            rests: 20,
+            // A part every three weeks or so, so a first work takes a
+            // month or more and the ladder lasts past a year; later, with
+            // the harbour practised at building, every fortnight or so.
+            rests: if index < WORKS.len() { 20 } else { 14 },
             weight: 4,
             eases: vec![up("spirits")],
             timely: false,
@@ -1631,17 +2933,19 @@ fn works() -> Vec<Spec> {
                     said(
                         leak(format!("{}_part_built", rung.id)),
                         leak(format!("Work went on at {lower}")),
-                        "Coming along nicely.",
-                        spend(HARBOR, work.cost)
-                            .into_iter()
-                            .chain([Effect::Advance(rung.id), mood(1)]),
+                        PART_LINES[index % PART_LINES.len()],
+                        spend(HARBOR, work.cost).into_iter().chain([
+                            Effect::Advance(rung.id),
+                            mood(1),
+                            mark(worked_on(rung.id)),
+                        ]),
                     )
-                    .remembered("It's coming along, what we're building."),
+                    .remembered(PART_REMEMBERED[index % PART_REMEMBERED.len()]),
                 ),
                 no(
                     "wait",
                     "It can wait",
-                    "Nothing spent this time.",
+                    "Nothing spent this time. Folk may start something of their own.",
                     said(
                         leak(format!("{}_put_off", rung.id)),
                         leak(format!("{} was put off", rung.label)),
@@ -1657,6 +2961,109 @@ fn works() -> Vec<Spec> {
                 [],
             ),
         ));
+        // Every work on the ladder is opened, once finished.
+        if index < ladder.len() {
+            specs.push(opening(rung, index));
+        }
+    }
+    specs
+}
+
+/// The harbour's own works as storylets: each comes up once the harbour
+/// has been let down often enough, and the one before it is done. Every
+/// way it goes builds a part; what the answer changes is who pays, and
+/// who grows closer doing it.
+fn own_works() -> Vec<Spec> {
+    use Condition::{Finished, Unfinished};
+    let mut specs = Vec::new();
+    for (index, work) in OWN_WORKS.iter().enumerate() {
+        let mut requires = vec![
+            Unfinished(work.id),
+            Condition::AtLeast(STORY, INITIATIVE, INITIATIVE_TO_START),
+        ];
+        if index > 0 {
+            requires.push(Finished(OWN_WORKS[index - 1].id));
+        }
+        let lower = lowered(work.label);
+        let (champion, helper) = (work.champion, work.helper);
+        let closer = |by: i64| {
+            [
+                Effect::Add {
+                    entity: champion,
+                    key: leak(format!("lives.opinion.{helper}")),
+                    by,
+                    min: -100,
+                    max: 100,
+                },
+                Effect::Add {
+                    entity: helper,
+                    key: leak(format!("lives.opinion.{champion}")),
+                    by,
+                    min: -100,
+                    max: 100,
+                },
+            ]
+        };
+        let shape = Shape {
+            asker: champion,
+            want: false,
+            requires,
+            lasts: 3,
+            rests: 6,
+            weight: 4,
+            eases: vec![up("spirits")],
+            timely: false,
+        };
+        specs.push(spec(
+            work.id,
+            shape,
+            (work.told, work.line),
+            vec![
+                yes(
+                    "chip_in",
+                    "Chip in from the fund",
+                    leak(format!(
+                        "The harbour fund pays {} for materials. {} goes up a part.",
+                        work.cost, work.label
+                    )),
+                    vec![has(HARBOR, work.cost)],
+                    said(
+                        leak(format!("{}_helped", work.id)),
+                        leak(format!("The harbour chipped in for {lower}")),
+                        PART_LINES[(index + 5) % PART_LINES.len()],
+                        spend(HARBOR, work.cost).into_iter().chain([
+                            Effect::Advance(work.id),
+                            mood(1),
+                            initiative(-2),
+                        ]),
+                    )
+                    .remembered(PART_REMEMBERED[(index + 2) % PART_REMEMBERED.len()]),
+                ),
+                other(
+                    "leave",
+                    "Leave them to it",
+                    "Nothing spent. They'll do it their own way, a bit at a time.",
+                    said(
+                        leak(format!("{}_by_hand", work.id)),
+                        leak(format!(
+                            "Work went on at {lower}, by the harbour's own hands"
+                        )),
+                        PART_LINES[(index + 9) % PART_LINES.len()],
+                        [Effect::Advance(work.id), initiative(-2)]
+                            .into_iter()
+                            .chain(closer(6)),
+                    ),
+                ),
+            ],
+            said(
+                leak(format!("{}_went_on", work.id)),
+                leak(format!("{} went on without anyone asking", work.label)),
+                OWN_LAPSE_LINES[index % OWN_LAPSE_LINES.len()],
+                [Effect::Advance(work.id), initiative(-3)]
+                    .into_iter()
+                    .chain(closer(3)),
+            ),
+        ));
     }
     specs
 }
@@ -1666,6 +3073,7 @@ fn specs() -> &'static [Spec] {
     SPECS.get_or_init(|| {
         let mut specs = wants();
         specs.extend(works());
+        specs.extend(own_works());
         specs.extend(incidents());
         specs.extend(calendar());
         specs.extend(threads());
@@ -1699,13 +3107,17 @@ fn made_deck() -> Deck {
             },
         ]
         .into_iter()
-        .chain(ladder().iter().map(|rung| Goal {
+        .chain(ladder().iter().chain(retired_rungs()).map(|rung| Goal {
             id: rung.id,
             parts: if rung.id == rung.work.id {
                 rung.work.parts
             } else {
                 2
             },
+        }))
+        .chain(OWN_WORKS.iter().map(|work| Goal {
+            id: work.id,
+            parts: OWN_PARTS,
         }))
         .collect(),
         chapter_periods: CHAPTER_DAYS,
@@ -1723,12 +3135,121 @@ fn made_deck() -> Deck {
 pub(crate) fn register_actions(
     actions: &mut ActionRegistry,
 ) -> Result<(), world_core::ActionError> {
-    storylets::register_actions(actions, || deck().clone())?;
+    storylets::register_kept_actions(actions, deck)?;
     lives::register_actions(actions, crate::life::cast_in)?;
     hands::register_actions(actions, crate::handwork::kit)?;
     conversation::register_actions(actions, crate::speech::kit)?;
     calendar::register_actions(actions, crate::almanac::almanac)?;
+    actions.register(LendsAHand)?;
     actions.register(SpiritsSettle)
+}
+
+/// When the player last lent a hand with one of the harbour's own works,
+/// in periods.
+const LENT: &str = "story.lent";
+/// The fewest days between two hands lent.
+const LEND_EVERY: i64 = 12;
+
+/// The harbour's own work the player can help with, if there is one: one
+/// begun and not done, or, once the harbour has been let down at all, the
+/// next one it would start.
+fn own_work_under_way(state: &world_core::WorldState) -> Option<&'static OwnWork> {
+    let deck = deck();
+    let begun = OWN_WORKS.iter().find(|work| {
+        let done = storylets::progress(state, deck, work.id);
+        done > 0 && done < OWN_PARTS
+    });
+    let let_down = state.entity(STORY).is_some_and(
+        |story| matches!(story.component(INITIATIVE), Some(Value::Integer(at)) if *at >= 1),
+    );
+    begun.or_else(|| {
+        let_down
+            .then(|| {
+                OWN_WORKS
+                    .iter()
+                    .find(|work| !storylets::finished(state, deck, work.id))
+            })
+            .flatten()
+    })
+}
+
+/// What someone says when the player turns up to help with what they
+/// are making.
+const LENT_LINES: [&str; 6] = [
+    "An extra pair of hands! Hold this end.",
+    "You came to help? Grab a hammer.",
+    "With you here we'll finish by dark.",
+    "Mind your thumbs. Thanks for coming.",
+    "Knew you'd turn up sooner or later.",
+    "Another part done, thanks to you.",
+];
+
+/// The player, making something of their own, lends a hand with what the
+/// harbour is making of its own accord: it goes up a part.
+struct LendsAHand;
+
+impl world_core::Action for LendsAHand {
+    fn name(&self) -> &'static str {
+        "lend_a_hand"
+    }
+
+    fn evaluate(
+        &self,
+        state: &world_core::WorldState,
+        _request: &world_core::ActionRequest,
+    ) -> Result<world_core::EventDraft, world_core::ActionError> {
+        let deck = deck();
+        let work = own_work_under_way(state)
+            .ok_or_else(|| world_core::ActionError::Invalid("nothing under way".into()))?;
+        let now = storylets::period_index(state, deck) as i64;
+        let story = state.entity(STORY);
+        let last = story.and_then(|story| match story.component(LENT) {
+            Some(Value::Integer(at)) => Some(*at),
+            _ => None,
+        });
+        if last.is_some_and(|last| now - last < LEND_EVERY) {
+            return Err(world_core::ActionError::Invalid(
+                "lent a hand lately".into(),
+            ));
+        }
+        let done = storylets::progress(state, deck, work.id);
+        let mut draft = world_core::EventDraft::new("hand_lent");
+        draft.actor = Some(work.champion);
+        draft.targets = vec![work.champion];
+        draft.payload.insert("work".into(), work.id.into());
+        draft.payload.insert(
+            "told".into(),
+            format!("You lent a hand with {}", lowered(work.label)).into(),
+        );
+        let said = LENT_LINES[(now as usize + done as usize) % LENT_LINES.len()];
+        draft.payload.insert("said".into(), said.into());
+        draft.changes = vec![
+            world_core::StateChange::SetComponent {
+                entity: STORY,
+                key: format!("story.goal.{}", work.id),
+                value: (done + 1).into(),
+            },
+            world_core::StateChange::SetComponent {
+                entity: STORY,
+                key: LENT.into(),
+                value: now.into(),
+            },
+        ];
+        Ok(draft)
+    }
+}
+
+/// After the player makes something, they lend a hand with the harbour's
+/// own work under way, if there is one and they have not lately.
+pub(crate) fn lend_a_hand(
+    world: &mut World,
+    actions: &ActionRegistry,
+) -> Result<Vec<EventId>, WorldError> {
+    match world.execute(actions, &world_core::ActionRequest::new("lend_a_hand")) {
+        Ok(event) => Ok(vec![event.id]),
+        Err(WorldError::Action(_)) => Ok(Vec::new()),
+        Err(error) => Err(error),
+    }
 }
 
 /// Nobody stays at the very top or bottom for long: a day at either end of
@@ -1914,7 +3435,28 @@ fn chapter_ending(world: &World) -> (String, String) {
     }
     let season_name = SEASONS[season(world)];
     let year = period_of(world) / YEAR + 1;
-    let title = title.unwrap_or_else(|| {
+    // A chapter in which something was finished can be named for it.
+    let finished = lived.iter().rev().find_map(|event| {
+        let goal = match outcome_of(event) {
+            Some((_, said)) => said.effects.iter().find_map(|effect| match effect {
+                Effect::Advance(goal) => Some(*goal),
+                _ => None,
+            }),
+            None if event.kind == "hand_lent" => match event.payload.get("work") {
+                Some(Value::Text(work)) => OWN_WORKS
+                    .iter()
+                    .find(|own| own.id == work)
+                    .map(|own| own.id),
+                _ => None,
+            },
+            None => None,
+        }?;
+        storylets::finished(world.state(), deck, goal)
+            .then(|| goal_label(goal))
+            .flatten()
+    });
+    let named_for_work = finished.map(|label| format!("The {season_name} of {}", the(label)));
+    let title = title.or(named_for_work).unwrap_or_else(|| {
         let feel = match spirits(world) {
             3.. => "A bright",
             1..=2 => "A good",
@@ -2215,7 +3757,10 @@ pub(crate) fn tick(
     events.extend(hands::tick(world, actions, &kit)?);
     let almanac = crate::almanac::almanac(world.state());
     events.extend(calendar::tick(world, actions, &almanac)?);
-    events.extend(storylets::tick(world, actions, deck(), &reading)?);
+    let mut told = storylets::tick(world, actions, deck(), &reading)?;
+    told.extend(storylets::bring_forward(world, actions, deck(), &reading)?);
+    events.extend(mementos(world, actions, &told)?);
+    events.extend(told);
     Ok(events)
 }
 
@@ -2441,6 +3986,12 @@ pub(crate) fn is_storylet(event: &Event) -> bool {
 
 /// How the harbour tells one of the storyteller's moments.
 pub(crate) fn told(world: &World, event: &Event) -> Option<String> {
+    if event.kind == "hand_lent" {
+        return match event.payload.get("told") {
+            Some(Value::Text(told)) => Some(told.clone()),
+            _ => None,
+        };
+    }
     if event.kind == "chapter_ended" {
         let title = match event.payload.get("title") {
             Some(Value::Text(title)) => title.clone(),
@@ -2472,6 +4023,12 @@ pub(crate) fn told(world: &World, event: &Event) -> Option<String> {
 
 /// What the asker says at one of the storyteller's moments.
 pub(crate) fn line(event: &Event) -> Option<(EntityId, String)> {
+    if event.kind == "hand_lent" {
+        return match (event.actor, event.payload.get("said")) {
+            (Some(who), Some(Value::Text(said))) => Some((who, said.clone())),
+            _ => None,
+        };
+    }
     if lives::is_life(event) {
         return lives::said(event);
     }
@@ -2503,6 +4060,9 @@ pub(crate) fn tone(event: &Event) -> Option<world_projection::Tone> {
     use world_projection::Tone;
     if event.kind == "chapter_ended" {
         return Some(Tone::Neutral);
+    }
+    if event.kind == "hand_lent" {
+        return Some(Tone::Good);
     }
     let spec = storylet_of(event)?;
     if event.kind == "situation_arose" {
@@ -2600,13 +4160,202 @@ pub(crate) fn goals(world: &World) -> Vec<world_projection::Goal> {
                 continue;
             };
             let finished = next.done >= next.parts;
+            if !finished {
+                // What a World finished on the ladder as it used to be.
+                goals.extend(
+                    retired_rungs()
+                        .iter()
+                        .filter_map(|rung| goal(rung.id, rung.label, rung.work.shape))
+                        .filter(|goal| goal.done >= goal.parts),
+                );
+            }
             goals.push(next);
             if !finished {
                 break;
             }
         }
     }
+    // What the harbour made of its own accord: those done, and the one
+    // under way.
+    for work in OWN_WORKS {
+        let Some(own) = goal(work.id, work.label, work.shape) else {
+            continue;
+        };
+        if own.done == 0 {
+            break;
+        }
+        let finished = own.done >= own.parts;
+        goals.push(own);
+        if !finished {
+            break;
+        }
+    }
     goals
+}
+
+/// What a goal is called, if it is one of the harbour's.
+fn goal_label(goal: &str) -> Option<&'static str> {
+    match goal {
+        "pier" => Some("The new pier"),
+        "lamp" => Some("A lamp on the point"),
+        _ => ladder()
+            .iter()
+            .chain(retired_rungs())
+            .find(|rung| rung.id == goal)
+            .map(|rung| rung.label)
+            .or_else(|| {
+                OWN_WORKS
+                    .iter()
+                    .find(|work| work.id == goal)
+                    .map(|work| work.label)
+            }),
+    }
+}
+
+/// What a gathering the player made happen is called, if an answer made
+/// one: a music night, a feast, a party.
+fn gathering(world: &World, event: &Event) -> Option<String> {
+    let kind = event.kind.trim_end_matches("_together");
+    Some(match kind {
+        "music_night_held" => "the music night".into(),
+        "harvest_feast" => "the harvest feast".into(),
+        "fete_held" => "the fête".into(),
+        "quiz_night" => "the quiz night".into(),
+        "birthday_party" => {
+            let spec = storylet_of(event)?;
+            format!("{}'s birthday party", name_of(world, spec.storylet.asker))
+        }
+        _ => {
+            let spec = storylet_of(event)?;
+            let rung = spec.storylet.id.strip_prefix("open_")?;
+            if kind != format!("{rung}_opened") {
+                return None;
+            }
+            format!("the opening of {}", the(goal_label(rung)?))
+        }
+    })
+}
+
+/// At a gathering an answer made happen, two people fond of each other
+/// may get together.
+pub(crate) fn gathered(
+    world: &mut World,
+    actions: &ActionRegistry,
+    answered: EventId,
+) -> Result<Vec<EventId>, WorldError> {
+    let Some(at) = world
+        .event(answered)
+        .and_then(|event| gathering(world, event))
+    else {
+        return Ok(Vec::new());
+    };
+    Ok(lives::match_at(world, actions, &at)?.into_iter().collect())
+}
+
+/// Who a goal belongs to: whoever asked for it.
+fn goal_champion(goal: &str) -> Option<EntityId> {
+    match goal {
+        "pier" => Some(EVAN),
+        "lamp" => Some(NOAH),
+        _ => ladder()
+            .iter()
+            .chain(retired_rungs())
+            .find(|rung| rung.id == goal)
+            .map(|rung| rung.work.champion)
+            .or_else(|| {
+                OWN_WORKS
+                    .iter()
+                    .find(|work| work.id == goal)
+                    .map(|work| work.champion)
+            }),
+    }
+}
+
+/// What someone gives the player to keep from a work just finished.
+const MEMENTOS: [&str; 8] = [
+    "a splinter from {x}",
+    "a spare nail from {x}",
+    "a sketch of {x}",
+    "an offcut from {x}",
+    "a chip of paint from {x}",
+    "the first shaving from {x}",
+    "a pebble from under {x}",
+    "a scrap of the plans for {x}",
+];
+
+/// What they say as they give it.
+const MEMENTO_SAID: [&str; 4] = [
+    "It's done. Keep a bit of it.",
+    "Something to remember the day it was finished.",
+    "We made it together. This is yours.",
+    "Every time you hold it, think of the day it was done.",
+];
+
+/// The goal an event finished, if it finished one.
+fn finished_by(event: &Event) -> Option<&'static str> {
+    let deck = deck();
+    let goal = match outcome_of(event) {
+        Some((_, said)) => said.effects.iter().find_map(|effect| match effect {
+            Effect::Advance(goal) => Some(*goal),
+            _ => None,
+        }),
+        None if event.kind == "hand_lent" => match event.payload.get("work") {
+            Some(Value::Text(work)) => OWN_WORKS
+                .iter()
+                .find(|own| own.id == work)
+                .map(|own| own.id),
+            _ => None,
+        },
+        None => None,
+    }?;
+    // Finished by this event: it set the goal to its last part.
+    let parts = deck.goals.iter().find(|spec| spec.id == goal)?.parts;
+    let changed_to = event.changes.iter().find_map(|change| match change {
+        world_core::StateChange::SetComponent {
+            key,
+            value: Value::Integer(done),
+            ..
+        } if *key == format!("story.goal.{goal}") => Some(*done),
+        _ => None,
+    })?;
+    (changed_to == parts).then_some(goal)
+}
+
+/// When a work is finished, whoever asked for it gives the player
+/// something of it to keep, if the week has room.
+pub(crate) fn mementos(
+    world: &mut World,
+    actions: &ActionRegistry,
+    events: &[EventId],
+) -> Result<Vec<EventId>, WorldError> {
+    let finished = events
+        .iter()
+        .filter_map(|id| world.event(*id))
+        .filter_map(finished_by)
+        .collect::<Vec<_>>();
+    let mut given = Vec::new();
+    for goal in finished {
+        let (Some(label), Some(who)) = (goal_label(goal), goal_champion(goal)) else {
+            continue;
+        };
+        if lives::gone(world.state(), who) || world.state().entity(who).is_none() {
+            continue;
+        }
+        let at = text_hash(goal) as usize;
+        let what = MEMENTOS[at % MEMENTOS.len()].replace("{x}", &the(label));
+        let said = MEMENTO_SAID[(at / 7) % MEMENTO_SAID.len()];
+        let cast = crate::life::cast_in(world.state());
+        given.extend(lives::give_keepsake(
+            world, actions, &cast, who, &what, said,
+        )?);
+    }
+    Ok(given)
+}
+
+/// Whether a goal is one of the harbour's own works.
+#[cfg(test)]
+pub(crate) fn is_own_work(goal: &str) -> bool {
+    OWN_WORKS.iter().any(|work| work.id == goal)
 }
 
 /// The chapters of the harbour's story that have ended.

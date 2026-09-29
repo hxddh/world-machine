@@ -75,6 +75,9 @@ mod tests {
                 world_time,
                 archive,
             }),
+            saved: None,
+            own_title: Default::default(),
+            opened_from: Default::default(),
         }
     }
 

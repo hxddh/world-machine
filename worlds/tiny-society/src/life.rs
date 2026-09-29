@@ -310,6 +310,36 @@ const TOPICS: &[&str] = &[
     "the school play",
     "the fête",
     "a lost letter",
+    "a crab pot that went missing",
+    "whose turn it was to buy",
+    "the best way to smoke a kipper",
+    "a gate left open",
+    "the chapel roof",
+    "a song at the pub",
+    "the last slice of cake",
+    "a boat's right of way",
+    "the goat in the garden",
+    "a joke that went too far",
+    "the washing line",
+    "an overdue library book",
+    "who saw the seal first",
+    "a borrowed wheelbarrow",
+    "the quiz night answers",
+    "a dripping gutter",
+    "the smell of the bait shed",
+    "the right way to tie a knot",
+    "a spilled pint",
+    "the mainland football",
+    "a hen that wandered off",
+    "the best blackberry bush",
+    "a birthday that was forgotten",
+    "the height of a hedge",
+    "who gets the window seat",
+    "a secret that got out",
+    "a dance that went wrong",
+    "the tune of the old song",
+    "a letter that never came",
+    "the pier timber",
 ];
 
 const OUTINGS: &[&str] = &[
@@ -321,12 +351,26 @@ const OUTINGS: &[&str] = &[
     "see the seals at the rocks",
     "row out to the islet",
     "the Saturday market",
+    "look for puffins on the cliff",
+    "light a fire on the beach",
+    "go crabbing off the quay",
+    "watch the sunset from the headland",
+    "walk the cliff path at dusk",
+    "pick blackberries in the lane",
+    "row round the point",
+    "hunt for sea glass",
+    "count the stars from the pier",
+    "hear the fiddler at the Anchor",
+    "the quiz night",
+    "swim at the old pool",
 ];
 
 const VISITOR_NAMES: &[&str] = &[
     "Rosa", "Tobias", "Hana", "Olek", "Maeve", "Arun", "Lise", "Pim", "Greta", "Kofi", "Ines",
     "Bram", "Nell", "Soren", "Yara", "Dario", "Ffion", "Mateo", "Wren", "Anouk", "Casimir",
-    "Lotte", "Ravi", "Esme",
+    "Lotte", "Ravi", "Esme", "Tam", "Isla", "Ruben", "Freya", "Olu", "Marta", "Joss", "Signe",
+    "Tomas", "Aoife", "Bea", "Kit", "Leif", "Nadia", "Rafe", "Sunniva", "Emil", "Clem", "Petra",
+    "Hugo",
 ];
 
 const TRADES: &[(&str, &str)] = &[
@@ -340,6 +384,16 @@ const TRADES: &[(&str, &str)] = &[
     ("radio operator", "radio_operator"),
     ("gardener", "gardener"),
     ("tutor", "tutor"),
+    ("beekeeper", "beekeeper"),
+    ("sailmaker", "sailmaker"),
+    ("baker's apprentice", "apprentice_baker"),
+    ("carpenter", "carpenter"),
+    ("storyteller", "storyteller"),
+    ("shepherd", "shepherd"),
+    ("bookbinder", "bookbinder"),
+    ("weaver", "weaver"),
+    ("clockmaker", "clockmaker"),
+    ("cook", "cook"),
 ];
 
 const ORIGINS: &[&str] = &[
@@ -353,6 +407,14 @@ const ORIGINS: &[&str] = &[
     "a farm inland",
     "Galway",
     "the lighthouse service",
+    "a lighthouse up the coast",
+    "the far islands",
+    "a sheep farm in the hills",
+    "a ship that docked for repairs",
+    "a town with no sea",
+    "the last ferry of the summer",
+    "a fishing village down south",
+    "a bakery in the city",
 ];
 
 fn visitor(name: &str, job: &str) -> Vec<(String, Value)> {

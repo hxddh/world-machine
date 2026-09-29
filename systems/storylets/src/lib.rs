@@ -384,6 +384,14 @@ pub fn can_arise(state: &WorldState, deck: &Deck, storylet: &Storylet) -> bool {
         && all_hold(state, deck, &storylet.requires)
 }
 
+/// Whether a storylet could come up now if it did not have to rest first:
+/// what the storyteller brings forward when nothing at all is open.
+fn can_arise_early(state: &WorldState, deck: &Deck, storylet: &Storylet) -> bool {
+    opened_at(state, deck, storylet.id).is_none()
+        && !asked_enough_this_year(state, deck, storylet.id)
+        && all_hold(state, deck, &storylet.requires)
+}
+
 /// The most times one storylet comes up in any year of periods.
 pub const MOST_A_YEAR: usize = 6;
 
@@ -774,7 +782,7 @@ fn grudge(state: &WorldState, deck: &Deck, person: EntityId) -> StateChange {
 }
 
 /// The storyteller begins: the entity it keeps its notes on is made.
-struct Begins(fn() -> Deck);
+struct Begins(DeckSource);
 
 impl Action for Begins {
     fn name(&self) -> &'static str {
@@ -786,7 +794,7 @@ impl Action for Begins {
         state: &WorldState,
         _request: &ActionRequest,
     ) -> Result<EventDraft, ActionError> {
-        let deck = (self.0)();
+        let deck = self.0.get();
         if state.entity(deck.story).is_some() {
             return Err(ActionError::Invalid("the story has begun".into()));
         }
@@ -804,7 +812,7 @@ impl Action for Begins {
 }
 
 /// A fixture whose time is up is taken away.
-struct FixturePasses(fn() -> Deck);
+struct FixturePasses(DeckSource);
 
 impl Action for FixturePasses {
     fn name(&self) -> &'static str {
@@ -816,7 +824,7 @@ impl Action for FixturePasses {
         state: &WorldState,
         request: &ActionRequest,
     ) -> Result<EventDraft, ActionError> {
-        let deck = (self.0)();
+        let deck = self.0.get();
         let entity = match request.args.get("fixture") {
             Some(Value::Integer(id)) => EntityId::new(*id as u64),
             _ => return Err(ActionError::Invalid("missing fixture".into())),
@@ -842,7 +850,7 @@ impl Action for FixturePasses {
 }
 
 /// A storylet comes up.
-struct Arises(fn() -> Deck);
+struct Arises(DeckSource);
 
 impl Action for Arises {
     fn name(&self) -> &'static str {
@@ -854,9 +862,12 @@ impl Action for Arises {
         state: &WorldState,
         request: &ActionRequest,
     ) -> Result<EventDraft, ActionError> {
-        let deck = (self.0)();
+        let deck = self.0.get();
         let storylet = find(&deck, arg_text(request, "storylet")?)?;
-        if !can_arise(state, &deck, storylet) {
+        // Brought forward before it has rested, when nothing else is open.
+        let early = request.args.get("early") == Some(&Value::Bool(true))
+            && can_arise_early(state, &deck, storylet);
+        if !early && !can_arise(state, &deck, storylet) {
             return Err(ActionError::Invalid(format!(
                 "{} cannot come up now",
                 storylet.id
@@ -908,7 +919,7 @@ impl Action for Arises {
 }
 
 /// Someone answers an open storylet.
-struct Chosen(fn() -> Deck);
+struct Chosen(DeckSource);
 
 impl Action for Chosen {
     fn name(&self) -> &'static str {
@@ -920,7 +931,7 @@ impl Action for Chosen {
         state: &WorldState,
         request: &ActionRequest,
     ) -> Result<EventDraft, ActionError> {
-        let deck = (self.0)();
+        let deck = self.0.get();
         let storylet = find(&deck, arg_text(request, "storylet")?)?;
         let wanted = arg_text(request, "choice")?;
         if opened_at(state, &deck, storylet.id).is_none() {
@@ -969,7 +980,7 @@ impl Action for Chosen {
 }
 
 /// An open storylet runs out, and ends its own way.
-struct Lapsed(fn() -> Deck);
+struct Lapsed(DeckSource);
 
 impl Action for Lapsed {
     fn name(&self) -> &'static str {
@@ -981,7 +992,7 @@ impl Action for Lapsed {
         state: &WorldState,
         request: &ActionRequest,
     ) -> Result<EventDraft, ActionError> {
-        let deck = (self.0)();
+        let deck = self.0.get();
         let storylet = find(&deck, arg_text(request, "storylet")?)?;
         if opened_at(state, &deck, storylet.id).is_none() {
             return Err(ActionError::Invalid(format!("{} is not open", storylet.id)));
@@ -1006,7 +1017,7 @@ impl Action for Lapsed {
 }
 
 /// A chapter ends, told in the Pack's words, and the next begins.
-struct ChapterTurns(fn() -> Deck);
+struct ChapterTurns(DeckSource);
 
 impl Action for ChapterTurns {
     fn name(&self) -> &'static str {
@@ -1018,7 +1029,7 @@ impl Action for ChapterTurns {
         state: &WorldState,
         request: &ActionRequest,
     ) -> Result<EventDraft, ActionError> {
-        let deck = (self.0)();
+        let deck = self.0.get();
         let (number, _) = chapter(state, &deck);
         let mut draft = EventDraft::new("chapter_ended");
         draft.payload.insert("chapter".into(), number.into());
@@ -1060,7 +1071,7 @@ impl Action for ChapterTurns {
 }
 
 /// A turning point brings the chapter's end forward.
-struct ChapterHastens(fn() -> Deck);
+struct ChapterHastens(DeckSource);
 
 impl Action for ChapterHastens {
     fn name(&self) -> &'static str {
@@ -1072,7 +1083,7 @@ impl Action for ChapterHastens {
         state: &WorldState,
         _request: &ActionRequest,
     ) -> Result<EventDraft, ActionError> {
-        let deck = (self.0)();
+        let deck = self.0.get();
         let ends = period_index(state, &deck) + HASTENED;
         if chapter_ends(state, &deck) <= ends {
             return Err(ActionError::Invalid("the chapter is already ending".into()));
@@ -1087,11 +1098,24 @@ impl Action for ChapterHastens {
     }
 }
 
-/// Registers the storyteller's Actions for a Pack's deck.
-pub fn register_actions(
-    registry: &mut ActionRegistry,
-    deck: fn() -> Deck,
-) -> Result<(), ActionError> {
+/// Where the storyteller's Actions find the Pack's deck: made afresh each
+/// time, or one the Pack keeps for the life of the program.
+#[derive(Clone, Copy)]
+enum DeckSource {
+    Made(fn() -> Deck),
+    Kept(fn() -> &'static Deck),
+}
+
+impl DeckSource {
+    fn get(self) -> std::borrow::Cow<'static, Deck> {
+        match self {
+            DeckSource::Made(deck) => std::borrow::Cow::Owned(deck()),
+            DeckSource::Kept(deck) => std::borrow::Cow::Borrowed(deck()),
+        }
+    }
+}
+
+fn register(registry: &mut ActionRegistry, deck: DeckSource) -> Result<(), ActionError> {
     registry.register(Begins(deck))?;
     registry.register(FixturePasses(deck))?;
     registry.register(Arises(deck))?;
@@ -1100,6 +1124,23 @@ pub fn register_actions(
     registry.register(ChapterTurns(deck))?;
     registry.register(ChapterHastens(deck))?;
     Ok(())
+}
+
+/// Registers the storyteller's Actions for a Pack's deck.
+pub fn register_actions(
+    registry: &mut ActionRegistry,
+    deck: fn() -> Deck,
+) -> Result<(), ActionError> {
+    register(registry, DeckSource::Made(deck))
+}
+
+/// Registers the storyteller's Actions for a deck the Pack keeps for the
+/// life of the program, so no Action copies the deck to read it.
+pub fn register_kept_actions(
+    registry: &mut ActionRegistry,
+    deck: fn() -> &'static Deck,
+) -> Result<(), ActionError> {
+    register(registry, DeckSource::Kept(deck))
 }
 
 /// The request that answers a storylet with a choice.
@@ -1347,6 +1388,39 @@ pub fn tick(
     Ok(events)
 }
 
+/// Something is always open: with nothing open and everything resting,
+/// whatever has rested longest comes forward. Goals keep their own pace,
+/// so nothing that builds toward one is brought forward. A Pack that wants
+/// a question on the table every period calls this after [`tick`].
+pub fn bring_forward(
+    world: &mut World,
+    actions: &ActionRegistry,
+    deck: &Deck,
+    reading: &Reading,
+) -> Result<Option<EventId>, WorldError> {
+    if reading.hold || reading.away || !open(world.state(), deck).is_empty() {
+        return Ok(None);
+    }
+    let state = world.state();
+    let rested = |storylet: &Storylet| {
+        integer(state, deck.story, &key("last", storylet.id)).unwrap_or(i64::MIN)
+    };
+    let pick = deck
+        .storylets
+        .iter()
+        .filter(|storylet| !builds(storylet))
+        .filter(|storylet| can_arise_early(state, deck, storylet))
+        .min_by_key(|storylet| (rested(storylet), storylet.id));
+    let Some(pick) = pick else {
+        return Ok(None);
+    };
+    let request = ActionRequest::new("storylet_arises")
+        .actor(pick.asker)
+        .arg("storylet", pick.id)
+        .arg("early", true);
+    Ok(Some(world.execute(actions, &request)?.id))
+}
+
 /// A line from `pool` not said recently: starting from a place chosen by
 /// `key`, the first that is not in `recent`. With every line recent, the
 /// one at `key`'s place.
@@ -1529,6 +1603,53 @@ mod tests {
             pass(&mut world, &actions);
             assert!(!open(world.state(), &deck()).is_empty());
         }
+    }
+
+    #[test]
+    fn with_nothing_open_something_comes_forward_but_never_a_goal() {
+        let (mut world, actions) = world();
+        let deck = deck();
+        tick(&mut world, &actions, &deck, &reading()).unwrap();
+        // With something open, nothing is brought forward.
+        assert_eq!(
+            bring_forward(&mut world, &actions, &deck, &reading()).unwrap(),
+            None
+        );
+        world
+            .execute(&actions, &choose_request("market", "sell"))
+            .unwrap();
+        world
+            .execute(&actions, &choose_request("roof", "mend"))
+            .unwrap();
+        assert!(open(world.state(), &deck).is_empty());
+        for _ in 0..3 {
+            assert!(bring_forward(&mut world, &actions, &deck, &reading())
+                .unwrap()
+                .is_some());
+            let open_now = open(world.state(), &deck)
+                .iter()
+                .map(|storylet| storylet.id)
+                .collect::<Vec<_>>();
+            assert_eq!(open_now.len(), 1);
+            assert!(!open_now.contains(&"roof"), "the house keeps its pace");
+            let choice = if open_now[0] == "chat" {
+                "listen"
+            } else {
+                "sell"
+            };
+            world
+                .execute(&actions, &choose_request(open_now[0], choice))
+                .unwrap();
+        }
+        // Held for the player, nothing comes.
+        let held = Reading {
+            hold: true,
+            ..reading()
+        };
+        assert_eq!(
+            bring_forward(&mut world, &actions, &deck, &held).unwrap(),
+            None
+        );
     }
 
     #[test]

@@ -1,3 +1,4 @@
+use crate::change::Changed;
 use crate::{
     next_display_title, required_archive, DurableWorldSession, LibraryError, WorldLibrary,
 };
@@ -41,6 +42,14 @@ impl DurableWorldSession {
 
         self.target.verify_revision(self.revision, library)?;
 
+        match self.change(|session| session.advance_background(periods), true, library)? {
+            Changed::Kept(snapshot) => return Ok(Some(*snapshot)),
+            Changed::Unchanged => return Ok(None),
+            Changed::CannotGoBack => {}
+        }
+
+        // A World that cannot go back is advanced on a copy of it, opened
+        // anew, and kept only once it is saved.
         let mut current_archive = required_archive(self.session.as_ref())?;
         current_archive.checkpoint = self.checkpoint.clone();
         let before = self.session.snapshot();
@@ -70,6 +79,9 @@ impl DurableWorldSession {
         self.metadata = next_metadata;
         self.checkpoint = next_document.archive.checkpoint;
         self.session = candidate;
+        self.saved = None;
+        self.own_title
+            .replace(Some(crate::snapshot_display_title(&snapshot)));
         Ok(Some(snapshot))
     }
 }
@@ -237,6 +249,9 @@ mod tests {
             metadata: WorldDocumentMetadata::default(),
             checkpoint: None,
             session: Box::new(MockSession { count }),
+            saved: None,
+            own_title: Default::default(),
+            opened_from: Default::default(),
         }
     }
 
@@ -305,11 +320,8 @@ mod tests {
         let _ = fs::remove_dir_all(root);
     }
 
-    #[cfg(unix)]
     #[test]
     fn persist_failure_preserves_the_live_world() {
-        use std::os::unix::fs::PermissionsExt;
-
         let root = temp_root("persist-failure");
         fs::create_dir_all(&root).unwrap();
         let path = root.join("Living.world");
@@ -317,9 +329,11 @@ mod tests {
         let registry = registry();
         let library = WorldLibrary::new(root.join("library"));
 
-        fs::set_permissions(&root, fs::Permissions::from_mode(0o500)).unwrap();
+        // The file cannot be written, as with a full disk: as any user,
+        // root included.
+        crate::WRITES_FAIL.set(true);
         let result = session.advance_background(2, &registry, &library);
-        fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
+        crate::WRITES_FAIL.set(false);
 
         assert!(matches!(result, Err(LibraryError::Io(_))));
         assert_eq!(session.snapshot().world_time, 5);

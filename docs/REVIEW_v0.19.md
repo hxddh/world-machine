@@ -226,6 +226,25 @@ Each item names its bar. The measured value today is in brackets.
 
 Everything else in the 1.0 plan is still open.
 
+## What v0.20.0 did
+
+The four parts of the 1.0 plan that need no decision from the owner:
+
+| Plan item | Bar | v0.20.0 |
+|---|---|---|
+| 1. Opening a three-year World | under 150 ms | 120–150 ms |
+| 1. Memory | under 100 MB | under 100 MB after 20 actions |
+| 1. One action | — | 26–41 ms, and 61–106 ms through the Pack program |
+| 2. A player who never says yes | ≥10 works in three years | Tiny Society 19, Pocket Universe 28–35 |
+| 2. Arrivals and departures | depend on the player | differ for all four scripted players |
+| 2. Questions with one answer that matters | none | 0–0.4% |
+| 3. New kinds per 30 days, Tiny Society year three | ≥10 | at least 12 |
+| 3. Most repeated line | ≤20 a year | 17 |
+| 3. Pocket Universe new lines | ≥55% per 120 days | at least 58% |
+| 4. Icons named on hover, one pointer at a time | 10 of 12 things found | all 12 have a visible control; the think-aloud test with five people is still to do |
+
+Still open: items 5 to 7, which wait on the owner's decisions and a Mac.
+
 ## Sources
 
 - RimWorld 1.0 release (2018-10-17): https://ludeon.com/blog/2018/10/rimworld-1-0-released/

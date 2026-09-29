@@ -209,6 +209,31 @@ fn a_three_year_world_reopens_event_for_event() {
     assert_eq!(resumed.snapshot(), full.snapshot());
 }
 
+/// A three-year World file reads to the same World whichever way it is
+/// read: straight into the archive, as World Machine now reads one, or
+/// through a tree of JSON values, as it did before.
+#[test]
+fn a_three_year_world_file_reads_as_it_always_did() {
+    use std::io::Read;
+
+    let document = three_years();
+    let file = document.to_bytes().unwrap();
+    let mut json = Vec::new();
+    flate2::read::GzDecoder::new(file.as_slice())
+        .read_to_end(&mut json)
+        .unwrap();
+    let value: serde_json::Value = serde_json::from_slice(&json).unwrap();
+    let archive = WorldArchive::from_json_value(&value).unwrap();
+    let metadata: world_document::WorldDocumentMetadata =
+        serde_json::from_value(value["document"].clone()).unwrap();
+
+    let started = Instant::now();
+    let read = WorldDocument::from_bytes(&file).unwrap();
+    eprintln!("read a three-year World file in {:?}", started.elapsed());
+    assert_eq!(read.archive, archive);
+    assert_eq!(read.metadata, metadata);
+}
+
 /// What a visitor sees of a World, which a code must carry: where it
 /// stands, who and what is in it, what can be done and what is on offer.
 ///

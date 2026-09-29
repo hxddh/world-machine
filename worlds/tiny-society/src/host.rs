@@ -39,6 +39,20 @@ impl TinySocietySession {
             listener,
         }))
     }
+
+    /// As [`Self::open_archive`], moving the archive's history into the
+    /// World rather than copying it.
+    fn open_owned_archive(
+        archive: WorldArchive,
+        listener: Box<dyn conversation::Listener>,
+    ) -> Result<Box<dyn WorldSession>, HostError> {
+        let society = TinySociety::resume_owned_archive(archive).map_err(HostError::session)?;
+        Ok(Box::new(Self {
+            branch: society.branch(),
+            background_cursor: None,
+            listener,
+        }))
+    }
 }
 
 impl WorldSession for TinySocietySession {
@@ -117,6 +131,30 @@ impl WorldSession for TinySocietySession {
     fn archive(&self) -> Result<Option<WorldArchive>, HostError> {
         self.branch.archive().map(Some).map_err(HostError::session)
     }
+
+    /// Where the session stands: the World, and where a return began, the
+    /// only other thing a change moves. The listener keeps nothing a change
+    /// makes.
+    fn checkpoint(&mut self) -> Result<Option<world_host::SessionCheckpoint>, HostError> {
+        Ok(Some(world_host::SessionCheckpoint::new((
+            self.branch.world.checkpoint(),
+            self.background_cursor,
+        ))))
+    }
+
+    fn rollback(&mut self, checkpoint: world_host::SessionCheckpoint) -> Result<(), HostError> {
+        let (world, cursor): (world_core::Checkpoint, Option<VisitCursor>) =
+            checkpoint.into_inner()?;
+        self.branch.world.rollback(world);
+        self.background_cursor = cursor;
+        Ok(())
+    }
+
+    fn archive_since(&self, from: usize) -> Result<Option<WorldArchive>, HostError> {
+        WorldArchive::capture_since(tiny_society_pack_ref(), self.branch.world(), from)
+            .map(Some)
+            .map_err(HostError::session)
+    }
 }
 
 pub fn tiny_society_registration() -> WorldRegistration {
@@ -127,6 +165,7 @@ pub fn tiny_society_registration() -> WorldRegistration {
 /// `listener`, such as a language model the player switched on.
 pub fn tiny_society_registration_with_listener(listener: ListenerFactory) -> WorldRegistration {
     let opening = Arc::clone(&listener);
+    let taking = Arc::clone(&listener);
     WorldRegistration::new(
         WorldDescriptor {
             pack: tiny_society_pack_ref(),
@@ -138,11 +177,161 @@ pub fn tiny_society_registration_with_listener(listener: ListenerFactory) -> Wor
         move || TinySocietySession::fresh(listener()),
     )
     .with_archive_opener(move |archive| TinySocietySession::open_archive(archive, opening()))
+    .with_owned_archive_opener(move |archive| {
+        TinySocietySession::open_owned_archive(archive, taking())
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The harbour as a session that cannot go back, so a host takes the
+    /// old way of saving it: the whole archive, reopened.
+    struct CannotGoBack(Box<dyn WorldSession>);
+
+    impl WorldSession for CannotGoBack {
+        fn pack(&self) -> world_persistence::WorldPackRef {
+            self.0.pack()
+        }
+        fn snapshot(&self) -> ProjectionSnapshot {
+            self.0.snapshot()
+        }
+        fn handle(&mut self, intent: ProjectionIntent) -> Result<ProjectionSnapshot, HostError> {
+            self.0.handle(intent)
+        }
+        fn advance_background(&mut self, periods: u64) -> Result<ProjectionSnapshot, HostError> {
+            self.0.advance_background(periods)
+        }
+        fn archive(&self) -> Result<Option<WorldArchive>, HostError> {
+            self.0.archive()
+        }
+    }
+
+    fn old_way_registry() -> world_host::WorldRegistry {
+        let own = Arc::new(|| Box::new(conversation::OwnEars) as Box<dyn conversation::Listener>);
+        let opening = Arc::clone(&own);
+        let mut registry = world_host::WorldRegistry::new();
+        registry
+            .register(
+                WorldRegistration::new(
+                    WorldDescriptor {
+                        pack: tiny_society_pack_ref(),
+                        title: "Tiny Society".into(),
+                        description: "The harbour, saved the old way.".into(),
+                    },
+                    move || {
+                        Ok(Box::new(CannotGoBack(TinySocietySession::fresh(own())?))
+                            as Box<dyn WorldSession>)
+                    },
+                )
+                .with_archive_opener(move |archive| {
+                    Ok(Box::new(CannotGoBack(TinySocietySession::open_archive(
+                        archive,
+                        opening(),
+                    )?)) as Box<dyn WorldSession>)
+                }),
+            )
+            .unwrap();
+        registry
+    }
+
+    fn temp_library(label: &str) -> (std::path::PathBuf, world_library::WorldLibrary) {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "tiny-society-{label}-{}-{nonce}",
+            std::process::id()
+        ));
+        (root.clone(), world_library::WorldLibrary::new(root))
+    }
+
+    /// Twenty days let pass on the harbour itself, gone back to from a
+    /// checkpoint whenever a change is not kept, write the very file the
+    /// old way does, reopening the whole archive for each.
+    #[test]
+    fn days_saved_on_the_world_itself_write_what_the_old_way_writes() {
+        let pass = || ProjectionIntent::InvokeCommand(crate::story::WAIT_COMMAND.into());
+        let id = world_library::WorldDocumentId::new("harbour").unwrap();
+        let mut files = Vec::new();
+        for (label, registry) in [
+            ("kept", {
+                let mut registry = world_host::WorldRegistry::new();
+                registry.register(tiny_society_registration()).unwrap();
+                registry
+            }),
+            ("reopened", old_way_registry()),
+        ] {
+            let (root, library) = temp_library(label);
+            drop(
+                world_library::DurableWorldSession::create(
+                    id.clone(),
+                    crate::TINY_SOCIETY_PACK_ID,
+                    &registry,
+                    &library,
+                )
+                .unwrap(),
+            );
+            let mut session =
+                world_library::DurableWorldSession::open(id.clone(), &registry, &library).unwrap();
+            for _ in 0..20 {
+                session.handle(pass(), &registry, &library).unwrap();
+            }
+            files.push((
+                library.load_document(&id).unwrap().unwrap(),
+                session.snapshot(),
+            ));
+            let _ = std::fs::remove_dir_all(root);
+        }
+        let (kept, reopened) = (&files[0], &files[1]);
+        assert_eq!(kept.0.archive, reopened.0.archive);
+        assert_eq!(
+            kept.0.metadata.display_title,
+            reopened.0.metadata.display_title
+        );
+        assert_eq!(kept.1, reopened.1);
+    }
+
+    /// A change that cannot be saved is gone back from: the harbour's
+    /// archive and what it shows are as they were.
+    #[test]
+    fn a_day_that_cannot_be_saved_leaves_the_harbour_as_it_was() {
+        let mut registry = world_host::WorldRegistry::new();
+        registry.register(tiny_society_registration()).unwrap();
+        let (root, library) = temp_library("unsaved");
+        let id = world_library::WorldDocumentId::new("harbour").unwrap();
+        drop(
+            world_library::DurableWorldSession::create(
+                id.clone(),
+                crate::TINY_SOCIETY_PACK_ID,
+                &registry,
+                &library,
+            )
+            .unwrap(),
+        );
+        let mut session =
+            world_library::DurableWorldSession::open(id.clone(), &registry, &library).unwrap();
+        let pass = || ProjectionIntent::InvokeCommand(crate::story::WAIT_COMMAND.into());
+        session.handle(pass(), &registry, &library).unwrap();
+        let archive_before = session.current_archive().unwrap();
+        let snapshot_before = session.snapshot();
+        // Where the World file goes, a folder stands: it cannot be written.
+        let path = library.path(&id);
+        let file_before = std::fs::read(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        std::fs::create_dir_all(path.join("in the way")).unwrap();
+        assert!(session.handle(pass(), &registry, &library).is_err());
+        assert_eq!(session.current_archive().unwrap(), archive_before);
+        assert_eq!(session.snapshot(), snapshot_before);
+        // Once it can be written again, the harbour carries on from there.
+        std::fs::remove_dir_all(&path).unwrap();
+        std::fs::write(&path, &file_before).unwrap();
+        let next = session.handle(pass(), &registry, &library).unwrap();
+        assert!(next.world_time > snapshot_before.world_time);
+        let _ = std::fs::remove_dir_all(root);
+    }
 
     /// The choices that can be made now.
     fn offered(snapshot: &world_projection::ProjectionSnapshot) -> Vec<String> {

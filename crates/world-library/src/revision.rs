@@ -1,6 +1,6 @@
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
-
+/// Which bytes a World file held when it was last read or written, to tell
+/// whether someone else has written it since: its length, and two sums of
+/// its bytes that a change almost never leaves both alike.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct DocumentRevision {
     len: u64,
@@ -9,19 +9,24 @@ pub(crate) struct DocumentRevision {
 }
 
 impl DocumentRevision {
+    /// Fast enough to sum a long World's file on every save: a CRC-32 and a
+    /// multiply-and-rotate sum of its 8-byte words.
     pub(crate) fn from_bytes(bytes: &[u8]) -> Self {
-        let mut first = DefaultHasher::new();
-        0x574f_524c_445f_3031_u64.hash(&mut first);
-        bytes.hash(&mut first);
-
-        let mut second = DefaultHasher::new();
-        0x574f_524c_445f_3032_u64.hash(&mut second);
-        bytes.hash(&mut second);
-
+        let mut crc = flate2::Crc::new();
+        crc.update(bytes);
+        let (words, rest) = bytes.as_chunks::<8>();
+        let mut second = 0x574f_524c_445f_3032_u64;
+        for word in words {
+            second = (second.rotate_left(5) ^ u64::from_le_bytes(*word))
+                .wrapping_mul(0x517c_c1b7_2722_0a95);
+        }
+        for byte in rest {
+            second = (second.rotate_left(5) ^ u64::from(*byte)).wrapping_mul(0x517c_c1b7_2722_0a95);
+        }
         Self {
             len: bytes.len() as u64,
-            first: first.finish(),
-            second: second.finish(),
+            first: u64::from(crc.sum()),
+            second,
         }
     }
 }

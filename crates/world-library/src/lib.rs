@@ -1,16 +1,22 @@
+mod change;
 mod revision;
 mod world_code;
 
+use change::{Changed, Saved};
+
 use revision::DocumentRevision;
+use std::cell::RefCell;
 use std::error::Error;
 use std::fmt;
 use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
-use world_document::{DocumentError, WorldDocument, WorldDocumentMetadata};
+use world_document::{DocumentError, DocumentSummary, WorldDocument, WorldDocumentMetadata};
 use world_host::{HostError, WorldRegistry, WorldSession};
-use world_persistence::{ArchivedCheckpoint, PersistenceError, WorldArchive, WorldPackRef};
+use world_persistence::{
+    ArchivedCheckpoint, CompactHistory, PersistenceError, WorldArchive, WorldPackRef,
+};
 use world_projection::{ProjectionIntent, ProjectionSnapshot};
 
 pub use world_code::{
@@ -179,9 +185,38 @@ impl WorldLibrary {
         &self,
         id: &WorldDocumentId,
     ) -> Result<Option<(WorldDocument, DocumentRevision)>, LibraryError> {
+        Ok(self
+            .load_file(id)?
+            .map(|file| (file.document, file.revision)))
+    }
+
+    /// What a list of Worlds shows of one, read from the summary its file
+    /// begins with, or from the whole file when it has none.
+    fn load_summary(&self, id: &WorldDocumentId) -> Result<Option<DocumentSummary>, LibraryError> {
         for path in [self.path(id), self.legacy_path(id)] {
-            match read_document_file_with_revision(&path) {
-                Ok(value) => return Ok(Some(value)),
+            let bytes = match fs::read(&path) {
+                Ok(bytes) => bytes,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(LibraryError::Io(error)),
+            };
+            if let Some(summary) = WorldDocument::summary_from_bytes(&bytes)? {
+                return Ok(Some(summary));
+            }
+            let document = WorldDocument::from_bytes(&bytes)?;
+            return Ok(Some(DocumentSummary {
+                pack: document.archive.pack,
+                world_time: document.archive.world_time,
+                event_count: document.archive.events.len(),
+                metadata: document.metadata,
+            }));
+        }
+        Ok(None)
+    }
+
+    fn load_file(&self, id: &WorldDocumentId) -> Result<Option<ReadFile>, LibraryError> {
+        for path in [self.path(id), self.legacy_path(id)] {
+            match read_file(&path) {
+                Ok(file) => return Ok(Some(file)),
                 Err(LibraryError::Io(error)) if error.kind() == io::ErrorKind::NotFound => continue,
                 Err(error) => return Err(error),
             }
@@ -268,7 +303,7 @@ impl WorldLibrary {
 
         let mut documents = Vec::new();
         for id in ids {
-            let document = match self.load_document(&id) {
+            let document = match self.load_summary(&id) {
                 Ok(Some(document)) => document,
                 Ok(None) => continue,
                 Err(error) => {
@@ -289,7 +324,7 @@ impl WorldLibrary {
                     continue;
                 }
             };
-            documents.push((modified, summary(id, &document)));
+            documents.push((modified, summary_of(id, &document)));
         }
         documents.sort_by(|(left_modified, left), (right_modified, right)| {
             right_modified
@@ -484,10 +519,24 @@ impl WorldDocumentTarget {
         document: &WorldDocument,
         library: &WorldLibrary,
     ) -> Result<DocumentRevision, LibraryError> {
+        self.persist_bytes(&document.to_bytes()?, library)
+    }
+
+    /// Writes a World file's bytes to where the document lives, atomically.
+    fn persist_bytes(
+        &self,
+        bytes: &[u8],
+        library: &WorldLibrary,
+    ) -> Result<DocumentRevision, LibraryError> {
+        let revision = DocumentRevision::from_bytes(bytes);
         match self {
-            Self::Library(id) => library.save_document_with_revision(id, document),
-            Self::File(path) => write_document_file(path, document),
+            Self::Library(id) => {
+                atomic_write(&library.path(id), bytes)?;
+                let _ = fs::remove_file(library.legacy_path(id));
+            }
+            Self::File(path) => atomic_write(path, bytes)?,
         }
+        Ok(revision)
     }
 }
 
@@ -499,6 +548,17 @@ pub struct DurableWorldSession {
     /// from save to save, so each change replays only the season since.
     checkpoint: Option<ArchivedCheckpoint>,
     session: Box<dyn WorldSession>,
+    /// What the file holds, kept written, so a change saves only what the
+    /// World recorded since; `None` until it is known.
+    saved: Option<Saved>,
+    /// What the World calls itself as it last showed itself, which is what
+    /// its name follows (see [`next_display_title`]).
+    own_title: RefCell<Option<Option<String>>>,
+    /// The history the World was opened from, which the World now holds
+    /// for itself: let go of once the World has first been looked at, away
+    /// from the caller, since freeing years of it takes about as long as
+    /// opening them.
+    opened_from: RefCell<Option<WorldArchive>>,
 }
 
 impl DurableWorldSession {
@@ -525,6 +585,9 @@ impl DurableWorldSession {
             metadata: document.metadata,
             checkpoint: document.archive.checkpoint,
             session,
+            saved: None,
+            own_title: RefCell::new(None),
+            opened_from: RefCell::new(None),
         })
     }
 
@@ -533,29 +596,78 @@ impl DurableWorldSession {
         registry: &WorldRegistry,
         library: &WorldLibrary,
     ) -> Result<Self, LibraryError> {
-        let (document, revision) = library
-            .load_document_with_revision(&document_id)?
+        let file = library
+            .load_file(&document_id)?
             .ok_or_else(|| LibraryError::UnknownDocument(document_id.clone()))?;
-        let session = open_document(registry, &document)?;
-        Ok(Self {
-            target: WorldDocumentTarget::Library(document_id),
+        Self::opening(WorldDocumentTarget::Library(document_id), file, registry)
+    }
+
+    /// Opens the World of a file just read, handing it the file's history:
+    /// a Pack that can keep it takes it, and one that only reads it gives it
+    /// back, to be let go of once the World has first been looked at. A Pack
+    /// in a process of its own is handed the history as the file keeps it,
+    /// rather than written and packed again.
+    fn opening(
+        target: WorldDocumentTarget,
+        file: ReadFile,
+        registry: &WorldRegistry,
+    ) -> Result<Self, LibraryError> {
+        let ReadFile {
+            bytes,
             revision,
-            metadata: document.metadata,
-            checkpoint: document.archive.checkpoint,
+            document: WorldDocument { archive, metadata },
+            history,
+        } = file;
+        let checkpoint = archive.checkpoint.clone();
+        let saved = history.and_then(|history| Saved::kept(&archive, history));
+        let (session, lent) =
+            registry.open_owned_archive_deflated(archive, WorldDocument::deflated_json(&bytes))?;
+        Ok(Self {
+            target,
+            revision,
+            metadata,
+            checkpoint,
             session,
+            saved,
+            own_title: RefCell::new(None),
+            opened_from: RefCell::new(lent),
         })
     }
 
-    pub fn open_file(path: PathBuf, registry: &WorldRegistry) -> Result<Self, LibraryError> {
-        let (document, revision) = read_document_file_with_revision(&path)?;
-        let session = open_document(registry, &document)?;
-        Ok(Self {
-            target: WorldDocumentTarget::File(path),
+    /// A session for a World just opened from `document`.
+    fn opened(
+        target: WorldDocumentTarget,
+        revision: DocumentRevision,
+        document: WorldDocument,
+        session: Box<dyn WorldSession>,
+    ) -> Self {
+        let WorldDocument {
+            mut archive,
+            metadata,
+        } = document;
+        Self {
+            target,
             revision,
-            metadata: document.metadata,
-            checkpoint: document.archive.checkpoint,
+            metadata,
+            checkpoint: archive.checkpoint.take(),
             session,
-        })
+            saved: None,
+            own_title: RefCell::new(None),
+            opened_from: RefCell::new(Some(archive)),
+        }
+    }
+
+    /// Lets go of the history the World was opened from, if it is still
+    /// held, on a thread of its own.
+    fn let_go_of_history(&self) {
+        if let Some(archive) = self.opened_from.take() {
+            drop_in_background(archive);
+        }
+    }
+
+    pub fn open_file(path: PathBuf, registry: &WorldRegistry) -> Result<Self, LibraryError> {
+        let file = read_file(&path)?;
+        Self::opening(WorldDocumentTarget::File(path), file, registry)
     }
 
     pub fn import_file(
@@ -571,13 +683,12 @@ impl DurableWorldSession {
         let session = open_document(registry, &document)?;
         document.settle_checkpoint();
         let revision = library.save_document_with_revision(&document_id, &document)?;
-        Ok(Self {
-            target: WorldDocumentTarget::Library(document_id),
+        Ok(Self::opened(
+            WorldDocumentTarget::Library(document_id),
             revision,
-            metadata: document.metadata,
-            checkpoint: document.archive.checkpoint,
+            document,
             session,
-        })
+        ))
     }
 
     pub fn target(&self) -> &WorldDocumentTarget {
@@ -601,7 +712,19 @@ impl DurableWorldSession {
     }
 
     pub fn snapshot(&self) -> ProjectionSnapshot {
-        self.session.snapshot()
+        let snapshot = self.session.snapshot();
+        self.own_title
+            .replace(Some(snapshot_display_title(&snapshot)));
+        self.let_go_of_history();
+        snapshot
+    }
+
+    /// What the World calls itself now.
+    fn own_title(&self) -> Option<String> {
+        if let Some(title) = self.own_title.borrow().as_ref() {
+            return title.clone();
+        }
+        snapshot_display_title(&self.session.snapshot())
     }
 
     /// What a language model should be asked to hear the player's words to
@@ -637,8 +760,13 @@ impl DurableWorldSession {
         }
         self.revision = revision;
         self.metadata = metadata;
-        self.checkpoint = document.archive.checkpoint;
+        self.checkpoint = document.archive.checkpoint.clone();
         self.session = replacement;
+        self.saved = None;
+        self.own_title
+            .replace(Some(snapshot_display_title(&snapshot)));
+        self.let_go_of_history();
+        drop_in_background(document.archive);
         Ok(snapshot)
     }
 
@@ -648,12 +776,22 @@ impl DurableWorldSession {
         registry: &WorldRegistry,
         library: &WorldLibrary,
     ) -> Result<ProjectionSnapshot, LibraryError> {
+        // Still held if the World was never looked at: let go of here, as
+        // freeing it beside the work below would slow that more.
+        drop(self.opened_from.take());
         self.target.verify_revision(self.revision, library)?;
 
+        let changed = self.change(|session| session.handle(intent.clone()), false, library)?;
+        if let Changed::Kept(snapshot) = changed {
+            return Ok(*snapshot);
+        }
+
+        // A World that cannot go back is changed on a copy of it, opened
+        // anew, and kept only once it is saved.
         let mut current_archive = required_archive(self.session.as_ref())?;
         current_archive.checkpoint = self.checkpoint.clone();
         let before = self.session.snapshot();
-        let mut candidate = registry.open_archive(&current_archive)?;
+        let (mut candidate, _lent) = registry.open_owned_archive(current_archive)?;
         let snapshot = candidate.handle(intent)?;
         let next_archive = required_archive(candidate.as_ref())?;
         let mut next_metadata = self.metadata.clone();
@@ -664,7 +802,7 @@ impl DurableWorldSession {
             archive: next_archive,
             metadata: next_metadata.clone(),
         };
-        next_document.archive.checkpoint = current_archive.checkpoint;
+        next_document.archive.checkpoint = self.checkpoint.clone();
         next_document.settle_checkpoint();
 
         self.target.verify_revision(self.revision, library)?;
@@ -674,6 +812,9 @@ impl DurableWorldSession {
         self.metadata = next_metadata;
         self.checkpoint = next_document.archive.checkpoint;
         self.session = candidate;
+        self.saved = None;
+        self.own_title
+            .replace(Some(snapshot_display_title(&snapshot)));
         Ok(snapshot)
     }
 }
@@ -686,7 +827,15 @@ pub(crate) fn next_display_title(
     before: &ProjectionSnapshot,
     after: &ProjectionSnapshot,
 ) -> Option<String> {
-    let own_name_before = snapshot_display_title(before);
+    next_display_title_after(current, snapshot_display_title(before), after)
+}
+
+/// [`next_display_title`], with the name the World went by before.
+pub(crate) fn next_display_title_after(
+    current: Option<&str>,
+    own_name_before: Option<String>,
+    after: &ProjectionSnapshot,
+) -> Option<String> {
     let renamed = current.is_some() && current != own_name_before.as_deref();
     if renamed {
         return current.map(str::to_owned);
@@ -932,7 +1081,7 @@ pub(crate) fn snapshot_display_scenery(
         })
 }
 
-fn snapshot_display_title(snapshot: &ProjectionSnapshot) -> Option<String> {
+pub(crate) fn snapshot_display_title(snapshot: &ProjectionSnapshot) -> Option<String> {
     let title = snapshot.title.trim();
     (!title.is_empty()).then(|| title.to_owned())
 }
@@ -992,9 +1141,21 @@ fn truncate_summary(value: String) -> String {
 }
 
 fn summary(id: WorldDocumentId, document: &WorldDocument) -> WorldDocumentSummary {
+    summary_of(
+        id,
+        &DocumentSummary {
+            pack: document.archive.pack.clone(),
+            world_time: document.archive.world_time,
+            event_count: document.archive.events.len(),
+            metadata: document.metadata.clone(),
+        },
+    )
+}
+
+fn summary_of(id: WorldDocumentId, document: &DocumentSummary) -> WorldDocumentSummary {
     WorldDocumentSummary {
         id,
-        pack: document.archive.pack.clone(),
+        pack: document.pack.clone(),
         display_title: document.metadata.display_title.clone(),
         display_scenery: document.metadata.display_scenery.map(|scenery| {
             world_projection::Scenery {
@@ -1024,8 +1185,8 @@ fn summary(id: WorldDocumentId, document: &WorldDocument) -> WorldDocumentSummar
         display_moves_alone: document.metadata.display_moves_alone,
         display_cast: cast_from_document(&document.metadata.display_cast),
         display_drawings: drawings_from_document(&document.metadata.display_drawings),
-        world_time: document.archive.world_time,
-        event_count: document.archive.events.len(),
+        world_time: document.world_time,
+        event_count: document.event_count,
     }
 }
 
@@ -1036,10 +1197,39 @@ fn read_document_file(path: &Path) -> Result<WorldDocument, LibraryError> {
 fn read_document_file_with_revision(
     path: &Path,
 ) -> Result<(WorldDocument, DocumentRevision), LibraryError> {
+    let file = read_file(path)?;
+    Ok((file.document, file.revision))
+}
+
+/// A World file as read: its bytes, which revision of it they are, and the
+/// document they hold.
+struct ReadFile {
+    bytes: Vec<u8>,
+    revision: DocumentRevision,
+    document: WorldDocument,
+    /// Its history as the file writes it, when World Machine wrote it.
+    history: Option<CompactHistory>,
+}
+
+fn read_file(path: &Path) -> Result<ReadFile, LibraryError> {
     let bytes = fs::read(path)?;
     let revision = DocumentRevision::from_bytes(&bytes);
-    let document = WorldDocument::from_bytes(&bytes)?;
-    Ok((document, revision))
+    let (document, history) = WorldDocument::from_bytes_kept(&bytes)?;
+    Ok(ReadFile {
+        bytes,
+        revision,
+        document,
+        history,
+    })
+}
+
+/// Lets go of something large, such as a long World's history, on a
+/// thread of its own, so nothing waits for it to be freed.
+pub(crate) fn drop_in_background<T: Send + 'static>(value: T) {
+    // Should no thread start, it is let go of here after all.
+    let _ = std::thread::Builder::new()
+        .name("world-machine-let-go".into())
+        .spawn(move || drop(value));
 }
 
 /// Opens a document's World, replaying only what came after its checkpoint.
@@ -1112,7 +1302,18 @@ fn unique_removed_path(removed_root: &Path, file_name: &str) -> Result<PathBuf, 
     )))
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Makes every World file written on this thread fail to write, as a
+    /// full disk or a folder taken away would.
+    pub(crate) static WRITES_FAIL: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
 fn atomic_write(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    #[cfg(test)]
+    if WRITES_FAIL.get() {
+        return Err(io::Error::other("the World file could not be written"));
+    }
     let parent = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
@@ -1570,6 +1771,36 @@ mod tests {
         );
         assert_eq!(read_document_file(&second).unwrap().archive.world_time, 2);
 
+        let _ = fs::remove_dir_all(root);
+    }
+
+    /// A list of Worlds reads what it shows from the summary a file begins
+    /// with, the same as from the whole file; a file written before there
+    /// was a summary is read whole.
+    #[test]
+    fn a_list_of_worlds_reads_summaries_as_it_would_whole_files() {
+        let root = temp_root("summaries");
+        let library = WorldLibrary::new(root.clone());
+        let mut document = WorldDocument::new(mock_archive(7));
+        document.metadata.display_title = Some("Harbour".into());
+        document.metadata.display_marks = vec!["pier".into()];
+        document.metadata.display_moves_alone = true;
+        let new = WorldDocumentId::new("new").unwrap();
+        library.save_document(&new, &document).unwrap();
+        let old = WorldDocumentId::new("old").unwrap();
+        let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::new(2));
+        encoder
+            .write_all(&document.to_compact_json().unwrap())
+            .unwrap();
+        fs::write(library.path(&old), encoder.finish().unwrap()).unwrap();
+
+        let bytes = fs::read(library.path(&new)).unwrap();
+        assert!(WorldDocument::summary_from_bytes(&bytes).unwrap().is_some());
+        let listed = library.list().unwrap();
+        assert_eq!(listed.len(), 2);
+        for listed in listed {
+            assert_eq!(listed, summary(listed.id.clone(), &document));
+        }
         let _ = fs::remove_dir_all(root);
     }
 
@@ -2059,6 +2290,72 @@ mod tests {
         assert_eq!(session.snapshot().title, "Mock 5");
         assert_eq!(read_archive_file(&external).unwrap().world_time, 5);
         assert!(library.list().unwrap().is_empty());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    /// A Pack handed archives as World files keep them deflated is handed
+    /// the file's own, which reads as the archive the file holds; and one
+    /// that only reads archives is lent the archive, as ever.
+    #[test]
+    fn a_world_file_is_handed_to_a_pack_as_it_keeps_it() {
+        use std::io::Read;
+        use std::sync::{Arc, Mutex};
+
+        let root = temp_root("deflated");
+        let external = root.join("Kept World.world");
+        let library = WorldLibrary::new(root.join("library"));
+        fs::create_dir_all(&root).unwrap();
+        write_archive_file(&external, &mock_archive(3)).unwrap();
+
+        let handed = Arc::new(Mutex::new(Vec::new()));
+        let seen = Arc::clone(&handed);
+        let mut registry = WorldRegistry::new();
+        registry
+            .register(
+                WorldRegistration::new(
+                    WorldDescriptor {
+                        pack: WorldPackRef::new(MOCK_PACK, "1"),
+                        title: "Mock World".into(),
+                        description: "Handed deflated".into(),
+                    },
+                    || Ok(Box::new(MockSession { count: 0 })),
+                )
+                .with_archive_opener(|archive| {
+                    Ok(Box::new(MockSession {
+                        count: archive.world_time,
+                    }))
+                })
+                .with_deflated_archive_opener(move |archive, deflated| {
+                    let mut json = Vec::new();
+                    flate2::read::DeflateDecoder::new(deflated)
+                        .read_to_end(&mut json)
+                        .unwrap();
+                    assert_eq!(&WorldArchive::from_json_slice(&json).unwrap(), archive);
+                    seen.lock().unwrap().push(archive.world_time);
+                    Ok(Box::new(MockSession {
+                        count: archive.world_time,
+                    }))
+                }),
+            )
+            .unwrap();
+
+        let mut session = DurableWorldSession::open_file(external.clone(), &registry).unwrap();
+        assert_eq!(session.snapshot().title, "Mock 3");
+        assert_eq!(*handed.lock().unwrap(), vec![3]);
+        // A change opens the World from the archive the session holds,
+        // with no file to hand over.
+        session
+            .handle(
+                ProjectionIntent::InvokeCommand("mock.advance".into()),
+                &registry,
+                &library,
+            )
+            .unwrap();
+        assert_eq!(*handed.lock().unwrap(), vec![3]);
+        let reopened = DurableWorldSession::open_file(external.clone(), &registry).unwrap();
+        assert_eq!(reopened.snapshot().title, "Mock 4");
+        assert_eq!(*handed.lock().unwrap(), vec![3, 4]);
 
         let _ = fs::remove_dir_all(root);
     }

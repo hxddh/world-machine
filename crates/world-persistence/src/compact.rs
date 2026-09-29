@@ -32,6 +32,7 @@
 use serde::ser::{SerializeMap, SerializeSeq};
 use serde::{Serialize, Serializer};
 use serde_json::{Map, Value as Json};
+use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
 use std::hash::{BuildHasherDefault, Hasher};
 
@@ -88,17 +89,18 @@ impl Serialize for CompactMap<'_> {
     }
 }
 
-/// The names of the values an archive's changes set, each written once.
-#[derive(Default)]
+/// The names of the values an archive's changes set, each written once,
+/// borrowed from the changes, or owned when kept beyond them.
+#[derive(Clone, Debug, Default)]
 pub(crate) struct Keys<'a> {
-    places: HashMap<&'a str, usize, BuildHasherDefault<QuickHasher>>,
-    names: Vec<&'a str>,
+    places: HashMap<Cow<'a, str>, usize, BuildHasherDefault<QuickHasher>>,
+    names: Vec<Cow<'a, str>>,
 }
 
 /// A fast hash for short keys, as the Firefox and rustc hashers do: a save
 /// looks up every changed value's name, hundreds of thousands of them, and
 /// the names come from the World's own history, not from strangers.
-#[derive(Default)]
+#[derive(Clone, Debug, Default)]
 pub(crate) struct QuickHasher(u64);
 
 impl Hasher for QuickHasher {
@@ -122,29 +124,65 @@ impl Hasher for QuickHasher {
     }
 }
 
+/// The name a value change sets, if it is one.
+fn key_of(change: &ArchivedStateChange) -> Option<&str> {
+    match change {
+        ArchivedStateChange::SetComponent { key, .. }
+        | ArchivedStateChange::RemoveComponent { key, .. }
+        | ArchivedStateChange::SetRelationProperty { key, .. }
+        | ArchivedStateChange::RemoveRelationProperty { key, .. } => Some(key),
+        _ => None,
+    }
+}
+
 impl<'a> Keys<'a> {
     pub(crate) fn gather(&mut self, changes: &'a [ArchivedStateChange]) {
-        for change in changes {
-            let key = match change {
-                ArchivedStateChange::SetComponent { key, .. }
-                | ArchivedStateChange::RemoveComponent { key, .. }
-                | ArchivedStateChange::SetRelationProperty { key, .. }
-                | ArchivedStateChange::RemoveRelationProperty { key, .. } => key.as_str(),
-                _ => continue,
-            };
-            let next = self.names.len();
-            if *self.places.entry(key).or_insert(next) == next {
-                self.names.push(key);
+        for key in changes.iter().filter_map(key_of) {
+            self.add(Cow::Borrowed(key));
+        }
+    }
+
+    /// [`Self::gather`], keeping its own copy of each new name.
+    pub(crate) fn gather_owned(&mut self, changes: &[ArchivedStateChange]) {
+        for key in changes.iter().filter_map(key_of) {
+            if !self.places.contains_key(key) {
+                self.add(Cow::Owned(key.to_owned()));
             }
         }
     }
 
-    pub(crate) fn names(&self) -> &[&'a str] {
+    fn add(&mut self, key: Cow<'a, str>) {
+        let next = self.names.len();
+        if !self.places.contains_key(key.as_ref()) {
+            self.places.insert(key.clone(), next);
+            self.names.push(key);
+        }
+    }
+
+    pub(crate) fn names(&self) -> &[Cow<'a, str>] {
         &self.names
+    }
+
+    /// Forgets every name given after the first `count`.
+    pub(crate) fn truncate(&mut self, count: usize) {
+        for name in self.names.drain(count.min(self.names.len())..) {
+            self.places.remove(name.as_ref());
+        }
     }
 
     fn place(&self, key: &str) -> usize {
         self.places[key]
+    }
+}
+
+impl Keys<'static> {
+    /// Names given in this order, as an archive's `keys` list lists them.
+    pub(crate) fn listed(names: Vec<String>) -> Self {
+        let mut keys = Self::default();
+        for name in names {
+            keys.add(Cow::Owned(name));
+        }
+        keys
     }
 }
 
@@ -245,23 +283,25 @@ impl Serialize for CompactChanges<'_, '_> {
     }
 }
 
-/// A run of events, each written against the one before it.
+/// A run of events, each written against the one before it; the first
+/// against `previous`, the id and time of the event before the run.
 pub(crate) struct CompactEvents<'a, 'k> {
     pub events: &'a [ArchivedEvent],
     pub keys: &'k Keys<'a>,
+    pub previous: Option<(u64, u64)>,
 }
 
 impl Serialize for CompactEvents<'_, '_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut seq = serializer.serialize_seq(Some(self.events.len()))?;
-        let mut previous: Option<&ArchivedEvent> = None;
+        let mut previous = self.previous;
         for event in self.events {
             seq.serialize_element(&CompactEvent {
                 event,
                 previous,
                 keys: self.keys,
             })?;
-            previous = Some(event);
+            previous = Some((event.id, event.world_time));
         }
         seq.end()
     }
@@ -269,7 +309,7 @@ impl Serialize for CompactEvents<'_, '_> {
 
 struct CompactEvent<'a, 'k> {
     event: &'a ArchivedEvent,
-    previous: Option<&'a ArchivedEvent>,
+    previous: Option<(u64, u64)>,
     keys: &'k Keys<'a>,
 }
 
@@ -277,11 +317,11 @@ impl Serialize for CompactEvent<'_, '_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let event = self.event;
         let mut map = serializer.serialize_map(None)?;
-        if self.previous.map(|previous| previous.id.checked_add(1)) != Some(Some(event.id)) {
+        if self.previous.map(|(id, _)| id.checked_add(1)) != Some(Some(event.id)) {
             map.serialize_entry("i", &event.id)?;
         }
         map.serialize_entry("k", &event.kind)?;
-        if self.previous.map(|previous| previous.world_time) != Some(event.world_time) {
+        if self.previous.map(|(_, time)| time) != Some(event.world_time) {
             map.serialize_entry("t", &event.world_time)?;
         }
         if let Some(actor) = event.actor {

@@ -168,6 +168,7 @@ fn tone_for_event(event: &Event) -> Tone {
         | "support_requested" | "work_sought" => Tone::Warning,
         "support_repaid"
         | "boat_repaired"
+        | "boat_mended_together"
         | "bakery_reopened_lean"
         | "bakery_reopened"
         | "hardship_eased"
@@ -210,6 +211,10 @@ fn command_effects(command_id: &str) -> Vec<CommandEffect> {
             effect(JONAS_BOAT, "Sea Finch", to("sold for scrap"), Tone::Bad),
             effect(JONAS, "Jonas's cash", EffectChange::Up, Tone::Neutral),
         ],
+        crate::MEND_BOAT_TOGETHER_COMMAND => vec![
+            effect(JONAS_BOAT, "Sea Finch", to("mended"), Tone::Good),
+            effect(JONAS, "Jonas", to("back at sea"), Tone::Good),
+        ],
         crate::TAKE_JONAS_ON_COMMAND => vec![
             effect(JONAS, "Jonas", to("works the counter"), Tone::Good),
             effect(BAKERY, "Bakery till", EffectChange::Down, Tone::Warning),
@@ -224,9 +229,9 @@ fn question(command_id: &str) -> Option<world_projection::Question> {
         crate::REOPEN_BAKERY_COMMAND | crate::LEAN_REOPEN_BAKERY_COMMAND => {
             ("reopen", "The bakery's shut. How do I open again?")
         }
-        crate::REPAIR_BOAT_COMMAND | crate::SELL_BOAT_COMMAND => {
-            ("sea_finch", "What becomes of Sea Finch?")
-        }
+        crate::REPAIR_BOAT_COMMAND
+        | crate::SELL_BOAT_COMMAND
+        | crate::MEND_BOAT_TOGETHER_COMMAND => ("sea_finch", "What becomes of Sea Finch?"),
         _ => return None,
     };
     Some(world_projection::Question {
@@ -242,6 +247,7 @@ fn asker(command_id: &str) -> Option<SelectionId> {
         crate::RETAIN_WORKER_COMMAND
         | crate::REPAIR_BOAT_COMMAND
         | crate::SELL_BOAT_COMMAND
+        | crate::MEND_BOAT_TOGETHER_COMMAND
         | crate::TAKE_JONAS_ON_COMMAND => JONAS,
         crate::REOPEN_BAKERY_COMMAND | crate::LEAN_REOPEN_BAKERY_COMMAND => MARA,
         _ => return None,
@@ -325,6 +331,14 @@ pub(crate) fn available_commands(world: &World) -> Vec<ProjectionCommand> {
     }
 
     if crate::drift::sea_finch_can_be_sold(world.state()) {
+        commands.push(ProjectionCommand {
+            id: crate::MEND_BOAT_TOGETHER_COMMAND.into(),
+            title: "Mend her together".into(),
+            detail: "Evan shows everyone how. No money changes hands, and it takes a week of everyone's evenings. Jonas goes back to sea.".into(),
+            effects: Vec::new(),
+            scenery: None, asker: None, moves: Vec::new(), question: None, unavailable: None, hand: None,
+            preview: None,
+        });
         commands.push(ProjectionCommand {
             id: crate::SELL_BOAT_COMMAND.into(),
             title: "Sell Sea Finch for what it will fetch".into(),
@@ -683,6 +697,7 @@ pub(crate) fn narrated_title(world: &World, event: &Event) -> Option<String> {
             "Jonas sold Sea Finch for scrap while nobody was watching"
         }
         "boat_sold" => "Jonas sold Sea Finch for scrap",
+        "boat_mended_together" => "The whole harbour mended Sea Finch together",
         "living_cost_unmet" => "Jonas could not cover his day",
         "hardship_began" => "Jonas started eating into his savings",
         "hardship_eased" => "Jonas is covering his own days again",
@@ -848,8 +863,10 @@ fn narrated_kinds() -> &'static std::collections::BTreeSet<&'static str> {
             "undone_by_hand",
             "enjoyed",
         ];
-        const TABLE: [&str; 30] = [
+        const TABLE: [&str; 32] = [
             "chapter_ended",
+            "boat_mended_together",
+            "hand_lent",
             "festival_held",
             "payroll_shortfall",
             "support_repaid",
@@ -1811,14 +1828,14 @@ mod probe_parts {
             let mut story_only = sketch.clone();
             once!(
                 "story tick",
-                crate::story::tick(&mut story_only, &actions, false).unwrap()
+                crate::story::tick(&mut story_only, actions, false).unwrap()
             );
             let cast = t!("cast_in", crate::life::cast_in(sketch.state()));
             once!(
                 "lives tick",
                 lives::tick_with(
                     &mut sketch,
-                    &actions,
+                    actions,
                     &cast,
                     false,
                     false,
@@ -1829,17 +1846,17 @@ mod probe_parts {
             let kit = crate::handwork::kit(sketch.state());
             once!(
                 "hands tick",
-                hands::tick(&mut sketch, &actions, &kit).unwrap()
+                hands::tick(&mut sketch, actions, &kit).unwrap()
             );
             let almanac = crate::almanac::almanac(sketch.state());
             once!(
                 "calendar tick",
-                calendar::tick(&mut sketch, &actions, &almanac).unwrap()
+                calendar::tick(&mut sketch, actions, &almanac).unwrap()
             );
             t!("gauges", gauges(&sketch));
             once!(
                 "years tick",
-                crate::years::tick(&mut sketch, &actions).unwrap()
+                crate::years::tick(&mut sketch, actions).unwrap()
             );
         }
         t!("sketch", world.sketch(world_projection::RECENT_EVENTS));

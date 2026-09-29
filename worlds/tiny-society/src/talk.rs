@@ -216,6 +216,10 @@ fn said(world: &World, event: &Event) -> Option<(EntityId, String)> {
         ),
         "boat_damaged" => (JONAS, "The storm's wrecked Sea Finch.".into()),
         "boat_repaired" => (EVAN, "She's sound again. Take her out.".into()),
+        "boat_mended_together" => (
+            JONAS,
+            "Every soul on the island put a nail in her. She'll float forever.".into(),
+        ),
         "boat_sold" => (JONAS, "That's it, then. No more fishing.".into()),
         "bakery_closed" => (MARA, "I can't keep the doors open.".into()),
         "bakery_reopened" => (MARA, "Fresh bread tomorrow, same as ever.".into()),

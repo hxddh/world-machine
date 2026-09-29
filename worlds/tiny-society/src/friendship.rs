@@ -291,7 +291,7 @@ fn a_suggestion_follows_from_people_and_weather_and_replays() {
     let came = |fair: bool, idea: &str| {
         let mut world = branch.world().clone();
         let event = world
-            .execute(&actions, &lives::suggestion_request(idea, fair))
+            .execute(actions, &lives::suggestion_request(idea, fair))
             .unwrap();
         let came = match event.payload.get("came") {
             Some(world_core::Value::Integer(came)) => *came,
@@ -306,10 +306,10 @@ fn a_suggestion_follows_from_people_and_weather_and_replays() {
     // Once suggested, not again for a while.
     let mut world = branch.world().clone();
     world
-        .execute(&actions, &lives::suggestion_request("market", true))
+        .execute(actions, &lives::suggestion_request("market", true))
         .unwrap();
     assert!(world
-        .execute(&actions, &lives::suggestion_request("market", true))
+        .execute(actions, &lives::suggestion_request("market", true))
         .is_err());
 }
 

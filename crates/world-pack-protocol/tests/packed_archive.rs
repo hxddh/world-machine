@@ -196,3 +196,68 @@ fn a_damaged_packed_archive_is_refused() {
     );
     assert!(decode_request(&line).is_err());
 }
+
+/// A host that keeps its archive writes `open` without a copy of it, to
+/// the same line `encode_request` writes, in every protocol.
+#[test]
+fn an_open_request_for_a_kept_archive_is_the_same_line() {
+    let with_checkpoint = archive(30);
+    let mut without_checkpoint = with_checkpoint.clone();
+    without_checkpoint.checkpoint = None;
+    for version in 1..=PACK_PROTOCOL_VERSION_V5 {
+        for archive in [&with_checkpoint, &without_checkpoint] {
+            let copied = PackRequestEnvelope::for_version(
+                version,
+                7,
+                PackRequest::Open {
+                    archive: archive.clone(),
+                },
+            );
+            let kept = world_pack_protocol::encode_open_request(version, 7, archive);
+            match copied {
+                Ok(envelope) => assert_eq!(kept.unwrap(), encode_request(&envelope).unwrap()),
+                Err(_) => assert!(kept.is_err(), "v{version}"),
+            }
+        }
+    }
+}
+
+/// Opened from a World file, the archive crosses as the file keeps it
+/// deflated, and reads back as the archive.
+#[test]
+fn an_archive_deflated_as_a_file_keeps_it_opens_as_the_archive() {
+    use std::io::Write;
+    let archive = archive(30);
+    let mut json = archive.to_compact_json(&serde_json::Map::new()).unwrap();
+    // A World file's own fields sit alongside, and are passed over.
+    json.pop();
+    json.extend_from_slice(br#","document":{"display_title":"Kept"}}"#);
+    let mut encoder = flate2::write::DeflateEncoder::new(Vec::new(), flate2::Compression::new(2));
+    encoder.write_all(&json).unwrap();
+    let deflated = encoder.finish().unwrap();
+
+    let line = world_pack_protocol::encode_open_request_deflated(
+        PACK_PROTOCOL_VERSION_V5,
+        3,
+        &archive,
+        &deflated,
+    )
+    .unwrap();
+    let decoded = decode_request(&line).unwrap();
+    assert_eq!(decoded.request_id, 3);
+    assert_eq!(
+        decoded.request,
+        PackRequest::Open {
+            archive: archive.clone()
+        }
+    );
+
+    // A Pack before v5 cannot be handed it so.
+    assert!(world_pack_protocol::encode_open_request_deflated(
+        PACK_PROTOCOL_VERSION_V4,
+        3,
+        &archive,
+        &deflated,
+    )
+    .is_err());
+}
