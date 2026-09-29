@@ -67,6 +67,26 @@ pub struct AppSettings {
     /// whether it stays in front. Omitted while it is as it starts.
     #[serde(default, skip_serializing_if = "StripSettings::is_default")]
     pub strip: StripSettings,
+    /// Which gentle pointers the player has been shown, and which things
+    /// they have used, so each pointer shows once and none points at what
+    /// is known. Interface state, never a World's. Omitted while empty.
+    #[serde(default, skip_serializing_if = "HintSettings::is_empty")]
+    pub hints: HintSettings,
+}
+
+/// The gentle pointers' record, by name.
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub struct HintSettings {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub shown: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub used: Vec<String>,
+}
+
+impl HintSettings {
+    fn is_empty(&self) -> bool {
+        self.shown.is_empty() && self.used.is_empty()
+    }
 }
 
 /// How a World shown as a strip along the edge of a screen is placed.
@@ -144,6 +164,7 @@ impl AppSettings {
             text_scale: None,
             increase_contrast: None,
             strip: StripSettings::default(),
+            hints: HintSettings::default(),
         }
     }
 
@@ -365,6 +386,25 @@ pub fn save_strip(root: &Path, strip: StripSettings) -> Result<(), AppSettingsEr
     update_settings(root, move |settings| settings.strip = strip)
 }
 
+/// Adds to the gentle pointers' record. It only ever grows (a pointer
+/// shown stays shown, a thing used stays used), so writes that land out of
+/// order still leave everything that was written.
+pub fn save_hints(root: &Path, hints: HintSettings) -> Result<(), AppSettingsError> {
+    update_settings(root, move |settings| {
+        for (kept, new) in [
+            (&mut settings.hints.shown, hints.shown),
+            (&mut settings.hints.used, hints.used),
+        ] {
+            for name in new {
+                if !kept.contains(&name) {
+                    kept.push(name);
+                }
+            }
+            kept.sort();
+        }
+    })
+}
+
 fn update_settings(
     root: &Path,
     update: impl FnOnce(&mut AppSettings),
@@ -465,6 +505,10 @@ mod tests {
             text_scale: None,
             increase_contrast: None,
             strip: StripSettings::default(),
+            hints: HintSettings {
+                shown: vec!["hands".into()],
+                used: vec!["zoom".into()],
+            },
         };
         save(&fixture.root, &settings).unwrap();
         assert_eq!(load(&fixture.root).unwrap(), settings);
@@ -693,6 +737,35 @@ mod tests {
         };
         save_strip(&fixture.root, strip.clone()).unwrap();
         assert_eq!(load(&fixture.root).unwrap().strip, strip);
+    }
+
+    #[test]
+    fn the_hints_record_only_grows_and_is_left_out_until_there_is_one() {
+        let fixture = Fixture::new();
+        let root = &fixture.root;
+        save(root, &AppSettings::empty()).unwrap();
+        let written = fs::read_to_string(settings_path(root)).unwrap();
+        assert!(!written.contains("hints"), "{written}");
+        save_hints(
+            root,
+            HintSettings {
+                shown: vec!["zoom".into(), "hands".into()],
+                used: vec!["drawer".into()],
+            },
+        )
+        .unwrap();
+        // An older write landing late takes nothing away.
+        save_hints(
+            root,
+            HintSettings {
+                shown: vec!["hands".into()],
+                used: Vec::new(),
+            },
+        )
+        .unwrap();
+        let hints = load(root).unwrap().hints;
+        assert_eq!(hints.shown, vec!["hands".to_string(), "zoom".to_string()]);
+        assert_eq!(hints.used, vec!["drawer".to_string()]);
     }
 
     #[test]

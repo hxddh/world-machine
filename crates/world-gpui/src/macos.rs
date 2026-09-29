@@ -15,7 +15,7 @@ use crate::scene;
 
 mod world_window;
 #[cfg(test)]
-pub(crate) use world_window::postcard_paper;
+pub(crate) use world_window::{pointer_hint, postcard_paper, zoom_button, Caret};
 pub use world_window::{scene_share, speech_pages, words_at_rest, RESTING_WORD_LIMIT};
 
 const ENTITY_HISTORY_LIMIT: usize = 6;
@@ -53,7 +53,13 @@ pub struct ProjectionView {
     /// branch, something said), so work that finishes later can tell
     /// whether the World it started in is still the one on screen.
     revision: u64,
+    /// What the host does to show this World as a strip along the edge of
+    /// the screen, if it can.
+    strip: Option<ShowStrip>,
 }
+
+/// What the host does to show a World as a strip.
+type ShowStrip = std::rc::Rc<dyn Fn(&mut Window, &mut gpui::App)>;
 
 impl ProjectionView {
     pub fn new(snapshot: ProjectionSnapshot) -> Self {
@@ -71,6 +77,7 @@ impl ProjectionView {
             retelling,
             looking: Default::default(),
             revision: 0,
+            strip: None,
         };
         view.looking.answer = view.first_available_answer();
         view
@@ -91,6 +98,12 @@ impl ProjectionView {
     /// What the view is showing now.
     pub fn snapshot(&self) -> &ProjectionSnapshot {
         &self.snapshot
+    }
+
+    /// Offers a handle that shows this World as a strip, doing `show`.
+    pub fn with_strip(mut self, show: impl Fn(&mut Window, &mut gpui::App) + 'static) -> Self {
+        self.strip = Some(std::rc::Rc::new(show));
+        self
     }
 
     pub fn without_header(mut self) -> Self {

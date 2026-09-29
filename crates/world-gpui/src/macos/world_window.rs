@@ -9,6 +9,7 @@
 use super::*;
 use crate::art::{self, Figure};
 use crate::diorama::{self, Camera, Glows, Stage};
+use crate::pointers::{self, Pointer};
 use gpui::{canvas, Focusable, Hsla, KeyDownEvent, Role, Stateful};
 use std::collections::BTreeSet;
 use std::time::{Duration, Instant};
@@ -67,6 +68,85 @@ const CONVERSATION_SHOWN: usize = 3;
 const GAUGE_SECONDS: f32 = 0.9;
 /// How long something new takes to rise.
 const RISE_SECONDS: f32 = 1.1;
+/// How much one press of the zoom control (or + and −) zooms, and the
+/// closest the camera goes.
+const ZOOM_STEP: f32 = 1.25;
+const ZOOM_MOST: f32 = 2.2;
+/// How wide a pointer is.
+const HINT_WIDTH: f32 = 280.0;
+/// The shortest stage the zoom control is pointed at on: shorter, the
+/// pointer beside it could reach down to the card.
+const ZOOM_HINT_ROOM: f32 = 520.0;
+
+/// Where the zoom control sits, down the left of a stage `height` tall:
+/// below the stakes, well above the card.
+fn zoom_top(height: f32) -> f32 {
+    (height * 0.38).max(96.0)
+}
+
+/// A rectangle on the stage: left, top, width, height.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Area {
+    pub(crate) x: f32,
+    pub(crate) y: f32,
+    pub(crate) w: f32,
+    pub(crate) h: f32,
+}
+
+impl Area {
+    pub(crate) fn overlaps(&self, other: &Area) -> bool {
+        self.x < other.x + other.w
+            && other.x < self.x + self.w
+            && self.y < other.y + other.h
+            && other.y < self.y + self.h
+    }
+}
+
+/// Where a speech bubble over a head at `x`, `y` is drawn, generously.
+fn bubble_box(x: f32, y: f32, stage: &Stage) -> Area {
+    let x = bubble_centre(x, stage);
+    Area {
+        x: x - BUBBLE_ROOM / 2.0,
+        y: y - 110.0,
+        w: BUBBLE_ROOM,
+        h: 110.0,
+    }
+}
+
+/// Where each pointer is drawn on a stage `width` by `height`, generously:
+/// under its handle in the top right, beside the zoom control, or just
+/// above the card.
+pub(crate) fn hint_area(pointer: Pointer, width: f32, height: f32) -> Area {
+    match pointer {
+        Pointer::Hands | Pointer::Drawer | Pointer::Letters | Pointer::Strip => Area {
+            x: width - 16.0 - HINT_WIDTH - 60.0,
+            y: 40.0,
+            w: HINT_WIDTH + 60.0,
+            h: 140.0,
+        },
+        Pointer::Zoom => Area {
+            x: 16.0,
+            y: zoom_top(height) - 20.0,
+            w: 48.0 + HINT_WIDTH,
+            h: 110.0,
+        },
+        Pointer::Cards => Area {
+            x: width / 2.0 - CARD_WIDTH / 2.0,
+            y: height - 460.0,
+            w: CARD_WIDTH,
+            h: 160.0,
+        },
+    }
+}
+
+/// Which way a pointer's little arrow points: at a handle above it, the
+/// card below it, or the zoom control to its left.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Caret {
+    Up,
+    Down,
+    Left,
+}
 
 /// Presentation state: what the player is looking at, never what the
 /// World is.
@@ -130,6 +210,10 @@ pub(crate) struct Looking {
     /// scene while the photograph is taken, and when the last was saved.
     pub(crate) postcard: Option<crate::postcard::Postcard>,
     pub(crate) postcard_saved: Option<Instant>,
+    /// The gentle pointer showing now, and since when.
+    pub(crate) pointer: Option<(Pointer, Instant)>,
+    /// When the last pointer went away.
+    pub(crate) pointer_gone: Option<Instant>,
 }
 
 /// The player's hands: which verb they picked, and what they are about to
@@ -560,6 +644,24 @@ fn answer_seconds(answer: &str) -> f32 {
 
 /// A speech bubble over someone: what they say, with a tail pointing down
 /// at them. `x`, `y` is the top of their head, on screen.
+/// How wide a speech bubble can be.
+const BUBBLE_ROOM: f32 = 300.0;
+
+/// Where a bubble over a head at `x` is centred: over them, but inside the
+/// stage; on a stage too narrow for it, in the middle (clamp would panic
+/// with its bounds the wrong way round).
+fn bubble_centre(x: f32, stage: &Stage) -> f32 {
+    let (low, high) = (
+        BUBBLE_ROOM / 2.0 + 8.0,
+        stage.width - BUBBLE_ROOM / 2.0 - 8.0,
+    );
+    if high >= low {
+        x.clamp(low, high)
+    } else {
+        stage.width / 2.0
+    }
+}
+
 fn bubble(
     key: String,
     line: String,
@@ -569,15 +671,8 @@ fn bubble(
     opacity: f32,
     strong: bool,
 ) -> Div {
-    const ROOM: f32 = 300.0;
-    // Keep the bubble inside the stage; on a stage too narrow for it,
-    // centre it (clamp would panic with its bounds the wrong way round).
-    let (low, high) = (ROOM / 2.0 + 8.0, stage.width - ROOM / 2.0 - 8.0);
-    let x = if high >= low {
-        x.clamp(low, high)
-    } else {
-        stage.width / 2.0
-    };
+    const ROOM: f32 = BUBBLE_ROOM;
+    let x = bubble_centre(x, stage);
     let ink: Hsla = color(tokens::TEXT).into();
     let ground: Hsla = gpui::white();
     let tail = canvas(
@@ -712,7 +807,16 @@ impl ProjectionView {
         self.looking.card = (self.looking.card as isize + by).rem_euclid(count as isize) as usize;
         self.looking.answer = self.first_available_answer();
         self.looking.card_back = false;
+        pointers::used(Pointer::Cards);
         self.cue(crate::Cue::Flip);
+        cx.notify();
+    }
+
+    /// Turns the card in front over, to what a choice would change, or
+    /// back.
+    fn turn_card(&mut self, cx: &mut Context<Self>) {
+        self.looking.card_back = !self.looking.card_back;
+        pointers::used(Pointer::Cards);
         cx.notify();
     }
 
@@ -773,8 +877,21 @@ impl ProjectionView {
     }
 
     fn toggle_drawer(&mut self, cx: &mut Context<Self>) {
-        self.looking.drawer = !self.looking.drawer;
+        if self.looking.drawer {
+            self.looking.drawer = false;
+        } else {
+            self.open_drawer();
+        }
         cx.notify();
+    }
+
+    /// Opens the drawer; with a letter in it, the letter box has been seen.
+    fn open_drawer(&mut self) {
+        self.looking.drawer = true;
+        pointers::used(Pointer::Drawer);
+        if !self.snapshot.letters.is_empty() {
+            pointers::used(Pointer::Letters);
+        }
     }
 
     fn ask(&mut self, who: SelectionId, cx: &mut Context<Self>) {
@@ -949,10 +1066,9 @@ impl ProjectionView {
             "up" => self.cycle_card(-1, cx),
             "down" => self.cycle_card(1, cx),
             "enter" => self.choose_card(cx),
-            "space" => {
-                self.looking.card_back = !self.looking.card_back;
-                cx.notify();
-            }
+            "space" => self.turn_card(cx),
+            "=" | "+" => self.zoom_by(ZOOM_STEP, None, window, cx),
+            "-" => self.zoom_by(1.0 / ZOOM_STEP, None, window, cx),
             _ => {}
         }
     }
@@ -1049,21 +1165,41 @@ impl ProjectionView {
         if delta == 0.0 {
             return;
         }
+        self.zoom_by(1.0 + delta * 0.004, Some(event.position), window, cx);
+    }
+
+    /// A pinch on a trackpad zooms in on the place between the fingers,
+    /// and back out.
+    fn on_pinch(&mut self, event: &gpui::PinchEvent, window: &Window, cx: &mut Context<Self>) {
+        if event.delta != 0.0 {
+            self.zoom_by(1.0 + event.delta, Some(event.position), window, cx);
+        }
+    }
+
+    /// Zooms by `factor` on the stage point under `at` (a place in the
+    /// window), or on the middle of what is in view.
+    fn zoom_by(
+        &mut self,
+        factor: f32,
+        at: Option<gpui::Point<gpui::Pixels>>,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
         let (width, height) = self.stage_size(window);
         let stage = diorama::stage(&self.snapshot, width, height);
         let camera = self
             .looking
             .camera_now
             .unwrap_or_else(|| Camera::whole(&stage));
-        let pointer = (
-            f32::from(event.position.x),
-            f32::from(event.position.y) - CHROME,
-        );
-        let (x, y) = camera.stage_point(&stage, pointer.0, pointer.1);
-        let zoom = (self.looking.zoom * (1.0 + delta * 0.004)).clamp(1.0, 2.2);
+        let (x, y) = at.map_or((width / 2.0, height / 2.0), |at| {
+            (f32::from(at.x), f32::from(at.y) - CHROME)
+        });
+        let (x, y) = camera.stage_point(&stage, x, y);
+        let zoom = (self.looking.zoom * factor).clamp(1.0, ZOOM_MOST);
         if (zoom - self.looking.zoom).abs() > f32::EPSILON {
             self.looking.zoom = zoom;
             self.looking.zoom_on = (x, y);
+            pointers::used(Pointer::Zoom);
             cx.notify();
         }
     }
@@ -1298,6 +1434,7 @@ impl ProjectionView {
         self.looking.hands = match self.looking.hands {
             Some(_) => None,
             None => {
+                pointers::used(Pointer::Hands);
                 let verb = VERBS
                     .into_iter()
                     .find(|verb| self.snapshot.deeds().any(|(_, _, hand)| hand.verb == *verb))
@@ -1576,6 +1713,9 @@ impl ProjectionView {
                         this.on_wheel(event, window, cx)
                     }),
                 )
+                .on_pinch(cx.listener(|this, event: &gpui::PinchEvent, window, cx| {
+                    this.on_pinch(event, window, cx)
+                }))
                 .child({
                     let frame = frame.clone();
                     canvas(
@@ -1640,7 +1780,7 @@ impl ProjectionView {
                         }
                         this.looking.poked = Some((selection, Instant::now()));
                         this.select(selection, cx);
-                        this.looking.drawer = true;
+                        this.open_drawer();
                     })),
             );
         }
@@ -1688,6 +1828,12 @@ impl ProjectionView {
                     })),
             );
         }
+        // Where a line said now is, so no pointer covers it.
+        let spoken = line.as_ref().and_then(|(who, ..)| {
+            let (_, x, y) = heads.iter().find(|(id, ..)| id == who)?;
+            Some(bubble_box(*x, *y, &stage))
+        });
+        let pointing = self.point(width, height, spoken);
         // Whoever is talking, over their head.
         if let Some((who, text, fade, strong)) = line {
             if let Some((_, x, y)) = heads.iter().find(|(id, ..)| *id == who) {
@@ -1785,7 +1931,23 @@ impl ProjectionView {
                     .child(pill().child(ui::t(words))),
             );
         }
-        root = root.child(self.render_hud(cx));
+        root = root.child(self.render_hud(pointing, cx));
+        if !is_beginning(&self.snapshot) && self.retelling.is_none() {
+            let hint = pointing
+                .filter(|(pointer, _)| *pointer == Pointer::Zoom)
+                .map(|(pointer, age)| self.pointer_hint(pointer, age, Caret::Left, cx));
+            root = root.child(
+                div()
+                    .absolute()
+                    .left(px(16.0))
+                    .top(px(zoom_top(height)))
+                    .flex()
+                    .items_center()
+                    .gap_1()
+                    .child(self.render_zoom(cx))
+                    .children(hint),
+            );
+        }
         if let Some(beginning) = self.render_beginning(width >= 760.0, cx) {
             root = root.child(
                 div()
@@ -1813,6 +1975,17 @@ impl ProjectionView {
             } else {
                 self.render_card(cx)
             };
+            // A pointer at the cards sits just above them, never on them.
+            let card = card.map(|card| match pointing {
+                Some((Pointer::Cards, age)) if self.retelling.is_none() => div()
+                    .flex()
+                    .flex_col()
+                    .items_start()
+                    .gap_1()
+                    .child(self.pointer_hint(Pointer::Cards, age, Caret::Down, cx))
+                    .child(card),
+                _ => card,
+            });
             if let Some(card) = card {
                 root = root.child(
                     bottom_card(card, room)
@@ -1848,9 +2021,143 @@ impl ProjectionView {
         root.into_any_element()
     }
 
+    /// Whether the player's hands have anything to do here.
+    fn has_deeds(&self) -> bool {
+        self.controller.is_some()
+            && self.retelling.is_none()
+            && !is_beginning(&self.snapshot)
+            && self.snapshot.deeds().next().is_some()
+    }
+
+    /// The gentle pointer to show now, and how long it has shown: it keeps
+    /// to the app's record (each once, none at what has been used), waits
+    /// while anything else is going on, and never covers a line being said.
+    fn point(&mut self, width: f32, height: f32, spoken: Option<Area>) -> Option<(Pointer, f32)> {
+        let record = pointers::record()?;
+        let quiet = self.controller.is_some()
+            && self.retelling.is_none()
+            && !is_beginning(&self.snapshot)
+            && self.looking.hands.is_none()
+            && self.looking.asking.is_none()
+            && !self.looking.drawer
+            && !self.looking.photographing
+            && chapter_just_ended(&self.snapshot, self.looking.chapter_read).is_none()
+            && self
+                .looking
+                .gift_at
+                .is_none_or(|at| since(Some(at)) > GIFT_SECONDS)
+            && self
+                .looking
+                .opening
+                .is_none_or(|at| since(Some(at)) > question_waits(&self.snapshot) + LINE_SECONDS);
+        let clear = |pointer: Pointer| {
+            spoken.is_none_or(|spoken| !hint_area(pointer, width, height).overlaps(&spoken))
+        };
+        if let Some((pointer, at)) = self.looking.pointer {
+            let age = since(Some(at));
+            if !record.used.contains(&pointer) && age < pointers::LASTS && quiet {
+                return clear(pointer).then_some((pointer, age));
+            }
+            self.looking.pointer = None;
+            self.looking.pointer_gone = Some(Instant::now());
+        }
+        let mut offered = BTreeSet::new();
+        if self.has_deeds() {
+            offered.insert(Pointer::Hands);
+        }
+        if card_order(&self.snapshot).len() > 1 && self.card_command().is_some() {
+            offered.insert(Pointer::Cards);
+        }
+        offered.insert(Pointer::Drawer);
+        if height >= ZOOM_HINT_ROOM {
+            offered.insert(Pointer::Zoom);
+        }
+        if !self.snapshot.letters.is_empty() {
+            offered.insert(Pointer::Letters);
+        }
+        if self.strip.is_some() {
+            offered.insert(Pointer::Strip);
+        }
+        offered.retain(|pointer| clear(*pointer));
+        let now = pointers::Now {
+            open_for: since(self.looking.started),
+            since_last: self.looking.pointer_gone.map(|at| since(Some(at))),
+            quiet,
+            offered,
+        };
+        let pointer = pointers::next(&record, &now)?;
+        pointers::shown(pointer);
+        self.looking.pointer = Some((pointer, Instant::now()));
+        Some((pointer, 0.0))
+    }
+
+    /// A pointer as it shows, `age` seconds in: rising in on a spring and
+    /// fading at the end, or simply there with Reduce Motion on.
+    fn pointer_hint(
+        &self,
+        pointer: Pointer,
+        age: f32,
+        caret: Caret,
+        cx: &mut Context<Self>,
+    ) -> gpui::AnyElement {
+        let still = cx.reduce_motion();
+        let fade = if still {
+            1.0
+        } else {
+            ((pointers::LASTS - age) / 0.6).clamp(0.0, 1.0)
+        };
+        let hint = pointer_hint(
+            pointer,
+            caret,
+            cx.listener(|this, _, _, cx| {
+                cx.stop_propagation();
+                this.looking.pointer = None;
+                this.looking.pointer_gone = Some(Instant::now());
+                cx.notify();
+            }),
+        )
+        .opacity(fade);
+        ui::spring_in(hint, format!("pointer-{}", pointer.key()), still).into_any_element()
+    }
+
+    /// The zoom control: closer, and back out, beside the wheel and a
+    /// pinch.
+    fn render_zoom(&self, cx: &mut Context<Self>) -> Stateful<Div> {
+        let closest = self.looking.zoom >= ZOOM_MOST - 0.01;
+        let whole = self.looking.zoom <= 1.01;
+        div()
+            .id("zoom")
+            .role(Role::Group)
+            .aria_label(ui::t("Zoom"))
+            .flex()
+            .flex_col()
+            .items_center()
+            .gap_1()
+            .p_1()
+            .rounded_full()
+            .bg(color(tokens::SURFACE).opacity(0.86))
+            .shadow_sm()
+            .child(
+                zoom_button("zoom-in", "+", "Zoom in (+)", closest)
+                    .aria_keyshortcuts("+")
+                    .on_click(
+                        cx.listener(|this, _, window, cx| {
+                            this.zoom_by(ZOOM_STEP, None, window, cx)
+                        }),
+                    ),
+            )
+            .child(
+                zoom_button("zoom-out", "−", "Zoom out (−)", whole)
+                    .aria_keyshortcuts("-")
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.zoom_by(1.0 / ZOOM_STEP, None, window, cx)
+                    })),
+            )
+    }
+
     /// Over the sky: the stakes on the left, and on the right the moment
     /// and the drawer's handle.
-    fn render_hud(&self, cx: &mut Context<Self>) -> Div {
+    fn render_hud(&self, pointing: Option<(Pointer, f32)>, cx: &mut Context<Self>) -> Div {
         let previewing = self.card_command();
         let mut gauges = div().flex().flex_wrap().gap_2();
         for gauge in &self.snapshot.gauges {
@@ -1882,25 +2189,32 @@ impl ProjectionView {
                     .child(self.snapshot.moment_label(self.snapshot.world_time)),
             );
         }
+        // A pointer at one of these handles hangs just under it.
+        let hint_under = |handle: Stateful<Div>, pointers: &[Pointer], cx: &mut Context<Self>| {
+            let hint = pointing
+                .filter(|(pointer, _)| pointers.contains(pointer))
+                .map(|(pointer, age)| self.pointer_hint(pointer, age, Caret::Up, cx));
+            div()
+                .relative()
+                .child(handle)
+                .when_some(hint, |anchor, hint| {
+                    anchor.child(div().absolute().top(px(40.0)).right_0().child(hint))
+                })
+        };
         // The player's own hands: build, plant, give, invite.
-        let has_deeds = self.controller.is_some()
-            && self.retelling.is_none()
-            && !is_beginning(&self.snapshot)
-            && self.snapshot.deeds().next().is_some();
+        let has_deeds = self.has_deeds();
         if has_deeds {
             let open = self.looking.hands.is_some();
-            right = right.child(
-                pill()
-                    .id("hands-handle")
-                    .role(Role::Button)
-                    .aria_label(ui::t("Make something (H)"))
-                    .aria_expanded(open)
-                    .cursor_pointer()
-                    .when(open, |pill| pill.bg(color(tokens::ACCENT)))
-                    .hover(|style| style.bg(color(tokens::SURFACE)))
-                    .child(plus_glyph(open).size(px(16.0)))
-                    .on_click(cx.listener(|this, _, _, cx| this.toggle_hands(cx))),
-            );
+            let handle = ui::named(pill().id("hands-handle"), "Make something (H)")
+                .role(Role::Button)
+                .aria_keyshortcuts("h")
+                .aria_expanded(open)
+                .cursor_pointer()
+                .when(open, |pill| pill.bg(color(tokens::ACCENT)))
+                .hover(|style| style.bg(color(tokens::SURFACE)))
+                .child(plus_glyph(open).size(px(16.0)))
+                .on_click(cx.listener(|this, _, _, cx| this.toggle_hands(cx)));
+            right = right.child(hint_under(handle, &[Pointer::Hands], cx));
         }
         if let (true, Some((_, title))) = (has_deeds, self.undo_command()) {
             right = right.child(
@@ -1938,17 +2252,36 @@ impl ProjectionView {
                     .on_click(cx.listener(|this, _, window, cx| this.take_postcard(window, cx))),
             );
         }
-        right = right.child(
-            pill()
-                .id("drawer-handle")
-                .role(Role::Button)
-                .aria_expanded(self.looking.drawer)
-                .aria_label(ui::t("The drawer: story, keepsakes and the book (⌘I)"))
-                .cursor_pointer()
-                .hover(|style| style.bg(color(tokens::SURFACE)))
-                .child(drawer_glyph().size(px(16.0)))
-                .on_click(cx.listener(|this, _, _, cx| this.toggle_drawer(cx))),
-        );
+        if let Some(show) = self.strip.clone().filter(|_| {
+            self.controller.is_some() && self.retelling.is_none() && !is_beginning(&self.snapshot)
+        }) {
+            let handle = ui::named(
+                pill().id("strip-handle"),
+                "Show as a strip along the edge of the screen (⌥⌘S)",
+            )
+            .role(Role::Button)
+            .aria_keyshortcuts("Alt+Meta+S")
+            .cursor_pointer()
+            .hover(|style| style.bg(color(tokens::SURFACE)))
+            .child(strip_glyph().w(px(18.0)).h(px(16.0)))
+            .on_click(move |_, window, cx| {
+                pointers::used(Pointer::Strip);
+                show(window, cx);
+            });
+            right = right.child(hint_under(handle, &[Pointer::Strip], cx));
+        }
+        let handle = ui::named(
+            pill().id("drawer-handle"),
+            "The drawer: story, letters, keepsakes and the book (⌘I)",
+        )
+        .role(Role::Button)
+        .aria_keyshortcuts("Meta+I")
+        .aria_expanded(self.looking.drawer)
+        .cursor_pointer()
+        .hover(|style| style.bg(color(tokens::SURFACE)))
+        .child(drawer_glyph().size(px(16.0)))
+        .on_click(cx.listener(|this, _, _, cx| this.toggle_drawer(cx)));
+        right = right.child(hint_under(handle, &[Pointer::Drawer, Pointer::Letters], cx));
         div()
             .absolute()
             .top_0()
@@ -2225,7 +2558,7 @@ impl ProjectionView {
             dots = dots.child(arrow_button(
                 "card-previous",
                 "‹",
-                "Previous card",
+                "Previous card (↑)",
                 cx.listener(|this, _, _, cx| this.cycle_card(-1, cx)),
             ));
             for step in 0..count {
@@ -2243,7 +2576,7 @@ impl ProjectionView {
             dots = dots.child(arrow_button(
                 "card-next",
                 "›",
-                "Next card",
+                "Next card (↓)",
                 cx.listener(|this, _, _, cx| this.cycle_card(1, cx)),
             ));
         }
@@ -2262,19 +2595,23 @@ impl ProjectionView {
                         "More"
                     }))
                     .aria_expanded(self.looking.card_back)
+                    .aria_keyshortcuts("Space")
+                    .tooltip(ui::tip(if self.looking.card_back {
+                        "Turn the card back (Space)"
+                    } else {
+                        "Turn the card over: what this would change (Space)"
+                    }))
+                    .tooltip_show_delay(ui::TIP_DELAY)
                     .text_sm()
                     .text_color(color(tokens::TEXT_SECONDARY))
                     .cursor_pointer()
                     .hover(|style| style.text_color(color(tokens::ACCENT_TEXT)))
-                    .child(if self.looking.card_back {
+                    .child(ui::t(if self.looking.card_back {
                         "Less"
                     } else {
                         "More"
-                    })
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.looking.card_back = !this.looking.card_back;
-                        cx.notify();
-                    })),
+                    }))
+                    .on_click(cx.listener(|this, _, _, cx| this.turn_card(cx))),
             )
             .when(
                 question.is_none() && command.unavailable.is_none(),
@@ -2772,7 +3109,7 @@ impl ProjectionView {
                 .child(format!("More about {}", first_name(&name)))
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.selected = Some(who);
-                    this.looking.drawer = true;
+                    this.open_drawer();
                     cx.notify();
                 })),
         );
@@ -3059,6 +3396,158 @@ fn plus_glyph(open: bool) -> gpui::Canvas<()> {
     )
 }
 
+/// The strip's handle: a long, low window with a sliver of land in it.
+fn strip_glyph() -> gpui::Canvas<()> {
+    canvas(
+        |_, _, _| (),
+        |bounds, _, window, _| {
+            let ink: Hsla = color(tokens::TEXT_SECONDARY).into();
+            let x = f32::from(bounds.origin.x);
+            let y = f32::from(bounds.origin.y);
+            let w = f32::from(bounds.size.width);
+            let h = f32::from(bounds.size.height);
+            // The screen's edge, and the strip along its foot.
+            art::rect(window, x + 1.0, y + 2.0, w - 2.0, 1.5, 0.5, ink);
+            art::rect(window, x + 1.0, y + 2.0, 1.5, h - 4.0, 0.5, ink);
+            art::rect(window, x + w - 2.5, y + 2.0, 1.5, h - 4.0, 0.5, ink);
+            art::rect(
+                window,
+                x + 1.0,
+                y + h * 0.62,
+                w - 2.0,
+                h * 0.38 - 2.0,
+                1.0,
+                ink,
+            );
+        },
+    )
+}
+
+/// A pointer's little arrow, in the accent colour.
+fn caret(direction: Caret) -> gpui::Canvas<()> {
+    canvas(
+        |_, _, _| (),
+        move |bounds, _, window, _| {
+            let ink: Hsla = color(tokens::ACCENT).into();
+            let x = f32::from(bounds.origin.x);
+            let y = f32::from(bounds.origin.y);
+            let w = f32::from(bounds.size.width);
+            let h = f32::from(bounds.size.height);
+            let points = match direction {
+                Caret::Up => [(x, y + h), (x + w, y + h), (x + w / 2.0, y)],
+                Caret::Down => [(x, y), (x + w, y), (x + w / 2.0, y + h)],
+                Caret::Left => [(x + w, y), (x + w, y + h), (x, y + h / 2.0)],
+            };
+            art::polygon(window, &points, ink);
+        },
+    )
+}
+
+/// A gentle pointer at `pointer`'s thing: what it is and how to reach it,
+/// with a little arrow toward it and a way to put it away. A screen reader
+/// hears it as a status as it arrives.
+pub(crate) fn pointer_hint(
+    pointer: Pointer,
+    direction: Caret,
+    dismiss: impl Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App) + 'static,
+) -> Stateful<Div> {
+    let words = ui::t(pointer.words());
+    let note = div()
+        .w(px(HINT_WIDTH))
+        .flex()
+        .items_start()
+        .gap_2()
+        .px_3()
+        .py_2()
+        .rounded_lg()
+        .bg(color(tokens::SURFACE))
+        .border_1()
+        .border_color(color(tokens::ACCENT))
+        .shadow_md()
+        .child(
+            div()
+                .flex_1()
+                .min_w(px(0.0))
+                .text_sm()
+                .text_color(color(tokens::TEXT))
+                .child(words.clone()),
+        )
+        .child(
+            ui::named(
+                div().id(SharedString::from(format!(
+                    "pointer-dismiss-{}",
+                    pointer.key()
+                ))),
+                "Dismiss this hint",
+            )
+            .role(Role::Button)
+            .flex_shrink_0()
+            .size(px(20.0))
+            .rounded_full()
+            .flex()
+            .items_center()
+            .justify_center()
+            .text_sm()
+            .text_color(color(tokens::TEXT_SECONDARY))
+            .cursor_pointer()
+            .hover(|style| style.bg(color(tokens::ROW_HOVER)))
+            .child("×")
+            .on_click(dismiss),
+        );
+    let hint = div()
+        .id(SharedString::from(format!("pointer-{}", pointer.key())))
+        .role(Role::Status)
+        .aria_label(words)
+        .debug_selector(|| format!("pointer-{}", pointer.key()))
+        .flex();
+    match direction {
+        Caret::Up => hint
+            .flex_col()
+            .items_end()
+            .child(caret(direction).w(px(14.0)).h(px(8.0)).mr(px(13.0)))
+            .child(note),
+        Caret::Down => hint
+            .flex_col()
+            .items_start()
+            .child(note)
+            .child(caret(direction).w(px(14.0)).h(px(8.0)).ml(px(24.0))),
+        Caret::Left => hint
+            .flex_row()
+            .items_center()
+            .child(caret(direction).w(px(8.0)).h(px(14.0)))
+            .child(note),
+    }
+}
+
+/// One of the zoom control's two buttons, greyed at the end of its travel.
+pub(crate) fn zoom_button(
+    id: &'static str,
+    glyph: &'static str,
+    name: &'static str,
+    spent: bool,
+) -> Stateful<Div> {
+    ui::named(div().id(id), name)
+        .role(Role::Button)
+        .size(px(28.0))
+        .rounded_full()
+        .flex()
+        .items_center()
+        .justify_center()
+        .text_base()
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(color(if spent {
+            tokens::TEXT_TERTIARY
+        } else {
+            tokens::TEXT_SECONDARY
+        }))
+        .when(!spent, |button| {
+            button
+                .cursor_pointer()
+                .hover(|style| style.bg(color(tokens::ROW_HOVER)))
+        })
+        .child(glyph)
+}
+
 /// The drawer's handle: three short lines.
 fn drawer_glyph() -> gpui::Canvas<()> {
     canvas(
@@ -3179,10 +3668,8 @@ fn arrow_button(
     label: &'static str,
     on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App) + 'static,
 ) -> impl IntoElement {
-    div()
-        .id(id)
+    ui::named(div().id(id), label)
         .role(Role::Button)
-        .aria_label(ui::t(label))
         .size(px(26.0))
         .rounded_full()
         .flex()
@@ -3682,6 +4169,191 @@ mod tests {
         assert_eq!(node.is_selected(), Some(true));
         let (_, other) = accessible(&verb_tab("Give", false));
         assert_eq!(other.is_selected(), Some(false));
+    }
+
+    /// A place the tests can find a control by, as `ui::named` marks it.
+    fn named(name: &str) -> &'static str {
+        Box::leak(format!("named: {name}").into_boxed_str())
+    }
+
+    fn tip(name: &str) -> &'static str {
+        Box::leak(format!("tip: {name}").into_boxed_str())
+    }
+
+    /// Through GPUI's test window: every icon on the World (the hands,
+    /// the strip, the drawer, the zoom control, a card's arrows) shows its
+    /// name when the pointer rests on it, after a short delay and not at
+    /// once, and a screen reader hears the same name.
+    #[gpui::test]
+    fn icons_show_their_names_when_the_pointer_rests_on_them(cx: &mut gpui::TestAppContext) {
+        use gpui::{Modifiers, VisualTestContext};
+        let mut snapshot = a_full_drawer();
+        let choice = |id: &str| ProjectionCommand {
+            hand: None,
+            ..deed(id, "Mend")
+        };
+        snapshot.commands = vec![
+            deed("build", "Build"),
+            deed("give", "Give"),
+            choice("pier"),
+            choice("nets"),
+        ];
+        let window = cx.add_window(move |_, _| {
+            let mut view =
+                ProjectionView::controlled(Still(snapshot.clone())).with_strip(|_, _| {});
+            view.looking.opening = None;
+            view
+        });
+        let cx = &mut VisualTestContext::from_window(window.into(), cx);
+        cx.simulate_resize(gpui::size(px(1100.0), px(800.0)));
+        cx.run_until_parked();
+        for name in [
+            "Make something (H)",
+            "Show as a strip along the edge of the screen (⌥⌘S)",
+            "The drawer: story, letters, keepsakes and the book (⌘I)",
+            "Zoom in (+)",
+            "Zoom out (−)",
+            "Previous card (↑)",
+            "Next card (↓)",
+        ] {
+            let bounds = cx
+                .debug_bounds(named(name))
+                .unwrap_or_else(|| panic!("{name} is drawn"));
+            cx.simulate_mouse_move(bounds.center(), None, Modifiers::none());
+            cx.run_until_parked();
+            assert!(cx.debug_bounds(tip(name)).is_none(), "{name}: not at once");
+            cx.executor()
+                .advance_clock(ui::TIP_DELAY + Duration::from_millis(50));
+            cx.run_until_parked();
+            assert!(
+                cx.debug_bounds(tip(name)).is_some(),
+                "{name}: shown on hover"
+            );
+            // Away from it, it goes.
+            cx.simulate_mouse_move(gpui::point(px(540.0), px(400.0)), None, Modifiers::none());
+            cx.run_until_parked();
+        }
+    }
+
+    /// Every name an icon shows on hover is in the app's Chinese catalog.
+    #[test]
+    fn every_icon_name_is_translated() {
+        let catalog = world_i18n::Catalog::parse(crate::i18n::APP_ZH_HANS);
+        for name in [
+            "Make something (H)",
+            "Show as a strip along the edge of the screen (⌥⌘S)",
+            "The drawer: story, letters, keepsakes and the book (⌘I)",
+            "Zoom",
+            "Zoom in (+)",
+            "Zoom out (−)",
+            "Previous card (↑)",
+            "Next card (↓)",
+            "Close the drawer",
+            "Close",
+            "Close the strip",
+            "Put the letter away",
+            "Dismiss this hint",
+            "Turn the card over: what this would change (Space)",
+            "Turn the card back (Space)",
+        ] {
+            assert!(catalog.exact(name).is_some(), "no zh-Hans for {name:?}");
+        }
+    }
+
+    /// A World whose snapshot never changes, for the window tests.
+    struct Still(ProjectionSnapshot);
+
+    impl crate::ProjectionController for Still {
+        fn snapshot(&self) -> ProjectionSnapshot {
+            self.0.clone()
+        }
+
+        fn handle(&mut self, _: ProjectionIntent) -> Result<ProjectionSnapshot, String> {
+            Ok(self.0.clone())
+        }
+    }
+
+    /// A deed for the hands: something to `verb`, here and now.
+    fn deed(id: &str, verb: &str) -> ProjectionCommand {
+        ProjectionCommand {
+            id: id.into(),
+            title: format!("{verb} something"),
+            detail: String::new(),
+            effects: Vec::new(),
+            scenery: None,
+            asker: None,
+            moves: Vec::new(),
+            question: None,
+            unavailable: None,
+            hand: Some(world_projection::Hand {
+                verb: verb.into(),
+                thing: "Bench".into(),
+                cost: None,
+                at: Some(someone()),
+            }),
+            preview: None,
+        }
+    }
+
+    /// The icon-like controls are named buttons, and the tooltip itself is
+    /// a tooltip to a screen reader.
+    #[test]
+    fn icon_controls_and_their_tips_have_roles() {
+        let (role, node) = accessible(&zoom_button("zoom-in", "+", "Zoom in (+)", false));
+        assert_eq!(role, Some(Role::Button));
+        assert_eq!(node.label(), Some("Zoom in (+)"));
+        let (role, node) = accessible(&ui::named(div().id("x"), "Close the drawer"));
+        assert_eq!(role, None, "naming adds no role of its own");
+        assert_eq!(node.label(), Some("Close the drawer"));
+        let tip = gpui::div()
+            .id("tip")
+            .role(Role::Tooltip)
+            .aria_label("Zoom in (+)");
+        assert_eq!(accessible(&tip).0, Some(Role::Tooltip));
+    }
+
+    /// A pointer is a status a screen reader hears as it arrives, saying
+    /// what it points at, with a named button that puts it away.
+    #[test]
+    fn a_pointer_is_a_status_with_a_way_to_dismiss_it() {
+        for pointer in Pointer::ORDER {
+            for caret in [Caret::Up, Caret::Down, Caret::Left] {
+                let (role, node) = accessible(&pointer_hint(pointer, caret, |_, _, _| {}));
+                assert_eq!(role, Some(Role::Status));
+                assert_eq!(node.label(), Some(pointer.words()));
+            }
+        }
+    }
+
+    /// Where each pointer goes keeps clear of the card and of the speech
+    /// over anyone standing in the middle of the ground, on a usual window.
+    #[test]
+    fn pointers_keep_off_the_card() {
+        let (width, height) = (1100.0, 748.0);
+        // The card: centred at the bottom, as tall as a question with
+        // three answers.
+        let card = Area {
+            x: width / 2.0 - CARD_WIDTH / 2.0,
+            y: height - 20.0 - 280.0,
+            w: CARD_WIDTH,
+            h: 300.0,
+        };
+        for pointer in Pointer::ORDER {
+            assert!(
+                !hint_area(pointer, width, height).overlaps(&card),
+                "{pointer:?} would cover the card"
+            );
+        }
+        let apart = Area {
+            x: 0.0,
+            y: 0.0,
+            w: 10.0,
+            h: 10.0,
+        };
+        let touching = Area { x: 5.0, ..apart };
+        let beside = Area { x: 10.0, ..apart };
+        assert!(apart.overlaps(&touching));
+        assert!(!apart.overlaps(&beside));
     }
 
     struct Arriving(bool);

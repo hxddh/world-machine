@@ -4,6 +4,7 @@ pub mod diorama;
 mod golden;
 pub mod i18n;
 mod macos;
+pub mod pointers;
 pub mod postcard;
 pub mod scene;
 pub mod strip;
