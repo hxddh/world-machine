@@ -8,7 +8,16 @@
 //! in turn, so "You built a bench by Harbor Bakery" is shown from "You
 //! built a {} by {at}" with "bench" and "Harbor Bakery" translated too.
 //! Text is translated a sentence at a time, since the Worlds build their
-//! lines from sentences; anything no catalog knows is shown as it is.
+//! lines from sentences, and a run of sentences the catalog has as one
+//! line is taken whole. A line is never part translated: a template fits
+//! only when what fills each of its slots can be shown too, translated or
+//! as a name or number, which reads the same in any language; anything no
+//! catalog knows is shown as it is.
+//!
+//! People's names are never translated: they are shown in Latin letters,
+//! as they are written, in every line. A catalog may also say which words
+//! a speaker uses in place of others (`=nest<tab>home`), so a line said in
+//! their own words is read as the plain one.
 
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -27,6 +36,8 @@ struct Template {
     translation: String,
     /// The longest run of words, to rule a template out quickly.
     anchor: String,
+    /// How many sentences it is.
+    sentences: usize,
 }
 
 /// Lines in one language and their translation into another.
@@ -36,6 +47,10 @@ pub struct Catalog {
     templates: Vec<Template>,
     /// Lines with slots, as written, for filling them in every way.
     written: HashMap<String, String>,
+    /// Words a speaker says in place of others ("nest" for "home"), from
+    /// lines written `=nest<tab>home`: a sentence nobody wrote with the
+    /// one is tried again with the other.
+    instead: Vec<(String, String)>,
 }
 
 fn pieces(line: &str) -> Vec<Piece> {
@@ -75,11 +90,20 @@ impl Catalog {
             })
             .max_by_key(|words| words.trim().len())
             .unwrap_or_default();
+        let written = pieces
+            .iter()
+            .map(|piece| match piece {
+                Piece::Words(words) => words.as_str(),
+                Piece::Slot(_) => "Slot",
+            })
+            .collect::<String>();
+        let sentences = split_sentences(&written).len();
         self.templates.retain(|template| template.pieces != pieces);
         self.templates.push(Template {
             pieces,
             translation,
             anchor,
+            sentences,
         });
     }
 
@@ -93,6 +117,13 @@ impl Catalog {
                 continue;
             };
             let (from, to) = (unescape(from), unescape(to.trim_end()));
+            if let Some(said) = from.strip_prefix('=') {
+                if !said.is_empty() && !to.is_empty() {
+                    self.instead.retain(|(known, _)| known != said);
+                    self.instead.push((said.to_string(), to));
+                }
+                continue;
+            }
             if to.is_empty() || to == "SKIP" {
                 continue;
             }
@@ -199,16 +230,22 @@ impl Catalog {
                 .flat_map(|(english, chinese)| {
                     words
                         .iter()
-                        .map(|word| {
+                        .filter_map(|word| {
+                            // A word nobody translated is left out rather
+                            // than shown in English inside the line; a name
+                            // or a number reads the same in any language.
                             let shown = self
                                 .exact(word)
                                 .map(str::to_string)
-                                .or_else(|| self.whole(word, 1))
-                                .unwrap_or_else(|| (*word).to_string());
-                            (
+                                .or_else(|| {
+                                    self.translate(word)
+                                        .filter(|shown| keeps_only_names(word, shown))
+                                })
+                                .or_else(|| reads_as_a_name(word).then(|| (*word).to_string()))?;
+                            Some((
                                 english.replace(&marker, word),
                                 chinese.replace(&marker, &shown),
-                            )
+                            ))
                         })
                         .collect::<Vec<_>>()
                 })
@@ -237,8 +274,28 @@ impl Catalog {
         }
         let mut any = false;
         let mut out = String::new();
-        for sentence in sentences {
-            match self.whole(sentence, 0) {
+        let mut at = 0;
+        while at < sentences.len() {
+            // A run of sentences the catalog has as one line ("It hasn't
+            // rung in fifty years. I still listen for it.") is taken whole,
+            // the longest first, so a line said after another keeps the
+            // translation it has on its own.
+            let run = (at + 2..=sentences.len().min(at + 4))
+                .rev()
+                .find_map(|end| {
+                    let from = offset(text, sentences[at]);
+                    let last = sentences[end - 1];
+                    let to = offset(text, last) + last.len();
+                    let run = &text[from..to];
+                    self.whole(run, 0)
+                        .filter(|found| found != run)
+                        .map(|found| (end, found))
+                });
+            let (next, found) = match run {
+                Some((end, found)) => (end, Some(found)),
+                None => (at + 1, self.whole(sentences[at], 0)),
+            };
+            match found {
                 Some(found) => {
                     any = true;
                     out.push_str(&found);
@@ -247,15 +304,18 @@ impl Catalog {
                     if !out.is_empty() && !ends_wide(&out) {
                         out.push(' ');
                     }
-                    out.push_str(sentence);
+                    out.push_str(sentences[at]);
                 }
             }
+            at = next;
         }
         any.then_some(out)
     }
 
     /// A whole piece of text: exactly, with its first letter's case
-    /// turned, without its closing stop, or by a template.
+    /// turned, without its closing stop, or by a template whose slots are
+    /// all filled by what can be shown too. Never part translated: what
+    /// cannot be shown whole is `None`, and stays as it was written.
     fn whole(&self, text: &str, depth: usize) -> Option<String> {
         let text = text.trim();
         if text.is_empty() {
@@ -285,20 +345,57 @@ impl Catalog {
                 }
             }
         }
+        // "Wise!" where the catalog has "Wise." (and the other way), with
+        // its own stop; templates are tried with it too.
+        let swapped = swap_stop(text);
+        if swapped != text {
+            if let Some(found) = self
+                .exact
+                .get(&swapped)
+                .or_else(|| self.exact.get(&turn_first(&swapped)))
+            {
+                let bare = found.trim_end_matches(['。', '！', '.', '!']);
+                return Some(format!("{bare}{}", wide_stop(&text[text.len() - 1..])));
+            }
+        }
         if depth > 2 {
             return None;
         }
+        // A sentence with a word tacked on the end (", mind.", ", love.")
+        // is the sentence, then that word. Tried before the templates when
+        // the catalog knows the ending by itself, so a template's last slot
+        // does not take the ending in with it.
+        if let Some(found) = self.with_ending(text, depth) {
+            return Some(found);
+        }
+        // A template fits when what fills its slots can be shown too:
+        // translated, or a name or a number, which read the same in any
+        // language. The first such fit wins.
+        let sentences = split_sentences(text).len();
         for template in &self.templates {
-            if !text.contains(template.anchor.as_str())
-                && !turned.contains(template.anchor.as_str())
+            // A template is as many sentences as the text it fits.
+            if template.sentences != sentences
+                || !text.contains(template.anchor.as_str())
+                    && !turned.contains(template.anchor.as_str())
+                    && !swapped.contains(template.anchor.as_str())
             {
                 continue;
             }
-            // "!" where the line has "." (and the other way) still fits,
-            // and keeps its own stop.
-            let swapped = swap_stop(text);
+            // A first letter turned is for the template's own first word:
+            // a slot's words are taken as they are written.
+            let starts_with_slot = matches!(template.pieces.first(), Some(Piece::Slot(_)));
             for candidate in [text, turned.as_str(), swapped.as_str()] {
-                if let Some(slots) = fit(&template.pieces, candidate) {
+                if starts_with_slot && candidate == turned && turned != text {
+                    continue;
+                }
+                for slots in fits(&template.pieces, candidate) {
+                    // No slot holds more than one sentence.
+                    if slots
+                        .iter()
+                        .any(|(_, value)| split_sentences(value).len() > 1)
+                    {
+                        continue;
+                    }
                     let mut out = template.translation.clone();
                     if candidate == swapped && swapped != text {
                         out = match text.chars().last() {
@@ -306,85 +403,240 @@ impl Catalog {
                             _ => out.replacen('！', "。", 1),
                         };
                     }
+                    let mut clean = true;
                     for (name, value) in slots {
-                        let shown = self
-                            .whole(value, depth + 1)
-                            .unwrap_or_else(|| value.to_string());
+                        let shown = match self.whole(value, depth + 1) {
+                            Some(shown) => shown,
+                            None => {
+                                clean &= reads_as_a_name(value);
+                                // A list of names is listed the Chinese way.
+                                value.replace(", ", "、")
+                            }
+                        };
                         out = out.replace(&format!("{{{name}}}"), &shown);
                     }
-                    return Some(out);
+                    if clean {
+                        return Some(out);
+                    }
                 }
             }
         }
-        // A sentence with a word tacked on the end (", mind.", ", love.")
-        // is the sentence, then that word.
-        if let Some(comma) = text.rfind(", ") {
-            let (head, tail) = (&text[..comma], &text[comma..]);
-            if tail.len() <= 24 {
-                let stop = if text.ends_with('!') { "!" } else { "." };
-                if let (Some(head), Some(tail)) = (
-                    self.whole(&format!("{head}{stop}"), depth + 1),
-                    self.exact.get(tail),
-                ) {
-                    let head = head.trim_end_matches(['。', '！', '.', '!']);
-                    return Some(format!("{head}{tail}"));
+        // Said in someone's own words ("Nest to Nessa now."): read with the
+        // words they say instead turned back, one at a time and then all.
+        if depth <= 1 && sentences == 1 {
+            let mut all = text.to_string();
+            for (said, meant) in &self.instead {
+                let back = replace_word(text, said, meant);
+                if back == text {
+                    continue;
+                }
+                if let Some(found) = self.whole(&back, depth + 1) {
+                    return Some(found);
+                }
+                all = replace_word(&all, said, meant);
+            }
+            if all != text {
+                if let Some(found) = self.whole(&all, depth + 1) {
+                    return Some(found);
                 }
             }
         }
         None
     }
+
+    /// `text` as a sentence with an ending of its own (", mind.",
+    /// ", love!"), if the catalog knows both the sentence and the ending.
+    fn with_ending(&self, text: &str, depth: usize) -> Option<String> {
+        let comma = text.rfind(", ")?;
+        let (head, tail) = (&text[..comma], &text[comma..]);
+        if tail.len() > 24 || head.is_empty() {
+            return None;
+        }
+        let stop = text
+            .chars()
+            .last()
+            .filter(|stop| matches!(stop, '!' | '?' | '.'))
+            .unwrap_or('.');
+        let bare = tail.trim_end_matches(['.', '!', '?']);
+        let ending = [
+            tail.to_string(),
+            format!("{bare}."),
+            format!("{bare}!"),
+            format!("{bare}?"),
+        ]
+        .into_iter()
+        .find_map(|tail| self.exact.get(&tail))?;
+        // A question's ending ("..., eh?") hangs on a plain sentence.
+        let head_stop = if stop == '!' { '!' } else { '.' };
+        let head = self.whole(&format!("{head}{head_stop}"), depth + 1)?;
+        let head = head.trim_end_matches(['。', '！', '？', '.', '!', '?']);
+        let ending = ending.trim_end_matches(['。', '！', '？', '.', '!', '?']);
+        Some(format!("{head}{ending}{}", wide_stop(&stop.to_string())))
+    }
 }
 
-/// What fills each slot, if `text` fits the template's pieces: the words
-/// in order, the first at the start and the last at the end.
-fn fit<'a>(pieces: &'a [Piece], text: &'a str) -> Option<Vec<(&'a str, &'a str)>> {
-    let mut slots = Vec::new();
-    let mut at = 0;
-    let mut open: Option<&str> = None;
-    for (index, piece) in pieces.iter().enumerate() {
-        match piece {
-            Piece::Words(words) => {
-                let last = index + 1 == pieces.len();
-                let found = if open.is_none() {
-                    text[at..].starts_with(words.as_str()).then_some(at)
-                } else if last {
-                    text[at..]
-                        .ends_with(words.as_str())
-                        .then(|| text.len() - words.len())
-                        .filter(|found| *found >= at)
-                } else {
-                    text[at..].find(words.as_str()).map(|found| at + found)
-                }?;
-                if let Some(slot) = open.take() {
-                    let value = &text[at..found];
-                    if value.trim().is_empty() {
-                        return None;
-                    }
+/// Whether text left as it is reads as a name or a number, or a list of
+/// them: a few words each, every one starting with a capital or a digit
+/// ("Harbor Bakery", "Lin Mei", "12", "Tobias, Olek, Hana"), and no
+/// sentence in it.
+fn reads_as_a_name(text: &str) -> bool {
+    text.split(", ").all(|name| {
+        let words = name
+            .split(|c: char| c.is_whitespace() || c == '-')
+            .filter(|word| !word.is_empty())
+            .collect::<Vec<_>>();
+        !words.is_empty()
+            && words.len() <= 4
+            && !name.contains(['.', '!', '?', ',', ':', ';'])
+            && words.iter().all(|word| {
+                word.chars()
+                    .next()
+                    .is_some_and(|first| first.is_uppercase() || first.is_ascii_digit())
+            })
+    })
+}
+
+/// `text` with each whole word `word` (in any case) replaced by `with`,
+/// keeping a capital at its start.
+fn replace_word(text: &str, word: &str, with: &str) -> String {
+    let lower = text.to_lowercase();
+    if lower.len() != text.len() {
+        return text.to_string();
+    }
+    let mut out = String::new();
+    let (mut last, mut from) = (0, 0);
+    while let Some(found) = lower[from..].find(word) {
+        let start = from + found;
+        let end = start + word.len();
+        let before = lower[..start].chars().next_back();
+        let after = lower[end..].chars().next();
+        if before.is_none_or(|c| !c.is_alphanumeric()) && after.is_none_or(|c| !c.is_alphanumeric())
+        {
+            out.push_str(&text[last..start]);
+            if text[start..].starts_with(|c: char| c.is_uppercase()) {
+                out.push_str(&turn_first(with));
+            } else {
+                out.push_str(with);
+            }
+            last = end;
+        }
+        from = end;
+    }
+    out.push_str(&text[last..]);
+    out
+}
+
+/// Whether `shown`, a translation of `text`, has no words left in Latin
+/// letters but the names `text` has.
+fn keeps_only_names(text: &str, shown: &str) -> bool {
+    shown
+        .split(|c: char| !c.is_ascii_alphabetic())
+        .filter(|word| word.len() > 1)
+        .all(|word| {
+            word.starts_with(|c: char| c.is_ascii_uppercase())
+                && text
+                    .split(|c: char| !c.is_ascii_alphabetic())
+                    .any(|own| own == word)
+        })
+}
+
+/// Every way `text` fits the template's pieces, the likeliest first: what
+/// fills each slot, the words in order, the first at the start and the
+/// last at the end. Words between two slots may be found more than once
+/// ("{count} {fish}"), so each place they are found is tried in turn.
+fn fits<'a>(pieces: &'a [Piece], text: &'a str) -> Vec<Vec<(&'a str, &'a str)>> {
+    let mut out = Vec::new();
+    fit_from(pieces, text, 0, 0, None, &mut Vec::new(), &mut out);
+    out
+}
+
+fn fit_from<'a>(
+    pieces: &'a [Piece],
+    text: &'a str,
+    index: usize,
+    at: usize,
+    open: Option<&'a str>,
+    slots: &mut Vec<(&'a str, &'a str)>,
+    out: &mut Vec<Vec<(&'a str, &'a str)>>,
+) {
+    if out.len() >= 8 {
+        return;
+    }
+    let Some(piece) = pieces.get(index) else {
+        match open {
+            Some(slot) => {
+                let value = &text[at..];
+                if !value.trim().is_empty() {
                     slots.push((slot, value.trim()));
+                    out.push(slots.clone());
+                    slots.pop();
                 }
-                at = found + words.len();
             }
-            Piece::Slot(name) => {
-                if open.is_some() {
-                    // Two slots side by side cannot be told apart.
-                    return None;
+            None if at == text.len() => out.push(slots.clone()),
+            None => {}
+        }
+        return;
+    };
+    match piece {
+        Piece::Slot(name) => {
+            // Two slots side by side cannot be told apart.
+            if open.is_none() {
+                fit_from(pieces, text, index + 1, at, Some(name), slots, out);
+            }
+        }
+        Piece::Words(words) => {
+            let last = index + 1 == pieces.len();
+            let found: Vec<usize> = if open.is_none() {
+                text[at..]
+                    .starts_with(words.as_str())
+                    .then_some(at)
+                    .into_iter()
+                    .collect()
+            } else if last {
+                text[at..]
+                    .ends_with(words.as_str())
+                    .then(|| text.len() - words.len())
+                    .filter(|found| *found >= at)
+                    .into_iter()
+                    .collect()
+            } else {
+                text[at..]
+                    .match_indices(words.as_str())
+                    .map(|(found, _)| at + found)
+                    .collect()
+            };
+            for found in found {
+                let pushed = match open {
+                    Some(slot) => {
+                        let value = &text[at..found];
+                        if value.trim().is_empty() {
+                            continue;
+                        }
+                        slots.push((slot, value.trim()));
+                        true
+                    }
+                    None => false,
+                };
+                fit_from(
+                    pieces,
+                    text,
+                    index + 1,
+                    found + words.len(),
+                    None,
+                    slots,
+                    out,
+                );
+                if pushed {
+                    slots.pop();
                 }
-                open = Some(name.as_str());
             }
         }
     }
-    match open {
-        Some(slot) => {
-            let value = &text[at..];
-            if value.trim().is_empty() {
-                return None;
-            }
-            slots.push((slot, value.trim()));
-        }
-        None if at != text.len() => return None,
-        None => {}
-    }
-    Some(slots)
+}
+
+/// Where `part`, a slice of `text`, starts in it.
+fn offset(text: &str, part: &str) -> usize {
+    part.as_ptr() as usize - text.as_ptr() as usize
 }
 
 fn swap_stop(text: &str) -> String {
@@ -662,5 +914,86 @@ id_like_this\tSKIP
         );
         assert_eq!(Language::from_id("en-GB"), Some(Language::English));
         assert_eq!(Language::from_id("fr"), None);
+    }
+
+    const WHOLE: &str = "\
+{told}, bigger than last year, around the {made} you made\t{told}，比去年更热闹，就在你做的{made}旁边
+The swallows came back\t燕子回来了
+A year ago today: {told}.\t一年前的今天：{told}。
+bench\t长椅
+{a} sends their love.\t{a}向你问好。
+, mind.\t，记着。
+Home to {name} now.\t现在回{name}的家了。
+It hasn't rung in fifty years. I still listen for it.\t五十年没响过了。我还是会留神听。
+Funny, we've never talked about the bell.\t说来好笑，我们从没聊过那口钟。
+{count} {fish} in the vault.\t鱼库里有{count}{fish}。
+herring\t鲱鱼
+{} and {last} settled in for good\t{}和{last}安了家
+=nest\thome
+";
+
+    #[test]
+    fn a_line_made_of_parts_is_one_sentence_with_named_slots() {
+        let catalog = Catalog::parse(WHOLE);
+        assert_eq!(
+            catalog
+                .translate(
+                    "A year ago today: The swallows came back, bigger than last year, around the bench you made."
+                )
+                .as_deref(),
+            Some("一年前的今天：燕子回来了，比去年更热闹，就在你做的长椅旁边。")
+        );
+        // An ending of someone's own is not taken into a slot.
+        assert_eq!(
+            catalog.translate("Mara sends their love, mind.").as_deref(),
+            Some("Mara向你问好，记着。")
+        );
+        // "!" where the catalog has "." keeps its own stop.
+        assert_eq!(
+            catalog.translate("Mara sends their love!").as_deref(),
+            Some("Mara向你问好！")
+        );
+    }
+
+    #[test]
+    fn a_run_of_sentences_written_together_is_taken_whole() {
+        let catalog = Catalog::parse(WHOLE);
+        assert_eq!(
+            catalog
+                .translate(
+                    "Funny, we've never talked about the bell. It hasn't rung in fifty years. I still listen for it."
+                )
+                .as_deref(),
+            Some("说来好笑，我们从没聊过那口钟。五十年没响过了。我还是会留神听。")
+        );
+    }
+
+    #[test]
+    fn slots_are_filled_only_by_what_can_be_shown() {
+        let catalog = Catalog::parse(WHOLE);
+        // Words between two slots are tried at each place they are found.
+        assert_eq!(
+            catalog.translate("12 herring in the vault.").as_deref(),
+            Some("鱼库里有12鲱鱼。")
+        );
+        // Names are kept as they are written, and a list of them is listed
+        // the Chinese way.
+        assert_eq!(
+            catalog
+                .translate("Tobias, Olek and Rosa settled in for good")
+                .as_deref(),
+            Some("Tobias、Olek和Rosa安了家")
+        );
+        // A slot that would hold words nobody translated does not fit.
+        assert_eq!(catalog.translate("Home to the old red house now."), None);
+    }
+
+    #[test]
+    fn a_speakers_own_words_are_read_as_the_plain_ones() {
+        let catalog = Catalog::parse(WHOLE);
+        assert_eq!(
+            catalog.translate("Nest to Pip now.").as_deref(),
+            Some("现在回Pip的家了。")
+        );
     }
 }

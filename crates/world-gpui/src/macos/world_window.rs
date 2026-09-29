@@ -71,7 +71,7 @@ const RISE_SECONDS: f32 = 1.1;
 /// How much one press of the zoom control (or + and −) zooms, and the
 /// closest the camera goes.
 const ZOOM_STEP: f32 = 1.25;
-const ZOOM_MOST: f32 = 2.2;
+const ZOOM_MOST: f32 = diorama::ZOOM_MOST;
 /// How wide a pointer is.
 const HINT_WIDTH: f32 = 280.0;
 /// The shortest stage the zoom control is pointed at on: shorter, the
@@ -191,6 +191,15 @@ pub(crate) struct Looking {
     /// stage point; 1 is the whole place.
     pub(crate) zoom: f32,
     pub(crate) zoom_on: (f32, f32),
+    /// Where along a panorama the player has panned to: the stage point
+    /// the view is centred on at rest. `None` is the middle of the place.
+    pub(crate) pan: Option<f32>,
+    /// A pan by dragging under way: where the pointer went down, where the
+    /// view was centred then, and whether it has moved far enough to be a
+    /// drag rather than a click.
+    pub(crate) drag: Option<(f32, f32, bool)>,
+    /// When a drag last ended, so the click that ends it opens nothing.
+    pub(crate) dragged_at: Option<Instant>,
     /// Where the camera looked last frame, to turn the pointer into a
     /// stage point.
     pub(crate) camera_now: Option<Camera>,
@@ -433,6 +442,51 @@ pub(crate) fn voices_now(snapshot: &ProjectionSnapshot) -> Vec<&world_projection
         .collect::<Vec<_>>();
     voices.sort_by_key(|(routine, _)| *routine);
     voices.into_iter().map(|(_, voice)| voice).collect()
+}
+
+/// Whether a selection is a home or a work the Pack stood on the canvas
+/// (ids from 900,000,000 up): part of the place, with nothing to inspect.
+fn part_of_the_place(selection: SelectionId) -> bool {
+    selection
+        .stable_key()
+        .strip_prefix("entity-")
+        .and_then(|id| id.parse::<u64>().ok())
+        .is_some_and(|id| id >= 900_000_000)
+}
+
+/// With `WORLD_MACHINE_FRAME_LOG` set, how long the scene takes on the
+/// window's thread (working out its still layers and drawing everything):
+/// every two seconds, the mean and the longest frame, and how long was
+/// spent painting still layers (off this thread, unless painting is
+/// synchronous). Measuring only.
+fn frame_log(took: Duration) {
+    use std::cell::RefCell;
+    thread_local! {
+        static LOG: RefCell<(Option<Instant>, u32, Duration, Duration)> =
+            const { RefCell::new((None, 0, Duration::ZERO, Duration::ZERO)) };
+    }
+    if std::env::var_os("WORLD_MACHINE_FRAME_LOG").is_none() {
+        return;
+    }
+    LOG.with(|log| {
+        let mut log = log.borrow_mut();
+        let since = *log.0.get_or_insert_with(Instant::now);
+        log.1 += 1;
+        log.2 += took;
+        log.3 = log.3.max(took);
+        if since.elapsed() > Duration::from_secs(2) {
+            let (painted, paints) = crate::painter::painting_time();
+            eprintln!(
+                "frame: {} frames, mean {:.2} ms, longest {:.2} ms; still layers: {} painted in {:.1} ms",
+                log.1,
+                log.2.as_secs_f64() * 1000.0 / log.1.max(1) as f64,
+                log.3.as_secs_f64() * 1000.0,
+                paints,
+                painted.as_secs_f64() * 1000.0,
+            );
+            *log = (Some(Instant::now()), 0, Duration::ZERO, Duration::ZERO);
+        }
+    });
 }
 
 /// How someone looks: the figure the app draws for them, their Pack's own
@@ -887,6 +941,9 @@ impl ProjectionView {
 
     /// Opens the drawer; with a letter in it, the letter box has been seen.
     fn open_drawer(&mut self) {
+        if !self.looking.drawer {
+            self.cue(crate::Cue::Drawer);
+        }
         self.looking.drawer = true;
         pointers::used(Pointer::Drawer);
         if !self.snapshot.letters.is_empty() {
@@ -1051,7 +1108,7 @@ impl ProjectionView {
                     self.look_away(cx);
                 } else if self.looking.drawer {
                     self.toggle_drawer(cx);
-                } else if self.looking.zoom > 1.0 {
+                } else if (self.view_zoom() - 1.0).abs() > 0.01 {
                     self.looking.zoom = 1.0;
                     cx.notify();
                 }
@@ -1060,6 +1117,10 @@ impl ProjectionView {
                 if matches!(key, "right" | "enter" | "space") {
                     self.step_film(cx);
                 }
+            }
+            "left" | "right" if self.pans_with_arrows(event) => {
+                let by = if key == "left" { -1.0 } else { 1.0 };
+                self.pan_by_screens(by * 0.35, window, cx);
             }
             "left" => self.lean(-1, cx),
             "right" => self.lean(1, cx),
@@ -1121,24 +1182,34 @@ impl ProjectionView {
                     framed.y,
                 ))
             })
-            // Otherwise wherever the player has zoomed in with the wheel.
-            .or_else(|| {
-                (self.looking.zoom > 1.01).then(|| {
-                    Camera::around(
-                        stage,
-                        self.looking.zoom,
-                        self.looking.zoom_on.0,
-                        self.looking.zoom_on.1,
-                    )
-                })
-            })
-            .unwrap_or(whole);
+            // Otherwise wherever the player has zoomed and panned to.
+            .unwrap_or_else(|| {
+                let zoom = self.view_zoom();
+                Camera::around(
+                    stage,
+                    zoom,
+                    self.looking.pan.unwrap_or(whole.x),
+                    if zoom > 1.0 {
+                        self.looking.zoom_on.1
+                    } else {
+                        stage.height / 2.0
+                    },
+                )
+            });
         let current = match (self.looking.camera_from, self.looking.camera_to) {
             (Some(from), Some(to)) => {
                 from.toward(to, since(self.looking.camera_at) / CAMERA_SECONDS)
             }
             _ => whole,
         };
+        // A drag moves the view with the hand, at once.
+        if self.looking.drag.is_some_and(|(.., moved)| moved) {
+            self.looking.camera_from = Some(target);
+            self.looking.camera_to = Some(target);
+            self.looking.camera_at = Some(Instant::now());
+            self.looking.camera_now = Some(target);
+            return target;
+        }
         if self.looking.camera_to != Some(target) {
             self.looking.camera_from = Some(current);
             self.looking.camera_to = Some(target);
@@ -1154,18 +1225,113 @@ impl ProjectionView {
         current
     }
 
-    /// The wheel zooms in on the place around the pointer, and back out.
+    /// The wheel zooms in on the place around the pointer, and back out;
+    /// a sideways scroll (or the wheel with shift held) pans along the
+    /// place.
     fn on_wheel(
         &mut self,
         event: &gpui::ScrollWheelEvent,
         window: &Window,
         cx: &mut Context<Self>,
     ) {
-        let delta = f32::from(event.delta.pixel_delta(px(16.0)).y);
-        if delta == 0.0 {
+        let delta = event.delta.pixel_delta(px(16.0));
+        let (dx, dy) = (f32::from(delta.x), f32::from(delta.y));
+        let sideways = if event.modifiers.shift { dy } else { dx };
+        if sideways.abs() > dy.abs() * 0.8 || (event.modifiers.shift && dy != 0.0) {
+            self.pan_by(-sideways, window, cx);
             return;
         }
-        self.zoom_by(1.0 + delta * 0.004, Some(event.position), window, cx);
+        if dy == 0.0 {
+            return;
+        }
+        self.zoom_by(1.0 + dy * 0.004, Some(event.position), window, cx);
+    }
+
+    /// How close the player has zoomed: 1 is one window of the place.
+    fn view_zoom(&self) -> f32 {
+        if self.looking.zoom <= 0.0 {
+            1.0
+        } else {
+            self.looking.zoom
+        }
+    }
+
+    /// Whether the arrow keys pan: always with shift, and otherwise along a
+    /// panorama whenever there are no answers to lean between.
+    fn pans_with_arrows(&self, event: &KeyDownEvent) -> bool {
+        let wide = self.snapshot.canvas.width.unwrap_or(1.0) > 1.01 || self.view_zoom() > 1.01;
+        wide && (event.keystroke.modifiers.shift || self.card_answers().len() < 2)
+    }
+
+    /// Pans by `screens` window widths.
+    fn pan_by_screens(&mut self, screens: f32, window: &Window, cx: &mut Context<Self>) {
+        let (width, _) = self.stage_size(window);
+        self.pan_by(screens * width, window, cx);
+    }
+
+    /// Pans the view by `dx` window pixels along the place.
+    fn pan_by(&mut self, dx: f32, window: &Window, cx: &mut Context<Self>) {
+        let (width, height) = self.stage_size(window);
+        let stage = diorama::stage(&self.snapshot, width, height);
+        let camera = self
+            .looking
+            .camera_now
+            .unwrap_or_else(|| Camera::whole(&stage));
+        let rest = self.looking.pan.unwrap_or(camera.x);
+        let zoom = self.view_zoom();
+        let next = Camera::around(&stage, zoom, rest + dx / camera.zoom, camera.y).x;
+        if (next - rest).abs() > 0.01 {
+            self.looking.pan = Some(next);
+            cx.notify();
+        }
+    }
+
+    /// The pointer went down on the scene: perhaps the start of a drag.
+    fn drag_from(&mut self, x: f32) {
+        let centre = self
+            .looking
+            .camera_now
+            .map(|camera| camera.x)
+            .or(self.looking.pan);
+        if let Some(centre) = centre {
+            self.looking.drag = Some((x, centre, false));
+        }
+    }
+
+    /// The pointer moved with the button down: the view follows it.
+    fn drag_to(&mut self, x: f32, window: &Window, cx: &mut Context<Self>) {
+        let Some((from, centre, moved)) = self.looking.drag else {
+            return;
+        };
+        let moved = moved || (x - from).abs() > 4.0;
+        self.looking.drag = Some((from, centre, moved));
+        if !moved {
+            return;
+        }
+        let (width, height) = self.stage_size(window);
+        let stage = diorama::stage(&self.snapshot, width, height);
+        let zoom = self.view_zoom();
+        let y = self
+            .looking
+            .camera_now
+            .map_or(stage.height / 2.0, |camera| camera.y);
+        let next = Camera::around(&stage, zoom, centre - (x - from) / zoom, y).x;
+        self.looking.pan = Some(next);
+        cx.notify();
+    }
+
+    /// The pointer came up: a drag, if there was one, is over.
+    fn drag_end(&mut self) {
+        if self.looking.drag.take().is_some_and(|(.., moved)| moved) {
+            self.looking.dragged_at = Some(Instant::now());
+        }
+    }
+
+    /// Whether a click is only the end of a drag.
+    fn just_dragged(&self) -> bool {
+        self.looking
+            .dragged_at
+            .is_some_and(|at| at.elapsed() < Duration::from_millis(250))
     }
 
     /// A pinch on a trackpad zooms in on the place between the fingers,
@@ -1195,10 +1361,17 @@ impl ProjectionView {
             (f32::from(at.x), f32::from(at.y) - CHROME)
         });
         let (x, y) = camera.stage_point(&stage, x, y);
-        let zoom = (self.looking.zoom * factor).clamp(1.0, ZOOM_MOST);
-        if (zoom - self.looking.zoom).abs() > f32::EPSILON {
+        let before = self.view_zoom();
+        let mut zoom = (before * factor).clamp(Camera::least(&stage), diorama::ZOOM_MOST);
+        if (zoom - 1.0).abs() < 0.02 {
+            zoom = 1.0;
+        }
+        if (zoom - before).abs() > f32::EPSILON {
+            // The point under the pointer stays under it.
+            let keep = camera.zoom / zoom;
             self.looking.zoom = zoom;
-            self.looking.zoom_on = (x, y);
+            self.looking.pan = Some(x - (x - camera.x) * keep);
+            self.looking.zoom_on = (x - (x - camera.x) * keep, y - (y - camera.y) * keep);
             pointers::used(Pointer::Zoom);
             cx.notify();
         }
@@ -1501,9 +1674,20 @@ impl ProjectionView {
             }
             window.focus(&focus, cx);
         }
-        let seconds = since(self.looking.started);
+        // Reduce Motion holds the scene still: nobody wanders, bobs or
+        // turns, and the clouds and the sea stay where they are.
+        let still = cx.reduce_motion();
+        let seconds = if still {
+            0.0
+        } else {
+            since(self.looking.started)
+        };
         let (width, height) = self.stage_size(window);
-        let stage = diorama::stage(&self.snapshot, width, height);
+        let mut stage = diorama::stage(&self.snapshot, width, height);
+        if still {
+            // Nobody strolls across the place: they are simply there.
+            stage.routes.clear();
+        }
         let daylight = scene::daylight_now();
 
         // A return plays by itself, one beat after another.
@@ -1638,7 +1822,7 @@ impl ProjectionView {
         pinned.extend(self.looking.asking);
         pinned.extend(line.as_ref().map(|(who, ..)| *who));
         pinned.extend(self.glows().keys().copied());
-        let before = self.before_turn.as_ref().map(|before| {
+        let before = self.before_turn.as_ref().filter(|_| !still).map(|before| {
             (
                 diorama::stage(before, width, height),
                 before,
@@ -1660,7 +1844,7 @@ impl ProjectionView {
             .poked
             .map(|(who, at)| [(who, at.elapsed().as_secs_f32())].into_iter().collect())
             .unwrap_or_default();
-        diorama::wave(&mut living, &stage, &self.snapshot, &poked);
+        diorama::wave(&mut living, &stage, &self.snapshot, &poked, still);
         let grew = self
             .before_turn
             .as_ref()
@@ -1679,8 +1863,33 @@ impl ProjectionView {
             daylight,
             &self.glows(),
             rising,
-        );
+        )
+        .stilled(still);
         frame.bounce(&self.snapshot, &poked);
+        // What a turn just built rises into place.
+        if let Some(before) = &self.before_turn {
+            let known = before
+                .canvas
+                .items
+                .iter()
+                .map(|item| item.id)
+                .collect::<BTreeSet<_>>();
+            let fresh = self
+                .snapshot
+                .canvas
+                .items
+                .iter()
+                .enumerate()
+                .filter(|(_, item)| {
+                    item.kind != world_projection::CanvasItemKind::Actor
+                        && !known.contains(&item.id)
+                })
+                .map(|(index, _)| index)
+                .collect::<BTreeSet<_>>();
+            if !fresh.is_empty() {
+                frame.arrive(&fresh, since(self.looking.turn_at) / RISE_SECONDS);
+            }
+        }
         // Whoever is speaking is drawn talking.
         if let Some((speaker, ..)) = &line {
             for person in &mut frame.people {
@@ -1697,50 +1906,90 @@ impl ProjectionView {
                 }
             }
         }
+        // Everyone nearby turns to whoever is speaking.
+        if let Some((speaker, _, fade, _)) = &line {
+            if let Some(index) = self
+                .snapshot
+                .canvas
+                .items
+                .iter()
+                .position(|item| item.id == *speaker)
+            {
+                frame.listen(index, *fade);
+            }
+        }
 
-        let mut root =
-            div()
-                .id("world-stage")
-                .relative()
-                .size_full()
-                .overflow_hidden()
-                .track_focus(&focus)
-                .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+        let mut root = div()
+            .id("world-stage")
+            .relative()
+            .size_full()
+            .overflow_hidden()
+            .track_focus(&focus)
+            .on_key_down(
+                cx.listener(|this, event: &KeyDownEvent, window, cx| {
                     this.on_key(event, window, cx)
-                }))
-                .on_scroll_wheel(
-                    cx.listener(|this, event: &gpui::ScrollWheelEvent, window, cx| {
-                        this.on_wheel(event, window, cx)
-                    }),
-                )
-                .on_pinch(cx.listener(|this, event: &gpui::PinchEvent, window, cx| {
-                    this.on_pinch(event, window, cx)
-                }))
-                .child({
-                    let frame = frame.clone();
+                }),
+            )
+            .on_scroll_wheel(
+                cx.listener(|this, event: &gpui::ScrollWheelEvent, window, cx| {
+                    this.on_wheel(event, window, cx)
+                }),
+            )
+            .on_pinch(cx.listener(|this, event: &gpui::PinchEvent, window, cx| {
+                this.on_pinch(event, window, cx)
+            }))
+            // Dragging pans along the place.
+            .on_mouse_down(
+                gpui::MouseButton::Left,
+                cx.listener(|this, event: &gpui::MouseDownEvent, _, _| {
+                    this.drag_from(f32::from(event.position.x))
+                }),
+            )
+            .on_mouse_move(
+                cx.listener(|this, event: &gpui::MouseMoveEvent, window, cx| {
+                    if event.pressed_button == Some(gpui::MouseButton::Left) {
+                        this.drag_to(f32::from(event.position.x), window, cx);
+                    } else if this.looking.drag.is_some() {
+                        this.drag_end();
+                    }
+                }),
+            )
+            .on_mouse_up(
+                gpui::MouseButton::Left,
+                cx.listener(|this, _: &gpui::MouseUpEvent, _, _| this.drag_end()),
+            )
+            .child({
+                // The scene: its still layers painted off this thread
+                // and faded in, what moves drawn live.
+                let started = Instant::now();
+                let scene = diorama::scene(frame.clone(), window);
+                let planned = started.elapsed();
+                scene.child(
                     canvas(
                         |_, _, _| (),
-                        move |bounds, _, window, _| diorama::paint(&frame, bounds, window),
+                        move |_, _, _, _| frame_log(planned + crate::painter::take_frame_time()),
                     )
+                    .absolute()
+                    .size_0(),
+                )
+            })
+            // Clicking the open ground puts away whatever is open.
+            .child(
+                div()
+                    .id("world-ground")
                     .absolute()
                     .top_0()
                     .left_0()
                     .size_full()
-                })
-                // Clicking the open ground puts away whatever is open.
-                .child(
-                    div()
-                        .id("world-ground")
-                        .absolute()
-                        .top_0()
-                        .left_0()
-                        .size_full()
-                        .on_click(cx.listener(|this, event: &gpui::ClickEvent, window, cx| {
-                            if !this.place_on_ground(event.position(), window, cx) {
-                                this.look_away(cx);
-                            }
-                        })),
-                );
+                    .on_click(cx.listener(|this, event: &gpui::ClickEvent, window, cx| {
+                        if this.just_dragged() {
+                            return;
+                        }
+                        if !this.place_on_ground(event.position(), window, cx) {
+                            this.look_away(cx);
+                        }
+                    })),
+            );
 
         // Buildings: named when pointed at, opening the drawer on a click.
         for spot in &stage.buildings {
@@ -1779,8 +2028,15 @@ impl ProjectionView {
                             return;
                         }
                         this.looking.poked = Some((selection, Instant::now()));
-                        this.select(selection, cx);
-                        this.open_drawer();
+                        // A home or a work is part of the place, not
+                        // something the World records: it springs and says
+                        // its name, and opens nothing.
+                        if !part_of_the_place(selection) {
+                            this.select(selection, cx);
+                            this.open_drawer();
+                        } else {
+                            cx.notify();
+                        }
                     })),
             );
         }
@@ -1854,7 +2110,7 @@ impl ProjectionView {
         let held = self.snapshot.keepsakes.len();
         if self.looking.keepsakes_seen.is_some_and(|seen| held > seen) {
             self.looking.gift_at = Some(Instant::now());
-            self.cue(crate::Cue::Built);
+            self.cue(crate::Cue::Keepsake);
         }
         self.looking.keepsakes_seen = Some(held);
         if let Some((keepsake, at)) = self
@@ -2123,8 +2379,9 @@ impl ProjectionView {
     /// The zoom control: closer, and back out, beside the wheel and a
     /// pinch.
     fn render_zoom(&self, cx: &mut Context<Self>) -> Stateful<Div> {
-        let closest = self.looking.zoom >= ZOOM_MOST - 0.01;
-        let whole = self.looking.zoom <= 1.01;
+        let closest = self.view_zoom() >= ZOOM_MOST - 0.01;
+        let least = 1.0 / self.snapshot.canvas.width.unwrap_or(1.0).max(1.0);
+        let whole = self.view_zoom() <= least + 0.01;
         div()
             .id("zoom")
             .role(Role::Group)
@@ -2933,7 +3190,11 @@ impl ProjectionView {
             let found = entries.iter().filter(|entry| entry.found).count();
             let mut grid = div().flex().flex_wrap().gap_2();
             for (index, entry) in entries.into_iter().enumerate() {
-                grid = grid.child(book_tile(entry, index));
+                let look = entry
+                    .found
+                    .then(|| book_look(&self.snapshot, entry))
+                    .flatten();
+                grid = grid.child(book_tile(entry, index, look));
             }
             let heading = format!("{shelf} · {found} of {}", shelf_len(book, shelf));
             section = section.child(
@@ -3866,9 +4127,54 @@ fn shelf_len(book: &[world_projection::BookEntry], shelf: &str) -> usize {
     book.iter().filter(|entry| entry.shelf == shelf).count()
 }
 
-/// One entry of the book: drawn in colour with its name once found, a
+/// How a found entry of the book is drawn: someone as the scene draws
+/// them, or a place or thing in its own drawing.
+#[derive(Clone)]
+pub(crate) enum BookLook {
+    Someone(Likeness),
+    Something {
+        drawing: Option<world_projection::Drawing>,
+        palette: art::Palette,
+    },
+}
+
+/// The book entry's own drawing, found by its name on the scene: the
+/// person, place or thing it is. Someone no longer on the scene is still
+/// drawn as themselves, in the colours their name gives them.
+pub(crate) fn book_look(
+    snapshot: &ProjectionSnapshot,
+    entry: &world_projection::BookEntry,
+) -> Option<BookLook> {
+    let name = entry.name.trim().to_lowercase();
+    let item = snapshot.canvas.items.iter().find(|item| {
+        let label = item.label.trim().to_lowercase();
+        !label.is_empty() && (label == name || label.split_whitespace().next() == Some(&name))
+    });
+    match (item, entry.shape) {
+        (Some(item), _) if item.kind == world_projection::CanvasItemKind::Actor => {
+            Some(BookLook::Someone(likeness_of(snapshot, item.id)))
+        }
+        (Some(item), _) => Some(BookLook::Something {
+            drawing: snapshot.drawing_of(item).cloned(),
+            palette: art::Palette::of(&item.id.stable_key(), false),
+        }),
+        (None, None) => Some(BookLook::Someone(Likeness {
+            figure: Figure::of(&entry.name, None),
+            drawing: None,
+            mood: world_projection::Mood::default(),
+        })),
+        (None, Some(_)) => None,
+    }
+}
+
+/// One entry of the book: drawn in colour with its name once found, in
+/// its own drawing (the person's or the thing's) when there is one, and a
 /// silhouette with a hint until then.
-fn book_tile(entry: &world_projection::BookEntry, index: usize) -> Stateful<Div> {
+fn book_tile(
+    entry: &world_projection::BookEntry,
+    index: usize,
+    look: Option<BookLook>,
+) -> Stateful<Div> {
     let found = entry.found;
     let shape = entry.shape;
     let key = entry.name.clone();
@@ -3879,19 +4185,53 @@ fn book_tile(entry: &world_projection::BookEntry, index: usize) -> Stateful<Div>
             let base = f32::from(bounds.origin.y) + f32::from(bounds.size.height) - 2.0;
             let w = f32::from(bounds.size.width) * 0.62;
             let shadow: Hsla = gpui::black().opacity(0.28);
-            match (shape, found) {
-                (Some(shape), true) => {
-                    art::paint_building(
+            match (&look, shape, found) {
+                (Some(BookLook::Someone(likeness)), _, true) => {
+                    let side = f32::from(bounds.size.height);
+                    art::paint_likeness(
+                        window,
+                        gpui::Bounds::new(
+                            gpui::point(px(x - side / 2.0), bounds.origin.y),
+                            gpui::size(px(side), px(side)),
+                        ),
+                        &likeness.figure,
+                        likeness.drawing.as_ref(),
+                        likeness.mood,
+                        false,
+                    );
+                }
+                (
+                    Some(BookLook::Something {
+                        drawing: Some(drawing),
+                        palette,
+                    }),
+                    _,
+                    true,
+                ) => {
+                    let h = (f32::from(bounds.size.height) - 4.0).min(w * 1.2 / drawing.aspect);
+                    art::paint_drawing(
                         window,
                         x,
                         base,
-                        w,
-                        w * 0.8,
-                        shape,
-                        &art::Palette::of(&key, false),
+                        h * drawing.aspect,
+                        h,
+                        drawing,
+                        &art::Inks::of_place(palette),
+                        world_projection::Stance::Standing,
+                        world_projection::Mood::Content,
+                        0.0,
+                        0.0,
+                        1.0,
                     );
                 }
-                (Some(shape), false) => {
+                (look, Some(shape), true) => {
+                    let palette = match look {
+                        Some(BookLook::Something { palette, .. }) => *palette,
+                        _ => art::Palette::of(&key, false),
+                    };
+                    art::paint_building(window, x, base, w, w * 0.8, shape, &palette);
+                }
+                (_, Some(shape), false) => {
                     crate::ui::paint_mark(
                         window,
                         gpui::Bounds::new(
@@ -3903,8 +4243,8 @@ fn book_tile(entry: &world_projection::BookEntry, index: usize) -> Stateful<Div>
                         shadow,
                     );
                 }
-                (None, _) => {
-                    // Someone: a head and shoulders.
+                (_, None, _) => {
+                    // Someone not met yet: a head and shoulders.
                     let colour: Hsla = if found { art::hex(0x7a8fb0) } else { shadow };
                     let r = w * 0.2;
                     art::circle(window, x, base - w * 0.62, r, colour);
@@ -4105,6 +4445,10 @@ mod tests {
             standing: None,
             mood: None,
             spot: None,
+            px: None,
+            home: None,
+            day: Vec::new(),
+            built: None,
         });
         snapshot
     }
@@ -4138,10 +4482,10 @@ mod tests {
         assert_eq!(entry.0, Some(Role::ListItem));
         assert_eq!(entry.1.label(), Some("From Mara: The pier is mended."));
         let snapshot = a_full_drawer();
-        let (role, found) = accessible(&book_tile(&snapshot.book[0], 0));
+        let (role, found) = accessible(&book_tile(&snapshot.book[0], 0, None));
         assert_eq!(role, Some(Role::ListItem));
         assert_eq!(found.label(), Some("A pressed flower"));
-        let (_, missing) = accessible(&book_tile(&snapshot.book[1], 1));
+        let (_, missing) = accessible(&book_tile(&snapshot.book[1], 1, None));
         assert_eq!(missing.label(), Some("Not found yet: Someone by the sea"));
     }
 

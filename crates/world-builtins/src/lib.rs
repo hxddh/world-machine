@@ -217,17 +217,11 @@ mod tests {
         for (text, translated) in left.iter().take(40) {
             eprintln!("  {text}  =>  {translated}");
         }
-        assert!(share >= 0.95, "only {:.1}% in Chinese", share * 100.0);
+        assert!(share >= 0.995, "only {:.1}% in Chinese", share * 100.0);
     }
 
+    /// Every person's name, which stays in Latin letters in Chinese.
     fn registry_names() -> std::collections::BTreeSet<&'static str> {
-        [
-            "Jonas", "Mara", "Leo", "Emma", "Mia", "Noah", "Evan", "Sofia", "Ada", "Ivo", "Rosa",
-            "Tobias", "Hana", "Olek", "Maeve", "Arun", "Lise", "Pim", "Greta", "Kofi", "Ines",
-            "Bram", "Nell", "Soren", "Yara", "Dario", "Ffion", "Mateo", "Wren", "Anouk", "Casimir",
-            "Lotte", "Ravi", "Esme", "Tam",
-        ]
-        .into_iter()
-        .collect()
+        tiny_society::people_names().into_iter().collect()
     }
 }

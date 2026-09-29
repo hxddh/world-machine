@@ -11,8 +11,15 @@ world-theme = { path = "../world-theme" }
 world-projection = { path = "../world-projection" }
 world-i18n = { path = "../world-i18n" }
 gpui = { git = "https://github.com/zed-industries/zed", rev = "33c95853ed2b6956f339733c63a8220964ecbeb6", default-features = false }
+# The scene's still layers are painted on the CPU and shown as images.
+tiny-skia = { version = "0.11.4", default-features = false, features = ["std", "simd"] }
+image = { version = "0.25", default-features = false }
 
 [dev-dependencies]
 gpui = { git = "https://github.com/zed-industries/zed", rev = "33c95853ed2b6956f339733c63a8220964ecbeb6", default-features = false, features = ["test-support"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
 serde_json = "1"
+# The frame-time benchmark reads a real World's snapshot from its wire form.
+world-pack-protocol = { path = "../world-pack-protocol" }
+# The frame-time benchmark times the window's thread by its own CPU time.
+libc = "0.2"

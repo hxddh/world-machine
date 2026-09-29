@@ -13,6 +13,7 @@ mod projection;
 mod speech;
 mod story;
 mod talk;
+mod town;
 mod voices;
 mod works;
 mod years;
@@ -35,6 +36,8 @@ pub const SEED_1980S_TOWN_COMMAND: &str = "pocket-universe.seed-1980s-town";
 pub const SEED_PENGUIN_CIVILIZATION_COMMAND: &str = "pocket-universe.seed-penguin-civilization";
 /// Letting one period pass.
 pub const NUDGE_COMMAND: &str = "pocket-universe.nudge";
+
+pub use life::people_names;
 
 /// The residents' own lines as templates and what fills them, for showing
 /// every one of them in another language.

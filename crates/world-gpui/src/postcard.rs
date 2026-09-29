@@ -206,6 +206,10 @@ mod tests {
             standing: None,
             mood: None,
             spot: None,
+            px: None,
+            home: None,
+            day: Vec::new(),
+            built: None,
         }
     }
 

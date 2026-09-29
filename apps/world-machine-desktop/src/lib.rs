@@ -7,5 +7,4 @@ pub mod ambience;
 pub mod app_settings;
 pub mod display;
 pub mod key_store;
-pub mod music;
 pub mod window_state;

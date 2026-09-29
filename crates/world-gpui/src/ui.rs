@@ -466,106 +466,105 @@ fn ridge_y(rise: f32, fall: f32, x: f32) -> f32 {
 /// `bounds`: a house, a dome, a mast, a tree, a lamp, a shopfront or a
 /// bridge. A mast has a light at its tip and a lamp its lamp.
 pub fn paint_mark(
-    window: &mut gpui::Window,
+    window: &mut dyn crate::brush::Brush,
     bounds: gpui::Bounds<gpui::Pixels>,
     shape: world_projection::MarkShape,
     colour: gpui::Hsla,
     light: gpui::Hsla,
 ) {
-    use gpui::{point, px, quad, size, BorderStyle, Bounds, PathBuilder};
     use world_projection::MarkShape;
 
-    let origin = bounds.origin;
-    let width = bounds.size.width;
-    let height = bounds.size.height;
-    let at = |x: f32, y: f32| point(origin.x + width * x, origin.y + height * y);
-    let mut body = PathBuilder::fill();
+    let (ox, oy) = (f32::from(bounds.origin.x), f32::from(bounds.origin.y));
+    let width = f32::from(bounds.size.width);
+    let height = f32::from(bounds.size.height);
+    let at = |x: f32, y: f32| (ox + width * x, oy + height * y);
+    let mut body = crate::brush::Shape::new();
     match shape {
         MarkShape::House => {
-            body.move_to(at(0.15, 1.0));
-            body.line_to(at(0.15, 0.55));
-            body.line_to(at(0.5, 0.25));
-            body.line_to(at(0.85, 0.55));
-            body.line_to(at(0.85, 1.0));
+            body.move_p(at(0.15, 1.0));
+            body.line_p(at(0.15, 0.55));
+            body.line_p(at(0.5, 0.25));
+            body.line_p(at(0.85, 0.55));
+            body.line_p(at(0.85, 1.0));
         }
         MarkShape::Dome => {
-            body.move_to(at(0.0, 1.0));
-            body.curve_to(at(0.5, 0.45), at(0.02, 0.45));
-            body.curve_to(at(1.0, 1.0), at(0.98, 0.45));
+            body.move_p(at(0.0, 1.0));
+            body.curve_p(at(0.5, 0.45), at(0.02, 0.45));
+            body.curve_p(at(1.0, 1.0), at(0.98, 0.45));
         }
         MarkShape::Tower => {
-            body.move_to(at(0.38, 1.0));
-            body.line_to(at(0.46, 0.2));
-            body.line_to(at(0.54, 0.2));
-            body.line_to(at(0.62, 1.0));
+            body.move_p(at(0.38, 1.0));
+            body.line_p(at(0.46, 0.2));
+            body.line_p(at(0.54, 0.2));
+            body.line_p(at(0.62, 1.0));
         }
         MarkShape::Tree => {
-            body.move_to(at(0.45, 1.0));
-            body.line_to(at(0.45, 0.8));
-            body.line_to(at(0.15, 0.8));
-            body.line_to(at(0.5, 0.15));
-            body.line_to(at(0.85, 0.8));
-            body.line_to(at(0.55, 0.8));
-            body.line_to(at(0.55, 1.0));
+            body.move_p(at(0.45, 1.0));
+            body.line_p(at(0.45, 0.8));
+            body.line_p(at(0.15, 0.8));
+            body.line_p(at(0.5, 0.15));
+            body.line_p(at(0.85, 0.8));
+            body.line_p(at(0.55, 0.8));
+            body.line_p(at(0.55, 1.0));
         }
         MarkShape::Lamp => {
-            body.move_to(at(0.46, 1.0));
-            body.line_to(at(0.46, 0.3));
-            body.line_to(at(0.54, 0.3));
-            body.line_to(at(0.54, 1.0));
+            body.move_p(at(0.46, 1.0));
+            body.line_p(at(0.46, 0.3));
+            body.line_p(at(0.54, 0.3));
+            body.line_p(at(0.54, 1.0));
         }
         MarkShape::Shop => {
             // A flat-roofed front with an awning that overhangs it.
-            body.move_to(at(0.15, 1.0));
-            body.line_to(at(0.15, 0.55));
-            body.line_to(at(0.05, 0.55));
-            body.line_to(at(0.15, 0.35));
-            body.line_to(at(0.85, 0.35));
-            body.line_to(at(0.95, 0.55));
-            body.line_to(at(0.85, 0.55));
-            body.line_to(at(0.85, 1.0));
+            body.move_p(at(0.15, 1.0));
+            body.line_p(at(0.15, 0.55));
+            body.line_p(at(0.05, 0.55));
+            body.line_p(at(0.15, 0.35));
+            body.line_p(at(0.85, 0.35));
+            body.line_p(at(0.95, 0.55));
+            body.line_p(at(0.85, 0.55));
+            body.line_p(at(0.85, 1.0));
         }
         MarkShape::Bridge => {
             // A deck on two piers with an arch between them.
-            body.move_to(at(0.0, 1.0));
-            body.line_to(at(0.0, 0.5));
-            body.line_to(at(1.0, 0.5));
-            body.line_to(at(1.0, 1.0));
-            body.line_to(at(0.84, 1.0));
-            body.curve_to(at(0.16, 1.0), at(0.5, 0.45));
+            body.move_p(at(0.0, 1.0));
+            body.line_p(at(0.0, 0.5));
+            body.line_p(at(1.0, 0.5));
+            body.line_p(at(1.0, 1.0));
+            body.line_p(at(0.84, 1.0));
+            body.curve_p(at(0.16, 1.0), at(0.5, 0.45));
         }
         MarkShape::Rover => {
             // A low body with a cab, standing on its wheels.
-            body.move_to(at(0.05, 0.88));
-            body.line_to(at(0.05, 0.62));
-            body.line_to(at(0.45, 0.62));
-            body.line_to(at(0.55, 0.45));
-            body.line_to(at(0.85, 0.45));
-            body.line_to(at(0.95, 0.62));
-            body.line_to(at(0.95, 0.88));
+            body.move_p(at(0.05, 0.88));
+            body.line_p(at(0.05, 0.62));
+            body.line_p(at(0.45, 0.62));
+            body.line_p(at(0.55, 0.45));
+            body.line_p(at(0.85, 0.45));
+            body.line_p(at(0.95, 0.62));
+            body.line_p(at(0.95, 0.88));
         }
         MarkShape::Boat => {
             // A hull with a mast and a sail.
-            body.move_to(at(0.0, 0.72));
-            body.line_to(at(1.0, 0.72));
-            body.line_to(at(0.82, 1.0));
-            body.line_to(at(0.18, 1.0));
-            body.line_to(at(0.0, 0.72));
-            body.move_to(at(0.5, 0.7));
-            body.line_to(at(0.5, 0.1));
-            body.line_to(at(0.82, 0.62));
-            body.line_to(at(0.5, 0.7));
+            body.move_p(at(0.0, 0.72));
+            body.line_p(at(1.0, 0.72));
+            body.line_p(at(0.82, 1.0));
+            body.line_p(at(0.18, 1.0));
+            body.line_p(at(0.0, 0.72));
+            body.move_p(at(0.5, 0.7));
+            body.line_p(at(0.5, 0.1));
+            body.line_p(at(0.82, 0.62));
+            body.line_p(at(0.5, 0.7));
         }
         MarkShape::Parcel => {
-            body.move_to(at(0.2, 1.0));
-            body.line_to(at(0.2, 0.6));
-            body.line_to(at(0.8, 0.6));
-            body.line_to(at(0.8, 1.0));
+            body.move_p(at(0.2, 1.0));
+            body.line_p(at(0.2, 0.6));
+            body.line_p(at(0.8, 0.6));
+            body.line_p(at(0.8, 1.0));
         }
         MarkShape::Stall | MarkShape::Tent => {
-            body.move_to(at(0.1, 1.0));
-            body.line_to(at(0.5, 0.45));
-            body.line_to(at(0.9, 1.0));
+            body.move_p(at(0.1, 1.0));
+            body.line_p(at(0.5, 0.45));
+            body.line_p(at(0.9, 1.0));
         }
         MarkShape::Bunting
         | MarkShape::Flag
@@ -575,10 +574,10 @@ pub fn paint_mark(
         | MarkShape::Postbox
         | MarkShape::Statue
         | MarkShape::Swing => {
-            body.move_to(at(0.45, 1.0));
-            body.line_to(at(0.45, 0.2));
-            body.line_to(at(0.55, 0.2));
-            body.line_to(at(0.55, 1.0));
+            body.move_p(at(0.45, 1.0));
+            body.line_p(at(0.45, 0.2));
+            body.line_p(at(0.55, 0.2));
+            body.line_p(at(0.55, 1.0));
         }
         MarkShape::Pier
         | MarkShape::Garden
@@ -587,31 +586,26 @@ pub fn paint_mark(
         | MarkShape::Well
         | MarkShape::Fountain
         | MarkShape::Planter => {
-            body.move_to(at(0.0, 1.0));
-            body.line_to(at(0.0, 0.8));
-            body.line_to(at(1.0, 0.8));
-            body.line_to(at(1.0, 1.0));
+            body.move_p(at(0.0, 1.0));
+            body.line_p(at(0.0, 0.8));
+            body.line_p(at(1.0, 0.8));
+            body.line_p(at(1.0, 1.0));
         }
     }
     body.close();
-    if let Ok(path) = body.build() {
-        window.paint_path(path, colour);
-    }
+    window.fill(&body, colour);
     // A mast has a light at its tip and a lamp its lamp.
     if matches!(shape, MarkShape::Lamp | MarkShape::Tower) {
-        let radius = f32::from(width) * if shape == MarkShape::Lamp { 0.16 } else { 0.1 };
+        let radius = width * if shape == MarkShape::Lamp { 0.16 } else { 0.1 };
         let centre = at(0.5, if shape == MarkShape::Lamp { 0.24 } else { 0.16 });
-        window.paint_quad(quad(
-            Bounds::new(
-                point(centre.x - px(radius), centre.y - px(radius)),
-                size(px(radius * 2.0), px(radius * 2.0)),
-            ),
-            px(radius),
+        window.rect(
+            centre.0 - radius,
+            centre.1 - radius,
+            radius * 2.0,
+            radius * 2.0,
+            radius,
             light,
-            px(0.0),
-            light,
-            BorderStyle::default(),
-        ));
+        );
     }
 }
 

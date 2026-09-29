@@ -1,6 +1,6 @@
 [package]
 name = "world-machine-desktop"
-version = "0.20.0"
+version = "0.21.0"
 edition = "2021"
 license = "Apache-2.0"
 publish = false
@@ -14,6 +14,7 @@ world-library = { path = "../../crates/world-library" }
 world-observer = { path = "../../crates/world-observer" }
 world-gpui = { path = "../../crates/world-gpui" }
 world-i18n = { path = "../../crates/world-i18n" }
+world-sound = { path = "../../crates/world-sound" }
 world-theme = { path = "../../crates/world-theme" }
 
 [dev-dependencies]
@@ -21,6 +22,9 @@ world-persistence = { path = "../../crates/world-persistence" }
 world-projection = { path = "../../crates/world-projection" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+# Sound output only; the sound itself is made by world-sound on any
+# platform, so Linux builds need no audio libraries.
+cpal = "0.18"
 gpui = { git = "https://github.com/zed-industries/zed", rev = "33c95853ed2b6956f339733c63a8220964ecbeb6", package = "gpui" }
 gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "33c95853ed2b6956f339733c63a8220964ecbeb6", package = "gpui_platform", features = ["font-kit"] }
 url = "2"

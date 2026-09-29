@@ -10,8 +10,9 @@
 //! would give Metal (every quad, shadow and path the views painted, in
 //! draw order, clipped to its content mask) and fills it on the CPU the
 //! way GPUI's shaders do: rounded quads with borders and linear gradients,
-//! blurred shadows, and paths as triangles. Text is not drawn (the test
-//! platform's text system shapes no glyphs), nor are images. What the
+//! blurred shadows, paths as triangles, and images (the painter's still
+//! layers) sampled as GPUI samples them. Text is not drawn (the test
+//! platform's text system shapes no glyphs). What the
 //! pictures prove is that the scene GPUI paints is the one we meant: a
 //! change in the art, the layout or the order of layers shows as a changed
 //! picture. They are not Metal's pixels; on macOS a `render_to_image`
@@ -43,10 +44,18 @@ const CHANNEL_TOLERANCE: u8 = 6;
 /// machines along anti-aliased edges.
 const PIXEL_TOLERANCE: f64 = 0.002;
 
-/// Hands out atlas tiles without storing anything: nothing here draws
-/// sprites.
+/// Hands out atlas tiles, keeping each image's pixels (as GPUI's own
+/// atlases do) so sprites can be drawn.
 #[derive(Default)]
-struct Atlas(Mutex<(u32, HashMap<AtlasKey, AtlasTile>)>);
+struct Atlas(Mutex<AtlasState>);
+
+#[derive(Default)]
+struct AtlasState {
+    next: u32,
+    tiles: HashMap<AtlasKey, AtlasTile>,
+    /// Each tile's pixels: its size and straight BGRA bytes.
+    pixels: HashMap<u32, (Size<DevicePixels>, Vec<u8>)>,
+}
 
 impl PlatformAtlas for Atlas {
     fn get_or_insert_with<'a>(
@@ -54,29 +63,34 @@ impl PlatformAtlas for Atlas {
         key: &AtlasKey,
         build: &mut dyn FnMut() -> gpui::Result<Option<(Size<DevicePixels>, Cow<'a, [u8]>)>>,
     ) -> gpui::Result<Option<AtlasTile>> {
-        if let Some(tile) = self.0.lock().unwrap().1.get(key) {
+        if let Some(tile) = self.0.lock().unwrap().tiles.get(key) {
             return Ok(Some(*tile));
         }
-        let Some((size, _)) = build()? else {
+        let Some((size, bytes)) = build()? else {
             return Ok(None);
         };
         let mut state = self.0.lock().unwrap();
-        state.0 += 1;
+        state.next += 1;
+        let id = state.next;
         let tile = AtlasTile {
             texture_id: AtlasTextureId {
-                index: state.0,
-                kind: AtlasTextureKind::Monochrome,
+                index: id,
+                kind: AtlasTextureKind::Polychrome,
             },
-            tile_id: TileId(state.0),
+            tile_id: TileId(id),
             padding: 0,
             bounds: Bounds::new(point(DevicePixels(0), DevicePixels(0)), size),
         };
-        state.1.insert(key.clone(), tile);
+        state.tiles.insert(key.clone(), tile);
+        state.pixels.insert(id, (size, bytes.into_owned()));
         Ok(Some(tile))
     }
 
     fn remove(&self, key: &AtlasKey) {
-        self.0.lock().unwrap().1.remove(key);
+        let mut state = self.0.lock().unwrap();
+        if let Some(tile) = state.tiles.remove(key) {
+            state.pixels.remove(&tile.tile_id.0);
+        }
     }
 }
 
@@ -89,7 +103,7 @@ impl PlatformHeadlessRenderer for Raster {
         scene: &Scene,
         size: Size<DevicePixels>,
     ) -> gpui::Result<RgbaImage> {
-        Ok(rasterise(scene, size))
+        Ok(rasterise(scene, size, &self.0))
     }
 
     fn render_scene(&mut self, _: &Scene, _: Size<DevicePixels>) -> gpui::Result<()> {
@@ -163,7 +177,7 @@ impl Canvas {
     }
 }
 
-fn rasterise(scene: &Scene, size: Size<DevicePixels>) -> RgbaImage {
+fn rasterise(scene: &Scene, size: Size<DevicePixels>, atlas: &Atlas) -> RgbaImage {
     let (width, height) = (size.width.0.max(0) as usize, size.height.0.max(0) as usize);
     let mut canvas = Canvas {
         width,
@@ -175,6 +189,7 @@ fn rasterise(scene: &Scene, size: Size<DevicePixels>) -> RgbaImage {
         Shadow(&'a Shadow),
         Quad(&'a gpui::Quad),
         Path(&'a Path<ScaledPixels>),
+        Sprite(&'a gpui::PolychromeSprite),
     }
     let mut all = Vec::new();
     all.extend(
@@ -185,12 +200,19 @@ fn rasterise(scene: &Scene, size: Size<DevicePixels>) -> RgbaImage {
     );
     all.extend(scene.quads.iter().map(|q| (q.order, 1, Primitive::Quad(q))));
     all.extend(scene.paths.iter().map(|p| (p.order, 2, Primitive::Path(p))));
+    all.extend(
+        scene
+            .polychrome_sprites
+            .iter()
+            .map(|sprite| (sprite.order, 3, Primitive::Sprite(sprite))),
+    );
     all.sort_by_key(|(order, kind, _)| (*order, *kind));
     for (_, _, primitive) in all {
         match primitive {
             Primitive::Shadow(shadow) => draw_shadow(&mut canvas, shadow),
             Primitive::Quad(quad) => draw_quad(&mut canvas, quad),
             Primitive::Path(path) => draw_path(&mut canvas, path),
+            Primitive::Sprite(sprite) => draw_sprite(&mut canvas, sprite, atlas),
         }
     }
     let mut image = RgbaImage::new(width as u32, height as u32);
@@ -208,6 +230,58 @@ fn rasterise(scene: &Scene, size: Size<DevicePixels>) -> RgbaImage {
         ]);
     }
     image
+}
+
+/// An image: its tile's pixels stretched over its bounds, sampled
+/// bilinearly as GPUI's shaders sample them, clipped to its content mask.
+fn draw_sprite(canvas: &mut Canvas, sprite: &gpui::PolychromeSprite, atlas: &Atlas) {
+    let state = atlas.0.lock().unwrap();
+    let Some((size, bytes)) = state.pixels.get(&sprite.tile.tile_id.0) else {
+        return;
+    };
+    let (tw, th) = (size.width.0.max(1) as usize, size.height.0.max(1) as usize);
+    let tile = sprite.tile.bounds;
+    let (sx0, sy0) = (tile.origin.x.0 as f32, tile.origin.y.0 as f32);
+    let (sw, sh) = (tile.size.width.0 as f32, tile.size.height.0 as f32);
+    let bounds = sprite.bounds;
+    let (x0, y0, x1, y1) = canvas.span(&bounds);
+    let texel = |x: usize, y: usize| {
+        let at = (y.min(th - 1) * tw + x.min(tw - 1)) * 4;
+        let a = bytes[at + 3] as f32 / 255.0;
+        // Straight BGRA to premultiplied RGBA.
+        [
+            bytes[at + 2] as f32 / 255.0 * a,
+            bytes[at + 1] as f32 / 255.0 * a,
+            bytes[at] as f32 / 255.0 * a,
+            a,
+        ]
+    };
+    for y in y0..y1 {
+        for x in x0..x1 {
+            let u = (x as f32 + 0.5 - bounds.origin.x.0) / bounds.size.width.0.max(1e-3);
+            let v = (y as f32 + 0.5 - bounds.origin.y.0) / bounds.size.height.0.max(1e-3);
+            if !(0.0..=1.0).contains(&u) || !(0.0..=1.0).contains(&v) {
+                continue;
+            }
+            let fx = (sx0 + u * sw - 0.5).max(0.0);
+            let fy = (sy0 + v * sh - 0.5).max(0.0);
+            let (ix, iy) = (fx.floor() as usize, fy.floor() as usize);
+            let (tx, ty) = (fx - ix as f32, fy - iy as f32);
+            let (a, b, c, d) = (
+                texel(ix, iy),
+                texel(ix + 1, iy),
+                texel(ix, iy + 1),
+                texel(ix + 1, iy + 1),
+            );
+            let mut paint = [0.0; 4];
+            for channel in 0..4 {
+                let top = a[channel] + (b[channel] - a[channel]) * tx;
+                let bottom = c[channel] + (d[channel] - c[channel]) * tx;
+                paint[channel] = (top + (bottom - top) * ty) * sprite.opacity;
+            }
+            canvas.over(x, y, &sprite.content_mask.bounds, Paint(paint));
+        }
+    }
 }
 
 /// How far a point is outside a rounded rectangle (negative inside), as
@@ -619,6 +693,10 @@ fn item(n: u64, kind: CanvasItemKind, label: &str, x: f32, at: Option<u64>) -> C
         standing: None,
         mood: None,
         spot: None,
+        px: None,
+        home: None,
+        day: Vec::new(),
+        built: None,
     }
 }
 
@@ -663,6 +741,47 @@ fn town() -> ProjectionSnapshot {
     snapshot
 }
 
+/// A harbour on the water: the town with a boat at the quay, one of its
+/// people at home indoors from nine at night, and the others out late.
+fn harbour() -> ProjectionSnapshot {
+    let mut snapshot = town();
+    snapshot.scenery = Some(world_projection::Scenery {
+        sky_top: 0x9cc6e6,
+        sky_bottom: 0xf0ead8,
+        far: 0x8fae7e,
+        near: 0x4f86a8,
+        sun: 0xffe2a0,
+    });
+    let mut boat = item(200, CanvasItemKind::Object, "Boat", 0.0, Some(100));
+    boat.shape = Some(MarkShape::Boat);
+    snapshot.canvas.items.push(boat);
+    let mut tree = item(105, CanvasItemKind::Place, "Orchard", 0.9, None);
+    tree.shape = Some(MarkShape::Tree);
+    snapshot.canvas.items.push(tree);
+    let home = id(101);
+    let work = id(102);
+    if let Some(leo) = snapshot
+        .canvas
+        .items
+        .iter_mut()
+        .find(|item| item.id == id(2))
+    {
+        leo.day = vec![
+            world_projection::RoutineStop {
+                from_hour: 7,
+                at: work,
+                inside: false,
+            },
+            world_projection::RoutineStop {
+                from_hour: 21,
+                at: home,
+                inside: true,
+            },
+        ];
+    }
+    snapshot
+}
+
 /// The diorama of `snapshot`, `width` by `height`, at a pinned moment.
 fn diorama_frame(
     snapshot: &ProjectionSnapshot,
@@ -671,7 +790,12 @@ fn diorama_frame(
     daylight: Daylight,
     hour: f32,
 ) -> diorama::Frame {
-    let stage = diorama::stage(snapshot, width, height);
+    let stage = diorama::stage_at(
+        snapshot,
+        width,
+        height,
+        diorama::Clock::at(hour.floor() as u8),
+    );
     let living = diorama::living(&stage, snapshot, 0.0, daylight, &Default::default(), None);
     diorama::frame(
         snapshot,
@@ -709,6 +833,279 @@ fn the_diorama_at_dusk_matches_its_golden_picture() {
     let frame = diorama_frame(&town(), 480.0, 300.0, Daylight::Dusk, 19.5);
     let image = draw(480.0, 300.0, move || painted(frame.clone()));
     matches_golden("diorama-dusk", &image);
+}
+
+/// The harbour at night: windows lit with their glow, someone at home
+/// seen in one, and nobody else about but the night owls.
+#[test]
+fn the_diorama_at_night_matches_its_golden_picture() {
+    let frame = diorama_frame(&harbour(), 480.0, 300.0, Daylight::Night, 23.0);
+    let image = draw(480.0, 300.0, move || painted(frame.clone()));
+    matches_golden("diorama-night", &image);
+}
+
+/// Each season on the harbour: blossom in spring, full summer, leaves in
+/// autumn, and in winter snow on the roofs and the ground and ice at the
+/// water's edge.
+#[test]
+fn each_season_matches_its_golden_picture() {
+    use world_projection::{GroundCover, Season};
+    for (name, season, cover, ice) in [
+        (
+            "season-spring",
+            Season::Spring,
+            Some(GroundCover::Blossom),
+            false,
+        ),
+        ("season-summer", Season::Summer, None, false),
+        (
+            "season-autumn",
+            Season::Autumn,
+            Some(GroundCover::Leaves),
+            false,
+        ),
+        (
+            "season-winter",
+            Season::Winter,
+            Some(GroundCover::Snow),
+            true,
+        ),
+    ] {
+        let mut snapshot = harbour();
+        snapshot.canvas.season = Some(season);
+        snapshot.canvas.ground = cover;
+        snapshot.canvas.ice = ice;
+        let frame = diorama_frame(&snapshot, 480.0, 300.0, Daylight::Day, 11.0);
+        let image = draw(480.0, 300.0, move || painted(frame.clone()));
+        matches_golden(name, &image);
+    }
+}
+
+/// A place three windows wide, panned to its far end: the camera follows
+/// `px`, and the far hills move less than the ground.
+#[test]
+fn a_panorama_panned_along_matches_its_golden_picture() {
+    let mut snapshot = harbour();
+    snapshot.canvas.width = Some(3.0);
+    let places = snapshot
+        .canvas
+        .items
+        .iter()
+        .enumerate()
+        .filter(|(_, item)| item.kind != CanvasItemKind::Actor)
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+    for (n, index) in places.iter().enumerate() {
+        snapshot.canvas.items[*index].px = Some(0.35 + n as f32 * 0.62);
+    }
+    let (width, height) = (480.0, 300.0);
+    let stage = diorama::stage_at(&snapshot, width, height, diorama::Clock::at(13));
+    assert_eq!(stage.width, width * 3.0);
+    let living = diorama::living(
+        &stage,
+        &snapshot,
+        0.0,
+        Daylight::Day,
+        &Default::default(),
+        None,
+    );
+    let camera = Camera::around(&stage, 1.0, stage.width, height / 2.0);
+    assert!((camera.x - (stage.width - width / 2.0)).abs() < 0.01);
+    let frame = diorama::frame(
+        &snapshot,
+        &stage,
+        &living,
+        camera,
+        0.0,
+        Daylight::Day,
+        &Glows::new(),
+        1.0,
+    )
+    .at_hour(15.0);
+    let image = draw(width, height, move || painted(frame.clone()));
+    matches_golden("panorama-east", &image);
+}
+
+/// A view showing the World window's scene: still layers painted off the
+/// window's thread.
+struct SceneView(diorama::Frame);
+
+impl gpui::Render for SceneView {
+    fn render(&mut self, window: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+        div()
+            .size_full()
+            .relative()
+            .child(diorama::scene(self.0.clone(), window))
+    }
+}
+
+/// The World window never waits for a picture: its first frame is drawn at
+/// once with stand-ins (the sky's colours, the land's), the still layers
+/// arrive from the painter's threads and fade in, and once they have the
+/// scene is the same picture as one painted all at once.
+#[test]
+fn the_scene_draws_at_once_and_its_still_layers_arrive_and_fade_in() {
+    crate::painter::paint_elsewhere(true);
+    let frame = diorama_frame(&town(), 480.0, 300.0, Daylight::Day, 13.0);
+    let mut cx =
+        HeadlessAppContext::with_platform(Arc::new(NoopTextSystem::new()), Arc::new(()), || {
+            Some(Box::new(Raster(Arc::default())) as Box<dyn PlatformHeadlessRenderer>)
+        });
+    let started = std::time::Instant::now();
+    let window = cx
+        .open_window(size(px(480.0), px(300.0)), move |_, cx: &mut App| {
+            cx.new(|_| SceneView(frame.clone()))
+        })
+        .expect("a window");
+    cx.run_until_parked();
+    let first = cx.capture_screenshot(window.into()).expect("a picture");
+    let bare = first.pixels().filter(|pixel| pixel.0[3] < 255).count();
+    assert_eq!(bare, 0, "the first frame is whole, with stand-ins");
+    let _ = started;
+    // The still layers arrive, then fade in over a third of a second.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    let mut settled = None;
+    while std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(40));
+        cx.update_window(window.into(), |_, window, _| window.refresh())
+            .expect("a window");
+        cx.run_until_parked();
+        if crate::painter::idle() {
+            std::thread::sleep(std::time::Duration::from_millis(450));
+            cx.update_window(window.into(), |_, window, _| window.refresh())
+                .expect("a window");
+            cx.run_until_parked();
+            cx.update_window(window.into(), |_, window, _| window.refresh())
+                .expect("a window");
+            cx.run_until_parked();
+            settled = Some(cx.capture_screenshot(window.into()).expect("a picture"));
+            break;
+        }
+    }
+    crate::painter::paint_elsewhere(false);
+    let settled = settled.expect("the still layers arrive");
+    matches_golden("diorama-day", &settled);
+}
+
+/// How long this thread has been running on a CPU, so a frame is timed by
+/// its own work and not by the other programs a busy machine is running
+/// meanwhile.
+fn on_cpu() -> std::time::Duration {
+    let mut now = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    // SAFETY: `now` is a valid timespec for clock_gettime to fill in.
+    let status = unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut now) };
+    if status != 0 {
+        return std::time::Duration::ZERO;
+    }
+    std::time::Duration::new(now.tv_sec as u64, now.tv_nsec as u32)
+}
+
+/// A view of a scene whose frame the test can change between frames.
+struct LiveScene(std::rc::Rc<std::cell::RefCell<diorama::Frame>>);
+
+impl gpui::Render for LiveScene {
+    fn render(&mut self, window: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+        let frame = self.0.borrow().clone();
+        div()
+            .size_full()
+            .relative()
+            .child(diorama::scene(frame, window))
+    }
+}
+
+/// The v0.21 bar for hitches: at 1440 by 900 at twice the pixels, a
+/// three-year World's window never spends more than 16 ms on a frame
+/// because of painting, whether it is opening, the hour turning or the
+/// view panning into places not yet painted: all of that is painted off
+/// the window's thread and faded in. Timed in a release build.
+#[test]
+#[ignore = "a benchmark: cargo test --release -p world-gpui -- --ignored never_waits"]
+fn a_three_year_world_never_waits_for_painting() {
+    use std::time::{Duration, Instant};
+    crate::painter::paint_elsewhere(true);
+    let snapshot = crate::diorama::tests::three_years();
+    let (width, height) = (1440.0_f32, 900.0_f32);
+    let make = |hour: f32, pan: f32, daylight: Daylight| {
+        let stage = diorama::stage_at(&snapshot, width, height, diorama::Clock::at(hour as u8));
+        let living = diorama::living(&stage, &snapshot, 0.0, daylight, &Default::default(), None);
+        let camera = Camera::around(&stage, 1.0, stage.width / 2.0 + pan, height / 2.0);
+        diorama::frame(
+            &snapshot,
+            &stage,
+            &living,
+            camera,
+            0.0,
+            daylight,
+            &Glows::new(),
+            1.0,
+        )
+        .at_hour(hour)
+    };
+    let shared = std::rc::Rc::new(std::cell::RefCell::new(make(12.0, 0.0, Daylight::Day)));
+    let mut cx =
+        HeadlessAppContext::with_platform(Arc::new(NoopTextSystem::new()), Arc::new(()), || {
+            Some(Box::new(Raster(Arc::default())) as Box<dyn PlatformHeadlessRenderer>)
+        });
+    let view = shared.clone();
+    let started = on_cpu();
+    let window = cx
+        .open_window(size(px(width), px(height)), move |_, cx: &mut App| {
+            cx.new(|_| LiveScene(view.clone()))
+        })
+        .expect("a window");
+    let opening = on_cpu().saturating_sub(started);
+    let mut worst = opening;
+    let mut frames = 0;
+    let settle = |cx: &mut HeadlessAppContext, worst: &mut Duration, frames: &mut u32| {
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let mut quiet = 0;
+        while Instant::now() < deadline && quiet < 40 {
+            std::thread::sleep(Duration::from_millis(8));
+            let ours = || {
+                let profile = crate::painter::profile().lock().unwrap();
+                ["main: plan", "main: draw still"]
+                    .map(|part| profile.get(part).copied().unwrap_or_default())
+            };
+            let before = ours();
+            let (started, cpu) = (Instant::now(), on_cpu());
+            cx.update_window(window.into(), |_, window, _| window.refresh())
+                .expect("a window");
+            let (wall, took) = (started.elapsed(), on_cpu().saturating_sub(cpu));
+            let after = ours();
+            if took > Duration::from_millis(16) || wall > Duration::from_millis(16) {
+                eprintln!(
+                    "a slow frame, {took:?} on the CPU ({wall:?} by the clock): planning {:?}, \
+                     drawing the still layers {:?}",
+                    after[0] - before[0],
+                    after[1] - before[1]
+                );
+            }
+            *worst = (*worst).max(took);
+            *frames += 1;
+            quiet = if crate::painter::idle() { quiet + 1 } else { 0 };
+        }
+    };
+    settle(&mut cx, &mut worst, &mut frames);
+    // The hour turns to dusk: every still layer is painted again.
+    *shared.borrow_mut() = make(19.5, 0.0, Daylight::Dusk);
+    settle(&mut cx, &mut worst, &mut frames);
+    // The view pans a window and a half along, into tiles not painted.
+    *shared.borrow_mut() = make(19.5, width * 1.5, Daylight::Dusk);
+    settle(&mut cx, &mut worst, &mut frames);
+    crate::painter::paint_elsewhere(false);
+    eprintln!("{:?}", crate::painter::profile().lock().unwrap());
+    eprintln!(
+        "{frames} frames; the longest on the window's thread {:.2} ms of its own work \
+         (opening {:.2} ms)",
+        worst.as_secs_f64() * 1000.0,
+        opening.as_secs_f64() * 1000.0
+    );
+    if !cfg!(debug_assertions) {
+        assert!(worst < Duration::from_millis(16), "{worst:?}");
+    }
 }
 
 #[test]

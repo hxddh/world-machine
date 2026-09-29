@@ -4,7 +4,8 @@
 //! painted from shapes, so any World a Pack describes can be drawn without
 //! shipping a picture.
 
-use gpui::{point, px, quad, rgb, size, BorderStyle, Bounds, Hsla, PathBuilder, Window};
+use crate::brush::{Brush, Shape, Xform};
+use gpui::{rgb, Bounds, Hsla};
 use world_projection::{Carry, Look, MarkShape};
 
 /// A colour from 0xRRGGBB.
@@ -23,96 +24,55 @@ pub fn shade(colour: Hsla, by: f32) -> Hsla {
     shaded
 }
 
-pub fn rect(window: &mut Window, x: f32, y: f32, w: f32, h: f32, radius: f32, colour: Hsla) {
-    if w <= 0.0 || h <= 0.0 {
-        return;
-    }
-    window.paint_quad(quad(
-        Bounds::new(point(px(x), px(y)), size(px(w), px(h))),
-        px(radius.min(w / 2.0).min(h / 2.0)),
-        colour,
-        px(0.0),
-        colour,
-        BorderStyle::default(),
-    ));
+pub fn rect(window: &mut dyn Brush, x: f32, y: f32, w: f32, h: f32, radius: f32, colour: Hsla) {
+    window.rect(x, y, w, h, radius, colour);
 }
 
-pub fn circle(window: &mut Window, cx: f32, cy: f32, r: f32, colour: Hsla) {
+pub fn circle(window: &mut dyn Brush, cx: f32, cy: f32, r: f32, colour: Hsla) {
     rect(window, cx - r, cy - r, r * 2.0, r * 2.0, r, colour);
 }
 
-pub fn polygon(window: &mut Window, points: &[(f32, f32)], colour: Hsla) {
-    let Some(first) = points.first() else {
+pub fn polygon(window: &mut dyn Brush, points: &[(f32, f32)], colour: Hsla) {
+    if points.is_empty() {
         return;
-    };
-    let mut path = PathBuilder::fill();
-    path.move_to(point(px(first.0), px(first.1)));
-    for (x, y) in &points[1..] {
-        path.line_to(point(px(*x), px(*y)));
     }
-    path.close();
-    if let Ok(path) = path.build() {
-        window.paint_path(path, colour);
-    }
+    window.fill(&Shape::polygon(points), colour);
 }
 
-pub fn line(window: &mut Window, from: (f32, f32), to: (f32, f32), width: f32, colour: Hsla) {
-    let mut path = PathBuilder::stroke(px(width));
-    path.move_to(point(px(from.0), px(from.1)));
-    path.line_to(point(px(to.0), px(to.1)));
-    if let Ok(path) = path.build() {
-        window.paint_path(path, colour);
-    }
+pub fn line(window: &mut dyn Brush, from: (f32, f32), to: (f32, f32), width: f32, colour: Hsla) {
+    let mut shape = Shape::new();
+    shape.move_to(from.0, from.1).line_to(to.0, to.1);
+    window.stroke(&shape, width, colour);
 }
 
 /// An ellipse, as eight curved segments.
-pub fn ellipse(window: &mut Window, cx: f32, cy: f32, rx: f32, ry: f32, colour: Hsla) {
+pub fn ellipse(window: &mut dyn Brush, cx: f32, cy: f32, rx: f32, ry: f32, colour: Hsla) {
     if rx <= 0.0 || ry <= 0.0 {
         return;
     }
-    let step = std::f32::consts::TAU / 8.0;
-    let reach = 1.0 / (step / 2.0).cos();
-    let at = |angle: f32, scale: f32| {
-        point(
-            px(cx + rx * scale * angle.cos()),
-            px(cy + ry * scale * angle.sin()),
-        )
-    };
-    let mut path = PathBuilder::fill();
-    path.move_to(at(0.0, 1.0));
-    for index in 0..8 {
-        let start = index as f32 * step;
-        path.curve_to(at(start + step, 1.0), at(start + step / 2.0, reach));
-    }
-    path.close();
-    if let Ok(path) = path.build() {
-        window.paint_path(path, colour);
-    }
+    window.fill(&Shape::ellipse(cx, cy, rx, ry), colour);
 }
 
 /// The top half of an ellipse standing on the line through (`cx`, `cy`).
-pub fn dome(window: &mut Window, cx: f32, cy: f32, rx: f32, ry: f32, colour: Hsla) {
+pub fn dome(window: &mut dyn Brush, cx: f32, cy: f32, rx: f32, ry: f32, colour: Hsla) {
     if rx <= 0.0 || ry <= 0.0 {
         return;
     }
     let step = std::f32::consts::PI / 4.0;
     let reach = 1.0 / (step / 2.0).cos();
-    let at = |angle: f32, scale: f32| {
-        point(
-            px(cx + rx * scale * angle.cos()),
-            px(cy - ry * scale * angle.sin()),
-        )
-    };
-    let mut path = PathBuilder::fill();
-    path.move_to(at(0.0, 1.0));
+    let at =
+        |angle: f32, scale: f32| (cx + rx * scale * angle.cos(), cy - ry * scale * angle.sin());
+    let mut shape = Shape::new();
+    let (x, y) = at(0.0, 1.0);
+    shape.move_to(x, y);
     for index in 0..4 {
         let start = index as f32 * step;
-        path.curve_to(at(start + step, 1.0), at(start + step / 2.0, reach));
+        let (x, y) = at(start + step, 1.0);
+        let (qx, qy) = at(start + step / 2.0, reach);
+        shape.curve_to(x, y, qx, qy);
     }
-    path.close();
-    if let Ok(path) = path.build() {
-        window.paint_path(path, colour);
-    }
+    shape.close();
+    window.fill(&shape, colour);
 }
 
 /// A small stable number for anything with an id, so the same person is
@@ -158,17 +118,88 @@ impl Figure {
 
 /// How a figure stands this frame: the swing of a walk (none when still),
 /// a small rise and fall while it breathes, and which way it faces.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Pose {
     pub stride: Option<f32>,
     pub bob: f32,
     pub facing: f32,
+    /// Taller than they are (above 1) or squashed (below 1), keeping
+    /// their volume: stretched in a hop, squashed as they land.
+    pub squash: f32,
+    /// How far the top of them trails or leads the feet, as a share of
+    /// their height: coats and hair swinging as they start and stop.
+    pub lean: f32,
+}
+
+impl Default for Pose {
+    fn default() -> Self {
+        Self {
+            stride: None,
+            bob: 0.0,
+            facing: 0.0,
+            squash: 1.0,
+            lean: 0.0,
+        }
+    }
+}
+
+impl Pose {
+    /// Whether the figure is drawn as it stands, unsquashed and upright.
+    fn plain(&self) -> bool {
+        (self.squash - 1.0).abs() < 1e-3 && self.lean.abs() < 1e-3
+    }
+}
+
+/// Where a foot is in a walk `phase` (0 to 1) along, for the foot on
+/// `side`: how far forward of the hip (-1 behind to 1 ahead) and how high
+/// it is lifted (0 to 1). A foot on the ground stays where it was put while
+/// the body goes on over it; then it lifts and swings through to its next
+/// step.
+pub fn step(phase: f32, side: f32) -> (f32, f32) {
+    let p = (phase + if side > 0.0 { 0.0 } else { 0.5 }).rem_euclid(1.0);
+    if p < 0.5 {
+        // Planted: it slides back evenly under a body moving on evenly.
+        (1.0 - 4.0 * p, 0.0)
+    } else {
+        let swing = (p - 0.5) * 2.0;
+        (
+            2.0 * ease_in_out(swing) - 1.0,
+            (swing * std::f32::consts::PI).sin(),
+        )
+    }
+}
+
+fn ease_in_out(t: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
 }
 
 /// Someone standing with their feet at (`x`, `y`), `height` tall.
-pub fn paint_figure(window: &mut Window, x: f32, y: f32, height: f32, figure: &Figure, pose: Pose) {
+pub fn paint_figure(
+    window: &mut dyn Brush,
+    x: f32,
+    y: f32,
+    height: f32,
+    figure: &Figure,
+    pose: Pose,
+) {
+    if !pose.plain() {
+        let mut posed = Xform::about(
+            window,
+            (x, y),
+            1.0 / pose.squash.max(0.2).sqrt(),
+            pose.squash,
+            pose.lean,
+        );
+        let upright = Pose {
+            squash: 1.0,
+            lean: 0.0,
+            ..pose
+        };
+        paint_figure(&mut posed, x, y, height, figure, upright);
+        return;
+    }
     let u = height / 10.0;
-    ellipse(window, x, y, 2.2 * u, 0.55 * u, gpui::black().opacity(0.16));
     if figure.bird {
         paint_bird(window, x, y, u, figure, pose);
         return;
@@ -179,13 +210,17 @@ pub fn paint_figure(window: &mut Window, x: f32, y: f32, height: f32, figure: &F
         .unwrap_or(0.0);
     let lift = pose.bob;
     let trousers = hex(0x3b3f4a);
-    // Legs, swinging when walking.
+    let facing = if pose.facing < 0.0 { -1.0 } else { 1.0 };
+    // Legs: in a walk each foot is planted while the body passes over it,
+    // then lifts and swings through.
     for side in [-1.0_f32, 1.0] {
-        let step = swing * side * 0.7 * u;
+        let (reach, raised) = pose.stride.map_or((0.0, 0.0), |phase| step(phase, side));
+        let along = reach * facing * 0.8 * u;
+        let up = raised * 0.45 * u;
         rect(
             window,
-            x + side * 0.75 * u - 0.5 * u + step,
-            y - 3.2 * u,
+            x + side * 0.75 * u - 0.5 * u + along,
+            y - 3.2 * u - up,
             1.0 * u,
             3.2 * u,
             0.4 * u,
@@ -193,8 +228,8 @@ pub fn paint_figure(window: &mut Window, x: f32, y: f32, height: f32, figure: &F
         );
         rect(
             window,
-            x + side * 0.75 * u - 0.6 * u + step,
-            y - 0.45 * u,
+            x + side * 0.75 * u - 0.6 * u + along,
+            y - 0.45 * u - up,
             1.3 * u,
             0.5 * u,
             0.25 * u,
@@ -287,7 +322,7 @@ pub fn paint_figure(window: &mut Window, x: f32, y: f32, height: f32, figure: &F
     }
 }
 
-fn paint_bird(window: &mut Window, x: f32, y: f32, u: f32, figure: &Figure, pose: Pose) {
+fn paint_bird(window: &mut dyn Brush, x: f32, y: f32, u: f32, figure: &Figure, pose: Pose) {
     let waddle = pose
         .stride
         .map(|phase| (phase * std::f32::consts::TAU).sin() * 0.35 * u)
@@ -378,7 +413,7 @@ fn paint_bird(window: &mut Window, x: f32, y: f32, u: f32, figure: &Figure, pose
 }
 
 /// What someone carries, held at (`x`, `y`).
-fn paint_carry(window: &mut Window, x: f32, y: f32, u: f32, carry: Carry) {
+fn paint_carry(window: &mut dyn Brush, x: f32, y: f32, u: f32, carry: Carry) {
     match carry {
         Carry::Tool => {
             rect(
@@ -480,7 +515,7 @@ fn paint_carry(window: &mut Window, x: f32, y: f32, u: f32, carry: Carry) {
 
 /// A head-and-shoulders portrait of someone inside `bounds`, for a card or
 /// a return beat: the same person as on the scene.
-pub fn paint_portrait(window: &mut Window, bounds: Bounds<gpui::Pixels>, figure: &Figure) {
+pub fn paint_portrait(window: &mut dyn Brush, bounds: Bounds<gpui::Pixels>, figure: &Figure) {
     let x = f32::from(bounds.origin.x);
     let y = f32::from(bounds.origin.y);
     let w = f32::from(bounds.size.width);
@@ -508,7 +543,7 @@ pub fn paint_portrait(window: &mut Window, bounds: Bounds<gpui::Pixels>, figure:
 /// drawing when it ships one, with the face of their mood, else the
 /// figure the app draws for them. `talking` opens their mouth.
 pub fn paint_likeness(
-    window: &mut Window,
+    window: &mut dyn Brush,
     bounds: Bounds<gpui::Pixels>,
     figure: &Figure,
     drawing: Option<&world_projection::Drawing>,
@@ -565,6 +600,9 @@ pub struct Palette {
     pub trim: Hsla,
     /// Windows by day, and lit after dusk.
     pub glass: Hsla,
+    /// What a home is like besides its colours: its storeys, roof, door,
+    /// chimney and what is built on, all from its id.
+    pub seed: u32,
 }
 
 const ROOFS: [u32; 5] = [0xb5523b, 0x3f6a8a, 0x4a7a4f, 0x7a4b8a, 0x8a6a3a];
@@ -578,14 +616,304 @@ impl Palette {
             roof: hex(ROOFS[((seed >> 5) as usize) % ROOFS.len()]),
             trim: hex(0x6b4a33),
             glass: if lit { hex(0xffd27a) } else { hex(0x5f7385) },
+            seed: seed.wrapping_mul(0x9e37_79b9) ^ (seed >> 15),
         }
+    }
+}
+
+/// Doors a home might have: its trim's brown, a deep green, a muted blue,
+/// oxblood. Few, and quiet, so a street of them holds together.
+const DOORS: [u32; 4] = [0x6b4a33, 0x3f5a48, 0x3e5873, 0x7a3b33];
+
+/// A home: the harbour's family of cottages, each its own. From the seed
+/// in its palette it takes a width, one or two storeys, a gabled or a
+/// hipped roof and its pitch, a chimney at one end, a door colour, window
+/// boxes or shutters, and perhaps a lean-to, a porch or a garden gate.
+/// A home's make, from the seed in its palette.
+struct House {
+    storeys: u32,
+    hipped: bool,
+    pitch: f32,
+    chimney_side: f32,
+    door: u32,
+    dressing: u32,
+    annex: u32,
+    gate: bool,
+    width: f32,
+}
+
+impl House {
+    fn of(palette: &Palette) -> Self {
+        let seed = palette.seed;
+        let pick =
+            |salt: u32, choices: u32| (seed.rotate_right(salt) ^ (seed >> (salt % 13))) % choices;
+        let storeys = if pick(3, 3) == 0 { 2 } else { 1 };
+        Self {
+            storeys,
+            hipped: pick(6, 3) == 0,
+            pitch: if storeys == 2 {
+                0.3
+            } else {
+                [0.36, 0.42, 0.48][pick(9, 3) as usize]
+            },
+            chimney_side: if pick(12, 2) == 0 { -1.0 } else { 1.0 },
+            door: DOORS[pick(15, DOORS.len() as u32) as usize],
+            // 0 none, 1 window boxes, 2 shutters.
+            dressing: pick(18, 3),
+            // 0 and 1 nothing; 2 a lean-to; 3 a porch.
+            annex: pick(21, 4),
+            gate: pick(24, 4) == 0,
+            width: [0.8, 0.86, 0.92][pick(27, 3) as usize],
+        }
+    }
+
+    /// The body's middle and width, and a lean-to's width, for a house `w`
+    /// wide centred on `x`.
+    fn body(&self, x: f32, w: f32) -> (f32, f32, f32) {
+        let lean_w = if self.annex == 2 { w * 0.22 } else { 0.0 };
+        let body_w = (w * self.width - lean_w).max(w * 0.6);
+        (x + self.chimney_side * lean_w / 2.0, body_w, lean_w)
+    }
+}
+
+/// Where a home's chimney pot is, for its smoke.
+pub fn chimney_top(x: f32, base: f32, w: f32, h: f32, palette: &Palette) -> (f32, f32) {
+    let house = House::of(palette);
+    let (body_x, body_w, _) = house.body(x, w);
+    (
+        body_x + house.chimney_side * body_w * 0.24,
+        base - h + h * house.pitch * 0.1,
+    )
+}
+
+fn paint_house(window: &mut dyn Brush, x: f32, base: f32, w: f32, h: f32, palette: &Palette) {
+    let house = House::of(palette);
+    let (storeys, hipped, pitch, chimney_side) =
+        (house.storeys, house.hipped, house.pitch, house.chimney_side);
+    let door_ink = hex(house.door);
+    let (dressing, annex, gate) = (house.dressing, house.annex, house.gate);
+    let (body_x, body_w, lean_w) = house.body(x, w);
+    let (left, right) = (body_x - body_w / 2.0, body_x + body_w / 2.0);
+    let top = base - h;
+    let roof_h = h * pitch;
+    let wall_top = top + roof_h;
+    if annex == 2 {
+        let lean_left = if chimney_side > 0.0 {
+            left - lean_w
+        } else {
+            right
+        };
+        let lean_top = base - (base - wall_top) * 0.62;
+        rect(
+            window,
+            lean_left,
+            lean_top,
+            lean_w,
+            base - lean_top,
+            1.0,
+            shade(palette.wall, -0.06),
+        );
+        let (inner, outer) = if chimney_side > 0.0 {
+            (left, lean_left)
+        } else {
+            (right, lean_left + lean_w)
+        };
+        polygon(
+            window,
+            &[
+                (inner, lean_top - h * 0.08),
+                (outer - (inner - outer).signum() * w * 0.02, lean_top + 1.0),
+                (outer, lean_top + h * 0.02),
+                (inner, lean_top + h * 0.02),
+            ],
+            shade(palette.roof, -0.08),
+        );
+        rect(
+            window,
+            lean_left + lean_w * 0.3,
+            lean_top + (base - lean_top) * 0.3,
+            lean_w * 0.4,
+            (base - lean_top) * 0.3,
+            1.0,
+            palette.glass,
+        );
+    }
+    rect(
+        window,
+        left,
+        wall_top,
+        body_w,
+        base - wall_top,
+        2.0,
+        palette.wall,
+    );
+    // The chimney, behind the roof's slope at one end.
+    let chimney_x = body_x + chimney_side * body_w * 0.24;
+    rect(
+        window,
+        chimney_x - w * 0.05,
+        top + roof_h * 0.1,
+        w * 0.1,
+        roof_h * 0.7,
+        1.0,
+        shade(palette.roof, -0.2),
+    );
+    let eave = w * 0.035;
+    if hipped {
+        polygon(
+            window,
+            &[
+                (left - eave, wall_top + 2.0),
+                (body_x - body_w * 0.2, top + roof_h * 0.12),
+                (body_x + body_w * 0.2, top + roof_h * 0.12),
+                (right + eave, wall_top + 2.0),
+            ],
+            palette.roof,
+        );
+    } else {
+        polygon(
+            window,
+            &[
+                (left - eave, wall_top + 2.0),
+                (body_x, top),
+                (right + eave, wall_top + 2.0),
+            ],
+            palette.roof,
+        );
+    }
+    // The eave's shadow on the wall.
+    rect(
+        window,
+        left,
+        wall_top + 1.0,
+        body_w,
+        h * 0.03,
+        0.0,
+        shade(palette.wall, -0.18),
+    );
+    // Windows, and the door.
+    let window_w = w * 0.13;
+    let window_h = if storeys == 2 { h * 0.11 } else { h * 0.14 };
+    let door_h = h * 0.26;
+    let door_x = if storeys == 2 {
+        body_x - chimney_side * body_w * 0.22
+    } else {
+        body_x
+    };
+    let mut panes = Vec::new();
+    if storeys == 2 {
+        let upper = wall_top + (base - wall_top) * 0.12;
+        panes.push((body_x - body_w * 0.24, upper));
+        panes.push((body_x + body_w * 0.24, upper));
+        panes.push((body_x + chimney_side * body_w * 0.22, base - door_h * 0.95));
+    } else {
+        let row = wall_top + (base - wall_top) * 0.2;
+        panes.push((body_x - body_w * 0.28, row));
+        panes.push((body_x + body_w * 0.28, row));
+    }
+    for (cx, wy) in &panes {
+        let wx = cx - window_w / 2.0;
+        if dressing == 2 {
+            for side in [-1.0_f32, 1.0] {
+                rect(
+                    window,
+                    cx + side * (window_w / 2.0 + w * 0.025) - w * 0.02,
+                    *wy,
+                    w * 0.04,
+                    window_h,
+                    1.0,
+                    shade(door_ink, 0.12),
+                );
+            }
+        }
+        rect(window, wx, *wy, window_w, window_h, 2.0, palette.glass);
+        if dressing == 1 {
+            rect(
+                window,
+                wx - w * 0.01,
+                wy + window_h,
+                window_w + w * 0.02,
+                h * 0.035,
+                1.0,
+                hex(0x7a5a3a),
+            );
+            for bloom in 0..3 {
+                circle(
+                    window,
+                    wx + window_w * (0.2 + 0.3 * bloom as f32),
+                    wy + window_h,
+                    w * 0.018,
+                    hex(if bloom % 2 == 0 { 0x5f8f4f } else { 0xd46a6a }),
+                );
+            }
+        }
+    }
+    rect(
+        window,
+        door_x - w * 0.07,
+        base - door_h,
+        w * 0.14,
+        door_h,
+        w * 0.03,
+        door_ink,
+    );
+    if annex == 3 {
+        // A porch: a little gabled canopy on two posts over the door.
+        let porch_top = base - door_h - h * 0.1;
+        polygon(
+            window,
+            &[
+                (door_x - w * 0.13, porch_top + h * 0.08),
+                (door_x, porch_top),
+                (door_x + w * 0.13, porch_top + h * 0.08),
+            ],
+            shade(palette.roof, -0.05),
+        );
+        for side in [-1.0_f32, 1.0] {
+            rect(
+                window,
+                door_x + side * w * 0.11 - w * 0.01,
+                porch_top + h * 0.08,
+                w * 0.02,
+                base - porch_top - h * 0.08,
+                0.0,
+                shade(palette.wall, 0.2),
+            );
+        }
+    }
+    if gate {
+        // A garden gate and a little paling beside the house.
+        let side = -chimney_side;
+        let from = body_x + side * (body_w / 2.0 + w * 0.02);
+        let paling = hex(0xf1ece2);
+        for post in 0..3 {
+            let px0 = from + side * post as f32 * w * 0.05;
+            rect(
+                window,
+                px0 - w * 0.008,
+                base - h * 0.1,
+                w * 0.016,
+                h * 0.1,
+                0.5,
+                paling,
+            );
+        }
+        rect(
+            window,
+            from.min(from + side * w * 0.1),
+            base - h * 0.07,
+            w * 0.1,
+            h * 0.012,
+            0.0,
+            paling,
+        );
     }
 }
 
 /// A place drawn as the building it is, standing with its base centred on
 /// (`x`, `base`), `w` wide and `h` tall.
 pub fn paint_building(
-    window: &mut Window,
+    window: &mut dyn Brush,
     x: f32,
     base: f32,
     w: f32,
@@ -595,15 +923,7 @@ pub fn paint_building(
 ) {
     let left = x - w / 2.0;
     let top = base - h;
-    ellipse(
-        window,
-        x,
-        base,
-        w * 0.55,
-        h * 0.05,
-        gpui::black().opacity(0.12),
-    );
-    let door = |window: &mut Window, height: f32| {
+    let door = |window: &mut dyn Brush, height: f32| {
         rect(
             window,
             x - w * 0.07,
@@ -615,7 +935,8 @@ pub fn paint_building(
         );
     };
     match shape {
-        MarkShape::House | MarkShape::Lamp => {
+        MarkShape::House => paint_house(window, x, base, w, h, palette),
+        MarkShape::Lamp => {
             let wall_top = top + h * 0.42;
             rect(
                 window,
@@ -851,15 +1172,10 @@ pub fn paint_building(
                     stone,
                 );
             }
-            let mut arch = PathBuilder::stroke(px(h * 0.08));
-            arch.move_to(point(px(left + w * 0.12), px(base)));
-            arch.curve_to(
-                point(px(left + w * 0.88), px(base)),
-                point(px(x), px(deck - h * 0.25)),
-            );
-            if let Ok(path) = arch.build() {
-                window.paint_path(path, stone);
-            }
+            let mut arch = Shape::new();
+            arch.move_to(left + w * 0.12, base)
+                .curve_to(left + w * 0.88, base, x, deck - h * 0.25);
+            window.stroke(&arch, h * 0.08, stone);
             for post in 0..6 {
                 let px_ = left + w * (0.08 + 0.168 * post as f32);
                 rect(
@@ -901,7 +1217,7 @@ pub fn paint_building(
 /// A thing drawn standing (or floating) with its base centred on (`x`,
 /// `base`), `w` wide: a rover, a boat, a parcel. `sway` rocks a boat.
 pub fn paint_thing(
-    window: &mut Window,
+    window: &mut dyn Brush,
     x: f32,
     base: f32,
     w: f32,
@@ -1753,7 +2069,7 @@ pub fn paint_thing(
 /// A heart for warmth, a crack for strain, three dots for not yet either,
 /// in a small round bubble centred on (`x`, `y`).
 pub fn paint_bond(
-    window: &mut Window,
+    window: &mut dyn Brush,
     x: f32,
     y: f32,
     r: f32,
@@ -1762,29 +2078,35 @@ pub fn paint_bond(
     use world_projection::CanvasLinkTone;
     circle(window, x, y + 1.0, r, gpui::black().opacity(0.08));
     circle(window, x, y, r, gpui::white());
-    let at = |dx: f32, dy: f32| point(px(x + dx * r), px(y + dy * r));
+    let at = |dx: f32, dy: f32| (x + dx * r, y + dy * r);
     match tone {
         CanvasLinkTone::Warm => {
-            let mut heart = PathBuilder::fill();
-            heart.move_to(at(0.0, 0.55));
-            heart.curve_to(at(-0.55, -0.1), at(-0.6, 0.2));
-            heart.curve_to(at(0.0, -0.2), at(-0.35, -0.6));
-            heart.curve_to(at(0.55, -0.1), at(0.35, -0.6));
-            heart.curve_to(at(0.0, 0.55), at(0.6, 0.2));
+            let mut heart = Shape::new();
+            let curve = |heart: &mut Shape, to: (f32, f32), control: (f32, f32)| {
+                heart.curve_to(to.0, to.1, control.0, control.1);
+            };
+            let (sx, sy) = at(0.0, 0.55);
+            heart.move_to(sx, sy);
+            curve(&mut heart, at(-0.55, -0.1), at(-0.6, 0.2));
+            curve(&mut heart, at(0.0, -0.2), at(-0.35, -0.6));
+            curve(&mut heart, at(0.55, -0.1), at(0.35, -0.6));
+            curve(&mut heart, at(0.0, 0.55), at(0.6, 0.2));
             heart.close();
-            if let Ok(path) = heart.build() {
-                window.paint_path(path, hex(0xd9534f));
-            }
+            window.fill(&heart, hex(0xd9534f));
         }
         CanvasLinkTone::Strained => {
-            let mut crack = PathBuilder::stroke(px(2.0));
-            crack.move_to(at(-0.2, -0.55));
-            crack.line_to(at(0.15, -0.1));
-            crack.line_to(at(-0.15, 0.1));
-            crack.line_to(at(0.2, 0.55));
-            if let Ok(path) = crack.build() {
-                window.paint_path(path, hex(0x9a3a32));
+            let crack = [
+                at(-0.2, -0.55),
+                at(0.15, -0.1),
+                at(-0.15, 0.1),
+                at(0.2, 0.55),
+            ];
+            let mut shape = Shape::new();
+            shape.move_to(crack[0].0, crack[0].1);
+            for (x, y) in &crack[1..] {
+                shape.line_to(*x, *y);
             }
+            window.stroke(&shape, 2.0, hex(0x9a3a32));
         }
         CanvasLinkTone::Neutral => {
             for dx in [-0.4_f32, 0.0, 0.4] {
@@ -1894,7 +2216,7 @@ impl Inks {
 /// step, from -1 to 1; `bob` lifts it; a negative `facing` turns it round.
 #[allow(clippy::too_many_arguments)]
 pub fn paint_drawing(
-    window: &mut Window,
+    window: &mut dyn Brush,
     x: f32,
     base: f32,
     w: f32,
@@ -1964,4 +2286,61 @@ pub fn paint_drawing(
             ),
         }
     }
+}
+
+/// Someone's own drawing, standing in `pose`: squashed or stretched,
+/// leaning, and in a walk with each foot planted while the body passes over
+/// it.
+#[allow(clippy::too_many_arguments)]
+pub fn paint_drawing_posed(
+    window: &mut dyn Brush,
+    x: f32,
+    base: f32,
+    w: f32,
+    h: f32,
+    drawing: &world_projection::Drawing,
+    inks: &Inks,
+    stance: world_projection::Stance,
+    mood: world_projection::Mood,
+    pose: Pose,
+) {
+    let swing = pose.stride.map(|phase| step(phase, 1.0).0).unwrap_or(0.0);
+    if pose.plain() {
+        paint_drawing(
+            window,
+            x,
+            base,
+            w,
+            h,
+            drawing,
+            inks,
+            stance,
+            mood,
+            swing,
+            pose.bob,
+            pose.facing,
+        );
+        return;
+    }
+    let mut posed = Xform::about(
+        window,
+        (x, base),
+        1.0 / pose.squash.max(0.2).sqrt(),
+        pose.squash,
+        pose.lean,
+    );
+    paint_drawing(
+        &mut posed,
+        x,
+        base,
+        w,
+        h,
+        drawing,
+        inks,
+        stance,
+        mood,
+        swing,
+        pose.bob,
+        pose.facing,
+    );
 }

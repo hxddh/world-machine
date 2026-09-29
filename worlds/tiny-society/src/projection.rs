@@ -9,7 +9,7 @@ use society_basic::{CASH, JOB};
 use world_core::{EntityId, Event, RelationId, Value, World};
 use world_projection::{
     entity_title, inspectors_from_world, why_map_from_world, BriefingItem, BriefingItemKind,
-    BriefingProjection, CanvasChange, CanvasItem, CanvasItemKind, CanvasProjection, CollectionItem,
+    BriefingProjection, CanvasChange, CanvasItem, CanvasItemKind, CollectionItem,
     CollectionProjection, CommandEffect, EffectChange, MarkShape, ProjectionCapabilities,
     ProjectionCommand, ProjectionSnapshot, SelectionId, Telling, Tone,
 };
@@ -58,8 +58,9 @@ pub(crate) fn snapshot_since(
                 .collect(),
         },
         timeline: told_timeline(world),
-        canvas: CanvasProjection {
-            items: canvas_items(world)
+        canvas: crate::town::lay_out(
+            world,
+            canvas_items(world)
                 .into_iter()
                 .map(|mut item| {
                     if let (Some(since), SelectionId::Entity(id)) = (since_event_count, item.id) {
@@ -68,9 +69,7 @@ pub(crate) fn snapshot_since(
                     item
                 })
                 .collect(),
-            links: Vec::new(),
-            marks: Vec::new(),
-        },
+        ),
         inspectors: inspectors_from_world(world),
         why: why_map_from_world(world),
         // A small island harbour on a clear morning: sea, low hills, sun.
@@ -1098,6 +1097,10 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                 standing: None,
                 mood: None,
                 spot: None,
+                px: None,
+                home: None,
+                day: Vec::new(),
+                built: None,
             });
         }
     }
@@ -1143,6 +1146,10 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                 standing: crate::speech::standing_of(world, id),
                 mood: crate::speech::mood_of(world, id, &askers),
                 spot: None,
+                px: None,
+                home: None,
+                day: Vec::new(),
+                built: None,
             });
         }
     }
@@ -1176,6 +1183,10 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                 standing: crate::speech::standing_of(world, id),
                 mood: crate::speech::mood_of(world, id, &askers),
                 spot: None,
+                px: None,
+                home: None,
+                day: Vec::new(),
+                built: None,
             });
         }
     }
@@ -1215,6 +1226,10 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                 standing: None,
                 mood: None,
                 spot: None,
+                px: None,
+                home: None,
+                day: Vec::new(),
+                built: None,
             });
         }
     }

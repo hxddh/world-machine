@@ -1,19 +1,12 @@
 # Simplified Chinese for systems: English, a tab, then the translation. Generated with a model and checked by tests; edit freely.
 {name} is {days} days away.	{name} 还有 {days} 天。
-, bigger than last year	，比去年更大
 Better than last year!	比去年更好！
-, nothing like last year	，和去年完全不同
 Not like last year.	和去年不一样。
-, as good as last year	，和去年一样好
 Every bit as good as last year.	和去年一样好。
-, much as it was last year	，和去年差不多
 Just like last year.	和去年一样。
-, thin again this year	，今年又很寒酸
 Thin again.	又是寒酸的一年。
 Like last year.	和去年一样。
-, with a new face among them	，当中有一张新面孔
 Good to see a new face.	很高兴见到新面孔。
-, with {new} new faces among them	，当中有 {new} 张新面孔
 Good to see new faces.	很高兴见到这些新面孔。
 which festival?	是哪个节日？
 Calendar	日历
@@ -21,7 +14,6 @@ it isn't time to get ready	还没到准备的时候
 they're already getting ready	大家已经在准备了
 it isn't the day	还不是那一天
 it has been held today	今天已经举行过了
-, around the {} you made	，就在你做的{}旁边
 Midsummer Fair in 3 days	仲夏集市还有3天
 Midsummer Fair today	仲夏集市就在今天
 {} today	{}就在今天
@@ -998,7 +990,6 @@ machine	机器
 mackerel	鲭鱼
 mainland	大陆
 maps	地图
-mara	玛拉
 march	三月
 mark	马克
 married	已婚
@@ -1006,7 +997,6 @@ matter	事情
 may	五月
 mayor	镇长
 mend	修补
-mia	米娅
 miss	想念
 mm	嗯
 model	模型
@@ -1033,7 +1023,6 @@ next	下一个
 nice	不错
 nippy	微凉
 no	不
-noah	诺亚
 none	无
 nothing	没什么
 november	十一月
@@ -1158,7 +1147,6 @@ snow	雪
 snowing	下雪
 snug	温馨
 sociable	善交际
-sofia	索菲亚
 software	软件
 sol	索尔
 sold	售出
@@ -1501,13 +1489,11 @@ easter	复活节
 easy	轻松
 effect	效果
 eh	嗯
-emma	艾玛
 employer	雇主
 enemies	敌人
 enemy	敌人
 enjoyed	很享受
 errands	差事
-evan	埃文
 evening	傍晚
 evening all	大家晚上好
 event	活动
@@ -1695,7 +1681,6 @@ january	一月
 job	工作
 join me	一起来吧
 join me for tea	一起喝杯茶吧
-jonas	乔纳斯
 july	七月
 june	六月
 keep	保留
@@ -1723,7 +1708,6 @@ leave you be	不打扰你了
 leave you to	不打扰你去
 leaving	离开
 lender	放贷人
-leo	利奥
 let's get dinner	一起吃个晚饭吧
 let's have lunch	一起吃午饭吧
 letter	信
@@ -2021,3 +2005,41 @@ street	街道
 I said yes to more than the dance.	我答应的可不只是跳舞。
 It was {at} that did it.	都是{at}的功劳。
 {b} and me.	我和{b}。
+# v0.21: a festival as it is told, with how it went against last year,
+# who was new and what the player made there, is one sentence with named
+# slots, not a sentence with pieces glued on.
+{told}, around the {made} you made	{told}，就在你做的{made}旁边
+{told}, with a new face among them	{told}，还多了一张新面孔
+{told}, with a new face among them, around the {made} you made	{told}，还多了一张新面孔，就在你做的{made}旁边
+{told}, with {new} new faces among them	{told}，还多了{new}张新面孔
+{told}, with {new} new faces among them, around the {made} you made	{told}，还多了{new}张新面孔，就在你做的{made}旁边
+{told}, bigger than last year	{told}，比去年更热闹
+{told}, bigger than last year, around the {made} you made	{told}，比去年更热闹，就在你做的{made}旁边
+{told}, bigger than last year, with a new face among them	{told}，比去年更热闹，还多了一张新面孔
+{told}, bigger than last year, with a new face among them, around the {made} you made	{told}，比去年更热闹，还多了一张新面孔，就在你做的{made}旁边
+{told}, bigger than last year, with {new} new faces among them	{told}，比去年更热闹，还多了{new}张新面孔
+{told}, bigger than last year, with {new} new faces among them, around the {made} you made	{told}，比去年更热闹，还多了{new}张新面孔，就在你做的{made}旁边
+{told}, nothing like last year	{told}，远不如去年
+{told}, nothing like last year, around the {made} you made	{told}，远不如去年，就在你做的{made}旁边
+{told}, nothing like last year, with a new face among them	{told}，远不如去年，还多了一张新面孔
+{told}, nothing like last year, with a new face among them, around the {made} you made	{told}，远不如去年，还多了一张新面孔，就在你做的{made}旁边
+{told}, nothing like last year, with {new} new faces among them	{told}，远不如去年，还多了{new}张新面孔
+{told}, nothing like last year, with {new} new faces among them, around the {made} you made	{told}，远不如去年，还多了{new}张新面孔，就在你做的{made}旁边
+{told}, as good as last year	{told}，和去年一样好
+{told}, as good as last year, around the {made} you made	{told}，和去年一样好，就在你做的{made}旁边
+{told}, as good as last year, with a new face among them	{told}，和去年一样好，还多了一张新面孔
+{told}, as good as last year, with a new face among them, around the {made} you made	{told}，和去年一样好，还多了一张新面孔，就在你做的{made}旁边
+{told}, as good as last year, with {new} new faces among them	{told}，和去年一样好，还多了{new}张新面孔
+{told}, as good as last year, with {new} new faces among them, around the {made} you made	{told}，和去年一样好，还多了{new}张新面孔，就在你做的{made}旁边
+{told}, much as it was last year	{told}，和去年差不多
+{told}, much as it was last year, around the {made} you made	{told}，和去年差不多，就在你做的{made}旁边
+{told}, much as it was last year, with a new face among them	{told}，和去年差不多，还多了一张新面孔
+{told}, much as it was last year, with a new face among them, around the {made} you made	{told}，和去年差不多，还多了一张新面孔，就在你做的{made}旁边
+{told}, much as it was last year, with {new} new faces among them	{told}，和去年差不多，还多了{new}张新面孔
+{told}, much as it was last year, with {new} new faces among them, around the {made} you made	{told}，和去年差不多，还多了{new}张新面孔，就在你做的{made}旁边
+{told}, thin again this year	{told}，今年又很冷清
+{told}, thin again this year, around the {made} you made	{told}，今年又很冷清，就在你做的{made}旁边
+{told}, thin again this year, with a new face among them	{told}，今年又很冷清，还多了一张新面孔
+{told}, thin again this year, with a new face among them, around the {made} you made	{told}，今年又很冷清，还多了一张新面孔，就在你做的{made}旁边
+{told}, thin again this year, with {new} new faces among them	{told}，今年又很冷清，还多了{new}张新面孔
+{told}, thin again this year, with {new} new faces among them, around the {made} you made	{told}，今年又很冷清，还多了{new}张新面孔，就在你做的{made}旁边

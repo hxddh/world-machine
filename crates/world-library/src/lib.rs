@@ -996,6 +996,10 @@ fn cast_from_document(
                 standing: None,
                 mood: None,
                 spot: None,
+                px: None,
+                home: None,
+                day: Vec::new(),
+                built: None,
             })
         })
         .collect()
@@ -2113,6 +2117,10 @@ mod tests {
                         standing: None,
                         mood: None,
                         spot: None,
+                        px: None,
+                        home: None,
+                        day: Vec::new(),
+                        built: None,
                     },
                     world_projection::CanvasItem {
                         id: world_projection::SelectionId::from_stable_key("entity-11").unwrap(),
@@ -2136,6 +2144,10 @@ mod tests {
                         standing: None,
                         mood: None,
                         spot: None,
+                        px: None,
+                        home: None,
+                        day: Vec::new(),
+                        built: None,
                     },
                 ],
                 ..Default::default()

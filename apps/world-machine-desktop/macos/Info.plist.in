@@ -43,6 +43,18 @@
         </dict>
         <dict>
             <key>CFBundleTypeName</key>
+            <string>World Code</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSHandlerRank</key>
+            <string>Owner</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>io.github.hxddh.world-machine.worldcode</string>
+            </array>
+        </dict>
+        <dict>
+            <key>CFBundleTypeName</key>
             <string>World Machine Pack</string>
             <key>CFBundleTypeRole</key>
             <string>Viewer</string>
@@ -64,7 +76,8 @@
             <string>World Machine Document</string>
             <key>UTTypeConformsTo</key>
             <array>
-                <string>public.json</string>
+                <string>org.gnu.gnu-zip-archive</string>
+                <string>public.data</string>
                 <string>public.content</string>
             </array>
             <key>UTTypeTagSpecification</key>
@@ -72,6 +85,24 @@
                 <key>public.filename-extension</key>
                 <array>
                     <string>world</string>
+                </array>
+            </dict>
+        </dict>
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>io.github.hxddh.world-machine.worldcode</string>
+            <key>UTTypeDescription</key>
+            <string>World Code</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.utf8-plain-text</string>
+                <string>public.content</string>
+            </array>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+                <key>public.filename-extension</key>
+                <array>
+                    <string>worldcode</string>
                 </array>
             </dict>
         </dict>

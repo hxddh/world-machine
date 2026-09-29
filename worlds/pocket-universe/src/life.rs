@@ -833,6 +833,64 @@ pub(crate) fn newcomers(state: &WorldState) -> Vec<EntityId> {
         .collect()
 }
 
+/// Maple Street's newcomers' names.
+const TOWN_NAMES: &[&str] = &[
+    "Donna", "Ricky", "Tanya", "Walt", "Keisha", "Eddie", "Joanie", "Mikey", "Carla", "Dwayne",
+    "Stacy", "Kevin", "Brenda", "Tony", "Lisa", "Marcus", "Wendy", "Rodney", "Tina", "Duane",
+    "Sheila", "Jimmy", "Denise", "Troy", "Angie", "Curtis", "Patty", "Lamar", "Heather", "Vince",
+    "Rosa", "Gary", "Yolanda", "Scott", "Debbie", "Andre", "Kim", "Terry", "Shawn", "Nicole",
+];
+
+/// The penguins' newcomers' names.
+const ICE_NAMES: &[&str] = &[
+    "Pip", "Olo", "Nessa", "Brr", "Kiki", "Umi", "Flo", "Wob", "Tiki", "Snow", "Nib", "Tolo",
+    "Suki", "Frost", "Puff", "Dot", "Ploo", "Yuki", "Bibi", "Momo", "Taku", "Lumi", "Kip", "Noa",
+    "Skip", "Fizz", "Oona", "Bo", "Tuft", "Minnow", "Sleet", "Ripple", "Squall", "Drift", "Pebble",
+    "Hush", "Wren", "Nuk", "Tay", "Zuzu",
+];
+
+/// The colony's newcomers' names.
+const MARS_NAMES: &[&str] = &[
+    "Yusuf Adeyemi",
+    "Sasha Petrov",
+    "Lin Mei",
+    "Oskar Holm",
+    "Priya Raman",
+    "Dmitri Sokol",
+    "Amara Obi",
+    "Freya Lund",
+    "Kofi Mensah",
+    "Elena Ruiz",
+    "Hiro Tanaka",
+    "Nadia Haddad",
+    "Ravi Kapoor",
+    "Greta Nilsson",
+    "Tariq Bashir",
+    "Chloe Martin",
+    "Mateo Silva",
+    "Ada Nwosu",
+    "Jonas Berg",
+    "Leila Karimi",
+    "Pavel Novak",
+    "Sun Li",
+    "Marisol Vega",
+    "Ibrahim Diallo",
+    "Hanna Virtanen",
+    "Kai Keawe",
+    "Zofia Nowak",
+    "Arjun Mehta",
+    "Ingrid Dahl",
+    "Tomasz Kral",
+    "Wanjiru Kamau",
+    "Felix Braun",
+    "Rosa Delgado",
+    "Emeka Okafor",
+    "Mira Stein",
+    "Diego Castro",
+    "Aiko Mori",
+    "Omar Farouk",
+];
+
 pub(crate) fn cast(state: &WorldState) -> Cast {
     let seed = match state
         .entity(UNIVERSE)
@@ -884,13 +942,7 @@ pub(crate) fn cast(state: &WorldState) -> Cast {
             Visitors {
                 first: FIRST_VISITOR,
                 room: VISITOR_ROOM,
-                names: &[
-                    "Donna", "Ricky", "Tanya", "Walt", "Keisha", "Eddie", "Joanie", "Mikey",
-                    "Carla", "Dwayne", "Stacy", "Kevin", "Brenda", "Tony", "Lisa", "Marcus",
-                    "Wendy", "Rodney", "Tina", "Duane", "Sheila", "Jimmy", "Denise", "Troy",
-                    "Angie", "Curtis", "Patty", "Lamar", "Heather", "Vince", "Rosa", "Gary",
-                    "Yolanda", "Scott", "Debbie", "Andre", "Kim", "Terry", "Shawn", "Nicole",
-                ],
+                names: TOWN_NAMES,
                 trades: &[
                     ("mechanic", "mechanic"),
                     ("diner cook", "diner cook"),
@@ -944,13 +996,7 @@ pub(crate) fn cast(state: &WorldState) -> Cast {
             Visitors {
                 first: FIRST_VISITOR,
                 room: VISITOR_ROOM,
-                names: &[
-                    "Pip", "Olo", "Nessa", "Brr", "Kiki", "Umi", "Flo", "Wob", "Tiki", "Snow",
-                    "Nib", "Tolo", "Suki", "Frost", "Puff", "Dot", "Ploo", "Yuki", "Bibi", "Momo",
-                    "Taku", "Lumi", "Kip", "Noa", "Skip", "Fizz", "Oona", "Bo", "Tuft", "Minnow",
-                    "Sleet", "Ripple", "Squall", "Drift", "Pebble", "Hush", "Wren", "Nuk", "Tay",
-                    "Zuzu",
-                ],
+                names: ICE_NAMES,
                 trades: &[
                     ("fisher", "fisher"),
                     ("ice carver", "ice carver"),
@@ -1004,46 +1050,7 @@ pub(crate) fn cast(state: &WorldState) -> Cast {
             Visitors {
                 first: FIRST_VISITOR,
                 room: VISITOR_ROOM,
-                names: &[
-                    "Yusuf Adeyemi",
-                    "Sasha Petrov",
-                    "Lin Mei",
-                    "Oskar Holm",
-                    "Priya Raman",
-                    "Dmitri Sokol",
-                    "Amara Obi",
-                    "Freya Lund",
-                    "Kofi Mensah",
-                    "Elena Ruiz",
-                    "Hiro Tanaka",
-                    "Nadia Haddad",
-                    "Ravi Kapoor",
-                    "Greta Nilsson",
-                    "Tariq Bashir",
-                    "Chloe Martin",
-                    "Mateo Silva",
-                    "Ada Nwosu",
-                    "Jonas Berg",
-                    "Leila Karimi",
-                    "Pavel Novak",
-                    "Sun Li",
-                    "Marisol Vega",
-                    "Ibrahim Diallo",
-                    "Hanna Virtanen",
-                    "Kai Keawe",
-                    "Zofia Nowak",
-                    "Arjun Mehta",
-                    "Ingrid Dahl",
-                    "Tomasz Kral",
-                    "Wanjiru Kamau",
-                    "Felix Braun",
-                    "Rosa Delgado",
-                    "Emeka Okafor",
-                    "Mira Stein",
-                    "Diego Castro",
-                    "Aiko Mori",
-                    "Omar Farouk",
-                ],
+                names: MARS_NAMES,
                 trades: &[
                     ("geologist", "geologist"),
                     ("medic", "medic"),
@@ -1521,4 +1528,27 @@ pub(crate) fn suggestions(world: &World) -> Vec<world_projection::ProjectionComm
             }
         })
         .collect()
+}
+
+/// Every name a Pocket Universe person can have, in all three places, and
+/// the people they speak of who are never seen. A name is shown in Latin
+/// letters in every language, as it is written.
+pub fn people_names() -> Vec<&'static str> {
+    [
+        "Nia Chen",
+        "Tomas Vale",
+        "Ines Duarte",
+        "Lena Ortiz",
+        "Max Park",
+        "Ray Kowalski",
+        "Piko",
+        "Miri",
+        "Tuk",
+    ]
+    .into_iter()
+    .chain(MARS_NAMES.iter().copied())
+    .chain(TOWN_NAMES.iter().copied())
+    .chain(ICE_NAMES.iter().copied())
+    .chain(["Uko", "Gus", "Dunn", "Henderson", "Kowalski"])
+    .collect()
 }
