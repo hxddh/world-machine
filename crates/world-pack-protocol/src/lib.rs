@@ -1,7 +1,13 @@
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine;
+use flate2::read::DeflateDecoder;
+use flate2::write::DeflateEncoder;
+use flate2::Compression;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
+use std::io::{Read, Write};
 use world_core::{EntityId, EventId, RelationId};
 use world_persistence::{WorldArchive, WorldPackRef};
 use world_projection::{
@@ -23,7 +29,31 @@ pub const PACK_PROTOCOL_VERSION_V3: u32 = 3;
 /// from it, and opens a history that keeps only what came after it (a World
 /// code's).
 pub const PACK_PROTOCOL_VERSION_V4: u32 = 4;
-pub const PACK_PROTOCOL_VERSION: u32 = PACK_PROTOCOL_VERSION_V4;
+/// Packs the archive `open` hands over and `archive` hands back: written in
+/// the compact encoding, deflated and in base64 (see [`pack_archive`]), so a
+/// history of years crosses in a few megabytes, and frames may be up to
+/// [`PACK_FRAME_LIMIT`].
+pub const PACK_PROTOCOL_VERSION_V5: u32 = 5;
+pub const PACK_PROTOCOL_VERSION: u32 = PACK_PROTOCOL_VERSION_V5;
+
+/// The most a frame (one line, with its newline) may hold between a host
+/// and a Pack that speaks v5 or later.
+pub const PACK_FRAME_LIMIT: usize = 64 * 1024 * 1024;
+/// The most a frame may hold for a Pack before v5, which reads no more.
+pub const PACK_FRAME_LIMIT_BEFORE_V5: usize = 16 * 1024 * 1024;
+/// The most a packed archive may unpack to: as much as a World file may.
+pub const MAX_UNPACKED_ARCHIVE_BYTES: u64 = 512 * 1024 * 1024;
+/// What a packed archive starts with, before its base64.
+pub const PACKED_ARCHIVE_PREFIX: &str = "deflate:";
+
+/// The most a frame may hold in `protocol_version`.
+pub fn pack_frame_limit(protocol_version: u32) -> usize {
+    if protocol_version >= PACK_PROTOCOL_VERSION_V5 {
+        PACK_FRAME_LIMIT
+    } else {
+        PACK_FRAME_LIMIT_BEFORE_V5
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PackManifest {
@@ -203,6 +233,9 @@ pub enum PackRequest {
     Describe,
     Create,
     Open {
+        /// Tagged before v5; packed from v5 (see [`pack_archive`]). Either
+        /// reads back.
+        #[serde(deserialize_with = "wire_archive")]
         archive: WorldArchive,
     },
     Snapshot,
@@ -229,16 +262,39 @@ pub enum PackRequest {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum PackResponse {
-    Descriptor { descriptor: PackDescriptor },
-    Snapshot { snapshot: ProjectionSnapshotWire },
-    Archive { archive: Option<WorldArchive> },
-    Hearing { prompt: Option<String> },
+    Descriptor {
+        descriptor: PackDescriptor,
+    },
+    Snapshot {
+        snapshot: ProjectionSnapshotWire,
+    },
+    Archive {
+        /// Tagged before v5; packed from v5, as `open`'s.
+        #[serde(deserialize_with = "wire_optional_archive")]
+        archive: Option<WorldArchive>,
+    },
+    Hearing {
+        prompt: Option<String>,
+    },
     Ok,
-    Error { message: String },
+    Error {
+        message: String,
+    },
 }
 
+/// The request as one line of JSON. From v5, an archive in it is packed.
 pub fn encode_request(request: &PackRequestEnvelope) -> Result<String, serde_json::Error> {
-    serde_json::to_string(request)
+    match &request.request {
+        PackRequest::Open { archive } if request.protocol_version >= PACK_PROTOCOL_VERSION_V5 => {
+            let packed = pack_archive(archive).map_err(serde::ser::Error::custom)?;
+            serde_json::to_string(&PackedEnvelopeOut {
+                protocol_version: request.protocol_version,
+                request_id: request.request_id,
+                request: PackedRequestOut::Open { archive: &packed },
+            })
+        }
+        _ => serde_json::to_string(request),
+    }
 }
 
 pub fn decode_request(json: &str) -> Result<PackRequestEnvelope, ProtocolDecodeError> {
@@ -248,8 +304,141 @@ pub fn decode_request(json: &str) -> Result<PackRequestEnvelope, ProtocolDecodeE
     Ok(request)
 }
 
+/// The response as one line of JSON. From v5, an archive in it is packed.
 pub fn encode_response(response: &PackResponseEnvelope) -> Result<String, serde_json::Error> {
-    serde_json::to_string(response)
+    match &response.response {
+        PackResponse::Archive {
+            archive: Some(archive),
+        } if response.protocol_version >= PACK_PROTOCOL_VERSION_V5 => {
+            let packed = pack_archive(archive).map_err(serde::ser::Error::custom)?;
+            serde_json::to_string(&PackedResponseEnvelopeOut {
+                protocol_version: response.protocol_version,
+                request_id: response.request_id,
+                response: PackedResponseOut::Archive { archive: &packed },
+            })
+        }
+        _ => serde_json::to_string(response),
+    }
+}
+
+#[derive(Serialize)]
+struct PackedEnvelopeOut<'a> {
+    protocol_version: u32,
+    request_id: u64,
+    request: PackedRequestOut<'a>,
+}
+
+#[derive(Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum PackedRequestOut<'a> {
+    Open { archive: &'a str },
+}
+
+#[derive(Serialize)]
+struct PackedResponseEnvelopeOut<'a> {
+    protocol_version: u32,
+    request_id: u64,
+    response: PackedResponseOut<'a>,
+}
+
+#[derive(Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum PackedResponseOut<'a> {
+    Archive { archive: &'a str },
+}
+
+/// An archive as v5 carries it: its compact encoding (the one a World file
+/// keeps, which reads back as exactly this archive, checkpoint and all),
+/// deflated, in standard base64, after [`PACKED_ARCHIVE_PREFIX`].
+pub fn pack_archive(archive: &WorldArchive) -> Result<String, ArchivePackError> {
+    let json = archive
+        .to_compact_json(&serde_json::Map::new())
+        .map_err(|error| ArchivePackError(error.to_string()))?;
+    // A fast level: most of what a history repeats is found by any, and a
+    // World is saved after every change.
+    let mut encoder = DeflateEncoder::new(
+        Vec::with_capacity(json.len() / 6),
+        Compression::new(ARCHIVE_DEFLATE_LEVEL),
+    );
+    encoder
+        .write_all(&json)
+        .map_err(|error| ArchivePackError(error.to_string()))?;
+    let deflated = encoder
+        .finish()
+        .map_err(|error| ArchivePackError(error.to_string()))?;
+    let mut packed =
+        String::with_capacity(PACKED_ARCHIVE_PREFIX.len() + deflated.len() * 4 / 3 + 4);
+    packed.push_str(PACKED_ARCHIVE_PREFIX);
+    STANDARD.encode_string(&deflated, &mut packed);
+    Ok(packed)
+}
+
+const ARCHIVE_DEFLATE_LEVEL: u32 = 2;
+
+/// Reads an archive [`pack_archive`] wrote.
+pub fn unpack_archive(packed: &str) -> Result<WorldArchive, ArchivePackError> {
+    let encoded = packed.strip_prefix(PACKED_ARCHIVE_PREFIX).ok_or_else(|| {
+        ArchivePackError(format!(
+            "a packed archive starts with {PACKED_ARCHIVE_PREFIX:?}"
+        ))
+    })?;
+    let deflated = STANDARD
+        .decode(encoded)
+        .map_err(|error| ArchivePackError(format!("packed archive is not base64: {error}")))?;
+    let mut json = Vec::with_capacity(deflated.len() * 6);
+    DeflateDecoder::new(deflated.as_slice())
+        .take(MAX_UNPACKED_ARCHIVE_BYTES + 1)
+        .read_to_end(&mut json)
+        .map_err(|error| ArchivePackError(format!("packed archive does not inflate: {error}")))?;
+    if json.len() as u64 > MAX_UNPACKED_ARCHIVE_BYTES {
+        return Err(ArchivePackError(format!(
+            "packed archive unpacks to more than {MAX_UNPACKED_ARCHIVE_BYTES} bytes"
+        )));
+    }
+    let value: serde_json::Value = serde_json::from_slice(&json)
+        .map_err(|error| ArchivePackError(format!("packed archive is not JSON: {error}")))?;
+    WorldArchive::from_json_value(&value).map_err(|error| ArchivePackError(error.to_string()))
+}
+
+/// Why an archive could not be packed or unpacked.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ArchivePackError(String);
+
+impl fmt::Display for ArchivePackError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl Error for ArchivePackError {}
+
+/// An archive on the wire: packed (a string), or an object, tagged as
+/// before v5 (or compact).
+fn archive_from_wire(value: serde_json::Value) -> Result<WorldArchive, String> {
+    match value {
+        serde_json::Value::String(packed) => unpack_archive(&packed).map_err(|e| e.to_string()),
+        value => WorldArchive::from_json_value(&value).map_err(|e| e.to_string()),
+    }
+}
+
+fn wire_archive<'de, D>(deserializer: D) -> Result<WorldArchive, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    archive_from_wire(value).map_err(serde::de::Error::custom)
+}
+
+fn wire_optional_archive<'de, D>(deserializer: D) -> Result<Option<WorldArchive>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    match serde_json::Value::deserialize(deserializer)? {
+        serde_json::Value::Null => Ok(None),
+        value => archive_from_wire(value)
+            .map(Some)
+            .map_err(serde::de::Error::custom),
+    }
 }
 
 pub fn decode_response(json: &str) -> Result<PackResponseEnvelope, ProtocolDecodeError> {
@@ -266,6 +455,7 @@ fn validate_protocol_version(version: u32) -> Result<(), ProtocolError> {
             | PACK_PROTOCOL_VERSION_V2
             | PACK_PROTOCOL_VERSION_V3
             | PACK_PROTOCOL_VERSION_V4
+            | PACK_PROTOCOL_VERSION_V5
     ) {
         Ok(())
     } else {

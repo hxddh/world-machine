@@ -15,17 +15,23 @@ use world_host::{
     HostError, WorldDescriptor, WorldPackSource, WorldRegistration, WorldRegistry, WorldSession,
 };
 use world_pack_protocol::{
-    decode_response, encode_request, EarsWire, PackDescriptor, PackManifest, PackRequest,
-    PackRequestEnvelope, PackResponse, PackRuntimeManifest, ProjectionIntentWire,
-    PACK_PROTOCOL_VERSION_V3, PACK_PROTOCOL_VERSION_V4,
+    decode_response, encode_request, pack_frame_limit, EarsWire, PackDescriptor, PackManifest,
+    PackRequest, PackRequestEnvelope, PackResponse, PackRuntimeManifest, ProjectionIntentWire,
+    PACK_FRAME_LIMIT, PACK_PROTOCOL_VERSION_V3, PACK_PROTOCOL_VERSION_V4, PACK_PROTOCOL_VERSION_V5,
 };
 use world_persistence::{CheckpointFit, WorldArchive, WorldPackRef};
 use world_projection::{ProjectionIntent, ProjectionSnapshot, SelectionId};
 
 pub const PACK_MANIFEST_SUFFIX: &str = ".world-pack.json";
-pub const DEFAULT_MAX_REQUEST_BYTES: usize = 16 * 1024 * 1024;
-pub const DEFAULT_MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
+/// The most a request frame may hold. A Pack before v5 reads no more than
+/// `PACK_FRAME_LIMIT_BEFORE_V5`, so its frames stop there.
+pub const DEFAULT_MAX_REQUEST_BYTES: usize = PACK_FRAME_LIMIT;
+pub const DEFAULT_MAX_RESPONSE_BYTES: usize = PACK_FRAME_LIMIT;
 pub const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
+/// How many times a request's timeout `open` and `archive` may take: they
+/// carry the World's whole history, which takes longer to read and write the
+/// longer it is kept (a minute, by default).
+const HISTORY_REQUEST_TIMEOUT_FACTOR: u32 = 12;
 
 const RESPONSE_QUEUE_CAPACITY: usize = 1;
 static LAUNCH_NONCE: AtomicU64 = AtomicU64::new(1);
@@ -680,6 +686,9 @@ fn prepare_request_frame(
             "external Pack max request bytes must be between 1 and the {DEFAULT_MAX_REQUEST_BYTES}-byte production ceiling"
         )));
     }
+    // A Pack reads no more than its protocol lets it.
+    let max_request_bytes = max_request_bytes.min(pack_frame_limit(protocol_version));
+    let opens = matches!(request, PackRequest::Open { .. });
     let envelope = PackRequestEnvelope::for_version(protocol_version, request_id, request)
         .map_err(|error| HostError::session(format!("invalid Pack protocol version: {error}")))?;
     let encoded = encode_request(&envelope)
@@ -689,6 +698,11 @@ fn prepare_request_frame(
         .checked_add(1)
         .ok_or_else(|| HostError::session("external Pack request frame length overflow"))?;
     if frame_bytes > max_request_bytes {
+        if opens && protocol_version < PACK_PROTOCOL_VERSION_V5 {
+            return Err(HostError::session(format!(
+                "this World's history is too long for a Pack on protocol v{protocol_version}: its request frame exceeds the {max_request_bytes}-byte protocol limit; a Pack that speaks v{PACK_PROTOCOL_VERSION_V5} opens it"
+            )));
+        }
         return Err(HostError::session(format!(
             "external Pack request frame exceeds the {max_request_bytes}-byte protocol limit"
         )));
@@ -770,6 +784,7 @@ impl ProcessClient {
 
     fn request(&mut self, request: PackRequest) -> Result<PackResponse, HostError> {
         let request_id = self.next_request_id;
+        let carries_history = matches!(request, PackRequest::Open { .. } | PackRequest::Archive);
         let frame = prepare_request_frame(
             self.protocol_version,
             request_id,
@@ -779,7 +794,12 @@ impl ProcessClient {
         let next_request_id = request_id
             .checked_add(1)
             .ok_or_else(|| HostError::session("external Pack request id overflow"))?;
-        let request_timeout = self.request_timeout;
+        let request_timeout = if carries_history {
+            self.request_timeout
+                .saturating_mul(HISTORY_REQUEST_TIMEOUT_FACTOR)
+        } else {
+            self.request_timeout
+        };
         let deadline = Instant::now() + request_timeout;
         self.next_request_id = next_request_id;
 
@@ -1683,37 +1703,20 @@ mod tests {
         let mut client = ProcessClient::spawn(&pack).unwrap();
         client.request_timeout = Duration::from_millis(50);
 
-        let archive = WorldArchive {
-            format: WORLD_ARCHIVE_FORMAT.into(),
-            format_version: WORLD_ARCHIVE_VERSION,
-            pack: descriptor().pack,
-            world_time: 0,
-            events: vec![ArchivedEvent {
-                id: 1,
-                kind: "x".repeat(2 * 1024 * 1024),
-                world_time: 0,
-                actor: None,
-                targets: Vec::new(),
-                caused_by: Vec::new(),
-                payload: Default::default(),
-                changes: Vec::new(),
-            }],
-            pending: Vec::new(),
-            checkpoint: None,
-        };
-        let frame = prepare_request_frame(
-            pack.protocol_version,
-            1,
-            PackRequest::Open {
-                archive: archive.clone(),
+        // A request that is not an archive's goes over as written (an
+        // archive's is packed, and takes longer).
+        let big = || PackRequest::Handle {
+            intent: ProjectionIntentWire::InvokeCommand {
+                command: "x".repeat(2 * 1024 * 1024),
             },
-            DEFAULT_MAX_REQUEST_BYTES,
-        )
-        .unwrap();
+        };
+        let frame =
+            prepare_request_frame(pack.protocol_version, 1, big(), DEFAULT_MAX_REQUEST_BYTES)
+                .unwrap();
         assert!(frame.len() > 1024 * 1024);
 
         let started = Instant::now();
-        let error = client.request(PackRequest::Open { archive }).err().unwrap();
+        let error = client.request(big()).err().unwrap();
         assert!(error.to_string().contains("timed out after 50 ms"));
         assert!(
             started.elapsed() < Duration::from_millis(500),

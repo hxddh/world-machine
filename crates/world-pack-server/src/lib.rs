@@ -6,13 +6,18 @@ use std::path::{Path, PathBuf};
 use world_host::{HostError, WorldDescriptor, WorldRegistration, WorldRegistry, WorldSession};
 use world_pack_bundle::{write_program_bundle, PackBundleHeader};
 use world_pack_protocol::{
-    decode_request, encode_response, PackDescriptor, PackManifest, PackRequest,
+    decode_request, encode_response, pack_frame_limit, PackDescriptor, PackManifest, PackRequest,
     PackRequestEnvelope, PackResponse, PackResponseEnvelope, ProjectionSnapshotWire,
+    PACK_FRAME_LIMIT,
 };
 use world_persistence::WorldPackRef;
 
-pub const DEFAULT_MAX_REQUEST_BYTES: usize = 16 * 1024 * 1024;
-pub const DEFAULT_MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
+/// The most a request frame may hold: as much as the newest protocol lets
+/// a host write.
+pub const DEFAULT_MAX_REQUEST_BYTES: usize = PACK_FRAME_LIMIT;
+/// The most a response frame may hold. A response to a host on a protocol
+/// before v5 stops at what that host reads (`PACK_FRAME_LIMIT_BEFORE_V5`).
+pub const DEFAULT_MAX_RESPONSE_BYTES: usize = PACK_FRAME_LIMIT;
 
 /// Stateful stdio server for one exact World Pack registration.
 ///
@@ -228,10 +233,10 @@ where
             .map_err(|error| PackServerError::Protocol(error.to_string()))?;
         let (response, shutdown) = server.handle_request(envelope);
         let request_id = response.request_id;
-        if write_response(&mut writer, response)? == ResponseWrite::Oversized {
+        if let ResponseWrite::Oversized(max_bytes) = write_response(&mut writer, response)? {
             return Err(PackServerError::ResponseTooLarge {
                 request_id,
-                max_bytes: DEFAULT_MAX_RESPONSE_BYTES,
+                max_bytes,
             });
         }
         if shutdown {
@@ -293,7 +298,8 @@ fn protocol_descriptor(descriptor: &WorldDescriptor) -> PackDescriptor {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ResponseWrite {
     Sent,
-    Oversized,
+    /// Over the limit it names, so an error went in its place.
+    Oversized(usize),
 }
 
 fn write_response<W: Write>(
@@ -301,20 +307,23 @@ fn write_response<W: Write>(
     response: PackResponseEnvelope,
 ) -> Result<ResponseWrite, PackServerError> {
     let request_id = response.request_id;
+    let protocol_version = response.protocol_version;
+    let max_bytes = DEFAULT_MAX_RESPONSE_BYTES.min(pack_frame_limit(protocol_version));
     let mut encoded =
         encode_response(&response).map_err(|error| PackServerError::Protocol(error.to_string()))?;
-    let outcome = if encoded.len().saturating_add(1) > DEFAULT_MAX_RESPONSE_BYTES {
-        encoded = encode_response(&PackResponseEnvelope::new(
+    let outcome = if encoded.len().saturating_add(1) > max_bytes {
+        let mut error = PackResponseEnvelope::new(
             request_id,
             PackResponse::Error {
                 message: format!(
-                    "Pack response exceeds {} byte protocol limit; session terminated to avoid state desynchronization",
-                    DEFAULT_MAX_RESPONSE_BYTES
+                    "Pack response exceeds {max_bytes} byte protocol limit; session terminated to avoid state desynchronization"
                 ),
             },
-        ))
-        .map_err(|error| PackServerError::Protocol(error.to_string()))?;
-        ResponseWrite::Oversized
+        );
+        error.protocol_version = protocol_version;
+        encoded = encode_response(&error)
+            .map_err(|error| PackServerError::Protocol(error.to_string()))?;
+        ResponseWrite::Oversized(max_bytes)
     } else {
         ResponseWrite::Sent
     };

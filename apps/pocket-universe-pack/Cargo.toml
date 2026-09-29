@@ -14,6 +14,8 @@ world-pi-rpc = { path = "../../crates/world-pi-rpc" }
 world-voice = { path = "../../crates/world-voice" }
 
 [dev-dependencies]
+world-document = { path = "../../crates/world-document" }
 world-persistence = { path = "../../crates/world-persistence" }
 world-pack-catalog = { path = "../../crates/world-pack-catalog" }
+world-pack-protocol = { path = "../../crates/world-pack-protocol" }
 world-projection = { path = "../../crates/world-projection" }

@@ -11,10 +11,12 @@ world-pack-server = { path = "../../crates/world-pack-server" }
 world-voice = { path = "../../crates/world-voice" }
 
 [dev-dependencies]
+serde_json = "1"
 world-document = { path = "../../crates/world-document" }
 world-library = { path = "../../crates/world-library" }
 world-host = { path = "../../crates/world-host" }
 world-pack-catalog = { path = "../../crates/world-pack-catalog" }
 world-pack-process = { path = "../../crates/world-pack-process" }
 world-pack-protocol = { path = "../../crates/world-pack-protocol" }
+world-persistence = { path = "../../crates/world-persistence" }
 world-projection = { path = "../../crates/world-projection" }

@@ -14,7 +14,7 @@ use world_host::WorldRegistry;
 use world_library::{decode_world_code, encode_world_code, WorldCodeError, WorldVisit};
 use world_pack_catalog::PackCatalog;
 use world_pack_process::{ProcessPack, ProcessPackSource};
-use world_pack_protocol::{PackManifest, PACK_PROTOCOL_VERSION_V3, PACK_PROTOCOL_VERSION_V4};
+use world_pack_protocol::{PackManifest, PACK_PROTOCOL_VERSION, PACK_PROTOCOL_VERSION_V3};
 use world_projection::ProjectionIntent::InvokeCommand;
 
 const PASS: &str = "tiny-society.let-day-pass";
@@ -37,7 +37,7 @@ fn temp_dir(label: &str) -> PathBuf {
 /// A registry holding the Tiny Society Pack binary as a process Pack,
 /// installed through the catalog as the desktop app installs it.
 fn installed_registry(root: &Path) -> WorldRegistry {
-    let manifest_path = write_manifest(root, PACK_PROTOCOL_VERSION_V4);
+    let manifest_path = write_manifest(root, PACK_PROTOCOL_VERSION);
     let mut catalog = PackCatalog::open(root.join("catalog.json")).unwrap();
     catalog.install_manifest(&manifest_path).unwrap();
     let mut registry = WorldRegistry::new();
@@ -68,7 +68,7 @@ fn write_manifest(root: &Path, protocol_version: u32) -> PathBuf {
         .unwrap();
     assert!(output.status.success());
     let mut manifest = PackManifest::from_json(&String::from_utf8(output.stdout).unwrap()).unwrap();
-    assert_eq!(manifest.protocol_version, PACK_PROTOCOL_VERSION_V4);
+    assert_eq!(manifest.protocol_version, PACK_PROTOCOL_VERSION);
     manifest.protocol_version = protocol_version;
     let manifest_path = root.join(format!("tiny-society-v{protocol_version}.world-pack.json"));
     fs::write(&manifest_path, manifest.to_json_pretty().unwrap()).unwrap();
