@@ -675,11 +675,14 @@ impl Render for SettingsView {
                     "Music",
                     "Chords, a morning tune and an evening one, by the hour and the weather",
                 ),
-                ambience::Channel::Ambience => ("Landscape", "Wind and the hum of the place"),
+                ambience::Channel::Ambience => (
+                    "Landscape",
+                    "The sea, the wind, rain and the life of the place",
+                ),
                 ambience::Channel::Voices => ("Voices", "Everyone's own babble as they speak"),
                 ambience::Channel::Interface => (
-                    "Ticks and bells",
-                    "Cards turning, turns passing, things built",
+                    "Notes and ticks",
+                    "A note in the World's key for every card, letter and thing placed",
                 ),
             };
             let level = self.levels[index];

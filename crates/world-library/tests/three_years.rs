@@ -234,6 +234,19 @@ fn a_three_year_world_file_reads_as_it_always_did() {
     assert_eq!(read.metadata, metadata);
 }
 
+/// The place as a visitor sees it: everything on it, where it stands and
+/// how its people spend the day. Only the day each work was built is told
+/// from the history before the code's season, so it stays with the owner.
+fn as_a_visitor_sees_the_place(
+    canvas: &world_projection::CanvasProjection,
+) -> world_projection::CanvasProjection {
+    let mut canvas = canvas.clone();
+    for item in &mut canvas.items {
+        item.built = None;
+    }
+    canvas
+}
+
 /// What a visitor sees of a World, which a code must carry: where it
 /// stands, who and what is in it, what can be done and what is on offer.
 ///
@@ -246,7 +259,7 @@ fn as_a_visitor_sees(snapshot: &ProjectionSnapshot) -> impl PartialEq + std::fmt
         (
             &snapshot.title,
             snapshot.world_time,
-            &snapshot.canvas,
+            as_a_visitor_sees_the_place(&snapshot.canvas),
             &snapshot.calendar,
             &snapshot.scenery,
             &snapshot.gauges,

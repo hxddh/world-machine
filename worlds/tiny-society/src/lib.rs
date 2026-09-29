@@ -29,6 +29,7 @@ mod speech;
 mod staffing;
 mod story;
 mod talk;
+mod town;
 mod voices;
 mod years;
 
@@ -65,6 +66,19 @@ pub type VoiceTemplates = Vec<(
     &'static [&'static str],
     &'static [(&'static str, &'static [&'static str])],
 )>;
+
+/// Every name a Tiny Society person can have, and the people its
+/// residents speak of who are never seen ("Old Tam", "the Clark twins").
+/// A name is shown in Latin letters in every language, as it is written.
+pub fn people_names() -> Vec<&'static str> {
+    [
+        "Jonas", "Mara", "Leo", "Emma", "Mia", "Noah", "Evan", "Sofia", "Ivo", "Ada",
+    ]
+    .into_iter()
+    .chain(life::VISITOR_NAMES.iter().copied())
+    .chain(["Tam", "Clark", "Bess", "Pike"])
+    .collect()
+}
 
 pub fn voice_templates() -> VoiceTemplates {
     [JONAS, MARA, LEO, EMMA, MIA, NOAH, EVAN, SOFIA]

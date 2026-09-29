@@ -482,6 +482,10 @@ fn canvas(world: &World) -> CanvasProjection {
                 standing: crate::speech::standing_of(world, *id),
                 mood: crate::speech::mood_of(world, *id, &askers),
                 spot: None,
+                px: None,
+                home: None,
+                day: Vec::new(),
+                built: None,
             })
         })
         .collect();
@@ -510,14 +514,14 @@ fn canvas(world: &World) -> CanvasProjection {
             standing: crate::speech::standing_of(world, id),
             mood: crate::speech::mood_of(world, id, &askers),
             spot: None,
+            px: None,
+            home: None,
+            day: Vec::new(),
+            built: None,
         });
     }
     items.extend(crate::story::fixtures(world));
-    CanvasProjection {
-        items,
-        links: relationship_link(world).into_iter().collect(),
-        marks: Vec::new(),
-    }
+    crate::town::lay_out(world, items, relationship_link(world).into_iter().collect())
 }
 
 /// On a return, what moved on each thing on stage since the visit.

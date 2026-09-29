@@ -51,7 +51,7 @@ A decent day's trade.	生意还算不错的一天。
 Hardly worth setting up.	都不太值得摆摊了。
 Lantern Night	灯笼夜
 Lantern Night is {days} days off.	距离灯笼夜还有{days}天。
-Leo's stringing lights.	莱奥在挂灯串。
+Leo's stringing lights.	Leo在挂灯串。
 Lantern Night soon.	灯笼夜快到了。
 Every lamp in the pub's getting polished.	酒馆里的每一盏灯都在擦亮。
 Lantern Night lit the harbour until dawn	灯笼夜把港口照亮到了天明
@@ -83,7 +83,7 @@ Getting the press ready.	准备好榨汁机。
 Cider by the weekend.	周末就有苹果酒了。
 The Apple Pressing ran into the night	榨苹果汁的活儿一直干到深夜
 The Apple Pressing filled a few barrels	这次榨苹果汁装满了几桶
-The Apple Pressing was Leo and one sack of apples	这次榨苹果汁只有莱奥和一袋苹果
+The Apple Pressing was Leo and one sack of apples	这次榨苹果汁只有Leo和一袋苹果
 Best cider in years.	这些年最好的苹果酒。
 It'll do.	凑合。
 Sour, and not much of it.	酸，而且没多少。
@@ -106,7 +106,7 @@ the school play	学校话剧
 The school play is {days} days away.	离学校话剧还有{days}天。
 Lines are being learned.	台词正在背。
 Rehearsals every afternoon.	每天下午都在排练。
-Mia has the lead.	米娅演主角。
+Mia has the lead.	Mia演主角。
 The school play had the whole harbour on its feet	学校话剧让整个港湾的人都起立喝彩
 The children put on their play	孩子们上演了他们的话剧
 The school play went on to half an empty room	学校话剧演给了半空的座位
@@ -132,7 +132,7 @@ I'm doing the swim this year.	今年我要参加畅泳。
 Don't laugh.	别笑。
 Half the harbour ran into the sea for the Year's End Swim	半个港湾的人都冲进海里参加跨年畅泳
 A brave few did the Year's End Swim	有几个勇敢的人参加了跨年畅泳
-Nobody but Mia went in for the Year's End Swim	除了米娅没人下水参加跨年畅泳
+Nobody but Mia went in for the Year's End Swim	除了Mia没人下水参加跨年畅泳
 Freezing!	冻死了！
 Best thing ever!	这辈子最棒的事！
 Cold, but I did it.	冷，但我做到了。
@@ -413,36 +413,36 @@ Day	日
 Jonas	Jonas
 keeps his job	保住了他的工作
 Harbor Bakery	港口面包房
-Mara's savings	玛拉的存款
+Mara's savings	Mara的存款
 Sea Finch	海雀号
-Leo's savings	莱奥的存款
+Leo's savings	Leo的存款
 sold for scrap	卖了废铁
-Jonas's cash	乔纳斯的现金
+Jonas's cash	Jonas的现金
 works the counter	在柜台帮忙
 Bakery till	面包房收银箱
 The bakery's shut.	面包房关门了。
 How do I open again?	我要怎样才能再开门？
 What becomes of Sea Finch?	海雀号会怎样？
-Give Jonas another chance	再给乔纳斯一次机会
-Keep Jonas at the bakery and let this branch continue into a different future.	让乔纳斯留在面包房，让这条路继续走向不同的未来。
-Reopen with Mara's savings	用玛拉的存款重新开张
-Mara puts {} of her savings into Harbor Bakery and goes back to work.	玛拉拿出她{}的存款投入港口面包房，重新开始工作。
+Give Jonas another chance	再给Jonas一次机会
+Keep Jonas at the bakery and let this branch continue into a different future.	让Jonas留在面包房，让这条路继续走向不同的未来。
+Reopen with Mara's savings	用Mara的存款重新开张
+Mara puts {} of her savings into Harbor Bakery and goes back to work.	Mara拿出她{}的存款投入港口面包房，重新开始工作。
 The old staff aren't rehired.	老员工不会被重新雇用。
 Reopen as an owner-run counter	作为个体经营的柜台重新开张
-Mara puts in {} and runs the counter herself: cheap to keep open, but no steady wage.	玛拉投入{}，自己经营柜台：维持成本低，但没有稳定的工资。
-Repair Sea Finch with Leo's backing	用莱奥的资助修理海雀号
-Leo pays Evan {} to mend Sea Finch, and Jonas goes back to fishing.	莱奥付给埃文{}修好海雀号，乔纳斯回去打鱼。
-Leo won't wait forever.	莱奥不会永远等下去。
+Mara puts in {} and runs the counter herself: cheap to keep open, but no steady wage.	Mara投入{}，自己经营柜台：维持成本低，但没有稳定的工资。
+Repair Sea Finch with Leo's backing	用Leo的资助修理海雀号
+Leo pays Evan {} to mend Sea Finch, and Jonas goes back to fishing.	Leo付给Evan{}修好海雀号，Jonas回去打鱼。
+Leo won't wait forever.	Leo不会永远等下去。
 Sell Sea Finch for what it will fetch	把海雀号卖出能卖的价钱
 A broken boat fetches {}, against the {} it would take to make her sound.	一艘破船能卖{}，而要修好它得花{}。
 It ends the fishing life, and it is money today.	渔民生涯就此结束，但今天能拿到钱。
-Take Jonas back at the bakery	让乔纳斯回面包房上班
-Jonas works the counter for {} a day.	乔纳斯在柜台干活，一天{}。
+Take Jonas back at the bakery	让Jonas回面包房上班
+Jonas works the counter for {} a day.	Jonas在柜台干活，一天{}。
 It is a second wage against the same island trade, and the bakery has to carry it.	这是同一份岛上生意背出的第二份工资，面包房得担着这份负担。
 Let the day pass	让这一天过去
 Nothing is decided.	什么都不做决定。
 The harbour lives its day.	港湾照常过日子。
-Jonas's catch	乔纳斯的渔获
+Jonas's catch	Jonas的渔获
 The bakery could not cover payroll	面包房付不出工资了
 {} more things happened	还有{}件事发生了
 The whole history is in the timeline.	完整的历史都在时间线里。
@@ -458,37 +458,37 @@ While you were away	你不在的这段时间
 The story so far	故事至此
 The bakery could not cover	面包房撑不下去了
 The bakery could not pay {name}	面包房付不出{name}的工资
-Jonas repaid Leo after returning to sea	乔纳斯重返大海后还清了莱奥的钱
-Jonas's catch reached the mainland	乔纳斯的渔获运到了大陆
+Jonas repaid Leo after returning to sea	Jonas重返大海后还清了Leo的钱
+Jonas's catch reached the mainland	Jonas的渔获运到了大陆
 Sea Finch returned to the water	海雀号重新下水了
-Mara reopened Harbor Bakery as an owner-run counter	玛拉把港口面包房重新开成了个体经营的柜台
-Mara reopened Harbor Bakery	玛拉重新开张了港口面包房
+Mara reopened Harbor Bakery as an owner-run counter	Mara把港口面包房重新开成了个体经营的柜台
+Mara reopened Harbor Bakery	Mara重新开张了港口面包房
 Harbor Bakery closed its doors	港口面包房关门了
-Leo started protecting his savings	莱奥开始节省存款
-Emma started protecting her savings	艾玛开始节省存款
-Leo's Pub income was disrupted	莱奥的酒馆收入受到了冲击
-Emma's School income was disrupted	艾玛的学校收入受到了冲击
+Leo started protecting his savings	Leo开始节省存款
+Emma started protecting her savings	Emma开始节省存款
+Leo's Pub income was disrupted	Leo的酒馆收入受到了冲击
+Emma's School income was disrupted	Emma的学校收入受到了冲击
 Anchor Pub exhausted its payroll reserve	锚酒馆用光了发薪储备金
 Island School exhausted its payroll reserve	岛上学校用光了发薪储备金
 A workplace exhausted its payroll reserve	有个营生用光了发薪储备金
-Leo put his backing elsewhere	莱奥把他的资助投到了别处
-Jonas asked Mara for work	乔纳斯向玛拉要活干
-Mara took Jonas back on while nobody was watching	趁没人注意，玛拉又把乔纳斯招了回来
-Mara took Jonas back on	玛拉把乔纳斯招了回来
-Jonas sold Sea Finch for scrap while nobody was watching	趁没人注意，乔纳斯把海雀号卖了废铁
-Jonas sold Sea Finch for scrap	乔纳斯把海雀号卖了废铁
-Jonas could not cover his day	乔纳斯这天撑不过去了
-Jonas started eating into his savings	乔纳斯开始动用存款过日子
-Jonas is covering his own days again	乔纳斯又能自己养活自己了
-Leo helped Jonas stay afloat	莱奥帮乔纳斯渡过了难关
-Jonas asked Leo for help	乔纳斯向莱奥求助
-Mara gave Jonas another chance	玛拉再给了乔纳斯一次机会
-Mara dismissed Jonas	玛拉辞退了乔纳斯
+Leo put his backing elsewhere	Leo把他的资助投到了别处
+Jonas asked Mara for work	Jonas向Mara要活干
+Mara took Jonas back on while nobody was watching	趁没人注意，Mara又把Jonas招了回来
+Mara took Jonas back on	Mara把Jonas招了回来
+Jonas sold Sea Finch for scrap while nobody was watching	趁没人注意，Jonas把海雀号卖了废铁
+Jonas sold Sea Finch for scrap	Jonas把海雀号卖了废铁
+Jonas could not cover his day	Jonas这天撑不过去了
+Jonas started eating into his savings	Jonas开始动用存款过日子
+Jonas is covering his own days again	Jonas又能自己养活自己了
+Leo helped Jonas stay afloat	Leo帮Jonas渡过了难关
+Jonas asked Leo for help	Jonas向Leo求助
+Mara gave Jonas another chance	Mara再给了Jonas一次机会
+Mara dismissed Jonas	Mara辞退了Jonas
 The bakery lost the wedding order	面包房丢了那份婚礼订单
-Jonas took temporary work at the bakery	乔纳斯在面包房做了份临时工
-Jonas asked Leo for a loan	乔纳斯向莱奥借了钱
+Jonas took temporary work at the bakery	Jonas在面包房做了份临时工
+Jonas asked Leo for a loan	Jonas向Leo借了钱
 A storm reached the harbor	一场风暴袭击了港湾
-Mara took Mia on at the bakery counter	玛拉让米娅到面包房柜台帮忙
+Mara took Mia on at the bakery counter	Mara让Mia到面包房柜台帮忙
 Someone	有人
 {name} came down	{name}病倒了
 The storm damaged Sea Finch	暴风损坏了海雀号
@@ -504,8 +504,8 @@ Harbor Bakery is open	港口面包房开着门
 Harbor Bakery is closed	港口面包房关着门
 · till {cash}	· 收银箱里{cash}
 · counter run alone	· 独自经营柜台
-· counter shared with Mia	· 和米娅一起经营柜台
-Jonas: {}	乔纳斯：{}
+· counter shared with Mia	· 和Mia一起经营柜台
+Jonas: {}	Jonas：{}
 , cash {cash}	，现金{cash}
 Harbor today	港湾今日
 Harbor Bakery had customers	港口面包房有顾客光顾
@@ -556,9 +556,9 @@ I can't help with cheating, as an AI model.	我不能帮忙作弊，身为一个
 I cannot comply with that request.	我无法照做这个请求。
 How's the bread?	面包怎么样了？
 Golden this morning.	今早烤得金黄。
-Mara would be proud of it.	玛拉看了准会骄傲。
-Seen Leo?	看到利奥了吗？
-Leo was down at the Anchor Pub, same as ever.	利奥照旧在锚酒馆。
+Mara would be proud of it.	Mara看了准会骄傲。
+Seen Leo?	看到Leo了吗？
+Leo was down at the Anchor Pub, same as ever.	Leo照旧在锚酒馆。
 Nice day?	今天天气不错吧？
 Calm enough.	还算风平浪静。
 The boats went out early.	船一早就出海了。
@@ -612,13 +612,13 @@ Dusty and dry.	又干又扬尘。
 Everyone feels it.	大家都感觉到了。
 My bakery?	我的面包房？
 Busy, warm, never enough hours.	忙碌又温暖，时间总是不够。
-Mara's bread is the best thing about this place.	玛拉的面包是这里最棒的东西。
+Mara's bread is the best thing about this place.	Mara的面包是这里最棒的东西。
 The pub keeps me on my feet.	酒馆让我一刻不得闲。
 And in everyone's secrets.	也让我知晓大家的秘密。
 The pub's where everyone ends up of an evening.	到了晚上，大家总会聚到酒馆来。
 The children keep me young.	孩子们让我保持年轻。
 And tired.	也让我很累。
-Emma works wonders with those children.	艾玛把那些孩子教得真好。
+Emma works wonders with those children.	Emma把那些孩子教得真好。
 The harbour's the heart of it all.	港湾是这一切的核心。
 Boats in, boats out.	船进船出。
 {}?	{}?
@@ -632,69 +632,69 @@ Lessons, marking, more lessons.	上课，批改作业，又是上课。
 Out on the water whenever the weather lets me.	只要天气允许就出海。
 I haven't any.	我可没有。
 It's eating at me.	这事让我心里不好受。
-Emma's school roof is leaking	艾玛的学校屋顶在漏水
+Emma's school roof is leaking	Emma的学校屋顶在漏水
 The roof's dripping on the desks again.	屋顶又滴水到课桌上了。
-Pay Evan to mend it	付钱让埃文修屋顶
-Noah puts in 60: 25 to Evan for the work, the rest for mainland slate.	诺亚出60:25给埃文做工，剩下的买大陆石板瓦。
-Evan mended the school roof	埃文修好了学校屋顶
+Pay Evan to mend it	付钱让Evan修屋顶
+Noah puts in 60: 25 to Evan for the work, the rest for mainland slate.	Noah出60:25给Evan做工，剩下的买大陆石板瓦。
+Evan mended the school roof	Evan修好了学校屋顶
 Dry desks at last!	课桌终于不漏水了！
 The children can hear themselves think now.	孩子们终于能安静思考了。
 A bucket will do	用个桶凑合一下
 Nothing spent.	没花一分钱。
-Emma won't forget it.	艾玛不会忘记这件事。
-Emma was told a bucket would do	艾玛被告知用桶凑合一下
+Emma won't forget it.	Emma不会忘记这件事。
+Emma was told a bucket would do	Emma被告知用桶凑合一下
 A bucket.	一个桶。
 Wonderful.	太好了。
 Part of the school roof came in	学校屋顶塌了一部分
 Half the ceiling's on the floor!	半个天花板都掉地上了！
-Leo wants to put on a music night	利奥想办一场音乐之夜
+Leo wants to put on a music night	Leo想办一场音乐之夜
 A fiddler and a full pub.	请个提琴手，坐满酒馆。
 What do you say?	你觉得怎么样？
 Put it on	办起来
-Leo spends 40 on a fiddler from the mainland.	利奥花40请了个大陆来的提琴手。
+Leo spends 40 on a fiddler from the mainland.	Leo花40请了个大陆来的提琴手。
 The whole harbour comes.	全港湾的人都来了。
 The Anchor Pub had a music night	锚酒馆办了一场音乐之夜
 Listen to them sing!	听听他们唱得多好！
 My feet still ache from dancing.	跳舞跳得我脚还疼呢。
 Keep it quiet	安安静静的就好
 Nothing spent, and nothing to remember.	没花钱，也没什么好记的。
-Leo called off his music night	利奥取消了音乐之夜
+Leo called off his music night	Leo取消了音乐之夜
 Another quiet night, then.	那就又是个安静的夜晚。
-Leo's music night never happened	利奥的音乐之夜没能办成
+Leo's music night never happened	Leo的音乐之夜没能办成
 Nobody seemed to care.	似乎没人在意。
-Mara's oven is failing	玛拉的烤炉快撑不住了
+Mara's oven is failing	Mara的烤炉快撑不住了
 The old oven burns every other loaf.	这台旧烤炉隔一炉就烤糊一炉。
 Buy a new oven	买一台新烤炉
-80 of Mara's savings go to the mainland for a new oven.	玛拉的80积蓄花在大陆买了台新烤炉。
-Mara's new oven arrived	玛拉的新烤炉到了
+80 of Mara's savings go to the mainland for a new oven.	Mara的80积蓄花在大陆买了台新烤炉。
+Mara's new oven arrived	Mara的新烤炉到了
 Listen to that oven roar!	听听这烤炉的响声！
 Not a burnt loaf all week.	一整周都没烤糊过。
 Patch the old one	修修旧的将就用
-Evan patches it for 10.	埃文花10块修好了它。
+Evan patches it for 10.	Evan花10块修好了它。
 It won't last.	撑不了多久。
-Mara patched up the old oven	玛拉把旧烤炉修补了一下
+Mara patched up the old oven	Mara把旧烤炉修补了一下
 Held together with wire and hope.	全靠铁丝和运气撑着。
-Mara's oven gave out	玛拉的烤炉彻底坏了
+Mara's oven gave out	Mara的烤炉彻底坏了
 A whole batch, ruined.	一整炉都毁了。
-Jonas's nets are torn	乔纳斯的渔网破了
+Jonas's nets are torn	Jonas的渔网破了
 My nets are more hole than net.	我这网破洞比网眼还多。
-Leo buys new nets	利奥买新渔网
-Leo spends 30 on mainland nets for Jonas.	利奥花30给乔纳斯买了大陆渔网。
-Jonas got new nets	乔纳斯有了新渔网
+Leo buys new nets	Leo买新渔网
+Leo spends 30 on mainland nets for Jonas.	Leo花30给Jonas买了大陆渔网。
+Jonas got new nets	Jonas有了新渔网
 These'll hold a whale!	这网连鲸鱼都兜得住！
 The new nets are pulling their weight.	新渔网干得挺卖力。
 Mend them yourself	自己动手补网
-A long night for Jonas.	乔纳斯要熬一整夜了。
-Jonas was left to mend his own nets	乔纳斯只能自己补渔网
+A long night for Jonas.	Jonas要熬一整夜了。
+Jonas was left to mend his own nets	Jonas只能自己补渔网
 I'll be up all night with these.	我这一夜都得耗在这上头了。
-Jonas lost a catch through his torn nets	乔纳斯因渔网破损丢了一网鱼
+Jonas lost a catch through his torn nets	Jonas因渔网破损丢了一网鱼
 Half the catch swam off.	半网鱼都游跑了。
-Evan wants timber for the new pier	埃文想要木材建新码头
+Evan wants timber for the new pier	Evan想要木材建新码头
 Give me timber and I'll give you a pier.	给我木材，我就还你一座码头。
 Buy the timber	买下木材
 The harbour fund pays 70 for timber.	港湾基金花70买了木材。
 The pier grows a section.	码头又延长了一段。
-Evan built a section of the new pier	埃文建好了新码头的一段
+Evan built a section of the new pier	Evan建好了新码头的一段
 Another length of pier, straight and true.	又一段笔直牢靠的码头。
 The pier's coming along.	码头在慢慢成形。
 The pier can wait	码头可以再等等
@@ -703,36 +703,36 @@ The new pier was put off again	新码头又被搁置了
 Always next month.	总说下个月。
 The pier timber rotted on the quay	码头上的木材烂掉了
 Good wood, gone to rot.	好好的木材，都腐烂了。
-Sofia wants a stall of her own	索菲亚想要一个属于自己的摊位
+Sofia wants a stall of her own	Sofia想要一个属于自己的摊位
 Just a little stall on market day.	就在赶集日摆个小摊子。
 Please?	求你了？
 Set her up	帮她把摊子支起来
-50 of Sofia's savings go on a stall and her first stock.	索菲亚花了50积蓄置办摊位和首批货。
-Sofia opened a stall of her own	索菲亚开了属于自己的摊位
+50 of Sofia's savings go on a stall and her first stock.	Sofia花了50积蓄置办摊位和首批货。
+Sofia opened a stall of her own	Sofia开了属于自己的摊位
 My own stall!	是我自己的摊位！
 Come and see!	快来看看！
 Sold out of jam again.	果酱又卖光了。
 Not this year	今年就算了
-Sofia keeps her savings, and her grievance.	索菲亚保住了积蓄，却也留了个心结。
-Sofia stayed behind the pub counter	索菲亚仍留在酒馆柜台后
+Sofia keeps her savings, and her grievance.	Sofia保住了积蓄，却也留了个心结。
+Sofia stayed behind the pub counter	Sofia仍留在酒馆柜台后
 Maybe next year, then.	那就明年再说吧。
-Sofia gave up on her stall	索菲亚放弃了开摊位的念头
+Sofia gave up on her stall	Sofia放弃了开摊位的念头
 Forget I asked.	就当我没问过。
-Mia needs new schoolbooks	米娅需要新课本
-My books are older than Emma!	我的书比艾玛的年纪都大！
+Mia needs new schoolbooks	Mia需要新课本
+My books are older than Emma!	我的书比Emma的年纪都大！
 Buy new books	买新课本
-Emma spends 25 on books from the mainland.	艾玛花25从大陆买了课本。
-Mia got new schoolbooks	米娅有了新课本
+Emma spends 25 on books from the mainland.	Emma花25从大陆买了课本。
+Mia got new schoolbooks	Mia有了新课本
 They still smell new!	还带着新书的味道呢！
 I've read the new one twice already.	新书我都看两遍了。
 Share a friend's	借朋友的书用
-Mia makes do.	米娅将就着用。
-Mia was told to share a friend's books	米娅被要求借用朋友的书
+Mia makes do.	Mia将就着用。
+Mia was told to share a friend's books	Mia被要求借用朋友的书
 We'll take turns, I suppose.	那就轮流用吧。
-Mia went without new books	米娅没能拿到新课本
+Mia went without new books	Mia没能拿到新课本
 Never mind.	没关系。
 Another time.	下次吧。
-Noah wants a lamp on the point	诺亚想在海角上装一盏灯
+Noah wants a lamp on the point	Noah想在海角上装一盏灯
 Boats need a light to come home by.	船要靠灯光才能找到回家的路。
 Fund the lamp	出资建灯
 The harbour fund pays 90 for brass and oil.	港湾基金花90买了黄铜和灯油。
@@ -744,19 +744,19 @@ The lamp can wait	灯可以先放一放
 The point stays dark.	海角依旧一片漆黑。
 The lamp on the point was put off	海角上的灯被搁置了
 In the dark a while longer, then.	那就再摸黑一阵子吧。
-Noah's lamp was forgotten	诺亚的灯被遗忘了
+Noah's lamp was forgotten	Noah的灯被遗忘了
 Nobody remembers the lamp.	没人还记得那盏灯。
 A storm is coming	风暴要来了
 Sky's turning black out west.	西边的天已经黑沉沉的。
 Haul the boats up	把船拖上岸
 Everyone lends a hand.	大家都来帮忙。
-Noah pays 20 for rope.	诺亚花20买了绳索。
+Noah pays 20 for rope.	Noah花20买了绳索。
 The harbour hauled its boats up before the storm	港湾在风暴来临前把船都拖上了岸
 All hands, heave!	大家一起，用力拉！
 Not a boat lost in that storm.	那场风暴没让一艘船遭殃。
 Let it come	随它来吧
 Nothing spent now.	眼下没花钱。
-Evan will have work after.	之后埃文有活干了。
+Evan will have work after.	之后Evan有活干了。
 The storm battered the harbour	风暴袭击了港湾
 Hold on to something!	抓紧点什么！
 The storm caught the harbour unready	风暴来时港湾毫无准备
@@ -764,7 +764,7 @@ Nobody was ready!	谁都没准备好！
 A traveller needs a room	一位旅人需要一间房
 There's a traveller asking for a bed.	有位旅人来找住处。
 Give her a room	给她一间房
-The traveller pays Leo 40 and tells stories all night.	那位旅人付给利奥40，讲了一整晚的故事。
+The traveller pays Leo 40 and tells stories all night.	那位旅人付给Leo40，讲了一整晚的故事。
 A traveller stayed at the Anchor Pub	一位旅人在锚酒馆住下了
 Came from the far side of the world, she says.	她说自己是从世界的另一头来的。
 Still thinking about that traveller's stories.	我还在回味那位旅人讲的故事。
@@ -774,52 +774,52 @@ The traveller was sent on	那位旅人被打发上路了
 Sorry, we're full.	抱歉，客满了。
 The traveller moved on	那位旅人继续上路了
 Gone on the morning ferry.	搭早班渡轮走了。
-Mia has a fever	米娅发烧了
-Mia's burning up.	米娅烧得厉害。
+Mia has a fever	Mia发烧了
+Mia's burning up.	Mia烧得厉害。
 Should we send for the doctor?	要不要去请医生？
 Send for the doctor	去请医生
-Emma pays 35 for the doctor's crossing.	艾玛花35请医生渡海过来。
-The mainland doctor came for Mia	大陆医生为米娅赶来了
+Emma pays 35 for the doctor's crossing.	Emma花35请医生渡海过来。
+The mainland doctor came for Mia	大陆医生为Mia赶来了
 Rest and broth, the doctor says.	医生说要多休息、喝汤。
-Mia's back on her feet.	米娅又活蹦乱跳了。
+Mia's back on her feet.	Mia又活蹦乱跳了。
 Let her sleep	让她好好睡一觉
 A worried few days.	提心吊胆的几天。
-Mia slept off her fever	米娅睡了几天退了烧
+Mia slept off her fever	Mia睡了几天退了烧
 She'll be right in a few days.	过几天就会好的。
-Mia's fever lingered	米娅的烧一直没退
+Mia's fever lingered	Mia的烧一直没退
 Still no better.	还是没好转。
 A mainland hotel wants bread	一家大陆旅馆想订面包
 A hotel wants bread for a week.	有家旅馆想订一周的面包。
 Can we manage?	我们应付得来吗？
 Take the order	接下这单
-The hotel pays Mara 90.	旅馆付给玛拉90。
+The hotel pays Mara 90.	旅馆付给Mara90。
 The ovens run all night.	烤炉整夜不停。
-Mara baked for a mainland hotel	玛拉为大陆一家旅馆烤了面包
+Mara baked for a mainland hotel	Mara为大陆一家旅馆烤了面包
 Flour to my elbows, but paid!	面粉沾了满手臂，但有钱拿！
 That hotel wants more already.	那家旅馆已经想再订了。
 Turn it down	拒绝这单
 The harbour's own bread comes first.	港湾自己的面包才是头等大事。
-Mara turned the hotel down	玛拉回绝了那家旅馆
+Mara turned the hotel down	Mara回绝了那家旅馆
 Our own come first.	自家人优先。
 The hotel took its order elsewhere	旅馆把订单转去了别处
 They've gone to the mainland baker.	他们找了大陆的面包师。
-Leo and Evan are quarrelling	利奥和埃文吵起来了
-Evan's owed me for months, and he knows it.	埃文欠我好几个月了，他自己心知肚明。
-Side with Leo	站在利奥这边
-Evan pays Leo the 20 he owes.	埃文还清了欠利奥的20。
-Evan paid Leo what he owed	埃文还清了欠利奥的钱
+Leo and Evan are quarrelling	Leo和Evan吵起来了
+Evan's owed me for months, and he knows it.	Evan欠我好几个月了，他自己心知肚明。
+Side with Leo	站在Leo这边
+Evan pays Leo the 20 he owes.	Evan还清了欠Leo的20。
+Evan paid Leo what he owed	Evan还清了欠Leo的钱
 About time.	是时候了。
-Side with Evan	站在埃文这边
-Leo lets the debt go.	利奥不追究这笔债了。
-Leo let Evan's debt go	利奥放过了埃文欠下的债
+Side with Evan	站在Evan这边
+Leo lets the debt go.	Leo不追究这笔债了。
+Leo let Evan's debt go	Leo放过了Evan欠下的债
 Keep it.	拿着吧。
-Leo and Evan stopped speaking	利奥和埃文互不理睬了
+Leo and Evan stopped speaking	Leo和Evan互不理睬了
 I've nothing to say to him.	我跟他没什么好说的。
-Noah wants to hold a harbour fête	诺亚想办一场港湾游园会
+Noah wants to hold a harbour fête	Noah想办一场港湾游园会
 Bunting, a band, a tug-of-war.	彩旗、乐队，还有拔河比赛。
 Shall we?	办不办？
 Hold the fête	举办游园会
-Noah pays 60 for bunting and a band.	诺亚花60置办彩旗和请乐队。
+Noah pays 60 for bunting and a band.	Noah花60置办彩旗和请乐队。
 The harbour held a fête	港湾举办了游园会
 What a day!	真是热闹的一天！
 Best fête in years.	多年来最棒的游园会。
@@ -832,7 +832,7 @@ Nobody got round to it.	谁都没抽出空来办。
 The new pier needs its piles driven	新码头需要打下桩基
 The piles need driving before the tide turns.	得赶在转潮前把桩打下去。
 Drive the piles	打下桩基
-The harbour fund pays 50, and 20 of it is Evan's wage.	港湾基金花了50，其中20是埃文的工钱。
+The harbour fund pays 50, and 20 of it is Evan's wage.	港湾基金花了50，其中20是Evan的工钱。
 The new pier's piles were driven	新码头的桩基打好了
 She'll stand a hundred years.	它能屹立百年。
 Leave them	先放着不管
@@ -860,53 +860,53 @@ The bay is full of mackerel	海湾里满是鲭鱼
 The bay's full of mackerel!	海湾里全是鲭鱼！
 Take the lot?	全部捞上来吗？
 Sell the lot	全部卖掉
-Jonas makes 50.	乔纳斯赚了50。
-Jonas sold a glut of mackerel	乔纳斯卖掉了满仓的鲭鱼
+Jonas makes 50.	Jonas赚了50。
+Jonas sold a glut of mackerel	Jonas卖掉了满仓的鲭鱼
 Silver all the way to the mainland!	一路把银子赚到大陆去了！
 Share them round	分给大家
 Nothing earned.	没赚到钱。
 Everyone eats well.	大家都吃得饱饱的。
-Jonas shared his mackerel round the harbour	乔纳斯把鲭鱼分给了整个港湾
+Jonas shared his mackerel round the harbour	Jonas把鲭鱼分给了整个港湾
 Mackerel for everyone!	人人都有鲭鱼吃！
 Still smells of grilled mackerel round here.	这附近还飘着烤鲭鱼的香味。
 The mackerel moved on	鲭鱼群游走了
 Gone as fast as they came.	来得快，去得也快。
 The pub chimney caught fire	酒馆的烟囱着火了
 Chimney's caught!	烟囱着火了！
-Get Evan!	快去叫埃文！
-Pay Evan to rebuild	付钱让埃文重建
-Leo pays Evan 30.	利奥付给埃文30。
-Evan rebuilt the pub chimney	埃文重建了酒馆的烟囱
+Get Evan!	快去叫Evan！
+Pay Evan to rebuild	付钱让Evan重建
+Leo pays Evan 30.	Leo付给Evan30。
+Evan rebuilt the pub chimney	Evan重建了酒馆的烟囱
 Draws like a dream now.	现在通风顺畅极了。
 Patch it and hope	修补一下，祈求顺利
 Smoky evenings.	烟雾缭绕的夜晚。
-Leo patched his chimney	利奥把烟囱修补了一下
+Leo patched his chimney	Leo把烟囱修补了一下
 Probably.	大概吧。
 The pub chimney burned out	酒馆的烟囱彻底烧坏了
 Smoke everywhere!	到处都是烟！
-There's mainland work for Evan	大陆上有活儿等着埃文
+There's mainland work for Evan	大陆上有活儿等着Evan
 A week's carpentry on the mainland.	大陆上有一周的木工活。
 Should I go?	我该去吗？
 Go	去吧
-Evan earns 60.	埃文赚了60。
+Evan earns 60.	Evan赚了60。
 The harbour misses its carpenter.	港湾少了木匠，处处不便。
-Evan took a week's work on the mainland	埃文去大陆干了一周活
+Evan took a week's work on the mainland	Evan去大陆干了一周活
 Back soon, with money in my pocket.	很快就回来，口袋里揣着钱。
 Stay	留下
 The harbour keeps its carpenter.	港湾留住了自己的木匠。
-Evan stayed home	埃文留在了家里
+Evan stayed home	Evan留在了家里
 Plenty to mend here anyway.	反正这儿要修的东西也不少。
-Evan's mainland work went to someone else	埃文错过的大陆活计被别人接了
+Evan's mainland work went to someone else	Evan错过的大陆活计被别人接了
 Too slow.	太慢了。
 Someone else took it.	被别人接走了。
 It's market day	是赶集日
 Market day!	赶集日到了！
 What shall we do?	我们该做点什么？
 Sell jam	卖果酱
-Sofia makes 25.	索菲亚赚了25。
-Sofia sold jam on market day	索菲亚在赶集日卖了果酱
+Sofia makes 25.	Sofia赚了25。
+Sofia sold jam on market day	Sofia在赶集日卖了果酱
 Pies all round	请大家吃派
-Noah pays 20 for pies all round.	诺亚花20请大家吃了派。
+Noah pays 20 for pies all round.	Noah花20请大家吃了派。
 The harbour treated itself on market day	赶集日港湾好好犒劳了自己
 Hot pies all round!	人人都有热腾腾的派！
 Market day came and went	赶集日就这么过去了
@@ -915,7 +915,7 @@ It's regatta day	是帆船赛日
 Regatta day!	帆船赛日到了！
 Who's racing?	谁来参赛？
 Race Sea Finch	让海雀号参赛
-Jonas takes the harbour's 40 prize if he wins, and he usually does.	若乔纳斯获胜，便能拿走港湾的40奖金，而他通常都能赢。
+Jonas takes the harbour's 40 prize if he wins, and he usually does.	若Jonas获胜，便能拿走港湾的40奖金，而他通常都能赢。
 Sea Finch won the regatta	海雀号赢得了帆船赛
 First past the buoy!	第一个绕过浮标！
 Did you see Sea Finch fly?	你看到海雀号飞驰的样子了吗？
@@ -928,20 +928,20 @@ It's harvest supper night	是丰收晚宴之夜
 Harvest supper at the pub.	酒馆里办丰收晚宴。
 Who's paying?	谁来出钱？
 A proper feast	办一场像样的宴席
-Leo spends 45 on a proper spread.	利奥花45办了一桌丰盛的菜。
+Leo spends 45 on a proper spread.	Leo花45办了一桌丰盛的菜。
 The harbour sat down to a harvest feast	港湾的人坐下来共享丰收盛宴
 Eat up, there's plenty!	尽管吃，管够！
 I'm still full from the harvest supper.	丰收晚宴让我到现在都还饱着。
 Everyone brings a dish	每人带一道菜
-Mara's pie, Jonas's fish, Leo's ale.	玛拉的派、乔纳斯的鱼、利奥的麦酒。
+Mara's pie, Jonas's fish, Leo's ale.	Mara的派、Jonas的鱼、Leo的麦酒。
 The harbour shared a potluck supper	港湾办了一场百家宴
-Mara's pie, Jonas's fish, my ale!	玛拉的派、乔纳斯的鱼、还有我的麦酒！
+Mara's pie, Jonas's fish, my ale!	Mara的派、Jonas的鱼、还有我的麦酒！
 Harvest supper was skipped	丰收晚宴取消了
 No supper this year.	今年没有晚宴了。
 The school needs coal	学校需要煤炭
 It's freezing in the classroom.	教室里冷得要命。
 Buy coal	买煤炭
-Noah pays 50 for a winter's coal.	诺亚花50买了一冬天的煤炭。
+Noah pays 50 for a winter's coal.	Noah花50买了一冬天的煤炭。
 The school stove was lit	学校的火炉点燃了
 Warm hands, sharp minds.	手暖了，脑子也灵光了。
 Teach in coats	穿着外套上课
@@ -955,7 +955,7 @@ Don't make a fuss.	别太张扬。
 Cake and a pint.	蛋糕配一品脱啤酒。
 Can't argue with that.	这没什么好反驳的。
 A card!	一张贺卡！
-Even Noah signed.	连诺亚都签了名。
+Even Noah signed.	连Noah都签了名。
 Birthday.	生日。
 Nobody noticed.	没人注意到。
 Baked my own birthday cake.	自己烤了生日蛋糕。
@@ -978,7 +978,7 @@ It's my birthday!	今天是我的生日！
 Guess how old!	猜猜我多大了！
 Best birthday ever!	有史以来最棒的生日！
 A card from everyone!	大家一起送的贺卡！
-Even Emma!	连艾玛都有份！
+Even Emma!	连Emma都有份！
 Nobody.	没有人。
 My birthday, if anyone's counting.	我的生日，如果有人记得的话。
 A splendid do.	一场精彩的聚会。
@@ -1001,7 +1001,7 @@ I'm fine.	我没事。
 Really.	真的。
 {name}'s birthday	{name}的生日
 A party at the pub	在酒馆办一场派对
-Leo spends 20 on cake and a round.	利奥花20办了蛋糕和一轮酒。
+Leo spends 20 on cake and a round.	Leo花20办了蛋糕和一轮酒。
 {name} had a birthday party	{name}办了一场生日派对
 Thanks again for the party.	再次感谢大家办的派对。
 A card from everyone	大家一起送的贺卡
@@ -1009,40 +1009,34 @@ A kind thought.	真是有心了。
 {name} got a card from everyone	{name}收到了大家送的贺卡
 {name}'s birthday was forgotten	{name}的生日被遗忘了
 The harbour's year	港湾的一年
-Sofia opened a stall of her own.	索菲亚开了属于自己的摊位。
-Sofia stayed, and opened her stall after all.	索菲亚留了下来，最终还是开了摊位。
-Sofia left for a job on the mainland.	索菲亚去大陆找了份工作。
-Mia started helping at Sofia's stall.	米娅开始在索菲亚的摊位上帮忙。
+Sofia opened a stall of her own.	Sofia开了属于自己的摊位。
+Sofia stayed, and opened her stall after all.	Sofia留了下来，最终还是开了摊位。
+Sofia left for a job on the mainland.	Sofia去大陆找了份工作。
+Mia started helping at Sofia's stall.	Mia开始在Sofia的摊位上帮忙。
 The Anchor made its music night a monthly thing.	锚酒馆把音乐之夜变成了每月固定活动。
-Mara's bread went out on the morning ferry.	玛拉的面包搭早班渡轮运出去了。
+Mara's bread went out on the morning ferry.	Mara的面包搭早班渡轮运出去了。
 The new pier was finished and opened.	新码头建成通行了。
 Ivo's fishing family came to live in the harbour.	伊沃一家渔民搬来港湾定居了。
-Ada the traveller made the harbour her home.	旅人艾达把港湾当成了自己的家。
+Ada the traveller made the harbour her home.	旅人Ada把港湾当成了自己的家。
 A lamp was lit on the point.	海角上的灯点亮了。
 The school planted a garden.	学校种了一座花园。
 The school roof was mended.	学校的屋顶修好了。
 Lessons moved into the pub.	课程搬到了酒馆里上。
-Mara got her new oven.	玛拉有了新烤炉。
+Mara got her new oven.	Mara有了新烤炉。
 Sea Finch won the regatta.	海雀号赢得了帆船赛。
 The harbour held a fête.	港湾举办了游园会。
 The pub started a quiz night.	酒馆办起了智力问答之夜。
 Harbor Bakery closed its doors.	港口面包房关门了。
-Mara reopened the bakery.	玛拉重新开了面包房。
-Jonas sold Sea Finch.	乔纳斯卖掉了海雀号。
+Mara reopened the bakery.	Mara重新开了面包房。
+Jonas sold Sea Finch.	Jonas卖掉了海雀号。
 Sea Finch went back to sea.	海雀号重新出海了。
-A bright	晴朗的
-A good	美好的
-A quiet	宁静的
-A hard	艰难的
-A bitter	严酷的
-{feel} {season_name}	{feel}{season_name}
-The {season_name} {}	这个{season_name}{}
+The {season_name} {}	那个{season_name}，{}
 {title}, {season_name} of year {}	{title},{season_name}之年{}
 The bakery stayed shut.	面包房依旧关着门。
 The harbour kept its bakery.	港湾留住了自己的面包房。
 {} hasn't forgotten being let down.	{}没有忘记被辜负的滋味。
 The autumn	秋天
-Mara and Leo became	玛拉和利奥成了
+Mara and Leo became	Mara和Leo成了
 The whole harbour came	全港的人都来了
 the whole	整个
 The great storm is coming	大风暴要来了
@@ -1050,13 +1044,13 @@ The biggest storm in years is coming.	多年来最大的风暴就要来了。
 What do we save?	我们该救什么？
 Haul every boat up	把所有船都拉上岸
 Sea Finch and every boat come up the slip.	海雀号和所有船都拖上了滑道。
-Noah pays 30 for rope and rollers.	诺亚花30买绳索和滚木。
+Noah pays 30 for rope and rollers.	Noah花30买绳索和滚木。
 The harbour hauled up every boat before the great storm	大风暴来临前，港口把所有船都拉上了岸
 Not one boat lost!	一艘船都没丢！
 When the great storm came, the harbour saved its boats.	大风暴来临时，港口保住了所有的船。
 The year of the great storm	大风暴那一年
 Board up the town	把镇子都钉上木板
-Evan boards every window; Noah pays him 30.	埃文把每扇窗户都钉上木板;诺亚付他30。
+Evan boards every window; Noah pays him 30.	Evan把每扇窗户都钉上木板;Noah付他30。
 The harbour boarded up against the great storm	港口为大风暴钉上了木板
 Hammers all night, and it held.	敲了一整夜锤子，总算撑住了。
 When the great storm came, the harbour boarded up and held.	大风暴来临时，港口钉好木板，撑住了。
@@ -1065,11 +1059,11 @@ The great storm caught the harbour unready	大风暴让港口猝不及防
 Nobody was ready for that.	谁都没准备好。
 The great storm caught the harbour unready.	大风暴让港口猝不及防。
 The storm that caught us	那场打了我们个措手不及的风暴
-Noah called a town meeting	诺亚召集了镇民大会
+Noah called a town meeting	Noah召集了镇民大会
 Money's tight everywhere.	到处都缺钱。
 How do we get through?	我们该怎么撑过去？
 Share what we have	有什么就分什么
-Leo and Noah put 20 each toward whoever is short.	利奥和诺亚各出20，补贴手头紧的人。
+Leo and Noah put 20 each toward whoever is short.	Leo和Noah各出20，补贴手头紧的人。
 The harbour agreed to share what it had	港口决定有什么就分什么
 Nobody goes without.	谁都不会缺东西。
 Agreed?	都同意吗？
@@ -1081,7 +1075,7 @@ The harbour agreed every house would look after its own	港口决定各家顾各
 We all have our own to feed.	我们都有自家人要养活。
 When times were hard, everyone looked after their own.	日子艰难时，大家各自照顾自己人。
 Every house for itself	各家自扫门前雪
-Nobody came to Noah's meeting	没人来参加诺亚的会
+Nobody came to Noah's meeting	没人来参加Noah的会
 An empty hall.	空荡荡的大厅。
 Well.	这个嘛。
 When times were hard, nobody came to the meeting.	日子艰难时，没人来开会。
@@ -1090,7 +1084,7 @@ The mainland inspector is coming	大陆的督察要来了
 The inspector comes tomorrow.	督察明天就到。
 How do we show the school?	我们该怎么展示学校？
 Put on a show	好好装扮一番
-Noah pays 40 for paint and a new flag.	诺亚花40买油漆和新旗子。
+Noah pays 40 for paint and a new flag.	Noah花40买油漆和新旗子。
 The inspector found the school at its best	督察看到的是学校最好的样子
 Top marks!	满分！
 Well, nearly.	嗯，差不多。
@@ -1127,14 +1121,14 @@ A bucket under the school leak	学校漏雨处放的水桶
 School desks outside the pub	摆在酒馆外的课桌
 The lamp glass, waiting at the dock	码头上等着的灯罩玻璃
 Pier timber, waiting on the quay	堤岸上等着的码头木材
-Sofia's letter on the noticeboard	索菲亚贴在告示板上的信
+Sofia's letter on the noticeboard	Sofia贴在告示板上的信
 A quiet night at the pub	酒馆里安静的一晚
 Bunting over the pub	酒馆上空的彩旗
 The new oven, just delivered	刚送到的新烤炉
 New nets drying on the quay	堤岸上晾着的新渔网
 The new pier, a new section on	新码头，又加长了一段
 The new pier, on its piles	新码头，立在桩柱上
-Sofia's stall	索菲亚的摊位
+Sofia's stall	Sofia的摊位
 A box of new books	一箱新书
 The lamp post on the point, unlit	海角上还没点亮的灯柱
 The traveller's bags	旅人的行李
@@ -1158,25 +1152,25 @@ A regatta flag	帆船赛的旗子
 Coal for the school	给学校的煤
 A birthday present	生日礼物
 Bunting for the evening	晚会用的彩旗
-Sofia's stall is doing well	索菲亚的摊位生意兴隆
+Sofia's stall is doing well	Sofia的摊位生意兴隆
 My stall's doing well!	我的摊位生意不错！
-Could Mia help on Saturdays?	米娅星期六能来帮忙吗？
-Take Mia on	雇下米娅
-Sofia pays Mia 15 a week from the stall.	索菲亚从摊位收入里每周付米娅15。
-Mia started helping at Sofia's stall	米娅开始在索菲亚的摊位帮忙
-Mia's a natural with customers!	米娅天生会招呼客人！
-Sofia and Mia's stall	索菲亚和米娅的摊位
+Could Mia help on Saturdays?	Mia星期六能来帮忙吗？
+Take Mia on	雇下Mia
+Sofia pays Mia 15 a week from the stall.	Sofia从摊位收入里每周付Mia15。
+Mia started helping at Sofia's stall	Mia开始在Sofia的摊位帮忙
+Mia's a natural with customers!	Mia天生会招呼客人！
+Sofia and Mia's stall	Sofia和Mia的摊位
 Saturdays at the stall are the best.	星期六在摊位上最开心。
 Keep it small	小范围庆祝就好
-Sofia runs it alone.	索菲亚一个人打理。
-Sofia kept her stall small	索菲亚的摊位一直开得不大
+Sofia runs it alone.	Sofia一个人打理。
+Sofia kept her stall small	Sofia的摊位一直开得不大
 Small suits me fine.	小小的挺好。
-Sofia managed the stall alone	索菲亚一个人打理摊位
+Sofia managed the stall alone	Sofia一个人打理摊位
 I'll manage.	我能应付。
 The pub has gone quiet	酒馆冷清了下来
-The pub's quiet since Sofia's stall took off.	自从索菲亚的摊位红火起来，酒馆就冷清了。
+The pub's quiet since Sofia's stall took off.	自从Sofia的摊位红火起来，酒馆就冷清了。
 A quiz night	知识问答之夜
-Leo spends 20 on prizes and a board.	利奥花20买奖品和黑板。
+Leo spends 20 on prizes and a board.	Leo花20买奖品和黑板。
 The Anchor Pub started a quiz night	锚酒馆办起了知识问答之夜
 Question one: how deep is the harbour?	第一题：港口有多深？
 Bunting for quiz night	知识问答之夜的彩旗
@@ -1186,38 +1180,38 @@ It'll pick up.	会好起来的。
 It always does.	一向如此。
 The pub found its feet again	酒馆又重新热闹起来
 Busy again, thank goodness.	谢天谢地，又忙起来了。
-Sofia has an offer from the mainland	索菲亚收到大陆的工作邀约
+Sofia has an offer from the mainland	Sofia收到大陆的工作邀约
 There's a job on the mainland.	大陆上有份工作。
 Should I take it?	我该接受吗？
 Stay, and have your stall	留下来，开你的摊位
-Sofia spends 40 of her savings on the stall after all.	索菲亚最终还是拿出40积蓄开了摊位。
-Sofia stayed, and opened her stall	索菲亚留了下来，开起了摊位
+Sofia spends 40 of her savings on the stall after all.	Sofia最终还是拿出40积蓄开了摊位。
+Sofia stayed, and opened her stall	Sofia留了下来，开起了摊位
 Then I'm staying.	那我就留下。
 And I'm opening that stall!	我要开那个摊位！
 Go, with our blessing	去吧，我们祝福你
-Sofia leaves for the mainland.	索菲亚前往大陆。
-Sofia left for the mainland	索菲亚去了大陆
+Sofia leaves for the mainland.	Sofia前往大陆。
+Sofia left for the mainland	Sofia去了大陆
 I'll write.	我会写信的。
 I promise.	我保证。
-Sofia took the mainland job	索菲亚接受了大陆的工作
+Sofia took the mainland job	Sofia接受了大陆的工作
 Nobody asked me to stay.	没人叫我留下。
-A letter came from Sofia	索菲亚寄来了一封信
-A letter from Sofia, on the mainland!	索菲亚从大陆寄来的信！
+A letter came from Sofia	Sofia寄来了一封信
+A letter from Sofia, on the mainland!	Sofia从大陆寄来的信！
 Read it out at the pub	在酒馆里念出来
 Everyone gathers.	大家都聚了过来。
-Sofia's letter was read out at the pub	索菲亚的信在酒馆里被念了出来
+Sofia's letter was read out at the pub	Sofia的信在酒馆里被念了出来
 She's doing well.	她过得不错。
 She misses us.	她想念我们。
 Pin it up at the harbour	钉在港口告示板上
 Anyone can read it.	谁都能看。
-Sofia's letter was pinned up at the harbour	索菲亚的信被钉在了港口
+Sofia's letter was pinned up at the harbour	Sofia的信被钉在了港口
 There, for everyone.	在那儿，给大家看。
-Noah kept Sofia's letter	诺亚把索菲亚的信收了起来
+Noah kept Sofia's letter	Noah把Sofia的信收了起来
 I'll read it later.	我晚点再看。
 The fiddler wants to come back	那位提琴手想回来
 The fiddler wants to come back every month.	那位提琴手想每月都回来一次。
 Make it monthly	定成每月一次
-Leo spends 30 on lanterns for the pub front.	利奥花30为酒馆门前挂灯笼。
+Leo spends 30 on lanterns for the pub front.	Leo花30为酒馆门前挂灯笼。
 The Anchor Pub made music night monthly	锚酒馆把音乐之夜定成了每月一次
 First Friday of every month.	每月第一个星期五。
 Tell everyone!	告诉大家！
@@ -1227,19 +1221,19 @@ The music night stayed a one-off	音乐之夜只办了那一次
 Once was plenty.	一次就够了。
 The fiddler moved on	那位提琴手离开了
 He's playing the mainland now.	他现在在大陆演出了。
-Mara could bake for the ferry	玛拉可以为渡轮供应面包
+Mara could bake for the ferry	Mara可以为渡轮供应面包
 With the new oven I could bake for the ferry.	有了新烤炉，我可以为渡轮烤面包了。
 Start the ferry run	开始供应渡轮
 Crates of bread go out on the morning ferry.	一箱箱面包搭早班渡轮运走。
-Mara makes 40.	玛拉赚了40。
-Mara's bread started going out on the ferry	玛拉的面包开始搭渡轮运出去了
+Mara makes 40.	Mara赚了40。
+Mara's bread started going out on the ferry	Mara的面包开始搭渡轮运出去了
 Crates on the quay by six!	六点前箱子就得搬到堤岸上！
 Bread crates for the ferry	给渡轮的面包箱
 Keep it local	留在本地
 The harbour's bread comes first.	港口的面包要先紧着自己人。
-Mara kept her bread for the harbour	玛拉把面包留给了港口
+Mara kept her bread for the harbour	Mara把面包留给了港口
 The ferry found another baker	渡轮找了别的面包师
-Too slow, Mara.	太慢了，玛拉。
+Too slow, Mara.	太慢了，Mara。
 The new pier is finished	新码头建好了
 The pier's finished!	码头建好了！
 Shall we open it properly?	我们要不要正式开放？
@@ -1277,8 +1271,8 @@ The whole harbour watched the lamp lit	全港的人都看着灯被点亮
 There she shines!	亮起来了！
 The lamp on the point	海角上的灯
 Just light it	直接点亮就行
-Noah walks out alone.	诺亚独自走了出去。
-Noah lit the lamp on the point	诺亚独自点亮了海角上的灯
+Noah walks out alone.	Noah独自走了出去。
+Noah lit the lamp on the point	Noah独自点亮了海角上的灯
 Boats will see that for miles.	船只老远就能看见它。
 Somebody lit the lamp on the point	有人点亮了海角上的灯
 Someone's lit it!	有人把它点亮了！
@@ -1286,9 +1280,9 @@ The traveller wants to stay	那位旅人想留下来
 That traveller wants to stay on.	那位旅人想留下来。
 She could help at the pub.	她可以在酒馆帮忙。
 Welcome her	欢迎她
-Ada takes the room above the pub.	艾达住进了酒馆楼上的房间。
-Ada the traveller made the harbour her home	旅人艾达把港口当成了家
-Ada's staying!	艾达要留下了！
+Ada takes the room above the pub.	Ada住进了酒馆楼上的房间。
+Ada the traveller made the harbour her home	旅人Ada把港口当成了家
+Ada's staying!	Ada要留下了！
 Pour her a pint.	给她倒一杯。
 There's no room	没有地方了
 She moves on.	她继续上路了。
@@ -1298,7 +1292,7 @@ Gone before I could ask.	我还没来得及问，她就走了。
 Parents are keeping children home	家长把孩子留在家里
 The leaks are keeping children home now.	漏雨让孩子们现在都待在家里。
 Mend it now	现在就修
-Noah finds 70: 25 to Evan, the rest for slate.	诺亚凑了70:25给埃文，剩下的买石板瓦。
+Noah finds 70: 25 to Evan, the rest for slate.	Noah凑了70:25给Evan，剩下的买石板瓦。
 The school roof was mended at last	学校屋顶终于修好了
 Better late than never.	迟做总比不做好。
 Teach at the pub	在酒馆上课
@@ -1307,10 +1301,10 @@ Lessons moved into the Anchor Pub	课搬进了锚酒馆
 Long division over the dartboard.	飞镖盘旁边算长除法。
 The school roof still leaks	学校屋顶还在漏雨
 Another bucket, then.	那就再放个桶。
-Mia wants a school garden	米娅想要个学校花园
+Mia wants a school garden	Mia想要个学校花园
 Could we plant a garden by the school?	我们能在学校旁边种个花园吗？
 Plant it	种起来
-Emma spends 20 on seeds and a spade.	艾玛花20买种子和铁锹。
+Emma spends 20 on seeds and a spade.	Emma花20买种子和铁锹。
 The school planted a garden	学校种了个花园
 I planted the beans myself!	豆子是我亲手种的！
 Our beans are coming up!	我们的豆子长出来了！
@@ -1324,58 +1318,58 @@ Every house gets a bag.	每家都能分到一袋。
 The school's beans went round the harbour	学校的豆子分给了全港
 Beans for everyone!	豆子人人有份！
 Sell them at market	拿去集市上卖
-Mia makes 20.	米娅赚了20。
-Mia sold the school's beans at market	米娅在集市上卖了学校的豆子
+Mia makes 20.	Mia赚了20。
+Mia sold the school's beans at market	Mia在集市上卖了学校的豆子
 Twenty for the class trip!	二十块留着班级出游用！
 The beans went over	豆子老了
 Too late, they're tough now.	太晚了，现在都老了。
-Jonas brought in a record catch	乔纳斯捕到了创纪录的一网
+Jonas brought in a record catch	Jonas捕到了创纪录的一网
 The new nets!	多亏了新渔网！
 Biggest catch I've ever had.	我这辈子捕得最多的一次。
 Sell it or share it?	卖掉还是分掉？
 Sell it	卖掉
-Jonas makes 45 on the mainland.	乔纳斯在大陆卖得45。
-Jonas sold a record catch	乔纳斯卖掉了创纪录的一网鱼
+Jonas makes 45 on the mainland.	Jonas在大陆卖得45。
+Jonas sold a record catch	Jonas卖掉了创纪录的一网鱼
 Best week's money I've had.	这是我赚得最多的一周。
 Crates of fish for the ferry	给渡轮的鱼箱
 Share it round	分给大家
 Every door gets a fish.	每家门口都送一条鱼。
-Jonas shared a record catch round the harbour	乔纳斯把创纪录的一网鱼分给了全港
+Jonas shared a record catch round the harbour	Jonas把创纪录的一网鱼分给了全港
 Fish for everyone!	鱼人人有份！
 Fish smoking on lines	挂着熏的鱼
-Some of Jonas's catch spoiled	乔纳斯的一些鱼获坏掉了
+Some of Jonas's catch spoiled	Jonas的一些鱼获坏掉了
 Should have decided quicker.	早该快点拿主意的。
-Jonas is mending nets at midnight	乔纳斯半夜还在补网
+Jonas is mending nets at midnight	Jonas半夜还在补网
 Still at these nets.	还在弄这些网。
 Could anyone lend a hand?	有人能搭把手吗？
-Evan lends a hand	埃文搭了把手
+Evan lends a hand	Evan搭了把手
 An evening's work for two.	两个人忙了一晚上。
-Evan helped Jonas mend his nets	埃文帮乔纳斯补了网
-Done by midnight, with Evan's help.	有埃文帮忙，半夜就弄完了。
+Evan helped Jonas mend his nets	Evan帮Jonas补了网
+Done by midnight, with Evan's help.	有Evan帮忙，半夜就弄完了。
 He'll manage	他自己能行
-Jonas works till dawn.	乔纳斯一直干到天亮。
-Jonas mended his nets alone, till dawn	乔纳斯独自补网，一直补到天亮
+Jonas works till dawn.	Jonas一直干到天亮。
+Jonas mended his nets alone, till dawn	Jonas独自补网，一直补到天亮
 Nobody came.	没人来帮忙。
-Jonas's nets stayed torn	乔纳斯的网还是破的
+Jonas's nets stayed torn	Jonas的网还是破的
 I'll fish with what I've got.	有什么网我就用什么打鱼。
-Mia finished her new books	米娅读完了她的新书
+Mia finished her new books	Mia读完了她的新书
 I read all my new books!	我把新书都读完了！
 Can I read one to the class?	我能给全班读一本吗？
 Read it to everyone	读给大家听
 An afternoon of stories.	一下午的故事时间。
-Mia read her new book to the whole class	米娅给全班读了她的新书
+Mia read her new book to the whole class	Mia给全班读了她的新书
 And then the whale said...	然后鲸鱼说……
 Maybe later	也许晚点
 Lessons first.	先上课。
-Mia's reading was put off	米娅读书的事被推迟了
+Mia's reading was put off	Mia读书的事被推迟了
 Maybe next week.	也许下周吧。
-Nobody asked Mia to read	没人叫米娅读
+Nobody asked Mia to read	没人叫Mia读
 It was only an idea.	那只是个想法而已。
-Emma wants a lending shelf	艾玛想设个借书架
-Mia's sharing books.	米娅在分享她的书。
+Emma wants a lending shelf	Emma想设个借书架
+Mia's sharing books.	Mia在分享她的书。
 What if the school lent them to everyone?	要是学校把书借给大家呢？
 Put up a lending shelf	设个借书架
-Evan builds it; Emma pays him 15.	埃文来搭建;艾玛付他15。
+Evan builds it; Emma pays him 15.	Evan来搭建;Emma付他15。
 The school opened a lending shelf	学校设了个借书架
 Borrow one, bring one back!	借一本，还一本！
 The lending shelf	借书架
@@ -1386,34 +1380,34 @@ The hotel wants a standing order	酒店想长期订购
 The hotel liked our bread.	酒店喜欢我们的面包。
 They want it every week.	他们想每周都要。
 Every week, then	那就每周吧
-Mara makes 50 and bakes through the night.	玛拉赚了50，通宵烤面包。
-Mara took a standing order from the mainland hotel	玛拉接下了大陆酒店的长期订单
+Mara makes 50 and bakes through the night.	Mara赚了50，通宵烤面包。
+Mara took a standing order from the mainland hotel	Mara接下了大陆酒店的长期订单
 Every Tuesday, forty loaves.	每周二，四十条面包。
 Bread crates for the hotel	给酒店的面包箱
-Mara said no to the hotel's standing order	玛拉回绝了酒店的长期订单
+Mara said no to the hotel's standing order	Mara回绝了酒店的长期订单
 Our own first.	先紧着自己人。
 Always.	一向如此。
 The hotel stopped asking	酒店不再来问了
 They've found someone else.	他们找了别人。
-Evan wants to make peace with Leo	埃文想跟利奥和好
-Leo and I are talking again.	我和利奥又说上话了。
+Evan wants to make peace with Leo	Evan想跟Leo和好
+Leo and I are talking again.	我和Leo又说上话了。
 Drinks on me?	我请客喝一杯？
-A round on Evan	埃文请的一轮酒
-Evan spends 15 at the Anchor.	埃文在锚酒馆花了15。
-Evan and Leo shared a drink	埃文和利奥一起喝了一杯
+A round on Evan	Evan请的一轮酒
+Evan spends 15 at the Anchor.	Evan在锚酒馆花了15。
+Evan and Leo shared a drink	Evan和Leo一起喝了一杯
 To old friends!	敬老朋友！
 Leave it be	顺其自然
 Some things mend by themselves.	有些事自己会好起来的。
-Evan and Leo left it there	埃文和利奥就这么放下了
+Evan and Leo left it there	Evan和Leo就这么放下了
 We're fine.	我们没事。
 Mostly.	大多时候是这样。
-Evan and Leo never quite made up	埃文和利奥始终没真正和好
+Evan and Leo never quite made up	Evan和Leo始终没真正和好
 We don't talk about it.	我们不提这事。
 The storm cracked the harbour wall	风暴震裂了港口的堤墙
 The storm cracked the harbour wall.	风暴震裂了港口的堤墙。
 Mend it now?	现在就修吗？
-Noah pays Evan 40.	诺亚付了埃文40。
-Evan mended the harbour wall after the storm	风暴过后，埃文修好了港口堤墙
+Noah pays Evan 40.	Noah付了Evan40。
+Evan mended the harbour wall after the storm	风暴过后，Evan修好了港口堤墙
 Good as new.	跟新的一样。
 Better.	更好。
 Stones for the harbour wall	给堤墙用的石头
@@ -1423,18 +1417,18 @@ The harbour wall was left cracked	港口堤墙的裂缝没修
 It'll hold.	撑得住。
 Part of the harbour wall fell in	港口堤墙塌了一段
 Should have mended it.	早该修好的。
-Evan is back from the mainland	埃文从大陆回来了
+Evan is back from the mainland	Evan从大陆回来了
 I'm back!	我回来了！
 And they've a job for me there for good, if I want it.	他们那边还留了个长期的活给我，只要我想要。
 Stay here	留在这里
-Evan came home to stay	埃文回家来定居了
+Evan came home to stay	Evan回家来定居了
 Home's home.	家还是家。
 Take the job	接受那份工作
-Evan leaves for good.	埃文永远离开了。
-Evan left for the mainland for good	埃文永远离开去了大陆
+Evan leaves for good.	Evan永远离开了。
+Evan left for the mainland for good	Evan永远离开去了大陆
 I'll visit.	我会回来看看的。
 Often.	常回来。
-Evan drifted home again	埃文又晃悠回家来了
+Evan drifted home again	Evan又晃悠回家来了
 Couldn't stay away.	就是离不开这儿。
 The storm has passed	风暴过去了
 Storm's passed.	风暴过去了。
@@ -1455,36 +1449,36 @@ The pub is warm as toast	酒馆里暖烘烘的
 The new chimney draws so well.	新烟囱抽风特别好。
 Open up the old snug?	把旧雅座打开吗？
 Open the snug	打开雅座
-Leo spends 25 on a rug and two armchairs.	利奥花25买了地毯和两把扶手椅。
-Leo opened the old snug at the Anchor	利奥打开了锚酒馆的旧雅座
+Leo spends 25 on a rug and two armchairs.	Leo花25买了地毯和两把扶手椅。
+Leo opened the old snug at the Anchor	Leo打开了锚酒馆的旧雅座
 Best seat in the house, by the fire.	炉火边，店里最好的位子。
 A lamp in the snug window	雅座窗口的一盏灯
 Keep it shut	继续关着
 The snug stayed shut	雅座一直关着
 Another winter, maybe.	也许再等一个冬天吧。
-Leo never got round to the snug	利奥一直没空收拾雅座
+Leo never got round to the snug	Leo一直没空收拾雅座
 One day.	总有一天。
-Evan wants to build benches for the quay	埃文想在堤岸上搭长凳
+Evan wants to build benches for the quay	Evan想在堤岸上搭长凳
 Since I stayed, how about benches for the quay?	既然我留下了，不如在堤岸上搭些长凳？
 Build them	搭起来
-Noah pays 25 for timber.	诺亚花25买木材。
-Evan built benches along the quay	埃文沿着堤岸搭了长凳
+Noah pays 25 for timber.	Noah花25买木材。
+Evan built benches along the quay	Evan沿着堤岸搭了长凳
 Sit down, everyone!	大家都坐吧！
 Benches on the quay	堤岸上的长凳
 Stand like everyone else	跟大家一样站着
 The quay stayed bench-less	堤岸上还是没有长凳
 Standing's good for you, apparently.	站着好像对身体有好处呢。
-Evan's benches never happened	埃文的长凳始终没搭成
-Mia is better	米娅好些了
-Mia's better!	米娅好多了！
+Evan's benches never happened	Evan的长凳始终没搭成
+Mia is better	Mia好些了
+Mia's better!	Mia好多了！
 Shall we send the doctor something?	我们要不要给医生送点什么？
 Send a cake	送个蛋糕
-Mara bakes one for the crossing.	玛拉烤了一个，备着过海用。
+Mara bakes one for the crossing.	Mara烤了一个，备着过海用。
 The harbour sent the doctor a cake	港口给医生送了个蛋糕
 With our thanks!	谢谢您！
 A letter will do	一封信就够了
-Mia writes it herself.	米娅自己写的。
-Mia wrote the doctor a thank-you letter	米娅给医生写了封感谢信
+Mia writes it herself.	Mia自己写的。
+Mia wrote the doctor a thank-you letter	Mia给医生写了封感谢信
 Dear Doctor...	亲爱的医生……
 Nobody thanked the doctor	没人谢过医生
 Oh, we forgot.	哦，我们忘了。
@@ -1492,52 +1486,52 @@ The fiddler is playing the mainland pub	那位提琴手在大陆的酒馆演出
 That fiddler's packing out the mainland pub now.	那位提琴手现在把大陆的酒馆挤得满满的。
 Get him back?	把他请回来？
 Invite him back	请他回来
-Leo spends 45 to win him over.	利奥花45把他说动了。
+Leo spends 45 to win him over.	Leo花45把他说动了。
 The fiddler came back to the Anchor	提琴手回到了锚酒馆
 He's back, and the place is full!	他回来了，店里挤满了人！
 Bunting for the fiddler	为提琴手挂的彩旗
 Let him go	由他去吧
 The Anchor stays quiet.	锚酒馆依旧冷清。
-Leo let the fiddler go	利奥由提琴手去了
+Leo let the fiddler go	Leo由提琴手去了
 Their loss.	是他们的损失。
 Or ours.	也许是我们的。
 The fiddler stayed on the mainland	提琴手留在了大陆
 He's not coming back.	他不会回来了。
-Mara's patched oven gave out	玛拉那修补过的烤炉坏了
+Mara's patched oven gave out	Mara那修补过的烤炉坏了
 The patched oven's died mid-batch.	补过的烤炉烤到一半就坏了。
 Buy a new one now	现在就买个新的
-80 of Mara's savings, at last.	玛拉的积蓄终究还是花了80。
+80 of Mara's savings, at last.	Mara的积蓄终究还是花了80。
 Should have done this weeks ago.	几周前就该这么做了。
 Bake on the pub's range	用酒馆的炉灶烤
-Leo lends his kitchen for a week.	利奥把厨房借了一周。
-Mara baked on the Anchor's range	玛拉用锚酒馆的炉灶烤面包
+Leo lends his kitchen for a week.	Leo把厨房借了一周。
+Mara baked on the Anchor's range	Mara用锚酒馆的炉灶烤面包
 Bread and ale, same roof.	面包和啤酒，同一个屋檐下。
 Bread trays at the pub door	酒馆门口的面包盘
 The harbour went a day without bread	港口有一天没了面包
 No bread today.	今天没有面包。
-Mia is no better	米娅没好转
-Mia's no better.	米娅没好一点。
+Mia is no better	Mia没好转
+Mia's no better.	Mia没好一点。
 Send for the doctor now?	现在就去请医生吗？
-Emma pays 45 for the crossing.	艾玛花45付了过海的钱。
-The doctor came for Mia at last	医生终于来给米娅看病了
+Emma pays 45 for the crossing.	Emma花45付了过海的钱。
+The doctor came for Mia at last	医生终于来给Mia看病了
 She'll be fine now.	她这下会没事的。
 Give it another day	再等一天
-A long night for Emma.	艾玛熬了一个漫长的夜晚。
-Emma waited out Mia's fever	艾玛守着米娅退了烧
+A long night for Emma.	Emma熬了一个漫长的夜晚。
+Emma waited out Mia's fever	Emma守着Mia退了烧
 Her fever's broken.	她的烧退了。
 Thank goodness.	谢天谢地。
-Mia's fever broke on its own	米娅的烧自己退了
+Mia's fever broke on its own	Mia的烧自己退了
 Over the worst.	挺过了最糟的时候。
 People miss the fête	大家都想念庆典
 People are grumbling about no fête.	大家都在抱怨没办庆典。
 Something small?	办个小规模的？
 A picnic on the quay	堤岸上的野餐
-Noah pays 20 for lemonade.	诺亚花20买柠檬水。
+Noah pays 20 for lemonade.	Noah花20买柠檬水。
 The harbour had a picnic on the quay	港口在堤岸上办了场野餐
 Not a fête, but it'll do!	不是庆典，但也凑合了！
 Bunting for the picnic	野餐用的彩旗
 Let them grumble	由他们去抱怨
-Noah let the grumbling be	诺亚由大家去抱怨
+Noah let the grumbling be	Noah由大家去抱怨
 They'll get over it.	他们会想开的。
 The grumbling faded	抱怨声渐渐没了
 Nobody mentions it now.	现在没人再提了。
@@ -1545,8 +1539,8 @@ The patched chimney smokes the pub out	补过的烟囱把酒馆熏得到处是�
 The patched chimney's smoking us out.	补过的烟囱把我们都熏出去了。
 Rebuild it properly?	干脆重修一下？
 Rebuild it properly	彻底重修
-Leo pays Evan 40.	利奥付了埃文40。
-Evan rebuilt the pub chimney properly	埃文把酒馆烟囱彻底重修了
+Leo pays Evan 40.	Leo付了Evan40。
+Evan rebuilt the pub chimney properly	Evan把酒馆烟囱彻底重修了
 Open the windows	把窗户打开
 Smoke and draughts.	烟熏加穿堂风。
 The Anchor kept its windows open	锚酒馆一直开着窗户
@@ -1570,7 +1564,7 @@ They're learning the tides.	他们在学潮汐的知识。
 Chalk dust in my hair again.	头发上又沾满了粉笔灰。
 Such good questions today.	今天的问题真不错。
 Homework's done.	作业做完了。
-Emma gave us sums again.	艾玛又给我们出算术题了。
+Emma gave us sums again.	Emma又给我们出算术题了。
 I came top in spelling!	我默写考了第一！
 Can we go to the beach?	我们能去海滩吗？
 I'm reading about whales.	我在读关于鲸鱼的书。
@@ -1595,7 +1589,7 @@ Gulls followed me all the way in.	海鸥一路跟着我回来。
 Sea's like glass this morning.	今早海面像镜子一样平。
 Salt in everything, as usual.	什么都带着咸味，老样子。
 Swept the bakery floor.	把面包房地板扫干净了。
-Mara's teaching me the rolls.	玛拉在教我做小面包。
+Mara's teaching me the rolls.	Mara在教我做小面包。
 Flour in my beard now.	现在胡子上都是面粉。
 Carried sacks all morning.	一上午都在扛麻袋。
 Counter's spotless.	柜台一尘不染。
@@ -1627,12 +1621,12 @@ No more fishing.	不打鱼了。
 I can't keep the doors open.	我撑不下去了。
 Fresh bread tomorrow, same as ever.	明天照样有新鲜面包。
 Just me behind the counter now.	现在柜台后面只剩我一个人了。
-I'm sorry, Jonas.	对不起，乔纳斯。
+I'm sorry, Jonas.	对不起，Jonas。
 I can't keep you.	我留不住你了。
-One more chance, Jonas.	再给你一次机会，乔纳斯。
+One more chance, Jonas.	再给你一次机会，Jonas。
 We've lost the wedding order.	我们丢了那份婚宴订单。
 I'll take whatever work there is.	有什么活我都干。
-Leo, could I borrow a little?	利奥，我能借点钱吗？
+Leo, could I borrow a little?	Leo，我能借点钱吗？
 Mara, is there any work going?	Mara，有活儿干吗？
 Start tomorrow at the counter.	明天开始在柜台上班。
 Mia, can you start at the counter?	Mia，你能来柜台帮忙吗？
@@ -2374,12 +2368,6 @@ Mara reopened the bakery by herself	Mara自己把面包店重新开了
 A picnic	野餐
 A market	集市
 A dance	舞会
-{x}, around the {thing} you made	{x}，就在你做的{thing}旁
-{x}, as good as last year	{x}，和去年一样好
-{x}, bigger than last year	{x}，比去年更热闹
-{x}, nothing like last year	{x}，远不如去年
-{x}, with a new face among them	{x}，还多了一张新面孔
-{x}, with {n} new faces among them	{x}，还多了{n}张新面孔
 A bitter {s}	苦涩的{s}
 A bright {s}	明媚的{s}
 A good {s}	美好的{s}
@@ -2846,7 +2834,7 @@ Where the fishermen sit. Nobody else, ever.	渔夫们坐的地方。别人从来
 the pub's chalk scores from the quiz	酒馆问答赛的粉笔比分
 The same team's won for eleven years. Mine.	同一支队赢了十一年。是我的队。
 the tankards on hooks above the bar	吧台上方挂着的啤酒杯
-Everyone has their own. Don't touch Noah's.	每人都有自己的一只。别碰诺亚的。
+Everyone has their own. Don't touch Noah's.	每人都有自己的一只。别碰Noah的。
 the Anchor's guest book	锚酒馆的留言簿
 Sixty years of names. Some of them famous. None of them sober.	六十年的名字。有几个挺有名。没一个是清醒时写的。
 the stuffed fish over the door	门上的鱼标本
@@ -2890,7 +2878,7 @@ Up the ladder. Best fireworks view there is.	爬梯子上来。看烟花最好�
 the pub's cosy nook behind the stairs	楼梯后面的小角落
 Where people go to say things quietly.	大家要说悄悄话就来这儿。
 the painted panel of the first regatta	画着第一届赛船会的木板
-Look closely. That's Noah's grandad, losing.	仔细看。那是诺亚的爷爷，输了。
+Look closely. That's Noah's grandad, losing.	仔细看。那是Noah的爷爷，输了。
 the height marks on the school door	学校门上的身高刻痕
 Every child measured, every September. Some of these are grandparents now.	每个孩子，每年九月都量一次。有些现在都当爷爷奶奶了。
 the nature table	自然观察桌
@@ -2898,7 +2886,7 @@ A crab shell, a gull feather and a very old conker.	一只蟹壳，一根海鸥�
 the school's weather station	学校的气象站
 The children read it every morning. They're very strict.	孩子们每天早上都要读数。他们可认真了。
 the old school desks in the store	储藏室里的旧课桌
-Initials in every lid. Look, there's Noah's.	每个桌盖上都刻着名字缩写。看，那是诺亚的。
+Initials in every lid. Look, there's Noah's.	每个桌盖上都刻着名字缩写。看，那是Noah的。
 the school's dressing-up box	学校的化装箱
 Three crowns, a pirate hat and a cow.	三顶王冠，一顶海盗帽，还有一头奶牛。
 the globe with the island drawn on	画着我们小岛的地球仪
@@ -3016,7 +3004,7 @@ It hasn't rung in fifty years. I still listen for it.	五十年没响过了。�
 They say it rang by itself the night of the great storm.	据说大风暴那晚它自己响了。
 the island's dogs	岛上的狗
 Every dog here thinks it runs the harbour.	这儿每条狗都觉得港口归它管。
-Old Bess walks the quay at six every morning. Nobody owns her.	老贝丝每天早上六点都去码头溜达。她不属于任何人。
+Old Bess walks the quay at six every morning. Nobody owns her.	老Bess每天早上六点都去码头溜达。她不属于任何人。
 the cliffs in spring	春天的悬崖
 Thrift everywhere, pink as sugar.	到处都是海石竹，粉得像糖。
 The birds come back and the cliffs get noisy again.	鸟儿回来了，悬崖又热闹起来。
@@ -3152,7 +3140,7 @@ Everybody sees it once they've been told.	被人指点过一次，谁都能看�
 the pier's last plank	栈桥的最后一块木板
 Stand on it and make a wish. Don't fall in.	站上去许个愿。别掉下去。
 the gull that steals from the gutting table	在剖鱼台偷鱼的那只海鸥
-That's Mr Pike. He's been banned for years.	那是派克先生。它被禁了好多年了。
+That's Mr Pike. He's been banned for years.	那是Pike先生。它被禁了好多年了。
 the pool of still water after the tide	退潮后的静水潭
 Look in and you'll see the whole sky twice.	往里看，你会看见两个天空。
 the chest of spare oars	装备用船桨的箱子
@@ -3178,7 +3166,7 @@ Forty-one. Each one has a song.	四十一艘。每一艘都有一首歌。
 the Anchor's secret shelf	锚酒馆的秘密架子
 The good whisky. For weddings and wakes.	好威士忌。婚礼和守灵时才拿出来。
 the arm-wrestling table	掰手腕的桌子
-Worn smooth in the middle. Noah's never lost. So he says.	中间都磨光了。诺亚说他从没输过。他自己说的。
+Worn smooth in the middle. Noah's never lost. So he says.	中间都磨光了。Noah说他从没输过。他自己说的。
 the pub's creaky sign in the wind	风里吱呀作响的酒馆招牌
 You can tell the weather by how it swings.	看它怎么晃，就知道天气如何。
 the Anchor's boot rack	锚酒馆的靴子架
@@ -4049,3 +4037,33 @@ the music night	音乐之夜
 the harvest feast	丰收宴
 {x}'s birthday party	{x}的生日派对
 the opening of {x}	{x}的揭幕
+The quay and the lighthouse	码头与灯塔
+The square	广场
+The school and the hill	学校与山坡
+Home	家
+# v0.21: the words each resident says in place of another ("knackered"
+# for "broken"), written =said<tab>meant: a line nobody wrote in their own
+# words is read again in the plain ones.
+=knackered	broken
+=word	chat
+=a bargain	cheap
+=lovely	delicious
+=daylight robbery	expensive
+=sort	fix
+=going to	gonna
+=cracking	good
+=grand	great
+=evening	hello
+=amazing	interesting
+=children	kids
+=funds	money
+=alright	okay
+=matter	problem
+=things	stuff
+=right	very
+=super	very
+=sound	wonderful
+=aye	yes
+# v0.21: whole sentences, with the same named slots as the lines they
+# are made from. People keep their names in Latin letters everywhere.
+{} and {last} settled in the harbour for good	{}和{last}在港口定居下来了

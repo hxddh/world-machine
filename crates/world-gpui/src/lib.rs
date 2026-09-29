@@ -1,9 +1,11 @@
 pub mod art;
+pub mod brush;
 pub mod diorama;
 #[cfg(test)]
 mod golden;
 pub mod i18n;
 mod macos;
+pub mod painter;
 pub mod pointers;
 pub mod postcard;
 pub mod scene;
@@ -84,6 +86,11 @@ pub enum Cue {
     Turn,
     /// Something new was built.
     Built,
+    /// The drawer was opened, by the handle, a click on a place, or ⌘I.
+    Drawer,
+    /// Someone handed the player a keepsake, shown for a moment before it
+    /// goes into the drawer.
+    Keepsake,
     /// Someone says a line: a babble in their own voice, a syllable or so
     /// for every few letters, rising at the end of a question.
     Babble {

@@ -1,0 +1,9 @@
+[package]
+name = "world-sound"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+description = "World Machine's sound: a pure, deterministic stereo render graph of landscape, music and acts, with no platform audio."
+
+[dependencies]

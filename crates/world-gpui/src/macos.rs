@@ -1674,6 +1674,10 @@ mod focus_hierarchy_tests {
             standing: None,
             mood: Some(Mood::Cross),
             spot: None,
+            px: None,
+            home: None,
+            day: Vec::new(),
+            built: None,
         };
         let mut snapshot = ProjectionSnapshot {
             drawings: vec![

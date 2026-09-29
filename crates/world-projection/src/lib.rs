@@ -865,6 +865,9 @@ impl ProjectionSnapshot {
         for link in &self.canvas.links {
             text.push(&link.label);
         }
+        for district in &self.canvas.districts {
+            text.push(&district.label);
+        }
         for voice in &self.voices {
             text.push(&voice.line);
         }
@@ -1489,6 +1492,122 @@ pub struct CanvasProjection {
     /// What the World has built so far, oldest first, drawn as small shapes
     /// standing on its horizon so the place visibly fills up as time passes.
     pub marks: Vec<CanvasMark>,
+    /// How wide the place is, in screen-widths, for a World that is a
+    /// panorama the player pans along. `None` is one screen, as it always
+    /// was.
+    pub width: Option<f32>,
+    /// The stretches of the panorama the place is made of, left to right,
+    /// in panorama units (`0.0..width`): the quay, the square, the hill.
+    pub districts: Vec<District>,
+    /// The season the World's own calendar is in, if it has seasons.
+    pub season: Option<Season>,
+    /// What lies on the ground this season: blossom, leaves, snow, frost.
+    pub ground: Option<GroundCover>,
+    /// Whether the water's edge is frozen today.
+    pub ice: bool,
+}
+
+impl CanvasProjection {
+    /// Where an item stands along the panorama, if it says.
+    pub fn px_of(&self, id: SelectionId) -> Option<f32> {
+        self.items
+            .iter()
+            .find(|item| item.id == id)
+            .and_then(|item| item.px)
+    }
+
+    /// The district a point on the panorama lies in.
+    pub fn district_at(&self, px: f32) -> Option<&District> {
+        self.districts.iter().find(|district| district.holds(px))
+    }
+
+    /// Where everyone with a day is at an hour of it: who, and the stop.
+    pub fn whereabouts(&self, hour: u8) -> Vec<(SelectionId, RoutineStop)> {
+        self.items
+            .iter()
+            .filter_map(|item| Some((item.id, *stop_at(&item.day, hour)?)))
+            .collect()
+    }
+}
+
+/// One stretch of a panorama: the quay and lighthouse, the square.
+#[derive(Clone, Debug, PartialEq)]
+pub struct District {
+    pub id: String,
+    pub label: String,
+    /// Where it begins and ends, in panorama units.
+    pub from: f32,
+    pub to: f32,
+}
+
+impl District {
+    /// Whether a point on the panorama lies in this district.
+    pub fn holds(&self, px: f32) -> bool {
+        px >= self.from && px < self.to
+    }
+}
+
+/// The season a World's calendar is in.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Season {
+    Spring,
+    Summer,
+    Autumn,
+    Winter,
+}
+
+impl Season {
+    /// The season as the index `Scenery::in_season` takes.
+    pub fn index(self) -> u64 {
+        match self {
+            Self::Spring => 0,
+            Self::Summer => 1,
+            Self::Autumn => 2,
+            Self::Winter => 3,
+        }
+    }
+
+    pub fn from_index(index: u64) -> Self {
+        match index % 4 {
+            0 => Self::Spring,
+            1 => Self::Summer,
+            2 => Self::Autumn,
+            _ => Self::Winter,
+        }
+    }
+}
+
+/// What covers the ground in a season.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum GroundCover {
+    Blossom,
+    Leaves,
+    Snow,
+    Frost,
+    /// Red dust drifted over everything, as in a Mars dust season.
+    Dust,
+}
+
+/// Where a person is from one hour of the day on: at a place, and whether
+/// indoors there.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RoutineStop {
+    /// The hour (0..24) this stop begins.
+    pub from_hour: u8,
+    pub at: SelectionId,
+    /// Indoors: drawn in a lit window, or not at all, never standing
+    /// outside.
+    pub inside: bool,
+}
+
+/// The stop of a day routine (sorted by `from_hour`) that holds at `hour`:
+/// the last stop begun by then, or the day's last stop carried over from
+/// the night before.
+pub fn stop_at(day: &[RoutineStop], hour: u8) -> Option<&RoutineStop> {
+    day.iter()
+        .rev()
+        .find(|stop| stop.from_hour <= hour)
+        .or_else(|| day.last())
 }
 
 /// One thing a World built: a new water loop, a tournament bracket, a span
@@ -1622,6 +1741,17 @@ pub struct CanvasItem {
     /// (the right), when the player put it somewhere of their choosing;
     /// `None` stands it beside its place.
     pub spot: Option<f32>,
+    /// Where along the panorama it stands, in panorama units
+    /// (`0.0..width`). When present it wins over `x`, which stays for an
+    /// app that knows one screen only.
+    pub px: Option<f32>,
+    /// A person's home: the place on the scene they live.
+    pub home: Option<SelectionId>,
+    /// A person's day, sorted by `from_hour`: where they are from each hour
+    /// on. Empty leaves them where `at`, `x` or `px` put them.
+    pub day: Vec<RoutineStop>,
+    /// The day a work or made thing was finished, in the World's own days.
+    pub built: Option<u32>,
 }
 
 /// How someone stands with the player: a mark from -2 (does not trust

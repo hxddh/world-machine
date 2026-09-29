@@ -2,6 +2,51 @@
 
 Releases live on the [Releases page](https://github.com/hxddh/world-machine/releases). `0.2.0` is the first release intended to be usable without reading the repository; the `v0.1.0-pre.N` tags below were its pre-releases.
 
+## v0.21.0 (2026-09-29)
+
+**Worlds from `v0.20` open and carry on.** Tiny Society stays `0.13.0` and Pocket Universe `0.30.0`. Homes, routines, where works stand and the seasons are all worked out from what a World already holds, so nothing new is recorded and an older World looks new at once.
+
+The [v0.20 review](docs/REVIEW_v0.20.md) found a World that lived but did not show it. At day 600 the harbour looked as it did in its first month: sixteen people stood in a row, the 62 works it had finished were nowhere to be seen, and at ten at night everyone was still outside. This release is the first of three that change what World Machine is, and it is about the place: the harbour you see now grows, keeps a day, and has one look and one sound of its own.
+
+- **A harbour you pan along.**
+  - Tiny Society is now four and a half screens wide, in three districts: the quay and lighthouse, the square, and the school on the hill. Each Pocket Universe place is two and a half to three screens wide.
+  - Drag, scroll sideways or use ⇧← and ⇧→ to pan. Zoom right out to see the whole place as a postcard.
+- **Everything built stands where it was built.** Every finished work has a place of its own that never moves, and it rises into view when it is finished. At day 1,080 a warm player's harbour shows 48 works, against a handful before, and each Pocket Universe place shows between 35 and 51.
+- **Everyone has a home and a day.**
+  - Every resident has a home. Couples share one and children live with a parent.
+  - Homes differ: one or two storeys, gable or hip roof, porch, lean-to, shutters, window boxes. Some stand further back.
+  - People walk where their day takes them by the Mac's clock: to work, to the pub of an evening, to the square on a festival night.
+  - At night they are home, seen only as a shape in a lit window. On an ordinary night nobody is outside at ten, where everybody was.
+- **Seasons change the place.**
+  - Blossom in spring and leaves in autumn; frost and then snow on roofs and ground in deep winter, and a few days of ice at the harbour's edge.
+  - Dust drifts on Ares, and Icebridge freezes and thaws.
+- **One look: a lit paper-and-paint diorama.**
+  - The still parts of the scene are painted once, in the background, and faded in when ready:
+    - light that moves with the hour and a rim of light at dawn and dusk;
+    - soft shadows cast away from the sun;
+    - paper grain, and distant hills fading into the sky;
+    - windows that glow at night and shimmer on the water.
+  - People and things are alive on top of it:
+    - steps with a little squash and stretch, feet that stay put, heads that turn to whoever speaks;
+    - coats and hair on springs, boats that bob, smoke that drifts with the wind.
+  - Reduce Motion stills all of it.
+  - The window never waits for painting: the longest frame measured in the three-year benchmark is 10.5–12.4 ms.
+- **The book shows faces.** Every entry is drawn as the person, place or thing it is, not a grey figure.
+- **One sound, made as you listen.** Sound is now made in the app, in stereo, as it plays, instead of from pre-rendered loops.
+  - **Landscapes:**
+    - Tiny Society: the sea swell rising with the weather, gulls by day, rain on roofs, and a crowd on festival days.
+    - Ares: the dome's hum and dust wind.
+    - Maple Street: passing cars and an arcade through a door.
+    - Icebridge: creaking ice and penguins.
+  - **Music** follows the hour note by note from each World's own tune, and follows a change of hour or weather within about a second.
+  - **A note for every act** in the World's key: an answer, something placed, a letter, a keepsake, a card turned, the drawer opened. Each has four versions, never the same twice running.
+  - In the render graph a sound starts within 15 ms of what caused it. A minute of it has no clicks, and all of it takes about 2.5% of one core.
+- **Chinese in whole sentences.**
+  - Lines are now translated as whole sentences with their names and numbers filled in, not glued from fragments. Over three years no line a player sees in either Pack is left partly English (was 2–5%).
+  - People keep their names in Latin letters; places and things have Chinese names.
+- **Files.** `.world` is declared as a compressed document, and `.worldcode` files open in the app from Finder.
+- **Pack protocol:** a snapshot may carry the panorama's width, districts, season, ground and ice, and each item where it stands, its home, its day and when it was built. All of it is optional, so older Packs and apps send and ignore none.
+
 ## v0.20.0 (2026-09-29)
 
 **Worlds from `v0.19` open and carry on.** Tiny Society stays `0.13.0` and Pocket Universe `0.30.0`; a World saved by `v0.19.1` opens, keeps its history and plays on under the new rules.

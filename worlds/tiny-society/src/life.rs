@@ -365,7 +365,7 @@ const OUTINGS: &[&str] = &[
     "swim at the old pool",
 ];
 
-const VISITOR_NAMES: &[&str] = &[
+pub(crate) const VISITOR_NAMES: &[&str] = &[
     "Rosa", "Tobias", "Hana", "Olek", "Maeve", "Arun", "Lise", "Pim", "Greta", "Kofi", "Ines",
     "Bram", "Nell", "Soren", "Yara", "Dario", "Ffion", "Mateo", "Wren", "Anouk", "Casimir",
     "Lotte", "Ravi", "Esme", "Tam", "Isla", "Ruben", "Freya", "Olu", "Marta", "Joss", "Signe",

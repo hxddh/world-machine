@@ -52,7 +52,14 @@ fn shown(periods: usize, every: usize) -> (BTreeSet<String>, BTreeSet<String>) {
         .register(pocket_universe::pocket_universe_registration())
         .unwrap();
     let mut shown = BTreeSet::new();
-    let mut names = BTreeSet::new();
+    // People keep their names in Latin letters, and Chinese writes a few
+    // words so itself.
+    let mut names = pocket_universe::people_names()
+        .into_iter()
+        .flat_map(str::split_whitespace)
+        .chain(["MTV", "DJ", "CD"])
+        .map(str::to_string)
+        .collect::<BTreeSet<_>>();
     for seed in [
         pocket_universe::SEED_MARS_COLONY_COMMAND,
         pocket_universe::SEED_1980S_TOWN_COMMAND,
@@ -162,5 +169,5 @@ fn three_years_of_pocket_universe_are_shown_in_chinese() {
             .join("\n");
         std::fs::write(path, text).unwrap();
     }
-    assert!(share >= 0.95, "only {:.1}% in Chinese", share * 100.0);
+    assert!(share >= 0.995, "only {:.1}% in Chinese", share * 100.0);
 }

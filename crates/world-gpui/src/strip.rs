@@ -256,6 +256,7 @@ impl Outings {
                         stride: here.walking.map(|_| (seconds * 1.8).fract()),
                         bob: 0.0,
                         facing: here.facing,
+                        ..Pose::default()
                     },
                     stance: None,
                 }
@@ -721,6 +722,10 @@ mod tests {
             standing: None,
             mood: None,
             spot: None,
+            px: None,
+            home: None,
+            day: Vec::new(),
+            built: None,
         }
     }
 
@@ -742,6 +747,7 @@ mod tests {
                 items,
                 links: Vec::new(),
                 marks: Vec::new(),
+                ..Default::default()
             },
             letters: vec![Letter {
                 from: entity(1),

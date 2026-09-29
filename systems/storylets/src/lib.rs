@@ -248,6 +248,120 @@ pub fn progress(state: &WorldState, deck: &Deck, goal: &str) -> i64 {
     integer(state, deck.story, &key("goal", goal)).unwrap_or(0)
 }
 
+/// A goal that has all its parts done, and the moment it was finished.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Finished {
+    pub goal: &'static str,
+    /// The event that put its last part in place, and when; nothing when
+    /// the World's history begins after it (a World opened from a
+    /// checkpoint).
+    pub event: Option<(EventId, u64)>,
+}
+
+/// The goals finished so far, in the order they were finished: those
+/// whose finishing the history no longer holds first, in the deck's order.
+/// Read from the history's index of the story's changes, not by reading
+/// every event.
+pub fn finished_goals(world: &World, deck: &Deck) -> Vec<Finished> {
+    let state = world.state();
+    let when = finishing(world, deck);
+    let mut done = deck
+        .goals
+        .iter()
+        .filter(|goal| progress(state, deck, goal.id) >= goal.parts)
+        .map(|goal| Finished {
+            goal: goal.id,
+            event: when.get(goal.id).copied(),
+        })
+        .collect::<Vec<_>>();
+    done.sort_by_key(|finished| finished.event.map(|(id, _)| id));
+    done
+}
+
+/// What has been read of a World's history for [`finishing`], so a World
+/// asked again a day later reads only the day's events.
+struct Read {
+    story: EntityId,
+    goals: usize,
+    first: Option<EventId>,
+    /// How many events had been read, and the last of them.
+    events: usize,
+    last: Option<world_core::Event>,
+    /// How many of the story's changes had been read.
+    changes: usize,
+    when: BTreeMap<&'static str, (EventId, u64)>,
+}
+
+thread_local! {
+    static READ: std::cell::RefCell<Option<Read>> = const { std::cell::RefCell::new(None) };
+}
+
+/// The event that put each goal's last part in place, and when, from the
+/// history's index of the story's changes. What was read before is kept
+/// while the history it was read from is still the World's own.
+fn finishing(world: &World, deck: &Deck) -> BTreeMap<&'static str, (EventId, u64)> {
+    let events = world.events();
+    let index = world.history_index();
+    let changes = index.changes_of(deck.story);
+    READ.with(|read| {
+        let mut read = read.borrow_mut();
+        let still_ours = read.as_ref().is_some_and(|read| {
+            read.story == deck.story
+                && read.goals == deck.goals.len()
+                && read.first == events.first().map(|event| event.id)
+                && read.events <= events.len()
+                && read.changes <= changes.len()
+                && read.last.as_ref() == read.events.checked_sub(1).map(|at| &events[at])
+        });
+        if !still_ours {
+            *read = Some(Read {
+                story: deck.story,
+                goals: deck.goals.len(),
+                first: events.first().map(|event| event.id),
+                events: 0,
+                last: None,
+                changes: 0,
+                when: BTreeMap::new(),
+            });
+        }
+        let read = read.as_mut().expect("just made");
+        let parts = deck
+            .goals
+            .iter()
+            .map(|goal| (key("goal", goal.id), goal))
+            .collect::<BTreeMap<_, _>>();
+        for id in &changes[read.changes..] {
+            let Some(event) = world.event(*id) else {
+                continue;
+            };
+            for change in &event.changes {
+                let StateChange::SetComponent {
+                    entity,
+                    key,
+                    value: Value::Integer(done),
+                } = change
+                else {
+                    continue;
+                };
+                if *entity != deck.story {
+                    continue;
+                }
+                if let Some(goal) = parts.get(key) {
+                    if *done >= goal.parts {
+                        read.when
+                            .entry(goal.id)
+                            .or_insert((event.id, event.world_time));
+                    }
+                }
+            }
+        }
+        read.changes = changes.len();
+        read.events = events.len();
+        read.last = events.last().cloned();
+        read.when.clone()
+    })
+}
+
 /// Whether a goal has all its parts done.
 pub fn finished(state: &WorldState, deck: &Deck, goal: &str) -> bool {
     deck.goals
@@ -1671,6 +1785,42 @@ mod tests {
             }
             pass(&mut world, &actions);
         }
+    }
+
+    /// When a goal was finished is read from the history, a day at a time
+    /// as the World goes on, and afresh for a World whose history went
+    /// another way.
+    #[test]
+    fn when_a_goal_was_finished_is_read_from_the_world_s_own_history() {
+        let (mut world, actions) = world();
+        let mut mended = 0;
+        let mut forks = Vec::new();
+        for _ in 0..40 {
+            if open(world.state(), &deck())
+                .iter()
+                .any(|storylet| storylet.id == "roof")
+                && world
+                    .execute(&actions, &choose_request("roof", "mend"))
+                    .is_ok()
+            {
+                mended += 1;
+                forks.push(world.events().len());
+            }
+            assert_eq!(finished_goals(&world, &deck()).is_empty(), mended < 2);
+            pass(&mut world, &actions);
+        }
+        assert!(mended >= 2, "{mended}");
+        let done = finished_goals(&world, &deck());
+        let (event, at) = done[0].event.unwrap();
+        let event = world.event(event).unwrap();
+        assert_eq!(event.kind, "roof_mended");
+        assert_eq!(event.world_time, at);
+        // Before the second part, nothing is finished; after it, the same.
+        let before = world.fork_after(forks[1] - 1).unwrap();
+        assert!(finished_goals(&before, &deck()).is_empty());
+        let after = world.fork_after(forks[1]).unwrap();
+        assert_eq!(finished_goals(&after, &deck()), done);
+        assert_eq!(finished_goals(&world, &deck()), done);
     }
 
     #[test]

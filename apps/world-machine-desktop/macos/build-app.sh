@@ -198,6 +198,7 @@ with plist_path.open("rb") as file:
     plist = plistlib.load(file)
 
 world_type = "io.github.hxddh.world-machine.world"
+code_type = "io.github.hxddh.world-machine.worldcode"
 pack_type = "io.github.hxddh.world-machine.worldpack"
 assert plist["CFBundleExecutable"] == "world-machine-desktop"
 assert plist["CFBundleIdentifier"] == "io.github.hxddh.world-machine"
@@ -210,21 +211,27 @@ document_types = {
     item["LSItemContentTypes"][0]: item
     for item in plist["CFBundleDocumentTypes"]
 }
-assert set(document_types) == {world_type, pack_type}
+assert set(document_types) == {world_type, code_type, pack_type}
 assert document_types[world_type]["CFBundleTypeRole"] == "Editor"
+assert document_types[code_type]["CFBundleTypeRole"] == "Viewer"
 assert document_types[pack_type]["CFBundleTypeRole"] == "Viewer"
-assert document_types[world_type]["LSHandlerRank"] == "Owner"
-assert document_types[pack_type]["LSHandlerRank"] == "Owner"
+assert all(item["LSHandlerRank"] == "Owner" for item in document_types.values())
 
 exported_types = {
     item["UTTypeIdentifier"]: item
     for item in plist["UTExportedTypeDeclarations"]
 }
-assert set(exported_types) == {world_type, pack_type}
+assert set(exported_types) == {world_type, code_type, pack_type}
+# A World is gzip-compressed, not JSON.
 world = exported_types[world_type]
-assert "public.json" in world["UTTypeConformsTo"]
+assert "org.gnu.gnu-zip-archive" in world["UTTypeConformsTo"]
+assert "public.json" not in world["UTTypeConformsTo"]
 assert "public.content" in world["UTTypeConformsTo"]
 assert world["UTTypeTagSpecification"]["public.filename-extension"] == ["world"]
+# A World code is text, and Finder opens it with the app, as a visit.
+code = exported_types[code_type]
+assert "public.utf8-plain-text" in code["UTTypeConformsTo"]
+assert code["UTTypeTagSpecification"]["public.filename-extension"] == ["worldcode"]
 pack = exported_types[pack_type]
 assert "public.data" in pack["UTTypeConformsTo"]
 assert "public.content" in pack["UTTypeConformsTo"]

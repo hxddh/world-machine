@@ -253,12 +253,37 @@ type SharedDocument = Rc<RefCell<SharedDocumentState>>;
 #[cfg(target_os = "macos")]
 struct HostProjectionController {
     document: SharedDocument,
+    /// What the World held when last seen, for the sound to hear a letter
+    /// that a turn brought.
+    tally: std::cell::Cell<Option<ambience::Tally>>,
+}
+
+#[cfg(target_os = "macos")]
+impl HostProjectionController {
+    fn new(document: SharedDocument) -> Self {
+        Self {
+            document,
+            tally: std::cell::Cell::new(None),
+        }
+    }
+}
+
+/// What a World shows that its sound listens for.
+#[cfg(target_os = "macos")]
+fn tally(snapshot: &world_gpui::ProjectionSnapshot) -> ambience::Tally {
+    ambience::Tally {
+        built: snapshot.canvas.marks.len(),
+        keepsakes: snapshot.keepsakes.len(),
+        letters: snapshot.letters.len(),
+    }
 }
 
 #[cfg(target_os = "macos")]
 impl world_gpui::ProjectionController for HostProjectionController {
     fn snapshot(&self) -> world_gpui::ProjectionSnapshot {
-        world_gpui::i18n::localize(self.document.borrow().session.snapshot())
+        let snapshot = world_gpui::i18n::localize(self.document.borrow().session.snapshot());
+        self.tally.set(Some(tally(&snapshot)));
+        snapshot
     }
 
     fn cue(&mut self, cue: world_gpui::Cue) {
@@ -296,7 +321,17 @@ impl world_gpui::ProjectionController for HostProjectionController {
         if result.is_ok() && is_library_world {
             mark_library_changed();
         }
-        result.map(world_gpui::i18n::localize)
+        let result = result.map(world_gpui::i18n::localize);
+        // A letter that came with the turn is heard just after its answer.
+        if let Ok(snapshot) = &result {
+            let after = tally(snapshot);
+            if let Some(before) = self.tally.replace(Some(after)) {
+                if ambience::letter_came(before, after) {
+                    ambience::player::act_later(ambience::Act::Letter, 0.6);
+                }
+            }
+        }
+        result
     }
 }
 
@@ -391,9 +426,7 @@ impl WorldDocumentView {
                     .map(|(remaining, now)| now + remaining),
             )
         };
-        let controller = HostProjectionController {
-            document: Rc::clone(&document),
-        };
+        let controller = HostProjectionController::new(Rc::clone(&document));
         let projection = cx.new(|_| world_view(controller));
         // The title bar reads the World's name and what it can do from the
         // page, so it redraws whenever the page does.
@@ -514,9 +547,7 @@ impl WorldDocumentView {
     }
 
     fn rebuild_projection(&mut self, cx: &mut Context<Self>) {
-        let controller = HostProjectionController {
-            document: Rc::clone(&self.document),
-        };
+        let controller = HostProjectionController::new(Rc::clone(&self.document));
         self.projection = cx.new(|_| world_view(controller));
     }
 
@@ -597,48 +628,39 @@ impl Render for WorldDocumentView {
         // "Ares Pocket Colony" when it is seeded), so read it every time.
         self.document_name = session_display_name(&self.document.borrow().session);
         window.set_window_title(&document_window_title(&self.document_name));
-        // The World in front plays its landscape's sound, if the player
-        // wants sound; one behind stops.
+        // The World in front plays its landscape and its music, if the
+        // player wants sound; one behind fades out.
         let sound_owner = cx.entity_id().as_u64();
-        let (palette, weather, festival) = {
+        let scene = {
             let snapshot = self.projection.read(cx).snapshot();
-            let palette = snapshot.scenery.map(|scenery| {
-                [
-                    scenery.sky_top,
-                    scenery.sky_bottom,
-                    scenery.far,
-                    scenery.near,
-                    scenery.sun,
-                ]
-            });
-            (
-                palette,
-                snapshot.weather,
-                snapshot
-                    .calendar
-                    .as_ref()
-                    .is_some_and(|calendar| calendar.festival_today),
-            )
-        };
-        let moment = world_machine_desktop::music::Moment {
-            hour: world_gpui::scene::hour_now(),
-            sky: match weather {
-                world_projection::Weather::Clear => world_machine_desktop::music::Sky::Clear,
-                world_projection::Weather::Cloudy | world_projection::Weather::Fog => {
-                    world_machine_desktop::music::Sky::Grey
-                }
-                world_projection::Weather::Rain
-                | world_projection::Weather::Snow
-                | world_projection::Weather::Dust => world_machine_desktop::music::Sky::Wet,
-                world_projection::Weather::Storm => world_machine_desktop::music::Sky::Storm,
-            },
-            festival,
+            snapshot.scenery.map(|scenery| {
+                ambience::scene(
+                    &self.document.borrow().session.pack().id,
+                    &snapshot.title,
+                    [
+                        scenery.sky_top,
+                        scenery.sky_bottom,
+                        scenery.far,
+                        scenery.near,
+                        scenery.sun,
+                    ],
+                    world_gpui::scene::hour_now(),
+                    ambience::sky(snapshot.weather),
+                    snapshot
+                        .calendar
+                        .as_ref()
+                        .is_some_and(|calendar| calendar.festival_today),
+                )
+            })
         };
         // A strip of this World shows it as it is now.
         strip_window::follow(&self.document, &self.projection, cx);
-        match (window.is_window_active(), palette) {
-            (true, Some(palette)) => ambience::player::claim(sound_owner, palette, moment),
+        match (window.is_window_active(), scene) {
+            (true, Some(scene)) => ambience::player::claim(sound_owner, scene),
             _ => ambience::player::release(sound_owner),
+        }
+        if let Some(line) = ambience::player::take_report() {
+            diagnostics::info(line);
         }
         // Beside its name, the one thing the app is about: this World goes on
         // without you, and when it next will.
@@ -3851,6 +3873,33 @@ fn is_world_pack_file(path: &Path) -> bool {
 #[cfg(all(test, target_os = "macos"))]
 mod file_type_tests {
     use super::*;
+
+    #[test]
+    fn finder_knows_every_file_the_app_opens_and_what_it_is() {
+        let plist = include_str!("../macos/Info.plist.in");
+        for suffix in [
+            WORLD_DOCUMENT_SUFFIX,
+            world_library::WORLD_CODE_SUFFIX,
+            PACK_BUNDLE_SUFFIX,
+        ] {
+            let extension = suffix.trim_start_matches('.');
+            assert!(
+                plist.contains(&format!("<string>{extension}</string>")),
+                "{extension} is declared"
+            );
+        }
+        // A World file is gzip, not JSON; a World code is text.
+        assert!(plist.contains("<string>org.gnu.gnu-zip-archive</string>"));
+        assert!(!plist.contains("public.json"));
+        assert!(plist.contains("<string>public.utf8-plain-text</string>"));
+        // What Finder hands the app goes down the Open menu's own paths.
+        assert!(sharing::is_world_code_file(Path::new("/tmp/a.worldcode")));
+        assert!(is_world_file(Path::new("/tmp/a.world")));
+        assert_eq!(
+            system_open::path_from_open_url("file:///tmp/Leo%27s%20harbour.worldcode").unwrap(),
+            PathBuf::from("/tmp/Leo's harbour.worldcode")
+        );
+    }
 
     #[test]
     fn document_status_tone_is_explicit_not_inferred_from_message_text() {

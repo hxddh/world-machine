@@ -21,12 +21,14 @@ members = [
   "crates/world-observer",
   "crates/world-voice",
   "crates/world-i18n",
+  "crates/world-sound",
   "systems/society-basic",
   "systems/storylets",
   "systems/lives",
   "systems/hands",
   "systems/conversation",
   "systems/calendar",
+  "systems/days",
   "worlds/tiny-society",
   "worlds/pocket-universe",
   "apps/tiny-society-pack",
@@ -56,4 +58,11 @@ opt-level = 2
 opt-level = 2
 
 [profile.dev.package.pocket-universe]
+opt-level = 2
+
+[profile.dev.package.tiny-skia]
+opt-level = 3
+
+# Its tests render minutes of sound sample by sample.
+[profile.dev.package.world-sound]
 opt-level = 2

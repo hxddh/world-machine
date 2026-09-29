@@ -1,18 +1,3 @@
-Nia	妮娅
-Nia Chen	妮娅·陈
-Tomas	托马斯
-Tomas Vale	托马斯·韦尔
-Ines	伊内丝
-Ines Duarte	伊内丝·杜阿尔特
-Lena	莉娜
-Lena Ortiz	莉娜·奥尔蒂斯
-Max	马克斯
-Max Park	马克斯·朴
-Ray	雷
-Ray Kowalski	雷·科瓦尔斯基
-Piko	皮可
-Miri	米丽
-Tuk	图克
 Ares Habitat	阿瑞斯基地
 Hydroponics Bay	水培舱
 Kestrel Rover	红隼号漫游车
@@ -441,13 +426,6 @@ Fit it together	拼起来
 Five bucks.	五块钱。
 Fix it?	修一下？
 Fix the relay	修中继站
-Fixed {name} Adeyemi's suit seal.	修好了{name} Adeyemi的宇航服密封。
-Fixed {name} Chen's suit seal.	修好了{name} Chen的宇航服密封。
-Fixed {name} Duarte's suit seal.	修好了{name} Duarte的宇航服密封。
-Fixed {name} Lund's suit seal.	修好了{name} Lund的宇航服密封。
-Fixed {name} Obi's suit seal.	修好了{name} Obi的宇航服密封。
-Fixed {name} Raman's suit seal.	修好了{name} Raman的宇航服密封。
-Fixed {name} Vale's suit seal.	修好了{name} Vale的宇航服密封。
 Flashcards are ready, you know?	抽认卡准备好了，知道吧？
 Flashcards are ready.	抽认卡准备好了。
 Flashcards till midnight.	背抽认卡背到半夜。
@@ -520,9 +498,6 @@ Got Eddie's old Chevy running.	让Eddie那辆旧雪佛兰重新跑起来了。
 Got Ricky's old Chevy running.	让Ricky那辆旧雪佛兰重新跑起来了。
 Got Walt's old Chevy running.	让Walt那辆旧雪佛兰重新跑起来了。
 Got a fan letter!	收到一封粉丝来信！
-Got {name} Kowalski's old Chevy running.	让{name} Kowalski那辆旧雪佛兰重新跑起来了。
-Got {name} Ortiz's old Chevy running.	让{name} Ortiz那辆旧雪佛兰重新跑起来了。
-Got {name} Park's old Chevy running.	让{name} Park那辆旧雪佛兰重新跑起来了。
 Green all the way across!	一路绿到对岸！
 Green and pink.	绿的和粉的。
 Green!	绿了！
@@ -775,15 +750,15 @@ Landing Day soon.	着陆日快到了。
 Lantern post	灯柱
 Lanterns on the table every week.	每周桌上都点着灯笼。
 Last time: Clean-up day came and went.	上次：清洁日就这么过去了。
-Last time: Lena's birthday was forgotten.	上次：大家忘了莉娜的生日。
-Last time: Lena's wrench stayed lost.	上次：莉娜的扳手一直没找到。
-Last time: Nia's birthday was forgotten.	上次：大家忘了妮娅的生日。
-Last time: Nia's wrench stayed lost.	上次：妮娅的扳手一直没找到。
+Last time: Lena's birthday was forgotten.	上次：大家忘了Lena的生日。
+Last time: Lena's wrench stayed lost.	上次：Lena的扳手一直没找到。
+Last time: Nia's birthday was forgotten.	上次：大家忘了Nia的生日。
+Last time: Nia's wrench stayed lost.	上次：Nia的扳手一直没找到。
 Last time: Nobody saw to a crack in the ice, and it got worse.	上次：冰上的裂缝没人管，越来越严重了。
 Last time: Nobody saw to a failing seal, and it got worse.	上次：快坏的密封圈没人管，越来越严重了。
 Last time: Nobody saw to a sparking fuse box, and it got worse.	上次：冒火花的保险丝盒没人管，越来越严重了。
-Last time: Piko's birthday was forgotten.	上次：大家忘了皮可的生日。
-Last time: Piko's wrench stayed lost.	上次：皮可的扳手一直没找到。
+Last time: Piko's birthday was forgotten.	上次：大家忘了Piko的生日。
+Last time: Piko's wrench stayed lost.	上次：Piko的扳手一直没找到。
 Last time: The argument simmered on.	上次：争吵一直没平息。
 Last time: The clouds came in.	上次：云层压了过来。
 Last time: The long dark passed.	上次：漫长的黑暗过去了。
@@ -823,9 +798,9 @@ Last time: {name} brought {other} home.	上次：{name}把{other}带回了家。
 Last time: {name} followed a far-off song across the ice.	上次：{name}循着远处的歌声穿过了冰面。
 Last time: {name} followed a late call-in from out of town.	上次：{name}追着一通外地打来的深夜点播电话去了。
 Last time: {name} followed a signal from the old lander.	上次：{name}追着旧着陆器的信号去了。
-Last time: {name} found Lena's wrench.	上次：{name}找到了莉娜的扳手。
-Last time: {name} found Nia's wrench.	上次：{name}找到了妮娅的扳手。
-Last time: {name} found Piko's wrench.	上次：{name}找到了皮可的扳手。
+Last time: {name} found Lena's wrench.	上次：{name}找到了Lena的扳手。
+Last time: {name} found Nia's wrench.	上次：{name}找到了Nia的扳手。
+Last time: {name} found Piko's wrench.	上次：{name}找到了Piko的扳手。
 Last time: {name} found the way home alone.	上次：{name}一个人找到了回家的路。
 Last time: {name} went looking for the signal.	上次：{name}出去找那个信号了。
 Last time: {name} won the argument.	上次：{name}吵赢了。
@@ -838,7 +813,7 @@ Leave the decision open; {name} and {other} carry on as they are for another aur
 Leave the decision open; {name} and {other} carry on as they are for another night.	先不做决定；{name}和{other}照旧再过一夜。
 Leave the decision open; {name} and {other} carry on as they are for another sol.	先不做决定；{name}和{other}照旧再过一个火星日。
 Leave them to it for now; the two of them keep finding their own way.	先随他们去；他俩一直在找自己的相处之道。
-Lena's right	莉娜说得对
+Lena's right	Lena说得对
 Let Dana run the nights her way	让Dana按她的方式管夜场
 Let Maple Street draw a crowd	让枫树街热闹起来
 Let Sura keep the bridge her way	让Sura按她的方式守桥
@@ -906,7 +881,7 @@ Maple tree	枫树
 Mapped another ridge from Ares Habitat.	从阿瑞斯基地出发又测绘了一道山脊。
 Mapped another ridge from Hydroponics Bay.	从水培舱出发又测绘了一道山脊。
 Mapped another ridge from Kestrel Rover.	从红隼号漫游车出发又测绘了一道山脊。
-Max's right	马克斯说得对
+Max's right	Max说得对
 Mayor's statue	市长雕像
 Me and {name}, shouting about a borrowed cassette.	我和{name}，为一盘借来的磁带吵起来了。
 Me and {name}, shouting about a borrowed tool.	我和{name}，为一件借来的工具吵起来了。
@@ -962,7 +937,7 @@ Mind the step.	小心台阶。
 Mind where you step.	注意脚下。
 Mind your feet.	当心脚下。
 Mine.	我的。
-Miri's right	米丽说得对
+Miri's right	Miri说得对
 Missed it again.	又错过了。
 Mist fountain	雾气喷泉
 Mixtape for my sister: side A is all love songs.	给我妹妹的混音带：A面全是情歌。
@@ -980,9 +955,6 @@ Mowed Carla's lawn.	给Carla家修了草坪。
 Mowed Eddie's lawn.	给Eddie家修了草坪。
 Mowed Ricky's lawn.	给Ricky家修了草坪。
 Mowed Walt's lawn.	给Walt家修了草坪。
-Mowed {name} Kowalski's lawn.	给{name}·科瓦尔斯基家修了草坪。
-Mowed {name} Ortiz's lawn.	给{name}·奥尔蒂斯家修了草坪。
-Mowed {name} Park's lawn.	给{name}·帕克家修了草坪。
 Mr.	先生。
 My arms!	我的胳膊！
 My brain is neon.	我脑子里全是霓虹灯。
@@ -1007,7 +979,7 @@ Next sol I'm heading for the ice cliffs.	下个火星日我要去冰崖。
 Next sol I'm heading for the unnamed ridge.	下个火星日我要去那道无名山脊。
 Next · Notice	下一步 · 留意
 Next · Watch	下一步 · 观察
-Nia's right	妮娅说得对
+Nia's right	Nia说得对
 Night owl.	夜猫子。
 Ninety-nine herring in the vault.	鱼库里有九十九条鲱鱼。
 Ninety-nine krill cakes in the vault.	鱼库里有九十九块磷虾饼。
@@ -1053,10 +1025,10 @@ Oh, hello.	哦，你好。
 Oh, man.	唉，老天。
 Oh, you've moved it.	哦，你挪了位置啊。
 Oil to the elbows.	机油都沾到胳膊肘了。
-Old Uko crossed the bridge backwards.	乌科老爷爷倒着走过了桥。
-Old Uko crossed the bridge in a rush.	乌科老爷爷匆匆忙忙过了桥。
-Old Uko crossed the bridge on tiptoe.	乌科老爷爷踮着脚过了桥。
-Old Uko crossed the bridge singing.	乌科老爷爷唱着歌过了桥。
+Old Uko crossed the bridge backwards.	老Uko倒着走过了桥。
+Old Uko crossed the bridge in a rush.	老Uko匆匆忙忙过了桥。
+Old Uko crossed the bridge on tiptoe.	老Uko踮着脚过了桥。
+Old Uko crossed the bridge singing.	老Uko唱着歌过了桥。
 Old records with {name}.	和{name}一起听老唱片。
 Old tracks.	旧脚印。
 On Mars!	在火星上！
@@ -1077,9 +1049,6 @@ Painted Carla's fence.	给Carla家刷了篱笆。
 Painted Eddie's fence.	给Eddie家刷了篱笆。
 Painted Ricky's fence.	给Ricky家刷了篱笆。
 Painted Walt's fence.	帮Walt刷了篱笆。
-Painted {name} Kowalski's fence.	帮{name}·科瓦尔斯基刷了篱笆。
-Painted {name} Ortiz's fence.	帮{name}·奥尔蒂斯刷了篱笆。
-Painted {name} Park's fence.	帮{name}·朴刷了篱笆。
 Pancakes!	松饼！
 Paper round done before six.	六点前就把报纸送完了。
 Paper round in the rain.	冒雨送报纸。
@@ -1101,11 +1070,11 @@ Phobos at noon today	今天正午见火卫一
 Phobos at noon tomorrow	明天正午见火卫一
 Phobos is crossing the sun.	火卫一正在穿过太阳。
 Phones lit up!	电话全响起来了！
-Piko's right	皮可说得对
+Piko's right	Piko说得对
 Pink everywhere.	到处都是粉色。
 Plant one	种一棵
 Planter racks	种植架
-Played them some Journey.	给他们放了点Journey的歌。
+Played them some Journey.	给他们放了点旅程乐队的歌。
 Playground swing	操场秋千
 Please let there be a curve.	拜托来个弯吧。
 Polishing my belly for the Slide Races.	正在把肚皮擦亮，准备滑行比赛。
@@ -1144,13 +1113,6 @@ Rehydrated stew, fine company.	脱水炖菜，好伙伴。
 Rematch tomorrow.	明天再战。
 Remember when we couldn't stand each other?	还记得我们以前互相看不顺眼吗？
 Rest canopy	休息棚
-Rewired {name} Adeyemi's helmet lamp.	帮{name}·阿德耶米重新接了头盔灯。
-Rewired {name} Chen's helmet lamp.	帮{name}·陈重新接了头盔灯。
-Rewired {name} Duarte's helmet lamp.	帮{name}·杜阿尔特重新接了头盔灯。
-Rewired {name} Lund's helmet lamp.	帮{name}·伦德重新接了头盔灯。
-Rewired {name} Obi's helmet lamp.	帮{name}·奥比重新接了头盔灯。
-Rewired {name} Raman's helmet lamp.	帮{name}·拉曼重新接了头盔灯。
-Rewired {name} Vale's helmet lamp.	帮{name}·维尔重新接了头盔灯。
 Right, so.	好，那么。
 Right.	好吧。
 Rink Night soon.	溜冰之夜快到了。
@@ -1172,9 +1134,6 @@ Saw Carla's light on at five.	五点就看见Carla家灯亮了。
 Saw Eddie's light on at five.	五点就看见Eddie家灯亮了。
 Saw Ricky's light on at five.	五点就看见Ricky家灯亮了。
 Saw Walt's light on at five.	五点就看见Walt家灯亮了。
-Saw {name} Kowalski's light on at five.	五点就看见{name}·科瓦尔斯基家灯亮了。
-Saw {name} Ortiz's light on at five.	五点就看见{name}·奥尔蒂斯家灯亮了。
-Saw {name} Park's light on at five.	五点就看见{name}·朴家灯亮了。
 Say cheese!	说茄子！
 Say sorry	道个歉
 School's gonna close!	学校要停课啦！
@@ -1434,7 +1393,7 @@ Three chicks crossed the bridge on tiptoe.	三只小企鹅踮着脚过了桥。
 Three of them now.	现在有三个了。
 Threw a paper on the Hendersons' roof.	把报纸扔到了亨德森家屋顶上。
 Tiny, but a tomato.	小是小，但确实是番茄。
-Tips from Mrs Kowalski.	科瓦尔斯基太太给的小费。
+Tips from Mrs Kowalski.	Kowalski太太给的小费。
 To all of us!	敬我们大家！
 To the founders!	敬创始人！
 Together!	一起！
@@ -1442,7 +1401,7 @@ Told Earth all about {name}.	跟地球那边讲了好多{name}的事。
 Told the tale of the great storm with {name}.	和{name}讲了那场大风暴的故事。
 Told the tale of the splendid storm with {name}.	和{name}讲了那场壮丽风暴的故事。
 Told them to hang on.	叫他们坚持住。
-Tomas's right	托马斯说得对
+Tomas's right	Tomas说得对
 Tomato patch	番茄地
 Tomatoes: flowering early.	番茄：提早开花了。
 Tomatoes: leaves yellowing.	番茄：叶子发黄了。
@@ -1501,9 +1460,6 @@ Washed Carla's car.	帮Carla洗了车。
 Washed Eddie's car.	帮Eddie洗了车。
 Washed Ricky's car.	帮Ricky洗了车。
 Washed Walt's car.	帮Walt洗了车。
-Washed {name} Kowalski's car.	帮{name}·科瓦尔斯基洗了车。
-Washed {name} Ortiz's car.	帮{name}·奥尔蒂斯洗了车。
-Washed {name} Park's car.	帮{name}·朴洗了车。
 Watch from home	在家看
 Watch {name}, {other}, and Ares Habitat react before you steer anything.	先看看{name}、{other}和阿瑞斯基地会怎么反应，再决定要不要插手。
 Watch {name}, {other}, and Icebridge settle into motion before you steer anything.	先看看{name}、{other}和冰桥慢慢动起来，再决定要不要插手。
@@ -2150,7 +2106,7 @@ two new shoots	冒了两根新芽
 roots look good	根系良好
 leaves yellowing	叶子发黄
 flowering early	提前开花
-Tomas wants a salad.	托马斯想吃沙拉。
+Tomas wants a salad.	Tomas想吃沙拉。
 Hear it?	听见了吗？
 That's good air.	那是好空气。
 Another sol, then.	那就下个火星日。
@@ -2195,14 +2151,14 @@ dust filter	防尘滤网
 rattling	咔咔作响
 acting up	在闹脾气
 better than new	比新的还好
-Nia will sort it.	妮娅会搞定的。
-Don't tell Nia.	别告诉妮娅。
+Nia will sort it.	Nia会搞定的。
+Don't tell Nia.	别告诉Nia。
 the far canyon	远处的峡谷
 the ice cliffs	冰崖
 Olympus	奥林匹斯山
 the dark dunes	黑沙丘
 the unnamed ridge	那道无名山脊
-Nia says no. I say yes.	妮娅说不行。我说行。
+Nia says no. I say yes.	Nia说不行。我说行。
 Back by supper. Ish.	晚饭前回来。大概吧。
 Best seat on Mars.	火星上最好的座位。
 Offer's open.	邀请一直有效。
@@ -2237,8 +2193,8 @@ midnight	半夜十二点
 one	一点
 one-thirty	一点半
 two	两点
-Old Dunn let me keep the tips.	老邓恩让我留下了小费。
-Max played a request for me.	马克斯给我点了首歌。
+Old Dunn let me keep the tips.	老Dunn让我留下了小费。
+Max played a request for me.	Max给我点了首歌。
 Biology	生物
 Chemistry	化学
 History	历史
@@ -2289,7 +2245,7 @@ at midnight	午夜时分
 late	深夜
 on air	在直播里
 One caller. My mom.	就一个来电。我妈。
-Lena called in.	莉娜打进来了。
+Lena called in.	Lena打进来了。
 A trucker	一位卡车司机
 Some kid	一个小孩
 A night nurse	一位夜班护士
@@ -2337,7 +2293,6 @@ first light	天刚亮时
 low tide	退潮时
 dusk	黄昏时
 Three chicks	三只小企鹅
-Old Uko	老乌可
 A lost gull	一只迷路的海鸥
 on tiptoe	踮着脚走
 backwards	倒着走
@@ -2346,7 +2301,7 @@ singing	唱着歌
 snow bricks	雪砖
 driftwood	浮木
 packed ice	压实的冰
-Miri brought me a sprat for it.	米丽为这个给我送了条小鱼。
+Miri brought me a sprat for it.	Miri为这个给我送了条小鱼。
 Slow and deep, like a huddle.	又慢又深，像大家挤在一起取暖。
 It breathes all night.	它整夜都在呼吸。
 Come later.	晚点再来吧。
@@ -2386,12 +2341,12 @@ the fishing holes	捕鱼洞
 the huddle order	抱团顺序
 the new slide	新滑道
 the moon feast	月亮宴
-Piko kept us calm.	皮可让大家冷静了下来。
+Piko kept us calm.	Piko让大家冷静了下来。
 the far floe	远处的浮冰
 the south shelf	南边的冰架
 the whale road	鲸鱼路
 the big berg	大冰山
-Old Uko has a new pebble	老乌可有了块新石子
+Old Uko has a new pebble	老Uko有了块新石子
 The seal is back	那只海豹回来了
 Pip slid right into the vault	皮普一路滑进了鱼库
 The gulls are plotting	海鸥们在密谋什么
@@ -2419,7 +2374,7 @@ I've never given this to anyone: {keepsake}.	这个我从没送过任何人：{k
 Now it's yours!	现在它是你的啦！
 Wear it to the aurora!	戴着它去看极光！
 Show everyone!	给大家看！
-Say Miri gave it!	就说是米丽送的！
+Say Miri gave it!	就说是Miri送的！
 Opening the Fish Vault for the Huddle Feast.	为抱团节打开鱼库。
 Signal Night	信号之夜
 {} in {days} days	{}还有{days}天
@@ -2539,7 +2494,7 @@ Makers' Sol soon.	巧手日快到了。
 I've buffed every weld twice.	每道焊缝我都打磨了两遍。
 The whole habitat toured everything built this year on Makers' Sol	巧手日那天，整个基地把今年建的东西都看了一遍
 The habitat kept Makers' Sol	基地过了巧手日
-Makers' Sol came, and only Nia went round the works	巧手日到了，只有妮娅去看了看那些工程
+Makers' Sol came, and only Nia went round the works	巧手日到了，只有Nia去看了看那些工程
 Look what we built, out here!	看看我们在这儿建起了什么！
 Not bad for a tin can on a red rock.	对红石头上的一个铁罐头来说，不赖了。
 Just me and my wrench, then.	那就只有我和我的扳手了。
@@ -2624,7 +2579,7 @@ Carving Day soon.	雕冰日快到了。
 I've smoothed every span of the bridge.	桥的每一段我都磨平了。
 The whole colony waddled round everything built this year on Carving Day	雕冰日那天，整个企鹅群摇摇摆摆地把今年建的东西都看了一遍
 The colony kept Carving Day	企鹅群过了雕冰日
-Carving Day came, and only Piko went round the works	雕冰日到了，只有皮可去看了看那些工程
+Carving Day came, and only Piko went round the works	雕冰日到了，只有Piko去看了看那些工程
 Look what we made, all of us!	看看我们大家一起做的！
 Not bad for a floe.	对一块浮冰来说，不赖了。
 Just me and my beak, then.	那就只有我和我的喙了。
@@ -2653,7 +2608,7 @@ the Slide Race	滑坡赛
 The Slide Race is {days} auroras off.	滑坡赛还有{days}个极光夜。
 Bellies are being polished.	大家都在擦亮肚皮。
 Slide Race soon.	滑坡赛快到了。
-I'll beat Piko this time.	这次我要赢皮可。
+I'll beat Piko this time.	这次我要赢Piko。
 Every penguin in the colony raced down the big slope	企鹅群里的每只企鹅都从大坡上比赛滑了下来
 The colony held its Slide Race	企鹅群办了滑坡赛
 The Slide Race was two penguins and a lot of snow	滑坡赛只有两只企鹅和一大堆雪
@@ -3325,7 +3280,7 @@ The capsule's full of letters and a Rubik's cube.	胶囊里装满了信，还有
 A dog run in the park	公园的遛狗场
 the dog run in the park	公园的遛狗场
 {explorer} wants a fenced run for the street's dogs	{explorer}想给街上的狗围一个跑动的地方
-The dogs need somewhere to run that isn't Mrs Henderson's lawn.	狗需要一个不是亨德森太太草坪的地方跑。
+The dogs need somewhere to run that isn't Mrs Henderson's lawn.	狗需要一个不是Henderson太太草坪的地方跑。
 The fence goes all the way round.	围栏一圈都围好了。
 A marquee for the Rialto	里亚托的灯牌
 the marquee for the Rialto	里亚托的灯牌
@@ -3362,9 +3317,9 @@ the skate park by the lake	湖边的滑板公园
 {explorer} wants a skate park out by the lake	{explorer}想在湖边建一个滑板公园
 The kids skate the bank steps. The bank is not happy.	孩子们在银行台阶上玩滑板。银行很不高兴。
 Two ramps and a half-pipe.	两个坡道和一个U型池。
-A bench for Mrs Henderson	纪念亨德森太太的长椅
-the bench for Mrs Henderson	纪念亨德森太太的长椅
-{keeper} wants a bench in memory of Mrs Henderson	{keeper}想放一张长椅纪念亨德森太太
+A bench for Mrs Henderson	纪念Henderson太太的长椅
+the bench for Mrs Henderson	纪念Henderson太太的长椅
+{keeper} wants a bench in memory of Mrs Henderson	{keeper}想放一张长椅纪念Henderson太太
 She sat on her porch every evening. She'd like a bench.	她每天傍晚都坐在门廊上。她会喜欢一张长椅的。
 The bench has her name on it.	长椅上刻着她的名字。
 A second floor for the arcade	游戏厅的二楼
@@ -3655,7 +3610,7 @@ a pebble path to the fishing hole	通往钓鱼洞的鹅卵石小路
 Nobody gets lost in the snow now.	现在没人会在雪里迷路了。
 A snow penguin by the bridge	桥边的雪企鹅
 a snow penguin by the bridge	桥边的雪企鹅
-It's a very good likeness of Piko. Don't tell him.	它跟皮可像极了。别告诉他。
+It's a very good likeness of Piko. Don't tell him.	它跟Piko像极了。别告诉他。
 A lookout mound on the ridge	山脊上的瞭望土堆
 a lookout mound on the ridge	山脊上的瞭望土堆
 From up here you can see the whales coming.	从这上面能看到鲸鱼游来。
@@ -3788,125 +3743,6 @@ The Ice Carving was one lump that might be a whale	冰雕节只有一块可能�
 A whale, a seal and a whole bridge, in ice!	一头鲸、一只海豹，还有一整座桥，都是冰做的！
 Nice work.	干得好。
 It's a whale. Probably.	这是鲸鱼。大概吧。
-Stacy	史黛西
-Kevin	凯文
-Brenda	布伦达
-Tony	托尼
-Lisa	丽莎
-Marcus	马库斯
-Wendy	温迪
-Rodney	罗德尼
-Tina	蒂娜
-Duane	杜安
-Sheila	希拉
-Jimmy	吉米
-Denise	丹妮丝
-Troy	特洛伊
-Angie	安吉
-Curtis	柯蒂斯
-Patty	帕蒂
-Lamar	拉马尔
-Heather	希瑟
-Vince	文斯
-Rosa	罗莎
-Gary	加里
-Yolanda	约兰达
-Scott	斯科特
-Debbie	黛比
-Andre	安德烈
-Kim	金
-Terry	特里
-Shawn	肖恩
-Nicole	妮可
-Nib	尼布
-Tolo	托洛
-Suki	苏琪
-Frost	霜霜
-Puff	噗噗
-Dot	点点
-Ploo	普噜
-Yuki	雪纪
-Bibi	比比
-Momo	桃桃
-Taku	塔库
-Lumi	露米
-Kip	基普
-Noa	诺亚
-Skip	跳跳
-Fizz	泡泡
-Oona	乌娜
-Bo	波波
-Tuft	绒绒
-Minnow	小鱼
-Sleet	冰霰
-Ripple	涟漪
-Squall	飑飑
-Drift	漂漂
-Pebble	石子
-Hush	嘘嘘
-Wren	鹪鹪
-Nuk	努克
-Tay	泰伊
-Zuzu	祖祖
-Kofi	科菲
-Kofi Mensah	科菲·门萨
-Elena	埃琳娜
-Elena Ruiz	埃琳娜·鲁伊斯
-Hiro	浩
-Hiro Tanaka	田中浩
-Nadia	纳迪娅
-Nadia Haddad	纳迪娅·哈达德
-Ravi	拉维
-Ravi Kapoor	拉维·卡普尔
-Greta	格蕾塔
-Greta Nilsson	格蕾塔·尼尔森
-Tariq	塔里克
-Tariq Bashir	塔里克·巴希尔
-Chloe	克洛伊
-Chloe Martin	克洛伊·马丁
-Mateo	马特奥
-Mateo Silva	马特奥·席尔瓦
-Ada	埃达
-Ada Nwosu	埃达·恩沃苏
-Jonas	约纳斯
-Jonas Berg	约纳斯·伯格
-Leila	莱拉
-Leila Karimi	莱拉·卡里米
-Pavel	帕维尔
-Pavel Novak	帕维尔·诺瓦克
-Sun	孙
-Sun Li	孙丽
-Marisol	玛丽索尔
-Marisol Vega	玛丽索尔·维加
-Ibrahim	易卜拉欣
-Ibrahim Diallo	易卜拉欣·迪亚洛
-Hanna	汉娜
-Hanna Virtanen	汉娜·维尔塔宁
-Kai	凯
-Kai Keawe	凯·凯阿维
-Zofia	索菲娅
-Zofia Nowak	索菲娅·诺瓦克
-Arjun	阿琼
-Arjun Mehta	阿琼·梅塔
-Ingrid	英格丽德
-Ingrid Dahl	英格丽德·达尔
-Tomasz	托马什
-Tomasz Kral	托马什·克拉尔
-Wanjiru	万吉鲁
-Wanjiru Kamau	万吉鲁·卡毛
-Felix	费利克斯
-Felix Braun	费利克斯·布劳恩
-Rosa Delgado	罗莎·德尔加多
-Emeka	埃梅卡
-Emeka Okafor	埃梅卡·奥卡福
-Mira	米拉
-Mira Stein	米拉·斯坦
-Diego	迭戈
-Diego Castro	迭戈·卡斯特罗
-Aiko	爱子
-Aiko Mori	森爱子
-Omar	奥马尔
-Omar Farouk	奥马尔·法鲁克
 The next shuttle has bunks free	下一班飞船有空铺位
 The next shuttle can bring more crew. Shall I ask for them?	下一班飞船能多带些船员来。要我去申请吗？
 Ask for more crew	申请更多船员
@@ -3979,8 +3815,8 @@ They know Ares now.	他们已经了解阿瑞斯了。
 We know each other now. That counts.	我们现在彼此了解了。这很重要。
 The board rotated the crew as it liked	委员会按自己的意思轮换了船员
 Nobody asked us. Typical.	没人问过我们。老样子。
-The old Henderson place is for sale	亨德森家的老房子要卖了
-Someone wants to buy the old Henderson place. Put in a good word?	有人想买亨德森家的老房子。要不要帮着说句好话？
+The old Henderson place is for sale	Henderson家的老房子要卖了
+Someone wants to buy the old Henderson place. Put in a good word?	有人想买Henderson家的老房子。要不要帮着说句好话？
 Put in a good word	帮着说句好话
 New neighbours, new faces.	新邻居，新面孔。
 {keeper} put in a good word for the new buyers	{keeper}替新买家说了好话
@@ -3989,7 +3825,7 @@ Stay out of it	别管这事
 Not our house, not our business.	不是我们的房子，不关我们的事。
 {keeper} stayed out of the house sale	{keeper}没插手卖房的事
 Let the realtor worry about it.	让房产经纪去操心吧。
-The Henderson place sat empty a while longer	亨德森家的老房子又空了一阵
+The Henderson place sat empty a while longer	Henderson家的老房子又空了一阵
 Still empty. Kids think it's haunted.	还空着。孩子们觉得那里闹鬼。
 {explorer} has ideas for the street fund	{explorer}对街道基金有些想法
 The street fund's got money in it. A welcome party, or save it?	街道基金里有钱了。办个欢迎派对，还是存起来？
@@ -4123,7 +3959,7 @@ The {what} faces the ridge. Best view on Ares.	{what}正对着山脊。阿瑞斯
 Took my helmet off by the {what}. Inside, I mean.	在{what}旁边摘了头盔。在室内，我是说。
 Whoever put the {what} there knew about long shifts.	把{what}放在那儿的人一定懂长班的滋味。
 Five minutes on the {what}, then back to the filters.	在{what}上歇五分钟，然后回去弄滤网。
-Logged my rest on the {what}. Nia insists.	在{what}上登记了休息时间。妮娅坚持要这样。
+Logged my rest on the {what}. Nia insists.	在{what}上登记了休息时间。Nia坚持要这样。
 The {what} is warm from the heat pipe. Perfect.	{what}被暖气管烘得暖暖的。完美。
 Watched Phobos rise from the {what}.	坐在{what}上看火卫一升起。
 Nodded off on the {what}. Nobody woke me. Kind.	在{what}上打了个盹。没人叫醒我。真好心。
@@ -4203,7 +4039,7 @@ Someone brought cards to the {what}. We played till the lights dimmed.	有人把
 {other} fell asleep by the {what}. We left them a blanket.	{other}在{what}旁睡着了。我们给他们盖了条毯子。
 The {what} has become the place to be after a dust storm.	沙尘暴过后，{what}成了大家必去的地方。
 {other} showed me the stars from beside the {what}.	{other}在{what}旁指给我看星星。
-We had a quiz by the {what}. Nia won. Nia always wins.	我们在{what}旁搞了个问答比赛。妮娅赢了。妮娅总是赢。
+We had a quiz by the {what}. Nia won. Nia always wins.	我们在{what}旁搞了个问答比赛。Nia赢了。Nia总是赢。
 Did my homework on the {what}. Some of it.	在{what}上写了作业。写了一部分。
 Fell asleep on the {what} in the sun. Woke up pink.	在太阳下的{what}上睡着了。醒来晒红了。
 Watched the paper boy miss every porch from the {what}.	坐在{what}上看送报的男孩没扔中一个门廊。
@@ -5085,7 +4921,7 @@ I blinked and everyone had jobs and mortgages.	我一眨眼，大家都有了工
 The kids now think we were always this old.	现在的孩子以为我们一直这么老。
 the new superstore out on the highway	公路边新开的大超市
 a burned CD	一张刻录的CD
-who gets the arcade when Lena retires	莉娜退休后游戏厅归谁
+who gets the arcade when Lena retires	Lena退休后游戏厅归谁
 the ten-year photo	十年合影
 a pager message nobody understood	一条没人看得懂的传呼留言
 the arcade's closing time	游戏厅的打烊时间
@@ -6115,7 +5951,7 @@ The wind goes round us now.	现在风绕着我们走。
 Belly-smooth.	肚皮一样光滑。
 Try it.	试试。
 Go on.	来嘛。
-It's a very good likeness of Piko.	它跟皮可像极了。
+It's a very good likeness of Piko.	它跟Piko像极了。
 Don't tell him.	别告诉他。
 Fish oil and ice.	鱼油和冰。
 They glow all night.	它们整夜都亮着。
@@ -6217,7 +6053,7 @@ Do we agree?	我们同意吗？
 We know each other now.	我们现在彼此了解了。
 That counts.	这很重要。
 Nobody asked us.	没人问过我们。
-Someone wants to buy the old Henderson place.	有人想买亨德森家的老房子。
+Someone wants to buy the old Henderson place.	有人想买Henderson家的老房子。
 Put in a good word?	要不要帮着说句好话？
 I told them the street's the best in town.	我告诉他们这条街是全镇最好的。
 It is.	本来就是。
@@ -6291,7 +6127,7 @@ Best view on Ares.	阿瑞斯最好的风景。
 Took my helmet off by the {what}.	在{what}旁边摘了头盔。
 Inside, I mean.	在室内，我是说。
 Logged my rest on the {what}.	在{what}上登记了休息时间。
-Nia insists.	妮娅坚持要这样。
+Nia insists.	Nia坚持要这样。
 The {what} is warm from the heat pipe.	{what}被暖气管烘得暖暖的。
 Nodded off on the {what}.	在{what}上打了个盹。
 Nobody woke me.	没人叫醒我。
@@ -6367,8 +6203,8 @@ We played till the lights dimmed.	我们一直玩到灯光调暗。
 {other} fell asleep by the {what}.	{other}在{what}旁睡着了。
 We left them a blanket.	我们给他们盖了条毯子。
 We had a quiz by the {what}.	我们在{what}旁搞了个问答比赛。
-Nia won.	妮娅赢了。
-Nia always wins.	妮娅总是赢。
+Nia won.	Nia赢了。
+Nia always wins.	Nia总是赢。
 Did my homework on the {what}.	在{what}上写了作业。
 Some of it.	写了一部分。
 Fell asleep on the {what} in the sun.	在太阳下的{what}上睡着了。
@@ -7792,3 +7628,446 @@ Good as new.	焕然一新。
 Better, maybe.	也许更好了。
 Tightened every bolt.	每颗螺栓都拧紧了。
 Twice.	两遍。
+The domes	穹顶区
+The landing pad	着陆坪
+The ridge and the ice mine	山脊与冰矿
+Quarters	住舱
+Main Street	主街
+The square and the park	广场与公园
+The school and the lake	学校与湖边
+The rookery	栖息地
+The bridge	冰桥
+The far floe	远处的浮冰
+Nest	巢
+Home	家
+
+# v0.21: whole sentences. Each line a player can be shown is one sentence
+# here, with the same named slots as the line it is made from. People keep
+# their names in Latin letters; places are called by their Chinese names.
+, no joke.	，不骗你。
+, scout's honour.	，童子军保证。
+, you know?	，你懂吧？
+, little one.	，小家伙。
+, fishy promise.	，拿鱼发誓。
+Fixed {name}'s suit seal.	修好了{name}的宇航服密封。
+Rewired {name}'s helmet lamp.	给{name}的头盔灯重新接了线。
+Washed {name}'s car.	帮{name}洗了车。
+Saw {name}'s light on at five.	五点就看见{name}家灯亮了。
+Painted {name}'s fence.	帮{name}刷了篱笆。
+Mowed {name}'s lawn.	给{name}家修了草坪。
+Got {name}'s old Chevy running.	让{name}那辆旧雪佛兰重新跑起来了。
+Old Uko	老Uko
+, over and out.	，完毕。
+# The words each resident says in place of another ("nest" for "home"),
+# written =said<tab>meant: a line nobody wrote in their own words is read
+# again in the plain ones.
+=nest	home
+=brisk	cold
+=offline	broken
+=splendid	great
+=nominal	great
+=seriously	very
+=real	very
+=waddle	walk
+=not a sprat	nothing
+=pal	friend
+=you bet	yes
+=copy	okay
+=radical	excellent
+=wild	amazing
+=neat	cool
+=sweet	nice
+=beat	tired
+Nest to {name} now.	现在回{name}的窝了。
+{name} sends their love!	{name}向你问好！
+Seeing {name} later!	待会儿见{name}！
+Landing Day	着陆日
+the Dust Drill	沙尘演习
+Earthrise Night	地出之夜
+the Dust Devil Watch	尘卷风观赏会
+the Greenhouse Harvest	温室丰收节
+the Block Party	街区派对
+the Fireworks	烟花会
+Halloween	万圣节
+the Winter Formal	冬季正式舞会
+the Fish Run	鱼汛
+Song Night	歌之夜
+the Huddle Feast	抱团节
+the Aurora Festival	极光节
+a borrowed cassette	一盘借来的磁带
+the high score	最高分
+who called who	谁先给谁打的电话
+a dent in the car	车上的一个凹痕
+the last slice of pizza	最后一块披萨
+gossip at the diner	餐馆里的闲话
+a mixtape	一盘混音带
+the curfew	门禁时间
+the band's name	乐队的名字
+a lost bet	一个输掉的赌
+money for gas	油钱
+a party nobody mentioned	一个没人提起的派对
+the radio playlist	电台的歌单
+a broken Walkman	一台坏掉的随身听
+the roller rink	旱冰场
+the lake on Saturday	周六的湖边
+the school dance	学校舞会
+the arcade after hours	打烊后的游戏厅
+a movie at the Rialto	去丽都影院看场电影
+guitarist	吉他手
+pilot	飞行员
+Ohio	俄亥俄州
+the next town over	隔壁镇
+a band on tour	一支巡演的乐队
+the army base	军事基地
+the Greyhound	灰狗巴士
+the best fishing hole	最好的捕鱼洞
+a stolen pebble	一颗被偷的石子
+whose turn to keep watch	轮到谁守夜
+a squawk at the council	议会上的一声嘎叫
+a snowball	一个雪球
+a nest too close	窝搭得太近
+the slide rules	滑冰规矩
+a cold shoulder	冷落
+a broken bridge span	断掉的一段桥
+the aurora vote	极光投票
+a lost feather	一根掉了的羽毛
+watch the aurora	看极光
+slide down the big slope	从大坡上滑下去
+fish at the far hole	去远处的冰洞捕鱼
+walk to the edge of the floe	走到浮冰边上
+swim under the ice	在冰下游泳
+sit on the tallest berg	坐在最高的冰山上
+the next ice floe	下一块浮冰
+the water ration	水的配给
+who left the airlock open	谁没关气闸
+the last of the coffee	最后一点咖啡
+a missed check-in	一次没报到
+music in the common room	休息室里放的音乐
+the greenhouse temperature	温室的温度
+the message to Earth	发往地球的消息
+dust in the quarters	住舱里的灰尘
+a borrowed tool	一件借来的工具
+the chore rota	值日表
+the last chocolate bar	最后一块巧克力
+the rover's mileage	漫游车的里程
+watch the sunset from the ridge	山脊上看日落
+a walk to the crater rim	散步到陨坑边
+supper under the dome	穹顶下的晚饭
+stargaze from the rover roof	漫游车顶上看星星
+see the dust devils dance	看尘卷风跳舞
+a picnic in the greenhouse	温室野餐
+the orbital station	轨道站
+the Tharsis outpost	塔尔西斯前哨站
+the last supply ship	上一艘补给船
+the fish vault	鱼库
+the stores	储备物资
+a dust front	一场沙尘锋
+a thunderstorm	一场雷雨
+a blizzard	一场暴风雪
+a spare seal	一个备用密封圈
+a spare fuse	一个备用保险丝
+a spare lantern	一盏备用灯笼
+a failing seal	快坏的密封圈
+a sparking fuse box	冒火花的保险丝盒
+a crack in the ice	冰上的裂缝
+a signal from the old lander	旧着陆器发来的信号
+a late call-in from out of town	外地打来的深夜热线
+a far-off song across the ice	冰那头远远传来的歌声
+the supply drop	空投物资
+the delivery truck	送货卡车
+the herring run	鲱鱼季
+the launch window	发射窗口
+a second dome	第二座穹顶
+a back room at the arcade	游戏厅的后屋
+a second bridge span	第二段桥
+a relay mast	一座中继天线
+a new radio mast	一座新的电台天线
+a lantern tower	一座灯笼塔
+{keeper} needs {spare}	{keeper}需要{spare}
+If I had {spare}, I'd sleep at night.	要是有{spare}，我晚上就睡得着了。
+{explorer} brought {keeper} {spare}	{explorer}给{keeper}带来了{spare}
+{keeper} was told to make do	{keeper}被告知将就一下
+{keeper} went without {spare}	{keeper}没等到{spare}
+{explorer} wants to go past the edge of the map	{explorer}想走到地图边缘以外
+{explorer} went past the edge of the map	{explorer}走到了地图边缘以外
+{explorer} was kept close to home	{explorer}被留在了家附近
+{explorer} gave up on the edge of the map	{explorer}放弃了去地图边缘
+{keeper} needs a day off	{keeper}需要休息一天
+{explorer} covers {home} for a day.	{explorer}替大家照看{home}一天。
+{keeper} took a day off while {explorer} covered	{explorer}顶班，{keeper}休息了一天
+{home} needs everyone.	{home}需要每一个人。
+{keeper} kept going without a break	{keeper}一刻不停地撑了下去
+{keeper} wore out	{keeper}累垮了
+{explorer} wants to teach {keeper} something	{explorer}想教{keeper}点东西
+{explorer} taught {keeper} to find the way	{explorer}教{keeper}认路
+{keeper} had no time for {explorer}'s lesson	{keeper}没空上{explorer}的课
+{explorer}'s lesson never happened	{explorer}的课终究没上成
+{keeper} wants to start {second}	{keeper}想建{second}
+We could make room for {second}.	我们可以给{second}腾出地方。
+{keeper} and {explorer} worked on {second}	{keeper}和{explorer}一起建{second}
+{weather} is coming	{weather}要来了
+They sat out {weather} together	他们一起熬过了{weather}
+{explorer} pushed on through {weather}	{explorer}顶着{weather}继续前进
+{weather} caught them apart	{weather}来时他们不在一起
+Trouble at {home}: {failing}	{home}出事了：{failing}
+They mended {failing} together	他们一起修好了{failing}
+{keeper} patched {failing} alone	{keeper}独自补好了{failing}
+Nobody saw to {failing}, and it got worse	没人管{failing}，情况更糟了
+{signal} came in	收到了{signal}
+{explorer} followed {signal}	{explorer}循着{signal}去了
+{keeper} wrote down {signal}	{keeper}记下了{signal}
+{signal} faded away	{signal}渐渐消失了
+{keeper} and {explorer} are arguing	{keeper}和{explorer}在吵架
+{keeper}'s right	{keeper}说得对
+{keeper} won the argument	{keeper}吵赢了
+{explorer} won the argument	{explorer}吵赢了
+{explorer} wants to make amends	{explorer}想和好
+{keeper} wasn't ready to make it up	{keeper}还没准备好和好
+{explorer} is caught out in the cold	{explorer}被困在了严寒里
+{keeper} leaves {home} to find them.	{keeper}离开{home}去找人。
+{keeper} brought {explorer} home	{keeper}把{explorer}带回了家
+{keeper} talked {explorer} home	{keeper}一路说着话把{explorer}引回了家
+{explorer} found the way home alone	{explorer}独自找到了回家的路
+{keeper} wants to cook for them both	{keeper}想给两个人做顿饭
+{keeper} and {explorer} shared a supper	{keeper}和{explorer}一起吃了顿晚饭
+{beacon} could go up	可以立起{beacon}了
+If we put up {beacon}, anyone could find us.	要是立起{beacon}，谁都能找到我们。
+{beacon} was left for later	{beacon}留到以后再说
+They shared out {supply}	他们一起分了{supply}
+{supply} went into {second}	{supply}都用在了{second}上
+{supply} sat unopened	{supply}一直没人动
+{home} can mind itself for a day.	{home}一天没人照看也没事。
+They went to {window} together	他们一起去了{window}
+I keep thinking about {window}.	我一直在想{window}。
+They watched {window} from {home}	他们在{home}看了{window}
+{window} came and went	{window}就这么过去了
+It's {keeper}'s birthday	今天是{keeper}的生日
+{explorer} surprised {keeper} on their birthday	{explorer}在{keeper}生日那天给了个惊喜
+{keeper} had a quiet birthday	{keeper}安安静静地过了生日
+It's {explorer}'s birthday	今天是{explorer}的生日
+{keeper} surprised {explorer} on their birthday	{keeper}在{explorer}生日那天给了个惊喜
+{explorer} had a quiet birthday	{explorer}安安静静地过了生日
+{keeper} and {explorer} walked out in the first frost	{keeper}和{explorer}在初霜里出去散了步
+{name} spent the sol on maintenance at {place} with {other}	{name}和{other}在{place}做了一整个火星日的维护
+Maintenance at {place}.	在{place}做维护。
+{name} ran a survey from {place}	{name}从{place}出发做了一次勘测
+Mapped another ridge from {place}.	从{place}出发，又测绘了一道山脊。
+{name} fixed {other}'s kit	{name}修好了{other}的装备
+{name} harvested wheat in {place} with {other}	{name}和{other}在{place}收了麦子
+{name} slept a full shift	{name}睡足了一整个班次
+{name} watched the sunset from {place}	{name}在{place}看了日落
+Blue sunset from {place}.	从{place}看到了蓝色的日落。
+Sat among the plants in {place}.	在{place}的植物中间坐了坐。
+{name} listened to old records with {other}	{name}和{other}一起听了老唱片
+{name} shared supper with {other} at {place}	{name}和{other}在{place}一起吃了晚饭
+{name} played chess with {other}	{name}和{other}下了棋
+{name} sent a message home	{name}给家里发了条消息
+{name} walked the crater rim with {other}	{name}和{other}沿着陨坑边走了走
+{name} taught {other} something new	{name}教了{other}点新东西
+{name} ran an experiment in {place}	{name}在{place}做了个实验
+{name} wrote up the colony log	{name}写了聚居地日志
+{name} worked on a telescope with {other}	{name}和{other}一起捣鼓望远镜
+Shift at {place}.	在{place}上班。
+{other} and I restocked everything at {place}.	我和{other}把{place}的东西都补齐了。
+Busy night at {place}.	{place}忙了一晚上。
+{name} did an early paper round	{name}一早去送了报纸
+{name} mowed {other}'s lawn for cash	{name}给{other}家修草坪挣了点钱
+{name} ran a yard sale with {other}	{name}和{other}办了场旧货甩卖
+{name} slept till noon	{name}一觉睡到中午
+{name} watched TV all evening	{name}看了一晚上电视
+{name} drove around town with {other}	{name}和{other}开车在镇上兜风
+{name} played Pac-Man with {other} at {place}	{name}和{other}在{place}玩了吃豆人
+{name} got fries with {other}	{name}和{other}去吃了薯条
+{name} was on the phone all night	{name}打了一晚上电话
+{name} went roller skating with {other}	{name}和{other}去溜了旱冰
+{name} helped {other} run a show at {place}	{name}帮{other}在{place}办了一场节目
+Helped {other} run the late show at {place}.	帮{other}在{place}主持了深夜节目。
+{name} practised with {other}'s garage band	{name}和{other}的车库乐队一起排练
+{name} studied for exams	{name}为考试复习
+{name} fixed up an old car with {other}	{name}和{other}一起修了辆旧车
+{name} went fishing with {other}	{name}和{other}去捕鱼了
+{name} mended the bridge	{name}修了桥
+{name} lit the lanterns with {other}	{name}和{other}一起点亮了灯笼
+{name} sorted fish at {place} with {other}	{name}和{other}在{place}分拣了鱼
+{name} swapped stones with {other}	{name}和{other}交换了石子
+{name} napped in a snowdrift	{name}在雪堆里打了个盹
+{name} huddled with {other} out of the wind	{name}和{other}挤在一起避风
+{name} watched the aurora	{name}看了极光
+{name} went belly-sliding with {other}	{name}和{other}去肚皮滑冰了
+{name} sang with {other}	{name}和{other}一起唱了歌
+{name} preened {other}'s feathers	{name}给{other}梳理了羽毛
+{name} gossiped with {other} by {place}	{name}和{other}在{place}旁聊了八卦
+{name} taught {other} to dive	{name}教{other}潜水
+{name} built a stone nest	{name}用石子搭了个窝
+{name} told the old tales with {other}	{name}和{other}讲了古老的故事
+{name} spoke up at the council with {other}	{name}和{other}在议会上发了言
+{anchor}'s holding together.	{anchor}还撑得住。
+We're managing.	我们还应付得来。
+It's where I spend my days.	我每天都待在那儿。
+I know every corner of it.	那儿的每个角落我都熟。
+{name}'s home.	{name}就是家。
+It holds us all together.	它把我们大家聚在一起。
+{name}'s where you go to think.	想事情的时候就去{name}。
+Keeping {place} running.	让{place}正常运转。
+Out past {place} as often as I can.	能出去就出去，走到{place}外面。
+I help out at {place}.	我在{place}帮忙。
+Invite {} to {gathering}	邀请{}去{gathering}
+{} began	{}开始了
+A few went up to watch Earthrise	几个人上去看了地出
+Aurora Night was clouded over	极光之夜被云遮住了
+Dust season rolled in over the ridge	沙尘季越过山脊来了
+Earth rose, and hardly anyone looked up	地球升起来了，几乎没人抬头看
+Every car in town was at the drive-in's opening night	镇上每辆车都开去了汽车影院的开幕夜
+Everyone in the habitat gathered for Landing Day	基地里所有人都聚在一起过着陆日
+Everyone started to molt, feathers everywhere	大家都开始换毛了，到处是羽毛
+Everyone watched Earth rise from the ridge	大家在山脊上看地球升起
+Founders' Feast had everyone round one table	创始人盛宴让大家围坐一桌
+Founders' Feast was a ration bar and a toast	创始人盛宴只有一根口粮棒和一次举杯
+Halloween had every kid on Maple Street out trick-or-treating	万圣节，枫树街的每个孩子都出门讨糖了
+Halloween was a few kids and a lot of candy left over	万圣节只来了几个孩子，糖剩了一大堆
+Landing Day passed with a quiet toast	着陆日在一次安静的举杯中过去了
+Maple Street counted in the New Year	枫树街一起倒数迎来了新年
+Maple Street had its Halloween	枫树街过了万圣节
+Maple Street had its Spring Dance	枫树街办了春季舞会
+Maple Street held its yard sale	枫树街办了旧货甩卖
+Maple Street threw its Block Party	枫树街办了街区派对
+Maple Street went skating at the rink	枫树街去旱冰场溜了冰
+Phobos crossed the sun at noon	正午时分火卫一从太阳前掠过
+Roller Rink Night was mostly falling over	旱冰之夜大多是在摔跤
+Signal Night sent a message from every one of us	信号之夜，我们每个人都发出了一条消息
+Signal Night went out almost empty	信号之夜几乎什么都没发出去
+Song Night rang out across the whole ice	歌之夜的歌声响遍了整片冰面
+Song Night was a lonely call or two	歌之夜只有零星一两声孤单的鸣叫
+The Aurora Festival glowed over empty ice	极光节在空荡荡的冰面上闪耀
+The Aurora Festival had the whole colony looking up	极光节让整个聚居地都抬头仰望
+The Block Party had the whole street out till dawn	街区派对让整条街的人一直玩到天亮
+The Block Party was a grill and a few neighbours	街区派对只有一个烤架和几个邻居
+The Chick Parade had every chick marching	小企鹅游行，每只小企鹅都在列队走
+The Chick Parade was two chicks and a fall	小企鹅游行只有两只小企鹅，还摔了一跤
+The Dust Devil Watch was mostly dust	尘卷风观赏会看到的大多是灰尘
+The Dust Drill was a shambles	沙尘演习一团糟
+The Dust Drill went like clockwork	沙尘演习进行得有条不紊
+The Fireworks fizzled in the rain	烟花在雨里哑了火
+The Fireworks lit up the whole sky over Maple Street	烟花照亮了枫树街的整片天空
+The Fish Run came up nearly empty	鱼汛几乎一无所获
+The Fish Run filled every beak	鱼汛让每张嘴都吃饱了
+The Greenhouse Harvest brought in enough	温室丰收节收获刚好够用
+The Greenhouse Harvest filled every crate	温室丰收节装满了每一个箱子
+The Greenhouse Harvest was a few sad leaves	温室丰收节只收了几片蔫叶子
+The Homecoming Game packed the stands	返校赛的看台坐满了人
+The Homecoming Game played to empty stands	返校赛的看台空空荡荡
+The Huddle Feast warmed the whole colony	抱团节温暖了整个聚居地
+The Huddle Feast was a small, cold huddle	抱团节只是一小团冷冰冰的挤暖
+The Krill Harvest brought in enough	磷虾丰收节收获刚好够用
+The Krill Harvest filled the Fish Vault	磷虾丰收节装满了鱼库
+The Krill Harvest was a few pink scraps	磷虾丰收节只收了几点粉红的碎屑
+The New Year came in quietly	新年静悄悄地来了
+The Pie Contest had a fair few entries	馅饼大赛参赛的人不少
+The Pie Contest had barely any fruit to bake	馅饼大赛几乎没有水果可烤
+The Pie Contest had more entries than ever	馅饼大赛的参赛者比以往都多
+The Rover Rally raced out past the ridge with everyone cheering	漫游车拉力赛在众人欢呼中冲过了山脊
+The Rover Rally was one rover and a lot of dust	漫游车拉力赛只有一辆漫游车和一大片灰尘
+The Slide Races had the whole colony sliding	滑行比赛让整个聚居地都滑了起来
+The Slide Races were one slide and a bump	滑行比赛只滑了一次，还撞了一下
+The Spring Dance packed the arcade until midnight	春季舞会让游戏厅一直挤到半夜
+The Spring Dance was three people and a mixtape	春季舞会只有三个人和一盘混音带
+The Street Yard Sale ran the whole length of Maple Street	街头旧货甩卖摆满了整条枫树街
+The Water Feast was a cup each	水宴每人只有一杯
+The Water Feast was the best the habitat has had	这次水宴是基地有史以来最好的一次
+The Winter Formal was a quiet night	冬季正式舞会是个安静的夜晚
+The Winter Formal was the talk of the town	冬季正式舞会成了全镇的话题
+The cherry trees on Maple Street burst into blossom	枫树街的樱桃树一下子开满了花
+The chicks had their parade	小企鹅们举行了游行
+The colony dived for the Fish Run	聚居地为鱼汛下水捕鱼
+The colony held its Slide Races	聚居地举办了滑行比赛
+The colony sang on Song Night	聚居地在歌之夜唱了歌
+The colony saw the sun come back	聚居地看着太阳回来了
+The colony shared its Huddle Feast	聚居地一起过了抱团节
+The colony watched the Aurora Festival	聚居地一起看了极光节
+The colony watched the Aurora Night from the bridge	聚居地在桥上看了极光之夜
+The drive-in opened for the summer	汽车影院夏季开张了
+The drive-in opened to an empty lot	汽车影院开张时停车场空空荡荡
+The fireflies came out over the ballfield	萤火虫在球场上空飞了出来
+The first eggs were laid on the warm stones	第一批蛋下在了温暖的石头上
+The first snow fell on Maple Street	枫树街下了第一场雪
+The first sprouts broke the soil in the greenhouse	温室里第一批嫩芽破土而出
+The habitat held its Founders' Feast	基地举办了创始人盛宴
+The habitat marked Landing Day	基地纪念了着陆日
+The habitat ran its Dust Drill	基地进行了沙尘演习
+The habitat saw the year out	基地送走了这一年
+The habitat sent its messages home	基地把消息发回了家
+The habitat shared its Water Feast	基地一起办了水宴
+The habitat watched the dust devils go by	基地看着尘卷风一个个经过
+The longest sol of the year came and went	一年中最长的火星日就这么过去了
+The rovers raced their rally	漫游车们跑了拉力赛
+The sky burned green over the ice for Aurora Night	极光之夜，冰面上空燃起了绿光
+The sun came back, and few were awake to see it	太阳回来了，醒着看见的没几个
+The sun stopped setting over the ice	冰面上的太阳不再落下
+The town turned out for Homecoming	全镇的人都出来看返校赛
+The town watched the Fireworks	全镇一起看了烟花
+The whole colony greeted the Sun's Return	整个聚居地一起迎接了太阳归来
+The whole habitat counted dust devils from the ridge	整个基地在山脊上数尘卷风
+The whole habitat saw the year turn	整个基地一起迎来了新的一年
+The whole street counted down the New Year together	整条街一起倒数迎接新年
+The whole street skated till the rink lights went off	整条街的人一直溜到旱冰场熄灯
+The yard sale was one table of old records	旧货甩卖只有一桌旧唱片
+The year turned, and most slept through it	新的一年到了，大多数人都睡过去了
+Thin new ice formed along the shore	岸边结了一层薄薄的新冰
+A close {s}	亲密的{s}
+A stormy {s}	风雨交加的{s}
+A kind {s}	温情的{s}
+A little feast	一顿小小的盛宴
+A new World	一个新世界
+A place for everything!	样样东西都有地方放了！
+Bunting for a navigator.	为领航员挂的彩旗。
+Bunting for a navigator	为领航员挂的彩旗
+By the door	放在门边
+Everything from the garden, on one plate.	园子里种的东西，全装在一个盘子里。
+For a harder day.	留着难熬的日子用。
+Let a little more time pass, and see what they do with it.	再让时间过去一点，看看他们会怎么过。
+Our breath is smoking!	我们呼出的气都冒白烟了！
+Put it by	存起来
+Room to breathe at last.	终于有地方喘口气了。
+The garden's given us something to eat!	园子给我们长出吃的来了！
+They say hello to you too!	他们也向你问好！
+We grew this!	这是我们种出来的！
+You remembered!	你还记得！
+Higher every day!	一天比一天高！
+Street lamp	路灯
+Ice bench	冰长椅
+ice bench	冰长椅
+Another {thing}? The {settlement} won't know itself.	又一个{thing}？{settlement}都要认不出自己了。
+Nest on both sides.	两边都是窝。
+We swam nest full.	我们吃得饱饱地游回了窝。
+A lamp burning late	一盏亮到很晚的灯
+A lamp left burning all night	一盏彻夜亮着的灯
+A letter home, waiting to go	一封寄回家的信，等着寄出
+A light left on for {explorer}	为{explorer}留着的一盏灯
+A marker past the edge	地图边缘外的一个路标
+A pennant from {window}	{window}带回来的三角旗
+{beacon}, going up	{beacon}，正在立起来
+{second}, going up	{second}，正在建
+{spare}, just arrived	{spare}，刚到
+{supply}, shared out	{supply}，已经分好了
+A stone from the edge	从地图边缘带回的一块石头
+Baskets from the garden	园子里收的几篮菜
+Bunting for the photograph	为拍照挂的彩旗
+Flowers after the quarrel	吵架之后送的花
+Flowers, by way of sorry	送来道歉的花
+Lanterns for weekly supper	每周晚饭点的灯笼
+Lanterns from supper	晚饭留下的灯笼
+New shelves, full already	新架子，已经堆满了
+{keeper}'s day off	{keeper}的休息日
+{keeper}'s garden	{keeper}的园子
+Our flag past the edge	插在地图边缘外的我们的旗
+Storm lamps in every window	每扇窗前都点着风灯
+The letter from home, pinned up	家里来的信，钉在墙上
+The old seal, retired	退役的旧密封圈
+The picture, hung by the door	挂在门边的那幅画
+The trader's tent	商人的帐篷
+The trader's tent, back again	商人的帐篷，又回来了
+{explorer}'s markers out in the weather	{explorer}插在风雨里的路标
+{explorer}'s route markers	{explorer}的路标
+Tools and spare parts	工具和备件
+Washing on the line	晾在绳上的衣服
+Washing out after the weather	天气过后晾出来的衣服

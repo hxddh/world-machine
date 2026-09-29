@@ -32,6 +32,8 @@ struct Run {
     longest_wait: Vec<(&'static str, usize)>,
     /// The World as the run left it.
     world: world_core::World,
+    /// How the place stood on days 30, 360 and 1,080, and every festival.
+    place: Vec<(usize, crate::town::Bars)>,
 }
 
 fn run() -> &'static Run {
@@ -59,6 +61,7 @@ fn play() -> Run {
         finished: Vec::new(),
         longest_wait: Vec::new(),
         world: world_core::World::new(Default::default()),
+        place: Vec::new(),
     };
     // Something new, as the month's test counts it: something found in
     // the book, something to keep, a letter or a chapter's close. The
@@ -145,6 +148,10 @@ fn play() -> Run {
             .invoke_projection_command(story::WAIT_COMMAND)
             .unwrap();
         let after = branch.projection_snapshot();
+        if [30, 360, DAYS].contains(&day) || crate::town::festival_today(branch.world().state()) {
+            run.place
+                .push((day, crate::town::bars(branch.world(), &after)));
+        }
         let (found_new, kept) = news(&after);
         let kept_before =
             snapshot.keepsakes.len() + snapshot.letters.len() + snapshot.chapters.len();
@@ -306,4 +313,23 @@ fn letters_stay_rare_and_no_stretch_is_quiet() {
         most_quiet <= 4,
         "{most_quiet} quiet days in {STRETCH}: {quiet_days:?}"
     );
+}
+
+/// Three years of the warm player's harbour: on days 30, 360 and 1,080
+/// everyone has a home, couples share one, every finished work stands in
+/// a spot of its own (at least 40 of them by the end), nobody is out at ten
+/// at night and no one stretch holds more than 60% of the harbour at noon;
+/// and on every festival most of the harbour is on the square that evening.
+#[test]
+#[ignore]
+fn the_place_grows_and_lives_for_three_years() {
+    let run = run();
+    let mut festivals = 0;
+    for (day, bars) in &run.place {
+        festivals += usize::from(bars.festival);
+        crate::town::check_bars(*day, bars);
+    }
+    let (_, last) = run.place.iter().rfind(|(day, _)| *day == DAYS).unwrap();
+    assert!(last.standing >= 40, "{last:?}");
+    assert!(festivals >= 30, "{festivals} festivals");
 }

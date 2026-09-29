@@ -13,9 +13,9 @@ use world_persistence::{WorldArchive, WorldPackRef};
 use world_projection::{
     BriefingItem, BriefingItemKind, BriefingProjection, CanvasChange, CanvasItem, CanvasItemKind,
     CanvasLink, CanvasLinkTone, CanvasMark, CanvasProjection, CollectionItem, CollectionProjection,
-    CommandEffect, EffectChange, InspectorProjection, InspectorRow, InspectorSection, MarkShape,
-    ProjectionCapabilities, ProjectionCommand, ProjectionIntent, ProjectionSnapshot, Scenery,
-    SelectionId, TimelineItem, TimelineProjection, Tone, WhyNode, WhyProjection,
+    CommandEffect, EffectChange, GroundCover, InspectorProjection, InspectorRow, InspectorSection,
+    MarkShape, ProjectionCapabilities, ProjectionCommand, ProjectionIntent, ProjectionSnapshot,
+    Scenery, Season, SelectionId, TimelineItem, TimelineProjection, Tone, WhyNode, WhyProjection,
 };
 use world_projection::{DrawPart, DrawShape, Drawing, Ears, Ink, Stance};
 
@@ -1361,6 +1361,12 @@ impl ProjectionSnapshotWire {
             if let Some(at) = item.at {
                 validate_selection_for_protocol(protocol_version, at)?;
             }
+            if let Some(home) = item.home {
+                validate_selection_for_protocol(protocol_version, home)?;
+            }
+            for stop in &item.day {
+                validate_selection_for_protocol(protocol_version, stop.at)?;
+            }
         }
         for command in &self.commands {
             if let Some(asker) = command.asker {
@@ -2193,6 +2199,117 @@ pub struct CanvasProjectionWire {
     pub links: Vec<CanvasLinkWire>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub marks: Vec<CanvasMarkWire>,
+    /// Optional both ways, like everything below: how wide the panorama
+    /// is, in screen-widths. An older Pack sends none, and the place is one
+    /// screen wide.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<f32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub districts: Vec<DistrictWire>,
+    /// A season this build does not know reads as none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub season: Option<SeasonWire>,
+    /// A ground cover this build does not know reads as none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ground: Option<GroundCoverWire>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub ice: bool,
+}
+
+/// The widest panorama a snapshot may ask for, in screen-widths.
+pub const MOST_CANVAS_WIDTH: f32 = 16.0;
+/// The most districts one panorama is cut into.
+pub const MOST_DISTRICTS: usize = 32;
+/// The most stops one person's day holds.
+pub const MOST_ROUTINE_STOPS: usize = 24;
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct DistrictWire {
+    pub id: String,
+    pub label: String,
+    pub from: f32,
+    pub to: f32,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SeasonWire {
+    Spring,
+    Summer,
+    Autumn,
+    Winter,
+    #[serde(other)]
+    Unknown,
+}
+
+impl From<Season> for SeasonWire {
+    fn from(season: Season) -> Self {
+        match season {
+            Season::Spring => Self::Spring,
+            Season::Summer => Self::Summer,
+            Season::Autumn => Self::Autumn,
+            Season::Winter => Self::Winter,
+        }
+    }
+}
+
+impl SeasonWire {
+    fn known(self) -> Option<Season> {
+        match self {
+            Self::Spring => Some(Season::Spring),
+            Self::Summer => Some(Season::Summer),
+            Self::Autumn => Some(Season::Autumn),
+            Self::Winter => Some(Season::Winter),
+            Self::Unknown => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GroundCoverWire {
+    Blossom,
+    Leaves,
+    Snow,
+    Frost,
+    Dust,
+    #[serde(other)]
+    Unknown,
+}
+
+impl From<GroundCover> for GroundCoverWire {
+    fn from(ground: GroundCover) -> Self {
+        match ground {
+            GroundCover::Blossom => Self::Blossom,
+            GroundCover::Leaves => Self::Leaves,
+            GroundCover::Snow => Self::Snow,
+            GroundCover::Frost => Self::Frost,
+            GroundCover::Dust => Self::Dust,
+        }
+    }
+}
+
+impl GroundCoverWire {
+    fn known(self) -> Option<GroundCover> {
+        match self {
+            Self::Blossom => Some(GroundCover::Blossom),
+            Self::Leaves => Some(GroundCover::Leaves),
+            Self::Snow => Some(GroundCover::Snow),
+            Self::Frost => Some(GroundCover::Frost),
+            Self::Dust => Some(GroundCover::Dust),
+            Self::Unknown => None,
+        }
+    }
+}
+
+/// Where a person is from one hour of the day on, as it crosses the
+/// boundary.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct RoutineStopWire {
+    pub from_hour: u8,
+    pub at: SelectionIdWire,
+    #[serde(default)]
+    pub inside: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -2323,6 +2440,20 @@ impl From<&CanvasProjection> for CanvasProjectionWire {
                     selection: mark.selection.map(Into::into),
                 })
                 .collect(),
+            width: canvas.width,
+            districts: canvas
+                .districts
+                .iter()
+                .map(|district| DistrictWire {
+                    id: district.id.clone(),
+                    label: district.label.clone(),
+                    from: district.from,
+                    to: district.to,
+                })
+                .collect(),
+            season: canvas.season.map(Into::into),
+            ground: canvas.ground.map(Into::into),
+            ice: canvas.ice,
         }
     }
 }
@@ -2341,6 +2472,32 @@ impl From<CanvasProjectionWire> for CanvasProjection {
                     selection: mark.selection.map(Into::into),
                 })
                 .collect(),
+            // A panorama is at least one screen and at most a few dozen;
+            // anything else is one screen.
+            width: canvas
+                .width
+                .filter(|width| width.is_finite())
+                .map(|width| width.clamp(1.0, MOST_CANVAS_WIDTH)),
+            districts: canvas
+                .districts
+                .into_iter()
+                .filter(|district| {
+                    district.from.is_finite()
+                        && district.to.is_finite()
+                        && district.from < district.to
+                        && !district.id.trim().is_empty()
+                })
+                .take(MOST_DISTRICTS)
+                .map(|district| world_projection::District {
+                    id: district.id,
+                    label: district.label,
+                    from: district.from,
+                    to: district.to,
+                })
+                .collect(),
+            season: canvas.season.and_then(SeasonWire::known),
+            ground: canvas.ground.and_then(GroundCoverWire::known),
+            ice: canvas.ice,
         }
     }
 }
@@ -2472,6 +2629,16 @@ pub struct CanvasItemWire {
     /// chose; an older Pack sends none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spot: Option<f32>,
+    /// Where along the panorama it stands; an older Pack sends none, and
+    /// `x` places it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub px: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub home: Option<SelectionIdWire>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub day: Vec<RoutineStopWire>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub built: Option<u32>,
 }
 
 /// The longest few words a standing is told in.
@@ -2522,6 +2689,18 @@ impl From<&CanvasItem> for CanvasItemWire {
             }),
             mood: item.mood.map(|mood| mood.id().to_string()),
             spot: item.spot,
+            px: item.px,
+            home: item.home.map(Into::into),
+            day: item
+                .day
+                .iter()
+                .map(|stop| RoutineStopWire {
+                    from_hour: stop.from_hour,
+                    at: stop.at.into(),
+                    inside: stop.inside,
+                })
+                .collect(),
+            built: item.built,
         }
     }
 }
@@ -2572,6 +2751,28 @@ impl From<CanvasItemWire> for CanvasItem {
                 .spot
                 .filter(|spot| spot.is_finite())
                 .map(|spot| spot.clamp(0.0, 1.0)),
+            px: item
+                .px
+                .filter(|px| px.is_finite())
+                .map(|px| px.clamp(0.0, MOST_CANVAS_WIDTH)),
+            home: item.home.map(Into::into),
+            // A day is a few stops within the hours of one day, in order.
+            day: {
+                let mut day: Vec<world_projection::RoutineStop> = item
+                    .day
+                    .into_iter()
+                    .filter(|stop| stop.from_hour < 24)
+                    .take(MOST_ROUTINE_STOPS)
+                    .map(|stop| world_projection::RoutineStop {
+                        from_hour: stop.from_hour,
+                        at: stop.at.into(),
+                        inside: stop.inside,
+                    })
+                    .collect();
+                day.sort_by_key(|stop| stop.from_hour);
+                day
+            },
+            built: item.built,
         }
     }
 }
@@ -2942,6 +3143,10 @@ mod tests {
                     standing: None,
                     mood: None,
                     spot: None,
+                    px: None,
+                    home: None,
+                    day: Vec::new(),
+                    built: None,
                 }],
                 links: vec![CanvasLink {
                     from: entity,
@@ -2952,6 +3157,7 @@ mod tests {
                     selection: Some(entity),
                 }],
                 marks: Vec::new(),
+                ..CanvasProjection::default()
             },
             inspectors: BTreeMap::from([(
                 entity,
@@ -3204,6 +3410,7 @@ mod tests {
                         shape: world_projection::MarkShape::Well,
                         selection: None,
                     }],
+                    ..CanvasProjection::default()
                 },
                 drawings: vec![person],
             })),

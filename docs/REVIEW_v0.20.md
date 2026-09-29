@@ -293,6 +293,27 @@ Every stage keeps these rules:
 - **The art direction.** "Lit paper-and-paint diorama" is a proposal. One reference image or game you want World Machine to feel like would fix it.
 - **Whether v0.21 may break v0.20 Worlds** if the panorama needs it. The default is no.
 
+## What v0.21.0 did
+
+The first stage, "the place": leaps 1 (the place grows and lives) and 4 (one look, one sound), plus the Chinese fix.
+
+| Bar | v0.21.0 |
+|---|---|
+| Works visible at day 1,080, at least 40 | 48 of the 48 distinct works in Tiny Society (the 62 counted twice-painted works); 35–51 in each Pocket Universe place |
+| At most 3 people outside at 22:00 | 0 on ordinary nights; everyone in the square on festival evenings |
+| No district over 60% at noon | at most 54% |
+| A golden picture for each season | yes, plus night and the panorama's far end |
+| Frame under 8 ms (under 16 ms with painting) | longest window frame 10.5–12.4 ms in a three-year benchmark on Linux; painting is off the window's thread; not yet measured on a Mac |
+| Sound within 30 ms of a click | within 15 ms in the render graph; the Mac's device delay is unmeasured |
+| Chinese partly English, under 0.5% | 0.00% over three years in all four places |
+
+Still open from leaps 1 and 4:
+- homes and works cannot be inspected;
+- the overview has not been measured in a release build;
+- nobody has listened to the sound.
+
+Leaps 2 and 3 are next, as v0.22.
+
 ## Sources
 - Animal Crossing: New Horizons sales and features: https://en.wikipedia.org/wiki/Animal_Crossing:_New_Horizons
 - Townscaper's grid, WFC and clipboard sharing: https://x.com/osksta/status/1176569884924416001

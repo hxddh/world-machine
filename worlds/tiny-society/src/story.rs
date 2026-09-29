@@ -6197,6 +6197,10 @@ pub(crate) fn fixtures(world: &World) -> Vec<world_projection::CanvasItem> {
                     Some(Value::Integer(spot)) => Some((*spot).clamp(0, 100) as f32 / 100.0),
                     _ => None,
                 },
+                px: None,
+                home: None,
+                day: Vec::new(),
+                built: None,
             }
         })
         .collect()
