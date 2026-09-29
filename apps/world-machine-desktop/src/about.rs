@@ -49,9 +49,12 @@ actions!(
         CopyWorldCode,
         SaveWorldCode,
         InviteGuest,
+        InviteFriend,
         // Where strips go, for every strip, from any window.
         StripAlongBottom,
         StripAlongTop,
+        StripDownLeft,
+        StripDownRight,
         StripAlwaysOnTop,
         StripNextDisplay
     ]
@@ -125,7 +128,9 @@ pub fn install(cx: &mut App) {
 /// Builds the menu bar, with the strip's choices ticked as they stand.
 /// Called again whenever one of them changes.
 pub fn set_menus(cx: &mut App) {
+    use world_gpui::strip::Edge;
     let strip = crate::strip_window::placement();
+    let edge = crate::strip_window::edge(&strip);
     cx.set_menus([
         Menu::new("World Machine").items([
             MenuItem::action("About World Machine…", About),
@@ -157,15 +162,22 @@ pub fn set_menus(cx: &mut App) {
             MenuItem::action("Save World Code…", SaveWorldCode),
             MenuItem::separator(),
             MenuItem::action("Invite a Guest", InviteGuest),
+            MenuItem::action("Invite a Friend's Resident…", InviteFriend),
             MenuItem::separator(),
             MenuItem::action("Show as Strip", ShowAsStrip),
-            MenuItem::submenu(Menu::new("Strip").items([
-                MenuItem::action("Along the Bottom", StripAlongBottom).checked(!strip.top),
-                MenuItem::action("Along the Top", StripAlongTop).checked(strip.top),
-                MenuItem::separator(),
-                MenuItem::action("Always in Front", StripAlwaysOnTop).checked(strip.always_on_top),
-                MenuItem::action("Move to Next Display", StripNextDisplay),
-            ])),
+            MenuItem::submenu(
+                Menu::new("Strip").items([
+                    MenuItem::action("Along the Bottom", StripAlongBottom)
+                        .checked(edge == Edge::Bottom),
+                    MenuItem::action("Along the Top", StripAlongTop).checked(edge == Edge::Top),
+                    MenuItem::action("Down the Left", StripDownLeft).checked(edge == Edge::Left),
+                    MenuItem::action("Down the Right", StripDownRight).checked(edge == Edge::Right),
+                    MenuItem::separator(),
+                    MenuItem::action("Always in Front", StripAlwaysOnTop)
+                        .checked(strip.always_on_top),
+                    MenuItem::action("Move to Next Display", StripNextDisplay),
+                ]),
+            ),
         ]),
         Menu::new("Window").items([
             MenuItem::action("Minimize", MinimizeWindow),

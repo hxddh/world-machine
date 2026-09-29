@@ -14,8 +14,40 @@ fn text(world: &World, id: EntityId, key: &str) -> Option<String> {
     }
 }
 
+/// What the harbour's people speak of that is not on the scene, as the
+/// harbour's own lines name it in English and in Chinese: the mainland
+/// over the water, the boats, everyone who lives or will live here, and
+/// the people they remember.
+const ELSEWHERE: &[&str] = &[
+    "the mainland",
+    "大陆",
+    "Sea Finch",
+    "海雀号",
+    "Kittiwake",
+    "三趾鸥号",
+    "Brave Molly",
+    "勇敢的莫莉号",
+    "Jonas",
+    "Mara",
+    "Leo",
+    "Emma",
+    "Mia",
+    "Noah",
+    "Evan",
+    "Sofia",
+    "Ivo",
+    "Ada",
+    "Old Tam",
+    "老Tam",
+    "Clark",
+    "Bess",
+    "Pike",
+];
+
 pub(crate) fn kit(_: &WorldState) -> conversation::Kit {
     conversation::Kit {
+        era: conversation::Era::Radio,
+        elsewhere: ELSEWHERE,
         period: crate::persistence::WORLD_DAY_TICKS,
         unit: "day",
         settlement: "the harbour",
@@ -66,7 +98,20 @@ fn aliases(name: &str) -> Vec<String> {
         "Anchor Pub" => &["酒馆", "酒吧"],
         _ => &[],
     };
-    names.iter().map(|name| name.to_string()).collect()
+    names
+        .iter()
+        .copied()
+        .chain(in_chinese(crate::ZH_HANS, name))
+        .map(str::to_string)
+        .collect()
+}
+
+/// What the Pack's own Chinese calls a name, if it translates it.
+fn in_chinese(catalog: &'static str, name: &str) -> Option<&'static str> {
+    catalog.lines().find_map(|line| {
+        let (english, chinese) = line.split_once('\t')?;
+        (english == name && chinese != name).then_some(chinese)
+    })
 }
 
 /// What the harbour's sky is doing, in anybody's words.

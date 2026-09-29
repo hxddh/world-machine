@@ -693,6 +693,30 @@ pub fn chimney_top(x: f32, base: f32, w: f32, h: f32, palette: &Palette) -> (f32
     )
 }
 
+/// Where a home's first window is (left, top, width, height), for a house
+/// `w` by `h` standing on (`x`, `base`): where a quilt is seen by
+/// lamplight, or aired over the sill.
+pub fn first_window(x: f32, base: f32, w: f32, h: f32, palette: &Palette) -> (f32, f32, f32, f32) {
+    let house = House::of(palette);
+    let (body_x, body_w, _) = house.body(x, w);
+    let wall_top = base - h + h * house.pitch;
+    let window_w = w * 0.13;
+    let (cx, top, window_h) = if house.storeys == 2 {
+        (
+            body_x - body_w * 0.24,
+            wall_top + (base - wall_top) * 0.12,
+            h * 0.11,
+        )
+    } else {
+        (
+            body_x - body_w * 0.28,
+            wall_top + (base - wall_top) * 0.2,
+            h * 0.14,
+        )
+    };
+    (cx - window_w / 2.0, top, window_w, window_h)
+}
+
 fn paint_house(window: &mut dyn Brush, x: f32, base: f32, w: f32, h: f32, palette: &Palette) {
     let house = House::of(palette);
     let (storeys, hipped, pitch, chimney_side) =

@@ -308,7 +308,7 @@ fn social_support_unlocks_a_durable_return_to_fishing() {
         .items
         .iter()
         .find(|item| item.id == SelectionId::Entity(JONAS_BOAT))
-        .is_some_and(|item| item.detail == "asset · sound"));
+        .is_some_and(|item| item.detail == "A fishing boat in good repair"));
     let why = snapshot.why(repair.id).unwrap();
     assert!(why.nodes.iter().any(|node| node.event == support));
 
@@ -434,7 +434,7 @@ fn routine_fishing_pays_jonas_and_earns_export_revenue() {
         .items
         .iter()
         .find(|item| item.id == SelectionId::Entity(HARBOR))
-        .is_some_and(|item| item.detail == "Place · cash 810"));
+        .is_some_and(|item| item.detail == "The harbour fund holds 810"));
 }
 
 #[test]

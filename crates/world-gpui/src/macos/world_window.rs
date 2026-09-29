@@ -221,6 +221,8 @@ pub(crate) struct Looking {
     pub(crate) postcard_saved: Option<Instant>,
     /// The gentle pointer showing now, and since when.
     pub(crate) pointer: Option<(Pointer, Instant)>,
+    /// The player's mark on the place: plots, a design, a name.
+    pub(crate) marking: super::marking::Marking,
     /// When the last pointer went away.
     pub(crate) pointer_gone: Option<Instant>,
 }
@@ -786,7 +788,7 @@ fn bubble(
 }
 
 impl ProjectionView {
-    fn stage_size(&self, window: &Window) -> (f32, f32) {
+    pub(crate) fn stage_size(&self, window: &Window) -> (f32, f32) {
         let size = window.viewport_size();
         (f32::from(size.width), f32::from(size.height) - CHROME)
     }
@@ -951,7 +953,7 @@ impl ProjectionView {
     }
 
     /// Opens the drawer; with a letter in it, the letter box has been seen.
-    fn open_drawer(&mut self) {
+    pub(crate) fn open_drawer(&mut self) {
         if !self.looking.drawer {
             self.cue(crate::Cue::Drawer);
         }
@@ -1089,6 +1091,9 @@ impl ProjectionView {
     }
 
     fn on_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        if self.mark_key(event, window, cx) {
+            return;
+        }
         let key = event.keystroke.key.as_str();
         let command = event.keystroke.modifiers.platform || event.keystroke.modifiers.control;
         // While the player types, their keys are words, not moves.
@@ -1364,7 +1369,7 @@ impl ProjectionView {
     }
 
     /// Whether a click is only the end of a drag.
-    fn just_dragged(&self) -> bool {
+    pub(crate) fn just_dragged(&self) -> bool {
         self.looking
             .dragged_at
             .is_some_and(|at| at.elapsed() < Duration::from_millis(250))
@@ -1484,7 +1489,7 @@ impl ProjectionView {
 
     /// Clicking something on the scene while placing does the deed there,
     /// and puts the player's hands away.
-    fn place_at(&mut self, target: SelectionId, cx: &mut Context<Self>) -> bool {
+    pub(crate) fn place_at(&mut self, target: SelectionId, cx: &mut Context<Self>) -> bool {
         let Some(deed) = self.deed_at(target) else {
             return false;
         };
@@ -1956,6 +1961,8 @@ impl ProjectionView {
             }
         }
 
+        self.dress_frame(&mut frame);
+
         let mut root = div()
             .id("world-stage")
             .relative()
@@ -2023,6 +2030,13 @@ impl ProjectionView {
                             return;
                         }
                         if !this.place_on_ground(event.position(), window, cx) {
+                            let marking = &mut this.looking.marking;
+                            if marking.design.is_none() {
+                                marking.card = None;
+                                marking.offers = None;
+                                marking.naming = None;
+                                marking.plot_focus = None;
+                            }
                             this.look_away(cx);
                         }
                     })),
@@ -2064,6 +2078,9 @@ impl ProjectionView {
                         if this.place_at(selection, cx) {
                             return;
                         }
+                        if this.open_mark_card(selection, cx) {
+                            return;
+                        }
                         this.looking.poked = Some((selection, Instant::now()));
                         // A home or a work is part of the place, not
                         // something the World records: it springs and says
@@ -2077,6 +2094,8 @@ impl ProjectionView {
                     })),
             );
         }
+        // Plots to build on, and things with a card of their own.
+        root = root.children(self.mark_targets(&stage, camera, cx));
         // People: click to ask them something.
         let mut heads = Vec::new();
         for person in &frame.people {
@@ -2261,7 +2280,14 @@ impl ProjectionView {
                 } else {
                     0.0
                 };
-            let card = if self.moment_up() || self.reading.page.is_some() {
+            // The player's mark, while it is open, has the stage to itself.
+            let marking = &self.looking.marking;
+            let card = if self.moment_up()
+                || self.reading.page.is_some()
+                || marking.design.is_some()
+                || marking.card.is_some()
+                || marking.offers.is_some()
+            {
                 None
             } else if self.retelling.is_some() {
                 self.render_retelling(cx)
@@ -2294,6 +2320,25 @@ impl ProjectionView {
             .and_then(|who| heads.iter().find(|(id, ..)| *id == who).copied())
         {
             root = root.child(self.render_asking(who, x, y, &stage, cx));
+        }
+        if let Some(offers) = self.render_offers(&stage, camera, cx) {
+            root = root.child(offers);
+        }
+        if let Some(card) = self.render_mark_card(&stage, camera, cx) {
+            root = root.child(card);
+        }
+        let design_target = self.looking.marking.design.as_ref().and_then(|designing| {
+            let index = self
+                .snapshot
+                .canvas
+                .items
+                .iter()
+                .position(|item| item.id == designing.target)?;
+            let (x, _, w, _) = stage.frame_of(index)?;
+            Some(camera.at(&stage, x + w / 2.0, 0.0).0)
+        });
+        if let Some(design) = self.render_design(width, height, design_target, cx) {
+            root = root.child(design);
         }
         if let Some(hands) = self.render_hands(cx) {
             root = root.child(hands);
@@ -3368,6 +3413,36 @@ impl ProjectionView {
         {
             card = card.child(standing_row(standing));
         }
+        // Someone who can be named (a newborn): the name field, with the
+        // names their parents propose.
+        if self.controller.is_some()
+            && self.retelling.is_none()
+            && self
+                .snapshot
+                .canvas
+                .items
+                .iter()
+                .any(|item| item.id == who && crate::mark::nameable(item))
+        {
+            match self
+                .looking
+                .marking
+                .naming
+                .clone()
+                .filter(|(target, _)| *target == who)
+            {
+                Some((_, input)) => card = card.child(self.naming_block(who, input, cx)),
+                None => {
+                    card = card.child(div().flex().child(
+                        ui::button("asking-name", "Name…", ButtonKind::Secondary).on_click(
+                            cx.listener(move |this, _, window, cx| {
+                                this.start_naming(who, window, cx)
+                            }),
+                        ),
+                    ))
+                }
+            }
+        }
         let answered = self.looking.answered.map(|(index, _)| index);
         for (index, talk) in self
             .snapshot
@@ -3638,7 +3713,7 @@ fn frame_glows(frame: &diorama::Frame, index: usize) -> bool {
 }
 
 /// A name under something on the scene.
-fn name_tag(name: String) -> Div {
+pub(crate) fn name_tag(name: String) -> Div {
     div()
         .mt_1()
         .px_2()
@@ -4577,6 +4652,7 @@ mod tests {
             home: None,
             day: Vec::new(),
             built: None,
+            ..Default::default()
         });
         snapshot
     }

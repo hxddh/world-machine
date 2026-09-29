@@ -8,6 +8,8 @@ use world_core::{ActionRequest, EntityId, World, WorldState};
 pub(crate) fn kit(state: &WorldState) -> conversation::Kit {
     let cast = crate::life::cast(state);
     conversation::Kit {
+        era: era(cast.unit),
+        elsewhere: elsewhere(cast.unit),
         period: crate::BACKGROUND_PERIOD,
         unit: cast.unit,
         settlement: cast.settlement,
@@ -40,6 +42,85 @@ pub(crate) fn kit(state: &WorldState) -> conversation::Kit {
 }
 
 /// The other names each seed's people and places go by.
+/// How far along each seed's things are, told by what it counts time in.
+fn era(unit: &str) -> conversation::Era {
+    match unit {
+        "sol" => conversation::Era::Spacefaring,
+        "week" => conversation::Era::Television,
+        _ => conversation::Era::Radio,
+    }
+}
+
+/// What each seed's people speak of that is not on the scene: the places
+/// over the horizon and the things of their day, as the seed's own lines
+/// name them.
+fn elsewhere(unit: &str) -> &'static [&'static str] {
+    match unit {
+        "sol" => &[
+            "Earth",
+            "地球",
+            "Mars",
+            "火星",
+            "Tharsis",
+            "塔尔西斯",
+            "Phobos",
+            "火卫一",
+            "Hellas",
+            "希腊平原",
+            "Elysium",
+            "埃律西昂",
+            "Earthrise",
+            "Ares Habitat",
+            "Hydroponics Bay",
+            "Kestrel Rover",
+            "红隼号",
+        ],
+        "week" => &[
+            "Maple Street",
+            "枫树街",
+            "Maple Arcade",
+            "Elm Street",
+            "榆树街",
+            "K-88 Radio",
+            "Night Bus 6",
+            "the Rialto",
+            "里亚托",
+            "the Hendersons",
+            "亨德森",
+            "Greyhound",
+            "灰狗巴士",
+            "Pac-Man",
+            "吃豆人",
+            "Centipede",
+            "蜈蚣",
+            "Galaga",
+            "大蜜蜂",
+            "Tetris",
+            "俄罗斯方块",
+            "Donkey Kong",
+            "Walkman",
+            "随身听",
+            "Nintendo",
+            "Rubik",
+            "MTV",
+            "Springsteen",
+            "斯普林斯汀",
+            "Bee Gees",
+            "Chevy",
+            "Ford",
+        ],
+        _ => &[
+            "Icebridge",
+            "冰桥",
+            "Fish Vault",
+            "鱼库",
+            "Aurora Council",
+            "极光议会",
+            "the Huddle",
+        ],
+    }
+}
+
 fn aliases(name: &str) -> Vec<String> {
     let names: &[&str] = match name {
         "Nia Chen" => &["妮娅"],
@@ -59,7 +140,20 @@ fn aliases(name: &str) -> Vec<String> {
         "Fish Vault" => &["鱼库", "鱼仓"],
         _ => &[],
     };
-    names.iter().map(|name| name.to_string()).collect()
+    names
+        .iter()
+        .copied()
+        .chain(in_chinese(include_str!("../locales/zh-Hans.tsv"), name))
+        .map(str::to_string)
+        .collect()
+}
+
+/// What the Pack's own Chinese calls a name, if it translates it.
+fn in_chinese(catalog: &'static str, name: &str) -> Option<&'static str> {
+    catalog.lines().find_map(|line| {
+        let (english, chinese) = line.split_once('\t')?;
+        (english == name && chinese != name).then_some(chinese)
+    })
 }
 
 /// What the sky is doing, in anybody's words.

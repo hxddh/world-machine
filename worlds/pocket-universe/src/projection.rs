@@ -188,6 +188,8 @@ fn commands(world: &World, seeded: bool) -> Vec<ProjectionCommand> {
     // a screen offers it apart from them.
     commands.extend(crate::handwork::commands(world));
     commands.extend(crate::life::suggestions(world));
+    // A newborn's parents ask the player to choose a name, last of all.
+    commands.extend(crate::plots::naming_cards(world));
     commands
 }
 
@@ -494,6 +496,7 @@ fn canvas(world: &World) -> CanvasProjection {
                 home: None,
                 day: Vec::new(),
                 built: None,
+                ..Default::default()
             })
         })
         .collect();
@@ -528,6 +531,7 @@ fn canvas(world: &World) -> CanvasProjection {
             home: None,
             day: Vec::new(),
             built: None,
+            ..Default::default()
         });
     }
     items.extend(crate::story::fixtures(world));
@@ -575,7 +579,13 @@ fn canvas_detail(entity: &Entity) -> String {
             }
         }
     }
-    entity.kind.replace('_', " ")
+    // What it is, in the player's words, never what the World keeps it as.
+    match entity.kind.as_str() {
+        "rover" => "A rover".into(),
+        "bus" => "A night bus".into(),
+        "place" | "person" | "penguin" | "fixture" => String::new(),
+        kind => kind.replace('_', " "),
+    }
 }
 
 /// What a Pocket Universe keeps score of: how much the two people trust

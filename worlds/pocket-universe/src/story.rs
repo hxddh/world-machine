@@ -2662,6 +2662,7 @@ pub(crate) fn tick(
     )?);
     let kit = crate::handwork::kit(world.state());
     events.extend(hands::tick(world, actions, &kit)?);
+    events.extend(crate::plots::draw(world, actions)?);
     let almanac = crate::almanac::almanac(world.state());
     events.extend(calendar::tick(world, actions, &almanac)?);
     events.extend(storylets::tick(world, actions, deck_ref(), &reading)?);
@@ -2932,7 +2933,7 @@ pub(crate) fn told(world: &World, event: &Event) -> Option<String> {
     }
     // Being greeted is the first thing that happens to a newcomer.
     if lives::is_news(event) || event.kind == "greeted" {
-        return lives::told(event);
+        return lives::told(event).map(|told| crate::plots::renamed(world.state(), event, told));
     }
     if hands::is_hands(event) {
         return hands::told(event);
@@ -5055,6 +5056,10 @@ pub(crate) fn fixture_shape(world: &World, shape: &str) -> world_projection::Mar
         ("statue", _) => MarkShape::Statue,
         ("postbox", _) => MarkShape::Postbox,
         ("stone", _) => MarkShape::Statue,
+        ("house", _) => MarkShape::House,
+        ("shop", _) => MarkShape::Shop,
+        ("tower", _) => MarkShape::Tower,
+        ("dome", _) => MarkShape::Dome,
         _ => MarkShape::Parcel,
     }
 }
@@ -5102,6 +5107,7 @@ pub(crate) fn fixtures(world: &World) -> Vec<world_projection::CanvasItem> {
                     Some(Value::Integer(day)) => Some((*day).max(0) as u32),
                     _ => None,
                 },
+                ..Default::default()
             }
         })
         .collect()

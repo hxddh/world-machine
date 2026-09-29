@@ -730,10 +730,28 @@ pub(crate) fn kit(state: &WorldState) -> Kit {
         per_period: 2,
         enjoy,
         most_standing: 10,
+        works: crate::plots::works(state),
+        plots: crate::plots::plots,
+        wears: crate::plots::wears,
+        naming: crate::plots::naming,
     }
 }
 
 const HAND_COMMAND: &str = "pocket-universe.hand.";
+
+/// The command that does a deed.
+pub(crate) fn command_id(deed: &str) -> String {
+    format!("{HAND_COMMAND}{deed}")
+}
+
+/// What a thing the player can make by hand here is called.
+pub(crate) fn thing_name(state: &WorldState, id: &str) -> Option<&'static str> {
+    kit(state)
+        .things
+        .iter()
+        .find(|thing| thing.id == id)
+        .map(|thing| thing.name)
+}
 
 /// The deed a command does, if it is one of these.
 pub(crate) fn parse_command(command_id: &str) -> Option<&str> {

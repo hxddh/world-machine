@@ -393,6 +393,8 @@ pub(crate) fn available_commands(world: &World) -> Vec<ProjectionCommand> {
     // card; a screen offers it apart from them.
     commands.extend(crate::handwork::commands(world));
     commands.extend(crate::life::suggestions(world));
+    // A newborn's parents ask the player to choose a name, last of all.
+    commands.extend(crate::plots::naming_cards(world));
     commands
 }
 
@@ -859,7 +861,7 @@ fn narrated_kinds() -> &'static std::collections::BTreeSet<&'static str> {
         std::sync::OnceLock::new();
     KINDS.get_or_init(|| {
         // hands::is_hands, and the calendar's one day told.
-        const HANDS: [&str; 9] = [
+        const HANDS: [&str; 12] = [
             "built_by_hand",
             "decorated_by_hand",
             "planted_by_hand",
@@ -869,6 +871,9 @@ fn narrated_kinds() -> &'static std::collections::BTreeSet<&'static str> {
             "plant_grew",
             "undone_by_hand",
             "enjoyed",
+            "plot_finished",
+            "designed",
+            "named",
         ];
         const TABLE: [&str; 32] = [
             "chapter_ended",
@@ -1078,16 +1083,21 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
         (PUB, 0.28, 0.16),
     ] {
         if let Some(entity) = world.state().entity(id) {
+            // How it is, in the player's words: never what the World keeps
+            // it as.
             let detail = if id == BAKERY {
-                component_text(world, BAKERY, OPERATING_STATUS)
-                    .map(|status| format!("Place · {status}"))
-                    .unwrap_or_else(|| "Place".into())
+                match component_text(world, BAKERY, OPERATING_STATUS).as_deref() {
+                    Some("closed") => "Closed for now".to_string(),
+                    _ => "Open".to_string(),
+                }
             } else if id == HARBOR {
                 component_integer(world, HARBOR, CASH)
-                    .map(|cash| format!("Place · cash {cash}"))
-                    .unwrap_or_else(|| "Place".into())
+                    .map(|cash| format!("The harbour fund holds {cash}"))
+                    .unwrap_or_default()
+            } else if id == SCHOOL {
+                "The school on the hill".into()
             } else {
-                "Place".into()
+                "The pub on the square".into()
             };
             items.push(CanvasItem {
                 id: SelectionId::Entity(id),
@@ -1109,6 +1119,7 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                 home: None,
                 day: Vec::new(),
                 built: None,
+                ..Default::default()
             });
         }
     }
@@ -1158,6 +1169,7 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                 home: None,
                 day: Vec::new(),
                 built: None,
+                ..Default::default()
             });
         }
     }
@@ -1198,19 +1210,26 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                 home: None,
                 day: Vec::new(),
                 built: None,
+                ..Default::default()
             });
         }
     }
 
     for (id, x, y) in [(JONAS_BOAT, 0.02, 0.42), (WEDDING_ORDER, 0.84, 0.22)] {
         if let Some(entity) = world.state().entity(id) {
+            // How it is, in the player's words: never what the World
+            // keeps it as.
             let detail = if id == JONAS_BOAT {
-                component_text(world, JONAS_BOAT, CONDITION)
-                    .map(|condition| format!("asset · {condition}"))
-                    .unwrap_or_else(|| entity.kind.clone())
+                match component_text(world, JONAS_BOAT, CONDITION).as_deref() {
+                    Some("sound") => "A fishing boat in good repair",
+                    Some("damaged") => "A fishing boat, damaged in the storm",
+                    Some("sold") => "Sold for scrap",
+                    _ => "A fishing boat",
+                }
             } else {
-                entity.kind.clone()
-            };
+                "Bread for a wedding"
+            }
+            .to_string();
             items.push(CanvasItem {
                 id: SelectionId::Entity(id),
                 kind: CanvasItemKind::Object,
@@ -1241,6 +1260,7 @@ fn canvas_items(world: &World) -> Vec<CanvasItem> {
                 home: None,
                 day: Vec::new(),
                 built: None,
+                ..Default::default()
             });
         }
     }

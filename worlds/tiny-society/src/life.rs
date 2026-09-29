@@ -711,9 +711,15 @@ fn activities(state: &WorldState) -> &'static [Activity] {
 /// The harbour's cast as its year has it: its people's days in the words
 /// of the year it is.
 pub(crate) fn cast_in(state: &WorldState) -> Cast {
+    let cast = cast();
     Cast {
         activities: activities(state),
-        ..cast()
+        // While something the player built waits to draw someone, a room
+        // is kept for them: no stranger is taken in meanwhile.
+        most_people: cast
+            .most_people
+            .saturating_sub(usize::from(crate::plots::waiting(state))),
+        ..cast
     }
 }
 

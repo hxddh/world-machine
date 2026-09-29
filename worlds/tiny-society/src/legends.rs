@@ -139,7 +139,9 @@ impl Teller for Harbour<'_> {
             return None;
         }
         if chronicle::LIFE_BEATS.contains(&kind) {
-            return lives::told(event).or_else(|| text(event, "told").map(str::to_string));
+            return lives::told(event)
+                .or_else(|| text(event, "told").map(str::to_string))
+                .map(|told| crate::plots::renamed(world.state(), event, told));
         }
         let person = is_person(world, subject);
         match kind {

@@ -4336,3 +4336,109 @@ Finished at last: {work}.	终于完工了：{work}。
 By morning the harbour was out counting what the storm had left.	天一亮，港口的人们就出门清点风暴留下了什么。
 The {season} sky over the harbour went dark.	港口上空{season}的天暗了下来。
 net mender	补网匠
+
+# v0.23 the player's mark: works on plots, and who they draw
+Boathouse	船屋
+boathouse	船屋
+Sail loft	制帆坊
+sail loft	制帆坊
+Crab shack	螃蟹小屋
+crab shack	螃蟹小屋
+Net store	渔网仓
+net store	渔网仓
+Radio hut	无线电小屋
+radio hut	无线电小屋
+Harbour flag	港口旗
+harbour flag	港口旗
+Slipway	船台
+slipway	船台
+Fishers' shelter	渔夫避风亭
+fishers' shelter	渔夫避风亭
+Harbour lamp	港口灯
+harbour lamp	港口灯
+Boat rack	船架
+boat rack	船架
+Ice house	冰窖
+ice house	冰窖
+Mooring bench	系泊长椅
+mooring bench	系泊长椅
+Bandstand	音乐台
+bandstand	音乐台
+Clock tower	钟楼
+clock tower	钟楼
+Bookshop	书店
+bookshop	书店
+Cheese shop	奶酪店
+cheese shop	奶酪店
+Surgery	诊所
+surgery	诊所
+Pottery	陶器坊
+pottery	陶器坊
+Gallery	画廊
+gallery	画廊
+Quilting room	缝被坊
+quilting room	缝被坊
+Flower stall	花摊
+flower stall	花摊
+Painted shop sign	彩绘招牌
+painted shop sign	彩绘招牌
+Washing line	晾衣绳
+washing line	晾衣绳
+Market cross	集市十字碑
+market cross	集市十字碑
+Bee garden	蜂园
+bee garden	蜂园
+Sheepfold	羊圈
+sheepfold	羊圈
+Allotments	菜园地
+allotments	菜园地
+Weaving shed	织布棚
+weaving shed	织布棚
+Study hut	书房小屋
+study hut	书房小屋
+Storytelling stone	讲故事石
+storytelling stone	讲故事石
+Joinery	木工坊
+joinery	木工坊
+Windmill	风车
+windmill	风车
+Summer house	凉亭小屋
+summer house	凉亭小屋
+Rose arbour	玫瑰花架
+rose arbour	玫瑰花架
+Frog pond	青蛙池
+frog pond	青蛙池
+Hilltop swing	山顶秋千
+hilltop swing	山顶秋千
+boatwright	造船匠
+sailmaker	制帆匠
+cook	厨子
+net mender	补网匠
+radio operator	无线电员
+musician	乐手
+clockmaker	钟表匠
+bookbinder	装订匠
+cheesemaker	奶酪师傅
+nurse	护士
+potter	陶匠
+painter	画家
+quilter	缝被匠
+florist	花匠
+beekeeper	养蜂人
+shepherd	牧羊人
+gardener	园丁
+weaver	织工
+tutor	家庭教师
+storyteller	说书人
+carpenter	木匠
+miller	磨坊主
+A fishing boat in good repair	一条状况良好的渔船
+A fishing boat, damaged in the storm	一条在风暴中受损的渔船
+Sold for scrap	当废料卖掉了
+A fishing boat	一条渔船
+Bread for a wedding	婚礼用的面包
+Open	营业中
+Closed for now	暂时歇业
+The harbour fund holds {}	港口基金里有{}
+The school on the hill	山上的学校
+The pub on the square	广场上的酒馆

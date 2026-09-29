@@ -159,10 +159,22 @@ pub(crate) fn narrate_return(
         .map(|(_, facts)| facts.clone())
         .collect::<Vec<_>>();
     let lines = narrator.narrate_all(&facts);
+    // A line is kept to the World like anything a model says: nothing of
+    // machines, the world outside or names the World never had.
+    let summaries = facts
+        .iter()
+        .map(|facts| facts.table_summary.as_str())
+        .collect::<Vec<_>>();
+    let grounds =
+        conversation::world_grounds(world, &crate::speech::kit(world.state()), &summaries);
 
     let mut recorded = 0;
     for ((about, _), line) in pending.iter().zip(lines) {
-        let Some(text) = line.as_deref().and_then(usable_narration) else {
+        let Some(text) = line
+            .as_deref()
+            .and_then(usable_narration)
+            .filter(|text| conversation::keeps_to(text, &grounds).is_ok())
+        else {
             continue;
         };
         let request = ActionRequest::new("narrate_world")

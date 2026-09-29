@@ -13,7 +13,12 @@ mod life;
 mod moments;
 pub mod narrator;
 mod places;
+mod plots;
+#[cfg(test)]
+mod plots_tests;
 mod projection;
+#[cfg(test)]
+mod red_team;
 mod speech;
 #[cfg(test)]
 mod stories_tests;
@@ -181,6 +186,10 @@ impl PocketUniverse {
     /// copy of this World and reading them again: the same rules, so the
     /// same result.
     fn with_previews(&self, mut snapshot: ProjectionSnapshot) -> ProjectionSnapshot {
+        if seed_id(&self.world) != UNSEEDED {
+            let cast = life::cast(self.world.state());
+            world_projection::with_guests(&mut snapshot, &guests_staying(&self.world, &cast));
+        }
         let before = snapshot.gauges.clone();
         if before.is_empty() {
             return self.with_beginnings(snapshot);
@@ -315,6 +324,15 @@ impl PocketUniverse {
             return Ok(event);
         }
 
+        if plots::parse_command(command_id).is_some() {
+            if seed_id(&self.world) == UNSEEDED {
+                return Err(std::io::Error::other("choose where this World begins first").into());
+            }
+            let request = plots::request(command_id)
+                .ok_or_else(|| std::io::Error::other(format!("not a mark: {command_id}")))?;
+            return Ok(self.world.execute(&self.actions, &request)?.id);
+        }
+
         if let Some(idea) = command_id.strip_prefix(life::SUGGEST_COMMAND) {
             let request = lives::suggestion_request(idea, life::fair(&self.world));
             return Ok(self.world.execute(&self.actions, &request)?.id);
@@ -432,14 +450,12 @@ impl PocketUniverse {
             return Err(std::io::Error::other("nobody lives here yet to welcome a guest").into());
         }
         let cast = life::cast(self.world.state());
-        Ok(lives::host_guest(
+        let (look, drawing) = (guest.look_code(), guest.drawing_code());
+        Ok(lives::host_guest_with(
             &mut self.world,
             &self.actions,
             &cast,
-            &guest.name,
-            &guest.from,
-            &guest.letter,
-            &guest.gift,
+            &guest_words(guest, &look, &drawing),
         )?)
     }
 
@@ -891,6 +907,38 @@ pub(crate) fn seed_id(world: &World) -> &str {
             _ => None,
         })
         .unwrap_or(UNSEEDED)
+}
+
+/// The guests staying in this World, as the canvas stands them.
+pub(crate) fn guests_staying(world: &World, cast: &lives::Cast) -> Vec<world_projection::Staying> {
+    lives::guests_staying(world, cast)
+        .into_iter()
+        .map(|guest| world_projection::Staying {
+            visit: guest.visit,
+            name: guest.name,
+            from: guest.from,
+            line: guest.line,
+            look: guest.look,
+            drawing: guest.drawing,
+        })
+        .collect()
+}
+
+/// What a visit tells this World of a guest.
+pub(crate) fn guest_words<'a>(
+    guest: &'a world_projection::Guest,
+    look: &'a Option<String>,
+    drawing: &'a Option<String>,
+) -> lives::GuestWords<'a> {
+    lives::GuestWords {
+        name: &guest.name,
+        from: &guest.from,
+        letter: &guest.letter,
+        gift: &guest.gift,
+        line: guest.line.as_deref(),
+        look: look.as_deref(),
+        drawing: drawing.as_deref(),
+    }
 }
 
 fn seed_id_from_state(state: &WorldState) -> Result<String, ActionError> {
@@ -1808,6 +1856,84 @@ mod tests {
                 .any(|item| item.title.contains("world narrated")),
             "a narrated line became a digest entry of its own"
         );
+    }
+
+    /// A resident of one place comes to stay in another: a penguin from
+    /// Icebridge on Mars, drawn as Icebridge draws them and saying their
+    /// line, recorded so the visit replays exactly; nothing is written to
+    /// Icebridge.
+    #[test]
+    fn a_friends_resident_comes_to_stay_drawn_as_at_home() {
+        use world_projection::Guest;
+        let mut ice = freshly_seeded(SEED_PENGUIN_CIVILIZATION_COMMAND);
+        live_with(&mut ice, 2);
+        let before = ice.archive().unwrap();
+        let guest = Guest::residents(&ice.projection_snapshot())
+            .into_iter()
+            .find(|guest| guest.drawing.is_some())
+            .expect("a penguin with their own drawing");
+        let guest = Guest {
+            line: Some("The ice sang all night.".into()),
+            ..guest
+        };
+        let mut mars = freshly_seeded(SEED_MARS_COLONY_COMMAND);
+        mars.host(&guest).unwrap();
+        let snapshot = mars.projection_snapshot();
+        let standing = snapshot
+            .canvas
+            .items
+            .iter()
+            .find(|item| item.label == guest.name && item.detail.contains("Visiting"))
+            .expect("the guest stands on the colony's canvas");
+        assert_eq!(
+            snapshot.drawing_of(standing).map(|drawing| &drawing.parts),
+            guest
+                .travelling_drawing()
+                .as_ref()
+                .map(|drawing| &drawing.parts)
+        );
+        assert_eq!(
+            standing.look.map(|look| look.bird),
+            guest.look.map(|look| look.bird)
+        );
+        assert!(snapshot
+            .voices
+            .iter()
+            .any(|voice| voice.speaker == standing.id && voice.line == "The ice sang all night."));
+        let replayed = mars.world().replay().unwrap();
+        assert_eq!(replayed.state(), mars.world().state());
+        let reopened = PocketUniverse::resume_archive(&mars.archive().unwrap()).unwrap();
+        assert!(reopened
+            .projection_snapshot()
+            .canvas
+            .items
+            .iter()
+            .any(|item| item.id == standing.id));
+        assert_eq!(ice.archive().unwrap(), before, "Icebridge is untouched");
+    }
+
+    /// A narrator is a model like any other: a line that speaks as a
+    /// machine, of the world outside, or of a place the World never had,
+    /// is not recorded, and the table line stands.
+    #[test]
+    fn a_narration_out_of_the_world_leaves_the_table_line() {
+        for line in [
+            "As an AI language model, I can report the colony is doing fine.",
+            "The colony posted its harvest on Instagram.",
+            "Commander Natasha Volkov flew in from Cassini Dome.",
+        ] {
+            let (mut universe, calls) = narrated_with(line);
+            universe.advance_periods(6).unwrap();
+            assert!(calls.returns.get() >= 1, "the narrator was asked");
+            assert!(
+                !universe
+                    .world()
+                    .events()
+                    .iter()
+                    .any(|event| event.kind == narrator::NARRATED),
+                "{line:?} was recorded"
+            );
+        }
     }
 
     #[test]

@@ -55,7 +55,7 @@ const LABELS: [&str; 3] = [
 
 /// The rows things stand in: houses at the back, works in the middle, and
 /// small things at the front. No two rows share a spot along the ground.
-const ROWS: [Row; 4] = [
+const ROWS: [Row; 5] = [
     Row {
         pitch: 0.16,
         offset: 0.0,
@@ -72,14 +72,22 @@ const ROWS: [Row; 4] = [
         pitch: 0.08,
         offset: 0.02,
     },
+    // The plots the player can build on, which nothing else takes.
+    Row {
+        pitch: crate::plots::PLOT_PITCH,
+        offset: crate::plots::PLOT_OFFSET,
+    },
 ];
 const BACK: usize = 0;
 const MIDDLE: usize = 1;
 const NEARER: usize = 2;
 const FRONT: usize = 3;
+/// How far along the ground what stands in front of or behind a work on a
+/// plot keeps from it.
+const CLEAR: f32 = 0.08;
 /// How far down the scene each row stands, for an app that knows one
 /// screen only.
-const ROW_Y: [f32; 4] = [0.3, 0.45, 0.6, 0.76];
+const ROW_Y: [f32; 5] = [0.3, 0.45, 0.6, 0.76, crate::plots::PLOT_Y];
 
 /// Where the harbour's four buildings stand.
 const PLACES: [(EntityId, f32); 4] = [(HARBOR, 0.6), (PUB, 1.7), (BAKERY, 2.3), (SCHOOL, 3.7)];
@@ -347,7 +355,7 @@ fn trade_stretch(job: &str) -> Option<usize> {
         "shop_assistant" | "musician" | "cook" | "apprentice_baker" | "cheesemaker"
         | "clockmaker" | "bookbinder" | "nurse" => SQUARE,
         "gardener" | "shepherd" | "beekeeper" | "tutor" | "storyteller" | "painter" | "potter"
-        | "weaver" => HILL,
+        | "weaver" | "miller" => HILL,
         _ => return None,
     })
 }
@@ -371,6 +379,11 @@ fn work_of(
                 .then_some(SelectionId::Entity(SCHOOL))
         }
         _ => {}
+    }
+    // Someone drawn here by what the player built works at it.
+    if let Some(work) = lives::drawn_by(state, person).filter(|work| state.entity(*work).is_some())
+    {
+        return Some(SelectionId::Entity(work));
     }
     let tied = state
         .relations()
@@ -498,6 +511,23 @@ pub(crate) fn lay_out(world: &World, items: Vec<CanvasItem>) -> CanvasProjection
         items.push(item);
     }
 
+    // What the player built on plots stands on its plot, and everything
+    // says what it can wear and be called.
+    crate::plots::dress(world, &mut items);
+    for item in items.iter().filter(|item| item.variant.is_some()) {
+        if let Some(px) = item.px {
+            placed.insert(item.id, px);
+            if let Some(at) = street.stretch_at(px) {
+                workplaces[at].push(item.id);
+            }
+            // Nothing the player puts up after stands right before or
+            // behind it: a flag on a plot never hangs from a lamp post.
+            for row in [NEARER, FRONT] {
+                street.keep_clear(row, px, CLEAR);
+            }
+        }
+    }
+
     // What answers and the player's hands put up, beside the place it
     // belongs to, or where the player put it.
     let mut fixtures = items
@@ -584,6 +614,7 @@ pub(crate) fn lay_out(world: &World, items: Vec<CanvasItem>) -> CanvasProjection
         season: Some(season),
         ground,
         ice,
+        plots: crate::plots::canvas_plots(world),
     }
 }
 
@@ -633,6 +664,7 @@ fn new_item(
         home: None,
         day: Vec::new(),
         built,
+        ..Default::default()
     }
 }
 

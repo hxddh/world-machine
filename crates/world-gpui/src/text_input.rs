@@ -104,6 +104,21 @@ impl TextInput {
         self
     }
 
+    /// Whether a word is still being composed through an input method
+    /// (as Chinese is typed): Enter then belongs to the composing.
+    pub fn composing(&self) -> bool {
+        self.marked_range.is_some()
+    }
+
+    /// Puts `text` in the field, the caret at its end.
+    pub fn set_text(&mut self, text: impl Into<SharedString>, cx: &mut Context<Self>) {
+        self.content = text.into();
+        self.selected_range = self.content.len()..self.content.len();
+        self.selection_reversed = false;
+        self.marked_range = None;
+        cx.notify();
+    }
+
     pub fn text(&self) -> &str {
         &self.content
     }
@@ -359,6 +374,15 @@ impl EntityInputHandler for TextInput {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // One line only: a line break typed (Return) commits whatever is
+        // being composed and adds nothing; one pasted is dropped.
+        let single = new_text.replace(['\n', '\r'], "");
+        if single.is_empty() && !new_text.is_empty() {
+            self.marked_range = None;
+            cx.notify();
+            return;
+        }
+        let new_text = single.as_str();
         let range = range_utf16
             .as_ref()
             .map(|range| self.range_from_utf16(range))
@@ -380,6 +404,8 @@ impl EntityInputHandler for TextInput {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let single = new_text.replace(['\n', '\r'], "");
+        let new_text = single.as_str();
         let range = range_utf16
             .as_ref()
             .map(|range| self.range_from_utf16(range))

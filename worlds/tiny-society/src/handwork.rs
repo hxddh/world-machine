@@ -305,10 +305,27 @@ pub(crate) fn kit(_: &WorldState) -> Kit {
         per_period: 2,
         enjoy,
         most_standing: 12,
+        works: crate::plots::works(),
+        plots: crate::plots::plots,
+        wears: crate::plots::wears,
+        naming: crate::plots::naming,
     }
 }
 
 const HAND_COMMAND: &str = "tiny-society.hand.";
+
+/// The command that does a deed.
+pub(crate) fn command_id(deed: &str) -> String {
+    format!("{HAND_COMMAND}{deed}")
+}
+
+/// What a thing the player can make by hand is called.
+pub(crate) fn thing_name(id: &str) -> Option<&'static str> {
+    THINGS
+        .iter()
+        .find(|thing| thing.id == id)
+        .map(|thing| thing.name)
+}
 
 /// The deed a command does, if it is one of these.
 pub(crate) fn parse_command(command_id: &str) -> Option<&str> {

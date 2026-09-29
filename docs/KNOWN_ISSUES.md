@@ -1,6 +1,6 @@
 # Known issues
 
-Current as of `v0.22.0` in the [changelog](../CHANGELOG.md). Report anything else with **Help → Report a Problem…** in the app.
+Current as of `v0.23.0` in the [changelog](../CHANGELOG.md). Report anything else with **Help → Report a Problem…** in the app.
 
 ## Installation
 
@@ -51,6 +51,16 @@ Current as of `v0.22.0` in the [changelog](../CHANGELOG.md). Report anything els
 - **Moment strips are saved with `screencapture`,** like Photo and postcards, so saving one needs Screen Recording and has not been tried on a Mac. Nobody has seen the ages, the legend page, the strips or the almanac on a Mac; they were checked on Linux.
 - **A town at noon looks thin in any one view.** Everyone is outside by day, but spread along a panorama four and a half screens wide, so one screen holds three or four people.
 - **One Pocket Universe long test fails as it did in `v0.21.0`:** a scripted careful player finishes only 2 of the 4 parts of Ares's landing pad in a year.
+- **The World voice guard lets some bad answers through and stops some good ones.** It is a set of deterministic rules in English and Chinese, not a model. On red-team sets written blind by someone who never read the guard:
+  - on the first set it declines all 164 out-of-world answers and keeps all 239 good ones, but it was built after seeing what that set's first run missed;
+  - on a second set, used to improve it one category at a time, the first run declined 74%;
+  - on a third, completely unseen set it declines 161 of 210 (77%) and wrongly declines 12 of 236 good answers (5%).
+
+  It misses most often on paraphrased harm, fourth-wall remarks and invented names; it wrongly declines some era-correct names and words like "instructions". A declined answer is replaced by the World's own words. World voice is off by default. `cargo test -p tiny-society --release --lib the_later_blind_sets_are_measured -- --ignored --nocapture` prints the numbers. A likely next step is to have the model check its own answer as a recorded second opinion.
+- **A builder's World code can pass 50,000 characters.** At three years a World where the player built on every plot is 50,299 characters, because the people its works drew each keep a full life. An ordinary three-year World is 47,872.
+- **The `fm` helper is source only.** It has never been compiled (there is no Swift on the machines that build it outside a Mac) and the app does not call it. The release workflow tries to build it on the Mac runner and carries on without it.
+- **Designs are not drawn in moment strips,** which are painted without pictures.
+- **Designing, naming, plots, the touchable strip and a friend's resident are untried on a Mac.** They were checked in the Linux preview, keys and clicks included.
 - **Homes and works cannot be inspected.** They are drawn and named, but clicking one opens nothing, because they are worked out for the picture rather than recorded in the World.
 - **A visitor on a World code does not see when works were built,** since a code carries only its latest season.
 

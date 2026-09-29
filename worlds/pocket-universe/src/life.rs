@@ -1145,7 +1145,9 @@ pub(crate) fn cast(state: &WorldState) -> Cast {
             amount: 10,
         }),
         visitors: Some(visitors),
-        most_people: most_people(state),
+        // While something the player built waits to draw someone, a room
+        // is kept for them: no stranger is taken in meanwhile.
+        most_people: most_people(state).saturating_sub(usize::from(crate::plots::waiting(state))),
         most_open: 2,
         voice: match seed.as_str() {
             "1980s-town" => crate::voices::town,

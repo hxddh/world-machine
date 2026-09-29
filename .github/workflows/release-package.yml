@@ -88,6 +88,14 @@ jobs:
       - name: Install universal build targets
         run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
+      # The on-device model helper (apps/fm-helper) builds only where the
+      # runner's SDK has FoundationModels (macOS 26 and later), signed ad
+      # hoc; anywhere else the script says so and exits cleanly. It is not
+      # part of the package yet and never holds up a release.
+      - name: Build the on-device model helper (when the SDK has it)
+        continue-on-error: true
+        run: bash apps/fm-helper/build.sh
+
       # Signing and notarization switch on by adding repository secrets; the
       # pipeline is otherwise identical. See docs/RELEASE_SIGNING.md.
       #   APPLE_CERTIFICATE_P12       base64 of the Developer ID Application .p12
